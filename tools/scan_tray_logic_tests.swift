@@ -1,0 +1,120 @@
+import Foundation
+
+func require(_ condition: @autoclosure () -> Bool, _ message: String) {
+    if !condition() {
+        fputs("FAIL: \(message)\n", stderr)
+        exit(1)
+    }
+}
+
+func makePricing(
+    currencyCode: String = "USD",
+    market: Double? = 10,
+    low: Double? = 8,
+    mid: Double? = 12,
+    high: Double? = 14,
+    refreshedAt: String? = ISO8601DateFormatter().string(from: Date())
+) -> CardPricingSummary {
+    CardPricingSummary(
+        source: "tcgplayer",
+        currencyCode: currencyCode,
+        variant: "raw",
+        low: low,
+        market: market,
+        mid: mid,
+        high: high,
+        directLow: nil,
+        trend: market,
+        updatedAt: "2026/04/03",
+        refreshedAt: refreshedAt,
+        sourceURL: nil,
+        pricingMode: nil,
+        grader: nil,
+        grade: nil,
+        pricingTier: nil,
+        confidenceLabel: nil,
+        confidenceLevel: nil,
+        compCount: nil,
+        recentCompCount: nil,
+        lastSoldPrice: nil,
+        lastSoldAt: nil,
+        bucketKey: nil,
+        methodologySummary: nil
+    )
+}
+
+func testResolvedTotalsOnlyUseResolvedRows() {
+    let metrics = ScanTrayCalculator.metrics(for: [
+        ScanTrayMetricInput(phase: .resolved, pricing: makePricing(market: 11)),
+        ScanTrayMetricInput(phase: .pending, pricing: makePricing(market: 999)),
+        ScanTrayMetricInput(phase: .resolved, pricing: makePricing(market: 5)),
+    ])
+
+    require(metrics.resolvedCount == 2, "resolved count should be 2")
+    require(metrics.pendingCount == 1, "pending count should be 1")
+    require(abs(metrics.totalValue - 16) < 0.001, "total value should sum resolved primary prices only")
+    require(metrics.countLabel == "2 cards", "count label should reflect resolved rows")
+}
+
+func testMixedCurrenciesFlag() {
+    let metrics = ScanTrayCalculator.metrics(for: [
+        ScanTrayMetricInput(phase: .resolved, pricing: makePricing(currencyCode: "USD", market: 11)),
+        ScanTrayMetricInput(phase: .resolved, pricing: makePricing(currencyCode: "EUR", market: 9)),
+    ])
+
+    require(metrics.hasMixedCurrencies, "mixed currencies should be detected")
+    require(metrics.currencyCode != nil, "a display currency should still be chosen for the running total")
+}
+
+func testAutoRefreshHeuristic() {
+    let staleDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 60 * 30)))
+    let freshDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 5)))
+
+    require(ScanTrayCalculator.shouldAutoRefresh(pricing: nil), "missing pricing should auto refresh")
+    require(
+        ScanTrayCalculator.shouldAutoRefresh(pricing: makePricing(refreshedAt: staleDate)),
+        "stale pricing should auto refresh"
+    )
+    require(
+        !ScanTrayCalculator.shouldAutoRefresh(pricing: makePricing(refreshedAt: freshDate)),
+        "fresh pricing should not auto refresh"
+    )
+}
+
+func testInitialStatusMessage() {
+    require(
+        ScanTrayCalculator.initialStatusMessage(for: nil) == "Cached price unavailable",
+        "missing pricing should use the cached unavailable message"
+    )
+
+    let pricing = makePricing()
+    require(
+        ScanTrayCalculator.initialStatusMessage(for: pricing).contains("Refreshed"),
+        "existing pricing should reuse freshness text"
+    )
+}
+
+func testFreshnessStateClassification() {
+    let staleDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 60 * 30)))
+    let freshDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 5)))
+
+    require(
+        makePricing(market: nil, low: nil, mid: nil, high: nil).freshnessState == .unavailable,
+        "missing price should be unavailable"
+    )
+    require(makePricing(refreshedAt: nil).freshnessState == .cached, "missing refresh timestamp should be cached")
+    require(makePricing(refreshedAt: freshDate).freshnessState == .refreshedRecently, "fresh date should be recent")
+    require(makePricing(refreshedAt: staleDate).freshnessState == .stale, "old date should be stale")
+}
+
+@main
+struct ScanTrayLogicTestRunner {
+    static func main() {
+        testResolvedTotalsOnlyUseResolvedRows()
+        testMixedCurrenciesFlag()
+        testAutoRefreshHeuristic()
+        testInitialStatusMessage()
+        testFreshnessStateClassification()
+        print("scan_tray_logic_tests: PASS")
+    }
+}

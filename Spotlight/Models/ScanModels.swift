@@ -1,0 +1,142 @@
+import Foundation
+import UIKit
+
+enum ScannerRoute {
+    case scanner
+    case alternatives
+}
+
+enum ResolverPath: String, Codable, Hashable, Sendable {
+    case directLookup = "direct_lookup"
+    case psaLabel = "psa_label"
+    case visualFallback = "visual_fallback"
+}
+
+enum ResolverMode: String, Codable, Hashable, Sendable {
+    case rawCard = "raw_card"
+    case psaSlab = "psa_slab"
+    case unknownFallback = "unknown_fallback"
+}
+
+enum ReviewDisposition: String, Codable, Hashable, Sendable {
+    case ready
+    case needsReview = "needs_review"
+    case unsupported
+}
+
+struct RecognizedToken: Hashable, Sendable {
+    let text: String
+    let confidence: Float
+}
+
+struct AnalyzedCapture: @unchecked Sendable {
+    let scanID: UUID
+    let originalImage: UIImage
+    let normalizedImage: UIImage
+    let recognizedTokens: [RecognizedToken]
+    let fullRecognizedText: String
+    let metadataStripRecognizedText: String
+    let topLabelRecognizedText: String
+    let bottomLeftRecognizedText: String
+    let bottomRightRecognizedText: String
+    let collectorNumber: String?
+    let setHintTokens: [String]
+    let promoCodeHint: String?
+    let directLookupLikely: Bool
+    let resolverModeHint: ResolverMode
+    let cropConfidence: Double
+    let warnings: [String]
+}
+
+extension RecognizedToken: Codable {}
+
+struct ScanMatchResponse: Codable, Hashable, Sendable {
+    let scanID: UUID
+    let topCandidates: [ScoredCandidate]
+    let confidence: MatchConfidence
+    let ambiguityFlags: [String]
+    let matcherSource: MatcherSource
+    let matcherVersion: String
+    let resolverMode: ResolverMode
+    let resolverPath: ResolverPath?
+    let slabContext: SlabContext?
+    let reviewDisposition: ReviewDisposition?
+    let reviewReason: String?
+
+    var bestMatch: CardCandidate? {
+        topCandidates.first?.candidate
+    }
+
+    var alternateMatches: [CardCandidate] {
+        Array(topCandidates.dropFirst()).map(\.candidate)
+    }
+}
+
+enum CorrectionType: String, Codable, Sendable {
+    case acceptedTop
+    case choseAlternative
+    case manualSearch
+    case abandoned
+}
+
+struct ScanEventLog: Codable, Identifiable, Sendable {
+    let id: UUID
+    let createdAt: Date
+    let recognizedTokens: [String]
+    let collectorNumber: String?
+    let cropConfidence: Double
+    let warnings: [String]
+    let confidence: MatchConfidence
+    let matcherSource: MatcherSource
+    let matcherVersion: String
+    let candidates: [ScoredCandidate]
+    var selectedCardID: String?
+    var wasTopPrediction: Bool?
+    var correctionType: CorrectionType?
+    var completedAt: Date?
+}
+
+struct ScanPerformanceMetrics: Hashable, Sendable {
+    let analysisMs: Double
+    let matchMs: Double
+    let totalMs: Double
+
+    var summaryLabel: String {
+        "Scan \(Int(totalMs.rounded())) ms"
+    }
+}
+
+struct LiveScanStackItem: Identifiable {
+    let id: UUID
+    let scanID: UUID
+    var phase: LiveScanStackItemPhase
+    var card: CardCandidate?
+    var detail: CardDetail?
+    var previewImage: UIImage?
+    var confidence: MatchConfidence
+    var matcherSource: MatcherSource
+    var matcherVersion: String
+    var resolverMode: ResolverMode
+    var resolverPath: ResolverPath?
+    var slabContext: SlabContext?
+    var reviewDisposition: ReviewDisposition
+    var reviewReason: String?
+    let addedAt: Date
+    var isExpanded: Bool
+    var isRefreshingPrice: Bool
+    var statusMessage: String?
+    var pricingContextNote: String?
+    var performance: ScanPerformanceMetrics?
+
+    var displayCard: CardCandidate? {
+        detail?.card ?? card
+    }
+
+    var pricing: CardPricingSummary? {
+        detail?.pricing ?? card?.pricing
+    }
+
+    var metricInput: ScanTrayMetricInput {
+        ScanTrayMetricInput(phase: phase, pricing: pricing)
+    }
+}

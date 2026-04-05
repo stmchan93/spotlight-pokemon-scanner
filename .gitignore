@@ -1,0 +1,44 @@
+# Xcode
+*.xcodeproj/*
+!*.xcodeproj/project.pbxproj
+!*.xcodeproj/xcshareddata/
+*.xcworkspace/*
+!*.xcworkspace/contents.xcworkspacedata
+
+# Build artifacts  
+build/
+DerivedData/
+.derivedData/
+.build/
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift module cache
+.swift-module-cache/
+*.swift-module-cache/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Backend Python
+backend/__pycache__/
+backend/*.pyc
+backend/venv/
+backend/.env
+
+# Backend databases
+backend/data/*.sqlite
+backend/data/*.db
+
+# Logs
+*.log
+
+# Claude/temp files
+.claude/
+.tmp/
+*.tmp
+.scanner_eval
+.vision_featureprint_check

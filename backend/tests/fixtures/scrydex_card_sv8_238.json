@@ -1,0 +1,52 @@
+{
+  "id": "sv8-238",
+  "name": "Pikachu ex",
+  "expansion": {
+    "name": "Surging Sparks"
+  },
+  "variants": [
+    {
+      "name": "specialIllustrationRare",
+      "prices": [
+        {
+          "type": "raw",
+          "condition": "near_mint",
+          "currency": "USD",
+          "low": 184.99,
+          "market": 198.45,
+          "mid": 205.25,
+          "high": 229.0,
+          "trends": {
+            "days_30": 193.4
+          }
+        },
+        {
+          "type": "graded",
+          "company": "PSA",
+          "grade": "9",
+          "currency": "USD",
+          "low": 239.95,
+          "market": 251.55,
+          "mid": 263.75,
+          "high": 289.0,
+          "trends": {
+            "days_30": 247.2
+          }
+        },
+        {
+          "type": "graded",
+          "company": "PSA",
+          "grade": "10",
+          "currency": "USD",
+          "low": 780.0,
+          "market": 824.95,
+          "mid": 849.0,
+          "high": 925.0,
+          "trends": {
+            "days_30": 810.5
+          }
+        }
+      ]
+    }
+  ]
+}

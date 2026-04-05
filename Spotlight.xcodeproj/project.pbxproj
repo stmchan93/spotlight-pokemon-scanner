@@ -1,0 +1,341 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 71;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		BA0000000000000000000001 /* SpotlightApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000002 /* SpotlightApp.swift */; };
+		BA0000000000000000000002 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000003 /* AppContainer.swift */; };
+		BA0000000000000000000003 /* CardCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000004 /* CardCandidate.swift */; };
+		BA0000000000000000000004 /* ScanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000005 /* ScanModels.swift */; };
+		BA0000000000000000000005 /* CameraSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000006 /* CameraSessionController.swift */; };
+		BA0000000000000000000006 /* CardRectangleAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000007 /* CardRectangleAnalyzer.swift */; };
+		BA0000000000000000000007 /* CardMatchingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000008 /* CardMatchingService.swift */; };
+		BA0000000000000000000008 /* ScanEventStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000009 /* ScanEventStore.swift */; };
+		BA0000000000000000000009 /* ScannerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000A /* ScannerViewModel.swift */; };
+		BA000000000000000000000A /* ScannerRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000B /* ScannerRootView.swift */; };
+		BA000000000000000000000B /* ScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000C /* ScannerView.swift */; };
+		BA000000000000000000000D /* AlternateMatchesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000E /* AlternateMatchesView.swift */; };
+		BA000000000000000000000E /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000F /* CameraPreviewView.swift */; };
+		BA000000000000000000000F /* ScannerAPIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000011 /* ScannerAPIModels.swift */; };
+		BA0000000000000000000010 /* ScanTrayLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000012 /* ScanTrayLogic.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		FA0000000000000000000001 /* Spotlight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Spotlight.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		FA0000000000000000000002 /* SpotlightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightApp.swift; sourceTree = "<group>"; };
+		FA0000000000000000000003 /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
+		FA0000000000000000000004 /* CardCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardCandidate.swift; sourceTree = "<group>"; };
+		FA0000000000000000000005 /* ScanModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanModels.swift; sourceTree = "<group>"; };
+		FA0000000000000000000006 /* CameraSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraSessionController.swift; sourceTree = "<group>"; };
+		FA0000000000000000000007 /* CardRectangleAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardRectangleAnalyzer.swift; sourceTree = "<group>"; };
+		FA0000000000000000000008 /* CardMatchingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardMatchingService.swift; sourceTree = "<group>"; };
+		FA0000000000000000000009 /* ScanEventStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanEventStore.swift; sourceTree = "<group>"; };
+		FA000000000000000000000A /* ScannerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerViewModel.swift; sourceTree = "<group>"; };
+		FA000000000000000000000B /* ScannerRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerRootView.swift; sourceTree = "<group>"; };
+		FA000000000000000000000C /* ScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerView.swift; sourceTree = "<group>"; };
+		FA000000000000000000000E /* AlternateMatchesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlternateMatchesView.swift; sourceTree = "<group>"; };
+		FA000000000000000000000F /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
+		FA0000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		FA0000000000000000000011 /* ScannerAPIModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerAPIModels.swift; sourceTree = "<group>"; };
+		FA0000000000000000000012 /* ScanTrayLogic.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanTrayLogic.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		PA0000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		GA0000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				GA0000000000000000000003 /* Spotlight */,
+				GA0000000000000000000002 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000002 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				FA0000000000000000000001 /* Spotlight.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000003 /* Spotlight */ = {
+			isa = PBXGroup;
+			children = (
+				GA0000000000000000000004 /* App */,
+				GA0000000000000000000005 /* Models */,
+				GA0000000000000000000006 /* Services */,
+				GA0000000000000000000007 /* ViewModels */,
+				GA0000000000000000000008 /* Views */,
+				GA0000000000000000000009 /* Resources */,
+			);
+			path = Spotlight;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000004 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				FA0000000000000000000002 /* SpotlightApp.swift */,
+				FA0000000000000000000003 /* AppContainer.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000005 /* Models */ = {
+			isa = PBXGroup;
+			children = (
+				FA0000000000000000000004 /* CardCandidate.swift */,
+				FA0000000000000000000005 /* ScanModels.swift */,
+				FA0000000000000000000012 /* ScanTrayLogic.swift */,
+				FA0000000000000000000011 /* ScannerAPIModels.swift */,
+			);
+			path = Models;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000006 /* Services */ = {
+			isa = PBXGroup;
+			children = (
+				FA0000000000000000000006 /* CameraSessionController.swift */,
+				FA0000000000000000000007 /* CardRectangleAnalyzer.swift */,
+				FA0000000000000000000008 /* CardMatchingService.swift */,
+				FA0000000000000000000009 /* ScanEventStore.swift */,
+			);
+			path = Services;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000007 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				FA000000000000000000000A /* ScannerViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000008 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				FA000000000000000000000B /* ScannerRootView.swift */,
+				FA000000000000000000000C /* ScannerView.swift */,
+				FA000000000000000000000E /* AlternateMatchesView.swift */,
+				FA000000000000000000000F /* CameraPreviewView.swift */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000009 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				FA0000000000000000000010 /* Info.plist */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		TA0000000000000000000001 /* Spotlight */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL0000000000000000000002 /* Build configuration list for PBXNativeTarget "Spotlight" */;
+			buildPhases = (
+				PA0000000000000000000001 /* Sources */,
+				PA0000000000000000000002 /* Frameworks */,
+				PA0000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Spotlight;
+			packageProductDependencies = (
+			);
+			productName = Spotlight;
+			productReference = FA0000000000000000000001 /* Spotlight.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		PR0000000000000000000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				LastUpgradeCheck = 2620;
+				ORGANIZATIONNAME = Spotlight;
+				TargetAttributes = {
+					TA0000000000000000000001 = {
+						CreatedOnToolsVersion = 26.2;
+					};
+				};
+			};
+			buildConfigurationList = CL0000000000000000000001 /* Build configuration list for PBXProject "Spotlight" */;
+			compatibilityVersion = "Xcode 16.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = GA0000000000000000000001;
+			productRefGroup = GA0000000000000000000002 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				TA0000000000000000000001 /* Spotlight */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		PA0000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		PA0000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BA0000000000000000000001 /* SpotlightApp.swift in Sources */,
+				BA0000000000000000000002 /* AppContainer.swift in Sources */,
+				BA0000000000000000000003 /* CardCandidate.swift in Sources */,
+				BA0000000000000000000004 /* ScanModels.swift in Sources */,
+				BA0000000000000000000010 /* ScanTrayLogic.swift in Sources */,
+				BA0000000000000000000005 /* CameraSessionController.swift in Sources */,
+				BA0000000000000000000006 /* CardRectangleAnalyzer.swift in Sources */,
+				BA0000000000000000000007 /* CardMatchingService.swift in Sources */,
+				BA0000000000000000000008 /* ScanEventStore.swift in Sources */,
+				BA0000000000000000000009 /* ScannerViewModel.swift in Sources */,
+				BA000000000000000000000A /* ScannerRootView.swift in Sources */,
+				BA000000000000000000000B /* ScannerView.swift in Sources */,
+				BA000000000000000000000D /* AlternateMatchesView.swift in Sources */,
+				BA000000000000000000000E /* CameraPreviewView.swift in Sources */,
+				BA000000000000000000000F /* ScannerAPIModels.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		CA0000000000000000000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Debug;
+		};
+		CA0000000000000000000002 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Release;
+		};
+		CA0000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DR794CMJC4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Spotlight/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.app.SpotlightCards;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		CA0000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = DR794CMJC4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Spotlight/Resources/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.app.SpotlightCards;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		CL0000000000000000000001 /* Build configuration list for PBXProject "Spotlight" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA0000000000000000000001 /* Debug */,
+				CA0000000000000000000002 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		CL0000000000000000000002 /* Build configuration list for PBXNativeTarget "Spotlight" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				CA0000000000000000000003 /* Debug */,
+				CA0000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = PR0000000000000000000001 /* Project object */;
+}

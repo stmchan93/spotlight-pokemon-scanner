@@ -1,0 +1,50 @@
+[
+  {
+    "name": "Charizard ex OBF 223",
+    "imagePath": "/absolute/path/to/charizard-223.jpg",
+    "acceptedCardIDs": [
+      "pokemon-charizard-ex-223-197",
+      "sv3-223"
+    ],
+    "expectedCardName": "Charizard ex",
+    "acceptedSetNames": [
+      "Obsidian Flame",
+      "Obsidian Flames"
+    ],
+    "acceptedNumbers": [
+      "223/197"
+    ]
+  },
+  {
+    "name": "Charizard ex Promo SVP 056",
+    "imagePath": "/absolute/path/to/charizard-svp-056.jpg",
+    "acceptedCardIDs": [
+      "pokemon-charizard-ex-svp-056",
+      "svp-56"
+    ],
+    "expectedCardName": "Charizard ex",
+    "acceptedSetNames": [
+      "Scarlet & Violet Promo",
+      "Scarlet & Violet Black Star Promos"
+    ],
+    "acceptedNumbers": [
+      "SVP 056",
+      "56"
+    ]
+  },
+  {
+    "name": "Basic Lightning Energy 257",
+    "imagePath": "/absolute/path/to/basic-lightning-energy-257.jpg",
+    "acceptedCardIDs": [
+      "pokemon-basic-lightning-energy-257-198",
+      "sv1-257"
+    ],
+    "expectedCardName": "Basic Lightning Energy",
+    "acceptedSetNames": [
+      "Scarlet & Violet"
+    ],
+    "acceptedNumbers": [
+      "257/198"
+    ]
+  }
+]

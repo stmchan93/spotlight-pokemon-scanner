@@ -1,0 +1,54 @@
+{
+  "sources": [
+    {
+      "id": "neo1-9-psa-apr-live",
+      "provider": "psa_apr_html",
+      "cardID": "neo1-9",
+      "grader": "PSA",
+      "urlEnv": "PSA_APR_URL_NEO1_9",
+      "headerEnvs": {
+        "Cookie": "PSA_APR_COOKIE"
+      }
+    },
+    {
+      "id": "neo1-9-ebay-live",
+      "provider": "ebay_sold_json",
+      "cardID": "neo1-9",
+      "grader": "PSA",
+      "urlEnv": "EBAY_SOLD_URL_NEO1_9",
+      "headers": {
+        "Authorization": "Bearer ${EBAY_AUTH_TOKEN}"
+      }
+    },
+    {
+      "id": "neo1-9-goldin-live",
+      "provider": "goldin_sales_json",
+      "cardID": "neo1-9",
+      "grader": "PSA",
+      "urlEnv": "GOLDIN_SALES_URL_NEO1_9",
+      "headers": {
+        "Authorization": "Bearer ${GOLDIN_AUTH_TOKEN}"
+      }
+    },
+    {
+      "id": "neo1-9-heritage-live",
+      "provider": "heritage_sales_json",
+      "cardID": "neo1-9",
+      "grader": "PSA",
+      "urlEnv": "HERITAGE_SALES_URL_NEO1_9",
+      "headers": {
+        "Authorization": "Bearer ${HERITAGE_AUTH_TOKEN}"
+      }
+    },
+    {
+      "id": "neo1-9-fanatics-live",
+      "provider": "fanatics_sales_json",
+      "cardID": "neo1-9",
+      "grader": "PSA",
+      "urlEnv": "FANATICS_SALES_URL_NEO1_9",
+      "headers": {
+        "Authorization": "Bearer ${FANATICS_AUTH_TOKEN}"
+      }
+    }
+  ]
+}

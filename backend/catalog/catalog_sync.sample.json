@@ -1,0 +1,18 @@
+{
+  "fullQuery": "set.series:\"Scarlet & Violet\" OR set.series:\"Sword & Shield\"",
+  "maxCards": 3000,
+  "pageSize": 250,
+  "sleepSeconds": 0.0,
+  "downloadImages": true,
+  "fullSyncIntervalHours": 24,
+  "releaseSyncIntervalHours": 6,
+  "releasePreloads": [
+    {
+      "id": "scarlet-violet-release-window",
+      "name": "Scarlet & Violet release-window preload",
+      "query": "set.series:\"Scarlet & Violet\"",
+      "startDate": "2026-04-01",
+      "endDate": "2026-04-30"
+    }
+  ]
+}

@@ -1,0 +1,1172 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Spotlight Event Card App Wireframes</title>
+    <style>
+      :root {
+        --bg: #f4f1eb;
+        --paper: #fffdf9;
+        --ink: #1e1b18;
+        --muted: #6b625a;
+        --line: #c7bfb5;
+        --line-strong: #857b71;
+        --panel: #efebe4;
+        --panel-2: #e5dfd6;
+        --accent: #2e6b57;
+        --warn: #8b5e1a;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        background:
+          linear-gradient(rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0.7)),
+          repeating-linear-gradient(
+            90deg,
+            rgba(135, 127, 117, 0.08) 0,
+            rgba(135, 127, 117, 0.08) 1px,
+            transparent 1px,
+            transparent 24px
+          ),
+          var(--bg);
+        color: var(--ink);
+        font-family: "Avenir Next", "Segoe UI", sans-serif;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .page {
+        width: min(1400px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 24px 0 48px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1.3fr 1fr;
+        gap: 16px;
+        padding: 16px 0 24px;
+      }
+
+      .hero-card,
+      .summary-card,
+      .note-card,
+      .screen-card {
+        background: var(--paper);
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        box-shadow: 0 10px 30px rgba(43, 36, 28, 0.05);
+      }
+
+      .hero-card {
+        padding: 24px;
+      }
+
+      .hero h1 {
+        margin: 0 0 12px;
+        font-size: 34px;
+        line-height: 1;
+      }
+
+      .eyebrow,
+      .section-kicker,
+      .meta,
+      .mini-label {
+        font-family: Menlo, Consolas, monospace;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .hero p,
+      .summary-card p,
+      .note-card p {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .hero-list,
+      .summary-list,
+      .review-list {
+        margin: 16px 0 0;
+        padding-left: 18px;
+        color: var(--ink);
+      }
+
+      .hero-list li,
+      .summary-list li,
+      .review-list li {
+        margin: 6px 0;
+      }
+
+      .summary-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 16px;
+      }
+
+      .summary-card {
+        padding: 18px;
+      }
+
+      .summary-card h3,
+      .note-card h3 {
+        margin: 8px 0 10px;
+        font-size: 18px;
+      }
+
+      .toc {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px;
+        margin: 0 0 20px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: rgba(255, 253, 249, 0.9);
+        backdrop-filter: blur(10px);
+      }
+
+      .toc a {
+        text-decoration: none;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        font-size: 13px;
+      }
+
+      section {
+        padding-top: 22px;
+        margin-top: 12px;
+      }
+
+      section h2 {
+        margin: 0 0 10px;
+        font-size: 28px;
+      }
+
+      section > p {
+        margin: 0 0 18px;
+        color: var(--muted);
+        max-width: 920px;
+      }
+
+      .flow-strip {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin: 0 0 20px;
+      }
+
+      .step {
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: var(--paper);
+        font-size: 13px;
+      }
+
+      .wireframe-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(320px, 1fr));
+        gap: 18px;
+      }
+
+      .screen-card {
+        padding: 16px;
+      }
+
+      .screen-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        margin-bottom: 12px;
+      }
+
+      .screen-head h3 {
+        margin: 4px 0 0;
+        font-size: 20px;
+      }
+
+      .screen-note {
+        margin: 12px 0 0;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+
+      .phone {
+        width: 320px;
+        max-width: 100%;
+        margin: 0 auto;
+        background: #111;
+        border-radius: 34px;
+        padding: 10px;
+        box-shadow: inset 0 0 0 1px #000, 0 16px 24px rgba(0, 0, 0, 0.08);
+      }
+
+      .screen {
+        background: linear-gradient(180deg, #fffdf9 0%, #f4efe7 100%);
+        min-height: 640px;
+        border-radius: 26px;
+        overflow: hidden;
+        position: relative;
+      }
+
+      .status {
+        height: 32px;
+        padding: 10px 16px 0;
+        display: flex;
+        justify-content: space-between;
+        font-family: Menlo, Consolas, monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .appbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 12px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .stack {
+        display: grid;
+        gap: 10px;
+        padding: 14px 16px 18px;
+      }
+
+      .panel,
+      .row-card,
+      .stat,
+      .chip,
+      .field,
+      .cta,
+      .tab,
+      .list-item,
+      .drawer,
+      .camera,
+      .barcode,
+      .sales-row,
+      .footer-bar {
+        border: 1px solid var(--line);
+        background: var(--paper);
+        border-radius: 16px;
+      }
+
+      .panel {
+        padding: 14px;
+        background: var(--panel);
+      }
+
+      .hero-cta {
+        padding: 18px;
+        border: 2px dashed var(--line-strong);
+        border-radius: 22px;
+        background: var(--paper);
+      }
+
+      .hero-cta strong {
+        display: block;
+        font-size: 24px;
+        margin: 6px 0 10px;
+      }
+
+      .subgrid-2,
+      .subgrid-3,
+      .stats-4 {
+        display: grid;
+        gap: 10px;
+      }
+
+      .subgrid-2 {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .subgrid-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .stats-4 {
+        grid-template-columns: repeat(4, 1fr);
+      }
+
+      .stat {
+        padding: 10px;
+        min-height: 72px;
+      }
+
+      .stat strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 20px;
+      }
+
+      .field,
+      .row-card,
+      .list-item,
+      .sales-row {
+        padding: 12px;
+      }
+
+      .field strong,
+      .row-card strong,
+      .list-item strong,
+      .sales-row strong {
+        display: block;
+      }
+
+      .chip-row,
+      .tab-row,
+      .mini-actions {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .chip,
+      .tab {
+        padding: 8px 10px;
+        font-size: 12px;
+      }
+
+      .tab.active,
+      .cta.primary,
+      .pill.active {
+        border-color: var(--ink);
+        background: var(--panel-2);
+      }
+
+      .cta {
+        padding: 12px 14px;
+        text-align: center;
+        font-weight: 600;
+      }
+
+      .camera {
+        min-height: 370px;
+        background:
+          linear-gradient(rgba(58, 49, 37, 0.08), rgba(58, 49, 37, 0.08)),
+          linear-gradient(180deg, #e5dfd6 0%, #f5f2ec 100%);
+        position: relative;
+      }
+
+      .camera::before {
+        content: "";
+        position: absolute;
+        inset: 56px 40px 78px;
+        border: 2px dashed var(--line-strong);
+        border-radius: 18px;
+      }
+
+      .camera::after {
+        content: "Auto-crop + detect";
+        position: absolute;
+        bottom: 18px;
+        left: 50%;
+        transform: translateX(-50%);
+        font-family: Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .barcode {
+        height: 6px;
+        border-radius: 999px;
+        background: repeating-linear-gradient(
+          90deg,
+          var(--ink) 0,
+          var(--ink) 2px,
+          transparent 2px,
+          transparent 5px
+        );
+      }
+
+      .list-item {
+        display: grid;
+        grid-template-columns: 58px 1fr auto;
+        gap: 10px;
+        align-items: start;
+      }
+
+      .thumb {
+        width: 58px;
+        height: 78px;
+        border-radius: 12px;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, #ddd4c8 0%, #f6f2eb 100%);
+      }
+
+      .price-col {
+        display: grid;
+        gap: 4px;
+        justify-items: end;
+        font-size: 12px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        padding: 6px 10px;
+        font-size: 12px;
+        background: var(--paper);
+      }
+
+      .footer-bar {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 14px;
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 8px;
+        padding: 8px;
+        background: rgba(255, 253, 249, 0.96);
+      }
+
+      .drawer {
+        padding: 12px;
+        background: rgba(255, 253, 249, 0.98);
+      }
+
+      .drawer-overlay {
+        position: absolute;
+        left: 10px;
+        right: 10px;
+        bottom: 76px;
+      }
+
+      .quote-sheet {
+        border: 2px solid var(--ink);
+        border-radius: 18px;
+        background: var(--paper);
+        padding: 14px;
+      }
+
+      .quote-total {
+        padding: 12px 0;
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        margin: 12px 0;
+        display: grid;
+        gap: 6px;
+      }
+
+      .note-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 16px;
+        margin-top: 18px;
+      }
+
+      .note-card {
+        padding: 18px;
+      }
+
+      @media (max-width: 1100px) {
+        .hero,
+        .summary-grid,
+        .wireframe-grid,
+        .note-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="hero">
+        <div class="hero-card">
+          <div class="eyebrow">Low-Fi Wireframe Deck</div>
+          <h1>Spotlight Event Card App</h1>
+          <p>
+            This deck is intentionally low fidelity. It is for testing flow,
+            hierarchy, trust signals, and the event-floor wedge before formal
+            PRDs or visual design.
+          </p>
+          <ul class="hero-list">
+            <li>Primary wedge: fast, trustworthy deal quoting for live events</li>
+            <li>Shared core for buyers and vendors, with lightweight mode shifts</li>
+            <li>
+              Core object: <strong>Deal Stack</strong>, not a generic
+              portfolio or marketplace list
+            </li>
+          </ul>
+        </div>
+        <div class="hero-card">
+          <div class="eyebrow">Review Filter</div>
+          <h3>What to react to</h3>
+          <ul class="review-list">
+            <li>Is the first value screen fast and trustworthy enough?</li>
+            <li>Does <strong>Deal Stack</strong> feel right for both buyers and vendors?</li>
+            <li>What must stay above the fold during negotiation?</li>
+            <li>Should buyer and vendor share the same screen with different emphasis?</li>
+            <li>Is the credibility layer clear without being annoying?</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-card">
+          <div class="section-kicker">Wedge</div>
+          <h3>Quote Faster Than Search</h3>
+          <p>
+            The product should feel better than opening three marketplace apps,
+            searching card by card, then doing mental math in front of another person.
+          </p>
+        </div>
+        <div class="summary-card">
+          <div class="section-kicker">Core Trust</div>
+          <h3>Evidence With Every Number</h3>
+          <p>
+            Every price summary should explain freshness, comp count, and whether the
+            number is exact-card data or inferred.
+          </p>
+        </div>
+        <div class="summary-card">
+          <div class="section-kicker">Scope</div>
+          <h3>Start With Stacks, Not Inventory</h3>
+          <p>
+            Saved stacks can later evolve into trays, folders, and inventory. Do not
+            make setup heavier than the event use case needs.
+          </p>
+        </div>
+      </div>
+
+      <div class="toc">
+        <a href="#buyer">Buyer Flow</a>
+        <a href="#vendor">Vendor Flow</a>
+        <a href="#screens">Screen Gallery</a>
+        <a href="#notes">Decision Notes</a>
+      </div>
+
+      <section id="buyer">
+        <div class="section-kicker">Flow</div>
+        <h2>Buyer Journey</h2>
+        <p>
+          Buyer mode should answer: “Is this card priced fairly, and how much is this pile worth if I buy it?”
+        </p>
+        <div class="flow-strip">
+          <div class="step">Home</div>
+          <div class="step">Scan / Search</div>
+          <div class="step">Match Confirm</div>
+          <div class="step">Price Result</div>
+          <div class="step">Add to Deal Stack</div>
+          <div class="step">Review Total</div>
+          <div class="step">Show Vendor / Friend</div>
+        </div>
+      </section>
+
+      <section id="vendor">
+        <div class="section-kicker">Flow</div>
+        <h2>Vendor Journey</h2>
+        <p>
+          Vendor mode should answer: “What is a fair quote for this set of cards, and how do I keep scanning without breaking the conversation?”
+        </p>
+        <div class="flow-strip">
+          <div class="step">Open New Stack</div>
+          <div class="step">Continuous Scan</div>
+          <div class="step">Quick Fix Bad Matches</div>
+          <div class="step">Watch Running Totals</div>
+          <div class="step">Switch Buy / Sell / Range</div>
+          <div class="step">Show Clean Quote</div>
+          <div class="step">Save as Tray</div>
+        </div>
+      </section>
+
+      <section id="screens">
+        <div class="section-kicker">Gallery</div>
+        <h2>V1 Screen Set</h2>
+        <p>
+          These are the eight low-fi screens for the first coherent version of the app.
+          The point is flow and hierarchy, not final visuals.
+        </p>
+
+        <div class="wireframe-grid">
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 1</div>
+                <h3>Home</h3>
+              </div>
+              <div class="mini-label">Launch Pad</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:41</span>
+                  <span>5G • 82%</span>
+                </div>
+                <div class="appbar">
+                  <strong>Spotlight Event</strong>
+                  <span class="pill">Buyer</span>
+                </div>
+                <div class="stack">
+                  <div class="hero-cta">
+                    <div class="mini-label">Primary Action</div>
+                    <strong>Scan Card</strong>
+                    <div class="muted">Identify, price, and add to a Deal Stack in seconds.</div>
+                  </div>
+                  <div class="subgrid-2">
+                    <div class="cta">Search Manually</div>
+                    <div class="cta">Open Stack</div>
+                  </div>
+                  <div class="panel">
+                    <div class="mini-label">Active Stack</div>
+                    <strong>Buyer Stack • 4 cards</strong>
+                    <div class="subgrid-3" style="margin-top: 10px;">
+                      <div class="stat">
+                        <div class="mini-label">Low</div>
+                        <strong>$128</strong>
+                      </div>
+                      <div class="stat">
+                        <div class="mini-label">Avg</div>
+                        <strong>$149</strong>
+                      </div>
+                      <div class="stat">
+                        <div class="mini-label">High</div>
+                        <strong>$173</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="row-card">
+                    <div class="mini-label">Recent</div>
+                    <strong>Charizard ex 223/197</strong>
+                    <div class="muted">Avg $74 • High confidence</div>
+                  </div>
+                  <div class="row-card">
+                    <div class="mini-label">Saved Search</div>
+                    <strong>Pikachu Van Gogh</strong>
+                    <div class="muted">Open when prices shift or a booth asks</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              Home is intentionally shallow. It should launch people into scan, search,
+              or the active stack immediately.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 2</div>
+                <h3>Scanner</h3>
+              </div>
+              <div class="mini-label">1 Tap Away</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:41</span>
+                  <span>5G • 82%</span>
+                </div>
+                <div class="appbar">
+                  <strong>Scan Card</strong>
+                  <span class="pill">Raw</span>
+                </div>
+                <div class="stack">
+                  <div class="chip-row">
+                    <div class="chip">Pokemon</div>
+                    <div class="chip">Raw</div>
+                    <div class="chip">Flash Off</div>
+                    <div class="chip">Import Photo</div>
+                  </div>
+                  <div class="camera"></div>
+                  <div class="subgrid-2">
+                    <div class="cta">Scan Continuously</div>
+                    <div class="cta">Search Instead</div>
+                  </div>
+                  <div class="panel">
+                    <div class="mini-label">Guidance</div>
+                    <strong>Clear card, plain background, minimal glare</strong>
+                    <div class="muted">If confidence is low, move to best-match confirm instead of jumping to a result.</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              This screen should optimize capture speed. Category and condition are small controls,
+              not the main event.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 3</div>
+                <h3>Match Confirmation</h3>
+              </div>
+              <div class="mini-label">Avoid False Confidence</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:42</span>
+                  <span>5G • 81%</span>
+                </div>
+                <div class="appbar">
+                  <strong>Confirm Match</strong>
+                  <span class="pill">72% confidence</span>
+                </div>
+                <div class="stack">
+                  <div class="list-item" style="grid-template-columns: 72px 1fr;">
+                    <div class="thumb" style="width: 72px; height: 98px;"></div>
+                    <div>
+                      <div class="mini-label">Likely Match</div>
+                      <strong>Charizard ex 223/197</strong>
+                      <div class="muted">Obsidian Flame • Hyper Rare</div>
+                      <div class="chip-row" style="margin-top: 8px;">
+                        <div class="chip">Raw</div>
+                        <div class="chip">English</div>
+                        <div class="chip">Exact art match</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="cta primary">Use This Match</div>
+                  <div class="field">
+                    <div class="mini-label">Manual Search</div>
+                    <strong>Search by name / set / number</strong>
+                    <div class="barcode" style="margin-top: 10px;"></div>
+                  </div>
+                  <div class="row-card">
+                    <div class="mini-label">Alternate 1</div>
+                    <strong>Charizard ex 125/197</strong>
+                    <div class="muted">Same character • different card number</div>
+                  </div>
+                  <div class="row-card">
+                    <div class="mini-label">Alternate 2</div>
+                    <strong>Charizard ex SVP 056</strong>
+                    <div class="muted">Promo version</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              This screen earns trust. If the app is not certain, it must say so and
+              make correction painless.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 4</div>
+                <h3>Price Result</h3>
+              </div>
+              <div class="mini-label">Fast Appraisal</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:42</span>
+                  <span>5G • 81%</span>
+                </div>
+                <div class="appbar">
+                  <strong>Card Result</strong>
+                  <span class="pill active">High trust</span>
+                </div>
+                <div class="stack">
+                  <div class="list-item" style="grid-template-columns: 72px 1fr;">
+                    <div class="thumb" style="width: 72px; height: 98px;"></div>
+                    <div>
+                      <strong>Charizard ex 223/197</strong>
+                      <div class="muted">Obsidian Flame • Hyper Rare</div>
+                      <div class="tab-row" style="margin-top: 8px;">
+                        <div class="tab active">Raw</div>
+                        <div class="tab">PSA 9</div>
+                        <div class="tab">PSA 10</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="stats-4">
+                    <div class="stat">
+                      <div class="mini-label">Low</div>
+                      <strong>$64</strong>
+                    </div>
+                    <div class="stat">
+                      <div class="mini-label">Avg</div>
+                      <strong>$74</strong>
+                    </div>
+                    <div class="stat">
+                      <div class="mini-label">High</div>
+                      <strong>$83</strong>
+                    </div>
+                    <div class="stat">
+                      <div class="mini-label">Last</div>
+                      <strong>$76</strong>
+                    </div>
+                  </div>
+                  <div class="panel">
+                    <div class="mini-label">Credibility Layer</div>
+                    <strong>Based on 12 sold comps • last 30 days</strong>
+                    <div class="muted">Updated 2 min ago • sold comps + active listings • exact-card match</div>
+                  </div>
+                  <div class="subgrid-2">
+                    <div class="cta primary">Add to Deal Stack</div>
+                    <div class="cta">View Sales</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              This is the core result screen. The low, avg, high, and last sold numbers
+              should be immediate and defensible.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 5</div>
+                <h3>Search</h3>
+              </div>
+              <div class="mini-label">Fallback + Power Tool</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:43</span>
+                  <span>5G • 81%</span>
+                </div>
+                <div class="appbar">
+                  <strong>Search</strong>
+                  <span class="pill">Typeahead</span>
+                </div>
+                <div class="stack">
+                  <div class="field">
+                    <div class="mini-label">Query</div>
+                    <strong>charizard ex 223</strong>
+                    <div class="barcode" style="margin-top: 10px;"></div>
+                  </div>
+                  <div class="chip-row">
+                    <div class="chip">Pokemon</div>
+                    <div class="chip">Raw</div>
+                    <div class="chip">English</div>
+                    <div class="chip">Set: Any</div>
+                  </div>
+                  <div class="list-item">
+                    <div class="thumb"></div>
+                    <div>
+                      <strong>Charizard ex 223/197</strong>
+                      <div class="muted">Obsidian Flame • Hyper Rare</div>
+                      <div class="mini-label" style="margin-top: 8px;">Exact match</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$74</strong>
+                      <span class="muted">avg</span>
+                    </div>
+                  </div>
+                  <div class="list-item">
+                    <div class="thumb"></div>
+                    <div>
+                      <strong>Charizard ex 125/197</strong>
+                      <div class="muted">Obsidian Flame</div>
+                      <div class="mini-label" style="margin-top: 8px;">Close match</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$17</strong>
+                      <span class="muted">avg</span>
+                    </div>
+                  </div>
+                  <div class="list-item">
+                    <div class="thumb"></div>
+                    <div>
+                      <strong>Charizard ex SVP 056</strong>
+                      <div class="muted">Promo</div>
+                      <div class="mini-label" style="margin-top: 8px;">Variant</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$11</strong>
+                      <span class="muted">avg</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              Search should feel like a rescue path, not a punishment. Results need a
+              tiny price preview so users do not open every item blindly.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 6</div>
+                <h3>Deal Stack • Buyer Mode</h3>
+              </div>
+              <div class="mini-label">Small Pile Decision</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:44</span>
+                  <span>5G • 80%</span>
+                </div>
+                <div class="appbar">
+                  <strong>Buyer Stack</strong>
+                  <span class="pill">Buyer</span>
+                </div>
+                <div class="stack">
+                  <div class="panel">
+                    <div class="mini-label">Running Total • 4 cards</div>
+                    <div class="subgrid-3" style="margin-top: 10px;">
+                      <div class="stat">
+                        <div class="mini-label">Low</div>
+                        <strong>$128</strong>
+                      </div>
+                      <div class="stat">
+                        <div class="mini-label">Avg</div>
+                        <strong>$149</strong>
+                      </div>
+                      <div class="stat">
+                        <div class="mini-label">High</div>
+                        <strong>$173</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="field">
+                    <div class="mini-label">Credibility</div>
+                    <strong>3 exact matches • 1 inferred • 22 sold comps total</strong>
+                    <div class="muted">Lookback 30 days • refreshed 9:44 AM</div>
+                  </div>
+                  <div class="list-item">
+                    <div class="thumb"></div>
+                    <div>
+                      <strong>Charizard ex 223/197</strong>
+                      <div class="muted">Raw • high trust</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$74</strong>
+                      <span class="muted">avg</span>
+                    </div>
+                  </div>
+                  <div class="list-item">
+                    <div class="thumb"></div>
+                    <div>
+                      <strong>Pikachu 160/SV-P</strong>
+                      <div class="muted">Raw • medium trust</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$41</strong>
+                      <span class="muted">avg</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="footer-bar">
+                  <div class="cta">Scan More</div>
+                  <div class="cta">Search Add</div>
+                  <div class="cta primary">Show Total</div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              Buyer mode emphasizes a defendable range and a simple pile total, not vendor
+              operations or full inventory metadata.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 7</div>
+                <h3>Deal Stack • Vendor Mode</h3>
+              </div>
+              <div class="mini-label">Continuous Quote</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:44</span>
+                  <span>5G • 80%</span>
+                </div>
+                <div class="appbar">
+                  <strong>Vendor Tray A</strong>
+                  <span class="pill active">Vendor</span>
+                </div>
+                <div class="stack">
+                  <div class="chip-row">
+                    <div class="chip">Fair Buy</div>
+                    <div class="chip active">Fair Sell</div>
+                    <div class="chip">Negotiation Range</div>
+                  </div>
+                  <div class="panel">
+                    <div class="mini-label">Running Quote • 8 cards</div>
+                    <div class="subgrid-3" style="margin-top: 10px;">
+                      <div class="stat">
+                        <div class="mini-label">Low</div>
+                        <strong>$312</strong>
+                      </div>
+                      <div class="stat">
+                        <div class="mini-label">Avg</div>
+                        <strong>$347</strong>
+                      </div>
+                      <div class="stat">
+                        <div class="mini-label">High</div>
+                        <strong>$395</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="list-item">
+                    <div class="thumb"></div>
+                    <div>
+                      <strong>Charizard ex 223/197</strong>
+                      <div class="muted">Qty 2 • Raw • high trust</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$148</strong>
+                      <span class="muted">avg total</span>
+                    </div>
+                  </div>
+                  <div class="list-item">
+                    <div class="thumb"></div>
+                    <div>
+                      <strong>Umbreon VMAX TG23</strong>
+                      <div class="muted">Qty 1 • medium trust</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$91</strong>
+                      <span class="muted">avg</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="drawer-overlay">
+                  <div class="drawer">
+                    <div class="mini-label">Quick Edit</div>
+                    <strong>Umbreon VMAX TG23</strong>
+                    <div class="chip-row" style="margin-top: 8px;">
+                      <div class="chip">Swap Match</div>
+                      <div class="chip">Qty +/-</div>
+                      <div class="chip">Condition</div>
+                      <div class="chip">Remove</div>
+                    </div>
+                  </div>
+                </div>
+                <div class="footer-bar">
+                  <div class="cta primary">Scan More</div>
+                  <div class="cta">Search Add</div>
+                  <div class="cta">Quote View</div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              Vendor mode keeps the totals visible and assumes the user is moving fast.
+              Quick edit should not eject them into a separate detail page.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 8</div>
+                <h3>Quote Mode</h3>
+              </div>
+              <div class="mini-label">Show Another Human</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:45</span>
+                  <span>5G • 80%</span>
+                </div>
+                <div class="stack">
+                  <div class="quote-sheet">
+                    <div class="mini-label">Spotlight Event Quote</div>
+                    <strong style="font-size: 22px;">Vendor Tray A</strong>
+                    <div class="muted">8 cards • generated 9:45 AM</div>
+                    <div class="quote-total">
+                      <div><strong>Fair Buy:</strong> $312</div>
+                      <div><strong>Fair Sell:</strong> $347</div>
+                      <div><strong>Negotiation Range:</strong> $330 – $370</div>
+                    </div>
+                    <div class="sales-row">
+                      <strong>Charizard ex 223/197 ×2</strong>
+                      <div class="muted">Avg $148 total</div>
+                    </div>
+                    <div class="sales-row" style="margin-top: 8px;">
+                      <strong>Umbreon VMAX TG23 ×1</strong>
+                      <div class="muted">Avg $91</div>
+                    </div>
+                    <div class="sales-row" style="margin-top: 8px;">
+                      <strong>Pikachu 160/SV-P ×1</strong>
+                      <div class="muted">Avg $41</div>
+                    </div>
+                    <div class="panel" style="margin-top: 10px;">
+                      <div class="mini-label">Pricing Basis</div>
+                      <strong>22 sold comps • 30 day window</strong>
+                      <div class="muted">1 card inferred from similar sales</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              Quote mode removes noise. This screen is for showing, not exploring.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="notes">
+        <div class="section-kicker">Decision Notes</div>
+        <h2>What We Should Pressure-Test Next</h2>
+        <div class="note-grid">
+          <div class="note-card">
+            <div class="meta">Naming</div>
+            <h3>Deal Stack vs Vendor Tray</h3>
+            <p>
+              Buyer-facing language may prefer <strong>Deal Stack</strong>. Vendor-facing
+              language may prefer <strong>Tray</strong> or <strong>Quote</strong>.
+              We should test whether one object with mode-specific labels feels cleaner.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Trust</div>
+            <h3>How Visible Should Credibility Be?</h3>
+            <p>
+              The trust module is essential, but it can overwhelm small screens.
+              We need to decide whether it is always expanded or collapses after the first view.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Vendor Speed</div>
+            <h3>Continuous Scan</h3>
+            <p>
+              Vendor mode may need a camera sheet that stays open while totals update in
+              the background. This deck shows the simpler version first.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Scope</div>
+            <h3>Inventory Later</h3>
+            <p>
+              If these screens feel strong, PRDs should lock v1 around scan, search,
+              result, stack, and quote only. Full inventory can remain a later phase.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

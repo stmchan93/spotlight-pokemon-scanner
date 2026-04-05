@@ -1,0 +1,11 @@
+{
+  "sources": [
+    {
+      "id": "neo1-9-psa-apr-fixture",
+      "provider": "psa_apr_html",
+      "cardID": "neo1-9",
+      "grader": "PSA",
+      "filePath": "psa_apr_neo1_9.html"
+    }
+  ]
+}

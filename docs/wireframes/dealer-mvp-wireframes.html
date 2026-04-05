@@ -1,0 +1,1096 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dealer MVP Wireframes</title>
+    <style>
+      :root {
+        --bg: #0b0d10;
+        --bg-2: #12161b;
+        --screen: #171c22;
+        --screen-2: #1d242b;
+        --card: #202933;
+        --card-2: #273240;
+        --line: #33404f;
+        --line-2: #415267;
+        --text: #eef3f8;
+        --muted: #a6b3c2;
+        --accent: #74d1ab;
+        --accent-2: #4eaaff;
+        --warn: #f4c86b;
+        --danger: #f27b7b;
+        --success: #7fd9a2;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        background:
+          radial-gradient(circle at top left, rgba(78, 170, 255, 0.08), transparent 24%),
+          radial-gradient(circle at top right, rgba(116, 209, 171, 0.07), transparent 28%),
+          linear-gradient(180deg, #0c0f13 0%, #090b0e 100%);
+        font-family: "SF Pro Display", "Segoe UI", sans-serif;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .page {
+        width: min(1420px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 24px 0 56px;
+      }
+
+      .hero,
+      .summary-grid,
+      .wireframe-grid,
+      .note-grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero {
+        grid-template-columns: 1.25fr 1fr;
+        align-items: start;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .wireframe-grid {
+        grid-template-columns: repeat(2, minmax(340px, 1fr));
+      }
+
+      .note-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .hero-card,
+      .summary-card,
+      .screen-card,
+      .note-card {
+        background: linear-gradient(180deg, rgba(30, 36, 44, 0.96), rgba(22, 27, 34, 0.96));
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+      }
+
+      .hero-card,
+      .summary-card,
+      .note-card {
+        padding: 22px;
+      }
+
+      .screen-card {
+        padding: 16px;
+      }
+
+      .eyebrow,
+      .meta,
+      .mini-label,
+      .section-kicker {
+        font-family: Menlo, Consolas, monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .hero h1 {
+        margin: 10px 0 14px;
+        font-size: 36px;
+        line-height: 1;
+      }
+
+      .hero p,
+      .summary-card p,
+      .note-card p,
+      section > p,
+      .screen-note {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.48;
+      }
+
+      .hero-list,
+      .review-list {
+        margin: 16px 0 0;
+        padding-left: 18px;
+      }
+
+      .hero-list li,
+      .review-list li {
+        margin: 6px 0;
+      }
+
+      .summary-card h3,
+      .note-card h3,
+      .screen-head h3,
+      section h2 {
+        margin: 8px 0 10px;
+      }
+
+      section {
+        margin-top: 24px;
+        padding-top: 8px;
+      }
+
+      section h2 {
+        font-size: 28px;
+      }
+
+      .toc {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px;
+        margin: 18px 0 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(11, 13, 16, 0.88);
+        backdrop-filter: blur(12px);
+      }
+
+      .toc a {
+        text-decoration: none;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(32, 41, 51, 0.9);
+        font-size: 13px;
+      }
+
+      .flow-strip {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+      }
+
+      .step {
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(32, 41, 51, 0.92);
+        font-size: 13px;
+      }
+
+      .screen-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        margin-bottom: 12px;
+      }
+
+      .phone {
+        width: 340px;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 10px;
+        border-radius: 36px;
+        background: #050607;
+        box-shadow: inset 0 0 0 1px #000, 0 18px 36px rgba(0, 0, 0, 0.45);
+      }
+
+      .phone-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .phone-grid .phone {
+        width: 100%;
+      }
+
+      .screen {
+        position: relative;
+        min-height: 690px;
+        overflow: hidden;
+        border-radius: 28px;
+        background:
+          linear-gradient(180deg, rgba(31, 38, 47, 0.95), rgba(20, 25, 31, 0.98)),
+          var(--screen);
+      }
+
+      .status {
+        display: flex;
+        justify-content: space-between;
+        padding: 10px 16px 0;
+        height: 30px;
+        font-family: Menlo, Consolas, monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .appbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+        padding: 14px 16px 96px;
+      }
+
+      .panel,
+      .button,
+      .metric,
+      .list-item,
+      .field,
+      .chip,
+      .pill,
+      .ticket,
+      .camera,
+      .note,
+      .warning,
+      .action-row,
+      .diff-item,
+      .tab-pill {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+      }
+
+      .panel,
+      .metric,
+      .list-item,
+      .field,
+      .note,
+      .warning,
+      .diff-item {
+        background: linear-gradient(180deg, rgba(39, 50, 64, 0.9), rgba(28, 36, 45, 0.96));
+      }
+
+      .panel,
+      .field,
+      .note,
+      .warning,
+      .diff-item {
+        padding: 14px;
+      }
+
+      .button {
+        min-height: 72px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 14px;
+        text-align: center;
+        font-weight: 700;
+        background: linear-gradient(180deg, rgba(47, 64, 82, 0.95), rgba(32, 43, 55, 0.98));
+      }
+
+      .button.primary {
+        border-color: rgba(116, 209, 171, 0.4);
+        background: linear-gradient(180deg, rgba(45, 85, 72, 0.98), rgba(29, 58, 50, 0.98));
+      }
+
+      .button.secondary {
+        border-color: rgba(78, 170, 255, 0.35);
+      }
+
+      .metric-grid-3,
+      .metric-grid-4,
+      .action-grid-3 {
+        display: grid;
+        gap: 10px;
+      }
+
+      .metric-grid-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .metric-grid-4 {
+        grid-template-columns: repeat(4, 1fr);
+      }
+
+      .action-grid-3 {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .metric {
+        padding: 12px;
+        min-height: 84px;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 8px;
+        font-size: 21px;
+      }
+
+      .camera {
+        min-height: 290px;
+        background:
+          linear-gradient(rgba(8, 11, 15, 0.2), rgba(8, 11, 15, 0.3)),
+          linear-gradient(180deg, rgba(68, 80, 98, 0.88), rgba(33, 43, 54, 0.96));
+        position: relative;
+      }
+
+      .camera::before {
+        content: "";
+        position: absolute;
+        left: 28px;
+        right: 28px;
+        top: 26px;
+        bottom: 26px;
+        border: 2px dashed rgba(238, 243, 248, 0.35);
+        border-radius: 18px;
+      }
+
+      .camera::after {
+        content: "Live viewfinder";
+        position: absolute;
+        left: 50%;
+        bottom: 14px;
+        transform: translateX(-50%);
+        font-family: Menlo, Consolas, monospace;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .pill-row,
+      .mini-actions,
+      .tab-row {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+      }
+
+      .pill,
+      .chip,
+      .tab-pill {
+        padding: 7px 10px;
+        background: rgba(24, 31, 40, 0.96);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .pill.online,
+      .pill.active,
+      .tab-pill.active {
+        color: var(--text);
+        border-color: rgba(116, 209, 171, 0.42);
+        background: rgba(32, 54, 49, 0.96);
+      }
+
+      .pill.offline {
+        border-color: rgba(244, 200, 107, 0.34);
+        background: rgba(66, 55, 28, 0.96);
+        color: var(--warn);
+      }
+
+      .list-item,
+      .diff-item {
+        display: grid;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .scan-item {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+
+      .deal-row {
+        grid-template-columns: 1fr auto;
+        align-items: start;
+      }
+
+      .want-row {
+        grid-template-columns: 1fr auto;
+        align-items: center;
+      }
+
+      .price-col {
+        display: grid;
+        gap: 4px;
+        justify-items: end;
+      }
+
+      .warning {
+        border-color: rgba(244, 200, 107, 0.28);
+        background: linear-gradient(180deg, rgba(70, 57, 29, 0.9), rgba(46, 37, 18, 0.96));
+        color: #f3ddb1;
+      }
+
+      .ticket {
+        padding: 18px;
+        background:
+          linear-gradient(180deg, rgba(43, 54, 70, 0.96), rgba(26, 34, 44, 0.98));
+        min-height: 470px;
+        display: grid;
+        gap: 14px;
+        align-content: start;
+      }
+
+      .qr {
+        height: 220px;
+        border-radius: 18px;
+        border: 1px dashed var(--line-2);
+        background:
+          linear-gradient(90deg, transparent 0, transparent 12px, rgba(255,255,255,0.04) 12px, rgba(255,255,255,0.04) 13px, transparent 13px, transparent 26px),
+          linear-gradient(transparent 0, transparent 12px, rgba(255,255,255,0.04) 12px, rgba(255,255,255,0.04) 13px, transparent 13px, transparent 26px),
+          rgba(14, 17, 21, 0.95);
+      }
+
+      .bottom-nav {
+        position: absolute;
+        left: 12px;
+        right: 12px;
+        bottom: 12px;
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 22px;
+        background: rgba(10, 12, 15, 0.92);
+      }
+
+      .nav-item {
+        text-align: center;
+        padding: 10px 6px;
+        border-radius: 14px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .nav-item.active {
+        background: rgba(37, 49, 62, 0.92);
+        color: var(--text);
+      }
+
+      .screen-note {
+        margin-top: 12px;
+      }
+
+      @media (max-width: 1120px) {
+        .hero,
+        .summary-grid,
+        .wireframe-grid,
+        .note-grid,
+        .phone-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="hero">
+        <div class="hero-card">
+          <div class="eyebrow">Dealer-Focused MVP</div>
+          <h1>[App Name] Show Dealer Tool</h1>
+          <p>
+            This version is intentionally narrower than the broader event concept.
+            It is built for the semi-pro show dealer running 1 to 4 tables who needs
+            to price bundles fast, close deals, and reconcile with eBay later.
+          </p>
+          <ul class="hero-list">
+            <li>Single workflow: <strong>bundle scan -> aggregate pricing -> deal log</strong></li>
+            <li>Dark mode and oversized actions for harsh convention lighting</li>
+            <li>Offline-aware patterns and minimal text input</li>
+            <li>No browsing, no portfolio, no social clutter</li>
+          </ul>
+        </div>
+        <div class="hero-card">
+          <div class="eyebrow">Review Lens</div>
+          <h3>What to pressure-test</h3>
+          <ul class="review-list">
+            <li>Does the scanner screen feel like a faster replacement for CollX + calculator + notes?</li>
+            <li>Are aggregate low / mid / high values visible enough during the deal?</li>
+            <li>Does the suggested bundle price feel useful without over-automating judgment?</li>
+            <li>Is Deal Log lean enough to be operational, not “inventory lite”?</li>
+            <li>Does eBay sync feel like relief for a painful workflow?</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-card">
+          <div class="section-kicker">User</div>
+          <h3>Semi-Pro Show Dealer</h3>
+          <p>
+            Regularly attends shows, has active eBay listings, and needs a floor tool
+            that minimizes typing and context switching.
+          </p>
+        </div>
+        <div class="summary-card">
+          <div class="section-kicker">Core Promise</div>
+          <h3>Price Bundles While Talking</h3>
+          <p>
+            Scan cards into a running bundle, see the range and suggested quote, then
+            close the deal without opening other apps.
+          </p>
+        </div>
+        <div class="summary-card">
+          <div class="section-kicker">Not Included</div>
+          <h3>No Marketplace, No Portfolio</h3>
+          <p>
+            V1 excludes collection tracking, social features, maps, and discovery.
+            This is a transaction tool.
+          </p>
+        </div>
+      </div>
+
+      <div class="toc">
+        <a href="#flow">Core Flow</a>
+        <a href="#screens">Wireframes</a>
+        <a href="#notes">Design Notes</a>
+      </div>
+
+      <section id="flow">
+        <div class="section-kicker">Core Flow</div>
+        <h2>Bundle Scan -> Aggregate Pricing -> Deal Log</h2>
+        <p>
+          The default interaction should let a dealer price a pile of cards while they
+          are still in conversation. Anything that slows that down should be questioned.
+        </p>
+        <div class="flow-strip">
+          <div class="step">Open Show Dashboard</div>
+          <div class="step">Start Scan Bundle</div>
+          <div class="step">Add Cards One By One</div>
+          <div class="step">Watch Low / Mid / High Totals</div>
+          <div class="step">Apply Dealer Margin</div>
+          <div class="step">Close Deal</div>
+          <div class="step">Review In Deal Log</div>
+        </div>
+      </section>
+
+      <section id="screens">
+        <div class="section-kicker">Low-Fi Mobile Screens</div>
+        <h2>Dealer MVP Wireframe Set</h2>
+        <p>
+          Home is treated as the default state of the `Scanner` tab so the navigation
+          model stays simple: `Scanner`, `Want List`, `Deal Log`, `Profile`.
+        </p>
+
+        <div class="wireframe-grid">
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 1</div>
+                <h3>Home / Show Dashboard</h3>
+              </div>
+              <div class="mini-label">Scanner Tab Home</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:41</span>
+                  <span>LTE • 64%</span>
+                </div>
+                <div class="appbar">
+                  <div>
+                    <strong>Long Beach Expo</strong>
+                    <div class="mini-label">Apr 2, 2026 • Show Mode active</div>
+                  </div>
+                  <div class="pill-row">
+                    <span class="pill online">Synced</span>
+                    <span class="pill offline">Offline ready</span>
+                  </div>
+                </div>
+                <div class="stack">
+                  <div class="button primary">Scan Bundle</div>
+                  <div class="action-grid-3">
+                    <div class="button secondary">Want List</div>
+                    <div class="button secondary">Deal Log</div>
+                    <div class="button secondary">eBay Sync</div>
+                  </div>
+                  <div class="panel">
+                    <div class="mini-label">Today's P&amp;L</div>
+                    <div class="metric-grid-3" style="margin-top: 10px;">
+                      <div class="metric">
+                        <div class="mini-label">Cards Sold</div>
+                        <strong>58</strong>
+                      </div>
+                      <div class="metric">
+                        <div class="mini-label">Revenue</div>
+                        <strong>$2,480</strong>
+                      </div>
+                      <div class="metric">
+                        <div class="mini-label">Avg Deal</div>
+                        <strong>$186</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="note">
+                    <div class="mini-label">Current Show</div>
+                    <strong>Registered table: Hall B • Booth 214</strong>
+                    <div class="mini-label" style="margin-top: 8px;">No feed. No discovery. Start the next transaction.</div>
+                  </div>
+                </div>
+                <div class="bottom-nav">
+                  <div class="nav-item active">Scanner</div>
+                  <div class="nav-item">Want List</div>
+                  <div class="nav-item">Deal Log</div>
+                  <div class="nav-item">Profile</div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              This screen should feel like opening a POS, not a consumer app.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 2</div>
+                <h3>Bundle Scanner</h3>
+              </div>
+              <div class="mini-label">Core Workflow</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:44</span>
+                  <span>LTE • 63%</span>
+                </div>
+                <div class="appbar">
+                  <div>
+                    <strong>Bundle Scanner</strong>
+                    <div class="mini-label">eBay last 30 days</div>
+                  </div>
+                  <span class="pill active">Margin 12%</span>
+                </div>
+                <div class="stack">
+                  <div class="camera"></div>
+                  <div class="pill-row">
+                    <span class="pill active">Recent sold comps</span>
+                    <span class="pill">Cached if offline</span>
+                  </div>
+                  <div class="list-item scan-item">
+                    <div>
+                      <strong>Charizard ex 223/197</strong>
+                      <div class="mini-label">Hyper Rare • Raw</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$74</strong>
+                      <span class="mini-label">mid</span>
+                    </div>
+                  </div>
+                  <div class="list-item scan-item">
+                    <div>
+                      <strong>Pikachu 160/SV-P</strong>
+                      <div class="mini-label">Promo • Variant matched</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$41</strong>
+                      <span class="mini-label">mid</span>
+                    </div>
+                  </div>
+                  <div class="list-item scan-item">
+                    <div>
+                      <strong>Umbreon VMAX TG23</strong>
+                      <div class="mini-label">Trainer Gallery</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$91</strong>
+                      <span class="mini-label">mid</span>
+                    </div>
+                  </div>
+                  <div class="warning">
+                    <strong>Swipe left to remove card</strong>
+                    <div class="mini-label" style="margin-top: 6px;">Keep the scanner list light and dismissive.</div>
+                  </div>
+                  <div class="panel">
+                    <div class="mini-label">Running Bundle</div>
+                    <div class="metric-grid-4" style="margin-top: 10px;">
+                      <div class="metric">
+                        <div class="mini-label">Items</div>
+                        <strong>8</strong>
+                      </div>
+                      <div class="metric">
+                        <div class="mini-label">Low</div>
+                        <strong>$312</strong>
+                      </div>
+                      <div class="metric">
+                        <div class="mini-label">Mid</div>
+                        <strong>$347</strong>
+                      </div>
+                      <div class="metric">
+                        <div class="mini-label">High</div>
+                        <strong>$391</strong>
+                      </div>
+                    </div>
+                    <div class="button primary" style="margin-top: 10px; min-height: 58px;">
+                      Suggested Bundle Price: $305
+                    </div>
+                  </div>
+                </div>
+                <div class="bottom-nav">
+                  <div class="nav-item active">Scanner</div>
+                  <div class="nav-item">Want List</div>
+                  <div class="nav-item">Deal Log</div>
+                  <div class="nav-item">Profile</div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              The scanner is the product. The dealer should always know item count,
+              value range, source basis, and the current suggested close price.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 3</div>
+                <h3>Deal Log</h3>
+              </div>
+              <div class="mini-label">Final, Not Inventory</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>2:18</span>
+                  <span>Offline • 51%</span>
+                </div>
+                <div class="appbar">
+                  <div>
+                    <strong>Deal Log</strong>
+                    <div class="mini-label">Today only</div>
+                  </div>
+                  <span class="pill">Export CSV</span>
+                </div>
+                <div class="stack">
+                  <div class="panel">
+                    <div class="metric-grid-3">
+                      <div class="metric">
+                        <div class="mini-label">Gross</div>
+                        <strong>$2,480</strong>
+                      </div>
+                      <div class="metric">
+                        <div class="mini-label">Deals</div>
+                        <strong>14</strong>
+                      </div>
+                      <div class="metric">
+                        <div class="mini-label">Avg Deal</div>
+                        <strong>$177</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="list-item deal-row">
+                    <div>
+                      <strong>2:12 PM • 8 cards</strong>
+                      <div class="mini-label">Note: repeat buyer from yesterday</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$305</strong>
+                      <span class="mini-label">closed</span>
+                    </div>
+                  </div>
+                  <div class="list-item deal-row">
+                    <div>
+                      <strong>1:43 PM • 3 cards</strong>
+                      <div class="mini-label">No note</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$118</strong>
+                      <span class="mini-label">closed</span>
+                    </div>
+                  </div>
+                  <div class="list-item deal-row">
+                    <div>
+                      <strong>12:57 PM • 11 cards</strong>
+                      <div class="mini-label">Trade-up bundle</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>$490</strong>
+                      <span class="mini-label">closed</span>
+                    </div>
+                  </div>
+                  <div class="warning">
+                    <strong>Closed deals are final entries</strong>
+                    <div class="mini-label" style="margin-top: 6px;">No post-close editing. Keep the log reliable for reconciliation.</div>
+                  </div>
+                </div>
+                <div class="bottom-nav">
+                  <div class="nav-item">Scanner</div>
+                  <div class="nav-item">Want List</div>
+                  <div class="nav-item active">Deal Log</div>
+                  <div class="nav-item">Profile</div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              This is a running floor ledger, not a collection tool. Finality is part
+              of why it stays useful.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 4</div>
+                <h3>Want List</h3>
+              </div>
+              <div class="mini-label">Fast Capture</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>2:24</span>
+                  <span>LTE • 50%</span>
+                </div>
+                <div class="appbar">
+                  <div>
+                    <strong>Want List</strong>
+                    <div class="mini-label">Persists across shows</div>
+                  </div>
+                  <span class="pill active">Voice okay</span>
+                </div>
+                <div class="stack">
+                  <div class="button primary">+ Add Want</div>
+                  <div class="field">
+                    <div class="mini-label">Capture options</div>
+                    <strong>Type or voice while mid-conversation</strong>
+                    <div class="mini-label" style="margin-top: 8px;">No scanning here by design.</div>
+                  </div>
+                  <div class="list-item want-row">
+                    <div>
+                      <strong>Mike Trout Topps Chrome RC</strong>
+                      <div class="mini-label">Qty 2 • contact optional</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>2:18 PM</strong>
+                      <span class="mini-label">recent</span>
+                    </div>
+                  </div>
+                  <div class="list-item want-row">
+                    <div>
+                      <strong>Pikachu Van Gogh promo</strong>
+                      <div class="mini-label">Qty 1 • txt me later</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>1:52 PM</strong>
+                      <span class="mini-label">recent</span>
+                    </div>
+                  </div>
+                  <div class="list-item want-row">
+                    <div>
+                      <strong>Jordan Fleer 1986 PSA 8</strong>
+                      <div class="mini-label">Qty 1 • booth 118 buyer</div>
+                    </div>
+                    <div class="price-col">
+                      <strong>11:07 AM</strong>
+                      <span class="mini-label">older</span>
+                    </div>
+                  </div>
+                </div>
+                <div class="bottom-nav">
+                  <div class="nav-item">Scanner</div>
+                  <div class="nav-item active">Want List</div>
+                  <div class="nav-item">Deal Log</div>
+                  <div class="nav-item">Profile</div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              Want List stays manual because the user is capturing demand, not pricing a card in hand.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 5</div>
+                <h3>eBay Sync</h3>
+              </div>
+              <div class="mini-label">Setup + Reconcile</div>
+            </div>
+            <div class="phone-grid">
+              <div class="phone">
+                <div class="screen">
+                  <div class="status">
+                    <span>8:05</span>
+                    <span>WiFi • 88%</span>
+                  </div>
+                  <div class="appbar">
+                    <div>
+                      <strong>eBay Sync</strong>
+                      <div class="mini-label">Pre-show setup</div>
+                    </div>
+                    <span class="pill active">Show Mode</span>
+                  </div>
+                  <div class="stack">
+                    <div class="panel">
+                      <div class="mini-label">Connected store</div>
+                      <strong>stephen-cards • 412 active listings</strong>
+                    </div>
+                    <div class="button primary">Pause My eBay Store During This Show</div>
+                    <div class="warning">
+                      <strong>Cards sold in person will not auto-remove from eBay</strong>
+                      <div class="mini-label" style="margin-top: 8px;">Use Deal Log to track what moved on the floor.</div>
+                    </div>
+                    <div class="note">
+                      <div class="mini-label">Why this matters</div>
+                      <strong>Reduce oversell risk before the doors open.</strong>
+                    </div>
+                  </div>
+                  <div class="bottom-nav">
+                    <div class="nav-item">Scanner</div>
+                    <div class="nav-item">Want List</div>
+                    <div class="nav-item">Deal Log</div>
+                    <div class="nav-item active">Profile</div>
+                  </div>
+                </div>
+              </div>
+              <div class="phone">
+                <div class="screen">
+                  <div class="status">
+                    <span>6:37</span>
+                    <span>WiFi • 83%</span>
+                  </div>
+                  <div class="appbar">
+                    <div>
+                      <strong>eBay Sync</strong>
+                      <div class="mini-label">Post-show diff</div>
+                    </div>
+                    <span class="pill">Reconcile</span>
+                  </div>
+                  <div class="stack">
+                    <div class="panel">
+                      <div class="mini-label">Diff summary</div>
+                      <strong>9 deals logged • 6 listings still active</strong>
+                    </div>
+                    <div class="diff-item">
+                      <strong>Charizard ex 223/197</strong>
+                      <div class="mini-label">Sold in person • still live on eBay</div>
+                    </div>
+                    <div class="diff-item">
+                      <strong>Umbreon VMAX TG23</strong>
+                      <div class="mini-label">Sold in person • still live on eBay</div>
+                    </div>
+                    <div class="button primary">Bulk Delist 6 Active Listings</div>
+                    <div class="note">
+                      <div class="mini-label">Goal</div>
+                      <strong>Make end-of-show cleanup feel relieving, not like more work.</strong>
+                    </div>
+                  </div>
+                  <div class="bottom-nav">
+                    <div class="nav-item">Scanner</div>
+                    <div class="nav-item">Want List</div>
+                    <div class="nav-item">Deal Log</div>
+                    <div class="nav-item active">Profile</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              This is the operational painkiller. It should reduce oversell anxiety before
+              the show and reconciliation pain after the show.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 6</div>
+                <h3>Show Entry / Ticket</h3>
+              </div>
+              <div class="mini-label">Utility Only</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>8:07</span>
+                  <span>WiFi • 87%</span>
+                </div>
+                <div class="appbar">
+                  <div>
+                    <strong>Profile</strong>
+                    <div class="mini-label">Secondary utility</div>
+                  </div>
+                  <span class="pill">Show Ticket</span>
+                </div>
+                <div class="stack">
+                  <div class="ticket">
+                    <div class="mini-label">Entry Pass</div>
+                    <strong style="font-size: 24px;">Long Beach Expo</strong>
+                    <div class="mini-label">Apr 2, 2026 • Dealer access</div>
+                    <div class="qr"></div>
+                    <div class="panel">
+                      <div class="mini-label">Tier</div>
+                      <strong>Dealer • Early Entry</strong>
+                    </div>
+                  </div>
+                </div>
+                <div class="bottom-nav">
+                  <div class="nav-item">Scanner</div>
+                  <div class="nav-item">Want List</div>
+                  <div class="nav-item">Deal Log</div>
+                  <div class="nav-item active">Profile</div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              This should behave like a boarding pass. No extra features, no distractions.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="notes">
+        <div class="section-kicker">Design Notes</div>
+        <h2>Decisions Worth Locking Before PRDs</h2>
+        <div class="note-grid">
+          <div class="note-card">
+            <div class="meta">Scanner</div>
+            <h3>Suggested Bundle Price</h3>
+            <p>
+              The wireframes assume a configurable dealer margin that converts `mid`
+              value into a suggested close price. We should define whether that margin
+              is global, show-specific, or editable per bundle.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Trust</div>
+            <h3>Pricing Source Visibility</h3>
+            <p>
+              `eBay last 30 days` is shown persistently on the scanner because this
+              number needs to be defensible during a live deal.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Operations</div>
+            <h3>Offline Behavior</h3>
+            <p>
+              The screens assume cached comp data and graceful offline states. The PRD
+              should define exactly what still works with degraded WiFi.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Scope</div>
+            <h3>Keep Deal Log Final</h3>
+            <p>
+              Preventing post-close edits keeps the log operational and reduces the risk
+              of sliding into full inventory management too early.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>

@@ -1,0 +1,98 @@
+[
+  {
+    "id": "pokemon-charizard-ex-223-197",
+    "name": "Charizard ex",
+    "set_name": "Obsidian Flame",
+    "number": "223/197",
+    "rarity": "Hyper Rare",
+    "variant": "Raw",
+    "language": "English",
+    "reference_image_path": "qa/images/charizard-ex-223-197.png"
+  },
+  {
+    "id": "pokemon-charizard-ex-125-197",
+    "name": "Charizard ex",
+    "set_name": "Obsidian Flame",
+    "number": "125/197",
+    "rarity": "Ultra Rare",
+    "variant": "Raw",
+    "language": "English",
+    "reference_image_path": "qa/images/charizard-ex-125-197.png"
+  },
+  {
+    "id": "pokemon-charizard-ex-svp-056",
+    "name": "Charizard ex",
+    "set_name": "Scarlet & Violet Promo",
+    "number": "SVP 056",
+    "rarity": "Promo",
+    "variant": "Raw",
+    "language": "English",
+    "reference_image_path": "qa/images/charizard-ex-svp-056.png"
+  },
+  {
+    "id": "pokemon-pikachu-svp-160",
+    "name": "Pikachu",
+    "set_name": "Scarlet & Violet Promo",
+    "number": "SVP 160",
+    "rarity": "Promo",
+    "variant": "Raw",
+    "language": "English"
+  },
+  {
+    "id": "pokemon-umbreon-vmax-tg23",
+    "name": "Umbreon VMAX",
+    "set_name": "Brilliant Stars Trainer Gallery",
+    "number": "TG23/TG30",
+    "rarity": "Trainer Gallery",
+    "variant": "Raw",
+    "language": "English",
+    "reference_image_path": "qa/images/umbreon-vmax-tg23-tg30.png"
+  },
+  {
+    "id": "pokemon-mew-ex-205-165",
+    "name": "Mew ex",
+    "set_name": "151",
+    "number": "205/165",
+    "rarity": "Ultra Rare",
+    "variant": "Raw",
+    "language": "English"
+  },
+  {
+    "id": "pokemon-iono-254-193",
+    "name": "Iono",
+    "set_name": "Paldea Evolved",
+    "number": "254/193",
+    "rarity": "Special Illustration Rare",
+    "variant": "Raw",
+    "language": "English",
+    "reference_image_path": "qa/images/iono-254-193.png"
+  },
+  {
+    "id": "pokemon-basic-lightning-energy-257-198",
+    "name": "Basic Lightning Energy",
+    "set_name": "Scarlet & Violet",
+    "number": "257/198",
+    "rarity": "Hyper Rare",
+    "variant": "Raw",
+    "language": "English",
+    "reference_image_path": "qa/images/basic-lightning-energy-257-198.png"
+  },
+  {
+    "id": "pokemon-gardevoir-ex-245-198",
+    "name": "Gardevoir ex",
+    "set_name": "Scarlet & Violet",
+    "number": "245/198",
+    "rarity": "Special Illustration Rare",
+    "variant": "Raw",
+    "language": "English"
+  },
+  {
+    "id": "pokemon-lugia-v-186-195",
+    "name": "Lugia V",
+    "set_name": "Silver Tempest",
+    "number": "186/195",
+    "rarity": "Ultra Rare",
+    "variant": "Raw",
+    "language": "English"
+  }
+]

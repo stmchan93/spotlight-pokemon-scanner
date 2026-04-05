@@ -1,0 +1,208 @@
+[
+  {
+    "name": "Latias & Latios-GX PSA 10 A",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/latias-latios-psa-10-a.jpg",
+    "acceptedCardIDs": ["sm9-170"],
+    "expectedCardName": "Latias & Latios-GX",
+    "acceptedSetNames": ["Team Up"],
+    "acceptedNumbers": ["170/181"],
+    "acceptedConfidences": ["medium", "high"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Latias & Latios-GX PSA 10 B",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/latias-latios-psa-10-b.jpg",
+    "acceptedCardIDs": ["sm9-170"],
+    "expectedCardName": "Latias & Latios-GX",
+    "acceptedSetNames": ["Team Up"],
+    "acceptedNumbers": ["170/181"],
+    "acceptedConfidences": ["high"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Latias & Latios-GX PSA 10 C",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/latias-latios-psa-10-c.jpg",
+    "acceptedCardIDs": ["sm9-170"],
+    "expectedCardName": "Latias & Latios-GX",
+    "acceptedSetNames": ["Team Up"],
+    "acceptedNumbers": ["170/181"],
+    "acceptedConfidences": ["high"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Latias & Latios-GX PSA 10 D",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/latias-latios-psa-10-d.jpg",
+    "acceptedCardIDs": ["sm9-170"],
+    "expectedCardName": "Latias & Latios-GX",
+    "acceptedSetNames": ["Team Up"],
+    "acceptedNumbers": ["170/181"],
+    "acceptedConfidences": ["high"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Snorlax Legendary Collection PSA 10",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/snorlax-legendary-psa-10.jpg",
+    "acceptedCardIDs": ["base6-64"],
+    "expectedCardName": "Snorlax",
+    "acceptedSetNames": ["Legendary Collection"],
+    "acceptedNumbers": ["64/110"],
+    "acceptedConfidences": ["medium", "high"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Japanese Mimikyu PSA 10",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/mimikyu-jpn-psa-10.jpg",
+    "acceptedConfidences": ["low"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"]
+  },
+  {
+    "name": "Lugia Neo Genesis PSA 10",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/lugia-neo-psa-10.jpg",
+    "acceptedCardIDs": ["neo1-9"],
+    "expectedCardName": "Lugia",
+    "acceptedSetNames": ["Neo Genesis"],
+    "acceptedNumbers": ["9/111"],
+    "acceptedConfidences": ["high", "medium"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Charizard Legendary Collection PSA 10",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/charizard-legendary-rev-foil-psa-10.jpg",
+    "acceptedCardIDs": ["base6-3"],
+    "expectedCardName": "Charizard",
+    "acceptedSetNames": ["Legendary Collection"],
+    "acceptedNumbers": ["3/110"],
+    "acceptedConfidences": ["medium", "high"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Charizard Skyridge PSA 10",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/charizard-skyridge-psa-10.jpg",
+    "acceptedCardIDs": ["ecard3-146"],
+    "expectedCardName": "Charizard",
+    "acceptedSetNames": ["Skyridge"],
+    "acceptedNumbers": ["146/144"],
+    "acceptedConfidences": ["medium", "high"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Mewtwo Gold Star PSA 10",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/mewtwo-gold-star-psa-10.jpg",
+    "acceptedCardIDs": ["ex13-103"],
+    "expectedCardName": "Mewtwo \u2605",
+    "acceptedSetNames": ["Holon Phantoms"],
+    "acceptedNumbers": ["103/110"],
+    "acceptedConfidences": ["high", "medium"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Blastoise Base Case Photo",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/blastoise-base-case.jpg",
+    "acceptedCardIDs": ["base1-2"],
+    "expectedCardName": "Blastoise",
+    "acceptedSetNames": ["Base"],
+    "acceptedNumbers": ["2/102"],
+    "acceptedConfidences": ["medium", "high"],
+    "acceptedResolverPaths": ["psa_label", "visual_fallback"],
+    "acceptedResolverModes": ["psa_slab", "unknown_fallback"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Espeon Gold Star",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/espeon-gold-star.jpg",
+    "acceptedCardIDs": ["pop5-16"],
+    "expectedCardName": "Espeon \u2605",
+    "acceptedSetNames": ["POP Series 5"],
+    "acceptedNumbers": ["16/17"],
+    "acceptedConfidences": ["high"],
+    "acceptedResolverPaths": ["direct_lookup"],
+    "acceptedResolverModes": ["raw_card"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Fake Mega Gengar Review",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/fake-mega-gengar.jpg",
+    "acceptedConfidences": ["low"],
+    "acceptedResolverPaths": ["visual_fallback"],
+    "acceptedResolverModes": ["unknown_fallback"]
+  },
+  {
+    "name": "Starmie Skyridge Raw Review",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/starmie-skyridge-raw.jpg",
+    "acceptedConfidences": ["low", "medium"],
+    "acceptedResolverPaths": ["visual_fallback", "direct_lookup"],
+    "acceptedResolverModes": ["unknown_fallback", "raw_card"]
+  },
+  {
+    "name": "Lugia Neo Genesis PSA 9",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/lugia-neo-psa-9.jpg",
+    "acceptedCardIDs": ["neo1-9"],
+    "expectedCardName": "Lugia",
+    "acceptedSetNames": ["Neo Genesis"],
+    "acceptedNumbers": ["9/111"],
+    "acceptedConfidences": ["medium", "high"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true
+  },
+  {
+    "name": "Fake Gold Mega Charizard Review",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/fake-gold-mega-charizard.jpg",
+    "acceptedConfidences": ["low"],
+    "acceptedResolverPaths": ["visual_fallback"],
+    "acceptedResolverModes": ["unknown_fallback", "raw_card"]
+  },
+  {
+    "name": "Fake Mega Starmie Review",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/fake-mega-starmie.jpg",
+    "acceptedConfidences": ["low"],
+    "acceptedResolverPaths": ["visual_fallback"],
+    "acceptedResolverModes": ["unknown_fallback", "raw_card"]
+  },
+  {
+    "name": "Simisear VSTAR Toploader Review",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/simisear-vstar-toploader.jpeg",
+    "acceptedConfidences": ["low"],
+    "acceptedResolverPaths": ["visual_fallback"],
+    "acceptedResolverModes": ["unknown_fallback"]
+  },
+  {
+    "name": "Charmander Toploader Review",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/charmander-toploader.jpeg",
+    "acceptedConfidences": ["low"],
+    "acceptedResolverPaths": ["visual_fallback"],
+    "acceptedResolverModes": ["unknown_fallback"]
+  },
+  {
+    "name": "Pikachu ex Surging Sparks PSA 9",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03/pikachu-ex-surging-sparks-psa-9.jpg",
+    "acceptedCardIDs": ["sv8-238"],
+    "expectedCardName": "Pikachu ex",
+    "acceptedSetNames": ["Surging Sparks"],
+    "acceptedNumbers": ["238/191"],
+    "acceptedConfidences": ["high", "medium"],
+    "acceptedResolverPaths": ["psa_label"],
+    "acceptedResolverModes": ["psa_slab"],
+    "expectPricingAvailable": true,
+    "expectedPricingMode": "psa_grade_estimate"
+  }
+]

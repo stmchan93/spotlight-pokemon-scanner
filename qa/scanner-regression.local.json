@@ -1,0 +1,97 @@
+[
+  {
+    "name": "Basic Lightning Energy 257/198",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/basic-lightning-energy-257-198.png",
+    "acceptedCardIDs": [
+      "pokemon-basic-lightning-energy-257-198",
+      "sv1-257"
+    ],
+    "expectedCardName": "Basic Lightning Energy",
+    "acceptedSetNames": [
+      "Scarlet & Violet"
+    ],
+    "acceptedNumbers": [
+      "257/198"
+    ]
+  },
+  {
+    "name": "Charizard ex OBF 125/197",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/charizard-ex-125-197.png",
+    "acceptedCardIDs": [
+      "pokemon-charizard-ex-125-197",
+      "sv3-125"
+    ],
+    "expectedCardName": "Charizard ex",
+    "acceptedSetNames": [
+      "Obsidian Flame",
+      "Obsidian Flames"
+    ],
+    "acceptedNumbers": [
+      "125/197"
+    ]
+  },
+  {
+    "name": "Charizard ex OBF 223/197",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/charizard-ex-223-197.png",
+    "acceptedCardIDs": [
+      "pokemon-charizard-ex-223-197",
+      "sv3-223"
+    ],
+    "expectedCardName": "Charizard ex",
+    "acceptedSetNames": [
+      "Obsidian Flame",
+      "Obsidian Flames"
+    ],
+    "acceptedNumbers": [
+      "223/197"
+    ]
+  },
+  {
+    "name": "Charizard ex SVP 056",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/charizard-ex-svp-056.png",
+    "acceptedCardIDs": [
+      "pokemon-charizard-ex-svp-056",
+      "svp-56"
+    ],
+    "expectedCardName": "Charizard ex",
+    "acceptedSetNames": [
+      "Scarlet & Violet Promo",
+      "Scarlet & Violet Black Star Promos"
+    ],
+    "acceptedNumbers": [
+      "SVP 056",
+      "56"
+    ]
+  },
+  {
+    "name": "Iono PAL 254/193",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/iono-254-193.png",
+    "acceptedCardIDs": [
+      "pokemon-iono-254-193",
+      "sv2-254"
+    ],
+    "expectedCardName": "Iono",
+    "acceptedSetNames": [
+      "Paldea Evolved"
+    ],
+    "acceptedNumbers": [
+      "254/193"
+    ]
+  },
+  {
+    "name": "Umbreon VMAX TG23/TG30",
+    "imagePath": "/Users/stephenchan/Code/spotlight/qa/images/umbreon-vmax-tg23-tg30.png",
+    "acceptedCardIDs": [
+      "pokemon-umbreon-vmax-tg23",
+      "swsh9tg-TG23"
+    ],
+    "expectedCardName": "Umbreon VMAX",
+    "acceptedSetNames": [
+      "Brilliant Stars Trainer Gallery"
+    ],
+    "acceptedNumbers": [
+      "TG23/TG30",
+      "TG23/30"
+    ]
+  }
+]

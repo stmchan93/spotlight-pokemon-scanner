@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Scanner First MVP Wireframes</title>
+    <style>
+      :root {
+        --bg: #090b0e;
+        --screen: #12171d;
+        --surface: #1a2129;
+        --surface-2: #212a35;
+        --line: #33404e;
+        --text: #ecf2f7;
+        --muted: #9fb0c0;
+        --accent: #7ad0ac;
+        --accent-2: #56a9ff;
+        --warn: #efc36d;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        color: var(--text);
+        font-family: "SF Pro Display", "Segoe UI", sans-serif;
+        background:
+          radial-gradient(circle at top left, rgba(86, 169, 255, 0.08), transparent 24%),
+          linear-gradient(180deg, #0b0e12 0%, #07090c 100%);
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .page {
+        width: min(1360px, calc(100vw - 32px));
+        margin: 0 auto;
+        padding: 24px 0 56px;
+      }
+
+      .hero,
+      .summary-grid,
+      .wireframe-grid,
+      .note-grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      .hero {
+        grid-template-columns: 1.2fr 1fr;
+      }
+
+      .summary-grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+
+      .wireframe-grid {
+        grid-template-columns: repeat(3, minmax(300px, 1fr));
+      }
+
+      .note-grid {
+        grid-template-columns: repeat(2, 1fr);
+      }
+
+      .hero-card,
+      .summary-card,
+      .screen-card,
+      .note-card {
+        background: linear-gradient(180deg, rgba(28, 35, 43, 0.96), rgba(18, 23, 29, 0.98));
+        border: 1px solid var(--line);
+        border-radius: 24px;
+        box-shadow: 0 16px 36px rgba(0, 0, 0, 0.28);
+      }
+
+      .hero-card,
+      .summary-card,
+      .note-card {
+        padding: 22px;
+      }
+
+      .screen-card {
+        padding: 16px;
+      }
+
+      .eyebrow,
+      .meta,
+      .mini-label,
+      .section-kicker {
+        font-family: Menlo, Consolas, monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .hero h1 {
+        margin: 10px 0 14px;
+        font-size: 35px;
+        line-height: 1;
+      }
+
+      .hero p,
+      .summary-card p,
+      .note-card p,
+      section > p,
+      .screen-note {
+        margin: 0;
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .hero-list,
+      .review-list {
+        margin: 16px 0 0;
+        padding-left: 18px;
+      }
+
+      .hero-list li,
+      .review-list li {
+        margin: 6px 0;
+      }
+
+      .summary-card h3,
+      .note-card h3,
+      .screen-head h3,
+      section h2 {
+        margin: 8px 0 10px;
+      }
+
+      .toc {
+        position: sticky;
+        top: 0;
+        z-index: 10;
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+        padding: 10px;
+        margin: 18px 0 10px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(9, 11, 14, 0.9);
+        backdrop-filter: blur(12px);
+      }
+
+      .toc a {
+        text-decoration: none;
+        padding: 8px 12px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(33, 42, 53, 0.92);
+        font-size: 13px;
+      }
+
+      section {
+        margin-top: 24px;
+        padding-top: 8px;
+      }
+
+      section h2 {
+        font-size: 28px;
+      }
+
+      .flow-strip {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-top: 16px;
+      }
+
+      .step {
+        padding: 10px 14px;
+        border-radius: 999px;
+        border: 1px solid var(--line);
+        background: rgba(33, 42, 53, 0.92);
+        font-size: 13px;
+      }
+
+      .screen-head {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        align-items: baseline;
+        margin-bottom: 12px;
+      }
+
+      .phone {
+        width: 330px;
+        max-width: 100%;
+        margin: 0 auto;
+        padding: 10px;
+        border-radius: 36px;
+        background: #050607;
+        box-shadow: inset 0 0 0 1px #000, 0 18px 36px rgba(0, 0, 0, 0.45);
+      }
+
+      .screen {
+        min-height: 700px;
+        position: relative;
+        overflow: hidden;
+        border-radius: 28px;
+        background: linear-gradient(180deg, rgba(29, 36, 45, 0.96), rgba(18, 23, 29, 0.98));
+      }
+
+      .status {
+        display: flex;
+        justify-content: space-between;
+        height: 30px;
+        padding: 10px 16px 0;
+        font-family: Menlo, Consolas, monospace;
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .appbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 12px;
+        padding: 14px 16px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .stack {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+      }
+
+      .camera,
+      .panel,
+      .button,
+      .field,
+      .match-card,
+      .match-row,
+      .pill,
+      .warning {
+        border: 1px solid var(--line);
+        border-radius: 18px;
+      }
+
+      .camera,
+      .panel,
+      .field,
+      .match-card,
+      .match-row,
+      .warning {
+        background: linear-gradient(180deg, rgba(34, 43, 54, 0.94), rgba(24, 31, 39, 0.98));
+      }
+
+      .panel,
+      .field,
+      .match-card,
+      .match-row,
+      .warning {
+        padding: 14px;
+      }
+
+      .button {
+        min-height: 62px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 14px;
+        font-weight: 700;
+        text-align: center;
+        background: linear-gradient(180deg, rgba(45, 58, 73, 0.96), rgba(31, 40, 49, 0.98));
+      }
+
+      .button.primary {
+        border-color: rgba(122, 208, 172, 0.36);
+        background: linear-gradient(180deg, rgba(44, 83, 69, 0.98), rgba(28, 56, 47, 0.98));
+      }
+
+      .button.secondary {
+        border-color: rgba(86, 169, 255, 0.3);
+      }
+
+      .camera {
+        min-height: 470px;
+        position: relative;
+        background:
+          linear-gradient(rgba(10, 13, 17, 0.2), rgba(10, 13, 17, 0.34)),
+          linear-gradient(180deg, rgba(64, 76, 92, 0.88), rgba(29, 37, 46, 0.96));
+      }
+
+      .camera::before {
+        content: "";
+        position: absolute;
+        left: 34px;
+        right: 34px;
+        top: 62px;
+        bottom: 88px;
+        border: 2px dashed rgba(236, 242, 247, 0.34);
+        border-radius: 20px;
+      }
+
+      .camera::after {
+        content: "One card only";
+        position: absolute;
+        left: 50%;
+        bottom: 24px;
+        transform: translateX(-50%);
+        font-family: Menlo, Consolas, monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .action-row,
+      .pill-row {
+        display: flex;
+        gap: 10px;
+      }
+
+      .button.small {
+        min-height: 52px;
+        flex: 1;
+        font-size: 14px;
+      }
+
+      .pill {
+        padding: 7px 10px;
+        background: rgba(20, 26, 34, 0.96);
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .pill.good {
+        border-color: rgba(122, 208, 172, 0.34);
+        color: var(--text);
+        background: rgba(34, 58, 50, 0.96);
+      }
+
+      .pill.warn {
+        border-color: rgba(239, 195, 109, 0.3);
+        color: var(--warn);
+        background: rgba(61, 48, 24, 0.96);
+      }
+
+      .thumb-row {
+        display: grid;
+        grid-template-columns: 76px 1fr;
+        gap: 12px;
+        align-items: start;
+      }
+
+      .thumb {
+        width: 76px;
+        height: 104px;
+        border-radius: 16px;
+        border: 1px solid var(--line);
+        background: linear-gradient(180deg, rgba(103, 118, 136, 0.74), rgba(44, 54, 65, 0.96));
+      }
+
+      .match-row {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 12px;
+        align-items: center;
+      }
+
+      .price-col {
+        text-align: right;
+      }
+
+      .warning {
+        border-color: rgba(239, 195, 109, 0.28);
+        background: linear-gradient(180deg, rgba(66, 54, 28, 0.92), rgba(45, 37, 18, 0.96));
+        color: #f0dcaf;
+      }
+
+      .screen-note {
+        margin-top: 12px;
+      }
+
+      @media (max-width: 1160px) {
+        .hero,
+        .summary-grid,
+        .wireframe-grid,
+        .note-grid {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="page">
+      <div class="hero">
+        <div class="hero-card">
+          <div class="eyebrow">Scanner-First MVP</div>
+          <h1>Single Card Identity Flow</h1>
+          <p>
+            This artifact intentionally ignores pricing, bundle totals, eBay sync, and
+            other dealer workflows. The only question it tries to answer is whether a
+            dealer can scan one card photo and get a trustworthy match.
+          </p>
+          <ul class="hero-list">
+            <li>One photo in</li>
+            <li>One likely card match out</li>
+            <li>Confidence shown honestly</li>
+            <li>Manual recovery when the scan is wrong</li>
+          </ul>
+        </div>
+        <div class="hero-card">
+          <div class="eyebrow">What To Evaluate</div>
+          <h3>Trust and recovery, not polish</h3>
+          <ul class="review-list">
+            <li>Does the scanner UI make it obvious that this is one card at a time?</li>
+            <li>Does the result screen show the right identity fields?</li>
+            <li>When the model is wrong, is correction fast and clear?</li>
+            <li>Is confidence visible enough to prevent false trust?</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="summary-grid">
+        <div class="summary-card">
+          <div class="section-kicker">Goal</div>
+          <h3>Prove Identification Works</h3>
+          <p>
+            Before price data, bundle math, or deal logging, the app needs a reliable
+            identity layer.
+          </p>
+        </div>
+        <div class="summary-card">
+          <div class="section-kicker">Scope</div>
+          <h3>Only 3 Screens</h3>
+          <p>
+            Scanner, Match Result, and Match Alternatives / Search. Anything else is a
+            later phase.
+          </p>
+        </div>
+        <div class="summary-card">
+          <div class="section-kicker">Mode</div>
+          <h3>Convention-Floor Constraints</h3>
+          <p>
+            Dark mode, large tap targets, minimal typing, and graceful handling when the
+            first guess is wrong.
+          </p>
+        </div>
+      </div>
+
+      <div class="toc">
+        <a href="#flow">Flow</a>
+        <a href="#screens">Wireframes</a>
+        <a href="#notes">Open Questions</a>
+      </div>
+
+      <section id="flow">
+        <div class="section-kicker">Flow</div>
+        <h2>Scan -> Match -> Correct If Needed</h2>
+        <p>
+          This is the smallest loop worth building. If this loop does not work, the
+          broader dealer workflow should not be implemented yet.
+        </p>
+        <div class="flow-strip">
+          <div class="step">Open Scanner</div>
+          <div class="step">Capture One Photo</div>
+          <div class="step">See Best Match</div>
+          <div class="step">Accept or Correct</div>
+        </div>
+      </section>
+
+      <section id="screens">
+        <div class="section-kicker">Low-Fi Screens</div>
+        <h2>Scanner-First MVP Set</h2>
+        <p>
+          These wireframes focus on identity only. Pricing modules are intentionally absent.
+        </p>
+
+        <div class="wireframe-grid">
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 1</div>
+                <h3>Scanner</h3>
+              </div>
+              <div class="mini-label">One Card Only</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:41</span>
+                  <span>LTE • 67%</span>
+                </div>
+                <div class="appbar">
+                  <div>
+                    <strong>Scan Card</strong>
+                    <div class="mini-label">Single photo capture</div>
+                  </div>
+                  <span class="pill">Offline tolerant</span>
+                </div>
+                <div class="stack">
+                  <div class="camera"></div>
+                  <div class="panel">
+                    <div class="mini-label">Capture Guidance</div>
+                    <strong>Keep one card inside the frame</strong>
+                    <div class="mini-label" style="margin-top: 8px;">Avoid glare • use plain background • fill frame</div>
+                  </div>
+                  <div class="action-row">
+                    <div class="button small secondary">Import Photo</div>
+                    <div class="button small secondary">Flash</div>
+                  </div>
+                  <div class="button primary">Capture</div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              The scanner should feel almost empty. No tabs, no totals, no pricing noise.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 2</div>
+                <h3>Match Result</h3>
+              </div>
+              <div class="mini-label">Identity First</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:42</span>
+                  <span>LTE • 66%</span>
+                </div>
+                <div class="appbar">
+                  <div>
+                    <strong>We Think This Is</strong>
+                    <div class="mini-label">Best match returned</div>
+                  </div>
+                  <span class="pill good">High confidence</span>
+                </div>
+                <div class="stack">
+                  <div class="match-card">
+                    <div class="thumb-row">
+                      <div class="thumb"></div>
+                      <div>
+                        <strong>Charizard ex 223/197</strong>
+                        <div class="mini-label" style="margin-top: 8px;">Obsidian Flame • Hyper Rare</div>
+                        <div class="pill-row" style="margin-top: 10px;">
+                          <span class="pill">Raw</span>
+                          <span class="pill">English</span>
+                          <span class="pill good">Exact art match</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="panel">
+                    <div class="mini-label">Returned Fields</div>
+                    <strong>Name, set, card number, rarity, variant</strong>
+                    <div class="mini-label" style="margin-top: 8px;">Confidence: high</div>
+                  </div>
+                  <div class="button primary">Use This Match</div>
+                  <div class="action-row">
+                    <div class="button small secondary">See Other Matches</div>
+                    <div class="button small secondary">Search Instead</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              This screen should answer identity questions only. It should not imply a
+              trusted price until pricing exists.
+            </p>
+          </article>
+
+          <article class="screen-card">
+            <div class="screen-head">
+              <div>
+                <div class="meta">Screen 3</div>
+                <h3>Other Matches / Search</h3>
+              </div>
+              <div class="mini-label">Recovery Path</div>
+            </div>
+            <div class="phone">
+              <div class="screen">
+                <div class="status">
+                  <span>9:42</span>
+                  <span>LTE • 66%</span>
+                </div>
+                <div class="appbar">
+                  <div>
+                    <strong>Pick A Better Match</strong>
+                    <div class="mini-label">Low-confidence or wrong result</div>
+                  </div>
+                  <span class="pill warn">72% confidence</span>
+                </div>
+                <div class="stack">
+                  <div class="field">
+                    <div class="mini-label">Search</div>
+                    <strong>charizard ex 223</strong>
+                    <div class="mini-label" style="margin-top: 8px;">Search by name / set / number</div>
+                  </div>
+                  <div class="warning">
+                    <strong>Low-confidence match</strong>
+                    <div class="mini-label" style="margin-top: 8px;">Review version before accepting.</div>
+                  </div>
+                  <div class="match-row">
+                    <div>
+                      <strong>Charizard ex 223/197</strong>
+                      <div class="mini-label">Obsidian Flame • Hyper Rare</div>
+                    </div>
+                    <div class="price-col">
+                      <span class="mini-label">Best</span>
+                    </div>
+                  </div>
+                  <div class="match-row">
+                    <div>
+                      <strong>Charizard ex 125/197</strong>
+                      <div class="mini-label">Obsidian Flame</div>
+                    </div>
+                    <div class="price-col">
+                      <span class="mini-label">Alt</span>
+                    </div>
+                  </div>
+                  <div class="match-row">
+                    <div>
+                      <strong>Charizard ex SVP 056</strong>
+                      <div class="mini-label">Promo</div>
+                    </div>
+                    <div class="price-col">
+                      <span class="mini-label">Alt</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <p class="screen-note">
+              The correction path matters as much as the first guess. Fast recovery is part
+              of scanner trust.
+            </p>
+          </article>
+        </div>
+      </section>
+
+      <section id="notes">
+        <div class="section-kicker">Open Questions</div>
+        <h2>What We Need To Decide Before Building</h2>
+        <div class="note-grid">
+          <div class="note-card">
+            <div class="meta">Camera</div>
+            <h3>Capture vs Import Default</h3>
+            <p>
+              If the app is used live on the floor, camera should be primary. If testing
+              starts with saved photos, import may be the first implemented path.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Confidence</div>
+            <h3>How Honest Should The UI Be?</h3>
+            <p>
+              It should probably be very explicit. A wrong confident result is more
+              damaging than a cautious low-confidence one.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Search</div>
+            <h3>Manual Search Scope</h3>
+            <p>
+              For the first version, search should probably support card name, set name,
+              and card number only.
+            </p>
+          </div>
+          <div class="note-card">
+            <div class="meta">Next Layer</div>
+            <h3>Pricing Comes After Identity</h3>
+            <p>
+              Once this flow works, the next screen addition should be pricing on the
+              confirmed match, not bundle logic yet.
+            </p>
+          </div>
+        </div>
+      </section>
+    </div>
+  </body>
+</html>
