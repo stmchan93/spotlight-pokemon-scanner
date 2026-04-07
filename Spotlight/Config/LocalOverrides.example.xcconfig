@@ -1,0 +1,11 @@
+// Copy this file to LocalOverrides.xcconfig and edit the values for your machine.
+// LocalOverrides.xcconfig is gitignored and is the app-side equivalent of a local .env file.
+
+// Required for physical-device debug runs against your Mac.
+SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL = http:/$()/192.168.0.225:8788/
+
+// Optional. For now staging and production are the same backend.
+SPOTLIGHT_STAGING_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.run.app/
+
+// Optional. Override production without editing Release.xcconfig.
+SPOTLIGHT_PRODUCTION_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.run.app/

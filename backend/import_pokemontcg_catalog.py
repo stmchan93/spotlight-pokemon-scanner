@@ -40,14 +40,14 @@ DEFAULT_SLEEP_SECONDS = 0.2
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Import Pokémon card metadata and reference images from Pokémon TCG API")
+    parser = argparse.ArgumentParser(description="Import Pokémon card metadata from Pokémon TCG API. Local reference image download is optional and legacy.")
     parser.add_argument("--api-key", default=os.environ.get("POKEMONTCG_API_KEY"))
     parser.add_argument("--query", default=DEFAULT_QUERY)
     parser.add_argument("--page-size", type=int, default=DEFAULT_PAGE_SIZE)
     parser.add_argument("--max-pages", type=int, default=None)
     parser.add_argument("--max-cards", type=int, default=None)
     parser.add_argument("--sleep-seconds", type=float, default=DEFAULT_SLEEP_SECONDS)
-    parser.add_argument("--download-images", action="store_true", default=True)
+    parser.add_argument("--download-images", action="store_true", default=False)
     parser.add_argument("--skip-image-download", action="store_true")
     parser.add_argument("--catalog-json", default=None)
     parser.add_argument("--images-dir", default=None)

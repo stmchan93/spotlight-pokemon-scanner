@@ -106,6 +106,13 @@ struct ScanPerformanceMetrics: Hashable, Sendable {
     }
 }
 
+enum CacheStatus {
+    case fresh              // < 1 hour old
+    case recent(hours: Int) // 1-24 hours
+    case outdated(days: Int)// 1-7 days
+    case offline            // No backend connection
+}
+
 struct LiveScanStackItem: Identifiable {
     let id: UUID
     let scanID: UUID
@@ -127,6 +134,7 @@ struct LiveScanStackItem: Identifiable {
     var statusMessage: String?
     var pricingContextNote: String?
     var performance: ScanPerformanceMetrics?
+    var cacheStatus: CacheStatus?
 
     var displayCard: CardCandidate? {
         detail?.card ?? card

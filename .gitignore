@@ -24,6 +24,7 @@ DerivedData/
 .LSOverride
 
 # Backend Python
+.env
 backend/__pycache__/
 backend/*.pyc
 backend/venv/
@@ -35,6 +36,9 @@ backend/data/*.db
 
 # Logs
 *.log
+
+# Local Xcode environment overrides
+Spotlight/Config/LocalOverrides.xcconfig
 
 # Claude/temp files
 .claude/

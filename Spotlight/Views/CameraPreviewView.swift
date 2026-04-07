@@ -4,16 +4,21 @@ import UIKit
 
 struct CameraPreviewView: UIViewRepresentable {
     let session: AVCaptureSession
+    let onPreviewViewReady: ((PreviewView) -> Void)?
 
     func makeUIView(context: Context) -> PreviewView {
         print("📸 [PREVIEW] Creating preview view")
         let view = PreviewView()
         view.previewLayer.session = session
-        // Use resizeAspectFill to fill the entire screen without black bars
-        view.previewLayer.videoGravity = .resizeAspectFill
+        // Use resizeAspect to show full camera feed (matches captured photo)
+        view.previewLayer.videoGravity = .resizeAspect
         view.backgroundColor = .black
         print("📸 [PREVIEW] Preview layer session: \(session), running: \(session.isRunning)")
         print("📸 [PREVIEW] Preview layer connection: \(String(describing: view.previewLayer.connection))")
+
+        // Pass preview view to camera controller for coordinate conversion
+        onPreviewViewReady?(view)
+
         return view
     }
 

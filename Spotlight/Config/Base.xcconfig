@@ -1,0 +1,6 @@
+// Shared app environment settings.
+// Use the per-configuration xcconfig files to choose the backend environment.
+
+SPOTLIGHT_ENVIRONMENT =
+SPOTLIGHT_API_BASE_URL =
+SPOTLIGHT_DEVICE_API_BASE_URL =

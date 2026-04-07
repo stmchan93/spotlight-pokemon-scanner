@@ -4,6 +4,20 @@ Date: 2026-04-04
 
 This is the current source of truth for the Spotlight scanner project.
 
+Current rollout/runbook for the first internal tester cohort:
+
+- [internal-testflight-rollout-2026-04-07.md](/Users/stephenchan/Code/spotlight/docs/internal-testflight-rollout-2026-04-07.md)
+
+Current validation snapshot as of 2026-04-07:
+
+- backend tests: `92/92` passing
+- app build: `xcodebuild ... build` passing
+- real-world regression pack: `14/20 passed`
+- real-world latency benchmark:
+  - analysis avg `656.9ms`, p95 `1159.4ms`
+  - match avg `35.0ms`, p95 `75.0ms`
+  - total avg `691.9ms`, p95 `1190.6ms`
+
 Use this doc first for:
 
 - current product direction
@@ -173,7 +187,7 @@ Happy path:
 Important pricing rule:
 
 - PSA slab scans do not pretend raw prices are slab comps
-- if only raw pricing is available, the UI labels it as a raw-card snapshot/proxy
+- if PSA label OCR or slab pricing is unavailable, the scan stays unsupported / no-price instead of degrading into a raw proxy
 
 ### Unknown Fallback Path
 
@@ -210,19 +224,33 @@ Pricing today uses a multi-provider architecture:
 
 - **Provider Registry**: Priority-based fallback system with pluggable pricing providers
 - **Active Providers**:
-  - `PriceCharting` (default, priority 1) - when `PRICECHARTING_API_KEY` is configured
-  - `Scrydex` (fallback, priority 2) - when `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` are configured
+  - `Pokemon TCG API` (default raw provider, priority 1) - when `POKEMONTCG_API_KEY` is configured or anonymous access is sufficient
+  - `Scrydex` (default PSA provider, priority 2) - when `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` are configured
+  - `PriceCharting` (auxiliary/manual PSA provider, priority 3) - when `PRICECHARTING_API_KEY` is configured
 - **Fallback Behavior**:
-  - Raw cards: pricecharting → scrydex → imported snapshot
-  - PSA slabs: pricecharting → scrydex → local slab comp → raw proxy
+  - Raw cards in scanner runtime: pokemontcg_api → imported snapshot / existing stored data
+  - PSA slabs in scanner runtime: scrydex → local slab comp / unsupported
 - **Important**: Provider prices are **never** blended or averaged together
 - **Tray Display**: Shows one active/default provider result
+
+### Pricing Freshness Today
+
+- Persisted SQLite snapshot timestamps are the source of truth for the scanner runtime `24 hour` freshness window.
+- Refresh reads the stored snapshot first:
+  - fresh snapshot => return it immediately
+  - stale snapshot => refresh the live provider for the active lane and persist the result
+- Manual refresh can bypass the normal freshness window with `forceRefresh=1`.
+- Background cache cleanup still exists for the legacy in-memory provider cache, but scanner runtime correctness no longer depends on that cache.
+- The app can show an existing stored pricing snapshot immediately during match resolution.
+- After a card is accepted into the tray, the app schedules an idle pricing refresh after about `1.8 seconds` if the shown price is not already fresh.
+- User-triggered refresh uses the same backend refresh path with force-refresh enabled.
+- Separate from provider refresh caching, the app keeps a `7-day` local/offline scan cache for previously seen cards.
 - **Future Support**: Architecture ready for side-by-side provider display in detail views
 
 Imported snapshot pricing is retained as the cache fallback when:
-- No providers are configured with valid credentials
-- All configured providers fail to return pricing
-- A card has not been refreshed yet
+- A persisted snapshot already exists and is still within the freshness window
+- A live provider refresh fails and the app needs to keep showing the last known snapshot
+- A card has not been refreshed yet but still has seeded/imported local pricing
 
 Pricing is not yet:
 
@@ -412,7 +440,7 @@ Two backend modes still exist:
 Current imported catalog:
 
 - sourced from Pokémon TCG API
-- local reference images downloaded
+- local reference images are a legacy optional artifact, not the intended source of truth for scanner/product metadata
 - current catalog size: `2020` cards
 
 Imported artifacts:
@@ -420,6 +448,19 @@ Imported artifacts:
 - [cards.json](/Users/stephenchan/Code/spotlight/backend/catalog/pokemontcg/cards.json)
 - [images](/Users/stephenchan/Code/spotlight/backend/catalog/pokemontcg/images)
 - [imported_scanner.sqlite](/Users/stephenchan/Code/spotlight/backend/data/imported_scanner.sqlite)
+
+Current repo rules for development:
+
+- use a **local backend** during scanner debugging, not a hardcoded production cloud backend
+- app environment selection should come from Xcode config files:
+  - `Debug` => local
+  - `Staging` => TestFlight/internal
+  - `Release` => production
+- use `Spotlight/Config/LocalOverrides.xcconfig` as the machine-local app override file
+- current `Staging` and `Release` both point at `https://spotlight-backend-grhsfspaia-uc.a.run.app/`
+- keep bundled identifier assets minimal
+- if a lightweight local metadata cache is needed, prefer `all_cards_cache.json`
+- treat checked-in local image bundles and backup catalog files as legacy importer artifacts unless/until the backend is intentionally redesigned around them
 
 Targeted real-card coverage added so far includes:
 

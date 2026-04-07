@@ -20,6 +20,9 @@ struct CardPricingSummary: Codable, Hashable, Sendable {
     let refreshedAt: String?
     let sourceURL: String?
     let pricingMode: String?
+    let snapshotAgeHours: Double?
+    let freshnessWindowHours: Int?
+    let isFresh: Bool?
     let grader: String?
     let grade: String?
     let pricingTier: String?
@@ -36,11 +39,27 @@ struct CardPricingSummary: Codable, Hashable, Sendable {
         if source == "psa_comp_model" {
             return "PSA comps"
         }
-        // Provider-agnostic label for live pricing sources
-        if source == "scrydex" || source == "pricecharting" {
-            return "Live pricing"
+        if source == "tcgplayer" {
+            return "TCGplayer"
+        }
+        if source == "cardmarket" {
+            return "Cardmarket"
+        }
+        if source == "scrydex" {
+            return "Scrydex"
+        }
+        if source == "pricecharting" {
+            return "PriceCharting"
+        }
+        if source == "pokemontcg_api" {
+            return "Pokemon TCG API"
         }
         return source.capitalized
+    }
+
+    var sourceDetailLabel: String {
+        guard let variant, !variant.isEmpty else { return sourceLabel }
+        return "\(sourceLabel) • \(variant)"
     }
 
     var primaryDisplayPrice: Double? {
@@ -50,9 +69,6 @@ struct CardPricingSummary: Codable, Hashable, Sendable {
     var primaryLabel: String {
         if pricingMode == "psa_grade_estimate", let grader, let grade {
             return "\(grader) \(grade)"
-        }
-        if pricingMode == "raw_fallback" {
-            return "Raw Proxy"
         }
         if market != nil { return "Market" }
         if mid != nil { return "Mid" }
@@ -90,25 +106,38 @@ struct CardPricingSummary: Codable, Hashable, Sendable {
     }
 
     var freshnessLabel: String {
-        switch freshnessState {
-        case .unavailable:
+        if freshnessState == .unavailable {
             return "Price unavailable"
-        case .cached:
-            return "Cached snapshot"
-        case .refreshedRecently:
-            break
-        case .stale:
-            break
         }
-
         guard let refreshedDate else { return "Snapshot timing unavailable" }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
-        return "Refreshed \(formatter.localizedString(for: refreshedDate, relativeTo: Date()))"
+        let relative = formatter.localizedString(for: refreshedDate, relativeTo: Date())
+
+        switch freshnessState {
+        case .cached:
+            return "Cached from \(relative)"
+        case .refreshedRecently:
+            return "Refreshed \(relative)"
+        case .stale:
+            return "Stale snapshot from \(relative)"
+        case .unavailable:
+            return "Price unavailable"
+        }
     }
 
     var freshnessState: PricingFreshnessState {
         guard primaryDisplayPrice != nil else { return .unavailable }
+        if let isFresh {
+            guard isFresh else { return .stale }
+            if let snapshotAgeHours, snapshotAgeHours < 0.25 {
+                return .refreshedRecently
+            }
+            if let refreshedDate, Date().timeIntervalSince(refreshedDate) < 15 * 60 {
+                return .refreshedRecently
+            }
+            return .cached
+        }
         guard let refreshedDate else { return .cached }
         let age = Date().timeIntervalSince(refreshedDate)
         if age < 15 * 60 { return .refreshedRecently }

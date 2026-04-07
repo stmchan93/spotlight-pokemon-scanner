@@ -77,7 +77,10 @@ enum ScanTrayCalculator {
 
     static func shouldAutoRefresh(pricing: CardPricingSummary?) -> Bool {
         guard let pricing else { return true }
-        return pricing.freshnessTone != .fresh
+        if let isFresh = pricing.isFresh {
+            return !isFresh
+        }
+        return pricing.freshnessTone == .stale
     }
 
     static func initialStatusMessage(for pricing: CardPricingSummary?) -> String {

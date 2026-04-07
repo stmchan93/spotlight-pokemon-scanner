@@ -10,20 +10,69 @@ Repo-specific workflow notes for future coding agents.
 ## Current provider rules
 
 - Pricing provider abstraction is now implemented with specialized providers:
-- Runtime uses a provider registry with priority-based fallback:
-  - **Pokemon TCG API** for raw/singles pricing (priority 1, free official data)
-  - **PriceCharting** for PSA slab pricing (priority 2, specialized graded pricing)
-  - **Scrydex** as fallback for both raw and PSA (priority 3)
-  - Each provider implements the shared `PricingProvider` contract
+- Runtime scanner behavior is mode-specific, not cross-provider blended:
+  - **Raw mode**:
+    - resolve as `raw_card`
+    - use local raw identifier shortcuts when available
+    - refresh/display raw pricing from **Pokemon TCG API** only
+  - **Slab mode**:
+    - resolve as `psa_slab`
+    - skip local raw identifier shortcuts
+    - refresh/display PSA/slab pricing from **Scrydex** only
+    - if PSA label OCR or Scrydex pricing is unavailable, surface unsupported/no-price instead of falling back to raw pricing
+- PriceCharting may remain registered for diagnostics/manual experiments, but it is **not** the default scanner source of truth.
+- Each provider implements the shared `PricingProvider` contract.
 - Provider prices are **not** blended or averaged together.
 - The tray shows one active/default provider result.
 - The architecture supports future side-by-side provider display in detail views.
+- Pricing freshness rule:
+  - persisted SQLite snapshot timestamps are the source of truth for the `24 hour` freshness window
+  - runtime refresh should read existing snapshots first and only hit the live provider when the snapshot is stale or the caller explicitly requests `forceRefresh`
+  - the in-memory provider cache may exist as an optimization, but it is not the correctness layer for scanner runtime behavior
 - Implementation files:
   - [backend/pricing_provider.py](/Users/stephenchan/Code/spotlight/backend/pricing_provider.py) - provider contract and registry
   - [backend/pricing_utils.py](/Users/stephenchan/Code/spotlight/backend/pricing_utils.py) - shared price normalization utilities
   - [backend/pokemontcg_pricing_adapter.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_pricing_adapter.py) - Pokemon TCG API implementation
   - [backend/pricecharting_adapter.py](/Users/stephenchan/Code/spotlight/backend/pricecharting_adapter.py) - PriceCharting implementation
   - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py) - Scrydex implementation
+
+## Local backend and catalog rules
+
+- During local development and scanner debugging, the app should target a **local backend**, not a production cloud URL.
+- App environment selection should be driven by Xcode config files, not ad hoc hardcoded URLs in Swift:
+  - `Debug` => local backend
+  - `Staging` => TestFlight / internal backend
+  - `Release` => production backend
+- The machine-local override file is `Spotlight/Config/LocalOverrides.xcconfig`.
+- Current default staging host is `https://spotlight-backend-grhsfspaia-uc.a.run.app/`.
+- Current production host is also `https://spotlight-backend-grhsfspaia-uc.a.run.app/`.
+- Default local backend assumptions:
+  - simulator: `http://127.0.0.1:8788/`
+  - physical device: set `SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL` in `LocalOverrides.xcconfig` to the Mac's LAN URL, for example `http://192.168.x.y:8788/`
+- `SPOTLIGHT_API_BASE_URL` is still allowed as an emergency runtime override, but it should not be the primary day-to-day environment switch.
+- Do **not** re-introduce a baked-in production cloud backend URL as the default app target for development/testing.
+- The bundled/offline identifier assets should stay minimal: card `id`, `name`, `set`, and image URL only.
+- If a lightweight local metadata cache is needed, prefer `backend/catalog/pokemontcg/all_cards_cache.json` or the bundled identifier map.
+- Do not treat `all_cards_cache.json` as permission to rebuild a large checked-in image corpus or backup snapshot flow.
+- Rich card metadata and pricing should come from runtime metadata/provider APIs:
+  - raw/singles => Pokemon TCG API
+  - PSA/slabs => Scrydex
+  - do not silently cross-fallback slab pricing into raw pricing in the scanner flow
+  not from large checked-in image bundles.
+- Low-trust custom `me*` catalog families are excluded from runtime matching and bundled identifier lookup.
+  - Do not re-introduce those custom Mega Evolution-style IDs into scanner runtime paths unless product scope explicitly changes.
+- Treat `backend/catalog/pokemontcg/images/` and `backend/catalog/pokemontcg/cards.json.backup` as legacy importer artifacts, not as required product/runtime assets.
+- If current backend code still references local reference images for visual retrieval, call that out as legacy technical debt instead of expanding that pattern.
+- Scanner presentation rule:
+  - preserve the current raw-card OCR pipeline unless there is a concrete bug; raw footer OCR is working well now
+  - treat raw-vs-slab reticle sizing as a UI/layout concern first, not a reason to casually retune raw OCR
+  - raw mode should use a standard card-style reticle
+  - slab mode should keep the same reticle width as raw and grow primarily by height based on PSA slab proportions
+  - keep comfortable spacing above the reticle, between the reticle and controls, and between the controls and tray
+  - the raw/slab toggle is a real routing signal, not presentation-only:
+    - raw => raw-card matching/pricing flow
+    - slab => PSA slab matching/pricing flow
+  - do not silently degrade slab scans into raw matches or raw price proxies
 
 ## Key backend entry points
 
@@ -50,6 +99,8 @@ Run these after backend or app changes:
 ```bash
 python3 -m py_compile backend/catalog_tools.py backend/import_pokemontcg_catalog.py backend/catalog_sync.py backend/sync_catalog.py backend/slab_source_sync.py backend/sync_slab_sources.py backend/scrydex_adapter.py backend/validate_scrydex.py backend/server.py
 python3 -m unittest discover -s backend/tests -p 'test_*.py' -v
+zsh tools/run_card_identifier_parser_tests.sh
+zsh tools/run_scanner_reticle_layout_tests.sh
 zsh tools/run_scan_tray_logic_tests.sh
 xcodebuild -project Spotlight.xcodeproj -scheme Spotlight -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .derivedData CODE_SIGNING_ALLOWED=NO build
 SPOTLIGHT_SCANNER_SERVER=http://127.0.0.1:8788/ zsh tools/run_scanner_regression.sh
@@ -69,6 +120,24 @@ python3 backend/server.py \
   --database-path backend/data/imported_scanner.sqlite \
   --port 8788
 ```
+
+Cloud Run deploy:
+
+```bash
+backend/deploy.sh staging backend/.env
+backend/deploy.sh production backend/.env
+```
+
+Rules:
+
+- keep non-secret Cloud Run runtime config in:
+  - `backend/.env.staging`
+  - `backend/.env.production`
+- keep exactly one local backend secrets file:
+  - `backend/.env`
+- deploy merges the tracked runtime env file with `backend/.env` and sends that combined env payload to Cloud Run
+- do not re-introduce duplicate local `.env` paths
+- `backend/deploy.sh` is the one-command entrypoint; helper scripts may remain underneath but should not become the primary documented flow
 
 Sample backend:
 

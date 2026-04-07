@@ -13,7 +13,9 @@ func makePricing(
     low: Double? = 8,
     mid: Double? = 12,
     high: Double? = 14,
-    refreshedAt: String? = ISO8601DateFormatter().string(from: Date())
+    refreshedAt: String? = ISO8601DateFormatter().string(from: Date()),
+    snapshotAgeHours: Double? = nil,
+    isFresh: Bool? = nil
 ) -> CardPricingSummary {
     CardPricingSummary(
         source: "tcgplayer",
@@ -29,6 +31,9 @@ func makePricing(
         refreshedAt: refreshedAt,
         sourceURL: nil,
         pricingMode: nil,
+        snapshotAgeHours: snapshotAgeHours,
+        freshnessWindowHours: 24,
+        isFresh: isFresh,
         grader: nil,
         grade: nil,
         pricingTier: nil,
@@ -72,11 +77,15 @@ func testAutoRefreshHeuristic() {
 
     require(ScanTrayCalculator.shouldAutoRefresh(pricing: nil), "missing pricing should auto refresh")
     require(
-        ScanTrayCalculator.shouldAutoRefresh(pricing: makePricing(refreshedAt: staleDate)),
+        ScanTrayCalculator.shouldAutoRefresh(
+            pricing: makePricing(refreshedAt: staleDate, snapshotAgeHours: 30, isFresh: false)
+        ),
         "stale pricing should auto refresh"
     )
     require(
-        !ScanTrayCalculator.shouldAutoRefresh(pricing: makePricing(refreshedAt: freshDate)),
+        !ScanTrayCalculator.shouldAutoRefresh(
+            pricing: makePricing(refreshedAt: freshDate, snapshotAgeHours: 0.1, isFresh: true)
+        ),
         "fresh pricing should not auto refresh"
     )
 }
@@ -97,14 +106,25 @@ func testInitialStatusMessage() {
 func testFreshnessStateClassification() {
     let staleDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 60 * 30)))
     let freshDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 5)))
+    let cachedDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 60 * 4)))
 
     require(
         makePricing(market: nil, low: nil, mid: nil, high: nil).freshnessState == .unavailable,
         "missing price should be unavailable"
     )
     require(makePricing(refreshedAt: nil).freshnessState == .cached, "missing refresh timestamp should be cached")
-    require(makePricing(refreshedAt: freshDate).freshnessState == .refreshedRecently, "fresh date should be recent")
-    require(makePricing(refreshedAt: staleDate).freshnessState == .stale, "old date should be stale")
+    require(
+        makePricing(refreshedAt: freshDate, snapshotAgeHours: 0.05, isFresh: true).freshnessState == .refreshedRecently,
+        "fresh snapshot should be recent"
+    )
+    require(
+        makePricing(refreshedAt: cachedDate, snapshotAgeHours: 4, isFresh: true).freshnessState == .cached,
+        "fresh but older snapshot should be cached"
+    )
+    require(
+        makePricing(refreshedAt: staleDate, snapshotAgeHours: 30, isFresh: false).freshnessState == .stale,
+        "old snapshot should be stale"
+    )
 }
 
 @main

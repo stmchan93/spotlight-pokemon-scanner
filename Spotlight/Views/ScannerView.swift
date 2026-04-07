@@ -1,24 +1,24 @@
 import PhotosUI
 import SwiftUI
 
+// Preference key for reticle bounds
+struct ReticleBoundsKey: PreferenceKey {
+    nonisolated(unsafe) static var defaultValue: CGRect = .zero
+    nonisolated static func reduce(value: inout CGRect, nextValue: () -> CGRect) {
+        value = nextValue()
+    }
+}
+
 struct ScannerView: View {
     @ObservedObject var viewModel: ScannerViewModel
     @State private var selectedPhotoItem: PhotosPickerItem?
+    @State private var isTrayExpanded = false
+    @State private var reticleBounds: CGRect = .zero
 
     var body: some View {
         GeometryReader { proxy in
             ZStack {
                 scannerBackdrop
-
-                if cameraIsInteractive {
-                    Color.clear
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            // Only capture if camera is ready and not already processing
-                            guard !viewModel.isProcessing else { return }
-                            viewModel.capturePhoto()
-                        }
-                }
 
                 VStack(spacing: 0) {
                     topBar
@@ -27,12 +27,27 @@ struct ScannerView: View {
 
                     Spacer(minLength: 0)
 
-                    scanTray(maxHeight: min(max(proxy.size.height * 0.44, 250), 410))
-                        .padding(.horizontal, 12)
-                        .padding(.bottom, max(proxy.safeAreaInsets.bottom, 12))
+                    // Chevron button to expand/collapse tray
+                    if !viewModel.scannedItems.isEmpty {
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                                isTrayExpanded.toggle()
+                            }
+                        } label: {
+                            Image(systemName: isTrayExpanded ? "chevron.down" : "chevron.up")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.9))
+                                .frame(width: 40, height: 40)
+                                .background(Color.black.opacity(0.5))
+                                .clipShape(Circle())
+                        }
+                        .padding(.bottom, 8)
+                    }
+
+                    compactScanTray(screenHeight: proxy.size.height)
                 }
             }
-            .background(Color(red: 0.04, green: 0.05, blue: 0.07).ignoresSafeArea())
+            .background(Color.black.ignoresSafeArea())
         }
         .onAppear {
             viewModel.startScannerSession()
@@ -67,22 +82,45 @@ struct ScannerView: View {
     private var scannerBackdrop: some View {
         ZStack {
             // Always show camera preview - session will render when ready
-            CameraPreviewView(session: viewModel.cameraController.session)
-                .ignoresSafeArea()
-
-            LinearGradient(
-                colors: [
-                    Color.black.opacity(0.45),
-                    Color.black.opacity(0.08),
-                    Color.black.opacity(0.0),
-                    Color.black.opacity(0.56),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
+            CameraPreviewView(
+                session: viewModel.cameraController.session,
+                onPreviewViewReady: { view in
+                    viewModel.cameraController.previewView = view
+                }
             )
             .ignoresSafeArea()
 
+            // Dark overlay with reticle cutout (Rare Candy style)
+            darkOverlayWithCutout
+
             scanningReticle
+        }
+    }
+
+    private var darkOverlayWithCutout: some View {
+        GeometryReader { geo in
+            let layout = ScannerReticleLayout.make(
+                containerSize: geo.size,
+                safeAreaTop: geo.safeAreaInsets.top,
+                safeAreaBottom: geo.safeAreaInsets.bottom,
+                mode: viewModel.scannerPresentationMode
+            )
+
+            ZStack {
+                // Full screen dark overlay
+                Color.black.opacity(0.6)
+                    .ignoresSafeArea()
+
+                // Clear rectangle for reticle area
+                Rectangle()
+                    .frame(width: layout.width, height: layout.height)
+                    .position(
+                        x: geo.size.width / 2,
+                        y: layout.centerY
+                    )
+                    .blendMode(.destinationOut)
+            }
+            .compositingGroup()
         }
     }
 
@@ -123,66 +161,148 @@ struct ScannerView: View {
     }
 
     private var scanningReticle: some View {
-        VStack {
-            Spacer()
+        GeometryReader { geo in
+            let layout = ScannerReticleLayout.make(
+                containerSize: geo.size,
+                safeAreaTop: geo.safeAreaInsets.top,
+                safeAreaBottom: geo.safeAreaInsets.bottom,
+                mode: viewModel.scannerPresentationMode
+            )
 
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
-                .strokeBorder(
-                    Color.white.opacity(0.82),
-                    style: StrokeStyle(lineWidth: 2, dash: [12])
-                )
-                .frame(width: 280, height: 392)
-                .overlay(alignment: .topLeading) {
-                    reticleCorner
-                        .rotationEffect(.degrees(0))
-                        .offset(x: -1, y: -1)
-                }
-                .overlay(alignment: .topTrailing) {
-                    reticleCorner
-                        .rotationEffect(.degrees(90))
-                        .offset(x: 1, y: -1)
-                }
-                .overlay(alignment: .bottomTrailing) {
-                    reticleCorner
-                        .rotationEffect(.degrees(180))
-                        .offset(x: 1, y: 1)
-                }
-                .overlay(alignment: .bottomLeading) {
-                    reticleCorner
-                        .rotationEffect(.degrees(270))
-                        .offset(x: -1, y: 1)
-                }
-                .overlay {
-                    Text("Tap to scan")
-                        .font(.headline.weight(.semibold))
-                        .foregroundStyle(.white)
-                        .shadow(color: .black.opacity(0.5), radius: 8, x: 0, y: 2)
+            HStack(spacing: 0) {
+                Spacer()
+
+                VStack(spacing: 0) {
+                    Spacer()
+                        .frame(height: layout.topSpacing)
+
+                    RoundedRectangle(cornerRadius: 32, style: .continuous)
+                        .strokeBorder(
+                            Color.white.opacity(0.5),
+                            style: StrokeStyle(lineWidth: 2, dash: [16, 8])
+                        )
+                        .frame(width: layout.width, height: layout.height)
+                        .overlay(alignment: .topLeading) {
+                            reticleCorner
+                                .rotationEffect(.degrees(0))
+                                .offset(x: -1, y: -1)
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            reticleCorner
+                                .rotationEffect(.degrees(90))
+                                .offset(x: 1, y: -1)
+                        }
+                        .overlay(alignment: .bottomTrailing) {
+                            reticleCorner
+                                .rotationEffect(.degrees(180))
+                                .offset(x: 1, y: 1)
+                        }
+                        .overlay(alignment: .bottomLeading) {
+                            reticleCorner
+                                .rotationEffect(.degrees(270))
+                                .offset(x: -1, y: 1)
+                        }
+                        .overlay {
+                            Text("Tap Anywhere to Scan")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundStyle(.white)
+                                .shadow(color: .black.opacity(0.6), radius: 12, x: 0, y: 2)
+                        }
+                        .contentShape(Rectangle())
+                        .background(
+                            GeometryReader { reticleGeo in
+                                Color.clear.preference(
+                                    key: ReticleBoundsKey.self,
+                                    value: reticleGeo.frame(in: .global)
+                                )
+                            }
+                        )
+                        .onPreferenceChange(ReticleBoundsKey.self) { bounds in
+                            reticleBounds = bounds
+                        }
+                        .onTapGesture {
+                            // Only capture if camera is ready and not already processing
+                            guard cameraIsInteractive, !viewModel.isProcessing else { return }
+                            viewModel.capturePhoto(reticleRect: reticleBounds)
+                        }
+
+                    cameraControls
+                        .padding(.top, layout.controlsTopSpacing)
+
+                    Spacer()
+                        .frame(minHeight: layout.bottomClearance)
                 }
 
-            Spacer()
+                Spacer()
+            }
         }
-        .padding(.bottom, 210)
-        .allowsHitTesting(false)
+    }
+
+    private var cameraControls: some View {
+        HStack(spacing: 12) {
+            zoomControls
+
+            Button {
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                    viewModel.scannerPresentationMode.toggle()
+                }
+            } label: {
+                Text(viewModel.scannerPresentationMode.title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 14)
+                    .frame(height: 36)
+                    .background(Color.white.opacity(0.16))
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private var reticleCorner: some View {
-        RoundedRectangle(cornerRadius: 8, style: .continuous)
-            .fill(Color(red: 0.47, green: 0.84, blue: 0.68))
-            .frame(width: 34, height: 34)
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(Color(red: 0.72, green: 0.95, blue: 0.42))  // Lime green
+            .frame(width: 42, height: 42)
             .mask(
                 VStack(spacing: 0) {
                     HStack(spacing: 0) {
                         Rectangle()
-                            .frame(width: 34, height: 6)
+                            .frame(width: 42, height: 7)
                         Spacer(minLength: 0)
                     }
                     HStack(spacing: 0) {
                         Rectangle()
-                            .frame(width: 6)
+                            .frame(width: 7)
                         Spacer(minLength: 0)
                     }
                 }
             )
+    }
+
+    private var zoomControls: some View {
+        HStack(spacing: 12) {
+            // Zoom buttons: 1.5x, 2x, 3x
+            ForEach([1.5, 2.0, 3.0], id: \.self) { zoom in
+                Button {
+                    viewModel.cameraController.setZoomLevel(zoom)
+                } label: {
+                    Text("\(zoom, specifier: "%.1f")x")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(
+                            viewModel.cameraController.currentZoomLevel == zoom
+                                ? Color.black
+                                : Color.white.opacity(0.7)
+                        )
+                        .frame(width: 60, height: 36)
+                        .background(
+                            viewModel.cameraController.currentZoomLevel == zoom
+                                ? Color.white
+                                : Color.white.opacity(0.2)
+                        )
+                        .clipShape(Capsule())
+                }
+            }
+        }
     }
 
     private var unavailableState: some View {
@@ -257,78 +377,113 @@ struct ScannerView: View {
         }
     }
 
-    private func scanTray(maxHeight: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            trayHeader
+    private func compactScanTray(screenHeight: CGFloat) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            // Header: "Recent scans" + CLEAR | "$X.XX total"
+            HStack(alignment: .center, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text("Recent scans")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.white)
 
-            if let errorMessage = viewModel.errorMessage ?? viewModel.cameraController.lastErrorMessage {
-                warningCard(title: "Scanner issue", message: errorMessage)
+                    if !viewModel.scannedItems.isEmpty {
+                        Button("CLEAR") {
+                            viewModel.clearScans()
+                        }
+                        .font(.system(size: 11, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Color.white.opacity(0.15))
+                        .clipShape(Capsule())
+                    }
+                }
+
+                Spacer()
+
+                // Running total
+                Text(viewModel.totalValueText)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(Color(red: 0.35, green: 0.45, blue: 0.35))
+                    .clipShape(Capsule())
             }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.9))
 
-            // Local fallback logging happens internally - no UI warning
+            // Cards list (show first when collapsed, all when expanded)
+            if !viewModel.scannedItems.isEmpty {
+                let itemsToShow = isTrayExpanded ? viewModel.scannedItems : Array(viewModel.scannedItems.prefix(1))
+                let maxHeight = isTrayExpanded ? screenHeight * 0.40 : 90.0
 
-            if viewModel.scannedItems.isEmpty {
-                emptyTrayState
-            } else {
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 12) {
-                        ForEach(viewModel.scannedItems) { item in
-                            stackItemRow(item)
+                        ForEach(itemsToShow) { item in
+                            compactCardRow(item)
                         }
                     }
-                    .padding(.bottom, 4)
+                    .padding(.vertical, 8)
                 }
                 .frame(maxHeight: maxHeight)
+                .background(Color.black.opacity(0.9))
             }
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(18)
-        .background(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .fill(Color(red: 0.07, green: 0.09, blue: 0.12).opacity(0.97))
-        )
-        .overlay(
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
-        )
+        .background(Color.black.opacity(0.9))
     }
 
-    private var trayHeader: some View {
-        HStack(alignment: .top, spacing: 12) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text("Scan Tray")
-                    .font(.headline)
+    private func compactCardRow(_ item: LiveScanStackItem) -> some View {
+        HStack(alignment: .center, spacing: 12) {
+            // Thumbnail
+            StackItemThumbnail(item: item)
+                .frame(width: 50, height: 70)
+
+            // Card info - now has more space
+            VStack(alignment: .leading, spacing: 3) {
+                Text(primaryTitle(for: item))
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.white)
+                    .lineLimit(2)
 
-                HStack(spacing: 8) {
-                    Text(viewModel.stackCountText)
-                    if viewModel.trayMetrics.pendingCount > 0 {
-                        Text("• \(viewModel.trayMetrics.pendingCount) pending")
-                    }
+                if let secondaryTitle = secondaryTitle(for: item) {
+                    Text(secondaryTitle)
+                        .font(.system(size: 12))
+                        .foregroundStyle(.white.opacity(0.7))
+                        .lineLimit(2)
                 }
-                .font(.footnote)
-                .foregroundStyle(Color.white.opacity(0.62))
-            }
 
-            Spacer(minLength: 12)
-
-            VStack(alignment: .trailing, spacing: 6) {
-                Text("Running Total")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(Color.white.opacity(0.56))
-
-                Text(viewModel.totalValueText)
-                    .font(.system(size: 24, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-            }
-
-            if !viewModel.scannedItems.isEmpty {
-                Button("Clear") {
-                    viewModel.clearScans()
+                if let tertiaryLine = tertiaryLine(for: item) {
+                    Text(tertiaryLine)
+                        .font(.system(size: 11))
+                        .foregroundStyle(.white.opacity(0.6))
+                        .lineLimit(1)
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(Color.white.opacity(0.76))
             }
+
+            Spacer(minLength: 8)
+
+            // Price display (if available)
+            if let pricing = item.pricing, let primaryPrice = pricing.primaryDisplayPrice {
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(pricing.primaryLabel.uppercased())
+                        .font(.system(size: 9, weight: .bold))
+                        .foregroundStyle(.white.opacity(0.5))
+
+                    Text(formattedPrice(primaryPrice, currencyCode: pricing.currencyCode))
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                }
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color.black.opacity(0.9))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            // Toggle expanded view for this item
+            viewModel.toggleExpansion(for: item.id)
         }
     }
 
@@ -529,7 +684,7 @@ struct ScannerView: View {
                     labelRow(title: "Range", value: spreadText)
                 }
 
-                labelRow(title: "Source", value: pricing.sourceLabel)
+                labelRow(title: "Source", value: pricing.sourceDetailLabel)
                 if let grader = item.slabContext?.grader, let grade = item.slabContext?.grade {
                     labelRow(title: "Slab", value: "\(grader) \(grade)")
                 }
@@ -659,6 +814,20 @@ struct ScannerView: View {
     }
 
     private func statusText(for item: LiveScanStackItem) -> String {
+        // Check cache status first for resolved items
+        if item.phase == .resolved, let cacheStatus = item.cacheStatus {
+            switch cacheStatus {
+            case .fresh:
+                return "Fresh price"
+            case .recent(let hours):
+                return "Cached \(hours)h ago"
+            case .outdated(let days):
+                return "Outdated (\(days)d ago)"
+            case .offline:
+                return "Price unavailable (offline)"
+            }
+        }
+
         switch item.phase {
         case .pending:
             return item.statusMessage ?? "Identifying card…"
@@ -674,6 +843,20 @@ struct ScannerView: View {
     }
 
     private func statusColor(for item: LiveScanStackItem) -> Color {
+        // Check cache status first for resolved items
+        if item.phase == .resolved, let cacheStatus = item.cacheStatus {
+            switch cacheStatus {
+            case .fresh:
+                return .green
+            case .recent:
+                return .yellow
+            case .outdated:
+                return .orange
+            case .offline:
+                return .red
+            }
+        }
+
         switch item.phase {
         case .pending:
             return Color(red: 0.96, green: 0.82, blue: 0.45)

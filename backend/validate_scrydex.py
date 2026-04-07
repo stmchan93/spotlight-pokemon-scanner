@@ -5,11 +5,7 @@ import sys
 from pathlib import Path
 
 from catalog_tools import apply_schema, connect, load_cards_json, seed_catalog
-from scrydex_adapter import (
-    refresh_scrydex_psa_snapshot,
-    refresh_scrydex_raw_snapshot,
-    scrydex_credentials,
-)
+from scrydex_adapter import ScrydexProvider, scrydex_credentials
 from server import SpotlightScanService
 
 
@@ -61,10 +57,9 @@ def main() -> None:
     ensure_card_seeded(connection, repo_root, cards_path, raw_card_id)
     ensure_card_seeded(connection, repo_root, cards_path, psa_card_id)
 
-    api_key, team_id = credentials
-
-    raw_payload = refresh_scrydex_raw_snapshot(connection, raw_card_id, api_key, team_id)
-    psa_payload = refresh_scrydex_psa_snapshot(connection, psa_card_id, psa_grade, api_key, team_id)
+    provider = ScrydexProvider()
+    raw_result = provider.refresh_raw_pricing(connection, raw_card_id)
+    psa_result = provider.refresh_psa_pricing(connection, psa_card_id, psa_grade)
     connection.commit()
 
     service = SpotlightScanService(database_path, repo_root, cards_path=cards_path)
@@ -74,11 +69,17 @@ def main() -> None:
             "databasePath": str(database_path),
             "cardsPath": str(cards_path),
             "rawCardID": raw_card_id,
-            "rawValidated": raw_payload is not None,
+            "rawValidated": raw_result.success,
+            "rawProvider": raw_result.provider_id,
+            "rawError": raw_result.error,
+            "rawPayload": raw_result.payload,
             "rawDetail": service.card_detail(raw_card_id),
             "psaCardID": psa_card_id,
             "psaGrade": psa_grade,
-            "psaValidated": psa_payload is not None,
+            "psaValidated": psa_result.success,
+            "psaProvider": psa_result.provider_id,
+            "psaError": psa_result.error,
+            "psaPayload": psa_result.payload,
             "psaDetail": service.card_detail(psa_card_id, grader="PSA", grade=psa_grade),
         }
         print(json.dumps(result, indent=2))

@@ -14,7 +14,7 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import apply_schema, connect, load_cards_json, seed_catalog  # noqa: E402
+from catalog_tools import apply_schema, connect, seed_catalog  # noqa: E402
 from slab_source_sync import (  # noqa: E402
     load_sync_state,
     manifest_sync_status,
@@ -29,6 +29,48 @@ from slab_source_sync import (  # noqa: E402
     sync_slab_sources_once,
 )
 from server import SpotlightScanService  # noqa: E402
+
+
+def catalog_card(
+    *,
+    card_id: str,
+    name: str,
+    set_name: str,
+    number: str,
+    set_id: str,
+) -> dict[str, object]:
+    return {
+        "id": card_id,
+        "name": name,
+        "set_name": set_name,
+        "number": number,
+        "rarity": "Rare Holo",
+        "variant": "Raw",
+        "language": "English",
+        "reference_image_path": None,
+        "reference_image_url": f"https://images.example/{card_id}.png",
+        "reference_image_small_url": f"https://images.example/{card_id}.png",
+        "source": "test_seed",
+        "source_record_id": card_id,
+        "set_id": set_id,
+        "set_series": "Test Series",
+        "set_ptcgo_code": None,
+        "set_release_date": "2000-01-01",
+        "supertype": "Pokémon",
+        "subtypes": [],
+        "types": ["Colorless"],
+        "artist": "Test Artist",
+        "regulation_mark": None,
+        "national_pokedex_numbers": [],
+        "tcgplayer": {},
+        "cardmarket": {},
+        "source_payload": {
+            "id": card_id,
+            "name": name,
+            "number": number,
+        },
+        "imported_at": "2026-04-06T00:00:00Z",
+    }
 
 
 class SlabSourceSyncTests(unittest.TestCase):
@@ -49,9 +91,20 @@ class SlabSourceSyncTests(unittest.TestCase):
 
         connection = connect(self.database_path)
         apply_schema(connection, BACKEND_ROOT / "schema.sql")
-        imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "pokemontcg" / "cards.json")
-        selected_cards = [card for card in imported_cards if card["id"] in {"neo1-9"}]
-        seed_catalog(connection, selected_cards, REPO_ROOT)
+        seed_catalog(
+            connection,
+            [
+                catalog_card(
+                    card_id="neo1-9",
+                    name="Lugia",
+                    set_name="Neo Genesis",
+                    number="9/111",
+                    set_id="neo1",
+                )
+            ],
+            REPO_ROOT,
+        )
+        connection.commit()
         connection.close()
 
     def tearDown(self) -> None:

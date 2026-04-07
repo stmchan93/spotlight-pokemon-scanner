@@ -28,6 +28,14 @@
 	<string>Spotlight needs local network access to connect to your Mac for card pricing and catalog matching.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Spotlight needs photo library access to import card images for identification.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Spotlight can save scanned card images to your photo library for debugging.</string>
+	<key>SpotlightAPIBaseURL</key>
+	<string>$(SPOTLIGHT_API_BASE_URL)</string>
+	<key>SpotlightDeviceAPIBaseURL</key>
+	<string>$(SPOTLIGHT_DEVICE_API_BASE_URL)</string>
+	<key>SpotlightEnvironment</key>
+	<string>$(SPOTLIGHT_ENVIRONMENT)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

@@ -1,5 +1,8 @@
 # Pricing Provider Abstraction Todos
 
+Superseded: current runtime rules live in [AGENTS.md](/Users/stephenchan/Code/spotlight/AGENTS.md), [PLAN.md](/Users/stephenchan/Code/spotlight/PLAN.md), and [docs/spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md).
+This file is historical planning context only.
+
 Date: 2026-04-04
 
 ## Phase 1: Shared Backend Layer

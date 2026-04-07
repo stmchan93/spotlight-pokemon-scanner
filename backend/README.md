@@ -5,16 +5,16 @@ Local scaffold for the scanner-first MVP.
 What it does:
 - initializes a SQLite catalog and telemetry schema
 - seeds a small Pokémon sample catalog
-- generates Apple Vision feature-print embeddings for any catalog cards with local reference images
-- keeps a metadata-hash fallback embedding for cards that do not have a local reference image yet
+- generates Apple Vision feature-print embeddings for any catalog cards with local reference images when those artifacts exist
+- keeps a metadata-hash fallback embedding for cards that do not have a local reference image
 - exposes local JSON endpoints for scan matching, search, and feedback
-- can import a larger Pokémon catalog plus reference images from Pokémon TCG API
+- can import a larger Pokémon catalog from Pokémon TCG API, with optional legacy reference-image download
 - normalizes imported `tcgplayer` / `cardmarket` payloads into a single candidate `pricing` summary
 - now supports grade-aware PSA slab pricing snapshots when slab comp data exists locally
 - now uses a multi-provider pricing architecture with specialized providers:
   - **Pokemon TCG API** for raw/singles pricing (free, official) when `POKEMONTCG_API_KEY` is configured
-  - **PriceCharting** for PSA slab pricing (specialized) when `PRICECHARTING_API_KEY` is configured
-  - **Scrydex** as fallback for both when `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` are configured
+  - **Scrydex** for PSA slab pricing (primary) when `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` are configured
+  - **PriceCharting** as an auxiliary/manual PSA provider when `PRICECHARTING_API_KEY` is configured
   - imported snapshot pricing as final fallback
 - provider prices are **never** blended together; one active provider is used per refresh
 
@@ -46,23 +46,26 @@ Grade-aware detail and refresh:
 - `POST /api/v1/cards/<card_id>/refresh-pricing?grader=PSA&grade=10`
 
 If a slab snapshot exists for that card + grade, the backend returns slab pricing.
-If not, it returns raw pricing only as a labeled `raw_fallback`.
+If not, the scanner runtime returns slab unsupported / no price rather than silently substituting a raw-card price.
 
-The pricing provider registry routes requests based on pricing type:
+The scanner runtime routes requests by mode:
 
-**Raw card pricing** tries providers in order:
-1. `Pokemon TCG API` (if `POKEMONTCG_API_KEY` is configured)
-2. `Scrydex` (if `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` are configured)
-3. Imported snapshot (fallback cache)
+**Raw card pricing**
+1. Read the latest persisted raw snapshot from SQLite.
+2. If it is fresh within the default `24 hour` window, return it immediately.
+3. If it is stale, refresh live through `Pokemon TCG API`.
+4. Persist the refreshed snapshot and return it.
 
-**PSA slab pricing** tries providers in order:
-1. `PriceCharting` (if `PRICECHARTING_API_KEY` is configured)
-2. `Scrydex` (if `SCRYDEX_API_KEY` and `SCRYDEX_TEAM_ID` are configured)
-3. Local slab comp model
-4. Raw proxy (fallback)
+**PSA slab pricing**
+1. Read the latest persisted slab snapshot from SQLite.
+2. If it is fresh within the default `24 hour` window, return it immediately.
+3. If it is stale, refresh live through `Scrydex`.
+4. If live refresh fails, keep the slab lane strict and return the existing slab snapshot or no price; do not degrade into raw proxy pricing.
 
-`POST /api/v1/cards/<card_id>/refresh-pricing` tries raw providers in order until one succeeds.
-`POST /api/v1/cards/<card_id>/refresh-pricing?grader=PSA&grade=<grade>` tries PSA providers in order.
+Manual refresh can bypass the freshness window:
+
+- `POST /api/v1/cards/<card_id>/refresh-pricing?forceRefresh=1`
+- `POST /api/v1/cards/<card_id>/refresh-pricing?grader=PSA&grade=<grade>&forceRefresh=1`
 
 Slab comp source sync:
 
@@ -76,15 +79,73 @@ Slab comp source sync:
 python3 backend/server.py --cards-file backend/catalog/cards.sample.json --database-path backend/data/sample_scanner.sqlite --port 8787
 ```
 
-The iOS app currently defaults to `http://127.0.0.1:8788/` through the shared Xcode scheme and `AppContainer.swift`, and it falls back to the local matcher if the service is unavailable.
+The iOS app should target a local backend for development.
 
-To point the app at a different backend, set `SPOTLIGHT_API_BASE_URL` in the Xcode scheme environment.
+App environment routing is now driven by Xcode config files:
 
-Example:
+- `Debug` => local backend
+- `Staging` => TestFlight / internal backend
+- `Release` => production backend
+
+The machine-local override file is:
+
+- `Spotlight/Config/LocalOverrides.xcconfig`
+
+Current defaults:
+
+- `Debug` simulator => `http://127.0.0.1:8788/`
+- `Staging` => `https://spotlight-backend-grhsfspaia-uc.a.run.app/`
+- `Release` => `https://spotlight-backend-grhsfspaia-uc.a.run.app/`
+
+On a physical device, `127.0.0.1` points to the phone itself, so set `SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL` in `LocalOverrides.xcconfig` to your Mac's LAN URL instead.
+
+`SPOTLIGHT_API_BASE_URL` is still supported as a runtime override, but it is intended for one-off debugging, not as the primary environment switch.
+
+Catalog-storage rule:
+
+- keep bundled/offline identifier assets minimal
+- use runtime metadata/provider APIs for rich metadata and pricing
+- treat `backend/catalog/pokemontcg/all_cards_cache.json` as the acceptable lightweight local cache artifact
+- do not re-introduce `cards.json.backup` or a large checked-in image corpus as required product assets
+
+Example `LocalOverrides.xcconfig`:
 
 ```bash
-SPOTLIGHT_API_BASE_URL=http://127.0.0.1:8788/
+SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL=http://192.168.0.225:8788/
+SPOTLIGHT_STAGING_API_BASE_URL=https://spotlight-backend-grhsfspaia-uc.a.run.app/
+SPOTLIGHT_PRODUCTION_API_BASE_URL=https://spotlight-backend-grhsfspaia-uc.a.run.app/
 ```
+
+## Cloud Run Deploy
+
+Cloud Run deployment is now split cleanly into:
+
+- tracked non-secret runtime env files:
+  - `backend/.env.staging`
+  - `backend/.env.production`
+- one local backend secrets file:
+  - `backend/.env`
+
+Recommended flow:
+
+```bash
+backend/deploy.sh staging backend/.env
+```
+
+Production uses the same pattern:
+
+```bash
+backend/deploy.sh production backend/.env
+```
+
+Notes:
+
+- `backend/.env` is the single local secrets file for backend development and Cloud Run secret sync.
+- `deploy.sh` is the main entrypoint. It merges the tracked runtime env file (`backend/.env.staging` or `backend/.env.production`) with secret values from `backend/.env`, then deploys Cloud Run with that combined env payload.
+- `deploy_to_cloud_run.sh` remains the lower-level helper if you need to call it directly.
+- `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_REGION` can be exported to override the active `gcloud` config.
+- `CLOUD_RUN_SERVICE_NAME` can be exported if you want a different service name than the default `spotlight-backend`.
+- This is intentionally optimized for simple local-to-Cloud-Run deployment flow, not Secret Manager indirection.
 
 ## Seed Only
 
@@ -94,7 +155,7 @@ python3 backend/server.py --seed-only --cards-file backend/catalog/cards.sample.
 
 ## Import A Larger Pokémon Catalog
 
-The importer targets the official Pokémon TCG API and writes a local catalog JSON plus downloaded reference images.
+The importer targets the official Pokémon TCG API and writes a local catalog JSON. Downloading local reference images is optional and is considered a legacy path.
 
 ```bash
 python3 backend/import_pokemontcg_catalog.py \
@@ -107,6 +168,20 @@ python3 backend/import_pokemontcg_catalog.py \
 This writes:
 
 - `backend/catalog/pokemontcg/cards.json`
+
+Optional legacy image download:
+
+```bash
+python3 backend/import_pokemontcg_catalog.py \
+  --api-key "$POKEMONTCG_API_KEY" \
+  --query 'set.series:"Scarlet & Violet"' \
+  --max-cards 1000 \
+  --replace-output \
+  --download-images
+```
+
+That additionally writes:
+
 - `backend/catalog/pokemontcg/images/*`
 
 After that, reseed the backend:
@@ -129,10 +204,14 @@ python3 backend/server.py \
 Notes:
 
 - the importer is resumable by default if `cards.json` already exists; use `--replace-output` to rebuild from scratch
+- local reference-image download is now opt-in; do not treat checked-in images as required runtime assets for OCR-first scanner work
 - some card image `*_hires` URLs can 404; the importer falls back to the small image and skips broken assets instead of aborting the run
 - imported search and match payloads now include an optional `pricing` object when normalized price data is available
 - imported card detail payloads include richer metadata plus normalized pricing via `GET /api/v1/cards/<card_id>`
-- `POST /api/v1/cards/<card_id>/refresh-pricing` refreshes the imported price snapshot from Pokémon TCG API and updates the local cache timestamp
+- `POST /api/v1/cards/<card_id>/refresh-pricing` now uses persisted snapshot freshness as the source of truth:
+  - if the stored snapshot is still fresh, it returns the stored snapshot
+  - if it is stale, it refreshes the live provider for the active lane and updates SQLite
+  - `forceRefresh=1` bypasses the normal freshness gate
 - the current imported local catalog has been expanded to `2004` cards across `Scarlet & Violet` and `Sword & Shield` slices, plus targeted adds like `Umbreon VMAX`
 - if you omit `--cards-file`, the backend prefers `backend/catalog/pokemontcg/cards.json` when present and otherwise falls back to `backend/catalog/cards.sample.json`
 
@@ -246,26 +325,29 @@ The backend uses a multi-provider pricing system with specialized providers for 
    - File: `backend/pokemontcg_pricing_adapter.py`
    - Price sources: tcgplayer (USD), cardmarket (EUR)
 
-2. **PriceCharting** (PSA pricing, priority 2)
+2. **Scrydex** (primary PSA pricing in scanner runtime)
+   - Environment: `SCRYDEX_API_KEY`, `SCRYDEX_TEAM_ID`
+   - Supports: raw pricing, PSA graded pricing
+   - File: `backend/scrydex_adapter.py`
+
+3. **PriceCharting** (auxiliary/manual PSA provider)
    - Environment: `PRICECHARTING_API_KEY`
    - Supports: **PSA graded pricing only** (not raw)
    - Source: PriceCharting.com
    - File: `backend/pricecharting_adapter.py`
 
-3. **Scrydex** (both, fallback priority 3)
-   - Environment: `SCRYDEX_API_KEY`, `SCRYDEX_TEAM_ID`
-   - Supports: raw pricing, PSA graded pricing
-   - File: `backend/scrydex_adapter.py`
-
-4. **Imported Snapshots** (final fallback)
+4. **Persisted SQLite snapshots**
    - No credentials required
-   - Uses locally cached pricing from Pokemon TCG API
+   - Source of truth for freshness checks and the default return path when snapshots are still fresh
 
 ### How It Works
 
 - Each provider implements the `PricingProvider` contract (`backend/pricing_provider.py`)
-- `PricingProviderRegistry` manages provider priority and fallback
-- When refreshing pricing, the registry tries providers in order until one succeeds
+- `PricingProviderRegistry` remains available for shared provider wiring, diagnostics, and non-scanner/manual flows
+- Scanner runtime refresh is lane-specific and freshness-aware:
+  - raw => Pokemon TCG API only
+  - slab => Scrydex only
+  - persisted SQLite timestamps decide whether a live refresh is needed
 - **Important**: Provider prices are never blended or averaged together
 - One active provider is used per refresh; tray shows that provider's result
 - Future support for side-by-side provider comparison in detail views
@@ -276,12 +358,12 @@ The backend uses a multi-provider pricing system with specialized providers for 
 # Configure Pokemon TCG API for raw pricing (required for raw cards)
 export POKEMONTCG_API_KEY=your_pokemontcg_api_key
 
-# Configure PriceCharting for PSA pricing (required for PSA slabs)
-export PRICECHARTING_API_KEY=your_pricecharting_key
-
-# Configure Scrydex as fallback (optional)
+# Configure Scrydex for PSA pricing (primary for slabs)
 export SCRYDEX_API_KEY=your_scrydex_key
 export SCRYDEX_TEAM_ID=your_team_id
+
+# Configure PriceCharting for auxiliary/manual PSA workflows (optional)
+export PRICECHARTING_API_KEY=your_pricecharting_key
 
 # Optional: override base URLs
 export PRICECHARTING_BASE_URL=https://www.pricecharting.com/api
@@ -304,22 +386,20 @@ Response includes:
 
 ## Refresh Raw Or PSA From Active Provider
 
-Example: Refresh PSA 9 pricing (tries providers in order until one succeeds):
+Example: Force-refresh PSA 9 pricing through the slab lane:
 
 ```bash
-# Configure at least one provider
-export PRICECHARTING_API_KEY=your_key_here
-# or
+# Configure Scrydex for slab pricing
 export SCRYDEX_API_KEY=your_api_key_here
 export SCRYDEX_TEAM_ID=your_team_id_here
 
 curl -s -X POST \
-  'http://127.0.0.1:8788/api/v1/cards/sv8-238/refresh-pricing?grader=PSA&grade=9' \
+  'http://127.0.0.1:8788/api/v1/cards/sv8-238/refresh-pricing?grader=PSA&grade=9&forceRefresh=1' \
   | python3 -m json.tool
 ```
 
 Expected response fields:
-- `source` = active provider ID (e.g., "pricecharting", "scrydex", or "pokemontcg_api")
+- `source` = active provider ID (e.g., "pokemontcg_api", "scrydex", or "pricecharting")
 - `pricingMode` = "psa_grade_estimate" for slab pricing, "raw" for raw cards
 - `pricingTier` = provider-specific tier (e.g., "pricecharting_exact_grade", "scrydex_exact_grade")
 

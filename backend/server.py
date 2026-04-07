@@ -7,33 +7,42 @@ import sqlite3
 import sys
 import threading
 from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-# Load environment variables from .env file
+# Load environment variables from backend/.env for local development.
 try:
     from dotenv import load_dotenv
-    load_dotenv()
+    load_dotenv(Path(__file__).resolve().parent / ".env")
 except ImportError:
     pass  # python-dotenv not installed, will use system env vars only
 
 from catalog_tools import (
+    DEFAULT_PRICING_FRESHNESS_HOURS,
     MATCHER_VERSION,
     apply_schema,
     approximate_candidate_indices,
     build_query_embedding,
+    candidate_has_exact_structured_match,
     catalog_sync_runs,
+    canonicalize_collector_number,
+    collector_number_has_alpha_hint,
+    collector_number_api_query_values,
+    collector_number_printed_total,
     confidence_for_candidates,
     connect,
     contextual_pricing_summary_for_card,
     collector_number_lookup_keys,
     collector_prefix,
     direct_lookup_candidate_indices,
+    direct_lookup_has_exact_candidate,
     direct_lookup_has_name_support,
     direct_lookup_score,
+    has_specific_artist_credit_signal,
     import_slab_sales,
     latest_catalog_sync_run,
     load_cards_json,
@@ -41,13 +50,16 @@ from catalog_tools import (
     log_catalog_sync_run,
     log_pricing_refresh_failure,
     load_slab_sales_file,
-    normalized_set_hint_tokens,
     parse_psa_grade,
     parse_psa_cert_number,
     psa_label_candidate_indices,
     psa_label_number_hints,
     psa_label_score,
     pricing_refresh_failures,
+    recognized_artist_tokens,
+    recognized_pokedex_number_hints,
+    raw_pricing_summary_for_card,
+    recognized_text_for_payload,
     recompute_all_slab_price_snapshots,
     recompute_slab_price_snapshot,
     resolver_mode_for_payload,
@@ -58,13 +70,15 @@ from catalog_tools import (
     slab_price_snapshot_for_card,
     slab_sales_for_card,
     slab_context_from_payload,
+    structured_set_hints_for_payload,
+    trusted_set_hints_for_payload,
     tokenize,
     upsert_catalog_card,
     upsert_card_in_catalog_snapshot,
     utc_now,
 )
 from import_pokemontcg_catalog import fetch_card_by_id, map_card, search_cards as search_remote_cards
-from pricing_provider import PricingProviderRegistry
+from pricing_provider import PricingProviderRegistry, PsaPricingResult, RawPricingResult
 from pokemontcg_pricing_adapter import PokemonTcgApiProvider
 from pricecharting_adapter import PriceChartingProvider
 from scrydex_adapter import ScrydexProvider
@@ -74,6 +88,15 @@ from slab_source_sync import (
     run_slab_source_sync_loop,
     sync_slab_sources_once,
 )
+
+# Legacy in-memory provider cache (optional diagnostics only)
+try:
+    from price_cache import price_cache, start_background_cleanup
+    CACHE_AVAILABLE = True
+except ImportError:
+    CACHE_AVAILABLE = False
+    price_cache = None
+    start_background_cleanup = None
 
 
 @dataclass
@@ -101,22 +124,94 @@ class SpotlightScanService:
         recompute_all_slab_price_snapshots(self.connection)
         self.index = load_index(self.connection)
 
-        # Initialize pricing provider registry
-        # Priority order:
-        # - Pokemon TCG API for raw pricing (free, official)
-        # - PriceCharting for PSA pricing (specialized graded pricing)
-        # - Scrydex as fallback for both
+        # Initialize pricing providers.
+        # Runtime scanner mode is strict by lane:
+        # - raw scans refresh/display through Pokemon TCG API
+        # - PSA slab scans refresh/display through Scrydex
+        # PriceCharting remains registered for non-default/manual PSA workflows only.
         self.pricing_registry = PricingProviderRegistry()
         self.pricing_registry.register(PokemonTcgApiProvider())  # Raw only
-        self.pricing_registry.register(PriceChartingProvider())  # PSA only
-        self.pricing_registry.register(ScrydexProvider())        # Both (fallback)
+        self.pricing_registry.register(ScrydexProvider())        # Primary PSA/slab source
+        self.pricing_registry.register(PriceChartingProvider())  # Auxiliary PSA provider
+
+    def _pricing_provenance_for_card(self, card_id: str) -> dict[str, Any] | None:
+        row = self.connection.execute(
+            """
+            SELECT
+                source,
+                currency_code,
+                variant,
+                low_price,
+                market_price,
+                mid_price,
+                high_price,
+                direct_low_price,
+                trend_price,
+                source_updated_at,
+                source_url,
+                source_payload_json,
+                updated_at
+            FROM card_price_summaries
+            WHERE card_id = ?
+            LIMIT 1
+            """,
+            (card_id,),
+        ).fetchone()
+        if row is None:
+            return None
+
+        source_payload = json.loads(row["source_payload_json"] or "{}")
+        primary_price = (
+            row["market_price"]
+            if row["market_price"] is not None
+            else row["mid_price"]
+            if row["mid_price"] is not None
+            else row["low_price"]
+            if row["low_price"] is not None
+            else row["trend_price"]
+        )
+        return {
+            "provider": source_payload.get("provider"),
+            "source": row["source"],
+            "variant": row["variant"],
+            "currencyCode": row["currency_code"],
+            "primaryPrice": primary_price,
+            "market": row["market_price"],
+            "mid": row["mid_price"],
+            "low": row["low_price"],
+            "high": row["high_price"],
+            "directLow": row["direct_low_price"],
+            "trend": row["trend_price"],
+            "sourceUpdatedAt": row["source_updated_at"],
+            "refreshedAt": row["updated_at"],
+            "sourceURL": row["source_url"],
+        }
+
+    def _log_pricing_provenance(self, context: str, card_id: str) -> None:
+        provenance = self._pricing_provenance_for_card(card_id)
+        if provenance is None:
+            print(f"[PRICING DEBUG] {context}: card={card_id} has no stored pricing snapshot")
+            return
+
+        print(
+            "[PRICING DEBUG] "
+            f"{context}: "
+            f"card={card_id} "
+            f"provider={provenance.get('provider') or 'unknown'} "
+            f"source={provenance.get('source') or 'unknown'} "
+            f"variant={provenance.get('variant') or 'n/a'} "
+            f"price={provenance.get('primaryPrice')} "
+            f"currency={provenance.get('currencyCode') or 'USD'} "
+            f"refreshedAt={provenance.get('refreshedAt') or 'n/a'} "
+            f"url={provenance.get('sourceURL') or 'n/a'}"
+        )
 
     def refresh_index(self) -> None:
         self.index = load_index(self.connection)
 
     def health(self) -> dict[str, Any]:
         active_raw_provider = self.pricing_registry.get_active_provider(for_raw=True)
-        active_psa_provider = self.pricing_registry.get_active_provider(for_psa=True)
+        active_psa_provider = self.pricing_registry.get_active_provider(for_raw=False, for_psa=True)
 
         return {
             "status": "ok",
@@ -181,7 +276,7 @@ class SpotlightScanService:
             })
 
         active_raw_provider = self.pricing_registry.get_active_provider(for_raw=True)
-        active_psa_provider = self.pricing_registry.get_active_provider(for_psa=True)
+        active_psa_provider = self.pricing_registry.get_active_provider(for_raw=False, for_psa=True)
 
         unresolved = self.unmatched_scans(limit=25)
         latest_sync = latest_catalog_sync_run(self.connection)
@@ -202,6 +297,63 @@ class SpotlightScanService:
             "likelyUnsupportedCount": unresolved["summary"]["likelyUnsupportedCount"],
             "recentPricingRefreshFailureCount": len(recent_refresh_failures),
             "lastPricingRefreshFailureAt": recent_refresh_failures[0]["createdAt"] if recent_refresh_failures else None,
+        }
+
+    def cache_status(self) -> dict[str, Any]:
+        """Get runtime cache statistics plus persisted pricing freshness state."""
+        stale_cutoff = (datetime.now(UTC) - timedelta(hours=DEFAULT_PRICING_FRESHNESS_HOURS)).isoformat()
+        raw_snapshot_row = self.connection.execute(
+            """
+            SELECT
+                COUNT(*) AS snapshot_count,
+                SUM(CASE WHEN updated_at < ? THEN 1 ELSE 0 END) AS stale_count,
+                MIN(updated_at) AS oldest_snapshot_at,
+                AVG((julianday('now') - julianday(updated_at)) * 24.0) AS average_age_hours,
+                MAX((julianday('now') - julianday(updated_at)) * 24.0) AS max_age_hours
+            FROM card_price_summaries
+            """,
+            (stale_cutoff,),
+        ).fetchone()
+        slab_snapshot_row = self.connection.execute(
+            """
+            SELECT
+                COUNT(*) AS snapshot_count,
+                SUM(CASE WHEN updated_at < ? THEN 1 ELSE 0 END) AS stale_count,
+                MIN(updated_at) AS oldest_snapshot_at,
+                AVG((julianday('now') - julianday(updated_at)) * 24.0) AS average_age_hours,
+                MAX((julianday('now') - julianday(updated_at)) * 24.0) AS max_age_hours
+            FROM slab_price_snapshots
+            """,
+            (stale_cutoff,),
+        ).fetchone()
+        cache_payload = None
+        cache_status = "disabled"
+        cache_message = "Legacy in-memory provider cache is disabled by default. Persisted DB snapshots are the freshness source of truth."
+        if CACHE_AVAILABLE and price_cache:
+            cache_payload = price_cache.get_stats()
+            cache_status = "ok"
+            cache_message = None
+
+        return {
+            "status": cache_status,
+            "message": cache_message,
+            "cache": cache_payload,
+            "freshnessWindowHours": DEFAULT_PRICING_FRESHNESS_HOURS,
+            "rawSnapshots": {
+                "count": raw_snapshot_row["snapshot_count"] if raw_snapshot_row else 0,
+                "staleCount": raw_snapshot_row["stale_count"] if raw_snapshot_row and raw_snapshot_row["stale_count"] is not None else 0,
+                "oldestSnapshotAt": raw_snapshot_row["oldest_snapshot_at"] if raw_snapshot_row else None,
+                "averageAgeHours": round(raw_snapshot_row["average_age_hours"], 2) if raw_snapshot_row and raw_snapshot_row["average_age_hours"] is not None else None,
+                "maxAgeHours": round(raw_snapshot_row["max_age_hours"], 2) if raw_snapshot_row and raw_snapshot_row["max_age_hours"] is not None else None,
+            },
+            "slabSnapshots": {
+                "count": slab_snapshot_row["snapshot_count"] if slab_snapshot_row else 0,
+                "staleCount": slab_snapshot_row["stale_count"] if slab_snapshot_row and slab_snapshot_row["stale_count"] is not None else 0,
+                "oldestSnapshotAt": slab_snapshot_row["oldest_snapshot_at"] if slab_snapshot_row else None,
+                "averageAgeHours": round(slab_snapshot_row["average_age_hours"], 2) if slab_snapshot_row and slab_snapshot_row["average_age_hours"] is not None else None,
+                "maxAgeHours": round(slab_snapshot_row["max_age_hours"], 2) if slab_snapshot_row and slab_snapshot_row["max_age_hours"] is not None else None,
+            },
+            "timestamp": datetime.now(UTC).isoformat()
         }
 
     def catalog_sync_status(self) -> dict[str, Any]:
@@ -422,35 +574,26 @@ class SpotlightScanService:
         if not collector_number:
             return []
 
-        raw_set_hints = {
-            token.lower()
-            for token in normalized_set_hint_tokens(" ".join(str(value) for value in (payload.get("setHintTokens") or [])))
-            if token
-        }
-        prefix = (payload.get("promoCodeHint") or collector_prefix(collector_number) or "").lower()
-        if prefix:
-            raw_set_hints.add(prefix)
-
-        if not raw_set_hints:
+        raw_set_hints = trusted_set_hints_for_payload(payload)
+        api_number_values = collector_number_api_query_values(collector_number)
+        printed_total = collector_number_printed_total(collector_number)
+        if not api_number_values:
             return []
 
-        number_keys = [
-            key
-            for key in collector_number_lookup_keys(collector_number)
-            if key and not any(character.isalpha() for character in key)
-        ]
-        if not number_keys:
-            return []
-
-        ordered_number_keys = sorted(number_keys, key=lambda key: ("/" not in key, -len(key)))
         queries: list[str] = []
         seen: set[str] = set()
 
-        for set_hint in sorted(raw_set_hints):
-            for number_key in ordered_number_keys:
+        for api_number in api_number_values:
+            if printed_total is not None:
+                query = f"set.printedTotal:{printed_total} number:\"{api_number.upper()}\""
+                if query not in seen:
+                    seen.add(query)
+                    queries.append(query)
+
+            for set_hint in sorted(raw_set_hints):
                 for query in (
-                    f"set.ptcgoCode:{set_hint.upper()} number:\"{number_key}\"",
-                    f"set.id:{set_hint.lower()} number:\"{number_key}\"",
+                    f"set.ptcgoCode:{set_hint.upper()} number:\"{api_number.upper()}\"",
+                    f"set.id:{set_hint.lower()} number:\"{api_number.lower()}\"",
                 ):
                     if query in seen:
                         continue
@@ -460,35 +603,62 @@ class SpotlightScanService:
         return queries
 
     def resolve_catalog_miss(self, payload: dict[str, Any], api_key: str | None = None) -> dict[str, Any] | None:
-        if not api_key:
-            return None
         if resolver_mode_for_payload(payload) == "psa_slab":
             return None
 
+        recognized_text = recognized_text_for_payload(payload)
         query_tokens = {
             token
-            for token in tokenize(payload.get("fullRecognizedText") or "")
+            for token in tokenize(recognized_text)
             if len(token) > 2 and token not in {"pokemon", "card", "rare", "illustration"}
         }
-        number_keys = collector_number_lookup_keys(str(payload.get("collectorNumber") or ""))
+        raw_number_values = {value.lower() for value in collector_number_api_query_values(str(payload.get("collectorNumber") or ""))}
+        printed_total = collector_number_printed_total(str(payload.get("collectorNumber") or ""))
+        set_hints = trusted_set_hints_for_payload(payload)
+        pokedex_hints = recognized_pokedex_number_hints(recognized_text)
+        artist_hints = recognized_artist_tokens(recognized_text)
 
         for query in self._catalog_miss_queries(payload):
             results = search_remote_cards(query, api_key, page_size=5)
             if not results:
                 continue
 
-            def sort_key(raw_card: dict[str, Any]) -> tuple[int, int, int, str]:
-                number = str(raw_card.get("number") or "")
-                exact_number = 1 if number_keys and number.lower() in number_keys else 0
+            def sort_key(raw_card: dict[str, Any]) -> tuple[int, int, int, int, int, int, str]:
+                number = str(raw_card.get("number") or "").lower()
+                set_info = raw_card.get("set") or {}
+                set_name = str(set_info.get("name") or "")
+                set_tokens = set(tokenize(set_name))
+                set_codes = {
+                    str(set_info.get("ptcgoCode") or "").lower(),
+                    str(set_info.get("id") or "").lower(),
+                }
+                set_codes.discard("")
+                exact_number = 1 if raw_number_values and number in raw_number_values else 0
+                printed_total_match = 1 if printed_total is not None and set_info.get("printedTotal") == printed_total else 0
+                set_hint_match = 1 if set_hints and not set_hints.isdisjoint(set_tokens | set_codes) else 0
+                pokedex_numbers = {str(value).lstrip("0") or "0" for value in (raw_card.get("nationalPokedexNumbers") or [])}
+                pokedex_match = 1 if pokedex_hints and not pokedex_hints.isdisjoint(pokedex_numbers) else 0
+                artist_tokens = recognized_artist_tokens(str(raw_card.get("artist") or ""))
+                artist_match = 1 if artist_hints and len(artist_hints & artist_tokens) >= min(2, len(artist_tokens) or 99) else 0
                 name_tokens = set(tokenize(str(raw_card.get("name") or "")))
                 name_overlap = len(name_tokens & query_tokens)
-                set_name = (raw_card.get("set") or {}).get("name") or ""
-                return (-exact_number, -name_overlap, len(name_tokens), set_name)
+                return (
+                    -exact_number,
+                    -printed_total_match,
+                    -set_hint_match,
+                    -pokedex_match,
+                    -artist_match,
+                    -name_overlap,
+                    set_name,
+                )
 
             ranked = sorted(results, key=sort_key)
             best = ranked[0]
             best_number = str(best.get("number") or "").lower()
-            if number_keys and best_number not in number_keys:
+            best_set_info = best.get("set") or {}
+            if raw_number_values and best_number not in raw_number_values:
+                continue
+            if printed_total is not None and best_set_info.get("printedTotal") != printed_total:
                 continue
 
             imported = self._persist_catalog_card(
@@ -510,40 +680,102 @@ class SpotlightScanService:
         api_key: str | None = None,
         grader: str | None = None,
         grade: str | None = None,
+        force_refresh: bool = False,
     ) -> dict[str, Any] | None:
-        row = self.connection.execute(
-            """
-            SELECT
-                cards.id,
-                card_catalog_metadata.source,
-                card_images.local_path
-            FROM cards
-            LEFT JOIN card_catalog_metadata ON card_catalog_metadata.card_id = cards.id
-            LEFT JOIN card_images
-                ON card_images.card_id = cards.id
-               AND card_images.role = 'reference_front'
-            WHERE cards.id = ?
-            LIMIT 1
-            """,
-            (card_id,),
-        ).fetchone()
+        def fetch_card_row() -> sqlite3.Row | None:
+            return self.connection.execute(
+                """
+                SELECT
+                    cards.id,
+                    card_catalog_metadata.source,
+                    card_images.local_path
+                FROM cards
+                LEFT JOIN card_catalog_metadata ON card_catalog_metadata.card_id = cards.id
+                LEFT JOIN card_images
+                    ON card_images.card_id = cards.id
+                   AND card_images.role = 'reference_front'
+                WHERE cards.id = ?
+                LIMIT 1
+                """,
+                (card_id,),
+            ).fetchone()
+
+        row = fetch_card_row()
+
+        if row is None and api_key:
+            try:
+                imported = self.import_catalog_card(
+                    card_id,
+                    api_key=api_key,
+                    trigger_source="refresh_pricing_auto_import",
+                )
+                if imported is not None:
+                    row = fetch_card_row()
+            except Exception:
+                row = None
 
         if row is None:
             return None
 
+        if grader and grade and grader.upper() == "PSA":
+            existing_pricing = slab_price_snapshot_for_card(self.connection, card_id, grader, grade)
+            if (
+                existing_pricing is not None
+                and not force_refresh
+                and existing_pricing.get("isFresh") is True
+            ):
+                print(
+                    f"[PRICING DEBUG] refresh_psa_cached: card={card_id} "
+                    f"grader={grader} grade={grade} ageHours={existing_pricing.get('snapshotAgeHours')}"
+                )
+                return self.card_detail(card_id, grader=grader, grade=grade)
+        elif not grader and not grade:
+            existing_pricing = raw_pricing_summary_for_card(self.connection, card_id)
+            if (
+                existing_pricing is not None
+                and not force_refresh
+                and existing_pricing.get("isFresh") is True
+            ):
+                print(
+                    f"[PRICING DEBUG] refresh_raw_cached: card={card_id} "
+                    f"ageHours={existing_pricing.get('snapshotAgeHours')}"
+                )
+                return self.card_detail(card_id)
+
         # Try provider registry for pricing refresh
         provider_refresh_result = None
         if grader and grade and grader.upper() == "PSA":
-            provider_refresh_result = self.pricing_registry.refresh_psa_pricing(
-                self.connection, card_id, grade
-            )
+            scrydex_provider = self.pricing_registry.get_provider("scrydex")
+            if scrydex_provider is None or not scrydex_provider.is_ready():
+                provider_refresh_result = PsaPricingResult(
+                    success=False,
+                    provider_id="scrydex",
+                    card_id=card_id,
+                    grade=grade,
+                    error="Scrydex PSA pricing is not configured",
+                )
+            else:
+                provider_refresh_result = scrydex_provider.refresh_psa_pricing(
+                    self.connection, card_id, grade
+                )
             if provider_refresh_result.success:
+                self._log_pricing_provenance("refresh_psa", card_id)
                 return self.card_detail(card_id, grader=grader, grade=grade)
         elif not grader and not grade:
-            provider_refresh_result = self.pricing_registry.refresh_raw_pricing(
-                self.connection, card_id
-            )
+            raw_provider = self.pricing_registry.get_provider("pokemontcg_api")
+            if raw_provider is None or not raw_provider.is_ready():
+                provider_refresh_result = RawPricingResult(
+                    success=False,
+                    provider_id="pokemontcg_api",
+                    card_id=card_id,
+                    error="Pokemon TCG API raw pricing is not configured",
+                )
+            else:
+                provider_refresh_result = raw_provider.refresh_raw_pricing(
+                    self.connection, card_id
+                )
             if provider_refresh_result.success:
+                self._log_pricing_provenance("refresh_raw", card_id)
                 return self.card_detail(card_id)
 
         # Log provider failure if we tried and failed
@@ -560,8 +792,9 @@ class SpotlightScanService:
         # Fallback: recompute slab snapshots from local data
         if grader and grade:
             recompute_slab_price_snapshot(self.connection, card_id, grader, grade)
+            return self.card_detail(card_id, grader=grader, grade=grade)
 
-        if row["source"] != "pokemontcg_api":
+        if row["source"] != "pokemontcg_api" or not api_key:
             return self.card_detail(card_id, grader=grader, grade=grade)
 
         # Fallback: refresh from Pokemon TCG API
@@ -671,14 +904,48 @@ class SpotlightScanService:
         slab_context = slab_context_from_payload(payload) if resolver_mode == "psa_slab" else None
         direct_candidate_indices = direct_lookup_candidate_indices(self.index, payload)
         psa_candidate_indices = psa_label_candidate_indices(self.index, payload) if resolver_mode == "psa_slab" else []
+        ambiguity_flags = list(dict.fromkeys(payload.get("warnings", [])))
+        direct_lookup_name_support = direct_lookup_has_name_support(self.index, payload, direct_candidate_indices)
+        direct_lookup_exact_candidate = direct_lookup_has_exact_candidate(self.index, payload, direct_candidate_indices)
+        direct_lookup_set_hints = trusted_set_hints_for_payload(payload)
+
+        def unsupported_response(reason: str, *, path: str | None = None) -> dict[str, Any]:
+            response = {
+                "scanID": payload["scanID"],
+                "topCandidates": [],
+                "confidence": "low",
+                "ambiguityFlags": ambiguity_flags,
+                "matcherSource": "remoteHybrid",
+                "matcherVersion": MATCHER_VERSION,
+                "resolverMode": resolver_mode,
+                "resolverPath": path,
+                "slabContext": slab_context,
+                "reviewDisposition": "unsupported",
+                "reviewReason": reason,
+            }
+            self._log_scan(payload, response, [])
+            return response
+
+        if resolver_mode == "psa_slab" and slab_context is None:
+            ambiguity_flags.append("PSA label missing or unreadable")
+            return unsupported_response(
+                "Could not read the PSA label strongly enough to run a slab scan.",
+                path="psa_label",
+            )
+
+        if resolver_mode == "psa_slab" and not psa_candidate_indices:
+            ambiguity_flags.append("PSA label did not match a supported slab")
+            return unsupported_response(
+                "Could not confirm this PSA slab from the label text.",
+                path="psa_label",
+            )
 
         query_embedding = None
         # Trust direct lookup if we have strong collector number + set matches
         direct_lookup_ready = bool(direct_candidate_indices) and (
-            payload.get("directLookupLikely")
-            or direct_lookup_has_name_support(self.index, payload, direct_candidate_indices)
-            or len(direct_candidate_indices) == 1  # Unique match by number+set
-            or (len(direct_candidate_indices) <= 3 and bool(payload.get("collectorNumber")))  # Small set, has number
+            (payload.get("directLookupLikely") and direct_lookup_exact_candidate)
+            or direct_lookup_name_support
+            or (direct_lookup_exact_candidate and bool(direct_lookup_set_hints))
         )
 
         # Debug logging for troubleshooting
@@ -713,10 +980,16 @@ class SpotlightScanService:
                 final_score, reasons, retrieval_score, rerank_score = psa_label_score(card, payload)
             else:
                 final_score, reasons, retrieval_score, rerank_score = rerank_card(card, payload, query_embedding)
+            allow_embedded_pricing = not (
+                resolver_mode == "psa_slab" and contextual_pricing is None
+            )
             scored_candidates.append(
                 {
                     "card": card,
-                    "candidate": card.as_candidate(pricing_override=contextual_pricing),
+                    "candidate": card.as_candidate(
+                        pricing_override=contextual_pricing,
+                        allow_embedded_pricing=allow_embedded_pricing,
+                    ),
                     "finalScore": final_score,
                     "retrievalScore": retrieval_score,
                     "rerankScore": rerank_score,
@@ -738,8 +1011,12 @@ class SpotlightScanService:
             }
             for index, candidate in enumerate(top_candidates)
         ]
+        top_has_exact_structured_match = (
+            candidate_has_exact_structured_match(encoded_candidates[0], payload, resolver_path)
+            if encoded_candidates and resolver_path in {"direct_lookup", "psa_label"}
+            else False
+        )
 
-        ambiguity_flags = list(dict.fromkeys(payload.get("warnings", [])))
         if not payload.get("collectorNumber"):
             ambiguity_flags.append("Collector number missing")
         if len(top_candidates) > 1 and abs(top_candidates[0]["finalScore"] - top_candidates[1]["finalScore"]) < 0.08:
@@ -762,6 +1039,7 @@ class SpotlightScanService:
             delta = top["finalScore"] - encoded_candidates[1]["finalScore"] if len(encoded_candidates) > 1 else top["finalScore"]
             print(f"[SCAN DEBUG] Resolver: {resolver_path}, Confidence: {confidence}")
             print(f"[SCAN DEBUG] Top match: {top['candidate']['name']} (score: {top['finalScore']:.3f}, delta: {delta:.3f})")
+            self._log_pricing_provenance("scan_top_match", top["candidate"]["id"])
 
         review_disposition, review_reason = self._review_disposition_for_response(
             confidence=confidence,
@@ -770,13 +1048,28 @@ class SpotlightScanService:
             payload=payload,
         )
 
+        canonical_collector_number = canonicalize_collector_number(str(payload.get("collectorNumber") or ""))
+        recognized_text = recognized_text_for_payload(payload)
+        trusted_set_hints = trusted_set_hints_for_payload(payload)
+        has_artist_credit_signal = has_specific_artist_credit_signal(recognized_text)
+        has_pokedex_signal = bool(recognized_pokedex_number_hints(recognized_text))
         should_try_live_catalog_miss = (
             allow_live_catalog_miss
             and resolver_mode != "psa_slab"
-            and confidence != "high"
-            and resolver_path != "direct_lookup"
             and bool(payload.get("collectorNumber"))
-            and (bool(payload.get("setHintTokens")) or bool(payload.get("promoCodeHint")))
+            and (
+                bool(trusted_set_hints)
+                or bool(payload.get("promoCodeHint"))
+                or collector_number_has_alpha_hint(canonical_collector_number)
+                or has_artist_credit_signal
+                or has_pokedex_signal
+            )
+            and not (resolver_path == "direct_lookup" and top_has_exact_structured_match)
+            and (
+                resolver_path != "direct_lookup"
+                or confidence != "high"
+                or not direct_lookup_exact_candidate
+            )
         )
         if should_try_live_catalog_miss:
             imported = self.resolve_catalog_miss(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))
@@ -967,6 +1260,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, self.service.unmatched_scans(limit=limit))
             return
 
+        if parsed.path == "/api/v1/ops/cache-status":
+            self._write_json(HTTPStatus.OK, self.service.cache_status())
+            return
+
         if parsed.path == "/api/v1/slab-sync/status":
             self._write_json(HTTPStatus.OK, self.service.slab_sync_status())
             return
@@ -1026,6 +1323,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 grader=query.get("grader", [None])[0],
                 grade=query.get("grade", [None])[0],
             )
+
+            # Auto-import card from Pokemon TCG API if not in database
+            if payload is None:
+                api_key = os.environ.get("POKEMONTCG_API_KEY")
+                try:
+                    imported = self.service.import_catalog_card(
+                        card_id,
+                        api_key=api_key,
+                        trigger_source="auto_import_on_request",
+                    )
+                    if imported is not None:
+                        # Retry card_detail after import
+                        payload = self.service.card_detail(
+                            card_id,
+                            grader=query.get("grader", [None])[0],
+                            grade=query.get("grade", [None])[0],
+                        )
+                except Exception:
+                    pass  # Fall through to 404
+
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
                 return
@@ -1046,11 +1363,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
             try:
                 query = parse_qs(parsed.query)
+                force_refresh = query.get("forceRefresh", ["0"])[0].lower() in {"1", "true", "yes"}
                 payload = self.service.refresh_card_pricing(
                     card_id,
                     api_key=os.environ.get("POKEMONTCG_API_KEY"),
                     grader=query.get("grader", [None])[0],
                     grade=query.get("grade", [None])[0],
+                    force_refresh=force_refresh,
                 )
             except Exception as error:
                 self.service.record_pricing_refresh_failure(
@@ -1235,6 +1554,15 @@ def main() -> None:
             daemon=True,
         )
         worker.start()
+
+    # Legacy in-memory provider cache is opt-in only.
+    if (
+        CACHE_AVAILABLE
+        and start_background_cleanup
+        and os.environ.get("SPOTLIGHT_ENABLE_LEGACY_PROVIDER_CACHE") == "1"
+    ):
+        start_background_cleanup(interval_hours=1)
+        print("✅ Started legacy background cache cleanup (runs every 1 hour)", flush=True)
 
     print(f"Spotlight scan service listening on http://{config.host}:{config.port}", flush=True)
     try:

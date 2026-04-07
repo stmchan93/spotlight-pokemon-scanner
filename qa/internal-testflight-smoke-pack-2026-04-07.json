@@ -1,0 +1,88 @@
+[
+  {
+    "mode": "raw",
+    "cardID": "base5-14",
+    "name": "Dark Weezing",
+    "set": "Team Rocket",
+    "collectorNumber": "14/82",
+    "expectedPriceSource": "tcgplayer",
+    "notes": "Vintage English raw card with known local identifier support."
+  },
+  {
+    "mode": "raw",
+    "cardID": "swshp-SWSH286",
+    "name": "Pikachu VMAX",
+    "set": "SWSH Black Star Promos",
+    "collectorNumber": "SWSH286",
+    "expectedPriceSource": "tcgplayer",
+    "notes": "Promo/prefixed collector-number path."
+  },
+  {
+    "mode": "raw",
+    "cardID": "sv1-204",
+    "name": "Slowpoke",
+    "set": "Scarlet & Violet",
+    "collectorNumber": "204/198",
+    "expectedPriceSource": "tcgplayer",
+    "notes": "Modern secret-rare style raw card."
+  },
+  {
+    "mode": "raw",
+    "cardID": "pop5-16",
+    "name": "Espeon ★",
+    "set": "POP Series 5",
+    "collectorNumber": "16/17",
+    "expectedPriceSource": "tcgplayer",
+    "notes": "Vintage direct-lookup path with star card numbering."
+  },
+  {
+    "mode": "slab",
+    "cardID": "base6-64",
+    "name": "Snorlax",
+    "set": "Legendary Collection",
+    "collectorNumber": "64/110",
+    "grade": "10",
+    "expectedPriceSource": "psa_comp_model",
+    "notes": "Known-good slab with exact same-grade snapshot."
+  },
+  {
+    "mode": "slab",
+    "cardID": "neo1-9",
+    "name": "Lugia",
+    "set": "Neo Genesis",
+    "collectorNumber": "9/111",
+    "grade": "9",
+    "expectedPriceSource": "psa_comp_model",
+    "notes": "Known-good slab with exact same-grade snapshot."
+  },
+  {
+    "mode": "slab",
+    "cardID": "neo1-9",
+    "name": "Lugia",
+    "set": "Neo Genesis",
+    "collectorNumber": "9/111",
+    "grade": "10",
+    "expectedPriceSource": "psa_comp_model",
+    "notes": "Known-good slab with exact same-grade snapshot."
+  },
+  {
+    "mode": "slab",
+    "cardID": "ex13-103",
+    "name": "Mewtwo ★",
+    "set": "Holon Phantoms",
+    "collectorNumber": "103/110",
+    "grade": "10",
+    "expectedPriceSource": "psa_comp_model",
+    "notes": "Known-good slab using same-card grade ladder modeling."
+  },
+  {
+    "mode": "slab",
+    "cardID": "sv8-238",
+    "name": "Pikachu ex",
+    "set": "Surging Sparks",
+    "collectorNumber": "238/191",
+    "grade": "9",
+    "expectedPriceSource": "psa_comp_model",
+    "notes": "Modern slab with exact same-grade snapshot."
+  }
+]

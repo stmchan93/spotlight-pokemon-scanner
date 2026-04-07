@@ -1,10 +1,10 @@
 # Spotlight Card Scanner - Development Log
 
-Last updated: 2026-04-04
+Last updated: 2026-04-06
 
 ## Current Status
 
-iOS card scanning app with backend integration. Camera scanner for Pokémon trading cards with real-time pricing from TCGPlayer.
+iOS card scanning app with **PRODUCTION** Google Cloud Run backend. Camera scanner for Pokémon trading cards with real-time pricing from **Scrydex**.
 
 ## Critical Outstanding Issues
 
@@ -48,13 +48,22 @@ iOS card scanning app with backend integration. Camera scanner for Pokémon trad
 
 ## Recent Changes
 
+### UI Redesign to Match Reference (2026-04-05)
+- **Full-screen camera preview**: Camera now takes up most of the screen with lighter gradients for better visibility
+- **Larger reticle**: Increased scanning area to 340x476 with lime green corners (matching reference design)
+- **Tap-to-scan area**: Restricted to reticle area only (340x476 rectangle)
+- **Bottom scan tray**: Compact tray at bottom with "Recent scans" + CLEAR button on left, running total on right
+- **Chevron expand button**: Floating chevron-up button above tray to expand/collapse
+- **Compact card rows**: Shows thumbnail, card info, QTY 1, and ADD button in horizontal layout
+- **Single card default**: Only shows most recent scan when collapsed, all scans when expanded
+- **Dark theme**: Black background (not dark gray) for cleaner look
+
 ### UI Simplification
 - Removed "Live Scan Stack" subtitle
 - Changed to simple "Spotlight" title
 - Removed all control buttons from scanner view (import, torch, flashlight)
 - Added import button to top-right of main screen only
 - Removed bottom circular scan button
-- Simplified to: tap anywhere on screen to scan
 
 ### Scanner Fixes
 - Fixed photo zoom out issue (changed preview from `.resizeAspectFill` to `.resizeAspect`)
@@ -63,10 +72,26 @@ iOS card scanning app with backend integration. Camera scanner for Pokémon trad
 - Hidden confidence labels in UI
 
 ### Backend Configuration
-- Backend URL: `http://192.168.0.225:8788/` (Mac's local IP)
-- Changed from localhost for iPhone connectivity
-- Forced locale to `en_US` for TCGPlayer/USD pricing (not CardMarket/EUR)
-- Backend must be running: `python3 backend/server.py --cards-file backend/catalog/pokemontcg/cards.json --database-path backend/data/imported_scanner.sqlite --port 8788`
+
+**iOS app automatically switches backends based on build configuration:**
+
+#### Debug (Xcode → Device/Simulator)
+- **Backend URL:** `http://192.168.0.225:8788/` (Mac's local IP)
+- **Use for:** Daily development, testing, debugging
+- **Cost:** FREE (runs on your Mac)
+- **Setup:** Run `python3 backend/server.py --skip-seed --port 8788` locally
+
+#### Release (Archive → TestFlight/App Store)
+- **Backend URL:** `https://spotlight-backend-grhsfspaia-uc.a.run.app/`
+- **Hosting:** Google Cloud Run (us-central1)
+- **Use for:** Testing with friends, production deployment
+- **Cost:** Pay-per-use (scales to zero when idle)
+- **Pricing Provider:** Scrydex (primary for both raw cards and PSA slabs)
+- **Database:** SQLite (starts empty, auto-populates on card requests)
+- **Environment Variables:** Set via deploy.sh from backend/.env
+  - `SCRYDEX_API_KEY`: Your Scrydex API key
+  - `SCRYDEX_TEAM_ID`: spotlight
+- **Resources:** 1GB RAM, 2 CPUs, 300s timeout, auto-scaling
 
 ## Architecture
 
@@ -80,9 +105,12 @@ iOS card scanning app with backend integration. Camera scanner for Pokémon trad
 ### Backend (`/backend`)
 - **Language:** Python
 - **Server:** HTTP server on port 8788
-- **Database:** SQLite with 2020+ Pokémon cards
+- **Database:** SQLite (empty on startup, auto-populated on-demand)
+- **Card Data:** Pokemon TCG API (20,237+ cards, fetched automatically)
 - **Pricing:** Pokemon TCG API (includes TCGPlayer pricing)
-- **Auto-import:** Missing cards fetched from Pokemon TCG API automatically
+- **Auto-import:** ALL cards fetched from Pokemon TCG API on first request
+- **Caching:** 24-hour price cache for 75% cost reduction
+- **Identifier Map:** 20,237 card identifiers (3.21 MB) bundled with iPhone app for offline identification
 
 ### Key Files
 
@@ -90,14 +118,19 @@ iOS card scanning app with backend integration. Camera scanner for Pokémon trad
 - `Spotlight/App/AppContainer.swift` - Dependency injection, backend URL configuration
 - `Spotlight/Services/CameraSessionController.swift` - Camera session management
 - `Spotlight/Services/CardRectangleAnalyzer.swift` - OCR configuration (bottom region scanning)
-- `Spotlight/ViewModels/ScannerViewModel.swift` - Scan flow, memory management
-- `Spotlight/Views/ScannerView.swift` - Main scanner UI
+- `Spotlight/Services/IdentifierLookupService.swift` - Offline card identification from bundled map
+- `Spotlight/Services/ScanCacheManager.swift` - 7-day local price cache for offline fallback
+- `Spotlight/ViewModels/ScannerViewModel.swift` - Hybrid scan flow (local → backend)
+- `Spotlight/Views/ScannerView.swift` - Main scanner UI with cache indicators
 - `Spotlight/Models/ScannerAPIModels.swift` - Locale configuration (forced to en_US)
+- `Spotlight/Resources/identifiers_pokemon.json` - 20,237 card identifiers (3.21 MB)
 
 **Backend:**
-- `backend/server.py` - Main HTTP server
-- `backend/data/imported_scanner.sqlite` - Card database (309 MB, 2020 cards)
-- `backend/catalog/pokemontcg/cards.json` - Card catalog (7.9 MB)
+- `backend/server.py` - Main HTTP server with auto-import on card requests
+- `backend/fetch_all_pokemon.py` - Script to fetch all Pokémon from Pokemon TCG API
+- `backend/price_cache.py` - 24-hour thread-safe price cache
+- `backend/catalog/identifiers/pokemon_complete.json` - Complete identifier map (source for iPhone bundle)
+- `backend/catalog/pokemontcg/all_cards_cache.json` - Cached API responses for faster re-runs
 
 ## Deployment Instructions
 
@@ -105,14 +138,18 @@ iOS card scanning app with backend integration. Camera scanner for Pokémon trad
 ```bash
 cd /Users/stephenchan/Code/spotlight/backend
 
-# Start backend server
-python3 server.py \
-  --cards-file catalog/pokemontcg/cards.json \
-  --database-path data/imported_scanner.sqlite \
-  --port 8788
+# Start backend server (no cards.json needed!)
+python3 server.py --skip-seed --port 8788
 
 # Verify backend is running
 curl http://127.0.0.1:8788/api/v1/health
+
+# Check price cache status
+curl http://127.0.0.1:8788/api/v1/ops/cache-status
+
+# Optional: Regenerate identifier map (if needed)
+python3 fetch_all_pokemon.py
+cp catalog/identifiers/pokemon_complete.json ../Spotlight/Resources/identifiers_pokemon.json
 ```
 
 ### iOS App Deployment
@@ -212,18 +249,47 @@ Targets last 6% of card where collector numbers appear (e.g., "TG30/TG30").
 3. Keep iPhone unlocked during deployment
 4. Unplug/replug cable if connection lost
 
+## Active Development Plans
+
+### Caching Implementation (In Progress)
+See [CACHING_PLAN.md](CACHING_PLAN.md) for full details.
+
+**Goal:** Enable offline/convention usage + reduce API costs by 75%
+
+**Three-layer strategy:**
+1. Backend 24-hour price cache (provider-agnostic)
+2. iPhone 7-day local cache with offline fallback
+3. Pre-load sets feature for conventions
+
+**Implementation phases:**
+- Phase 1: Backend cache (4-6 hours) - High priority
+- Phase 2: iPhone cache (6-8 hours) - High priority
+- Phase 3: Pre-load sets (6-8 hours) - Medium priority
+
+### Google Cloud Run Deployment
+See [DEPLOY.md](DEPLOY.md) for deployment guide.
+
+**Status:** Ready to deploy
+- Dockerfile created
+- Deploy script ready (`backend/deploy.sh`)
+- Comprehensive deployment docs
+
 ## Next Session Priorities
 
-1. **FIX CAMERA BLACK SCREEN** - Critical blocker
-   - Get camera logs from successful deployment
-   - Identify where authorization/configuration fails
-   - May need to investigate immediate crash on launch
+1. **Implement Backend Price Cache** - Reduces costs, improves performance
+   - Add 24-hour caching layer
+   - Works with all providers (Scrydex, PriceCharting, Pokemon TCG)
+   - 75% reduction in API calls
 
-2. Test end-to-end scanning once camera works
+2. **Implement iPhone Local Cache** - Convention-ready offline support
+   - Cache scan results locally
+   - Offline fallback logic
+   - Cache age indicators in UI
 
-3. Verify backend connectivity from iPhone
-
-4. Test memory stability with multiple scans
+3. **Deploy to Google Cloud Run** - Move from local to production
+   - Run `backend/deploy.sh`
+   - Update AppContainer.swift with Cloud Run URL
+   - Test end-to-end
 
 ## Reference
 

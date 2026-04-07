@@ -189,5 +189,5 @@ class PokemonTcgApiProvider(PricingProvider):
             provider_id="pokemontcg_api",
             card_id=card_id,
             grade=grade,
-            error="Pokemon TCG API does not support PSA graded pricing. Use PriceCharting for PSA pricing.",
+            error="Pokemon TCG API does not support PSA graded pricing. Use Scrydex for PSA pricing.",
         )

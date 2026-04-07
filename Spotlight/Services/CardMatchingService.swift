@@ -5,7 +5,7 @@ protocol CardMatchingService: Sendable {
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse
     func search(query: String) async -> [CardCandidate]
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail?
-    func refreshCardDetail(cardID: String, slabContext: SlabContext?) async throws -> CardDetail?
+    func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail?
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -149,7 +149,7 @@ final class LocalPrototypeMatchingService: CardMatchingService, @unchecked Senda
         )
     }
 
-    func refreshCardDetail(cardID: String, slabContext: SlabContext?) async throws -> CardDetail? {
+    func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail? {
         await fetchCardDetail(cardID: cardID, slabContext: slabContext)
     }
 
@@ -229,6 +229,31 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         decoder.dateDecodingStrategy = .iso8601
     }
 
+    func primeLocalNetworkPermissionIfNeeded() async {
+        guard baseURL.requiresLocalNetworkPermissionPrompt else {
+            return
+        }
+
+        let endpoint = baseURL.appending(path: "api/v1/ops/provider-status")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.timeoutInterval = 3
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        print("🌐 [APP] Priming local backend connection for local-network permission")
+
+        do {
+            let (_, response) = try await session.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse {
+                print("✅ [APP] Local backend warmup completed (\(httpResponse.statusCode))")
+            } else {
+                print("✅ [APP] Local backend warmup completed")
+            }
+        } catch {
+            print("⚠️ [APP] Local backend warmup failed: \(error.localizedDescription)")
+        }
+    }
+
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
         let lightweightFirst = analysis.directLookupLikely
         let initialResponse = try await performMatch(
@@ -270,6 +295,42 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
     }
 
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail? {
+        if let detail = await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext) {
+            return detail
+        }
+
+        guard await importCatalogCard(cardID: cardID) else {
+            return nil
+        }
+
+        return await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext)
+    }
+
+    func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail? {
+        if let refreshedDetail = try await refreshCardDetailFromServer(
+            cardID: cardID,
+            slabContext: slabContext,
+            forceRefresh: forceRefresh
+        ) {
+            return refreshedDetail
+        }
+
+        guard await importCatalogCard(cardID: cardID) else {
+            return await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext)
+        }
+
+        if let refreshedDetail = try await refreshCardDetailFromServer(
+            cardID: cardID,
+            slabContext: slabContext,
+            forceRefresh: forceRefresh
+        ) {
+            return refreshedDetail
+        }
+
+        return await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext)
+    }
+
+    private func fetchCardDetailFromServer(cardID: String, slabContext: SlabContext?) async -> CardDetail? {
         guard var components = URLComponents(url: baseURL.appending(path: "api/v1/cards/\(cardID)"), resolvingAgainstBaseURL: false) else {
             return nil
         }
@@ -289,11 +350,15 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         }
     }
 
-    func refreshCardDetail(cardID: String, slabContext: SlabContext?) async throws -> CardDetail? {
+    private func refreshCardDetailFromServer(
+        cardID: String,
+        slabContext: SlabContext?,
+        forceRefresh: Bool
+    ) async throws -> CardDetail? {
         guard var components = URLComponents(url: baseURL.appending(path: "api/v1/cards/\(cardID)/refresh-pricing"), resolvingAgainstBaseURL: false) else {
             throw MatcherError.invalidServerResponse
         }
-        components.queryItems = detailQueryItems(for: slabContext)
+        components.queryItems = detailQueryItems(for: slabContext, forceRefresh: forceRefresh)
         guard let endpoint = components.url else {
             throw MatcherError.invalidServerResponse
         }
@@ -307,12 +372,38 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             throw MatcherError.invalidServerResponse
         }
 
+        if httpResponse.statusCode == 404 {
+            return nil
+        }
+
         guard (200..<300).contains(httpResponse.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? "Pricing refresh failed."
             throw MatcherError.server(message: message)
         }
 
         return try decoder.decode(CardDetail.self, from: data)
+    }
+
+    private func importCatalogCard(cardID: String) async -> Bool {
+        let endpoint = baseURL.appending(path: "api/v1/catalog/import-card")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        struct ImportCardPayload: Codable {
+            let cardID: String
+        }
+
+        do {
+            request.httpBody = try encoder.encode(ImportCardPayload(cardID: cardID))
+            let (_, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse else {
+                return false
+            }
+            return (200..<300).contains(httpResponse.statusCode)
+        } catch {
+            return false
+        }
     }
 
     func submitFeedback(
@@ -399,13 +490,50 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         return false
     }
 
-    private func detailQueryItems(for slabContext: SlabContext?) -> [URLQueryItem] {
-        guard let slabContext else { return [] }
-        var items = [URLQueryItem(name: "grader", value: slabContext.grader)]
-        if let grade = slabContext.grade {
-            items.append(URLQueryItem(name: "grade", value: grade))
+    private func detailQueryItems(for slabContext: SlabContext?, forceRefresh: Bool = false) -> [URLQueryItem] {
+        var items: [URLQueryItem] = []
+        if let slabContext {
+            items.append(URLQueryItem(name: "grader", value: slabContext.grader))
+            if let grade = slabContext.grade {
+                items.append(URLQueryItem(name: "grade", value: grade))
+            }
+        }
+        if forceRefresh {
+            items.append(URLQueryItem(name: "forceRefresh", value: "1"))
         }
         return items
+    }
+}
+
+private extension URL {
+    var requiresLocalNetworkPermissionPrompt: Bool {
+        guard let host else { return false }
+        let lowercasedHost = host.lowercased()
+
+        if lowercasedHost == "localhost" || lowercasedHost == "127.0.0.1" {
+            return false
+        }
+
+        if lowercasedHost.hasSuffix(".local") {
+            return true
+        }
+
+        let octets = lowercasedHost.split(separator: ".").compactMap { Int($0) }
+        guard octets.count == 4 else { return false }
+
+        if octets[0] == 10 {
+            return true
+        }
+
+        if octets[0] == 192, octets[1] == 168 {
+            return true
+        }
+
+        if octets[0] == 172, (16...31).contains(octets[1]) {
+            return true
+        }
+
+        return false
     }
 }
 
@@ -426,6 +554,10 @@ final class HybridCardMatchingService: CardMatchingService, @unchecked Sendable 
             return result
         } catch {
             print("❌ [HYBRID] Primary backend failed: \(error.localizedDescription)")
+            if analysis.resolverModeHint == .psaSlab {
+                print("🛑 [HYBRID] Slab mode will not fall back to raw/local matching")
+                throw error
+            }
             print("🔄 [HYBRID] Falling back to local matcher")
             return try await fallback.match(analysis: analysis)
         }
@@ -445,19 +577,42 @@ final class HybridCardMatchingService: CardMatchingService, @unchecked Sendable 
             return detail
         }
 
+        if slabContext != nil {
+            return nil
+        }
+
         return await fallback.fetchCardDetail(cardID: cardID, slabContext: slabContext)
     }
 
-    func refreshCardDetail(cardID: String, slabContext: SlabContext?) async throws -> CardDetail? {
+    func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail? {
         do {
-            if let detail = try await primary.refreshCardDetail(cardID: cardID, slabContext: slabContext) {
+            if let detail = try await primary.refreshCardDetail(
+                cardID: cardID,
+                slabContext: slabContext,
+                forceRefresh: forceRefresh
+            ) {
                 return detail
             }
         } catch {
-            return try await fallback.refreshCardDetail(cardID: cardID, slabContext: slabContext)
+            if slabContext == nil {
+                return try await fallback.refreshCardDetail(
+                    cardID: cardID,
+                    slabContext: slabContext,
+                    forceRefresh: forceRefresh
+                )
+            }
+            throw error
         }
 
-        return try await fallback.refreshCardDetail(cardID: cardID, slabContext: slabContext)
+        guard slabContext == nil else {
+            return nil
+        }
+
+        return try await fallback.refreshCardDetail(
+            cardID: cardID,
+            slabContext: slabContext,
+            forceRefresh: forceRefresh
+        )
     }
 
     func submitFeedback(
@@ -631,6 +786,9 @@ private enum SamplePokemonCatalog {
             refreshedAt: ISO8601DateFormatter().string(from: Date()),
             sourceURL: nil,
             pricingMode: "raw_cached",
+            snapshotAgeHours: 0,
+            freshnessWindowHours: 24,
+            isFresh: true,
             grader: nil,
             grade: nil,
             pricingTier: nil,

@@ -1,6 +1,8 @@
 import Foundation
 import UIKit
 import Vision
+import CoreImage
+import Photos
 
 // MARK: - Configuration
 
@@ -16,7 +18,7 @@ struct RawCardScanConfiguration {
             minimumConfidence: 0.45,
             minimumAspectRatio: 0.6,
             maximumAspectRatio: 0.85,
-            edgeInsetPercentage: 0.10  // 10% inset to exclude thick card holders
+            edgeInsetPercentage: 0.0  // Keep footer text that sits close to the card edge
         )
     }
 
@@ -27,11 +29,11 @@ struct RawCardScanConfiguration {
         let upscaleFactor: CGFloat
 
         static let `default` = BottomRegionOCR(
-            // Target the VERY bottom identifier strip (last 6% of card only)
-            bottomLeftRegion: CGRect(x: 0.08, y: 0.93, width: 0.40, height: 0.06),
-            bottomRightRegion: CGRect(x: 0.52, y: 0.93, width: 0.40, height: 0.06),
-            minimumTextHeight: 0.003,  // More sensitive
-            upscaleFactor: 2.5  // Higher quality
+            // Cover the full footer band so slight reticle/card drift still captures the identifier.
+            bottomLeftRegion: CGRect(x: 0.00, y: 0.80, width: 0.42, height: 0.18),
+            bottomRightRegion: CGRect(x: 0.56, y: 0.80, width: 0.44, height: 0.18),
+            minimumTextHeight: 0.001,  // Very sensitive
+            upscaleFactor: 4.0  // Aggressive upscaling for tiny collector numbers
         )
     }
 
@@ -50,109 +52,8 @@ struct RawCardScanConfiguration {
     static let `default` = RawCardScanConfiguration(
         cardDetection: .default,
         bottomRegionOCR: .default,
-        debug: .disabled
+        debug: .enabled  // Enable to see OCR debug output
     )
-}
-
-// MARK: - Identifier Parser
-
-/// Parsed card identifier with confidence score
-private struct ParsedIdentifier {
-    let identifier: String
-    let confidence: Float
-    let sourceRegion: String
-}
-
-/// Parser for Pokémon card bottom identifiers
-private struct IdentifierParser {
-    private enum Pattern {
-        case prefixed       // TG23/TG30, GG37/GG70
-        case standard       // 123/197
-        case promo          // SVP 056, SWSH123
-        case compact        // 123197 (6 digits)
-
-        var regex: String {
-            switch self {
-            case .prefixed: return #"\b[A-Z]{1,3}\d{1,3}/[A-Z]{1,3}\d{1,3}\b"#
-            case .standard: return #"\b\d{1,3}/\d{1,3}\b"#
-            case .promo: return #"\b(?:SVP|SWSH|SM|XY|BW|DP|HGSS|POP|PR)\s?\d{1,3}\b"#
-            case .compact: return #"\b\d{6}\b"#
-            }
-        }
-
-        var boost: Float {
-            switch self {
-            case .prefixed: return 0.95
-            case .standard: return 1.0
-            case .promo: return 0.9
-            case .compact: return 0.7
-            }
-        }
-    }
-
-    func parse(text: String, sourceRegion: String) -> ParsedIdentifier? {
-        guard !text.isEmpty else { return nil }
-        let normalized = normalize(text)
-
-        for pattern in [Pattern.prefixed, .standard, .promo, .compact] {
-            if let match = firstMatch(in: normalized, pattern: pattern.regex) {
-                let cleaned = clean(match)
-                let confidence = min(1.0, pattern.boost + (normalized.count < 20 ? 0.05 : 0.0))
-
-                return ParsedIdentifier(
-                    identifier: cleaned,
-                    confidence: confidence,
-                    sourceRegion: sourceRegion
-                )
-            }
-        }
-
-        return nil
-    }
-
-    func chooseBetter(_ left: ParsedIdentifier?, _ right: ParsedIdentifier?) -> ParsedIdentifier? {
-        guard let left = left else { return right }
-        guard let right = right else { return left }
-        return left.confidence >= right.confidence ? left : right
-    }
-
-    private func normalize(_ text: String) -> String {
-        text
-            .uppercased()
-            // Normalize set code + EN patterns
-            .replacingOccurrences(of: #"\b([A-Z]{2,4})\s*EN\s*(\d{1,3})\b"#, with: "$1 $2", options: .regularExpression)
-            .replacingOccurrences(of: #"\b([A-Z]{2,4})EN\s*(\d{1,3})\b"#, with: "$1 $2", options: .regularExpression)
-            // Fix common OCR mistakes
-            .replacingOccurrences(of: "O", with: "0")  // O → 0 in context
-            .replacingOccurrences(of: #"(?<=\d)[I|L](?=\d)"#, with: "/", options: .regularExpression)  // I or L between digits → /
-            .replacingOccurrences(of: #"(?<=\d)\s+(?=\d{2,3}\b)"#, with: "/", options: .regularExpression)  // Space before 2-3 digits → /
-            // Fix repeated letter patterns with missing slash: GG37GG70 → GG37/GG70
-            .replacingOccurrences(of: #"([A-Z]{2})(\d{1,3})([A-Z]{2})(\d{1,3})"#, with: "$1$2/$3$4", options: .regularExpression)
-    }
-
-    private func clean(_ identifier: String) -> String {
-        // Handle compact 6-digit format
-        if identifier.count == 6, identifier.allSatisfy(\.isNumber) {
-            return "\(identifier.prefix(3))/\(identifier.suffix(3))"
-        }
-
-        return identifier
-            .replacingOccurrences(of: #"\s*/\s*"#, with: "/", options: .regularExpression)
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private func firstMatch(in text: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = regex.firstMatch(in: text, options: [], range: range),
-              let matchRange = Range(match.range, in: text) else {
-            return nil
-        }
-        return String(text[matchRange])
-    }
 }
 
 // MARK: - Main Scanner
@@ -160,13 +61,18 @@ private struct IdentifierParser {
 /// Fast, focused scanner for raw Pokémon cards - ONLY scans bottom regions
 actor RawCardScanner {
     private let config: RawCardScanConfiguration
-    private let parser = IdentifierParser()
+    private let parser = CardIdentifierParser()
+    private let footerFallbackRegion = CGRect(x: 0.00, y: 0.78, width: 1.00, height: 0.22)
 
     init(config: RawCardScanConfiguration = .default) {
         self.config = config
     }
 
-    func analyze(scanID: UUID, image: UIImage) async throws -> AnalyzedCapture {
+    func analyze(
+        scanID: UUID,
+        image: UIImage,
+        resolverModeHint: ResolverMode = .rawCard
+    ) async throws -> AnalyzedCapture {
         let startTime = Date()
 
         // Step 1: Normalize
@@ -178,9 +84,10 @@ actor RawCardScanner {
             throw AnalysisError.invalidImage
         }
 
-        // Step 2: Detect and crop card
+        // Step 2: Tighten the reticle crop to the actual card when possible.
+        // The captured photo can still include desk/background even when the preview reticle looks correct.
         if config.debug.verboseLogging {
-            print("  🔍 [SCAN] Step 2: Detecting card rectangle")
+            print("  🔍 [SCAN] Step 2: Refining reticle crop to card bounds")
         }
         let (cardImage, cropConfidence) = try detectAndCropCard(from: baseCGImage)
 
@@ -211,7 +118,29 @@ actor RawCardScanner {
 
         let leftParsed = parser.parse(text: bottomLeftText, sourceRegion: "bottom-left")
         let rightParsed = parser.parse(text: bottomRightText, sourceRegion: "bottom-right")
-        let bestParsed = parser.chooseBetter(leftParsed, rightParsed)
+
+        var footerTexts = [bottomLeftText, bottomRightText]
+        var bestParsed = bestParsedIdentifier(left: leftParsed, right: rightParsed)
+
+        if bestParsed == nil {
+            let footerText = try recognizeBottomRegion(
+                in: cardImage,
+                region: footerFallbackRegion,
+                label: "bottom_full"
+            )
+            if !footerText.isEmpty {
+                footerTexts.append(footerText)
+                if let footerParsed = parser.parse(text: footerText, sourceRegion: "bottom-full"),
+                   isPlausibleCollectorNumber(footerParsed.identifier) {
+                    bestParsed = footerParsed
+                }
+            }
+        }
+
+        let metadataText = footerTexts
+            .filter { !$0.isEmpty }
+            .joined(separator: " ")
+        let setHintTokens = extractSetHintTokens(from: footerTexts)
 
         if config.debug.verboseLogging {
             if let best = bestParsed {
@@ -224,6 +153,9 @@ actor RawCardScanner {
         let collectorNumber = bestParsed?.identifier
         let directLookupLikely = collectorNumber != nil && cropConfidence >= 0.55
 
+        print("  🔍 [OCR] Parsed collector number: \(collectorNumber ?? "<none>")")
+        print("  🔍 [OCR] Parsed set hints: \(setHintTokens)")
+
         let elapsed = Date().timeIntervalSince(startTime)
         if config.debug.verboseLogging {
             print("  ⏱️ [SCAN] Total: \(Int(elapsed * 1000))ms")
@@ -234,16 +166,16 @@ actor RawCardScanner {
             originalImage: normalized,
             normalizedImage: UIImage(cgImage: cardImage),
             recognizedTokens: [],
-            fullRecognizedText: "",
-            metadataStripRecognizedText: "",
+            fullRecognizedText: metadataText,
+            metadataStripRecognizedText: metadataText,
             topLabelRecognizedText: "",
             bottomLeftRecognizedText: bottomLeftText,
             bottomRightRecognizedText: bottomRightText,
             collectorNumber: collectorNumber,
-            setHintTokens: [],
+            setHintTokens: setHintTokens,
             promoCodeHint: extractPromoHint(from: collectorNumber),
             directLookupLikely: directLookupLikely,
-            resolverModeHint: .rawCard,
+            resolverModeHint: resolverModeHint,
             cropConfidence: cropConfidence,
             warnings: collectorNumber == nil ? ["Could not read identifier from bottom regions"] : []
         )
@@ -252,10 +184,6 @@ actor RawCardScanner {
     // MARK: - Private Methods
 
     private func detectAndCropCard(from cgImage: CGImage) throws -> (CGImage, Double) {
-        if isLikelyCardFramed(cgImage) {
-            return (cgImage, 1.0)
-        }
-
         let request = VNDetectRectanglesRequest()
         request.maximumObservations = 1
         request.minimumConfidence = config.cardDetection.minimumConfidence
@@ -266,14 +194,54 @@ actor RawCardScanner {
         try handler.perform([request])
 
         guard let rectangle = request.results?.first else {
-            return (cgImage, 0.3)
+            if config.debug.verboseLogging {
+                print("  ⚠️ [SCAN] No card rectangle detected inside reticle crop; using original crop")
+            }
+            return (cgImage, 1.0)
+        }
+
+        let areaCoverage = rectangle.boundingBox.width * rectangle.boundingBox.height
+        if config.debug.verboseLogging {
+            print("  🔍 [SCAN] Rectangle box: \(rectangle.boundingBox), confidence: \(rectangle.confidence), area: \(areaCoverage)")
+        }
+
+        guard areaCoverage >= 0.45 else {
+            if config.debug.verboseLogging {
+                print("  ⚠️ [SCAN] Rectangle too small to trust for footer OCR; using original crop")
+            }
+            return (cgImage, 1.0)
         }
 
         guard let cropped = cropWithInset(cgImage, observation: rectangle) else {
-            return (cgImage, Double(rectangle.confidence) * 0.5)
+            if config.debug.verboseLogging {
+                print("  ⚠️ [SCAN] Rectangle crop failed; using original crop")
+            }
+            return (cgImage, 1.0)
         }
 
-        return (cropped, Double(rectangle.confidence))
+        let croppedAspectRatio = cardAspectRatio(for: cropped)
+        let minimumAcceptedAspectRatio = max(0, CGFloat(config.cardDetection.minimumAspectRatio) - 0.03)
+        let maximumAcceptedAspectRatio = min(1, CGFloat(config.cardDetection.maximumAspectRatio) + 0.03)
+        guard croppedAspectRatio >= minimumAcceptedAspectRatio,
+              croppedAspectRatio <= maximumAcceptedAspectRatio else {
+            if config.debug.verboseLogging {
+                print("  ⚠️ [SCAN] Refined crop aspect ratio \(croppedAspectRatio) looks wrong; using original crop")
+            }
+            return (cgImage, 1.0)
+        }
+
+        if config.debug.verboseLogging {
+            print("  ✅ [SCAN] Refined card crop to \(cropped.width)x\(cropped.height)")
+        }
+
+        return (cropped, max(0.75, Double(rectangle.confidence)))
+    }
+
+    private func cardAspectRatio(for cgImage: CGImage) -> CGFloat {
+        let width = CGFloat(cgImage.width)
+        let height = CGFloat(cgImage.height)
+        guard width > 0, height > 0 else { return 0 }
+        return min(width, height) / max(width, height)
     }
 
     private func cropWithInset(_ cgImage: CGImage, observation: VNRectangleObservation) -> CGImage? {
@@ -293,15 +261,27 @@ actor RawCardScanner {
             height: inset.height * height
         ).integral
 
-        return cgImage.cropping(to: cropRect)
+        let clampedRect = cropRect.intersection(CGRect(x: 0, y: 0, width: width, height: height))
+        guard !clampedRect.isEmpty else { return nil }
+        return cgImage.cropping(to: clampedRect)
     }
 
     private func recognizeBottomRegion(in cardImage: CGImage, region: CGRect, label: String) throws -> String {
+        print("  🔍 [OCR] Card size: \(cardImage.width)x\(cardImage.height)")
+        print("  🔍 [OCR] Region: \(region)")
+
         guard let regionImage = cropToRect(cardImage, region: region) else {
+            print("  ❌ [OCR] Failed to crop region!")
             return ""
         }
 
-        let targetImage = upscale(regionImage, factor: config.bottomRegionOCR.upscaleFactor) ?? regionImage
+        print("  🔍 [OCR] Cropped region size: \(regionImage.width)x\(regionImage.height)")
+
+        // Upscale only - no preprocessing (aggressive filters make text unreadable)
+        let upscaled = upscale(regionImage, factor: config.bottomRegionOCR.upscaleFactor) ?? regionImage
+        print("  🔍 [OCR] After \(config.bottomRegionOCR.upscaleFactor)x upscale: \(upscaled.width)x\(upscaled.height)")
+
+        let targetImage = upscaled  // Use raw upscaled image
 
         if config.debug.saveDebugImages {
             saveDebugImage(targetImage, label: label)
@@ -311,15 +291,47 @@ actor RawCardScanner {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
         request.minimumTextHeight = config.bottomRegionOCR.minimumTextHeight
+        request.recognitionLanguages = ["en-US"]  // English only for better accuracy
 
         let handler = VNImageRequestHandler(cgImage: targetImage, options: [:])
         try handler.perform([request])
 
-        let tokens = request.results?.compactMap { observation -> String? in
-            observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines)
-        } ?? []
+        let observations = (request.results ?? []).sorted {
+            let lhsTop = $0.boundingBox.maxY
+            let rhsTop = $1.boundingBox.maxY
+            if abs(lhsTop - rhsTop) > 0.05 {
+                return lhsTop > rhsTop
+            }
+            return $0.boundingBox.minX < $1.boundingBox.minX
+        }
+        print("  🔍 [OCR] Found \(observations.count) text observations")
+
+        let tokens = observations.compactMap { observation -> String? in
+            let text = observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let text = text {
+                print("  🔍 [OCR] Detected: '\(text)' (confidence: \(observation.confidence))")
+            }
+            return text
+        }
 
         return tokens.joined(separator: " ")
+    }
+
+    /// Preprocess image for better OCR - gentle enhancement only
+    private func preprocessForOCR(_ cgImage: CGImage) -> CGImage? {
+        let ciImage = CIImage(cgImage: cgImage)
+
+        // Gentle contrast boost only - don't over-process or text becomes unreadable
+        guard let enhanced = CIFilter(name: "CIColorControls", parameters: [
+            kCIInputImageKey: ciImage,
+            kCIInputContrastKey: 1.3,      // Mild contrast (was 2.0 - too aggressive)
+            kCIInputBrightnessKey: 0.05    // Very slight brightness
+        ])?.outputImage else { return nil }
+
+        // Render back to CGImage
+        let context = CIContext(options: [.useSoftwareRenderer: false])
+        let extent = enhanced.extent
+        return context.createCGImage(enhanced, from: extent)
     }
 
     private func cropToRect(_ cgImage: CGImage, region: CGRect) -> CGImage? {
@@ -337,19 +349,36 @@ actor RawCardScanner {
     private func upscale(_ cgImage: CGImage, factor: CGFloat) -> CGImage? {
         guard factor > 1 else { return cgImage }
 
-        let size = CGSize(
-            width: CGFloat(cgImage.width) * factor,
-            height: CGFloat(cgImage.height) * factor
-        )
+        let requestedWidth = CGFloat(cgImage.width) * factor
+        let requestedHeight = CGFloat(cgImage.height) * factor
+        let maxLongestSide: CGFloat = 4096
+        let longestSide = max(requestedWidth, requestedHeight)
+        let clampedScale = longestSide > maxLongestSide
+            ? maxLongestSide / longestSide
+            : 1.0
 
-        return UIGraphicsImageRenderer(size: size).image { _ in
-            UIImage(cgImage: cgImage).draw(in: CGRect(origin: .zero, size: size))
-        }.cgImage
-    }
+        let width = Int((requestedWidth * clampedScale).rounded(.toNearestOrAwayFromZero))
+        let height = Int((requestedHeight * clampedScale).rounded(.toNearestOrAwayFromZero))
 
-    private func isLikelyCardFramed(_ cgImage: CGImage) -> Bool {
-        let ratio = CGFloat(cgImage.width) / CGFloat(max(cgImage.height, 1))
-        return abs(ratio - 0.716) <= 0.035
+        // Some camera crops come through with extended-range color spaces that cannot back
+        // a standard 8-bit bitmap context. Always render OCR intermediates into plain sRGB.
+        guard width > 0, height > 0,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return nil
+        }
+
+        context.interpolationQuality = .high
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
     }
 
     private func extractPromoHint(from identifier: String?) -> String? {
@@ -367,6 +396,100 @@ actor RawCardScanner {
         return nil
     }
 
+    private func extractSetHintTokens(from texts: [String]) -> [String] {
+        var hints = Set<String>()
+        let alphanumericPattern = #"\b([A-Z]{1,4}\d{1,3}[A-Z]{0,2})\b"#
+        let spacedLanguagePattern = #"\b([A-Z]{2,5})\s+(?:EN|JP|DE|FR|IT|ES|PT)\b"#
+
+        for text in texts {
+            let normalizedText = normalizedSetHintText(text)
+
+            for match in captureGroups(in: normalizedText, pattern: alphanumericPattern) {
+                if let hint = normalizedSetHintToken(match) {
+                    hints.insert(hint)
+                }
+            }
+
+            for match in captureGroups(in: normalizedText, pattern: spacedLanguagePattern) {
+                if let hint = normalizedSetHintToken(match) {
+                    hints.insert(hint)
+                }
+            }
+        }
+
+        return hints.sorted()
+    }
+
+    private func normalizedSetHintText(_ text: String) -> String {
+        normalizeConfusableLatinCharacters(in: text)
+            .uppercased()
+            .replacingOccurrences(of: #"[§$](?=\d{1,3}[A-Z]{0,2}\b)"#, with: "S", options: .regularExpression)
+    }
+
+    private func normalizedSetHintToken(_ token: String) -> String? {
+        let knownAlphaOnlyHints = Set([
+            "dri", "obf", "pal", "mew", "gg", "crz", "svp", "prsv", "pr-sv",
+            "par", "svi", "brs", "lor", "ssp", "meg",
+        ])
+        var normalized = token
+            .uppercased()
+            .replacingOccurrences(of: #"[^A-Z0-9]"#, with: "", options: .regularExpression)
+
+        guard !normalized.isEmpty else { return nil }
+
+        for suffix in ["EN", "JP", "DE", "FR", "IT", "ES", "PT"] where normalized.hasSuffix(suffix) && normalized.count > suffix.count + 1 {
+            normalized.removeLast(suffix.count)
+            break
+        }
+
+        guard normalized.count >= 3 else { return nil }
+        guard normalized.contains(where: \.isLetter) else { return nil }
+
+        if normalized.hasPrefix("X"), normalized.dropFirst().allSatisfy(\.isNumber) {
+            return nil
+        }
+
+        if normalized.allSatisfy(\.isLetter) {
+            let lowercased = normalized.lowercased()
+            return knownAlphaOnlyHints.contains(lowercased) ? lowercased : nil
+        }
+
+        guard normalized.range(of: #"^[A-Z]{1,3}\d{1,2}[A-Z]{0,2}$"#, options: .regularExpression) != nil else {
+            return nil
+        }
+
+        return normalized.lowercased()
+    }
+
+    private func bestParsedIdentifier(left: ParsedCardIdentifier?, right: ParsedCardIdentifier?) -> ParsedCardIdentifier? {
+        [left, right]
+            .compactMap { $0 }
+            .filter { isPlausibleCollectorNumber($0.identifier) }
+            .sorted { lhs, rhs in
+                if lhs.confidence == rhs.confidence {
+                    return lhs.sourceRegion < rhs.sourceRegion
+                }
+                return lhs.confidence > rhs.confidence
+            }
+            .first
+    }
+
+    private func isPlausibleCollectorNumber(_ identifier: String) -> Bool {
+        let parts = identifier.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2 else {
+            return true
+        }
+
+        guard let numerator = Int(parts[0]),
+              let denominator = Int(parts[1]) else {
+            return true
+        }
+
+        guard denominator >= 10 else { return false }
+        guard numerator > 0 else { return false }
+        return true
+    }
+
     private func firstMatch(in text: String, pattern: String) -> String? {
         guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
             return nil
@@ -382,18 +505,40 @@ actor RawCardScanner {
         return String(text[captureRange])
     }
 
-    private func saveDebugImage(_ cgImage: CGImage, label: String) {
-        let timestamp = Int(Date().timeIntervalSince1970)
-        let filename = "scan_debug_\(label)_\(timestamp).png"
-
-        guard let data = UIImage(cgImage: cgImage).pngData(),
-              let path = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first else {
-            return
+    private func captureGroups(in text: String, pattern: String) -> [String] {
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return []
         }
 
-        let filePath = path.appendingPathComponent(filename)
-        try? data.write(to: filePath)
-        print("  💾 [DEBUG] Saved region: \(filePath.path)")
+        let range = NSRange(text.startIndex..., in: text)
+        return regex.matches(in: text, options: [], range: range).compactMap { match in
+            guard match.numberOfRanges > 1,
+                  let captureRange = Range(match.range(at: 1), in: text) else {
+                return nil
+            }
+            return String(text[captureRange])
+        }
+    }
+
+    private func saveDebugImage(_ cgImage: CGImage, label: String) {
+        let image = UIImage(cgImage: cgImage)
+
+        PHPhotoLibrary.requestAuthorization { status in
+            guard status == .authorized else {
+                print("  ⚠️ [DEBUG] Photos permission denied")
+                return
+            }
+
+            PHPhotoLibrary.shared().performChanges({
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            }) { success, error in
+                if success {
+                    print("  💾 [DEBUG] Saved \(label) region to Photos library")
+                } else if let error = error {
+                    print("  ❌ [DEBUG] Failed to save \(label): \(error.localizedDescription)")
+                }
+            }
+        }
     }
 }
 
@@ -413,7 +558,13 @@ enum AnalysisError: LocalizedError {
 private extension UIImage {
     func normalizedOrientation() -> UIImage {
         guard imageOrientation != .up else { return self }
-        return UIGraphicsImageRenderer(size: size).image { _ in
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        if #available(iOS 12.0, *) {
+            format.preferredRange = .standard
+        }
+
+        return UIGraphicsImageRenderer(size: size, format: format).image { _ in
             draw(in: CGRect(origin: .zero, size: size))
         }
     }

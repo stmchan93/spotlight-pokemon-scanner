@@ -69,10 +69,10 @@ def preferred_tcgplayer_price_entry(
         "normal",
         "holofoil",
         "reverseHolofoil",
-        "1stEditionNormal",
-        "1stEditionHolofoil",
         "unlimitedNormal",
         "unlimitedHolofoil",
+        "1stEditionNormal",
+        "1stEditionHolofoil",
     ]
 
     for variant in ordered_variants:

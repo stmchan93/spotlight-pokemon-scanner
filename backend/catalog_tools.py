@@ -28,10 +28,11 @@ ANN_TABLE_COUNT = 4
 ANN_TABLE_BITS = 8
 ANN_VISUAL_TARGET = 96
 ANN_METADATA_TARGET = 48
+LOW_TRUST_CUSTOM_CARD_ID_PATTERN = re.compile(r"^me\d", re.IGNORECASE)
 SLAB_GRADER_PSA = "PSA"
 RAW_PRICING_MODE = "raw_snapshot"
-RAW_FALLBACK_PRICING_MODE = "raw_fallback"
 PSA_GRADE_PRICING_MODE = "psa_grade_estimate"
+DEFAULT_PRICING_FRESHNESS_HOURS = 24
 DEFAULT_GRADE_CURVE = {
     "10": 1.00,
     "9": 0.60,
@@ -48,6 +49,33 @@ DEFAULT_GRADE_CURVE = {
 
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
+
+
+def parse_utc_timestamp(value: str | None) -> datetime | None:
+    if not value:
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+
+
+def pricing_snapshot_age_hours(refreshed_at: str | None) -> float | None:
+    refreshed_datetime = parse_utc_timestamp(refreshed_at)
+    if refreshed_datetime is None:
+        return None
+    return max(0.0, round((datetime.now(UTC) - refreshed_datetime).total_seconds() / 3600, 2))
+
+
+def pricing_snapshot_is_fresh(
+    refreshed_at: str | None,
+    *,
+    freshness_window_hours: int = DEFAULT_PRICING_FRESHNESS_HOURS,
+) -> bool:
+    age_hours = pricing_snapshot_age_hours(refreshed_at)
+    if age_hours is None:
+        return False
+    return age_hours < freshness_window_hours
 
 
 def tokenize(value: str) -> list[str]:
@@ -74,6 +102,12 @@ def canonicalize_collector_number(value: str) -> str:
         return f"{spaced_match.group(1)} {spaced_match.group(2)}"
 
     return normalized
+
+
+def runtime_supported_card_id(card_id: str | None) -> bool:
+    if not card_id:
+        return False
+    return LOW_TRUST_CUSTOM_CARD_ID_PATTERN.search(card_id) is None
 
 
 def embedding_for_parts(parts: list[str], dimension: int = METADATA_EMBEDDING_DIMENSION) -> list[float]:
@@ -242,10 +276,10 @@ def preferred_tcgplayer_price_entry(prices: dict[str, Any]) -> tuple[str, dict[s
         "normal",
         "holofoil",
         "reverseHolofoil",
-        "1stEditionNormal",
-        "1stEditionHolofoil",
         "unlimitedNormal",
         "unlimitedHolofoil",
+        "1stEditionNormal",
+        "1stEditionHolofoil",
     ]
     candidates: list[tuple[int, str, dict[str, Any]]] = []
 
@@ -358,6 +392,49 @@ def collector_prefix(value: str) -> str | None:
     return None
 
 
+def collector_number_has_alpha_hint(value: str) -> bool:
+    canonical = canonicalize_collector_number(value).lower()
+    return bool(canonical and re.search(r"[a-z]", canonical))
+
+
+def collector_numbers_equivalent(left: str, right: str) -> bool:
+    left_canonical = canonicalize_collector_number(left).lower().replace(" ", "")
+    right_canonical = canonicalize_collector_number(right).lower().replace(" ", "")
+    if not left_canonical or not right_canonical:
+        return False
+
+    if left_canonical == right_canonical:
+        return True
+
+    paired_pattern = re.compile(r"([a-z]+)?(\d+)\/([a-z]+)?(\d+)")
+    left_match = paired_pattern.fullmatch(left_canonical)
+    right_match = paired_pattern.fullmatch(right_canonical)
+    if left_match and right_match:
+        left_left_prefix = left_match.group(1) or ""
+        left_right_prefix = left_match.group(3) or ""
+        right_left_prefix = right_match.group(1) or ""
+        right_right_prefix = right_match.group(3) or ""
+        if left_left_prefix != right_left_prefix or left_right_prefix != right_right_prefix:
+            return False
+
+        left_left_number = left_match.group(2).lstrip("0") or "0"
+        left_right_number = left_match.group(4).lstrip("0") or "0"
+        right_left_number = right_match.group(2).lstrip("0") or "0"
+        right_right_number = right_match.group(4).lstrip("0") or "0"
+        return left_left_number == right_left_number and left_right_number == right_right_number
+
+    spaced_pattern = re.compile(r"([a-z]+)(\d+)")
+    left_spaced = spaced_pattern.fullmatch(left_canonical)
+    right_spaced = spaced_pattern.fullmatch(right_canonical)
+    if left_spaced and right_spaced:
+        return (
+            left_spaced.group(1) == right_spaced.group(1)
+            and (left_spaced.group(2).lstrip("0") or "0") == (right_spaced.group(2).lstrip("0") or "0")
+        )
+
+    return False
+
+
 def normalized_set_hint_tokens(recognized_text: str) -> set[str]:
     normalized: set[str] = set()
 
@@ -384,6 +461,115 @@ def recognized_text_for_payload(payload: dict[str, Any]) -> str:
         ]
         if part
     )
+
+
+def structured_set_hints_for_payload(payload: dict[str, Any]) -> set[str]:
+    hints = {
+        token
+        for token in normalized_set_hint_tokens(" ".join(str(value) for value in (payload.get("setHintTokens") or [])))
+        if token and not token.isdigit()
+    }
+    prefix = (payload.get("promoCodeHint") or collector_prefix(payload.get("collectorNumber") or "") or "").lower()
+    if prefix:
+        hints.add(prefix)
+    return hints
+
+
+def trusted_set_hints_for_payload(payload: dict[str, Any]) -> set[str]:
+    hints = structured_set_hints_for_payload(payload)
+    return {
+        token
+        for token in hints
+        if token in TRUSTED_SET_HINT_TOKENS or OFFICIAL_SET_HINT_PATTERN.fullmatch(token)
+    }
+
+
+def recognized_pokedex_number_hints(recognized_text: str) -> set[str]:
+    normalized = recognized_text.upper()
+    matches = set()
+
+    for pattern in [
+        r"#\s*(\d{1,4})\b",
+        r"\bNO\.?\s*(\d{1,4})\b",
+    ]:
+        for match in re.findall(pattern, normalized):
+            matches.add(match.lstrip("0") or "0")
+
+    return matches
+
+
+def recognized_artist_tokens(recognized_text: str) -> set[str]:
+    return {
+        token
+        for token in tokenize(recognized_text)
+        if len(token) > 2 and token not in {"illus", "illustration", "artist"}
+    }
+
+
+GENERIC_ARTIST_CREDIT_TOKENS = {
+    "5ban",
+    "graphics",
+    "graphic",
+    "studio",
+    "planeta",
+    "aky",
+    "works",
+    "cg",
+}
+
+
+def has_specific_artist_credit_signal(recognized_text: str) -> bool:
+    for match in re.findall(r"\billus\.?\s*([A-Za-z0-9'’.\-]+(?:\s+[A-Za-z0-9'’.\-]+){0,3})", recognized_text, re.IGNORECASE):
+        tokens = {
+            token
+            for token in tokenize(match)
+            if len(token) > 1
+        }
+        if tokens and not tokens.issubset(GENERIC_ARTIST_CREDIT_TOKENS):
+            return True
+    return False
+
+
+def collector_number_api_query_values(value: str) -> list[str]:
+    canonical = canonicalize_collector_number(value).lower().replace(" ", "")
+    if not canonical:
+        return []
+
+    values: list[str] = []
+
+    paired_match = re.fullmatch(r"([a-z]+)?(\d+)\/([a-z]+)?(\d+)", canonical)
+    if paired_match:
+        left_prefix = paired_match.group(1) or ""
+        left_number = paired_match.group(2)
+        prefixed = f"{left_prefix}{left_number}" if left_prefix else left_number
+        stripped = left_number.lstrip("0") or "0"
+        values.extend([prefixed, stripped])
+    else:
+        values.append(canonical)
+
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for item in values:
+        normalized = item.strip()
+        if not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        deduped.append(normalized)
+    return deduped
+
+
+def collector_number_printed_total(value: str) -> int | None:
+    canonical = canonicalize_collector_number(value).lower().replace(" ", "")
+    paired_match = re.fullmatch(r"(?:[a-z]+)?\d+/(?:[a-z]+)?(\d+)", canonical)
+    if not paired_match:
+        return None
+
+    try:
+        printed_total = int(paired_match.group(1))
+    except ValueError:
+        return None
+
+    return printed_total if printed_total > 0 else None
 
 
 def resolver_mode_for_payload(payload: dict[str, Any]) -> str:
@@ -585,12 +771,19 @@ class IndexedCard:
     rarity: str
     variant: str
     language: str
+    artist: str | None
+    national_pokedex_numbers: tuple[str, ...]
     reference_image_path: str | None
     image_embedding: list[float] | None
     metadata_embedding: list[float]
     pricing: dict[str, Any] | None
 
-    def as_candidate(self, pricing_override: dict[str, Any] | None = None) -> dict[str, Any]:
+    def as_candidate(
+        self,
+        pricing_override: dict[str, Any] | None = None,
+        *,
+        allow_embedded_pricing: bool = True,
+    ) -> dict[str, Any]:
         candidate = {
             "id": self.id,
             "name": self.name,
@@ -600,7 +793,7 @@ class IndexedCard:
             "variant": self.variant,
             "language": self.language,
         }
-        pricing = pricing_override if pricing_override is not None else self.pricing
+        pricing = pricing_override if pricing_override is not None else self.pricing if allow_embedded_pricing else None
         if pricing:
             candidate["pricing"] = pricing
         return candidate
@@ -626,7 +819,7 @@ class ApproximateNeighborIndex:
 class CatalogIndex:
     cards: list[IndexedCard]
     visual_ann: ApproximateNeighborIndex | None
-    metadata_ann: ApproximateNeighborIndex
+    metadata_ann: ApproximateNeighborIndex | None
     collector_number_lookup: dict[str, list[int]]
 
     def __len__(self) -> int:
@@ -641,6 +834,13 @@ KNOWN_SET_ALIASES: dict[str, set[str]] = {
     "scarlet violet black star promos": {"svp", "prsv", "pr-sv"},
     "151": {"mew"},
     "crown zenith galarian gallery": {"gg", "crz"},
+    "destined rivals": {"dri"},
+    "surging sparks": {"ssp"},
+    "paradox rift": {"par"},
+    "scarlet violet": {"svi"},
+    "brilliant stars": {"brs"},
+    "lost origin": {"lor"},
+    "ascended heroes": {"m2a"},
 }
 
 
@@ -651,6 +851,26 @@ KNOWN_SET_ID_ALIASES: dict[str, set[str]] = {
     "sv3pt5": {"mew"},
     "swsh12pt5gg": {"gg", "crz"},
 }
+
+TRUSTED_SET_HINT_TOKENS: set[str] = {
+    token
+    for values in [
+        set(KNOWN_SET_ALIASES.keys()),
+        *KNOWN_SET_ALIASES.values(),
+        set(KNOWN_SET_ID_ALIASES.keys()),
+        *KNOWN_SET_ID_ALIASES.values(),
+    ]
+    for token in values
+} | {"tg"}
+OFFICIAL_SET_HINT_PATTERN = re.compile(
+    r"^(?:"
+    r"base\d|gym\d|neo\d|ecard\d|"
+    r"ex\d+|dp\d+|pl\d+|bw\d+|xy\d+|sm\d+(?:tg)?|"
+    r"swsh\d+(?:tg|pt5gg)?|swshp|sv\d+(?:pt5)?|svp|"
+    r"det1|si1|pop\d+|ru1|cel25c|cel25|mcd\d+"
+    r")$",
+    re.IGNORECASE,
+)
 
 
 def generate_set_code_variations(set_id: str) -> set[str]:
@@ -703,6 +923,7 @@ def generate_set_code_variations(set_id: str) -> set[str]:
 
 
 GENERIC_CARD_NAME_TOKENS = {
+    "mega",
     "ex",
     "gx",
     "v",
@@ -897,6 +1118,9 @@ def upsert_catalog_card(
     now: str,
     refresh_embeddings: bool = True,
 ) -> None:
+    if not runtime_supported_card_id(card.get("id")):
+        return
+
     connection.execute(
         """
         INSERT OR REPLACE INTO cards (id, name, set_name, number, rarity, variant, language, created_at)
@@ -1169,6 +1393,8 @@ def load_index(connection: sqlite3.Connection) -> CatalogIndex:
             cards.rarity,
             cards.variant,
             cards.language,
+            card_catalog_metadata.artist AS artist,
+            card_catalog_metadata.national_pokedex_numbers_json AS national_pokedex_numbers_json,
             card_images.local_path AS reference_image_path,
             image_embeddings.vector_json AS image_vector_json,
             metadata_embeddings.vector_json AS metadata_vector_json,
@@ -1214,12 +1440,18 @@ def load_index(connection: sqlite3.Connection) -> CatalogIndex:
             rarity=row["rarity"],
             variant=row["variant"],
             language=row["language"],
+            artist=row["artist"],
+            national_pokedex_numbers=tuple(
+                str(value).lstrip("0") or "0"
+                for value in json.loads(row["national_pokedex_numbers_json"] or "[]")
+            ),
             reference_image_path=row["reference_image_path"],
             image_embedding=json.loads(row["image_vector_json"]) if row["image_vector_json"] else None,
             metadata_embedding=json.loads(row["metadata_vector_json"]),
             pricing=pricing_summary_from_row(row),
         )
         for row in rows
+        if runtime_supported_card_id(row["id"])
     ]
 
     collector_number_lookup: dict[str, list[int]] = {}
@@ -1238,8 +1470,9 @@ def load_index(connection: sqlite3.Connection) -> CatalogIndex:
         dimension=METADATA_EMBEDDING_DIMENSION,
     )
 
+    # Allow empty database - cards will be auto-imported on request
     if metadata_ann is None:
-        raise RuntimeError("Metadata ANN index could not be built")
+        print("⚠️  Warning: Starting with empty card database. Cards will be auto-imported on request.")
 
     return CatalogIndex(
         cards=cards,
@@ -1339,6 +1572,7 @@ def pricing_summary_from_row(
     row: sqlite3.Row,
     *,
     pricing_mode: str = RAW_PRICING_MODE,
+    freshness_window_hours: int = DEFAULT_PRICING_FRESHNESS_HOURS,
     grader: str | None = None,
     grade: str | None = None,
     pricing_tier: str | None = None,
@@ -1354,6 +1588,9 @@ def pricing_summary_from_row(
     if "pricing_source" not in row.keys() or row["pricing_source"] is None:
         return None
 
+    refreshed_at = row["pricing_refreshed_at"]
+    snapshot_age_hours = pricing_snapshot_age_hours(refreshed_at)
+
     return {
         "source": row["pricing_source"],
         "currencyCode": row["pricing_currency_code"],
@@ -1365,9 +1602,15 @@ def pricing_summary_from_row(
         "directLow": row["pricing_direct_low_price"],
         "trend": row["pricing_trend_price"],
         "updatedAt": row["pricing_updated_at"],
-        "refreshedAt": row["pricing_refreshed_at"],
+        "refreshedAt": refreshed_at,
         "sourceURL": row["pricing_source_url"],
         "pricingMode": pricing_mode,
+        "snapshotAgeHours": snapshot_age_hours,
+        "freshnessWindowHours": freshness_window_hours,
+        "isFresh": pricing_snapshot_is_fresh(
+            refreshed_at,
+            freshness_window_hours=freshness_window_hours,
+        ),
         "grader": grader,
         "grade": grade,
         "pricingTier": pricing_tier,
@@ -2188,6 +2431,12 @@ def slab_price_snapshot_for_card(
         "refreshedAt": row["updated_at"],
         "sourceURL": row["source_url"],
         "pricingMode": PSA_GRADE_PRICING_MODE,
+        "snapshotAgeHours": pricing_snapshot_age_hours(row["updated_at"]),
+        "freshnessWindowHours": DEFAULT_PRICING_FRESHNESS_HOURS,
+        "isFresh": pricing_snapshot_is_fresh(
+            row["updated_at"],
+            freshness_window_hours=DEFAULT_PRICING_FRESHNESS_HOURS,
+        ),
         "grader": grader,
         "grade": normalized_grade,
         "pricingTier": row["pricing_tier"],
@@ -2213,9 +2462,7 @@ def contextual_pricing_summary_for_card(
         slab_summary = slab_price_snapshot_for_card(connection, card_id, grader, grade)
         if slab_summary is None:
             slab_summary = recompute_slab_price_snapshot(connection, card_id, grader, grade)
-        if slab_summary is not None:
-            return slab_summary
-        return raw_pricing_summary_for_card(connection, card_id, pricing_mode=RAW_FALLBACK_PRICING_MODE)
+        return slab_summary
 
     return raw_pricing_summary_for_card(connection, card_id, pricing_mode=RAW_PRICING_MODE)
 
@@ -2472,24 +2719,24 @@ def build_query_embedding(payload: dict[str, Any], repo_root: Path) -> QueryEmbe
 
 def direct_lookup_candidate_indices(index: CatalogIndex, payload: dict[str, Any]) -> list[int]:
     collector_number = payload.get("collectorNumber") or ""
+    canonical_collector_number = canonicalize_collector_number(collector_number).lower()
     collector_keys = collector_number_lookup_keys(collector_number)
     if not collector_keys:
         return []
 
     recognized_text = recognized_text_for_payload(payload)
-    set_hints = {
-        str(token).strip().lower()
-        for token in (payload.get("setHintTokens") or [])
-        if str(token).strip()
-    }
-
-    prefix = (payload.get("promoCodeHint") or collector_prefix(collector_number) or "").lower()
-    if prefix:
-        set_hints.add(prefix)
+    set_hints = structured_set_hints_for_payload(payload)
+    pokedex_hints = recognized_pokedex_number_hints(recognized_text)
 
     candidate_indices: list[int] = []
     seen: set[int] = set()
-    for key in collector_keys:
+    preferred_keys: list[str] = []
+    if "/" in canonical_collector_number and canonical_collector_number in index.collector_number_lookup:
+        preferred_keys.append(canonical_collector_number)
+    if not preferred_keys:
+        preferred_keys = sorted(collector_keys, key=lambda key: ("/" not in key, -len(key)))
+
+    for key in preferred_keys:
         for card_index in index.collector_number_lookup.get(key, []):
             if card_index in seen:
                 continue
@@ -2512,11 +2759,11 @@ def direct_lookup_candidate_indices(index: CatalogIndex, payload: dict[str, Any]
 
     def candidate_sort_key(card_index: int) -> tuple[int, int, int, str, str]:
         card = index.cards[card_index]
-        normalized_number = canonicalize_collector_number(card.number).lower()
-        exact_number_match = 1 if exact_number == normalized_number else 0
+        exact_number_match = 1 if collector_numbers_equivalent(collector_number, card.number) else 0
         set_hint_match = 1 if card_matches_set_hint(card, set_hints) else 0
+        pokedex_match = 1 if pokedex_hints and not set(card.national_pokedex_numbers).isdisjoint(pokedex_hints) else 0
         name_overlap = len(query_tokens & set(tokenize(card.name)))
-        return (-exact_number_match, -set_hint_match, -name_overlap, card.name, card.number)
+        return (-exact_number_match, -set_hint_match, -pokedex_match, -name_overlap, card.name, card.number)
 
     candidate_indices.sort(key=candidate_sort_key)
     return candidate_indices[:12]
@@ -2541,6 +2788,18 @@ def direct_lookup_has_name_support(index: CatalogIndex, payload: dict[str, Any],
             if len(token) > 1 and token not in GENERIC_CARD_NAME_TOKENS
         }
         if name_tokens and not name_tokens.isdisjoint(query_tokens):
+            return True
+
+    return False
+
+
+def direct_lookup_has_exact_candidate(index: CatalogIndex, payload: dict[str, Any], candidate_indices: list[int]) -> bool:
+    collector_number = payload.get("collectorNumber") or ""
+    if not collector_number or not candidate_indices:
+        return False
+
+    for card_index in candidate_indices[:3]:
+        if collector_numbers_equivalent(collector_number, index.cards[card_index].number):
             return True
 
     return False
@@ -2630,26 +2889,40 @@ def approximate_candidate_indices(index: CatalogIndex, query_embedding: QueryEmb
 def direct_lookup_score(card: IndexedCard, payload: dict[str, Any]) -> tuple[float, list[str], float, float]:
     collector_number = canonicalize_collector_number(payload.get("collectorNumber") or "").lower()
     recognized_text = recognized_text_for_payload(payload)
-    set_hints = normalized_set_hint_tokens(recognized_text)
-    prefix = collector_prefix(payload.get("collectorNumber") or "")
-    if prefix:
-        set_hints.add(prefix)
+    set_hints = structured_set_hints_for_payload(payload)
+    pokedex_hints = recognized_pokedex_number_hints(recognized_text)
+    query_artist_tokens = recognized_artist_tokens(recognized_text)
 
     reasons: list[str] = ["Direct collector lookup"]
-    retrieval_score = 0.9
+    retrieval_score = 0.36
     rerank_score = 0.0
 
     normalized_card_number = canonicalize_collector_number(card.number).lower()
-    if collector_number == normalized_card_number:
-        rerank_score += 0.08
+    if collector_numbers_equivalent(collector_number, normalized_card_number):
+        rerank_score += 0.34
         reasons.append("Collector number exact match")
     elif collector_number and (collector_number in normalized_card_number or normalized_card_number in collector_number):
-        rerank_score += 0.04
+        rerank_score += 0.08
         reasons.append("Collector number partial match")
 
     if card_matches_set_hint(card, set_hints):
         rerank_score += 0.05
         reasons.append("Set hint match")
+
+    if pokedex_hints and not set(card.national_pokedex_numbers).isdisjoint(pokedex_hints):
+        rerank_score += 0.10
+        reasons.append("Pokedex number hint match")
+
+    artist_tokens = {
+        token
+        for token in tokenize(card.artist or "")
+        if len(token) > 2 and token not in {"illus", "illustration", "artist"}
+    }
+    if artist_tokens:
+        artist_overlap = len(query_artist_tokens & artist_tokens)
+        if artist_overlap >= min(2, len(artist_tokens)):
+            rerank_score += 0.03
+            reasons.append("Artist hint match")
 
     query_tokens = set(tokenize(recognized_text))
     card_name_tokens = set(tokenize(card.name))
@@ -2711,18 +2984,24 @@ def candidate_has_exact_structured_match(
     if not number:
         return False
 
-    candidate_keys = collector_number_lookup_keys(str(number))
-    if not candidate_keys:
+    candidate_number = canonicalize_collector_number(str(number)).lower()
+    if not candidate_number:
         return False
 
     if resolver_path == "direct_lookup":
         collector_number = payload.get("collectorNumber") or ""
+        canonical_query = canonicalize_collector_number(collector_number).lower()
+        if not canonical_query:
+            return False
+        if collector_numbers_equivalent(collector_number, candidate_number):
+            return True
         query_keys = collector_number_lookup_keys(collector_number)
         if not query_keys:
             return False
-        return not candidate_keys.isdisjoint(query_keys)
+        return candidate_number in query_keys or not collector_number_lookup_keys(candidate_number).isdisjoint(query_keys)
 
     if resolver_path == "psa_label":
+        candidate_keys = collector_number_lookup_keys(candidate_number)
         label_hints = psa_label_number_hints(payload.get("topLabelRecognizedText") or "")
         if payload.get("collectorNumber"):
             label_hints.update(collector_number_lookup_keys(payload["collectorNumber"]))
