@@ -61,7 +61,7 @@ Status: `partially done`
 - Source and freshness labels exist in tray rows
 - Local fallback mode is visible in the UI
 - Provider status, unmatched-scan reporting, and pricing-refresh failure reporting exist
-- Real-world fake-card false positives were materially reduced by filtering low-trust custom `me*` catalog families at runtime
+- Real-world fake-card false positives were materially reduced by excluding synthetic non-Pokemon-TCG raw identifier entries from the local runtime map
 - The real-world regression pack is improved but not fully green yet:
   - current result = `14/20 passed`
   - remaining misses are primarily slab-pricing coverage and low-confidence review cases, not the old dangerous fake-card direct matches

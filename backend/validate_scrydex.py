@@ -4,7 +4,7 @@ import json
 import sys
 from pathlib import Path
 
-from catalog_tools import apply_schema, connect, load_cards_json, seed_catalog
+from catalog_tools import apply_schema, connect, load_cards_json, resolve_catalog_json_path, seed_catalog
 from scrydex_adapter import ScrydexProvider, scrydex_credentials
 from server import SpotlightScanService
 
@@ -44,9 +44,7 @@ def main() -> None:
     database_path = Path(database_path_value) if database_path_value else backend_root / "data" / "imported_scanner.sqlite"
 
     cards_file_value = cli_value("--cards-file")
-    cards_path = Path(cards_file_value) if cards_file_value else backend_root / "catalog" / "pokemontcg" / "cards.json"
-    if not cards_path.is_absolute():
-        cards_path = repo_root / cards_path
+    cards_path = resolve_catalog_json_path(backend_root, explicit_path=cards_file_value)
 
     raw_card_id = cli_value("--raw-card") or "sv3-223"
     psa_card_id = cli_value("--psa-card") or "sv8-238"

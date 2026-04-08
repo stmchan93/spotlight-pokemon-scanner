@@ -28,11 +28,18 @@ ANN_TABLE_COUNT = 4
 ANN_TABLE_BITS = 8
 ANN_VISUAL_TARGET = 96
 ANN_METADATA_TARGET = 48
-LOW_TRUST_CUSTOM_CARD_ID_PATTERN = re.compile(r"^me\d", re.IGNORECASE)
 SLAB_GRADER_PSA = "PSA"
+SLAB_GRADER_CGC = "CGC"
+SLAB_GRADER_BGS = "BGS"
 RAW_PRICING_MODE = "raw_snapshot"
 PSA_GRADE_PRICING_MODE = "psa_grade_estimate"
 DEFAULT_PRICING_FRESHNESS_HOURS = 24
+SLAB_GRADER_CONFIDENCE_THRESHOLD = 0.62
+SLAB_GRADE_CONFIDENCE_THRESHOLD = 0.72
+SLAB_CERT_CONFIDENCE_THRESHOLD = 0.85
+SLAB_LOOKUP_PATH_PSA_CERT = "psa_cert"
+SLAB_LOOKUP_PATH_LABEL_TEXT_SEARCH = "label_text_search"
+SLAB_LOOKUP_PATH_NEEDS_REVIEW = "needs_review"
 DEFAULT_GRADE_CURVE = {
     "10": 1.00,
     "9": 0.60,
@@ -105,9 +112,7 @@ def canonicalize_collector_number(value: str) -> str:
 
 
 def runtime_supported_card_id(card_id: str | None) -> bool:
-    if not card_id:
-        return False
-    return LOW_TRUST_CUSTOM_CARD_ID_PATTERN.search(card_id) is None
+    return bool(str(card_id or "").strip())
 
 
 def embedding_for_parts(parts: list[str], dimension: int = METADATA_EMBEDDING_DIMENSION) -> list[float]:
@@ -381,6 +386,12 @@ def collector_number_lookup_keys(value: str) -> set[str]:
         keys.add(raw_number)
         keys.add(raw_number.lstrip("0") or "0")
 
+    bare_numeric_match = re.fullmatch(r"(\d+)", canonical)
+    if bare_numeric_match:
+        raw_number = bare_numeric_match.group(1)
+        keys.add(raw_number)
+        keys.add(raw_number.lstrip("0") or "0")
+
     return {key for key in keys if key}
 
 
@@ -546,6 +557,9 @@ def collector_number_api_query_values(value: str) -> list[str]:
         values.extend([prefixed, stripped])
     else:
         values.append(canonical)
+        bare_numeric_match = re.fullmatch(r"(\d+)", canonical)
+        if bare_numeric_match:
+            values.append(bare_numeric_match.group(1).lstrip("0") or "0")
 
     seen: set[str] = set()
     deduped: list[str] = []
@@ -574,6 +588,9 @@ def collector_number_printed_total(value: str) -> int | None:
 
 def resolver_mode_for_payload(payload: dict[str, Any]) -> str:
     hint = str(payload.get("resolverModeHint") or "").strip().lower()
+    if hint == "psa_slab":
+        return "psa_slab"
+
     label_text = normalize_label_text(
         " ".join(
             part for part in [
@@ -583,7 +600,9 @@ def resolver_mode_for_payload(payload: dict[str, Any]) -> str:
             if part
         )
     )
-    if is_psa_label_text(label_text):
+    if payload_slab_grader(payload) or payload_slab_cert_number(payload):
+        return "psa_slab"
+    if not payload_has_scored_slab_parse(payload) and is_psa_label_text(label_text):
         return "psa_slab"
 
     if hint in {"raw_card", "psa_slab", "unknown_fallback"}:
@@ -599,6 +618,136 @@ def normalize_label_text(value: str) -> str:
     return " ".join(tokenize(value.upper()))
 
 
+def parse_slab_grader(label_text: str) -> str | None:
+    normalized = normalize_label_text(label_text)
+    tokens = set(tokenize(normalized))
+    if "psa" in tokens or "psacard" in normalized:
+        return SLAB_GRADER_PSA
+    if "cgc" in tokens or "cgccards" in normalized:
+        return SLAB_GRADER_CGC
+    if "bgs" in tokens or "beckett" in tokens:
+        return SLAB_GRADER_BGS
+    return None
+
+
+def parse_slab_cert_number(label_text: str) -> str | None:
+    normalized = normalize_label_text(label_text)
+    patterns = [
+        r"(?:psacard|cgccards|beckett|bgs)[^0-9]{0,24}(\d{7,10})",
+        r"(?:cert|certificate|certnumber|verify)[^0-9]{0,12}(\d{7,10})",
+        r"/cert/(\d{7,10})",
+        r"\b(\d{7,10})\b",
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, normalized)
+        if match:
+            return match.group(1)
+    return None
+
+
+def payload_has_scored_slab_parse(payload: dict[str, Any]) -> bool:
+    return any(
+        payload.get(key) is not None
+        for key in (
+            "slabGraderConfidence",
+            "slabGradeConfidence",
+            "slabCertConfidence",
+            "slabCardNumberRaw",
+            "slabClassifierReasons",
+            "slabRecommendedLookupPath",
+        )
+    )
+
+
+def payload_float(payload: dict[str, Any], key: str) -> float | None:
+    value = payload.get(key)
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def payload_slab_recommended_lookup_path(payload: dict[str, Any]) -> str | None:
+    value = str(payload.get("slabRecommendedLookupPath") or "").strip().lower()
+    if value in {
+        SLAB_LOOKUP_PATH_PSA_CERT,
+        SLAB_LOOKUP_PATH_LABEL_TEXT_SEARCH,
+        SLAB_LOOKUP_PATH_NEEDS_REVIEW,
+    }:
+        return value
+    return None
+
+
+def payload_slab_grader(payload: dict[str, Any]) -> str | None:
+    explicit = str(payload.get("slabGrader") or "").strip().upper()
+    if explicit in {SLAB_GRADER_PSA, SLAB_GRADER_CGC, SLAB_GRADER_BGS}:
+        confidence = payload_float(payload, "slabGraderConfidence")
+        if confidence is None or confidence >= SLAB_GRADER_CONFIDENCE_THRESHOLD:
+            return explicit
+        return None
+
+    label_text = " ".join(
+        part for part in [
+            payload.get("topLabelRecognizedText") or "",
+            payload.get("fullRecognizedText") or "",
+        ]
+        if part
+    )
+    if payload_has_scored_slab_parse(payload):
+        return None
+    return parse_slab_grader(label_text)
+
+
+def payload_slab_grade(payload: dict[str, Any]) -> str | None:
+    explicit_grade = normalize_grade(payload.get("slabGrade"))
+    if explicit_grade is not None:
+        confidence = payload_float(payload, "slabGradeConfidence")
+        if confidence is None or confidence >= SLAB_GRADE_CONFIDENCE_THRESHOLD:
+            return explicit_grade
+        return None
+
+    label_text = " ".join(
+        part for part in [
+            payload.get("topLabelRecognizedText") or "",
+            payload.get("fullRecognizedText") or "",
+        ]
+        if part
+    )
+    if payload_has_scored_slab_parse(payload):
+        return None
+    grader = payload_slab_grader(payload)
+    if grader == SLAB_GRADER_PSA or is_psa_label_text(normalize_label_text(label_text)):
+        return parse_psa_grade(label_text)
+    return None
+
+
+def payload_slab_cert_number(payload: dict[str, Any]) -> str | None:
+    explicit_cert = parse_slab_cert_number(str(payload.get("slabCertNumber") or ""))
+    if explicit_cert is not None:
+        confidence = payload_float(payload, "slabCertConfidence")
+        if confidence is None or confidence >= SLAB_CERT_CONFIDENCE_THRESHOLD:
+            return explicit_cert
+        return None
+
+    for raw_payload in payload.get("slabBarcodePayloads") or []:
+        cert_number = parse_slab_cert_number(str(raw_payload or ""))
+        if cert_number is not None:
+            return cert_number
+
+    label_text = " ".join(
+        part for part in [
+            payload.get("topLabelRecognizedText") or "",
+            payload.get("fullRecognizedText") or "",
+        ]
+        if part
+    )
+    if payload_has_scored_slab_parse(payload):
+        return None
+    return parse_slab_cert_number(label_text)
+
+
 def is_psa_label_text(value: str) -> bool:
     slab_tokens = {
         "psa",
@@ -611,7 +760,7 @@ def is_psa_label_text(value: str) -> bool:
     }
     tokens = set(tokenize(value))
     has_keyword = not tokens.isdisjoint(slab_tokens)
-    has_cert_like_number = re.search(r"\b\d{7,8}\b", value) is not None
+    has_cert_like_number = re.search(r"\b\d{7,10}\b", value) is not None
     has_label_shape = "pokemon" in tokens and ("#" in value or has_cert_like_number)
     return has_keyword or has_label_shape
 
@@ -681,6 +830,9 @@ def parse_psa_grade(label_text: str) -> str | None:
         r"\bgood\s+(10|[1-9])\b",
         r"\bfair\s+(10|[1-9])\b",
         r"\bpr\s+(10|[1-9])\b",
+        r"\b(10|[1-9](?:\.5)?)\b(?=\s+psa\b)",
+        r"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[a-z]{2,4}\s+)?\d{7,10}\b)",
+        r"\bnm\b(?:\s+[a-z][a-z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+(?:psa|[a-z]{2,4})\b|\s+\d{7,10}\b|$)(?:\s+\d{7,10}\b|$)",
     ]
 
     for pattern in grade_patterns:
@@ -711,12 +863,14 @@ def parse_psa_grade(label_text: str) -> str | None:
 
 
 def parse_psa_cert_number(label_text: str) -> str | None:
-    normalized = normalize_label_text(label_text)
-    match = re.search(r"\b(\d{7,8})\b", normalized)
-    return match.group(1) if match else None
+    return parse_slab_cert_number(label_text)
 
 
 def slab_context_from_payload(payload: dict[str, Any]) -> dict[str, str] | None:
+    grader = payload_slab_grader(payload)
+    grade = payload_slab_grade(payload)
+    cert_number = payload_slab_cert_number(payload)
+    recommended_lookup_path = payload_slab_recommended_lookup_path(payload)
     label_text = " ".join(
         part for part in [
             payload.get("topLabelRecognizedText") or "",
@@ -724,16 +878,35 @@ def slab_context_from_payload(payload: dict[str, Any]) -> dict[str, str] | None:
         ]
         if part
     )
-    if not label_text:
+
+    if payload_has_scored_slab_parse(payload):
+        if recommended_lookup_path == SLAB_LOOKUP_PATH_PSA_CERT:
+            if grader != SLAB_GRADER_PSA or cert_number is None:
+                return None
+            context = {"grader": grader, "certNumber": cert_number}
+            if grade is not None:
+                context["grade"] = grade
+            return context
+
+        if recommended_lookup_path == SLAB_LOOKUP_PATH_LABEL_TEXT_SEARCH:
+            if grader is None:
+                return None
+            context = {"grader": grader}
+            if grade is not None:
+                context["grade"] = grade
+            if cert_number is not None:
+                context["certNumber"] = cert_number
+            return context
+
         return None
 
-    if not is_psa_label_text(normalize_label_text(label_text)):
+    if not label_text and grader is None and cert_number is None:
         return None
 
-    grade = parse_psa_grade(label_text)
-    cert_number = parse_psa_cert_number(label_text)
+    if grader is None and not is_psa_label_text(normalize_label_text(label_text)):
+        return None
 
-    context: dict[str, str] = {"grader": SLAB_GRADER_PSA}
+    context: dict[str, str] = {"grader": grader or SLAB_GRADER_PSA}
     if grade is not None:
         context["grade"] = grade
     if cert_number is not None:
@@ -748,6 +921,7 @@ def psa_label_number_hints(recognized_text: str) -> set[str]:
     for pattern in [
         r"#\s*([A-Z0-9-]{1,8})\b",
         r"\bNO\.?\s*([A-Z0-9-]{1,8})\b",
+        r"\b([A-Z]{0,4}\d{1,4}/[A-Z]{0,4}\d{1,4})\b",
     ]:
         for match in re.findall(pattern, normalized):
             matches.add(match)
@@ -758,6 +932,70 @@ def psa_label_number_hints(recognized_text: str) -> set[str]:
         for key in collector_number_lookup_keys(match)
         if key
     }
+
+
+def slab_payload_number_hints(payload: dict[str, Any]) -> set[str]:
+    label_text = " ".join(
+        part for part in [
+            payload.get("topLabelRecognizedText") or "",
+            payload.get("fullRecognizedText") or "",
+        ]
+        if part
+    )
+    hints = set(psa_label_number_hints(label_text))
+    slab_card_number = str(payload.get("slabCardNumberRaw") or "").strip()
+    if slab_card_number:
+        hints.update(collector_number_lookup_keys(slab_card_number))
+    collector_number = str(payload.get("collectorNumber") or "").strip()
+    if collector_number:
+        hints.update(collector_number_lookup_keys(collector_number))
+    return {hint for hint in hints if hint}
+
+
+def slab_label_support_tokens(payload: dict[str, Any]) -> set[str]:
+    label_text = " ".join(
+        part for part in [
+            payload.get("topLabelRecognizedText") or "",
+            payload.get("fullRecognizedText") or "",
+        ]
+        if part
+    )
+    return {token for token in tokenize(label_text) if token}
+
+
+def slab_candidate_has_label_support(name: str, set_name: str, payload: dict[str, Any]) -> bool:
+    label_tokens = slab_label_support_tokens(payload)
+    if not label_tokens:
+        return False
+
+    candidate_name_tokens = {
+        token
+        for token in tokenize(name)
+        if len(token) > 1 and token not in GENERIC_CARD_NAME_TOKENS
+    }
+    if candidate_name_tokens and not candidate_name_tokens.isdisjoint(label_tokens):
+        return True
+
+    set_stop_tokens = {
+        "pokemon",
+        "pok",
+        "mon",
+        "set",
+        "card",
+        "cards",
+        "game",
+        "holo",
+        "unlimited",
+        "shadowless",
+        "edition",
+        "series",
+    }
+    candidate_set_tokens = {
+        token
+        for token in tokenize(set_name)
+        if len(token) > 1 and token not in set_stop_tokens
+    }
+    return bool(candidate_set_tokens and not candidate_set_tokens.isdisjoint(label_tokens))
 
 
 @dataclass(frozen=True)
@@ -830,6 +1068,7 @@ KNOWN_SET_ALIASES: dict[str, set[str]] = {
     "obsidian flame": {"obf"},
     "obsidian flames": {"obf"},
     "paldea evolved": {"pal"},
+    "mega evolution": {"meg"},
     "scarlet violet promo": {"svp", "prsv", "pr-sv"},
     "scarlet violet black star promos": {"svp", "prsv", "pr-sv"},
     "151": {"mew"},
@@ -845,6 +1084,7 @@ KNOWN_SET_ALIASES: dict[str, set[str]] = {
 
 
 KNOWN_SET_ID_ALIASES: dict[str, set[str]] = {
+    "me1": {"meg"},
     "sv2": {"pal"},
     "sv3": {"obf"},
     "svp": {"svp", "prsv", "pr-sv"},
@@ -977,37 +1217,72 @@ def card_matches_set_hint(card: IndexedCard, set_hints: set[str]) -> bool:
     return not candidate_tokens.isdisjoint(set_hints)
 
 
-def load_cards_json(cards_path: Path) -> list[dict[str, Any]]:
-    return json.loads(cards_path.read_text())
+def _catalog_set_id_from_card_id(card_id: str) -> str | None:
+    if "-" not in card_id:
+        return None
+    prefix, _ = card_id.split("-", 1)
+    return prefix or None
 
 
-def upsert_card_in_catalog_snapshot(cards_path: Path, card: dict[str, Any]) -> dict[str, int]:
-    cards_by_id: dict[str, dict[str, Any]] = {}
-    if cards_path.exists():
-        for existing_card in load_cards_json(cards_path):
-            cards_by_id[str(existing_card["id"])] = existing_card
-
-    card_id = str(card["id"])
-    changed = 0 if cards_by_id.get(card_id) == card else 1
-    added = 0 if card_id in cards_by_id else 1
-    cards_by_id[card_id] = card
-
-    cards_path.parent.mkdir(parents=True, exist_ok=True)
-    cards_output = sorted(
-        cards_by_id.values(),
-        key=lambda item: (
-            item.get("set_release_date") or "",
-            item.get("set_name") or "",
-            item.get("name") or "",
-            item.get("number") or "",
-        ),
+def minimal_catalog_entry(card: dict[str, Any]) -> dict[str, str]:
+    image_url = (
+        str(card.get("image_url") or "").strip()
+        or str(card.get("reference_image_small_url") or "").strip()
+        or str(card.get("reference_image_url") or "").strip()
     )
-    cards_path.write_text(json.dumps(cards_output, indent=2, sort_keys=True))
     return {
-        "added": added,
-        "updated": changed - added if changed and not added else 0,
-        "total": len(cards_output),
+        "id": str(card["id"]),
+        "name": str(card.get("name") or ""),
+        "set_name": str(card.get("set_name") or ""),
+        "number": str(card.get("number") or ""),
+        "image_url": image_url,
     }
+
+
+def normalize_catalog_card_record(card: dict[str, Any]) -> dict[str, Any]:
+    image_url = (
+        str(card.get("image_url") or "").strip()
+        or str(card.get("reference_image_small_url") or "").strip()
+        or str(card.get("reference_image_url") or "").strip()
+    )
+    card_id = str(card["id"])
+
+    return {
+        "id": card_id,
+        "name": str(card.get("name") or ""),
+        "set_name": str(card.get("set_name") or card.get("set") or ""),
+        "number": str(card.get("number") or ""),
+        "rarity": str(card.get("rarity") or "Unknown"),
+        "variant": str(card.get("variant") or "Raw"),
+        "language": str(card.get("language") or "English"),
+        "reference_image_path": card.get("reference_image_path"),
+        "reference_image_url": str(card.get("reference_image_url") or image_url),
+        "reference_image_small_url": str(card.get("reference_image_small_url") or image_url),
+        "source": str(card.get("source") or "local_cache"),
+        "source_record_id": str(card.get("source_record_id") or card_id),
+        "set_id": card.get("set_id") or _catalog_set_id_from_card_id(card_id),
+        "set_series": card.get("set_series"),
+        "set_ptcgo_code": card.get("set_ptcgo_code"),
+        "set_release_date": card.get("set_release_date"),
+        "supertype": card.get("supertype") or "Pokémon",
+        "subtypes": list(card.get("subtypes") or []),
+        "types": list(card.get("types") or []),
+        "artist": card.get("artist"),
+        "regulation_mark": card.get("regulation_mark"),
+        "national_pokedex_numbers": list(
+            card.get("national_pokedex_numbers")
+            or card.get("nationalPokedexNumbers")
+            or []
+        ),
+        "tcgplayer": dict(card.get("tcgplayer") or {}),
+        "cardmarket": dict(card.get("cardmarket") or {}),
+        "source_payload": dict(card.get("source_payload") or minimal_catalog_entry(card)),
+    }
+
+
+def load_cards_json(cards_path: Path) -> list[dict[str, Any]]:
+    loaded_cards = json.loads(cards_path.read_text())
+    return [normalize_catalog_card_record(card) for card in loaded_cards]
 
 
 def resolve_catalog_json_path(backend_root: Path, explicit_path: str | None = None) -> Path:
@@ -1017,11 +1292,7 @@ def resolve_catalog_json_path(backend_root: Path, explicit_path: str | None = No
             path = (backend_root.parent / path).resolve()
         return path
 
-    imported_path = backend_root / "catalog" / "pokemontcg" / "cards.json"
-    if imported_path.exists():
-        return imported_path
-
-    return backend_root / "catalog" / "cards.sample.json"
+    return backend_root / "catalog" / "sample_catalog.json"
 
 
 def connect(database_path: Path) -> sqlite3.Connection:
@@ -1034,6 +1305,23 @@ def connect(database_path: Path) -> sqlite3.Connection:
 def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
     connection.executescript(schema_path.read_text())
     connection.commit()
+
+
+def ensure_embedding_models(connection: sqlite3.Connection, now: str) -> None:
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO embedding_models (id, family, version, modality, dimension, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (VISION_MODEL_ID, VISION_MODEL_FAMILY, "v1", "image", VISION_EMBEDDING_DIMENSION, now),
+    )
+    connection.execute(
+        """
+        INSERT OR REPLACE INTO embedding_models (id, family, version, modality, dimension, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+        """,
+        (METADATA_MODEL_ID, METADATA_MODEL_FAMILY, "v1", "text", METADATA_EMBEDDING_DIMENSION, now),
+    )
 
 
 def ensure_featureprint_binary(repo_root: Path) -> Path:
@@ -1120,6 +1408,8 @@ def upsert_catalog_card(
 ) -> None:
     if not runtime_supported_card_id(card.get("id")):
         return
+
+    ensure_embedding_models(connection, now)
 
     connection.execute(
         """
@@ -1359,20 +1649,7 @@ def seed_catalog(connection: sqlite3.Connection, cards: list[dict[str, Any]], re
             incoming_ids,
         )
 
-    connection.execute(
-        """
-        INSERT OR REPLACE INTO embedding_models (id, family, version, modality, dimension, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (VISION_MODEL_ID, VISION_MODEL_FAMILY, "v1", "image", VISION_EMBEDDING_DIMENSION, now),
-    )
-    connection.execute(
-        """
-        INSERT OR REPLACE INTO embedding_models (id, family, version, modality, dimension, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-        """,
-        (METADATA_MODEL_ID, METADATA_MODEL_FAMILY, "v1", "text", METADATA_EMBEDDING_DIMENSION, now),
-    )
+    ensure_embedding_models(connection, now)
 
     for card in cards:
         upsert_catalog_card(connection, card, repo_root, now, refresh_embeddings=True)
@@ -2458,6 +2735,9 @@ def contextual_pricing_summary_for_card(
     grader: str | None = None,
     grade: str | None = None,
 ) -> dict[str, Any] | None:
+    if grader and not grade:
+        return None
+
     if grader and grade:
         slab_summary = slab_price_snapshot_for_card(connection, card_id, grader, grade)
         if slab_summary is None:
@@ -2806,6 +3086,12 @@ def direct_lookup_has_exact_candidate(index: CatalogIndex, payload: dict[str, An
 
 
 def psa_label_candidate_indices(index: CatalogIndex, payload: dict[str, Any]) -> list[int]:
+    cert_card_ids = {
+        str(card_id).strip()
+        for card_id in (payload.get("_slabCertCardIDs") or [])
+        if str(card_id).strip()
+    }
+
     label_text = " ".join(
         part for part in [
             payload.get("topLabelRecognizedText") or "",
@@ -2814,12 +3100,16 @@ def psa_label_candidate_indices(index: CatalogIndex, payload: dict[str, Any]) ->
         if part
     )
     label_tokens = set(tokenize(label_text))
+    if cert_card_ids and not label_tokens:
+        return [
+            index_value
+            for index_value, card in enumerate(index.cards)
+            if card.id in cert_card_ids
+        ][:20]
     if not label_tokens:
         return []
 
-    number_hints = set(psa_label_number_hints(label_text))
-    if payload.get("collectorNumber"):
-        number_hints.update(collector_number_lookup_keys(payload["collectorNumber"]))
+    number_hints = slab_payload_number_hints(payload)
 
     scored: list[tuple[float, int]] = []
     for index_value, card in enumerate(index.cards):
@@ -2830,8 +3120,9 @@ def psa_label_candidate_indices(index: CatalogIndex, payload: dict[str, Any]) ->
         name_overlap = len(label_tokens & name_tokens) / max(len(name_tokens), 1)
         set_overlap = len(label_tokens & set_tokens) / max(len(set_tokens), 1)
         number_match = 1.0 if number_hints and not card_number_keys.isdisjoint(number_hints) else 0.0
+        cert_match = 1.0 if cert_card_ids and card.id in cert_card_ids else 0.0
 
-        score = number_match * 8.0 + name_overlap * 4.5 + set_overlap * 3.5
+        score = number_match * 8.0 + name_overlap * 4.5 + set_overlap * 3.5 + cert_match * 3.0
         if score > 0:
             scored.append((score, index_value))
 
@@ -2947,16 +3238,26 @@ def psa_label_score(card: IndexedCard, payload: dict[str, Any]) -> tuple[float, 
     label_tokens = set(tokenize(label_text))
     card_name_tokens = set(tokenize(card.name))
     card_set_tokens = set(tokenize(card.set_name))
-    number_hints = psa_label_number_hints(label_text)
-    if payload.get("collectorNumber"):
-        number_hints.update(collector_number_lookup_keys(payload["collectorNumber"]))
+    number_hints = slab_payload_number_hints(payload)
 
     reasons: list[str] = ["PSA label lookup"]
     retrieval_score = 0.42
     rerank_score = 0.0
+    cert_card_ids = {
+        str(card_id).strip()
+        for card_id in (payload.get("_slabCertCardIDs") or [])
+        if str(card_id).strip()
+    }
+    candidate_number_keys = collector_number_lookup_keys(card.number)
+    has_number_hint_match = bool(number_hints) and not candidate_number_keys.isdisjoint(number_hints)
 
-    if number_hints and not collector_number_lookup_keys(card.number).isdisjoint(number_hints):
-        rerank_score += 0.22
+    if cert_card_ids and card.id in cert_card_ids:
+        cert_bonus = 0.20 if has_number_hint_match or not number_hints else 0.08
+        rerank_score += cert_bonus
+        reasons.append("Cert number match")
+
+    if has_number_hint_match:
+        rerank_score += 0.32
         reasons.append("Label number match")
 
     if card_name_tokens:
@@ -2980,6 +3281,15 @@ def candidate_has_exact_structured_match(
     payload: dict[str, Any],
     resolver_path: str,
 ) -> bool:
+    candidate_id = str(candidate.get("candidate", {}).get("id") or "").strip()
+    cert_card_ids = {
+        str(card_id).strip()
+        for card_id in (payload.get("_slabCertCardIDs") or [])
+        if str(card_id).strip()
+    }
+    if resolver_path == "psa_label" and candidate_id and candidate_id in cert_card_ids:
+        return True
+
     number = candidate.get("candidate", {}).get("number")
     if not number:
         return False
@@ -3002,10 +3312,16 @@ def candidate_has_exact_structured_match(
 
     if resolver_path == "psa_label":
         candidate_keys = collector_number_lookup_keys(candidate_number)
-        label_hints = psa_label_number_hints(payload.get("topLabelRecognizedText") or "")
-        if payload.get("collectorNumber"):
-            label_hints.update(collector_number_lookup_keys(payload["collectorNumber"]))
-        return not candidate_keys.isdisjoint(label_hints)
+        label_hints = slab_payload_number_hints(payload)
+        if candidate_keys.isdisjoint(label_hints):
+            return False
+
+        candidate_fields = candidate.get("candidate", {})
+        return slab_candidate_has_label_support(
+            str(candidate_fields.get("name") or ""),
+            str(candidate_fields.get("setName") or ""),
+            payload,
+        )
 
     return False
 

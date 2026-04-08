@@ -201,6 +201,7 @@ CREATE INDEX IF NOT EXISTS idx_external_price_mappings_provider ON external_pric
 CREATE INDEX IF NOT EXISTS idx_slab_sales_card_grade ON slab_sales(card_id, grader, grade);
 CREATE INDEX IF NOT EXISTS idx_slab_sales_bucket_grade ON slab_sales(bucket_key, grader, grade);
 CREATE INDEX IF NOT EXISTS idx_slab_sales_sale_date ON slab_sales(sale_date);
+CREATE INDEX IF NOT EXISTS idx_slab_sales_cert_lookup ON slab_sales(grader, cert_number);
 CREATE INDEX IF NOT EXISTS idx_scan_candidates_scan_id ON scan_candidates(scan_id);
 CREATE INDEX IF NOT EXISTS idx_scan_feedback_scan_id ON scan_feedback(scan_id);
 CREATE INDEX IF NOT EXISTS idx_catalog_sync_runs_started_at ON catalog_sync_runs(started_at);

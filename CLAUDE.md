@@ -110,7 +110,7 @@ iOS card scanning app with **PRODUCTION** Google Cloud Run backend. Camera scann
 - **Pricing:** Pokemon TCG API (includes TCGPlayer pricing)
 - **Auto-import:** ALL cards fetched from Pokemon TCG API on first request
 - **Caching:** 24-hour price cache for 75% cost reduction
-- **Identifier Map:** 20,237 card identifiers (3.21 MB) bundled with iPhone app for offline identification
+- **Raw Scan Routing:** iPhone OCR sends raw scans directly to the backend for verification and pricing
 
 ### Key Files
 
@@ -118,19 +118,15 @@ iOS card scanning app with **PRODUCTION** Google Cloud Run backend. Camera scann
 - `Spotlight/App/AppContainer.swift` - Dependency injection, backend URL configuration
 - `Spotlight/Services/CameraSessionController.swift` - Camera session management
 - `Spotlight/Services/CardRectangleAnalyzer.swift` - OCR configuration (bottom region scanning)
-- `Spotlight/Services/IdentifierLookupService.swift` - Offline card identification from bundled map
 - `Spotlight/Services/ScanCacheManager.swift` - 7-day local price cache for offline fallback
-- `Spotlight/ViewModels/ScannerViewModel.swift` - Hybrid scan flow (local → backend)
+- `Spotlight/ViewModels/ScannerViewModel.swift` - Scan flow (OCR → backend)
 - `Spotlight/Views/ScannerView.swift` - Main scanner UI with cache indicators
 - `Spotlight/Models/ScannerAPIModels.swift` - Locale configuration (forced to en_US)
-- `Spotlight/Resources/identifiers_pokemon.json` - 20,237 card identifiers (3.21 MB)
 
 **Backend:**
 - `backend/server.py` - Main HTTP server with auto-import on card requests
-- `backend/fetch_all_pokemon.py` - Script to fetch all Pokémon from Pokemon TCG API
 - `backend/price_cache.py` - 24-hour thread-safe price cache
-- `backend/catalog/identifiers/pokemon_complete.json` - Complete identifier map (source for iPhone bundle)
-- `backend/catalog/pokemontcg/all_cards_cache.json` - Cached API responses for faster re-runs
+- `backend/catalog/identifiers/pokemon_complete.json` - Historical catalog artifact, not a runtime dependency for the app
 
 ## Deployment Instructions
 
@@ -138,7 +134,7 @@ iOS card scanning app with **PRODUCTION** Google Cloud Run backend. Camera scann
 ```bash
 cd /Users/stephenchan/Code/spotlight/backend
 
-# Start backend server (no cards.json needed!)
+# Start backend server (no checked-in backend catalog snapshot needed!)
 python3 server.py --skip-seed --port 8788
 
 # Verify backend is running
@@ -147,9 +143,6 @@ curl http://127.0.0.1:8788/api/v1/health
 # Check price cache status
 curl http://127.0.0.1:8788/api/v1/ops/cache-status
 
-# Optional: Regenerate identifier map (if needed)
-python3 fetch_all_pokemon.py
-cp catalog/identifiers/pokemon_complete.json ../Spotlight/Resources/identifiers_pokemon.json
 ```
 
 ### iOS App Deployment

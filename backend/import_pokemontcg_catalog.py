@@ -37,6 +37,7 @@ DEFAULT_FIELDS = [
 DEFAULT_QUERY = "set.series:\"Scarlet & Violet\""
 DEFAULT_PAGE_SIZE = 250
 DEFAULT_SLEEP_SECONDS = 0.2
+DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
 
 
 def parse_args() -> argparse.Namespace:
@@ -63,10 +64,6 @@ def backend_root() -> Path:
     return Path(__file__).resolve().parent
 
 
-def default_catalog_json_path() -> Path:
-    return backend_root() / "catalog" / "pokemontcg" / "cards.json"
-
-
 def default_images_dir() -> Path:
     return backend_root() / "catalog" / "pokemontcg" / "images"
 
@@ -80,15 +77,43 @@ def load_catalog_cards(catalog_path: Path) -> dict[str, dict[str, Any]]:
     except json.JSONDecodeError:
         return {}
 
-    return {str(card["id"]): card for card in existing_cards}
+    normalized_cards: dict[str, dict[str, Any]] = {}
+    for card in existing_cards:
+        normalized_cards[str(card["id"])] = {
+            "id": str(card["id"]),
+            "name": str(card.get("name") or ""),
+            "set_name": str(card.get("set_name") or ""),
+            "number": str(card.get("number") or ""),
+            "image_url": str(
+                card.get("image_url")
+                or card.get("reference_image_small_url")
+                or card.get("reference_image_url")
+                or ""
+            ),
+        }
+    return normalized_cards
 
 
 def write_catalog_cards(catalog_path: Path, cards_by_id: dict[str, dict[str, Any]]) -> None:
     catalog_path.parent.mkdir(parents=True, exist_ok=True)
+    minimal_cards = [
+        {
+            "id": str(card["id"]),
+            "name": str(card.get("name") or ""),
+            "set_name": str(card.get("set_name") or ""),
+            "number": str(card.get("number") or ""),
+            "image_url": str(
+                card.get("image_url")
+                or card.get("reference_image_small_url")
+                or card.get("reference_image_url")
+                or ""
+            ),
+        }
+        for card in cards_by_id.values()
+    ]
     cards_output = sorted(
-        cards_by_id.values(),
+        minimal_cards,
         key=lambda card: (
-            card.get("set_release_date") or "",
             card.get("set_name") or "",
             card.get("name") or "",
             card.get("number") or "",
@@ -97,14 +122,19 @@ def write_catalog_cards(catalog_path: Path, cards_by_id: dict[str, dict[str, Any
     catalog_path.write_text(json.dumps(cards_output, indent=2, sort_keys=True))
 
 
-def api_request(url: str, api_key: str | None) -> dict[str, Any]:
+def api_request(
+    url: str,
+    api_key: str | None,
+    *,
+    timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
     request = Request(url)
     request.add_header("Accept", "application/json")
     request.add_header("User-Agent", USER_AGENT)
     if api_key:
         request.add_header("X-Api-Key", api_key)
 
-    with urlopen(request) as response:
+    with urlopen(request, timeout=timeout) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
@@ -233,24 +263,46 @@ def build_card_url(card_id: str, fields: list[str] | None = None) -> str:
     return f"{base}?{query_string}" if query_string else base
 
 
-def fetch_card_by_id(card_id: str, api_key: str | None) -> dict[str, Any]:
-    payload = api_request(build_card_url(card_id), api_key)
+def fetch_card_by_id(
+    card_id: str,
+    api_key: str | None,
+    *,
+    timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    payload = api_request(build_card_url(card_id), api_key, timeout=timeout)
     card = payload.get("data")
     if not isinstance(card, dict):
         raise ValueError(f"Card {card_id} was not returned by the Pokémon TCG API")
     return card
 
 
-def search_cards(query: str, api_key: str | None, *, page_size: int = 10, order_by: str = "set.releaseDate,name,number") -> list[dict[str, Any]]:
-    payload = api_request(build_search_cards_url(query, page_size=page_size, order_by=order_by), api_key)
+def search_cards(
+    query: str,
+    api_key: str | None,
+    *,
+    page_size: int = 10,
+    order_by: str = "set.releaseDate,name,number",
+    timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
+    payload = api_request(
+        build_search_cards_url(query, page_size=page_size, order_by=order_by),
+        api_key,
+        timeout=timeout,
+    )
     data = payload.get("data")
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]
 
 
-def search_sets(query: str, api_key: str | None, *, page_size: int = 10) -> list[dict[str, Any]]:
-    payload = api_request(build_search_sets_url(query, page_size=page_size), api_key)
+def search_sets(
+    query: str,
+    api_key: str | None,
+    *,
+    page_size: int = 10,
+    timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+) -> list[dict[str, Any]]:
+    payload = api_request(build_search_sets_url(query, page_size=page_size), api_key, timeout=timeout)
     data = payload.get("data")
     if not isinstance(data, list):
         return []
@@ -306,12 +358,12 @@ def import_exact_card_ids(
 
 def main() -> None:
     args = parse_args()
-    catalog_path = Path(args.catalog_json) if args.catalog_json else default_catalog_json_path()
+    catalog_path = Path(args.catalog_json) if args.catalog_json else None
     images_dir = Path(args.images_dir) if args.images_dir else default_images_dir()
     download_images_enabled = args.download_images and not args.skip_image_download
 
     cards_by_id: dict[str, dict[str, Any]] = {}
-    if not args.replace_output:
+    if catalog_path is not None and not args.replace_output:
         cards_by_id = load_catalog_cards(catalog_path)
 
     page = args.start_page
@@ -336,8 +388,11 @@ def main() -> None:
         if args.exact_only:
             if download_images_enabled:
                 images_dir.mkdir(parents=True, exist_ok=True)
-            write_catalog_cards(catalog_path, cards_by_id)
-            print(f"Wrote {len(cards_by_id)} cards to {catalog_path}", flush=True)
+            if catalog_path is not None:
+                write_catalog_cards(catalog_path, cards_by_id)
+                print(f"Wrote {len(cards_by_id)} cards to {catalog_path}", flush=True)
+            else:
+                print(f"Imported {len(cards_by_id)} cards (no catalog JSON output path configured)", flush=True)
             if download_images_enabled:
                 print(f"Reference images stored in {images_dir}", flush=True)
             return
@@ -417,8 +472,11 @@ def main() -> None:
 
     if download_images_enabled:
         images_dir.mkdir(parents=True, exist_ok=True)
-    write_catalog_cards(catalog_path, cards_by_id)
-    print(f"Wrote {len(cards_by_id)} cards to {catalog_path}", flush=True)
+    if catalog_path is not None:
+        write_catalog_cards(catalog_path, cards_by_id)
+        print(f"Wrote {len(cards_by_id)} cards to {catalog_path}", flush=True)
+    else:
+        print(f"Imported {len(cards_by_id)} cards (no catalog JSON output path configured)", flush=True)
     if download_images_enabled:
         print(f"Reference images stored in {images_dir}", flush=True)
 

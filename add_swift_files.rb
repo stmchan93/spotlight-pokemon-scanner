@@ -21,7 +21,6 @@ puts "✅ Found Services group"
 
 # Files to add
 files = [
-  'Spotlight/Services/IdentifierLookupService.swift',
   'Spotlight/Services/ScanCacheManager.swift'
 ]
 

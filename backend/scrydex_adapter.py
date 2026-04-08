@@ -66,21 +66,43 @@ def fetch_scrydex_card(card_id: str, api_key: str, team_id: str) -> dict[str, An
     )
 
 
+def scrydex_card_data(card_payload: dict[str, Any]) -> dict[str, Any]:
+    data = card_payload.get("data")
+    if isinstance(data, dict):
+        return data
+    return card_payload
+
+
 def score_variant_name(name: str) -> tuple[int, str]:
     normalized = name.lower()
     preference_order = [
-        "normal",
-        "unlimitednormal",
-        "holofoil",
         "unlimitedholofoil",
+        "unlimitednormal",
+        "normal",
+        "holofoil",
         "reverseholofoil",
         "illustrationrare",
         "specialillustrationrare",
     ]
     for index, preferred in enumerate(preference_order):
         if preferred in normalized:
-            return index, normalized
-    return len(preference_order) + 1, normalized
+            score = index
+            break
+    else:
+        score = len(preference_order) + 1
+
+    # Default scanner pricing should avoid premium specialty printings unless
+    # the caller provides stronger variant context.
+    if "firstedition" in normalized:
+        score += 20
+    if "shadowless" in normalized:
+        score += 20
+    if "metal" in normalized:
+        score += 40
+    if "jumbo" in normalized:
+        score += 60
+
+    return score, normalized
 
 
 def score_raw_condition(value: Any) -> tuple[int, str]:
@@ -104,8 +126,9 @@ def score_raw_condition(value: Any) -> tuple[int, str]:
 
 
 def resolve_scrydex_raw_price(card_payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    card_data = scrydex_card_data(card_payload)
     matches: list[tuple[tuple[int, str], tuple[int, str], dict[str, Any], dict[str, Any]]] = []
-    for variant in card_payload.get("variants", []):
+    for variant in card_data.get("variants", []):
         if not isinstance(variant, dict):
             continue
         variant_name = str(variant.get("name") or "normal")
@@ -128,13 +151,21 @@ def resolve_scrydex_raw_price(card_payload: dict[str, Any]) -> tuple[dict[str, A
     return variant, price
 
 
-def resolve_scrydex_psa_price(card_payload: dict[str, Any], grade: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+def resolve_scrydex_graded_price(
+    card_payload: dict[str, Any],
+    grader: str,
+    grade: str,
+) -> tuple[dict[str, Any], dict[str, Any]] | None:
     normalized_grade = normalize_grade(grade)
     if normalized_grade is None:
         return None
 
+    card_data = scrydex_card_data(card_payload)
+    normalized_grader = str(grader or "").strip().upper()
+    if not normalized_grader:
+        return None
     matches: list[tuple[tuple[int, str], dict[str, Any], dict[str, Any]]] = []
-    for variant in card_payload.get("variants", []):
+    for variant in card_data.get("variants", []):
         if not isinstance(variant, dict):
             continue
         variant_name = str(variant.get("name") or "normal")
@@ -143,7 +174,7 @@ def resolve_scrydex_psa_price(card_payload: dict[str, Any], grade: str) -> tuple
                 continue
             if str(price.get("type") or "").lower() != "graded":
                 continue
-            if str(price.get("company") or "").upper() != "PSA":
+            if str(price.get("company") or "").upper() != normalized_grader:
                 continue
             if normalize_grade(price.get("grade")) != normalized_grade:
                 continue
@@ -159,6 +190,10 @@ def resolve_scrydex_psa_price(card_payload: dict[str, Any], grade: str) -> tuple
     return variant, price
 
 
+def resolve_scrydex_psa_price(card_payload: dict[str, Any], grade: str) -> tuple[dict[str, Any], dict[str, Any]] | None:
+    return resolve_scrydex_graded_price(card_payload, "PSA", grade)
+
+
 def refresh_scrydex_raw_snapshot(
     connection,
     card_id: str,
@@ -170,6 +205,7 @@ def refresh_scrydex_raw_snapshot(
         return None
 
     payload = fetch_scrydex_card(card_id, api_key, team_id)
+    card_data = scrydex_card_data(payload)
     resolved = resolve_scrydex_raw_price(payload)
     if resolved is None:
         return None
@@ -183,7 +219,7 @@ def refresh_scrydex_raw_snapshot(
         card_id=card_id,
         provider=SCRYDEX_PROVIDER,
         external_id=card_id,
-        title=str(payload.get("name") or card_row["name"]),
+        title=str(card_data.get("name") or card_row["name"]),
         url=source_url,
         payload=payload,
     )
@@ -216,16 +252,17 @@ def refresh_scrydex_raw_snapshot(
             "condition": price.get("condition"),
             "type": price.get("type"),
             "trend30": trend_30,
-            "cardName": payload.get("name"),
-            "expansionName": (payload.get("expansion") or {}).get("name"),
+            "cardName": card_data.get("name"),
+            "expansionName": (card_data.get("expansion") or {}).get("name"),
         },
     )
     return payload
 
 
-def refresh_scrydex_psa_snapshot(
+def refresh_scrydex_graded_snapshot(
     connection,
     card_id: str,
+    grader: str,
     grade: str,
     api_key: str,
     team_id: str,
@@ -233,13 +270,17 @@ def refresh_scrydex_psa_snapshot(
     normalized_grade = normalize_grade(grade)
     if normalized_grade is None:
         return None
+    normalized_grader = str(grader or "").strip().upper()
+    if not normalized_grader:
+        return None
 
     card_row = card_row_for_pricing_provider(connection, card_id)
     if card_row is None:
         return None
 
     payload = fetch_scrydex_card(card_id, api_key, team_id)
-    resolved = resolve_scrydex_psa_price(payload, normalized_grade)
+    card_data = scrydex_card_data(payload)
+    resolved = resolve_scrydex_graded_price(payload, normalized_grader, normalized_grade)
     if resolved is None:
         return None
 
@@ -253,7 +294,7 @@ def refresh_scrydex_psa_snapshot(
         card_id=card_id,
         provider=SCRYDEX_PROVIDER,
         external_id=card_id,
-        title=str(payload.get("name") or card_row["name"]),
+        title=str(card_data.get("name") or card_row["name"]),
         url=source_url,
         payload=payload,
     )
@@ -261,11 +302,11 @@ def refresh_scrydex_psa_snapshot(
     trends = price.get("trends") if isinstance(price.get("trends"), dict) else {}
     trend_30 = trends.get("days_30") if isinstance(trends, dict) else None
 
-    summary = f"Scrydex exact PSA {normalized_grade} market snapshot."
+    summary = f"Scrydex exact {normalized_grader} {normalized_grade} market snapshot."
     upsert_slab_price_snapshot(
         connection,
         card_id=card_id,
-        grader="PSA",
+        grader=normalized_grader,
         grade=normalized_grade,
         pricing_tier="scrydex_exact_grade",
         currency_code=str(price.get("currency") or "USD"),
@@ -289,11 +330,21 @@ def refresh_scrydex_psa_snapshot(
             "company": price.get("company"),
             "grade": price.get("grade"),
             "trend30": trend_30,
-            "cardName": payload.get("name"),
-            "expansionName": (payload.get("expansion") or {}).get("name"),
+            "cardName": card_data.get("name"),
+            "expansionName": (card_data.get("expansion") or {}).get("name"),
         },
     )
     return payload
+
+
+def refresh_scrydex_psa_snapshot(
+    connection,
+    card_id: str,
+    grade: str,
+    api_key: str,
+    team_id: str,
+) -> dict[str, Any] | None:
+    return refresh_scrydex_graded_snapshot(connection, card_id, "PSA", grade, api_key, team_id)
 
 
 class ScrydexProvider(PricingProvider):
@@ -380,6 +431,54 @@ class ScrydexProvider(PricingProvider):
                     card_id=card_id,
                     grade=grade,
                     error=f"No PSA {grade} pricing available from Scrydex",
+                )
+
+            return PsaPricingResult(
+                success=True,
+                provider_id="scrydex",
+                card_id=card_id,
+                grade=grade,
+                payload=payload,
+            )
+        except Exception as error:
+            return PsaPricingResult(
+                success=False,
+                provider_id="scrydex",
+                card_id=card_id,
+                grade=grade,
+                error=str(error),
+            )
+
+    def refresh_slab_pricing(
+        self,
+        connection,
+        card_id: str,
+        grader: str,
+        grade: str,
+    ) -> PsaPricingResult:
+        credentials = scrydex_credentials()
+        if credentials is None:
+            return PsaPricingResult(
+                success=False,
+                provider_id="scrydex",
+                card_id=card_id,
+                grade=grade,
+                error="Scrydex API key or team ID not configured",
+            )
+
+        api_key, team_id = credentials
+        normalized_grader = str(grader or "").strip().upper()
+        try:
+            payload = refresh_scrydex_graded_snapshot(
+                connection, card_id, normalized_grader, grade, api_key, team_id
+            )
+            if payload is None:
+                return PsaPricingResult(
+                    success=False,
+                    provider_id="scrydex",
+                    card_id=card_id,
+                    grade=grade,
+                    error=f"No {normalized_grader} {grade} pricing available from Scrydex",
                 )
 
             return PsaPricingResult(

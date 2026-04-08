@@ -37,7 +37,6 @@ WORKDIR /app
 COPY . /app
 ENV PORT=8080
 CMD python server.py \
-    --cards-file catalog/pokemontcg/cards.json \
     --database-path data/imported_scanner.sqlite \
     --port ${PORT} \
     --host 0.0.0.0 \

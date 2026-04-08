@@ -8,7 +8,6 @@ import uuid
 
 # Files to add
 files_to_add = [
-    ("Spotlight/Services/IdentifierLookupService.swift", "Services"),
     ("Spotlight/Services/ScanCacheManager.swift", "Services"),
 ]
 

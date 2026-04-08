@@ -9,5 +9,9 @@ cd "$ROOT_DIR"
 
 mkdir -p .swift-module-cache
 
-swiftc -module-cache-path .swift-module-cache tools/scanner_eval.swift -o ./.scanner_eval
+swiftc \
+  -module-cache-path .swift-module-cache \
+  Spotlight/Services/SlabLabelParsing.swift \
+  tools/scanner_eval.swift \
+  -o ./.scanner_eval
 ./.scanner_eval --manifest "$MANIFEST_PATH" --server "$SERVER_URL"

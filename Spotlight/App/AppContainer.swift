@@ -4,62 +4,38 @@ import Foundation
 final class AppContainer: ObservableObject {
     let scannerViewModel: ScannerViewModel
 
-    // Offline support services
-    let identifierLookupService = IdentifierLookupService()
-    let scanCacheManager = ScanCacheManager()
-
     init() {
         let cameraController = CameraSessionController()
-        let analyzer = RawCardScanner(config: .init(
+        let rawAnalyzer = RawCardScanner(config: .init(
             cardDetection: .default,
             bottomRegionOCR: .default,
             debug: .disabled
         ))
-        let fallbackMatcher = LocalPrototypeMatchingService()
+        let slabAnalyzer = SlabScanner(config: .init(
+            labelOCR: .default,
+            debug: .disabled
+        ))
         let remoteBaseURL = Self.resolveBackendBaseURL()
         let remoteMatcher = RemoteScanMatchingService(baseURL: remoteBaseURL)
-
-        let matcher = HybridCardMatchingService(
-            primary: remoteMatcher,
-            fallback: fallbackMatcher
-        )
         let logStore = ScanEventStore()
 
         scannerViewModel = ScannerViewModel(
             cameraController: cameraController,
-            analyzer: analyzer,
-            matcher: matcher,
-            logStore: logStore,
-            identifierLookupService: identifierLookupService,
-            scanCacheManager: scanCacheManager
+            rawAnalyzer: rawAnalyzer,
+            slabAnalyzer: slabAnalyzer,
+            matcher: remoteMatcher,
+            logStore: logStore
         )
+
+        Task.detached(priority: .utility) {
+            let cacheManager = ScanCacheManager()
+            cacheManager.cleanup()
+            print("✅ [APP] Cache cleanup completed")
+        }
 
         // Start camera session immediately so it's ready when view appears
         cameraController.requestAccessIfNeeded()
 
-        Task { @MainActor in
-            await Self.primeLocalBackendConnectionIfNeeded(
-                cameraController: cameraController,
-                remoteMatcher: remoteMatcher
-            )
-        }
-    }
-
-    private static func primeLocalBackendConnectionIfNeeded(
-        cameraController: CameraSessionController,
-        remoteMatcher: RemoteScanMatchingService
-    ) async {
-        for _ in 0..<30 {
-            switch cameraController.authorizationState {
-            case .unknown:
-                try? await Task.sleep(for: .milliseconds(100))
-            case .authorized, .denied, .unavailable:
-                await remoteMatcher.primeLocalNetworkPermissionIfNeeded()
-                return
-            }
-        }
-
-        await remoteMatcher.primeLocalNetworkPermissionIfNeeded()
     }
 
     private static func resolveBackendBaseURL() -> URL {

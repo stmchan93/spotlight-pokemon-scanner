@@ -79,6 +79,10 @@ struct ScannerView: View {
             && viewModel.cameraController.isSessionConfigured
     }
 
+    private var scanInteractionLocked: Bool {
+        viewModel.isCapturingPhoto || viewModel.isProcessing
+    }
+
     private var scannerBackdrop: some View {
         ZStack {
             // Always show camera preview - session will render when ready
@@ -136,28 +140,6 @@ struct ScannerView: View {
                 TopBarIconButton(systemName: "photo.on.rectangle.angled")
             }
         }
-    }
-
-    private var backendStatusChip: some View {
-        let isFallback = viewModel.usingLocalFallback
-        let title = isFallback ? "Fallback" : "Live"
-        let tone = isFallback
-            ? Color(red: 0.96, green: 0.82, blue: 0.45)
-            : Color(red: 0.47, green: 0.84, blue: 0.68)
-
-        return HStack(spacing: 6) {
-            Circle()
-                .fill(tone)
-                .frame(width: 8, height: 8)
-
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.white)
-        }
-        .padding(.horizontal, 10)
-        .padding(.vertical, 8)
-        .background(Color.white.opacity(0.08))
-        .clipShape(Capsule())
     }
 
     private var scanningReticle: some View {
@@ -222,7 +204,7 @@ struct ScannerView: View {
                         }
                         .onTapGesture {
                             // Only capture if camera is ready and not already processing
-                            guard cameraIsInteractive, !viewModel.isProcessing else { return }
+                            guard cameraIsInteractive, !scanInteractionLocked else { return }
                             viewModel.capturePhoto(reticleRect: reticleBounds)
                         }
 

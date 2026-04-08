@@ -5,6 +5,7 @@ import UIKit
 @MainActor
 final class ScannerViewModel: ObservableObject {
     @Published var route: ScannerRoute = .scanner
+    @Published var isCapturingPhoto = false
     @Published var isProcessing = false
     @Published var errorMessage: String?
     @Published var bannerMessage: String?
@@ -17,14 +18,15 @@ final class ScannerViewModel: ObservableObject {
 
     let cameraController: CameraSessionController
 
-    private let analyzer: RawCardScanner
+    private let rawAnalyzer: RawCardScanner
+    private let slabAnalyzer: SlabScanner
     private let matcher: CardMatchingService
     private let logStore: ScanEventStore
-    private let identifierLookupService: IdentifierLookupService
-    private let scanCacheManager: ScanCacheManager
     private var currentScanID: UUID?
     private var currentPendingItemID: UUID?
+    private var currentScanStartedAt: TimeInterval?
     private var idlePricingRefreshTask: Task<Void, Never>?
+    private var hasShownPhotoSaveFailureBanner = false
 
     private var selectedResolverMode: ResolverMode {
         scannerPresentationMode == .slab ? .psaSlab : .rawCard
@@ -32,21 +34,25 @@ final class ScannerViewModel: ObservableObject {
 
     init(
         cameraController: CameraSessionController,
-        analyzer: RawCardScanner,
+        rawAnalyzer: RawCardScanner,
+        slabAnalyzer: SlabScanner,
         matcher: CardMatchingService,
-        logStore: ScanEventStore,
-        identifierLookupService: IdentifierLookupService,
-        scanCacheManager: ScanCacheManager
+        logStore: ScanEventStore
     ) {
         self.cameraController = cameraController
-        self.analyzer = analyzer
+        self.rawAnalyzer = rawAnalyzer
+        self.slabAnalyzer = slabAnalyzer
         self.matcher = matcher
         self.logStore = logStore
-        self.identifierLookupService = identifierLookupService
-        self.scanCacheManager = scanCacheManager
 
         self.cameraController.onImageCaptured = { [weak self] image in
             self?.processImportedPhoto(image)
+        }
+        self.cameraController.onCaptureFailed = { [weak self] message in
+            self?.handleCaptureFailure(message)
+        }
+        self.cameraController.onCaptureSavedToPhotoLibrary = { [weak self] success, message in
+            self?.handlePhotoLibrarySaveResult(success: success, message: message)
         }
     }
 
@@ -62,12 +68,10 @@ final class ScannerViewModel: ObservableObject {
         trayMetrics.totalLabel
     }
 
-    var usingLocalFallback: Bool {
-        scannedItems.contains(where: { $0.matcherSource == .localPrototype })
-    }
-
     func startScannerSession() {
-        cameraController.requestAccessIfNeeded()
+        if cameraController.authorizationState == .unknown {
+            cameraController.requestAccessIfNeeded()
+        }
         cameraController.startSession()
     }
 
@@ -77,9 +81,24 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func capturePhoto(reticleRect: CGRect) {
-        guard !isProcessing else { return }
+        guard !isProcessing, !isCapturingPhoto else { return }
         errorMessage = nil
-        cameraController.capturePhoto(reticleRect: reticleRect)
+        route = .scanner
+
+        let scanID = UUID()
+        let pendingItemID = enqueuePendingScan(scanID: scanID, previewImage: nil)
+        currentScanID = scanID
+        currentPendingItemID = pendingItemID
+        currentScanStartedAt = Date().timeIntervalSinceReferenceDate
+
+        let didStartCapture = cameraController.capturePhoto(reticleRect: reticleRect)
+        if didStartCapture {
+            isCapturingPhoto = true
+        } else {
+            markPendingScanFailed(itemID: pendingItemID, message: "Could not capture card")
+            resetPendingScanState()
+            errorMessage = cameraController.lastErrorMessage ?? "Could not capture card"
+        }
     }
 
     func toggleTorch() {
@@ -88,8 +107,21 @@ final class ScannerViewModel: ObservableObject {
 
     func processImportedPhoto(_ image: UIImage) {
         guard !isProcessing else { return }
+        isCapturingPhoto = false
+        let scanID = currentScanID ?? UUID()
+        let pendingItemID = currentPendingItemID ?? enqueuePendingScan(scanID: scanID, previewImage: image)
+        currentScanID = scanID
+        currentPendingItemID = pendingItemID
+        if currentScanStartedAt == nil {
+            currentScanStartedAt = Date().timeIntervalSinceReferenceDate
+        }
         Task {
-            await handleScannedImage(image)
+            await handleScannedImage(
+                image,
+                scanID: scanID,
+                pendingItemID: pendingItemID,
+                scanStartedAt: currentScanStartedAt
+            )
         }
     }
 
@@ -168,8 +200,14 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
-    private func handleScannedImage(_ image: UIImage) async {
+    private func handleScannedImage(
+        _ image: UIImage,
+        scanID: UUID? = nil,
+        pendingItemID: UUID? = nil,
+        scanStartedAt: TimeInterval? = nil
+    ) async {
         print("🔍 [SCAN] Starting handleScannedImage")
+        isCapturingPhoto = false
         errorMessage = nil
         route = .scanner
 
@@ -178,24 +216,44 @@ final class ScannerViewModel: ObservableObject {
         let processedImage = downscaleImage(image, maxDimension: 1200)
         print("🔍 [SCAN] Downscaled image from \(image.size) to \(processedImage.size)")
 
-        let scanID = UUID()
-        currentScanID = scanID
-        let pendingItemID = enqueuePendingScan(scanID: scanID, previewImage: processedImage)
-        currentPendingItemID = pendingItemID
+        let effectiveScanID = scanID ?? currentScanID ?? UUID()
+        let effectivePendingItemID = pendingItemID ?? currentPendingItemID ?? enqueuePendingScan(scanID: effectiveScanID, previewImage: processedImage)
+        let effectiveScanStartedAt = scanStartedAt ?? currentScanStartedAt ?? Date().timeIntervalSinceReferenceDate
+        currentScanID = effectiveScanID
+        currentPendingItemID = effectivePendingItemID
+        currentScanStartedAt = effectiveScanStartedAt
+        updateStackItem(id: effectivePendingItemID) { item in
+            if item.previewImage == nil {
+                item.previewImage = downscaleImage(processedImage, maxDimension: 300)
+            }
+            item.statusMessage = "Identifying card..."
+        }
         isProcessing = true
 
         do {
             print("🔍 [SCAN] Starting Vision analysis...")
             let analysisStarted = Date().timeIntervalSinceReferenceDate
+            let tapToAnalysisStartMs = (analysisStarted - effectiveScanStartedAt) * 1000
+            print("⏱️ [SCAN] Tap to OCR start: \(tapToAnalysisStartMs)ms")
+            let resolverMode = selectedResolverMode
 
             // Add timeout to prevent indefinite hanging on complex images
             let analysis = try await withThrowingTaskGroup(of: AnalyzedCapture.self) { group in
                 group.addTask {
-                    try await self.analyzer.analyze(
-                        scanID: scanID,
-                        image: processedImage,
-                        resolverModeHint: self.selectedResolverMode
-                    )
+                    switch resolverMode {
+                    case .psaSlab:
+                        try await self.slabAnalyzer.analyze(
+                            scanID: effectiveScanID,
+                            image: processedImage,
+                            resolverModeHint: resolverMode
+                        )
+                    case .rawCard, .unknownFallback:
+                        try await self.rawAnalyzer.analyze(
+                            scanID: effectiveScanID,
+                            image: processedImage,
+                            resolverModeHint: resolverMode
+                        )
+                    }
                 }
 
                 group.addTask {
@@ -212,30 +270,29 @@ final class ScannerViewModel: ObservableObject {
 
             let analysisMs = (Date().timeIntervalSinceReferenceDate - analysisStarted) * 1000
             print("✅ [SCAN] Vision analysis completed in \(analysisMs)ms")
-            print("🔍 [SCAN] Trying hybrid identification (local first)...")
+            print("🔍 [SCAN] Sending scan to backend matcher...")
 
             let performance = ScanPerformanceMetrics(
                 analysisMs: analysisMs,
                 matchMs: 0,  // Will be updated if backend is used
-                totalMs: analysisMs
+                totalMs: tapToAnalysisStartMs + analysisMs
             )
 
-            // Try hybrid flow: local identifier lookup first, then backend
-            await tryHybridIdentification(
+            await fallbackToBackendMatch(
                 analysis: analysis,
-                scanID: scanID,
-                pendingItemID: pendingItemID,
-                previewImage: processedImage,
+                scanID: effectiveScanID,
+                pendingItemID: effectivePendingItemID,
                 performance: performance
             )
         } catch {
             print("❌ [SCAN] Error: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
-            markPendingScanFailed(itemID: pendingItemID, message: "Could not identify card")
+            markPendingScanFailed(itemID: effectivePendingItemID, message: "Could not identify card")
             resetPendingScanState()
         }
 
         print("🔍 [SCAN] Finished handleScannedImage")
+        isCapturingPhoto = false
         isProcessing = false
     }
 
@@ -316,11 +373,31 @@ final class ScannerViewModel: ObservableObject {
     private func resetPendingScanState() {
         currentScanID = nil
         currentPendingItemID = nil
+        currentScanStartedAt = nil
         analyzedCapture = nil
         matchResponse = nil
         searchQuery = ""
         searchResults = []
         errorMessage = nil
+    }
+
+    private func handleCaptureFailure(_ message: String) {
+        isCapturingPhoto = false
+        if let pendingItemID = currentPendingItemID {
+            markPendingScanFailed(itemID: pendingItemID, message: "Could not capture card")
+        }
+        resetPendingScanState()
+        errorMessage = message
+    }
+
+    private func handlePhotoLibrarySaveResult(success: Bool, message: String?) {
+        if success {
+            return
+        }
+
+        guard !hasShownPhotoSaveFailureBanner else { return }
+        hasShownPhotoSaveFailureBanner = true
+        showBanner(message ?? "Could not save scan to Photos")
     }
 
     private func updateStackItem(id itemID: UUID, mutate: (inout LiveScanStackItem) -> Void) {
@@ -398,7 +475,7 @@ final class ScannerViewModel: ObservableObject {
         guard shouldRefresh else { return }
 
         idlePricingRefreshTask = Task { @MainActor [weak self] in
-            try? await Task.sleep(for: .seconds(1.8))
+            try? await Task.sleep(for: .milliseconds(150))
             guard let self, !Task.isCancelled else { return }
             guard self.scannedItems.contains(where: { $0.id == itemID }) else { return }
             await self.refreshPricing(for: itemID, cardID: cardID, initiatedByUser: false)
@@ -432,11 +509,11 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
-    private func enqueuePendingScan(scanID: UUID, previewImage: UIImage) -> UUID {
+    private func enqueuePendingScan(scanID: UUID, previewImage: UIImage?) -> UUID {
         let itemID = UUID()
 
         // Downscale preview to save memory (max 300px)
-        let thumbnail = downscaleImage(previewImage, maxDimension: 300)
+        let thumbnail = previewImage.map { downscaleImage($0, maxDimension: 300) }
 
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             for index in scannedItems.indices {
@@ -529,13 +606,6 @@ final class ScannerViewModel: ObservableObject {
         slabContext: SlabContext?,
         pricing: CardPricingSummary?
     ) -> String? {
-        if matcherSource == .localPrototype {
-            if pricing == nil {
-                return "Local fallback mode. Start the backend for full catalog pricing."
-            }
-            return "Local fallback snapshot"
-        }
-
         switch resolverMode {
         case .psaSlab:
             if pricing?.pricingMode == "psa_grade_estimate" {
@@ -552,213 +622,7 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Hybrid Offline/Online Flow
-
-    /// Try local identifier lookup first, fall back to backend if not found
-    ///
-    /// Flow:
-    /// 1. Check if collector number exists in local identifier map
-    /// 2. If unique match: Show card immediately, fetch pricing separately
-    /// 3. If ambiguous: Let backend disambiguate using full analysis
-    /// 4. If not found: Full backend scan with image
-    private func tryHybridIdentification(
-        analysis: AnalyzedCapture,
-        scanID: UUID,
-        pendingItemID: UUID,
-        previewImage: UIImage,
-        performance: ScanPerformanceMetrics
-    ) async {
-        if analysis.resolverModeHint == .psaSlab {
-            print("🔍 [HYBRID] Slab mode selected - skipping local raw identifier lookup")
-            await fallbackToBackendMatch(
-                analysis: analysis,
-                scanID: scanID,
-                pendingItemID: pendingItemID,
-                performance: performance
-            )
-            return
-        }
-
-        // Try local identifier lookup first
-        let collectorNumber = analysis.collectorNumber ?? ""
-
-        guard !collectorNumber.isEmpty else {
-            // No collector number - fall back to backend
-            await fallbackToBackendMatch(
-                analysis: analysis,
-                scanID: scanID,
-                pendingItemID: pendingItemID,
-                performance: performance
-            )
-            return
-        }
-
-        let lookupResult = identifierLookupService.lookup(
-            collectorNumber,
-            setHintTokens: analysis.setHintTokens
-        )
-
-        switch lookupResult {
-        case .unique(let cardIdentifier):
-            print("✅ [HYBRID] Found unique local match: \(cardIdentifier.name)")
-            // Show card immediately from local data
-            let localCandidate = createCandidateFromIdentifier(cardIdentifier)
-            await showLocallyIdentifiedCard(
-                candidate: localCandidate,
-                scanID: scanID,
-                pendingItemID: pendingItemID,
-                performance: performance
-            )
-
-            // Try to fetch pricing from backend in background
-            await fetchPricingForLocalCard(cardID: cardIdentifier.id, itemID: pendingItemID)
-
-        case .ambiguous(let candidates):
-            print("⚠️ [HYBRID] Ambiguous local match (\(candidates.count) candidates) - using backend to disambiguate")
-            await primeBackendCatalog(for: candidates)
-            // Multiple cards with same number - let backend disambiguate
-            await fallbackToBackendMatch(
-                analysis: analysis,
-                scanID: scanID,
-                pendingItemID: pendingItemID,
-                performance: performance
-            )
-
-        case .notFound:
-            print("⚠️ [HYBRID] Not found in local map - falling back to backend")
-            // Not in local map - fall back to full backend scan
-            await fallbackToBackendMatch(
-                analysis: analysis,
-                scanID: scanID,
-                pendingItemID: pendingItemID,
-                performance: performance
-            )
-        }
-    }
-
-    private func primeBackendCatalog(for candidates: [CardIdentifier]) async {
-        let cardIDs = Array(Set(candidates.map(\.id))).sorted()
-        guard !cardIDs.isEmpty else { return }
-
-        print("🔄 [HYBRID] Priming backend catalog for \(cardIDs.count) ambiguous local candidates")
-
-        await withTaskGroup(of: Void.self) { group in
-            for cardID in cardIDs.prefix(4) {
-                group.addTask { [matcher] in
-                    _ = await matcher.fetchCardDetail(cardID: cardID, slabContext: nil)
-                }
-            }
-        }
-    }
-
-    /// Create a CardCandidate from a local CardIdentifier (without pricing)
-    ///
-    /// Note: Creates a minimal candidate for immediate display. Fields like number, rarity,
-    /// and variant are empty but will be populated when fetchPricingForLocalCard completes.
-    private func createCandidateFromIdentifier(_ identifier: CardIdentifier) -> CardCandidate {
-        CardCandidate(
-            id: identifier.id,
-            name: identifier.name,
-            setName: identifier.set,
-            number: "",
-            rarity: "",
-            variant: "",
-            language: "English",
-            pricing: nil
-        )
-    }
-
-    /// Show card identified from local data immediately
-    ///
-    /// Displays the card with basic info while pricing is fetched asynchronously.
-    /// Uses .localPrototype as matcherSource to indicate offline identification.
-    private func showLocallyIdentifiedCard(
-        candidate: CardCandidate,
-        scanID: UUID,
-        pendingItemID: UUID,
-        performance: ScanPerformanceMetrics
-    ) async {
-        await MainActor.run {
-            withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                updateStackItem(id: pendingItemID) { item in
-                    item.phase = .resolved
-                    item.card = candidate
-                    item.confidence = .high
-                    item.matcherSource = .localPrototype
-                    item.matcherVersion = "offline-v1"
-                    item.resolverMode = .rawCard
-                    item.reviewDisposition = .ready
-                    item.statusMessage = "Getting price..."
-                    item.performance = performance
-                    item.isExpanded = false
-                    item.isRefreshingPrice = true
-                }
-            }
-
-            resetPendingScanState()
-            route = .scanner
-            showBanner("Added \(candidate.name)")
-        }
-    }
-
-    /// Fetch pricing from backend for a locally identified card
-    private func fetchPricingForLocalCard(cardID: String, itemID: UUID) async {
-        do {
-            print("🔍 [HYBRID] Fetching pricing for \(cardID)...")
-            if let detail = try await matcher.refreshCardDetail(
-                cardID: cardID,
-                slabContext: nil,
-                forceRefresh: false
-            ) {
-                print("✅ [HYBRID] Got pricing from backend refresh")
-                logPricingSnapshot(prefix: "Refreshed local card", card: detail.card)
-                await applyFetchedLocalCardDetail(detail, itemID: itemID)
-            } else if let detail = await matcher.fetchCardDetail(cardID: cardID, slabContext: nil) {
-                print("✅ [HYBRID] Got detail from backend fetch")
-                logPricingSnapshot(prefix: "Fetched local card", card: detail.card)
-                await applyFetchedLocalCardDetail(detail, itemID: itemID)
-            } else {
-                print("⚠️ [HYBRID] Backend returned no detail after refresh/fetch")
-                await MainActor.run {
-                    updateStackItem(id: itemID) { item in
-                        item.statusMessage = "Price unavailable"
-                        item.isRefreshingPrice = false
-                    }
-                }
-            }
-        } catch {
-            print("⚠️ [HYBRID] Backend pricing failed: \(error.localizedDescription)")
-            // Check local cache as fallback
-            if let cached = scanCacheManager.get(cardId: cardID) {
-                print("✅ [HYBRID] Using cached pricing")
-                await MainActor.run {
-                    updateStackItem(id: itemID) { item in
-                        // Set cache status based on age
-                        if cached.ageHours < 1 {
-                            item.cacheStatus = .fresh
-                            item.statusMessage = "Fresh price"
-                        } else if cached.ageHours < 24 {
-                            item.cacheStatus = .recent(hours: cached.ageHours)
-                            item.statusMessage = "Cached \(cached.ageHours)h ago"
-                        } else {
-                            item.cacheStatus = .outdated(days: cached.ageDays)
-                            item.statusMessage = "Outdated (\(cached.ageDays)d ago)"
-                        }
-                        item.isRefreshingPrice = false
-                    }
-                }
-            } else {
-                print("❌ [HYBRID] No cached pricing available")
-                await MainActor.run {
-                    updateStackItem(id: itemID) { item in
-                        item.cacheStatus = .offline
-                        item.statusMessage = "Price unavailable (offline)"
-                        item.isRefreshingPrice = false
-                    }
-                }
-            }
-        }
-    }
+    // MARK: - Backend Matching Flow
 
     private func logPricingSnapshot(prefix: String, card: CardCandidate) {
         guard let pricing = card.pricing else {
@@ -778,31 +642,6 @@ final class ScannerViewModel: ObservableObject {
         )
     }
 
-    private func applyFetchedLocalCardDetail(_ detail: CardDetail, itemID: UUID) async {
-        await MainActor.run {
-            updateStackItem(id: itemID) { item in
-                item.card = detail.card
-                item.detail = detail
-                item.statusMessage = detail.pricing == nil
-                    ? "No market price available"
-                    : ScanTrayCalculator.initialStatusMessage(for: detail.pricing)
-                item.isRefreshingPrice = false
-            }
-
-            if let pricing = detail.pricing {
-                scanCacheManager.save(
-                    cardId: detail.card.id,
-                    name: detail.card.name,
-                    set: detail.card.setName,
-                    number: detail.card.number,
-                    imageURL: detail.imageSmallURL ?? "",
-                    pricing: pricing
-                )
-            }
-        }
-    }
-
-    /// Fall back to original backend matching flow
     private func fallbackToBackendMatch(
         analysis: AnalyzedCapture,
         scanID: UUID,
@@ -810,43 +649,13 @@ final class ScannerViewModel: ObservableObject {
         performance: ScanPerformanceMetrics
     ) async {
         do {
-            print("🔍 [HYBRID] Using backend match...")
+            print("🔍 [SCAN] Using backend match...")
             let matchStarted = Date().timeIntervalSinceReferenceDate
             let response = try await matcher.match(analysis: analysis)
             let matchMs = (Date().timeIntervalSinceReferenceDate - matchStarted) * 1000
-            print("✅ [HYBRID] Backend match completed in \(matchMs)ms")
+            print("✅ [SCAN] Backend match completed in \(matchMs)ms")
             if let bestMatch = response.bestMatch {
                 logPricingSnapshot(prefix: "Backend best match", card: bestMatch)
-            }
-
-            if response.matcherSource == .localPrototype {
-                print("⚠️ [HYBRID] Using LOCAL FALLBACK - backend unreachable")
-                let updatedPerformance = ScanPerformanceMetrics(
-                    analysisMs: performance.analysisMs,
-                    matchMs: matchMs,
-                    totalMs: performance.analysisMs + matchMs
-                )
-
-                updateStackItem(id: pendingItemID) { item in
-                    item.phase = .needsReview
-                    item.card = nil
-                    item.detail = nil
-                    item.confidence = .low
-                    item.matcherSource = response.matcherSource
-                    item.matcherVersion = response.matcherVersion
-                    item.resolverMode = response.resolverMode
-                    item.resolverPath = response.resolverPath
-                    item.slabContext = response.slabContext
-                    item.reviewDisposition = .needsReview
-                    item.reviewReason = "Backend unavailable. Could not verify this card against the full catalog."
-                    item.statusMessage = "Backend unavailable. Match not verified."
-                    item.pricingContextNote = nil
-                    item.performance = updatedPerformance
-                    item.isRefreshingPrice = false
-                }
-
-                resetPendingScanState()
-                return
             }
 
             let updatedPerformance = ScanPerformanceMetrics(
@@ -888,7 +697,7 @@ final class ScannerViewModel: ObservableObject {
                 resetPendingScanState()
             }
         } catch {
-            print("❌ [HYBRID] Backend match failed: \(error.localizedDescription)")
+            print("❌ [SCAN] Backend match failed: \(error.localizedDescription)")
             errorMessage = error.localizedDescription
             markPendingScanFailed(itemID: pendingItemID, message: "Could not identify card")
             resetPendingScanState()

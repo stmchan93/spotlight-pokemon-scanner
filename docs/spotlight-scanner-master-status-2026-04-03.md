@@ -328,7 +328,7 @@ Current catalog freshness tooling:
 - sync planning/state via [catalog_sync.py](/Users/stephenchan/Code/spotlight/backend/catalog_sync.py)
 - runnable sync CLI via [sync_catalog.py](/Users/stephenchan/Code/spotlight/backend/sync_catalog.py)
 - live catalog miss recovery for structured raw scans
-- immediate local cache writes into SQLite and [cards.json](/Users/stephenchan/Code/spotlight/backend/catalog/pokemontcg/cards.json)
+- immediate local cache writes into SQLite
 - ops visibility through:
   - `GET /api/v1/ops/catalog-sync-status`
   - `GET /api/v1/ops/unmatched-scans`
@@ -445,7 +445,6 @@ Current imported catalog:
 
 Imported artifacts:
 
-- [cards.json](/Users/stephenchan/Code/spotlight/backend/catalog/pokemontcg/cards.json)
 - [images](/Users/stephenchan/Code/spotlight/backend/catalog/pokemontcg/images)
 - [imported_scanner.sqlite](/Users/stephenchan/Code/spotlight/backend/data/imported_scanner.sqlite)
 
@@ -458,8 +457,7 @@ Current repo rules for development:
   - `Release` => production
 - use `Spotlight/Config/LocalOverrides.xcconfig` as the machine-local app override file
 - current `Staging` and `Release` both point at `https://spotlight-backend-grhsfspaia-uc.a.run.app/`
-- keep bundled identifier assets minimal
-- if a lightweight local metadata cache is needed, prefer `all_cards_cache.json`
+- raw-card scans now use OCR-plus-backend matching directly; there is no bundled raw identifier map in the app runtime path
 - treat checked-in local image bundles and backup catalog files as legacy importer artifacts unless/until the backend is intentionally redesigned around them
 
 Targeted real-card coverage added so far includes:
@@ -495,7 +493,7 @@ Catalog freshness tooling now exists:
 Current catalog freshness behavior:
 
 - nightly-style full sync and release-window syncs can be planned/run from a state file
-- live structured raw scan misses can import a new card into SQLite and `cards.json`
+- live structured raw scan misses can import a new card into SQLite
 - sync runs and pricing refresh failures are logged for ops visibility
 
 ## Validation Status
@@ -587,7 +585,7 @@ To complete that last step, those images need to exist on disk under the repo or
 ```bash
 cd /Users/stephenchan/Code/spotlight
 python3 backend/server.py \
-  --cards-file backend/catalog/pokemontcg/cards.json \
+  --skip-seed \
   --database-path backend/data/imported_scanner.sqlite \
   --port 8788
 ```
@@ -597,7 +595,7 @@ python3 backend/server.py \
 ```bash
 cd /Users/stephenchan/Code/spotlight
 python3 backend/server.py \
-  --cards-file backend/catalog/cards.sample.json \
+  --cards-file backend/catalog/sample_catalog.json \
   --database-path backend/data/sample_scanner.sqlite \
   --port 8787
 ```

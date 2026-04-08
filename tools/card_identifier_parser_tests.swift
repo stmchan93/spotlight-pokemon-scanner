@@ -35,6 +35,20 @@ func testParsesPromoCollectorNumberWithoutSlash() {
     require(parsed?.identifier == "SWSH286", "should parse promo collector numbers without slash")
 }
 
+func testPrefersExactStandardCollectorNumberOverWeaknessNoise() {
+    let parser = CardIdentifierParser()
+    let parsed = parser.parse(text: "x2 011/078 2972 Na", sourceRegion: "bottom-left")
+
+    require(parsed?.identifier == "011/078", "should prefer exact standard collector numbers over x2 weakness noise")
+}
+
+func testRepairsSplitLeadingZeroStandardCollectorNumber() {
+    let parser = CardIdentifierParser()
+    let parsed = parser.parse(text: "01 1/078 20021", sourceRegion: "bottom-left")
+
+    require(parsed?.identifier == "011/078", "should repair split leading-zero standard collector numbers")
+}
+
 @main
 struct CardIdentifierParserTestRunner {
     static func main() {
@@ -42,6 +56,8 @@ struct CardIdentifierParserTestRunner {
         testRecoversNoisyPrefixedCollectorNumber()
         testParsesJapaneseSecretRareCollectorNumber()
         testParsesPromoCollectorNumberWithoutSlash()
+        testPrefersExactStandardCollectorNumberOverWeaknessNoise()
+        testRepairsSplitLeadingZeroStandardCollectorNumber()
         print("card_identifier_parser_tests: PASS")
     }
 }

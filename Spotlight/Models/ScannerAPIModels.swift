@@ -42,6 +42,17 @@ struct ScanMatchRequestPayload: Codable, Hashable, Sendable {
     let collectorNumber: String?
     let setHintTokens: [String]
     let promoCodeHint: String?
+    let slabGrader: String?
+    let slabGrade: String?
+    let slabCertNumber: String?
+    let slabBarcodePayloads: [String]
+    let slabGraderConfidence: Double?
+    let slabGradeConfidence: Double?
+    let slabCertConfidence: Double?
+    let slabCardNumberRaw: String?
+    let slabParsedLabelText: [String]
+    let slabClassifierReasons: [String]
+    let slabRecommendedLookupPath: SlabRecommendedLookupPath?
     let directLookupLikely: Bool
     let resolverModeHint: ResolverMode
     let cropConfidence: Double

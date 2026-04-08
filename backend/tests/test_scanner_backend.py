@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import sqlite3
 import sys
 import tempfile
 import unittest
@@ -21,6 +22,7 @@ from catalog_tools import (  # noqa: E402
     apply_schema,
     bucket_key_for_card,
     collector_numbers_equivalent,
+    collector_number_api_query_values,
     collector_number_lookup_keys,
     connect,
     direct_lookup_candidate_indices,
@@ -29,17 +31,24 @@ from catalog_tools import (  # noqa: E402
     load_index,
     normalized_set_hint_tokens,
     parse_psa_grade,
+    parse_psa_cert_number,
+    parse_slab_grader,
     recompute_slab_price_snapshot,
+    resolve_catalog_json_path,
     resolver_mode_for_payload,
+    slab_context_from_payload,
     runtime_supported_card_id,
     seed_catalog,
-    slab_context_from_payload,
     upsert_card_price_summary,
+    upsert_catalog_card,
     upsert_slab_price_snapshot,
     upsert_slab_sale,
 )
 from pricing_provider import PsaPricingResult, RawPricingResult  # noqa: E402
+from scrydex_adapter import resolve_scrydex_psa_price, resolve_scrydex_raw_price  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
+
+SAMPLE_CATALOG_PATH = BACKEND_ROOT / "catalog" / "sample_catalog.json"
 
 
 def sample_scan_payload(
@@ -53,7 +62,30 @@ def sample_scan_payload(
     promo_code_hint: str | None = None,
     top_label_text: str = "",
     resolver_mode_hint: str | None = None,
+    slab_grader: str | None = None,
+    slab_grade: str | None = None,
+    slab_cert_number: str | None = None,
+    slab_barcode_payloads: list[str] | None = None,
+    slab_grader_confidence: float | None = None,
+    slab_grade_confidence: float | None = None,
+    slab_cert_confidence: float | None = None,
+    slab_card_number_raw: str | None = None,
+    slab_classifier_reasons: list[str] | None = None,
+    slab_recommended_lookup_path: str | None = None,
 ) -> dict[str, object]:
+    label_source = " ".join(part for part in [top_label_text, full_text] if part)
+    derived_slab_grader = slab_grader or (parse_slab_grader(label_source) if label_source else None)
+    derived_slab_grade = slab_grade or (
+        parse_psa_grade(label_source) if label_source and derived_slab_grader == "PSA" else None
+    )
+    derived_slab_cert = slab_cert_number or (parse_psa_cert_number(label_source) if label_source else None)
+    derived_lookup_path = slab_recommended_lookup_path
+    if derived_lookup_path is None:
+        if derived_slab_grader == "PSA" and derived_slab_cert:
+            derived_lookup_path = "psa_cert"
+        elif derived_slab_grader:
+            derived_lookup_path = "label_text_search"
+
     return {
         "scanID": str(uuid.uuid4()),
         "capturedAt": "2026-04-03T12:00:00Z",
@@ -78,6 +110,17 @@ def sample_scan_payload(
         "collectorNumber": collector_number,
         "setHintTokens": set_hint_tokens or [],
         "promoCodeHint": promo_code_hint,
+        "slabGrader": derived_slab_grader,
+        "slabGrade": derived_slab_grade,
+        "slabCertNumber": derived_slab_cert,
+        "slabBarcodePayloads": slab_barcode_payloads or [],
+        "slabGraderConfidence": slab_grader_confidence if derived_slab_grader else None,
+        "slabGradeConfidence": slab_grade_confidence if derived_slab_grade else None,
+        "slabCertConfidence": slab_cert_confidence if derived_slab_cert else None,
+        "slabCardNumberRaw": slab_card_number_raw,
+        "slabParsedLabelText": [],
+        "slabClassifierReasons": slab_classifier_reasons or [],
+        "slabRecommendedLookupPath": derived_lookup_path,
         "directLookupLikely": True,
         "resolverModeHint": resolver_mode_hint or ("raw_card" if collector_number else "unknown_fallback"),
         "cropConfidence": 1.0,
@@ -147,7 +190,7 @@ class SampleCatalogBackendTests(unittest.TestCase):
         apply_schema(cls.connection, BACKEND_ROOT / "schema.sql")
 
         sample_cards = cards_without_reference_images(
-            load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            load_cards_json(SAMPLE_CATALOG_PATH)
         )
         seed_catalog(cls.connection, sample_cards, REPO_ROOT)
         cls.connection.commit()
@@ -174,9 +217,22 @@ class SampleCatalogBackendTests(unittest.TestCase):
         self.assertIn("146/144", keys)
         self.assertIn("146", keys)
 
-    def test_runtime_supported_card_id_filters_low_trust_custom_mega_family(self) -> None:
-        self.assertFalse(runtime_supported_card_id("me2-130"))
-        self.assertFalse(runtime_supported_card_id("ME3-21"))
+    def test_collector_number_lookup_keys_supports_zero_padded_simple_numbers(self) -> None:
+        keys = collector_number_lookup_keys("010")
+
+        self.assertIn("010", keys)
+        self.assertIn("10", keys)
+
+    def test_collector_number_api_query_values_supports_zero_padded_simple_numbers(self) -> None:
+        values = collector_number_api_query_values("010")
+
+        self.assertIn("010", values)
+        self.assertIn("10", values)
+
+    def test_runtime_supported_card_id_accepts_non_empty_ids(self) -> None:
+        self.assertTrue(runtime_supported_card_id("me1-185"))
+        self.assertTrue(runtime_supported_card_id("me2-130"))
+        self.assertTrue(runtime_supported_card_id("ME3-21"))
         self.assertTrue(runtime_supported_card_id("sv8-238"))
         self.assertTrue(runtime_supported_card_id("swsh12pt5gg-GG37"))
 
@@ -204,9 +260,377 @@ class SampleCatalogBackendTests(unittest.TestCase):
 
         self.assertEqual(parse_psa_grade(label_text), "10")
 
+    def test_resolve_scrydex_psa_price_supports_wrapped_payloads(self) -> None:
+        payload = {
+            "data": {
+                "name": "Charizard",
+                "variants": [
+                    {
+                        "name": "unlimitedHolofoil",
+                        "prices": [
+                            {
+                                "type": "graded",
+                                "company": "PSA",
+                                "grade": "9",
+                                "market": 199.93,
+                                "low": 189.99,
+                                "high": 210.00,
+                                "currency": "USD",
+                                "is_signed": False,
+                                "is_error": False,
+                                "is_perfect": False,
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+
+        resolved = resolve_scrydex_psa_price(payload, "9")
+
+        self.assertIsNotNone(resolved)
+        variant, price = resolved
+        self.assertEqual(variant["name"], "unlimitedHolofoil")
+        self.assertEqual(price["company"], "PSA")
+        self.assertEqual(str(price["grade"]), "9")
+
+    def test_resolve_scrydex_psa_price_prefers_unlimited_over_first_edition_shadowless(self) -> None:
+        payload = {
+            "data": {
+                "name": "Charizard",
+                "variants": [
+                    {
+                        "name": "firstEditionShadowlessHolofoil",
+                        "prices": [
+                            {
+                                "type": "graded",
+                                "company": "PSA",
+                                "grade": "9",
+                                "market": 68662.16,
+                                "currency": "USD",
+                                "is_signed": False,
+                                "is_error": False,
+                                "is_perfect": False,
+                            }
+                        ],
+                    },
+                    {
+                        "name": "unlimitedHolofoil",
+                        "prices": [
+                            {
+                                "type": "graded",
+                                "company": "PSA",
+                                "grade": "9",
+                                "market": 199.93,
+                                "currency": "USD",
+                                "is_signed": False,
+                                "is_error": False,
+                                "is_perfect": False,
+                            }
+                        ],
+                    },
+                ],
+            }
+        }
+
+        resolved = resolve_scrydex_psa_price(payload, "9")
+
+        self.assertIsNotNone(resolved)
+        variant, price = resolved
+        self.assertEqual(variant["name"], "unlimitedHolofoil")
+        self.assertEqual(price["market"], 199.93)
+
+    def test_resolve_scrydex_raw_price_supports_wrapped_payloads(self) -> None:
+        payload = {
+            "data": {
+                "name": "Charizard",
+                "variants": [
+                    {
+                        "name": "unlimitedHolofoil",
+                        "prices": [
+                            {
+                                "type": "raw",
+                                "condition": "NM",
+                                "market": 497.31,
+                                "low": 749.95,
+                                "currency": "USD",
+                                "is_signed": False,
+                                "is_error": False,
+                                "is_perfect": False,
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+
+        resolved = resolve_scrydex_raw_price(payload)
+
+        self.assertIsNotNone(resolved)
+        variant, price = resolved
+        self.assertEqual(variant["name"], "unlimitedHolofoil")
+        self.assertEqual(price["type"], "raw")
+
     def test_parse_psa_grade_can_infer_adjective_only_grade(self) -> None:
         self.assertEqual(parse_psa_grade("2024 POKEMON SSP EN PIKACHU ex MINT 105239649"), "9")
         self.assertEqual(parse_psa_grade("2003 POKEMON SKYRIDGE CHARIZARD-HOLO GEM MT 48620163"), "10")
+
+    def test_parse_psa_grade_supports_trailing_psa_token_layout(self) -> None:
+        self.assertEqual(
+            parse_psa_grade("1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 PSA 101048532"),
+            "7",
+        )
+
+    def test_parse_psa_cert_number_supports_nine_digit_values(self) -> None:
+        self.assertEqual(
+            parse_psa_cert_number("2024 POKEMON SSP EN PIKACHU ex SPECIAL ILLUSTRATION RARE PSA MINT 9 110045344"),
+            "110045344",
+        )
+
+    def test_slab_context_prefers_explicit_payload_fields(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="PSA MINT 9",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="PSA MINT 9",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="9",
+            slab_cert_number="110045344",
+            slab_barcode_payloads=["https://www.psacard.com/cert/110045344"],
+        )
+
+        self.assertEqual(
+            slab_context_from_payload(payload),
+            {"grader": "PSA", "grade": "9", "certNumber": "110045344"},
+        )
+
+    def test_slab_context_supports_scored_yellow_cheeks_style_label(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 101048532",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 101048532",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="7",
+            slab_cert_number="101048532",
+            slab_grader_confidence=0.78,
+            slab_grade_confidence=0.94,
+            slab_cert_confidence=0.95,
+            slab_card_number_raw="58",
+            slab_classifier_reasons=["psa_red_band_detected", "barcode_region_detected"],
+            slab_recommended_lookup_path="psa_cert",
+        )
+
+        self.assertEqual(
+            slab_context_from_payload(payload),
+            {"grader": "PSA", "grade": "7", "certNumber": "101048532"},
+        )
+
+    def test_slab_context_prefers_scored_psa_cert_lookup(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 101048532",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 101048532",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="7",
+            slab_cert_number="101048532",
+            slab_grader_confidence=0.78,
+            slab_grade_confidence=0.94,
+            slab_cert_confidence=0.95,
+            slab_card_number_raw="58",
+            slab_classifier_reasons=[
+                "psa_red_band_detected",
+                "barcode_region_detected",
+                "grade_from_nm_layout",
+            ],
+            slab_recommended_lookup_path="psa_cert",
+        )
+
+        self.assertEqual(
+            slab_context_from_payload(payload),
+            {"grader": "PSA", "grade": "7", "certNumber": "101048532"},
+        )
+
+    def test_slab_context_rejects_low_confidence_scored_grader(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 101048532",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 101048532",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="7",
+            slab_cert_number="101048532",
+            slab_grader_confidence=0.41,
+            slab_grade_confidence=0.94,
+            slab_cert_confidence=0.95,
+            slab_recommended_lookup_path="psa_cert",
+        )
+
+        self.assertIsNone(slab_context_from_payload(payload))
+
+    def test_load_cards_json_normalizes_lightweight_cache_records(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            cache_path = Path(tempdir) / "catalog.json"
+            cache_path.write_text(
+                json.dumps(
+                    [
+                        {
+                            "id": "pgo-11",
+                            "name": "Radiant Charizard",
+                            "set_name": "Pokémon GO",
+                            "number": "11/78",
+                            "image_url": "https://images.pokemontcg.io/pgo/11.png",
+                        }
+                    ]
+                )
+            )
+
+            cards = load_cards_json(cache_path)
+
+            self.assertEqual(cards[0]["id"], "pgo-11")
+            self.assertEqual(cards[0]["set_id"], "pgo")
+            self.assertEqual(cards[0]["reference_image_url"], "https://images.pokemontcg.io/pgo/11.png")
+            self.assertEqual(cards[0]["reference_image_small_url"], "https://images.pokemontcg.io/pgo/11.png")
+            self.assertEqual(cards[0]["variant"], "Raw")
+
+    def test_resolve_catalog_json_path_defaults_to_sample_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            backend_root = Path(tempdir)
+
+            resolved = resolve_catalog_json_path(backend_root)
+
+            self.assertEqual(resolved, backend_root / "catalog" / "sample_catalog.json")
+
+    def test_scan_log_payload_summarizes_match_without_request_blob(self) -> None:
+        request_payload = sample_scan_payload(
+            collector_number="SWSH286",
+            full_text="Pikachu VMAX SWSH286",
+            metadata_text="",
+            bottom_left_text="SWSH286",
+        )
+        response_payload = {
+            "scanID": request_payload["scanID"],
+            "confidence": "high",
+            "ambiguityFlags": [],
+            "matcherSource": "remoteHybrid",
+            "matcherVersion": "test",
+            "resolverMode": "raw_card",
+            "resolverPath": "direct_lookup",
+            "reviewDisposition": "ready",
+            "reviewReason": None,
+        }
+        top_candidates = [
+            {
+                "candidate": {
+                    "id": "swshp-SWSH286",
+                    "name": "Pikachu VMAX",
+                    "setName": "SWSH Black Star Promos",
+                    "number": "SWSH286",
+                    "pricing": {
+                        "source": "tcgplayer",
+                        "pricingMode": "raw",
+                        "market": 5.84,
+                        "currencyCode": "USD",
+                        "variant": "holofoil",
+                        "isFresh": True,
+                    },
+                },
+                "finalScore": 0.9921,
+                "retrievalScore": 0.9,
+                "rerankScore": 0.99,
+                "reasons": [],
+            }
+        ]
+
+        log_payload = self.service._scan_log_payload(request_payload, response_payload, top_candidates)
+
+        self.assertEqual(log_payload["event"], "scan_match")
+        self.assertEqual(log_payload["scanID"], request_payload["scanID"])
+        self.assertEqual(log_payload["collectorNumber"], "SWSH286")
+        self.assertEqual(log_payload["cropConfidence"], 1.0)
+        self.assertTrue(log_payload["directLookupLikely"])
+        self.assertEqual(log_payload["resolverMode"], "raw_card")
+        self.assertEqual(log_payload["topCandidate"]["id"], "swshp-SWSH286")
+        self.assertEqual(log_payload["topCandidate"]["price"], 5.84)
+        self.assertNotIn("image", log_payload)
+
+    def test_scan_error_log_payload_summarizes_scan_failure(self) -> None:
+        request_payload = sample_scan_payload(
+            collector_number="110/264",
+            full_text="Jigglypuff 110/264 Fusion Strike",
+            metadata_text="110/264",
+            bottom_left_text="110/264",
+            set_hint_tokens=["fusion", "strike"],
+        )
+
+        log_payload = self.service._scan_error_log_payload(
+            request_payload,
+            sqlite3.IntegrityError("FOREIGN KEY constraint failed"),
+        )
+
+        self.assertEqual(log_payload["event"], "scan_match_error")
+        self.assertEqual(log_payload["severity"], "ERROR")
+        self.assertEqual(log_payload["scanID"], request_payload["scanID"])
+        self.assertEqual(log_payload["collectorNumber"], "110/264")
+        self.assertEqual(log_payload["cropConfidence"], 1.0)
+        self.assertTrue(log_payload["directLookupLikely"])
+        self.assertEqual(log_payload["errorType"], "IntegrityError")
+        self.assertIn("FOREIGN KEY constraint failed", log_payload["errorText"])
+        self.assertNotIn("image", log_payload)
+
+    def test_upsert_catalog_card_initializes_embedding_models_for_auto_import(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            database_path = Path(tempdir) / "auto_import.sqlite"
+            connection = connect(database_path)
+            apply_schema(connection, BACKEND_ROOT / "schema.sql")
+
+            upsert_catalog_card(
+                connection,
+                catalog_card(
+                    card_id="swsh8-110",
+                    name="Jigglypuff",
+                    set_name="Fusion Strike",
+                    number="110",
+                    set_id="swsh8",
+                    artist="Mizue",
+                    national_pokedex_numbers=[39],
+                ),
+                REPO_ROOT,
+                "2026-04-07T23:39:38Z",
+                refresh_embeddings=False,
+            )
+            connection.commit()
+
+            models = {
+                row["id"]
+                for row in connection.execute("SELECT id FROM embedding_models ORDER BY id").fetchall()
+            }
+            card_row = connection.execute(
+                "SELECT id FROM cards WHERE id = ?",
+                ("swsh8-110",),
+            ).fetchone()
+            metadata_embedding_row = connection.execute(
+                """
+                SELECT model_id
+                FROM card_embeddings
+                WHERE card_id = ? AND model_id = ?
+                """,
+                ("swsh8-110", "metadata-hash-v1"),
+            ).fetchone()
+
+            self.assertEqual(models, {"apple-vision-featureprint-v1", "metadata-hash-v1"})
+            self.assertIsNotNone(card_row)
+            self.assertIsNotNone(metadata_embedding_row)
+            connection.close()
 
     def test_slab_context_extracts_grader_grade_and_cert(self) -> None:
         payload = sample_scan_payload(
@@ -365,8 +789,8 @@ class CatalogImportFlowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "catalog_queries.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)
@@ -391,12 +815,12 @@ class CatalogImportFlowTests(unittest.TestCase):
             self.assertIn('set.ptcgoCode:TG number:"TG29"', queries)
             service.connection.close()
 
-    def test_match_scan_can_import_catalog_miss_and_retry(self) -> None:
+    def test_catalog_miss_queries_support_official_meg_set_hints(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
-            database_path = temp_path / "catalog_miss.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            database_path = temp_path / "catalog_queries_meg.sqlite"
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)
@@ -406,6 +830,35 @@ class CatalogImportFlowTests(unittest.TestCase):
             connection.close()
 
             service = SpotlightScanService(database_path, REPO_ROOT, cards_path=cards_path)
+            queries = service._catalog_miss_queries(  # noqa: SLF001 - direct unit coverage for query builder
+                sample_scan_payload(
+                    collector_number="185/132",
+                    full_text="Lt. Surge's Bargain 185/132 MEG",
+                    metadata_text="185/132 MEG",
+                    bottom_left_text="185/132",
+                    set_hint_tokens=["meg"],
+                    resolver_mode_hint="raw_card",
+                )
+            )
+
+            self.assertIn('set.printedTotal:132 number:"185"', queries)
+            self.assertIn('set.ptcgoCode:MEG number:"185"', queries)
+            self.assertIn('set.id:me1 number:"185"', queries)
+            service.connection.close()
+
+    def test_match_scan_can_import_catalog_miss_and_retry(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database_path = temp_path / "catalog_miss.sqlite"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
+
+            connection = connect(database_path)
+            apply_schema(connection, BACKEND_ROOT / "schema.sql")
+            seed_catalog(connection, cards_without_reference_images(imported_cards), REPO_ROOT)
+            connection.commit()
+            connection.close()
+
+            service = SpotlightScanService(database_path, REPO_ROOT, cards_path=None)
             remote_card = {
                 "id": "sv8-238",
                 "name": "Pikachu ex",
@@ -448,16 +901,14 @@ class CatalogImportFlowTests(unittest.TestCase):
             self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "sv8-238")
             self.assertEqual(response.get("catalogMissImportedCardID"), "sv8-238")
             self.assertEqual(service.card_detail("sv8-238")["card"]["id"], "sv8-238")
-            persisted_cards = json.loads(cards_path.read_text())
-            self.assertTrue(any(card["id"] == "sv8-238" for card in persisted_cards))
             service.connection.close()
 
     def test_match_scan_can_import_catalog_miss_without_api_key_using_printed_total(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "catalog_miss_printed_total.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)
@@ -511,13 +962,41 @@ class CatalogImportFlowTests(unittest.TestCase):
             finally:
                 service.connection.close()
 
+    def test_match_scan_does_not_live_match_from_printed_total_only_without_seeded_catalog(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir:
+            temp_path = Path(tempdir)
+            database_path = temp_path / "live_printed_total.sqlite"
+
+            connection = connect(database_path)
+            apply_schema(connection, BACKEND_ROOT / "schema.sql")
+            connection.commit()
+            connection.close()
+
+            service = SpotlightScanService(database_path, REPO_ROOT, cards_path=None)
+            payload = sample_scan_payload(
+                collector_number="011/078",
+                full_text="Radiant Charizard 011/078",
+                metadata_text="Radiant Charizard 011/078",
+                bottom_left_text="Radiant Charizard 011/078",
+            )
+
+            try:
+                with patch(
+                    "server.search_remote_cards",
+                    side_effect=AssertionError("printed-total-only empty-db scans should not trigger live catalog search"),
+                ):
+                    response = service.match_scan(payload)
+
+                self.assertEqual(response["topCandidates"], [])
+                self.assertEqual(response["reviewDisposition"], "needs_review")
+            finally:
+                service.connection.close()
+
     def test_refresh_card_pricing_can_auto_import_missing_card(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "refresh_import.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
-            cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
 
             connection = connect(database_path)
             apply_schema(connection, BACKEND_ROOT / "schema.sql")
@@ -525,7 +1004,7 @@ class CatalogImportFlowTests(unittest.TestCase):
             connection.commit()
             connection.close()
 
-            service = SpotlightScanService(database_path, REPO_ROOT, cards_path=cards_path)
+            service = SpotlightScanService(database_path, REPO_ROOT, cards_path=None)
             remote_card = {
                 "id": "sv8-238",
                 "name": "Pikachu ex",
@@ -561,8 +1040,6 @@ class CatalogImportFlowTests(unittest.TestCase):
                 assert detail is not None
                 self.assertEqual(detail["card"]["id"], "sv8-238")
                 self.assertEqual(service.card_detail("sv8-238")["card"]["id"], "sv8-238")
-                persisted_cards = json.loads(cards_path.read_text())
-                self.assertTrue(any(card["id"] == "sv8-238" for card in persisted_cards))
             finally:
                 service.connection.close()
 
@@ -581,8 +1058,12 @@ class ImportedCatalogPricingTests(unittest.TestCase):
                 catalog_card(card_id="svp-56", name="Charizard ex", set_name="Scarlet & Violet Promo", number="SVP 056", set_id="svp"),
                 catalog_card(card_id="sv3-223", name="Charizard ex", set_name="Obsidian Flame", number="223/197", set_id="sv3"),
                 catalog_card(card_id="sv8-238", name="Pikachu ex", set_name="Surging Sparks", number="238/191", set_id="sv8"),
+                catalog_card(card_id="base1-58", name="Pikachu", set_name="Base", number="58/102", set_id="base1"),
+                catalog_card(card_id="pgo-10", name="Charizard", set_name="Pokémon GO", number="10/78", set_id="pgo"),
                 catalog_card(card_id="neo1-9", name="Lugia", set_name="Neo Genesis", number="9/111", set_id="neo1"),
                 catalog_card(card_id="base1-2", name="Blastoise", set_name="Base", number="2/102", set_id="base1"),
+                catalog_card(card_id="base1-6", name="Gyarados", set_name="Base", number="6/102", set_id="base1"),
+                catalog_card(card_id="base1-12", name="Ninetales", set_name="Base", number="12/102", set_id="base1"),
                 catalog_card(card_id="base6-3", name="Charizard", set_name="Legendary Collection", number="3/110", set_id="base6"),
                 catalog_card(card_id="base6-64", name="Snorlax", set_name="Legendary Collection", number="64/110", set_id="base6"),
                 catalog_card(card_id="ex13-103", name="Mewtwo", set_name="Holon Phantoms", number="103", set_id="ex13"),
@@ -591,8 +1072,7 @@ class ImportedCatalogPricingTests(unittest.TestCase):
                 catalog_card(card_id="pop5-16", name="Espeon", set_name="POP Series 5", number="16/17", set_id="pop5"),
                 catalog_card(card_id="ecard3-146", name="Charizard", set_name="Skyridge", number="146", set_id="ecard3"),
                 catalog_card(card_id="swsh12pt5gg-GG37", name="Simisear VSTAR", set_name="Crown Zenith Galarian Gallery", number="GG37/GG70", set_id="swsh12pt5gg"),
-                catalog_card(card_id="me2-130", name="Mega Charizard X ex", set_name="Phantasmal Flames", number="130/94", set_id="me2"),
-                catalog_card(card_id="me3-21", name="Mega Starmie ex", set_name="Perfect Order", number="21/88", set_id="me3"),
+                catalog_card(card_id="me1-185", name="Lt. Surge's Bargain", set_name="Mega Evolution", number="185/132", set_id="me1"),
             ],
             REPO_ROOT,
         )
@@ -802,6 +1282,30 @@ class ImportedCatalogPricingTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         cls.connection.close()
         cls.tempdir.cleanup()
+
+    def _make_catalog_service(
+        self,
+        database_name: str,
+        cards: list[dict[str, object]],
+    ) -> SpotlightScanService:
+        tempdir = tempfile.TemporaryDirectory()
+        self.addCleanup(tempdir.cleanup)
+
+        temp_path = Path(tempdir.name)
+        database_path = temp_path / f"{database_name}.sqlite"
+        cards_path = temp_path / "catalog_seed.json"
+        trimmed_cards = cards_without_reference_images(cards)
+        cards_path.write_text(json.dumps(trimmed_cards, indent=2))
+
+        connection = connect(database_path)
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+        seed_catalog(connection, trimmed_cards, REPO_ROOT)
+        connection.commit()
+        connection.close()
+
+        service = SpotlightScanService(database_path, REPO_ROOT, cards_path=cards_path)
+        self.addCleanup(service.connection.close)
+        return service
 
     def test_card_detail_includes_normalized_pricing(self) -> None:
         detail = self.service.card_detail("svp-56")
@@ -1039,6 +1543,348 @@ class ImportedCatalogPricingTests(unittest.TestCase):
         self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "sm9-170")
         self.assertNotIn("pricing", response["topCandidates"][0]["candidate"])
 
+    def test_imported_match_scan_supports_explicit_psa_cert_lookup(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="PSA MINT 9",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="PSA MINT 9",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="9",
+            slab_cert_number="110045344",
+            slab_barcode_payloads=["https://www.psacard.com/cert/110045344"],
+        )
+
+        response = self.service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "sv8-238")
+        self.assertEqual(response["slabContext"]["certNumber"], "110045344")
+
+    def test_imported_match_scan_supports_scored_pikachu_yellow_cheeks_reference(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 101048532",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="1999 POKEMON GAME #58 PIKACHU NM YELLOW CHEEKS 7 101048532",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="7",
+            slab_cert_number="101048532",
+            slab_grader_confidence=0.78,
+            slab_grade_confidence=0.94,
+            slab_cert_confidence=0.95,
+            slab_card_number_raw="58",
+            slab_classifier_reasons=[
+                "psa_red_band_detected",
+                "barcode_region_detected",
+                "grade_from_nm_layout",
+            ],
+            slab_recommended_lookup_path="psa_cert",
+        )
+
+        response = self.service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "base1-58")
+        self.assertEqual(response["slabContext"]["grader"], "PSA")
+        self.assertEqual(response["slabContext"]["grade"], "7")
+        self.assertEqual(response["slabContext"]["certNumber"], "101048532")
+
+    def test_imported_match_scan_supports_zero_padded_pokemon_go_charizard_psa_label(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 FSA 103377816",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 FSA 103377816",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="7",
+            slab_cert_number="103377816",
+            slab_barcode_payloads=["103377816"],
+            slab_grader_confidence=0.78,
+            slab_grade_confidence=0.91,
+            slab_cert_confidence=1.0,
+            slab_card_number_raw="010",
+            slab_classifier_reasons=[
+                "barcode_region_detected",
+                "pokemon_card_number_layout",
+                "grade_from_nm_layout",
+            ],
+            slab_recommended_lookup_path="psa_cert",
+        )
+
+        response = self.service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["confidence"], "high")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "pgo-10")
+
+    def test_imported_match_scan_identifies_cgc_ninetales_without_raw_pricing_fallback(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="YACGC CERTIFIED GUARANTY COMPANY Ninetales Pokémon (1999) GEM MINT Base Set - Unlimited - 12/102 10 Holo 4236460045",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="YACGC CERTIFIED GUARANTY COMPANY Ninetales Pokémon (1999) GEM MINT Base Set - Unlimited - 12/102 10 Holo 4236460045",
+            resolver_mode_hint="psa_slab",
+            slab_grader="CGC",
+            slab_grade="10",
+            slab_cert_number="4236460045",
+            slab_barcode_payloads=["4236460045"],
+            slab_grader_confidence=1.0,
+            slab_grade_confidence=0.90,
+            slab_cert_confidence=1.0,
+            slab_card_number_raw="12/102",
+            slab_classifier_reasons=["explicit_grader_cgc", "cert_from_barcode"],
+            slab_recommended_lookup_path="label_text_search",
+        )
+
+        response = self.service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "base1-12")
+        self.assertNotIn("pricing", response["topCandidates"][0]["candidate"])
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertIn("CGC", response["reviewReason"])
+
+    def test_imported_match_scan_includes_exact_cgc_scrydex_pricing_when_available(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="SACGC CERTIFIED GUARANTY COMPANY Ninetales Pokémon (1999) GEM MINT Base Set - Unlimited - 12/102 10 Holo 4236460045",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="SACGC CERTIFIED GUARANTY COMPANY Ninetales Pokémon (1999) GEM MINT Base Set - Unlimited - 12/102 10 Holo 4236460045",
+            resolver_mode_hint="psa_slab",
+            slab_grader="CGC",
+            slab_grade="10",
+            slab_cert_number="4236460045",
+            slab_barcode_payloads=["4236460045"],
+            slab_grader_confidence=1.0,
+            slab_grade_confidence=0.90,
+            slab_cert_confidence=1.0,
+            slab_card_number_raw="12/102",
+            slab_classifier_reasons=["explicit_grader_cgc", "cert_from_barcode"],
+            slab_recommended_lookup_path="label_text_search",
+        )
+        scrydex_payload = {
+            "data": {
+                "name": "Ninetales",
+                "expansion": {"name": "Base"},
+                "variants": [
+                    {
+                        "name": "unlimitedHolofoil",
+                        "prices": [
+                            {
+                                "type": "graded",
+                                "company": "CGC",
+                                "grade": "10",
+                                "currency": "USD",
+                                "low": 950.0,
+                                "market": 1100.0,
+                                "mid": 1125.0,
+                                "high": 1250.0,
+                                "updated_at": "2026-04-08T17:10:00Z",
+                            }
+                        ],
+                    }
+                ],
+            }
+        }
+
+        with patch.dict(os.environ, {"SCRYDEX_API_KEY": "token", "SCRYDEX_TEAM_ID": "team"}), \
+             patch("scrydex_adapter.fetch_scrydex_card", return_value=scrydex_payload):
+            response = self.service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["reviewDisposition"], "ready")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "base1-12")
+        pricing = response["topCandidates"][0]["candidate"]["pricing"]
+        self.assertEqual(pricing["source"], "scrydex")
+        self.assertEqual(pricing["variant"], "CGC 10")
+        self.assertEqual(pricing["grader"], "CGC")
+        self.assertEqual(pricing["grade"], "10")
+        self.assertEqual(pricing["market"], 1100.0)
+
+    def test_imported_match_scan_identifies_cgc_gyarados_without_raw_pricing_fallback(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="CGC UNIVERSAL GRADE NM/Mint+ Gyarados 8.5 Pokémon (1999) Base Set - Shadowless - 6/102 Holo",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="CGC UNIVERSAL GRADE NM/Mint+ Gyarados 8.5 Pokémon (1999) Base Set - Shadowless - 6/102 Holo",
+            resolver_mode_hint="psa_slab",
+            slab_grader="CGC",
+            slab_grade="8.5",
+            slab_grader_confidence=1.0,
+            slab_grade_confidence=0.88,
+            slab_card_number_raw="6/102",
+            slab_classifier_reasons=["explicit_grader_cgc", "grade_from_extended_slab_layout"],
+            slab_recommended_lookup_path="label_text_search",
+        )
+
+        response = self.service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "base1-6")
+        self.assertNotIn("pricing", response["topCandidates"][0]["candidate"])
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertIn("CGC", response["reviewReason"])
+
+    def test_slab_charizard_live_imports_when_stale_catalog_only_has_wrong_number_matches(self) -> None:
+        service = self._make_catalog_service(
+            "slab_charizard_catalog_miss",
+            [
+                catalog_card(card_id="swsh3-10", name="Accelgor", set_name="Darkness Ablaze", number="10/189", set_id="swsh3"),
+                catalog_card(card_id="sv3-10", name="Amoonguss", set_name="Obsidian Flames", number="10/197", set_id="sv3"),
+                catalog_card(card_id="sve-10", name="Basic Fire Energy", set_name="Scarlet & Violet Energies", number="10/16", set_id="sve"),
+            ],
+        )
+        remote_card = {
+            "id": "pgo-10",
+            "name": "Charizard",
+            "number": "10",
+            "supertype": "Pokémon",
+            "subtypes": ["Stage 2"],
+            "types": ["Fire"],
+            "artist": "Mitsuhiro Arita",
+            "rarity": "Rare Holo",
+            "nationalPokedexNumbers": [6],
+            "images": {
+                "small": "https://example.com/pgo-10-small.png",
+                "large": "https://example.com/pgo-10-large.png",
+            },
+            "set": {
+                "id": "pgo",
+                "name": "Pokemon GO",
+                "series": "Sword & Shield",
+                "printedTotal": 78,
+                "ptcgoCode": "PGO",
+                "releaseDate": "2022/07/01",
+            },
+            "tcgplayer": {},
+            "cardmarket": {},
+        }
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="7",
+            slab_cert_number="103377816",
+            slab_barcode_payloads=["103377816"],
+            slab_grader_confidence=1.0,
+            slab_grade_confidence=0.96,
+            slab_cert_confidence=1.0,
+            slab_card_number_raw="010",
+            slab_classifier_reasons=["explicit_grader_psa", "cert_from_barcode"],
+            slab_recommended_lookup_path="psa_cert",
+        )
+
+        with patch("server.search_remote_cards", return_value=[remote_card]):
+            response = service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "pgo-10")
+        self.assertEqual(response.get("catalogMissImportedCardID"), "pgo-10")
+        self.assertEqual(service.card_detail("pgo-10")["card"]["id"], "pgo-10")
+
+    def test_slab_cgc_ninetales_live_imports_when_stale_catalog_only_has_wrong_number_matches(self) -> None:
+        service = self._make_catalog_service(
+            "slab_ninetales_catalog_miss",
+            [
+                catalog_card(card_id="dv1-12", name="Axew", set_name="Dragon Vault", number="12/20", set_id="dv1"),
+                catalog_card(card_id="sve-12", name="Basic Lightning Energy", set_name="Scarlet & Violet Energies", number="12/16", set_id="sve"),
+                catalog_card(card_id="swsh3-12", name="Dartrix", set_name="Darkness Ablaze", number="12/189", set_id="swsh3"),
+            ],
+        )
+        remote_card = {
+            "id": "base1-12",
+            "name": "Ninetales",
+            "number": "12",
+            "supertype": "Pokémon",
+            "subtypes": ["Stage 1"],
+            "types": ["Fire"],
+            "artist": "Ken Sugimori",
+            "rarity": "Holo Rare",
+            "nationalPokedexNumbers": [38],
+            "images": {
+                "small": "https://example.com/base1-12-small.png",
+                "large": "https://example.com/base1-12-large.png",
+            },
+            "set": {
+                "id": "base1",
+                "name": "Base",
+                "series": "Base",
+                "printedTotal": 102,
+                "ptcgoCode": "BS",
+                "releaseDate": "1999/01/09",
+            },
+            "tcgplayer": {},
+            "cardmarket": {},
+        }
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="SACGC CERTIFIED GUARANTY COMPANY Ninetales Pokémon (1999) GEM MINT Base Set - Unlimited - 12/102 10 Holo 4236460045",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="SACGC CERTIFIED GUARANTY COMPANY Ninetales Pokémon (1999) GEM MINT Base Set - Unlimited - 12/102 10 Holo 4236460045",
+            resolver_mode_hint="psa_slab",
+            slab_grader="CGC",
+            slab_grade="10",
+            slab_cert_number="4236460045",
+            slab_barcode_payloads=["4236460045"],
+            slab_grader_confidence=1.0,
+            slab_grade_confidence=0.90,
+            slab_cert_confidence=1.0,
+            slab_card_number_raw="12/102",
+            slab_classifier_reasons=["explicit_grader_cgc", "cert_from_barcode"],
+            slab_recommended_lookup_path="label_text_search",
+        )
+
+        with patch("server.search_remote_cards", return_value=[remote_card]):
+            response = service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "base1-12")
+        self.assertEqual(response.get("catalogMissImportedCardID"), "base1-12")
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertIn("CGC", response["reviewReason"])
+
+    def test_explicit_non_psa_slab_returns_unsupported(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="CGC PRISTINE 10 CHARIZARD",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="CGC PRISTINE 10 CHARIZARD",
+            resolver_mode_hint="psa_slab",
+            slab_grader="CGC",
+            slab_grade="10",
+            slab_cert_number="12345678",
+        )
+
+        response = self.service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertIn("CGC", response["reviewReason"])
+
     def test_imported_match_scan_supports_espeon_gold_star_direct_lookup(self) -> None:
         payload = sample_scan_payload(
             collector_number="16/17",
@@ -1141,6 +1987,25 @@ class ImportedCatalogPricingTests(unittest.TestCase):
 
         self.assertEqual(response["confidence"], "low")
 
+    def test_imported_match_scan_does_not_attempt_catalog_miss_for_low_confidence_printed_total_only_queries(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="021/088",
+            full_text="021/088",
+            metadata_text="021/088",
+            bottom_left_text="021/088",
+            resolver_mode_hint="raw_card",
+        )
+        payload["directLookupLikely"] = True
+
+        with patch(
+            "server.search_remote_cards",
+            side_effect=AssertionError("printed-total-only low-confidence queries should fail fast"),
+        ):
+            response = self.service.match_scan(payload)
+
+        self.assertEqual(response["confidence"], "low")
+        self.assertIn(response["reviewDisposition"], {"needs_review", "unsupported"})
+
     def test_imported_match_scan_does_not_attempt_catalog_miss_for_untrusted_set_hints(self) -> None:
         payload = sample_scan_payload(
             collector_number="021/088",
@@ -1175,22 +2040,24 @@ class ImportedCatalogPricingTests(unittest.TestCase):
 
         self.assertNotEqual(response["resolverPath"], "direct_lookup")
 
-    def test_imported_index_excludes_low_trust_custom_mega_cards(self) -> None:
+    def test_imported_index_keeps_official_mega_evolution_cards(self) -> None:
         index = load_index(self.connection)
         indexed_ids = {card.id for card in index.cards}
 
-        self.assertNotIn("me2-130", indexed_ids)
-        self.assertNotIn("me3-21", indexed_ids)
+        self.assertIn("me1-185", indexed_ids)
 
-        payload = sample_scan_payload(
-            collector_number="130/094",
-            full_text="Mega Charizard X ex 130/094",
-            metadata_text="130/094",
-            bottom_left_text="130/094",
+        supported_payload = sample_scan_payload(
+            collector_number="185/132",
+            full_text="Lt. Surge's Bargain 185/132 MEG",
+            metadata_text="185/132 MEG",
+            bottom_left_text="185/132",
+            set_hint_tokens=["meg"],
             resolver_mode_hint="raw_card",
         )
 
-        self.assertEqual(direct_lookup_candidate_indices(index, payload), [])
+        supported_candidates = direct_lookup_candidate_indices(index, supported_payload)
+        supported_ids = [index.cards[item].id for item in supported_candidates]
+        self.assertIn("me1-185", supported_ids)
 
     def test_imported_match_scan_respects_direct_lookup_likely_flag_for_raw_cards(self) -> None:
         payload = sample_scan_payload(
@@ -1224,6 +2091,24 @@ class ImportedCatalogPricingTests(unittest.TestCase):
         self.assertEqual(response["resolverPath"], "direct_lookup")
         self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "pop5-16")
 
+    def test_imported_match_scan_can_use_unique_exact_direct_lookup_when_likely_flag_is_false(self) -> None:
+        payload = sample_scan_payload(
+            collector_number="16/17",
+            full_text="16/17",
+            metadata_text="16/17",
+            bottom_left_text="16/17",
+            resolver_mode_hint="raw_card",
+        )
+        payload["directLookupLikely"] = False
+
+        with patch("server.search_remote_cards", return_value=[]):
+            response = self.service.match_scan(payload)
+
+        self.assertEqual(response["resolverPath"], "direct_lookup")
+        self.assertIn(response["confidence"], {"high", "medium"})
+        self.assertEqual(response["reviewDisposition"], "ready")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "pop5-16")
+
     def test_imported_match_scan_keeps_custom_card_low_confidence(self) -> None:
         payload = sample_scan_payload(
             collector_number="021/088",
@@ -1248,8 +2133,8 @@ class PricingProviderTests(unittest.TestCase):
 
         temp_path = Path(tempdir.name)
         database_path = temp_path / f"{database_name}.sqlite"
-        cards_path = temp_path / "cards.json"
-        imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+        cards_path = temp_path / "catalog_seed.json"
+        imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
         cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
         connection = connect(database_path)
@@ -1334,8 +2219,8 @@ class PricingProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "provider_test.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)
@@ -1375,8 +2260,8 @@ class PricingProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "provider_status_test.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)
@@ -1425,8 +2310,8 @@ class PricingProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "health_test.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)
@@ -1453,8 +2338,8 @@ class PricingProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "fallback_test.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)
@@ -1482,8 +2367,8 @@ class PricingProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "raw_provider_flow.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)
@@ -1527,8 +2412,8 @@ class PricingProviderTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             database_path = temp_path / "psa_provider_flow.sqlite"
-            cards_path = temp_path / "cards.json"
-            imported_cards = load_cards_json(BACKEND_ROOT / "catalog" / "cards.sample.json")
+            cards_path = temp_path / "catalog_seed.json"
+            imported_cards = load_cards_json(SAMPLE_CATALOG_PATH)
             cards_path.write_text(json.dumps(cards_without_reference_images(imported_cards), indent=2))
 
             connection = connect(database_path)

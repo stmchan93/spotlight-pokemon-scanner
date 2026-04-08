@@ -92,7 +92,7 @@ Recommended first-pass cards:
   - several correctly identified Latias & Latios slabs that still do not have pricing coverage
   - Charizard Skyridge slab matching without a price snapshot
   - a low-confidence Blastoise case photo that still lands below the desired confidence threshold
-- Low-trust custom `me*` catalog families are now filtered out of runtime matching and bundled local identifier lookup to reduce fake-card false positives.
+- Synthetic Scrydex-hosted raw identifier entries are filtered out of the bundled local identifier lookup to reduce fake-card false positives.
 
 ## Pricing Freshness
 
@@ -119,7 +119,7 @@ What to confirm:
 - slab provider = `scrydex`
 - slab lane is not surfacing raw proxy prices
 - persisted snapshot ages look sane
-- local/internal runtime is not silently matching low-trust custom `me*` cards
+- local/internal runtime is not silently matching synthetic Scrydex-hosted raw identifier entries
 
 ## Bug Report Template
 

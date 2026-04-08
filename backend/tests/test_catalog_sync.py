@@ -86,7 +86,7 @@ class CatalogSyncTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tempdir:
             temp_path = Path(tempdir)
             state_path = temp_path / "catalog_sync_state.json"
-            cards_path = temp_path / "cards.json"
+            cards_path = temp_path / "catalog_seed.json"
             cards_path.write_text(json.dumps([{"id": "base1-2", "name": "Blastoise"}]))
             manifest = {
                 "fullQuery": "set.series:\"Scarlet & Violet\"",
@@ -121,4 +121,3 @@ class CatalogSyncTests(unittest.TestCase):
             execute_sync_step.assert_not_called()
             saved_state = load_catalog_sync_state(state_path)
             self.assertEqual(len(saved_state["runs"]), 1)
-

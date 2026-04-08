@@ -1,0 +1,11 @@
+#!/bin/zsh
+set -euo pipefail
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+
+export SPOTLIGHT_BENCHMARK_ITERATIONS="${SPOTLIGHT_BENCHMARK_ITERATIONS:-1}"
+export SPOTLIGHT_BENCHMARK_MAX_TOTAL_MS="${SPOTLIGHT_BENCHMARK_MAX_TOTAL_MS:-2500}"
+export SPOTLIGHT_BENCHMARK_MAX_TOTAL_P95_MS="${SPOTLIGHT_BENCHMARK_MAX_TOTAL_P95_MS:-3000}"
+
+cd "$ROOT_DIR"
+zsh tools/run_scan_latency_benchmark.sh "$@"

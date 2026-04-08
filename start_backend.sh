@@ -18,7 +18,6 @@ fi
 # Bind to 0.0.0.0 to allow iPhone to connect
 # Use --skip-seed to avoid reloading catalog on every start
 python3 backend/server.py \
-  --cards-file backend/catalog/pokemontcg/cards.json \
   --database-path backend/data/imported_scanner.sqlite \
   --port 8788 \
   --host 0.0.0.0 \

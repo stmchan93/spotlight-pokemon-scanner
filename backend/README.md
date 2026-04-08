@@ -76,7 +76,7 @@ Slab comp source sync:
 ## Run
 
 ```bash
-python3 backend/server.py --cards-file backend/catalog/cards.sample.json --database-path backend/data/sample_scanner.sqlite --port 8787
+python3 backend/server.py --cards-file backend/catalog/sample_catalog.json --database-path backend/data/sample_scanner.sqlite --port 8787
 ```
 
 The iOS app should target a local backend for development.
@@ -103,10 +103,11 @@ On a physical device, `127.0.0.1` points to the phone itself, so set `SPOTLIGHT_
 
 Catalog-storage rule:
 
-- keep bundled/offline identifier assets minimal
 - use runtime metadata/provider APIs for rich metadata and pricing
-- treat `backend/catalog/pokemontcg/all_cards_cache.json` as the acceptable lightweight local cache artifact
-- do not re-introduce `cards.json.backup` or a large checked-in image corpus as required product assets
+- treat the app as an OCR client that sends scan payloads directly to the backend
+- treat SQLite as the runtime metadata/pricing cache
+- do not re-introduce a checked-in backend catalog snapshot JSON as a runtime source of truth
+- do not expand legacy local image importer artifacts into required product assets
 
 Example `LocalOverrides.xcconfig`:
 
@@ -150,60 +151,24 @@ Notes:
 ## Seed Only
 
 ```bash
-python3 backend/server.py --seed-only --cards-file backend/catalog/cards.sample.json --database-path backend/data/sample_scanner.sqlite
+python3 backend/server.py --seed-only --cards-file backend/catalog/sample_catalog.json --database-path backend/data/sample_scanner.sqlite
 ```
 
-## Import A Larger Pokémon Catalog
+## Imported Backend
 
-The importer targets the official Pokémon TCG API and writes a local catalog JSON. Downloading local reference images is optional and is considered a legacy path.
-
-```bash
-python3 backend/import_pokemontcg_catalog.py \
-  --api-key "$POKEMONTCG_API_KEY" \
-  --query 'set.series:"Scarlet & Violet"' \
-  --max-cards 1000 \
-  --replace-output
-```
-
-This writes:
-
-- `backend/catalog/pokemontcg/cards.json`
-
-Optional legacy image download:
-
-```bash
-python3 backend/import_pokemontcg_catalog.py \
-  --api-key "$POKEMONTCG_API_KEY" \
-  --query 'set.series:"Scarlet & Violet"' \
-  --max-cards 1000 \
-  --replace-output \
-  --download-images
-```
-
-That additionally writes:
-
-- `backend/catalog/pokemontcg/images/*`
-
-After that, reseed the backend:
-
-```bash
-python3 backend/build_catalog.py \
-  --cards-file backend/catalog/pokemontcg/cards.json \
-  --database-path backend/data/imported_scanner.sqlite
-```
-
-Then run the imported catalog backend on a separate port:
+For day-to-day scanner work, run the imported backend in live-match mode:
 
 ```bash
 python3 backend/server.py \
-  --cards-file backend/catalog/pokemontcg/cards.json \
+  --skip-seed \
   --database-path backend/data/imported_scanner.sqlite \
   --port 8788
 ```
 
 Notes:
 
-- the importer is resumable by default if `cards.json` already exists; use `--replace-output` to rebuild from scratch
+- the default scanner architecture now uses app OCR plus direct backend matching, with SQLite as the runtime cache
+- for day-to-day scanner work, let live imports/provider fetches hydrate SQLite on demand
 - local reference-image download is now opt-in; do not treat checked-in images as required runtime assets for OCR-first scanner work
 - some card image `*_hires` URLs can 404; the importer falls back to the small image and skips broken assets instead of aborting the run
 - imported search and match payloads now include an optional `pricing` object when normalized price data is available
@@ -212,8 +177,7 @@ Notes:
   - if the stored snapshot is still fresh, it returns the stored snapshot
   - if it is stale, it refreshes the live provider for the active lane and updates SQLite
   - `forceRefresh=1` bypasses the normal freshness gate
-- the current imported local catalog has been expanded to `2004` cards across `Scarlet & Violet` and `Sword & Shield` slices, plus targeted adds like `Umbreon VMAX`
-- if you omit `--cards-file`, the backend prefers `backend/catalog/pokemontcg/cards.json` when present and otherwise falls back to `backend/catalog/cards.sample.json`
+- if you omit `--cards-file`, the backend falls back to `backend/catalog/sample_catalog.json` only for explicit seeded/sample workflows
 
 ## Sync Pokémon Catalog
 
@@ -227,7 +191,7 @@ Plan the next sync run:
 python3 backend/sync_catalog.py \
   --manifest backend/catalog/catalog_sync.sample.json \
   --database-path backend/data/imported_scanner.sqlite \
-  --cards-file backend/catalog/pokemontcg/cards.json \
+  --cards-file backend/catalog/sample_catalog.json \
   --state-path backend/data/catalog_sync_state.json \
   --plan-only
 ```
@@ -238,7 +202,7 @@ Run once:
 python3 backend/sync_catalog.py \
   --manifest backend/catalog/catalog_sync.sample.json \
   --database-path backend/data/imported_scanner.sqlite \
-  --cards-file backend/catalog/pokemontcg/cards.json \
+  --cards-file backend/catalog/sample_catalog.json \
   --state-path backend/data/catalog_sync_state.json
 ```
 
@@ -248,7 +212,7 @@ Watch mode:
 python3 backend/sync_catalog.py \
   --manifest backend/catalog/catalog_sync.sample.json \
   --database-path backend/data/imported_scanner.sqlite \
-  --cards-file backend/catalog/pokemontcg/cards.json \
+  --cards-file backend/catalog/sample_catalog.json \
   --state-path backend/data/catalog_sync_state.json \
   --watch \
   --interval-seconds 3600
@@ -256,7 +220,7 @@ python3 backend/sync_catalog.py \
 
 Live catalog miss recovery:
 
-- `POST /api/v1/catalog/import-card` imports one exact Pokémon TCG API card ID into SQLite and the local `cards.json` snapshot.
+- `POST /api/v1/catalog/import-card` imports one exact Pokémon TCG API card ID into SQLite.
 - `POST /api/v1/catalog/resolve-miss` tries to resolve a structured raw scan miss from OCR hints and caches the result immediately when it finds a match.
 
 ## Sync PSA Slab Sales Sources

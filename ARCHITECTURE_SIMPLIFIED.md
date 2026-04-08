@@ -9,7 +9,7 @@
 
 Successfully simplified the Spotlight backend architecture by:
 1. ✅ Expanded identifier map to ALL 20,237 Pokémon cards (from 2,020)
-2. ✅ Removed dependency on cards.json (7.9 MB file no longer needed)
+2. ✅ Removed dependency on a checked-in backend catalog snapshot
 3. ✅ Implemented auto-import from Pokemon TCG API on-demand
 
 ---
@@ -18,7 +18,7 @@ Successfully simplified the Spotlight backend architecture by:
 
 ### Before (Heavy Backend)
 ```
-iPhone (OCR) → Backend (cards.json 7.9MB + SQLite 309MB) → Pricing APIs → Response
+iPhone (OCR) → Backend (preseeded catalog snapshot + SQLite) → Pricing APIs → Response
 ```
 - Required pre-seeded catalog with limited cards (2,020 from 2020+)
 - Large static files that needed manual updates
@@ -43,7 +43,7 @@ Backend:
 - ✅ ALL Pokémon cards supported (20,237 vs 2,020)
 - ✅ No more manual catalog updates (API is source of truth)
 - ✅ 75% reduction in API costs (caching)
-- ✅ Simplified deployment (no cards.json needed)
+- ✅ Simplified deployment (no checked-in backend catalog snapshot needed)
 
 ---
 
@@ -60,7 +60,6 @@ python3 fetch_all_pokemon.py
 **Results:**
 - Fetched 20,237 cards from Pokemon TCG API
 - Generated complete identifier map (3.21 MB)
-- Cached API responses for faster re-runs
 - Output: `catalog/identifiers/pokemon_complete.json`
 
 **Stats:**
@@ -73,10 +72,8 @@ python3 fetch_all_pokemon.py
 
 **Changes Made:**
 
-1. **Removed cards.json dependency**
-   - Backed up: `catalog/pokemontcg/cards.json.backup`
-   - Original size: 7.9 MB
-   - No longer needed!
+1. **Removed backend catalog snapshot dependency**
+   - No checked-in backend catalog JSON is required for normal runtime
 
 2. **Updated server.py**
    - Modified GET `/api/v1/cards/:id` to auto-import cards not in database
@@ -85,13 +82,13 @@ python3 fetch_all_pokemon.py
 
 3. **New startup command**
    ```bash
-   # Old (required cards.json):
+   # Old (required preseeded catalog snapshot):
    python3 server.py \
-     --cards-file catalog/pokemontcg/cards.json \
+     --cards-file catalog/sample_catalog.json \
      --database-path data/imported_scanner.sqlite \
      --port 8788
 
-   # New (no cards.json needed):
+   # New (no checked-in backend catalog snapshot needed):
    python3 server.py --skip-seed --port 8788
    ```
 
@@ -159,13 +156,11 @@ ls -lh ../Spotlight/Resources/identifiers_pokemon.json
 ```
 backend/fetch_all_pokemon.py                           (new script)
 backend/catalog/identifiers/pokemon_complete.json      (3.21 MB)
-backend/catalog/pokemontcg/all_cards_cache.json        (cached API responses)
 Spotlight/Resources/identifiers_pokemon.json           (3.21 MB, copied from backend)
 ```
 
 ### Backed Up (No Longer Needed)
 ```
-backend/catalog/pokemontcg/cards.json.backup           (7.9 MB)
 backend/data/spotlight_scanner.sqlite.backup           (52 MB)
 ```
 
@@ -194,7 +189,7 @@ CLAUDE.md                                              (updated architecture doc
 
 **Deployment Instructions:**
 ```bash
-# Start backend (no cards.json needed!)
+# Start backend (no checked-in backend catalog snapshot needed)
 python3 server.py --skip-seed --port 8788
 
 # Regenerate identifier map (if needed)
@@ -208,14 +203,14 @@ cp catalog/identifiers/pokemon_complete.json ../Spotlight/Resources/identifiers_
 
 ### Before
 1. Run `python3 import_pokemontcg_catalog.py` to seed database
-2. Manually maintain cards.json (7.9 MB)
+2. Manually maintain a checked-in backend catalog snapshot
 3. Limited to 2,020 cards (2020+)
 4. No vintage card support
 5. Manual updates required
 
 ### After
 1. Just run `python3 server.py --skip-seed --port 8788`
-2. No cards.json needed
+2. No checked-in backend catalog snapshot needed
 3. ALL 20,237 cards supported
 4. Vintage cards work (1999 Base Set, etc.)
 5. Auto-updates from API
@@ -262,7 +257,7 @@ Scan 1999 Base Set Charizard → ✅ "Charizard from Base"
 
 ## Testing Checklist
 
-- [x] Backend starts without cards.json (`--skip-seed`)
+- [x] Backend starts without a checked-in backend catalog snapshot (`--skip-seed`)
 - [x] Backend auto-imports cards from Pokemon TCG API
 - [x] Vintage cards work (1999 Base Set Charizard tested)
 - [x] Database caching works (7ms on second request)

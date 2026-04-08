@@ -45,6 +45,17 @@ struct EvalAnalysis {
     let collectorNumber: String?
     let setHintTokens: [String]
     let promoCodeHint: String?
+    let slabGrader: String?
+    let slabGrade: String?
+    let slabCertNumber: String?
+    let slabBarcodePayloads: [String]
+    let slabGraderConfidence: Double?
+    let slabGradeConfidence: Double?
+    let slabCertConfidence: Double?
+    let slabCardNumberRaw: String?
+    let slabParsedLabelText: [String]
+    let slabClassifierReasons: [String]
+    let slabRecommendedLookupPath: String?
     let directLookupLikely: Bool
     let resolverModeHint: EvalResolverMode
     let cropConfidence: Double
@@ -81,6 +92,17 @@ struct EvalMatchRequestPayload: Codable {
     let collectorNumber: String?
     let setHintTokens: [String]
     let promoCodeHint: String?
+    let slabGrader: String?
+    let slabGrade: String?
+    let slabCertNumber: String?
+    let slabBarcodePayloads: [String]
+    let slabGraderConfidence: Double?
+    let slabGradeConfidence: Double?
+    let slabCertConfidence: Double?
+    let slabCardNumberRaw: String?
+    let slabParsedLabelText: [String]
+    let slabClassifierReasons: [String]
+    let slabRecommendedLookupPath: String?
     let directLookupLikely: Bool
     let resolverModeHint: EvalResolverMode
     let cropConfidence: Double
@@ -117,6 +139,7 @@ struct EvalMatchResponse: Codable {
     let resolverMode: EvalResolverMode
     let resolverPath: EvalResolverPath?
     let slabContext: EvalSlabContext?
+    let reviewDisposition: String?
 }
 
 struct EvalCase: Codable {
@@ -144,7 +167,9 @@ struct EvalBenchmarkSample {
     let name: String
     let analysisMs: Double
     let matchMs: Double
+    let pricingMs: Double
     let totalMs: Double
+    let wasReady: Bool
 }
 
 struct EvalCardDetail: Codable {
@@ -183,8 +208,13 @@ private func runCLI() async -> Int32 {
         case .manifest(let manifestPath):
             let passed = try await runner.runManifest(at: manifestPath)
             return passed ? 0 : 1
-        case .benchmark(let manifestPath, let iterations):
-            try await runner.runBenchmarkManifest(at: manifestPath, iterations: iterations)
+        case .benchmark(let manifestPath, let iterations, let maxTotalAverageMs, let maxTotalP95Ms):
+            try await runner.runBenchmarkManifest(
+                at: manifestPath,
+                iterations: iterations,
+                maxTotalAverageMs: maxTotalAverageMs,
+                maxTotalP95Ms: maxTotalP95Ms
+            )
             return 0
         }
     } catch {
@@ -245,7 +275,12 @@ private final class EvalRunner {
         return passCount == cases.count
     }
 
-    func runBenchmarkManifest(at manifestPath: String, iterations: Int) async throws {
+    func runBenchmarkManifest(
+        at manifestPath: String,
+        iterations: Int,
+        maxTotalAverageMs: Double?,
+        maxTotalP95Ms: Double?
+    ) async throws {
         guard serverBaseURL != nil else {
             throw CLIError.invalidArguments
         }
@@ -267,17 +302,37 @@ private final class EvalRunner {
                     "BENCHMARK \(testCase.name) [\(iteration)/\(max(iterations, 1))] "
                     + "analysis=\(formatMs(sample.analysisMs)) "
                     + "match=\(formatMs(sample.matchMs)) "
+                    + "pricing=\(formatMs(sample.pricingMs)) "
                     + "total=\(formatMs(sample.totalMs))"
                 )
             }
         }
 
         let overall = summarize(samples)
+        let readySamples = samples.filter(\.wasReady)
+        let readyOnly = summarize(readySamples)
         print("\n=== Benchmark Summary ===")
         print("Samples: \(samples.count)")
         print("Analysis avg: \(formatMs(overall.analysisAverageMs)) p95: \(formatMs(overall.analysisP95Ms))")
         print("Match avg: \(formatMs(overall.matchAverageMs)) p95: \(formatMs(overall.matchP95Ms))")
+        print("Pricing avg: \(formatMs(overall.pricingAverageMs)) p95: \(formatMs(overall.pricingP95Ms))")
         print("Total avg: \(formatMs(overall.totalAverageMs)) p95: \(formatMs(overall.totalP95Ms))")
+        if !readySamples.isEmpty {
+            print("Ready samples: \(readySamples.count)")
+            print("Ready total avg: \(formatMs(readyOnly.totalAverageMs)) p95: \(formatMs(readyOnly.totalP95Ms))")
+        }
+
+        let thresholdSummary = readySamples.isEmpty ? overall : readyOnly
+        if let maxTotalAverageMs, thresholdSummary.totalAverageMs > maxTotalAverageMs {
+            throw CLIError.performanceRegression(
+                "Average total latency \(formatMs(thresholdSummary.totalAverageMs)) exceeded threshold \(formatMs(maxTotalAverageMs))."
+            )
+        }
+        if let maxTotalP95Ms, thresholdSummary.totalP95Ms > maxTotalP95Ms {
+            throw CLIError.performanceRegression(
+                "P95 total latency \(formatMs(thresholdSummary.totalP95Ms)) exceeded threshold \(formatMs(maxTotalP95Ms))."
+            )
+        }
     }
 
     func benchmarkSingle(named name: String, imagePath: String) async throws -> EvalBenchmarkSample {
@@ -290,15 +345,33 @@ private final class EvalRunner {
         }
 
         let matchStarted = Date().timeIntervalSinceReferenceDate
-        _ = try await match(analysis: analysis, serverBaseURL: serverBaseURL)
+        let response = try await match(analysis: analysis, serverBaseURL: serverBaseURL)
         let matchMs = (Date().timeIntervalSinceReferenceDate - matchStarted) * 1000
-        let totalMs = analysisMs + matchMs
+        let shouldHydratePricing =
+            response.reviewDisposition == "ready"
+            && response.topCandidates.first?.candidate.pricing == nil
+            && response.topCandidates.first?.candidate.id != nil
+        let pricingMs: Double
+        if shouldHydratePricing {
+            let pricingStarted = Date().timeIntervalSinceReferenceDate
+            _ = try await refreshCardDetail(
+                cardID: response.topCandidates.first?.candidate.id,
+                slabContext: response.slabContext,
+                serverBaseURL: serverBaseURL
+            )
+            pricingMs = (Date().timeIntervalSinceReferenceDate - pricingStarted) * 1000
+        } else {
+            pricingMs = 0
+        }
+        let totalMs = analysisMs + matchMs + pricingMs
 
         return EvalBenchmarkSample(
             name: name,
             analysisMs: analysisMs,
             matchMs: matchMs,
-            totalMs: totalMs
+            pricingMs: pricingMs,
+            totalMs: totalMs,
+            wasReady: response.reviewDisposition == "ready"
         )
     }
 
@@ -335,6 +408,15 @@ private final class EvalRunner {
         }
         if let promoCodeHint = analysis.promoCodeHint {
             print("Promo hint: \(promoCodeHint)")
+        }
+        if let slabGrader = analysis.slabGrader {
+            print("Slab grader: \(slabGrader)")
+        }
+        if let slabGrade = analysis.slabGrade {
+            print("Slab grade: \(slabGrade)")
+        }
+        if let slabCertNumber = analysis.slabCertNumber {
+            print("Slab cert: \(slabCertNumber)")
         }
         if !analysis.topLabelRecognizedText.isEmpty {
             print("Top label OCR: \(analysis.topLabelRecognizedText)")
@@ -468,24 +550,13 @@ private final class EvalRunner {
     }
 
     private func match(analysis: EvalAnalysis, serverBaseURL: URL) async throws -> EvalMatchResponse {
-        let lightweightFirst = analysis.directLookupLikely
-        let initialResponse = try await performMatch(
-            payload: makePayload(analysis: analysis, includeImage: !lightweightFirst),
+        try await performMatch(
+            payload: makePayload(analysis: analysis),
             serverBaseURL: serverBaseURL
         )
-
-        if lightweightFirst,
-           shouldRetryWithVisualFallback(initialResponse) {
-            return try await performMatch(
-                payload: makePayload(analysis: analysis, includeImage: true),
-                serverBaseURL: serverBaseURL
-            )
-        }
-
-        return initialResponse
     }
 
-    private func makePayload(analysis: EvalAnalysis, includeImage: Bool) -> EvalMatchRequestPayload {
+    private func makePayload(analysis: EvalAnalysis) -> EvalMatchRequestPayload {
         EvalMatchRequestPayload(
             scanID: UUID(),
             capturedAt: Date(),
@@ -497,7 +568,7 @@ private final class EvalRunner {
                 timeZoneIdentifier: TimeZone.current.identifier
             ),
             image: EvalImagePayload(
-                jpegBase64: includeImage ? analysis.imageBase64 : nil,
+                jpegBase64: analysis.imageBase64,
                 width: Int(analysis.croppedImageSize.width.rounded()),
                 height: Int(analysis.croppedImageSize.height.rounded())
             ),
@@ -510,6 +581,17 @@ private final class EvalRunner {
             collectorNumber: analysis.collectorNumber,
             setHintTokens: analysis.setHintTokens,
             promoCodeHint: analysis.promoCodeHint,
+            slabGrader: analysis.slabGrader,
+            slabGrade: analysis.slabGrade,
+            slabCertNumber: analysis.slabCertNumber,
+            slabBarcodePayloads: analysis.slabBarcodePayloads,
+            slabGraderConfidence: analysis.slabGraderConfidence,
+            slabGradeConfidence: analysis.slabGradeConfidence,
+            slabCertConfidence: analysis.slabCertConfidence,
+            slabCardNumberRaw: analysis.slabCardNumberRaw,
+            slabParsedLabelText: analysis.slabParsedLabelText,
+            slabClassifierReasons: analysis.slabClassifierReasons,
+            slabRecommendedLookupPath: analysis.slabRecommendedLookupPath,
             directLookupLikely: analysis.directLookupLikely,
             resolverModeHint: analysis.resolverModeHint,
             cropConfidence: analysis.cropConfidence,
@@ -529,6 +611,37 @@ private final class EvalRunner {
         }
 
         return try decoder.decode(EvalMatchResponse.self, from: data)
+    }
+
+    private func refreshCardDetail(cardID: String?, slabContext: EvalSlabContext?, serverBaseURL: URL) async throws -> EvalCardDetail? {
+        guard let cardID else { return nil }
+        guard var components = URLComponents(
+            url: serverBaseURL.appending(path: "api/v1/cards/\(cardID)/refresh-pricing"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            return nil
+        }
+        var queryItems: [URLQueryItem] = []
+        if let slabContext {
+            queryItems.append(URLQueryItem(name: "grader", value: slabContext.grader))
+            if let grade = slabContext.grade {
+                queryItems.append(URLQueryItem(name: "grade", value: grade))
+            }
+        }
+        components.queryItems = queryItems.isEmpty ? nil : queryItems
+        guard let url = components.url else { return nil }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse, (200..<300).contains(httpResponse.statusCode) else {
+            return nil
+        }
+
+        return try decoder.decode(EvalCardDetail.self, from: data)
     }
 
     private func fetchCardDetail(cardID: String?, slabContext: EvalSlabContext?, serverBaseURL: URL) async throws -> EvalCardDetail? {
@@ -554,24 +667,13 @@ private final class EvalRunner {
         return try decoder.decode(EvalCardDetail.self, from: data)
     }
 
-    private func shouldRetryWithVisualFallback(_ response: EvalMatchResponse) -> Bool {
-        if response.resolverPath != .directLookup {
-            return true
-        }
-
-        if response.confidence == "low" {
-            return true
-        }
-
-        return false
-    }
 }
 
 private struct Arguments {
     enum Mode {
         case single(imagePath: String, expectedCardID: String?)
         case manifest(path: String)
-        case benchmark(path: String, iterations: Int)
+        case benchmark(path: String, iterations: Int, maxTotalAverageMs: Double?, maxTotalP95Ms: Double?)
     }
 
     let mode: Mode
@@ -585,6 +687,8 @@ private struct Arguments {
         var serverString = "http://127.0.0.1:8787/"
         var offline = false
         var iterations = 3
+        var maxTotalAverageMs: Double?
+        var maxTotalP95Ms: Double?
 
         var iterator = argv.dropFirst().makeIterator()
         while let argument = iterator.next() {
@@ -601,6 +705,10 @@ private struct Arguments {
                 serverString = iterator.next() ?? serverString
             case "--iterations":
                 iterations = Int(iterator.next() ?? "") ?? iterations
+            case "--max-total-ms":
+                maxTotalAverageMs = Double(iterator.next() ?? "")
+            case "--max-total-p95-ms":
+                maxTotalP95Ms = Double(iterator.next() ?? "")
             case "--offline":
                 offline = true
             default:
@@ -610,7 +718,12 @@ private struct Arguments {
 
         let mode: Mode
         if let benchmarkManifestPath {
-            mode = .benchmark(path: benchmarkManifestPath, iterations: iterations)
+            mode = .benchmark(
+                path: benchmarkManifestPath,
+                iterations: iterations,
+                maxTotalAverageMs: maxTotalAverageMs,
+                maxTotalP95Ms: maxTotalP95Ms
+            )
         } else if let manifestPath {
             mode = .manifest(path: manifestPath)
         } else if let imagePath {
@@ -631,6 +744,7 @@ private enum CLIError: LocalizedError {
     case imageLoadFailed
     case invalidImage
     case httpFailure
+    case performanceRegression(String)
 
     var errorDescription: String? {
         switch self {
@@ -639,7 +753,7 @@ private enum CLIError: LocalizedError {
             Usage:
               swift tools/scanner_eval.swift --image /abs/path/to/card.jpg [--expected card_id] [--server http://127.0.0.1:8787/]
               swift tools/scanner_eval.swift --manifest /abs/path/to/manifest.json [--server http://127.0.0.1:8787/]
-              swift tools/scanner_eval.swift --benchmark-manifest /abs/path/to/manifest.json [--iterations 3] [--server http://127.0.0.1:8787/]
+              swift tools/scanner_eval.swift --benchmark-manifest /abs/path/to/manifest.json [--iterations 3] [--server http://127.0.0.1:8787/] [--max-total-ms 3000] [--max-total-p95-ms 3500]
               add --offline to skip backend matching and only inspect OCR/crop output
             """
         case .imageLoadFailed:
@@ -648,6 +762,8 @@ private enum CLIError: LocalizedError {
             "The image could not be converted into a CGImage."
         case .httpFailure:
             "The scanner backend did not return a successful response."
+        case .performanceRegression(let message):
+            message
         }
     }
 }
@@ -657,6 +773,8 @@ private struct EvalBenchmarkSummary {
     let analysisP95Ms: Double
     let matchAverageMs: Double
     let matchP95Ms: Double
+    let pricingAverageMs: Double
+    let pricingP95Ms: Double
     let totalAverageMs: Double
     let totalP95Ms: Double
 }
@@ -676,6 +794,7 @@ private func summarize(_ samples: [EvalBenchmarkSample]) -> EvalBenchmarkSummary
 
     let analysisValues = samples.map(\.analysisMs)
     let matchValues = samples.map(\.matchMs)
+    let pricingValues = samples.map(\.pricingMs)
     let totalValues = samples.map(\.totalMs)
 
     return EvalBenchmarkSummary(
@@ -683,6 +802,8 @@ private func summarize(_ samples: [EvalBenchmarkSample]) -> EvalBenchmarkSummary
         analysisP95Ms: p95(analysisValues),
         matchAverageMs: average(matchValues),
         matchP95Ms: p95(matchValues),
+        pricingAverageMs: average(pricingValues),
+        pricingP95Ms: p95(pricingValues),
         totalAverageMs: average(totalValues),
         totalP95Ms: p95(totalValues)
     )
@@ -801,6 +922,7 @@ private struct CommandLineCardAnalyzer {
         )
         .map(\.text)
         .joined(separator: " ")
+        let slabLabelAnalysis = SlabLabelParser.analyze(labelText: topLabelRecognizedText)
         let bottomLeftMetadataText = bottomLeftMetadataTokens.map(\.text).joined(separator: " ")
         let bottomRightMetadataText = bottomRightMetadataTokens.map(\.text).joined(separator: " ")
         let metadataText = metadataStripTokens.map(\.text).joined(separator: " ")
@@ -813,10 +935,13 @@ private struct CommandLineCardAnalyzer {
             metadataText
         ])
         let promoCodeHint = extractPromoCodeHint(from: collectorNumber)
-        let directLookupLikely = collectorNumber != nil
+        let directLookupLikely = (
+            collectorNumber != nil
             && (!setHintTokens.isEmpty || promoCodeHint != nil)
             && cropConfidence >= 0.72
+        ) || slabLabelAnalysis.certNumber != nil
         let resolverModeHint = inferResolverModeHint(
+            slabLabelAnalysis: slabLabelAnalysis,
             topLabelRecognizedText: topLabelRecognizedText,
             fullRecognizedText: joinedText,
             collectorNumber: collectorNumber,
@@ -837,6 +962,17 @@ private struct CommandLineCardAnalyzer {
             collectorNumber: collectorNumber,
             setHintTokens: setHintTokens,
             promoCodeHint: promoCodeHint,
+            slabGrader: slabLabelAnalysis.grader,
+            slabGrade: slabLabelAnalysis.grade,
+            slabCertNumber: slabLabelAnalysis.certNumber,
+            slabBarcodePayloads: slabLabelAnalysis.barcodePayloads,
+            slabGraderConfidence: Double(slabLabelAnalysis.graderConfidence),
+            slabGradeConfidence: Double(slabLabelAnalysis.gradeConfidence),
+            slabCertConfidence: Double(slabLabelAnalysis.certConfidence),
+            slabCardNumberRaw: slabLabelAnalysis.cardNumberRaw,
+            slabParsedLabelText: slabLabelAnalysis.parsedLabelText,
+            slabClassifierReasons: slabLabelAnalysis.reasons,
+            slabRecommendedLookupPath: slabLabelAnalysis.recommendedLookupPath.rawValue,
             directLookupLikely: directLookupLikely,
             resolverModeHint: resolverModeHint,
             cropConfidence: cropConfidence,
@@ -1042,11 +1178,16 @@ private struct CommandLineCardAnalyzer {
     }
 
     private func inferResolverModeHint(
+        slabLabelAnalysis: SlabLabelAnalysis,
         topLabelRecognizedText: String,
         fullRecognizedText: String,
         collectorNumber: String?,
         cropConfidence: Double
     ) -> EvalResolverMode {
+        if slabLabelAnalysis.isLikelySlab {
+            return .psaSlab
+        }
+
         let labelText = normalizedCollectorText(topLabelRecognizedText)
         let combinedText = normalizedCollectorText("\(topLabelRecognizedText) \(fullRecognizedText)")
 

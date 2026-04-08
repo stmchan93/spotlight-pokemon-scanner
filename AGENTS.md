@@ -13,11 +13,11 @@ Repo-specific workflow notes for future coding agents.
 - Runtime scanner behavior is mode-specific, not cross-provider blended:
   - **Raw mode**:
     - resolve as `raw_card`
-    - use local raw identifier shortcuts when available
+    - send OCR payloads directly to the backend matcher
     - refresh/display raw pricing from **Pokemon TCG API** only
   - **Slab mode**:
     - resolve as `psa_slab`
-    - skip local raw identifier shortcuts
+    - send slab OCR payloads directly to the backend matcher
     - refresh/display PSA/slab pricing from **Scrydex** only
     - if PSA label OCR or Scrydex pricing is unavailable, surface unsupported/no-price instead of falling back to raw pricing
 - PriceCharting may remain registered for diagnostics/manual experiments, but it is **not** the default scanner source of truth.
@@ -51,20 +51,53 @@ Repo-specific workflow notes for future coding agents.
   - physical device: set `SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL` in `LocalOverrides.xcconfig` to the Mac's LAN URL, for example `http://192.168.x.y:8788/`
 - `SPOTLIGHT_API_BASE_URL` is still allowed as an emergency runtime override, but it should not be the primary day-to-day environment switch.
 - Do **not** re-introduce a baked-in production cloud backend URL as the default app target for development/testing.
-- The bundled/offline identifier assets should stay minimal: card `id`, `name`, `set`, and image URL only.
-- If a lightweight local metadata cache is needed, prefer `backend/catalog/pokemontcg/all_cards_cache.json` or the bundled identifier map.
-- Do not treat `all_cards_cache.json` as permission to rebuild a large checked-in image corpus or backup snapshot flow.
+- Do not re-introduce a checked-in backend Pokémon catalog JSON snapshot as a runtime source of truth.
+- Canonical scanner runtime architecture:
+  - treat the app as OCR capture plus backend request/response UI, not as a local card-identity runtime
+  - treat backend SQLite as the runtime cache/source for previously hydrated card metadata and pricing snapshots
+  - treat provider APIs as the live source of truth for rich metadata and pricing:
+    - raw/singles => Pokemon TCG API
+    - PSA/slabs => Scrydex
+  - do not make Cloud Run correctness depend on a preseeded lightweight JSON catalog file or bundled local identifier asset
+- Preferred raw runtime flow:
+  - app OCR extracts collector number/text locally
+  - app sends the OCR payload directly to the backend
+  - the backend live-resolves from OCR number/hints and hydrates SQLite on demand
+  - backend SQLite is a runtime cache for imported card metadata/pricing, not a required preseeded catalog
+  - Cloud Run should not depend on a seeded local JSON catalog file to recognize standard raw cards
+- Canonical raw scan flow:
+  - 1. OCR reads card text and collector number
+  - 2. app sends the scan payload directly to the backend
+  - 3. backend checks SQLite for that card's existing metadata/pricing snapshot
+  - 4. if SQLite has no card record, or no fresh pricing snapshot, backend fetches live data from Pokemon TCG API
+  - 5. backend writes the hydrated card metadata/pricing snapshot into SQLite
+  - 6. backend returns the normalized card detail/pricing payload to the user
+  - 7. later scans of the same card should reuse SQLite until the stored snapshot is older than the `24 hour` freshness window
+  - 8. once the stored snapshot is older than `24 hours`, backend should re-fetch live provider data, update SQLite, and then return the refreshed result
+- Canonical slab scan flow:
+  - 1. slab OCR reads the PSA label/cert/grade path
+  - 2. app sends slab payload directly to the backend
+  - 3. backend checks SQLite for an existing slab snapshot for the resolved card/grade context
+  - 4. if the slab snapshot is missing or stale, backend fetches live slab metadata/pricing from Scrydex, writes it into SQLite, and returns it
+  - 5. if PSA label OCR or Scrydex data is insufficient, return unsupported/no-price; do not fall back to raw-card pricing
+- Freshness policy:
+  - `updated_at` / persisted snapshot timestamps in SQLite are the correctness layer for freshness
+  - the `24 hour` freshness window should be enforced against SQLite snapshot age
+  - in-memory caches are allowed only as short-lived optimizations and must not decide correctness
+  - `forceRefresh` should bypass the normal freshness gate and re-query the live provider
 - Rich card metadata and pricing should come from runtime metadata/provider APIs:
   - raw/singles => Pokemon TCG API
   - PSA/slabs => Scrydex
   - do not silently cross-fallback slab pricing into raw pricing in the scanner flow
   not from large checked-in image bundles.
-- Low-trust custom `me*` catalog families are excluded from runtime matching and bundled identifier lookup.
-  - Do not re-introduce those custom Mega Evolution-style IDs into scanner runtime paths unless product scope explicitly changes.
-- Treat `backend/catalog/pokemontcg/images/` and `backend/catalog/pokemontcg/cards.json.backup` as legacy importer artifacts, not as required product/runtime assets.
+- Do not use card-ID prefix hacks such as `me*` blocking in runtime matching or bundled identifier lookup.
+- Do not re-introduce bundled/local raw identifier maps or client-side candidate hydration hints for raw scans.
+- Treat `backend/catalog/pokemontcg/images/` as a legacy importer artifact, not a required product/runtime asset.
 - If current backend code still references local reference images for visual retrieval, call that out as legacy technical debt instead of expanding that pattern.
 - Scanner presentation rule:
   - preserve the current raw-card OCR pipeline unless there is a concrete bug; raw footer OCR is working well now
+  - tap-to-scan should use the current preview frame path first, not a new high-latency still-photo capture, unless preview-frame capture is unavailable and a fallback is required
+  - the scan tray should show a pending row immediately on tap; do not reintroduce UX that waits for image capture to finish before the tray updates
   - treat raw-vs-slab reticle sizing as a UI/layout concern first, not a reason to casually retune raw OCR
   - raw mode should use a standard card-style reticle
   - slab mode should keep the same reticle width as raw and grow primarily by height based on PSA slab proportions
@@ -106,6 +139,7 @@ xcodebuild -project Spotlight.xcodeproj -scheme Spotlight -configuration Debug -
 SPOTLIGHT_SCANNER_SERVER=http://127.0.0.1:8788/ zsh tools/run_scanner_regression.sh
 zsh tools/run_realworld_regression.sh
 SPOTLIGHT_BENCHMARK_ITERATIONS=1 zsh tools/run_scan_latency_benchmark.sh
+zsh tools/run_scan_performance_tests.sh
 ```
 
 ## Runtime commands
@@ -116,7 +150,7 @@ Imported backend:
 export SCRYDEX_API_KEY=your_api_key
 export SCRYDEX_TEAM_ID=your_team_id
 python3 backend/server.py \
-  --cards-file backend/catalog/pokemontcg/cards.json \
+  --skip-seed \
   --database-path backend/data/imported_scanner.sqlite \
   --port 8788
 ```
@@ -143,7 +177,7 @@ Sample backend:
 
 ```bash
 python3 backend/server.py \
-  --cards-file backend/catalog/cards.sample.json \
+  --cards-file backend/catalog/sample_catalog.json \
   --database-path backend/data/sample_scanner.sqlite \
   --port 8787
 ```

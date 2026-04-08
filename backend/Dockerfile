@@ -11,7 +11,8 @@ RUN if [ -f requirements.txt ]; then pip install --no-cache-dir -r requirements.
 # Set environment variable for port
 ENV PORT=8080
 
-# Run the server (auto-import mode - no seed file needed!)
+# Run the server in live-match mode. SQLite is a runtime cache, not a required
+# preseeded catalog source of truth.
 CMD python server.py \
     --skip-seed \
     --port ${PORT} \

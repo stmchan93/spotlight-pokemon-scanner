@@ -7,6 +7,7 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		A1B2C3D4E5F6000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000002 /* Assets.xcassets */; };
 		BA0000000000000000000001 /* SpotlightApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000002 /* SpotlightApp.swift */; };
 		BA0000000000000000000002 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000003 /* AppContainer.swift */; };
 		BA0000000000000000000003 /* CardCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000004 /* CardCandidate.swift */; };
@@ -22,16 +23,15 @@
 		BA000000000000000000000E /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000F /* CameraPreviewView.swift */; };
 		BA000000000000000000000F /* ScannerAPIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000011 /* ScannerAPIModels.swift */; };
 		BA0000000000000000000010 /* ScanTrayLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000012 /* ScanTrayLogic.swift */; };
+		BA0000000000000000000011 /* SlabLabelParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000018 /* SlabLabelParsing.swift */; };
 		BBC123450000000000000001 /* CardIdentifierParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000001 /* CardIdentifierParsing.swift */; };
 		BBC123450000000000000002 /* ScannerReticleLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000002 /* ScannerReticleLayout.swift */; };
 		C2EE97F53B03E6525C299E46 /* ScanCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2876B6D775130E8BD64C6636 /* ScanCacheManager.swift */; };
-		DCF7D6B7B62C6184805827FC /* IdentifierLookupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 10D04CD98549254EF2CC650B /* IdentifierLookupService.swift */; };
-		FF2CA9422F8460B0005DC169 /* identifiers_pokemon.json in Resources */ = {isa = PBXBuildFile; fileRef = FF2CA9412F8460B0005DC169 /* identifiers_pokemon.json */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
-		10D04CD98549254EF2CC650B /* IdentifierLookupService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = IdentifierLookupService.swift; sourceTree = "<group>"; };
 		2876B6D775130E8BD64C6636 /* ScanCacheManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScanCacheManager.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F6000000000002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		FA0000000000000000000001 /* Spotlight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Spotlight.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA0000000000000000000002 /* SpotlightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightApp.swift; sourceTree = "<group>"; };
 		FA0000000000000000000003 /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
@@ -54,9 +54,9 @@
 		FA0000000000000000000015 /* Staging.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Staging.xcconfig; sourceTree = "<group>"; };
 		FA0000000000000000000016 /* Release.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Release.xcconfig; sourceTree = "<group>"; };
 		FA0000000000000000000017 /* LocalOverrides.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalOverrides.example.xcconfig; sourceTree = "<group>"; };
+		FA0000000000000000000018 /* SlabLabelParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlabLabelParsing.swift; sourceTree = "<group>"; };
 		FFC123450000000000000001 /* CardIdentifierParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardIdentifierParsing.swift; sourceTree = "<group>"; };
 		FFC123450000000000000002 /* ScannerReticleLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerReticleLayout.swift; sourceTree = "<group>"; };
-		FF2CA9412F8460B0005DC169 /* identifiers_pokemon.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = identifiers_pokemon.json; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -128,7 +128,7 @@
 				FA0000000000000000000007 /* CardRectangleAnalyzer.swift */,
 				FA0000000000000000000008 /* CardMatchingService.swift */,
 				FA0000000000000000000009 /* ScanEventStore.swift */,
-				10D04CD98549254EF2CC650B /* IdentifierLookupService.swift */,
+				FA0000000000000000000018 /* SlabLabelParsing.swift */,
 				2876B6D775130E8BD64C6636 /* ScanCacheManager.swift */,
 			);
 			path = Services;
@@ -157,7 +157,7 @@
 		GA0000000000000000000009 /* Resources */ = {
 			isa = PBXGroup;
 			children = (
-				FF2CA9412F8460B0005DC169 /* identifiers_pokemon.json */,
+				A1B2C3D4E5F6000000000002 /* Assets.xcassets */,
 				FA0000000000000000000010 /* Info.plist */,
 			);
 			path = Resources;
@@ -232,7 +232,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				FF2CA9422F8460B0005DC169 /* identifiers_pokemon.json in Resources */,
+				A1B2C3D4E5F6000000000001 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -260,7 +260,7 @@
 				BA000000000000000000000D /* AlternateMatchesView.swift in Sources */,
 				BA000000000000000000000E /* CameraPreviewView.swift in Sources */,
 				BA000000000000000000000F /* ScannerAPIModels.swift in Sources */,
-				DCF7D6B7B62C6184805827FC /* IdentifierLookupService.swift in Sources */,
+				BA0000000000000000000011 /* SlabLabelParsing.swift in Sources */,
 				C2EE97F53B03E6525C299E46 /* ScanCacheManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -323,6 +323,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = FA0000000000000000000014 /* Debug.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DR794CMJC4;
@@ -349,6 +350,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = FA0000000000000000000016 /* Release.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DR794CMJC4;
@@ -374,6 +376,7 @@
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = FA0000000000000000000015 /* Staging.xcconfig */;
 			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DR794CMJC4;

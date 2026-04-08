@@ -57,6 +57,25 @@ struct CardIdentifierParser {
             )
         }
 
+        if let repaired = repairedSplitStandardMatch(in: normalized) {
+            return ParsedCardIdentifier(
+                identifier: repaired,
+                confidence: 0.98,
+                sourceRegion: sourceRegion
+            )
+        }
+
+        if let match = firstMatch(in: normalized, pattern: Pattern.standard.regex) {
+            let cleaned = clean(match)
+            let confidence = min(1.0, Pattern.standard.boost + (normalized.count < 20 ? 0.05 : 0.0))
+
+            return ParsedCardIdentifier(
+                identifier: cleaned,
+                confidence: confidence,
+                sourceRegion: sourceRegion
+            )
+        }
+
         if let heuristic = heuristicPrefixedMatch(in: normalized) {
             return ParsedCardIdentifier(
                 identifier: heuristic,
@@ -65,7 +84,7 @@ struct CardIdentifierParser {
             )
         }
 
-        for pattern in [Pattern.standard, .promo, .compact] {
+        for pattern in [Pattern.promo, .compact] {
             if let match = firstMatch(in: normalized, pattern: pattern.regex) {
                 let cleaned = clean(match)
                 let confidence = min(1.0, pattern.boost + (normalized.count < 20 ? 0.05 : 0.0))
@@ -96,7 +115,7 @@ struct CardIdentifierParser {
             .replacingOccurrences(of: #"\b([A-Z]{2,4})EN\s*(\d{1,3})\b"#, with: "$1 $2", options: .regularExpression)
             .replacingOccurrences(of: "O", with: "0")
             .replacingOccurrences(of: #"(?<=\d)[I|L](?=\d)"#, with: "/", options: .regularExpression)
-            .replacingOccurrences(of: #"(?<=\d)\s+(?=\d{2,3}\b)"#, with: "/", options: .regularExpression)
+            .replacingOccurrences(of: #"(?<![A-Z])(?<=\d)\s+(?=\d{2,3}\b)"#, with: "/", options: .regularExpression)
             .replacingOccurrences(of: #"(?<=\d)ZZ(?=\d)"#, with: "7/", options: .regularExpression)
             .replacingOccurrences(of: #"(?<=/\d{2})Z\b"#, with: "1", options: .regularExpression)
             .replacingOccurrences(of: #"([A-Z]{2})(\d{1,3})([A-Z]{2})(\d{1,3})"#, with: "$1$2/$3$4", options: .regularExpression)
@@ -125,6 +144,33 @@ struct CardIdentifierParser {
         }
 
         return String(text[matchRange])
+    }
+
+    private func repairedSplitStandardMatch(in text: String) -> String? {
+        let pattern = #"\b(0\d{0,1})\s+(\d{1,2})/(\d{2,3})\b"#
+        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
+            return nil
+        }
+
+        let range = NSRange(text.startIndex..., in: text)
+        guard let match = regex.firstMatch(in: text, options: [], range: range),
+              match.numberOfRanges == 4,
+              let prefixRange = Range(match.range(at: 1), in: text),
+              let leftRange = Range(match.range(at: 2), in: text),
+              let rightRange = Range(match.range(at: 3), in: text) else {
+            return nil
+        }
+
+        let prefix = String(text[prefixRange])
+        let left = String(text[leftRange])
+        let right = String(text[rightRange])
+        let combinedLeft = prefix + left
+
+        guard combinedLeft.count >= 2, combinedLeft.count <= 3 else {
+            return nil
+        }
+
+        return "\(combinedLeft)/\(right)"
     }
 
     private func heuristicStandardMatch(in text: String) -> String? {
@@ -174,6 +220,10 @@ struct CardIdentifierParser {
                 let prefix = String(text[prefixRange])
                 let leftDigits = String(text[leftDigitsRange])
                 let rightRaw = String(text[rightRange])
+
+                if prefix == "X" || prefix == "XS" {
+                    continue
+                }
 
                 if rightRaw.hasPrefix(prefix) {
                     let suffix = String(rightRaw.dropFirst(prefix.count))

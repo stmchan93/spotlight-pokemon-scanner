@@ -1,4 +1,5 @@
 import AVFoundation
+import CoreImage
 import UIKit
 import Photos
 
@@ -18,9 +19,10 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     let session = AVCaptureSession()
     var onImageCaptured: ((UIImage) -> Void)?
+    var onCaptureFailed: ((String) -> Void)?
+    var onCaptureSavedToPhotoLibrary: ((Bool, String?) -> Void)?
 
-    // Debug photo saving is disabled to avoid Photos-side crashes during scanning.
-    private let saveDebugPhotos = false
+    private let saveCapturedScansToPhotoLibrary = true
 
     // Preview view for coordinate conversion (contains the preview layer)
     @MainActor weak var previewView: PreviewView?
@@ -34,10 +36,22 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
     private let sessionQueue = DispatchQueue(label: "spotlight.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
+    private let videoOutput = AVCaptureVideoDataOutput()
+    private let frameQueue = DispatchQueue(label: "spotlight.camera.frames")
+    private let captureQueue = DispatchQueue(label: "spotlight.camera.capture")
+    private let ciContext = CIContext()
+    private let latestFrameLock = NSLock()
     private var videoDeviceInput: AVCaptureDeviceInput?
+    private var latestPreviewPixelBuffer: CVPixelBuffer?
+    private var isConfiguringSession = false
+    private var pendingSessionStart = false
 
     @MainActor
     func requestAccessIfNeeded() {
+        if isSessionConfigured || isConfiguringSession {
+            return
+        }
+
         print("📷 [CAMERA] Checking camera availability...")
 
         guard UIImagePickerController.isSourceTypeAvailable(.camera) else {
@@ -89,13 +103,14 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         sessionQueue.async { [weak self] in
             guard let self else { return }
             guard self.isSessionConfigured else {
-                print("⚠️ [CAMERA] Cannot start session - not configured")
+                self.pendingSessionStart = true
                 return
             }
             guard !self.session.isRunning else {
                 print("📷 [CAMERA] Session already running")
                 return
             }
+            self.pendingSessionStart = false
             print("▶️ [CAMERA] Starting session...")
             self.session.startRunning()
             print("✅ [CAMERA] Session started!")
@@ -111,16 +126,16 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     @MainActor
-    func capturePhoto(reticleRect: CGRect) {
+    func capturePhoto(reticleRect: CGRect) -> Bool {
         guard authorizationState == .authorized, isSessionConfigured else {
             lastErrorMessage = "Camera is not available. Import a photo instead."
-            return
+            return false
         }
 
         // Convert reticle from preview layer coordinates to photo output coordinates
         guard let previewView = previewView else {
             lastErrorMessage = "Preview view not available"
-            return
+            return false
         }
 
         let previewLayer = previewView.previewLayer
@@ -144,14 +159,20 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         // before cropping, otherwise the crop becomes a tall narrow strip.
         pendingCropRectNormalized = photoRect
 
+        if captureLatestPreviewFrame(normalizedRect: photoRect) {
+            print("📸 [CAPTURE] Using latest preview pixel buffer")
+            return true
+        }
+
         let settings = AVCapturePhotoSettings()
         settings.flashMode = .off
 
-        // Request MAXIMUM resolution for better OCR
-        settings.photoQualityPrioritization = .quality
-        settings.maxPhotoDimensions = photoOutput.maxPhotoDimensions
+        // Fallback only if the preview frame buffer is not ready yet.
+        settings.photoQualityPrioritization = .balanced
+        print("📸 [CAPTURE] Falling back to still photo capture")
 
         photoOutput.capturePhoto(with: settings, delegate: self)
+        return true
     }
 
     func toggleTorch() {
@@ -196,11 +217,12 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     private func configureSessionIfNeeded() {
-        guard !isSessionConfigured else {
+        guard !isSessionConfigured, !isConfiguringSession else {
             print("📷 [CAMERA] Session already configured")
             return
         }
 
+        isConfiguringSession = true
         print("⚙️ [CAMERA] Configuring session...")
         sessionQueue.async { [weak self] in
             guard let self else { return }
@@ -217,6 +239,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             do {
                 guard let videoDevice = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) else {
                     DispatchQueue.main.async {
+                        self.isConfiguringSession = false
                         self.authorizationState = .unavailable
                     }
                     return
@@ -229,10 +252,24 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                     self.videoDeviceInput = videoDeviceInput
                 }
 
+                self.videoOutput.alwaysDiscardsLateVideoFrames = true
+                self.videoOutput.videoSettings = [
+                    kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+                ]
+                self.videoOutput.setSampleBufferDelegate(self, queue: self.frameQueue)
+
+                if self.session.canAddOutput(self.videoOutput) {
+                    self.session.addOutput(self.videoOutput)
+                    if let connection = self.videoOutput.connection(with: .video),
+                       connection.isVideoRotationAngleSupported(90) {
+                        connection.videoRotationAngle = 90
+                    }
+                }
+
                 if self.session.canAddOutput(self.photoOutput) {
                     self.session.addOutput(self.photoOutput)
-                    // Use highest quality for better OCR on small text
-                    self.photoOutput.maxPhotoQualityPrioritization = .quality
+                    // Cap the output at balanced so taps do not pay the full still-photo latency.
+                    self.photoOutput.maxPhotoQualityPrioritization = .balanced
                 }
 
                 // Set initial zoom level
@@ -243,12 +280,15 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
                 DispatchQueue.main.async {
                     print("✅ [CAMERA] Session configured successfully")
+                    self.isConfiguringSession = false
                     self.isSessionConfigured = true
-                    // Start session after configuration completes
-                    self.startSession()
+                    if self.pendingSessionStart {
+                        self.startSession()
+                    }
                 }
             } catch {
                 DispatchQueue.main.async {
+                    self.isConfiguringSession = false
                     self.lastErrorMessage = "Unable to configure the camera session."
                 }
             }
@@ -261,17 +301,72 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             return cg
         }
 
+        let isSideways = image.imageOrientation == .left
+            || image.imageOrientation == .leftMirrored
+            || image.imageOrientation == .right
+            || image.imageOrientation == .rightMirrored
+        let renderSize = isSideways
+            ? CGSize(width: image.size.height, height: image.size.width)
+            : image.size
+
         let format = UIGraphicsImageRendererFormat()
         format.scale = 1
         if #available(iOS 12.0, *) {
             format.preferredRange = .standard
         }
 
-        let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
+        let renderer = UIGraphicsImageRenderer(size: renderSize, format: format)
         let rendered = renderer.image { _ in
-            image.draw(in: CGRect(origin: .zero, size: image.size))
+            image.draw(in: CGRect(origin: .zero, size: renderSize))
         }
         return rendered.cgImage
+    }
+
+    private func captureLatestPreviewFrame(normalizedRect: CGRect) -> Bool {
+        latestFrameLock.lock()
+        let pixelBuffer = latestPreviewPixelBuffer
+        latestFrameLock.unlock()
+
+        guard let pixelBuffer else {
+            return false
+        }
+
+        captureQueue.async { [weak self] in
+            guard let self else { return }
+            guard let image = self.previewImage(from: pixelBuffer) else {
+                DispatchQueue.main.async {
+                    let message = "Could not capture the current camera frame."
+                    self.lastErrorMessage = message
+                    self.onCaptureFailed?(message)
+                }
+                return
+            }
+
+            let croppedImage = self.cropImage(image, normalizedRect: normalizedRect)
+            DispatchQueue.main.async {
+                self.pendingCropRectNormalized = nil
+                self.persistCapturedScan(croppedImage)
+                self.onImageCaptured?(croppedImage)
+            }
+        }
+
+        return true
+    }
+
+    private func previewImage(from pixelBuffer: CVPixelBuffer) -> UIImage? {
+        let rawWidth = CVPixelBufferGetWidth(pixelBuffer)
+        let rawHeight = CVPixelBufferGetHeight(pixelBuffer)
+        let ciImage = CIImage(cvPixelBuffer: pixelBuffer)
+        let imageRect = ciImage.extent.integral
+
+        print("📸 [CAPTURE] Preview buffer dimensions: \(rawWidth)x\(rawHeight)")
+        print("📸 [CAPTURE] Preview image dimensions: \(Int(imageRect.width))x\(Int(imageRect.height))")
+
+        guard let cgImage = ciContext.createCGImage(ciImage, from: imageRect) else {
+            return nil
+        }
+
+        return UIImage(cgImage: cgImage)
     }
 
     /// Crop image using normalized rect (0-1 coordinates from AVFoundation conversion)
@@ -331,23 +426,68 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         return portraitRect.intersection(unitRect)
     }
 
-    /// Save image to Photos library for debugging
-    private func saveToPhotos(_ image: UIImage, label: String) {
-        PHPhotoLibrary.requestAuthorization { status in
-            guard status == .authorized else {
-                print("📸 [DEBUG] Photos permission denied")
+    private func persistCapturedScan(_ image: UIImage) {
+        guard saveCapturedScansToPhotoLibrary else { return }
+
+        requestPhotoLibraryAddAuthorizationIfNeeded { [weak self] granted in
+            guard let self else { return }
+            guard granted else {
+                DispatchQueue.main.async {
+                    let message = "Photo library access is required to save captured scans."
+                    print("⚠️ [CAPTURE] \(message)")
+                    self.onCaptureSavedToPhotoLibrary?(false, message)
+                }
                 return
             }
 
             PHPhotoLibrary.shared().performChanges({
                 PHAssetChangeRequest.creationRequestForAsset(from: image)
             }) { success, error in
-                if success {
-                    print("📸 [DEBUG] Saved \(label) image to Photos library")
-                } else if let error = error {
-                    print("❌ [DEBUG] Failed to save \(label) image: \(error.localizedDescription)")
+                DispatchQueue.main.async {
+                    if success {
+                        return
+                    } else {
+                        let message = error?.localizedDescription ?? "Could not save captured scan to Photos."
+                        print("❌ [CAPTURE] Failed to save captured scan: \(message)")
+                        self.onCaptureSavedToPhotoLibrary?(false, message)
+                    }
                 }
             }
+        }
+    }
+
+    private func requestPhotoLibraryAddAuthorizationIfNeeded(
+        completion: @escaping @Sendable (Bool) -> Void
+    ) {
+        if #available(iOS 14, *) {
+            let status = PHPhotoLibrary.authorizationStatus(for: .addOnly)
+            switch status {
+            case .authorized, .limited:
+                completion(true)
+            case .notDetermined:
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { requestedStatus in
+                    completion(requestedStatus == .authorized || requestedStatus == .limited)
+                }
+            case .denied, .restricted:
+                completion(false)
+            @unknown default:
+                completion(false)
+            }
+            return
+        }
+
+        let status = PHPhotoLibrary.authorizationStatus()
+        switch status {
+        case .authorized:
+            completion(true)
+        case .notDetermined:
+            PHPhotoLibrary.requestAuthorization { requestedStatus in
+                completion(requestedStatus == .authorized)
+            }
+        case .denied, .restricted, .limited:
+            completion(false)
+        @unknown default:
+            completion(false)
         }
     }
 }
@@ -361,6 +501,7 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
         if let error {
             DispatchQueue.main.async {
                 self.lastErrorMessage = error.localizedDescription
+                self.onCaptureFailed?(error.localizedDescription)
             }
             return
         }
@@ -369,7 +510,9 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
               let image = UIImage(data: imageData),
               let cropRect = pendingCropRectNormalized else {
             DispatchQueue.main.async {
-                self.lastErrorMessage = "Could not decode the captured photo."
+                let message = "Could not decode the captured photo."
+                self.lastErrorMessage = message
+                self.onCaptureFailed?(message)
             }
             return
         }
@@ -379,12 +522,8 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
         // Crop using the converted coordinates - what user saw in reticle!
         let croppedImage = cropImage(image, normalizedRect: cropRect)
 
-        // Debug: Save to Photos library
-        if saveDebugPhotos {
-            saveToPhotos(croppedImage, label: "cropped")
-        }
-
         DispatchQueue.main.async {
+            self.persistCapturedScan(croppedImage)
             self.onImageCaptured?(croppedImage)
         }
 
@@ -392,4 +531,21 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
         pendingCropRectNormalized = nil
     }
 
+}
+
+extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate {
+    nonisolated func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
+        guard output === videoOutput,
+              let pixelBuffer = CMSampleBufferGetImageBuffer(sampleBuffer) else {
+            return
+        }
+
+        latestFrameLock.lock()
+        latestPreviewPixelBuffer = pixelBuffer
+        latestFrameLock.unlock()
+    }
 }

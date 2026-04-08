@@ -8,6 +8,8 @@
 	<string>Spotlight</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
+	<key>CFBundleIconName</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
 	<key>CFBundleInfoDictionaryVersion</key>
@@ -29,7 +31,7 @@
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Spotlight needs photo library access to import card images for identification.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Spotlight can save scanned card images to your photo library for debugging.</string>
+	<string>Spotlight can save captured scan images to your photo library.</string>
 	<key>SpotlightAPIBaseURL</key>
 	<string>$(SPOTLIGHT_API_BASE_URL)</string>
 	<key>SpotlightDeviceAPIBaseURL</key>

@@ -375,7 +375,6 @@ The backend is ready to deploy. Start the server with:
 cd /Users/stephenchan/Code/spotlight/backend
 
 python3 server.py \
-  --cards-file catalog/pokemontcg/cards.json \
   --database-path data/imported_scanner.sqlite \
   --port 8788 \
   --skip-seed

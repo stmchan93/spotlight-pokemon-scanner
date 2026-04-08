@@ -16,7 +16,6 @@ PY
   )"
 fi
 SERVER_URL="${SPOTLIGHT_SCANNER_SERVER:-http://127.0.0.1:${PORT}/}"
-CARDS_FILE="${SPOTLIGHT_REALWORLD_CARDS_FILE:-$ROOT_DIR/backend/catalog/pokemontcg/cards.json}"
 DATABASE_PATH="${SPOTLIGHT_REALWORLD_DATABASE_PATH:-$ROOT_DIR/backend/data/imported_scanner.sqlite}"
 SLAB_SALES_FILE="${SPOTLIGHT_REALWORLD_SLAB_SALES_FILE:-$ROOT_DIR/backend/catalog/slab_sales.sample.json}"
 
@@ -29,11 +28,16 @@ if [[ -f "$SLAB_SALES_FILE" ]]; then
     > /tmp/spotlight-realworld-regression-slab-import.log 2>&1 || true
 fi
 
+SERVER_ARGS=()
+if [[ -n "${SPOTLIGHT_REALWORLD_CATALOG_FILE:-}" ]]; then
+  SERVER_ARGS+=(--cards-file "${SPOTLIGHT_REALWORLD_CATALOG_FILE}")
+fi
+
 python3 backend/server.py \
-  --cards-file "$CARDS_FILE" \
   --database-path "$DATABASE_PATH" \
   --skip-seed \
   --port "$PORT" \
+  "${SERVER_ARGS[@]}" \
   > /tmp/spotlight-realworld-regression-server.log 2>&1 &
 SERVER_PID=$!
 cleanup() {
@@ -54,5 +58,9 @@ if ! curl -sf "$SERVER_URL"api/v1/health >/dev/null; then
 fi
 
 mkdir -p .swift-module-cache
-swiftc -module-cache-path .swift-module-cache tools/scanner_eval.swift -o ./.scanner_eval
+swiftc \
+  -module-cache-path .swift-module-cache \
+  Spotlight/Services/SlabLabelParsing.swift \
+  tools/scanner_eval.swift \
+  -o ./.scanner_eval
 ./.scanner_eval --manifest "$MANIFEST_PATH" --server "$SERVER_URL"

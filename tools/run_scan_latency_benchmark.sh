@@ -17,8 +17,9 @@ PY
   )"
 fi
 SERVER_URL="${SPOTLIGHT_SCANNER_SERVER:-http://127.0.0.1:${PORT}/}"
-CARDS_FILE="${SPOTLIGHT_BENCHMARK_CARDS_FILE:-$ROOT_DIR/backend/catalog/pokemontcg/cards.json}"
 DATABASE_PATH="${SPOTLIGHT_BENCHMARK_DATABASE_PATH:-$ROOT_DIR/backend/data/imported_scanner.sqlite}"
+MAX_TOTAL_MS="${SPOTLIGHT_BENCHMARK_MAX_TOTAL_MS:-}"
+MAX_TOTAL_P95_MS="${SPOTLIGHT_BENCHMARK_MAX_TOTAL_P95_MS:-}"
 
 cd "$ROOT_DIR"
 
@@ -31,11 +32,16 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ -z "${SPOTLIGHT_SCANNER_SERVER:-}" ]]; then
+  SERVER_ARGS=()
+  if [[ -n "${SPOTLIGHT_BENCHMARK_CATALOG_FILE:-}" ]]; then
+    SERVER_ARGS+=(--cards-file "${SPOTLIGHT_BENCHMARK_CATALOG_FILE}")
+  fi
+
   python3 backend/server.py \
-    --cards-file "$CARDS_FILE" \
     --database-path "$DATABASE_PATH" \
     --skip-seed \
     --port "$PORT" \
+    "${SERVER_ARGS[@]}" \
     > /tmp/spotlight-benchmark-server.log 2>&1 &
   SERVER_PID=$!
 
@@ -53,5 +59,16 @@ if [[ -z "${SPOTLIGHT_SCANNER_SERVER:-}" ]]; then
 fi
 
 mkdir -p .swift-module-cache
-swiftc -module-cache-path .swift-module-cache tools/scanner_eval.swift -o ./.scanner_eval
-./.scanner_eval --benchmark-manifest "$MANIFEST_PATH" --iterations "$ITERATIONS" --server "$SERVER_URL"
+swiftc \
+  -module-cache-path .swift-module-cache \
+  Spotlight/Services/SlabLabelParsing.swift \
+  tools/scanner_eval.swift \
+  -o ./.scanner_eval
+BENCHMARK_ARGS=(--benchmark-manifest "$MANIFEST_PATH" --iterations "$ITERATIONS" --server "$SERVER_URL")
+if [[ -n "$MAX_TOTAL_MS" ]]; then
+  BENCHMARK_ARGS+=(--max-total-ms "$MAX_TOTAL_MS")
+fi
+if [[ -n "$MAX_TOTAL_P95_MS" ]]; then
+  BENCHMARK_ARGS+=(--max-total-p95-ms "$MAX_TOTAL_P95_MS")
+fi
+./.scanner_eval "${BENCHMARK_ARGS[@]}"
