@@ -12,7 +12,20 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
-from catalog_tools import utc_now
+from catalog_tools import (
+    RAW_ROUTE_BROAD_TEXT_FALLBACK,
+    RAW_ROUTE_COLLECTOR_ONLY,
+    RAW_ROUTE_COLLECTOR_SET_EXACT,
+    RAW_ROUTE_TITLE_COLLECTOR,
+    RAW_ROUTE_TITLE_ONLY,
+    RAW_ROUTE_TITLE_SET_PRIMARY,
+    RawEvidence,
+    RawSignalScores,
+    build_raw_retrieval_plan,
+    canonicalize_collector_number,
+    tokenize,
+    utc_now,
+)
 
 API_BASE_URL = "https://api.pokemontcg.io/v2/cards"
 SETS_API_BASE_URL = "https://api.pokemontcg.io/v2/sets"
@@ -293,6 +306,206 @@ def search_cards(
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]
+
+
+def _quote_query_value(value: str) -> str:
+    return value.replace("\\", "\\\\").replace('"', '\\"')
+
+
+def _raw_title_query_text(evidence: RawEvidence) -> str:
+    return evidence.title_text_primary or evidence.title_text_secondary or ""
+
+
+def _raw_set_query_tokens(evidence: RawEvidence) -> list[str]:
+    tokens = list(evidence.trusted_set_hint_tokens or evidence.set_hint_tokens)
+    return [token for token in tokens if token]
+
+
+def build_raw_provider_queries(evidence: RawEvidence, signals: RawSignalScores) -> list[str]:
+    plan = build_raw_retrieval_plan(evidence, signals)
+    queries: list[str] = []
+    seen: set[str] = set()
+    title_text = _raw_title_query_text(evidence)
+    escaped_title = _quote_query_value(title_text)
+    set_tokens = _raw_set_query_tokens(evidence)
+    query_values = list(evidence.collector_number_query_values)
+
+    def add(query: str) -> None:
+        normalized = query.strip()
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        queries.append(normalized)
+
+    for route in plan.routes:
+        if route == RAW_ROUTE_COLLECTOR_SET_EXACT:
+            for number in query_values:
+                add(f'number:"{number.upper()}"')
+                if evidence.collector_number_printed_total is not None:
+                    add(f'set.printedTotal:{evidence.collector_number_printed_total} number:"{number.upper()}"')
+                for set_token in set_tokens:
+                    add(f'set.ptcgoCode:{set_token.upper()} number:"{number.upper()}"')
+                    add(f'set.id:{set_token.lower()} number:"{number.lower()}"')
+                    add(f'set.name:"{_quote_query_value(set_token)}" number:"{number.upper()}"')
+
+        elif route == RAW_ROUTE_TITLE_SET_PRIMARY and title_text:
+            add(f'name:"{escaped_title}"')
+            for set_token in set_tokens:
+                add(f'name:"{escaped_title}" set.ptcgoCode:{set_token.upper()}')
+                add(f'name:"{escaped_title}" set.id:{set_token.lower()}')
+                add(f'name:"{escaped_title}" set.name:"{_quote_query_value(set_token)}"')
+
+        elif route == RAW_ROUTE_TITLE_COLLECTOR and title_text:
+            for number in query_values:
+                add(f'name:"{escaped_title}" number:"{number.upper()}"')
+
+        elif route == RAW_ROUTE_TITLE_ONLY and title_text:
+            add(f'name:"{escaped_title}"')
+
+        elif route == RAW_ROUTE_COLLECTOR_ONLY:
+            for number in query_values:
+                add(f'number:"{number.upper()}"')
+
+        elif route == RAW_ROUTE_BROAD_TEXT_FALLBACK:
+            fallback_tokens = [token for token in evidence.recognized_tokens if token.isalpha() and len(token) > 2][:3]
+            if title_text:
+                add(f'name:"{escaped_title}"')
+            elif fallback_tokens:
+                add(" ".join(f'name:"{_quote_query_value(token)}"' for token in fallback_tokens[:2]))
+
+    return queries
+
+
+def search_remote_raw_candidates(
+    queries: list[str],
+    api_key: str | None,
+    page_size: int = 10,
+) -> list[dict[str, Any]]:
+    seen: set[str] = set()
+    results: list[dict[str, Any]] = []
+    for query in queries:
+        try:
+            cards = search_cards(query, api_key, page_size=page_size)
+        except Exception:
+            continue
+        for card in cards:
+            card_id = str(card.get("id") or "").strip()
+            if not card_id or card_id in seen:
+                continue
+            seen.add(card_id)
+            results.append(card)
+    return results
+
+
+def _remote_title_overlap(candidate: dict[str, Any], evidence: RawEvidence) -> float:
+    query_tokens = {
+        token
+        for token in tokenize(" ".join(part for part in [evidence.title_text_primary, evidence.title_text_secondary] if part))
+        if token
+    }
+    if not query_tokens:
+        return 0.0
+    candidate_tokens = set(tokenize(str(candidate.get("name") or "")))
+    overlap = len(query_tokens & candidate_tokens)
+    return overlap / max(1, len(query_tokens))
+
+
+def _remote_set_overlap(candidate: dict[str, Any], evidence: RawEvidence) -> float:
+    query_tokens = set(_raw_set_query_tokens(evidence))
+    if not query_tokens:
+        return 0.0
+    candidate_tokens = set(
+        tokenize(
+            " ".join(
+                part
+                for part in [
+                    str(candidate.get("set_name") or ""),
+                    str(candidate.get("set_series") or ""),
+                    str(candidate.get("set_id") or ""),
+                    str(candidate.get("set_ptcgo_code") or ""),
+                ]
+                if part
+            )
+        )
+    )
+    overlap = len(query_tokens & candidate_tokens)
+    if any(
+        token in {
+            str(candidate.get("set_id") or "").lower(),
+            str(candidate.get("set_ptcgo_code") or "").lower(),
+        }
+        for token in query_tokens
+    ):
+        overlap += 1
+    return overlap / max(1, len(query_tokens))
+
+
+def _remote_collector_overlap(candidate: dict[str, Any], evidence: RawEvidence) -> float:
+    candidate_number = canonicalize_collector_number(str(candidate.get("number") or "")).lower()
+    if evidence.collector_number_exact:
+        expected = canonicalize_collector_number(evidence.collector_number_exact).lower()
+        if candidate_number == expected:
+            return 1.0
+    if evidence.collector_number_partial:
+        expected = canonicalize_collector_number(evidence.collector_number_partial).lower()
+        if candidate_number == expected:
+            return 0.75
+    if any(value and value in candidate_number for value in evidence.collector_number_query_values):
+        return 0.5
+    return 0.0
+
+
+def _normalized_remote_candidate(mapped: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": mapped["id"],
+        "name": mapped["name"],
+        "setName": mapped["set_name"],
+        "number": mapped["number"],
+        "rarity": mapped["rarity"],
+        "variant": mapped["variant"],
+        "language": mapped["language"],
+        "sourceProvider": mapped.get("source"),
+        "sourceRecordID": mapped.get("source_record_id"),
+        "setID": mapped.get("set_id"),
+        "setSeries": mapped.get("set_series"),
+        "setPtcgoCode": mapped.get("set_ptcgo_code"),
+        "imageURL": mapped.get("reference_image_url"),
+        "imageSmallURL": mapped.get("reference_image_small_url"),
+        "sourcePayload": mapped.get("source_payload") or {},
+    }
+
+
+def best_remote_raw_candidates(
+    results: list[dict[str, Any]],
+    evidence: RawEvidence,
+    signals: RawSignalScores,
+    limit: int = 12,
+) -> list[dict[str, Any]]:
+    scored: list[tuple[float, dict[str, Any]]] = []
+    for raw_card in results:
+        mapped = map_card(raw_card, None)
+        title_score = _remote_title_overlap(mapped, evidence)
+        set_score = _remote_set_overlap(mapped, evidence)
+        collector_score = _remote_collector_overlap(mapped, evidence)
+
+        if not any(score > 0.0 for score in (title_score, set_score, collector_score)):
+            continue
+
+        retrieval_score = round(
+            (title_score * min(35.0, float(signals.title_signal) * 0.35))
+            + (set_score * min(20.0, float(signals.set_signal) * 0.25))
+            + (collector_score * min(15.0, float(signals.collector_signal) * 0.18))
+            + 5.0,
+            4,
+        )
+        candidate = _normalized_remote_candidate(mapped)
+        candidate["_cachePresence"] = False
+        candidate["_retrievalScoreHint"] = retrieval_score
+        candidate["_retrievalRoutes"] = ["remote_provider"]
+        scored.append((retrieval_score, candidate))
+
+    scored.sort(key=lambda item: (-item[0], item[1]["name"], item[1]["number"]))
+    return [candidate for _, candidate in scored[:limit]]
 
 
 def search_sets(

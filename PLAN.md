@@ -2,6 +2,16 @@
 
 Date: 2026-04-04
 
+## Current planning override
+
+- The current backend reset / raw-matcher redesign source of truth is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
+- The raw backend reset has now landed.
+- Treat the current backend runtime as:
+  - raw-only
+  - 3-table SQLite (`cards`, `card_price_snapshots`, `scan_events`)
+  - thin provider shells preserved for Pokemon TCG API, Scrydex, and PriceCharting
+- Treat the old slab/sync/cache backend modules as deleted legacy state, not as code to revive.
+
 ## Current milestone status
 
 ### Milestone 1: Scanner-first tray UX
@@ -311,4 +321,4 @@ Status: `partially done`
 
 ## Full execution checklist
 
-Use [scanner-v1-completion-checklist-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/scanner-v1-completion-checklist-2026-04-03.md) for the broader scanner track and [pricing-provider-abstraction-todos-2026-04-04.md](/Users/stephenchan/Code/spotlight/docs/pricing-provider-abstraction-todos-2026-04-04.md) for the next pricing-provider implementation pass.
+Use [raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md) for backend execution guidance and [spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md) for the current product/runtime state.

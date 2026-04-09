@@ -17,41 +17,13 @@ This is the real accuracy gate for convention-floor scanning. The clean fixture 
 
 ## Current Real-World Photo Batch Constraint
 
-This repo now has a dedicated real-world image regression pack:
+The repo still keeps the real-world image pack and manifests for future OCR work:
 
 - images: [realworld-2026-04-03](/Users/stephenchan/Code/spotlight/qa/images/realworld-2026-04-03)
 - manifest: [scanner-regression.realworld-2026-04-03.json](/Users/stephenchan/Code/spotlight/qa/scanner-regression.realworld-2026-04-03.json)
-- one-command runner: [run_realworld_regression.sh](/Users/stephenchan/Code/spotlight/tools/run_realworld_regression.sh)
+- support notes: [realworld-photo-batch-support-2026-04-03.md](/Users/stephenchan/Code/spotlight/qa/realworld-photo-batch-support-2026-04-03.md)
 
-It includes:
-
-- Lugia Neo Genesis PSA
-- Mewtwo Star PSA
-- Charizard Skyridge PSA
-- Charizard Legendary Collection PSA
-- Snorlax Legendary Collection PSA
-- Latias & Latios-GX PSA
-- Charmander 151
-- Espeon Star
-- Simisear VSTAR GG37
-- fake/custom Mega Gengar / Mega Starmie / gold Charizard review cases
-- Pikachu ex Surging Sparks PSA 9
-
-Backend text/label coverage for the same families also lives in [test_scanner_backend.py](/Users/stephenchan/Code/spotlight/backend/tests/test_scanner_backend.py).
-
-Expected outcomes for that batch are tracked in:
-
-- [realworld-photo-batch-support-2026-04-03.md](/Users/stephenchan/Code/spotlight/qa/realworld-photo-batch-support-2026-04-03.md)
-
-Run that real-world batch with one command:
-
-```bash
-zsh tools/run_realworld_regression.sh
-```
-
-Current expected result:
-
-- `20/20` passing on the checked-in real-world batch
+The old bundled scanner regression runner was intentionally removed during the raw-backend reset. Treat these assets as manual QA / future OCR fixtures for now.
 
 ## Local QA Pack
 
@@ -76,65 +48,13 @@ zsh tools/import_simulator_media.sh
 
 That imports every image from [qa/images](/Users/stephenchan/Code/spotlight/qa/images) into the simulator Photos app for manual testing.
 
-## Automated Regression Runner
+## Automated Checks Kept In Repo
 
-Run one image:
+The actively kept lightweight checks are:
 
-```bash
-swift tools/scanner_eval.swift \
-  --image /absolute/path/to/card.jpg \
-  --expected pokemon-charizard-ex-223-197
-```
+- `zsh tools/run_card_identifier_parser_tests.sh`
+- `zsh tools/run_raw_card_decision_tests.sh`
+- `zsh tools/run_scanner_reticle_layout_tests.sh`
+- `zsh tools/run_scan_tray_logic_tests.sh`
 
-If you prefer a compiled binary:
-
-```bash
-swiftc tools/scanner_eval.swift -o ./.scanner_eval
-./.scanner_eval \
-  --image /absolute/path/to/card.jpg \
-  --expected pokemon-charizard-ex-223-197
-```
-
-One-command manifest run:
-
-```bash
-zsh tools/run_scanner_regression.sh
-```
-
-Manifest cases can validate with:
-
-- `expectedCardID` for a single exact catalog ID
-- `acceptedCardIDs` for multiple valid IDs across different catalogs
-- `expectedCardName`, `expectedSetName`, and `expectedNumber` for strict identity checks
-- `acceptedSetNames` and `acceptedNumbers` when the same card has slightly different labels across catalogs
-
-That lets the same QA pack work against both the sample backend and the imported Pokémon TCG backend.
-
-To point the regression suite at the imported pricing backend instead of the sample backend:
-
-```bash
-SPOTLIGHT_SCANNER_SERVER=http://127.0.0.1:8788/ zsh tools/run_scanner_regression.sh
-```
-
-Run multiple images from a manifest:
-
-```bash
-swift tools/scanner_eval.swift \
-  --manifest qa/scanner-regression.example.json
-```
-
-The runner uses the same crop and OCR approach as the iOS app. By default it also calls the local backend at `http://127.0.0.1:8787/` to verify the actual match result.
-
-If you only want to inspect crop/OCR without backend matching:
-
-```bash
-swift tools/scanner_eval.swift \
-  --image /absolute/path/to/card.jpg \
-  --offline
-```
-
-To use the backend matcher, start it first:
-
-```bash
-python3 backend/server.py
-```
+These cover parser and UI logic that still belongs to the current raw-backend implementation. The older image-manifest scanner harness was removed as part of the cleanup.

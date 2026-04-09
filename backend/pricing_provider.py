@@ -1,29 +1,10 @@
-"""
-Pricing provider abstraction layer.
-
-This module defines the contract for pricing providers and manages provider priority
-and fallback behavior.
-
-Current architecture notes:
-- Scanner runtime freshness is DB-snapshot based in `server.py`
-- Any in-memory cache here is legacy/diagnostic only, not the correctness layer
-- Provider prices are NOT blended or averaged together
-- One active/default provider is used for the tray
-- Multiple provider results can be stored for future side-by-side display
-"""
+"""Thin pricing provider abstraction layer for the raw-only backend build."""
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import Any, Protocol
-
-try:
-    from price_cache import price_cache
-    CACHE_ENABLED = True
-except ImportError:
-    CACHE_ENABLED = False
-    price_cache = None
+from typing import Any
 
 
 @dataclass
@@ -115,12 +96,7 @@ class PricingProvider(ABC):
 
 
 class PricingProviderRegistry:
-    """
-    Registry for pricing providers with priority-based fallback.
-
-    The registry tries providers in priority order until one succeeds.
-    Provider priority is configurable.
-    """
+    """Minimal provider registry used by the raw-only backend runtime."""
 
     def __init__(self):
         self._providers: list[PricingProvider] = []
@@ -172,44 +148,8 @@ class PricingProviderRegistry:
                 return provider
         return None
 
-    def refresh_raw_pricing(
-        self, connection, card_id: str, use_cache: bool = False
-    ) -> RawPricingResult:
-        """
-        Refresh raw pricing using the provider fallback chain.
-
-        Tries providers in priority order until one succeeds.
-
-        Args:
-            connection: Database connection
-            card_id: Card ID to refresh
-            use_cache: Whether to use the legacy in-memory price cache (default: False)
-
-        Returns:
-            RawPricingResult from the first successful provider
-        """
-        # Check cache first if enabled
-        if use_cache and CACHE_ENABLED and price_cache:
-            for provider in self._providers:
-                if not provider.is_ready():
-                    continue
-                metadata = provider.get_metadata()
-                if not metadata.supports_raw_pricing:
-                    continue
-
-                cached = price_cache.get(card_id, metadata.provider_id)
-                if cached:
-                    print(f"✅ Cache hit: {card_id} ({metadata.provider_id})")
-                    # Return cached result
-                    return RawPricingResult(
-                        success=True,
-                        provider_id=metadata.provider_id,
-                        card_id=card_id,
-                        payload=cached
-                    )
-                # Only check first ready provider's cache
-                break
-
+    def refresh_raw_pricing(self, connection, card_id: str, use_cache: bool = False) -> RawPricingResult:
+        del use_cache
         last_error = None
         for provider in self._providers:
             if not provider.is_ready():
@@ -218,12 +158,8 @@ class PricingProviderRegistry:
             if not metadata.supports_raw_pricing:
                 continue
 
-            print(f"⚠️  Cache miss: {card_id} ({metadata.provider_id})")
             result = provider.refresh_raw_pricing(connection, card_id)
             if result.success:
-                # Cache the result if enabled
-                if use_cache and CACHE_ENABLED and price_cache and result.payload:
-                    price_cache.set(card_id, metadata.provider_id, result.payload, ttl_hours=24)
                 return result
             last_error = result.error
 
@@ -235,47 +171,8 @@ class PricingProviderRegistry:
             error=last_error or "No ready providers available for raw pricing",
         )
 
-    def refresh_psa_pricing(
-        self, connection, card_id: str, grade: str, use_cache: bool = False
-    ) -> PsaPricingResult:
-        """
-        Refresh PSA pricing using the provider fallback chain.
-
-        Tries providers in priority order until one succeeds.
-
-        Args:
-            connection: Database connection
-            card_id: Card ID to refresh
-            grade: PSA grade
-            use_cache: Whether to use the legacy in-memory price cache (default: False)
-
-        Returns:
-            PsaPricingResult from the first successful provider
-        """
-        # Check cache first if enabled
-        cache_key = f"{card_id}:psa:{grade}"
-        if use_cache and CACHE_ENABLED and price_cache:
-            for provider in self._providers:
-                if not provider.is_ready():
-                    continue
-                metadata = provider.get_metadata()
-                if not metadata.supports_psa_pricing:
-                    continue
-
-                cached = price_cache.get(cache_key, metadata.provider_id)
-                if cached:
-                    print(f"✅ Cache hit: {cache_key} ({metadata.provider_id})")
-                    # Return cached result
-                    return PsaPricingResult(
-                        success=True,
-                        provider_id=metadata.provider_id,
-                        card_id=card_id,
-                        grade=grade,
-                        payload=cached
-                    )
-                # Only check first ready provider's cache
-                break
-
+    def refresh_psa_pricing(self, connection, card_id: str, grade: str, use_cache: bool = False) -> PsaPricingResult:
+        del use_cache
         last_error = None
         for provider in self._providers:
             if not provider.is_ready():
@@ -284,12 +181,8 @@ class PricingProviderRegistry:
             if not metadata.supports_psa_pricing:
                 continue
 
-            print(f"⚠️  Cache miss: {cache_key} ({metadata.provider_id})")
             result = provider.refresh_psa_pricing(connection, card_id, grade)
             if result.success:
-                # Cache the result if enabled
-                if use_cache and CACHE_ENABLED and price_cache and result.payload:
-                    price_cache.set(cache_key, metadata.provider_id, result.payload, ttl_hours=24)
                 return result
             last_error = result.error
 

@@ -6,6 +6,8 @@ Repo-specific workflow notes for future coding agents.
 
 - This repo is a local iOS + Python backend prototype for a Pokemon card scanner.
 - The active product/status doc is [docs/spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md).
+- The active backend reset / raw-matcher redesign plan is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
+- For backend work, treat that reset spec as the source of truth over older raw-matcher, `direct_lookup`, `slab_sales`, or fragmented SQLite planning notes elsewhere in the repo.
 
 ## Subagent workflow
 
@@ -60,18 +62,16 @@ Repo-specific workflow notes for future coding agents.
 
 ## Current provider rules
 
-- Pricing provider abstraction is now implemented with specialized providers:
+- Pricing provider abstraction is now implemented with specialized providers, but the current backend runtime is intentionally **raw-only** during the reset:
 - Runtime scanner behavior is mode-specific, not cross-provider blended:
   - **Raw mode**:
     - resolve as `raw_card`
     - send OCR payloads directly to the backend matcher
     - refresh/display raw pricing from **Pokemon TCG API** only
   - **Slab mode**:
-    - resolve as `psa_slab`
-    - send slab OCR payloads directly to the backend matcher
-    - refresh/display PSA/slab pricing from **Scrydex** only
-    - if PSA label OCR or Scrydex pricing is unavailable, surface unsupported/no-price instead of falling back to raw pricing
-- PriceCharting may remain registered for diagnostics/manual experiments, but it is **not** the default scanner source of truth.
+    - backend runtime support is intentionally removed for now
+    - current raw-only backend should return unsupported rather than attempting slab matching/pricing
+- PriceCharting and Scrydex remain as thin provider shells for env/config structure and later rebuild work, but they are not active runtime lanes right now.
 - Each provider implements the shared `PricingProvider` contract.
 - Provider prices are **not** blended or averaged together.
 - The tray shows one active/default provider result.
@@ -87,112 +87,29 @@ Repo-specific workflow notes for future coding agents.
   - [backend/pricecharting_adapter.py](/Users/stephenchan/Code/spotlight/backend/pricecharting_adapter.py) - PriceCharting implementation
   - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py) - Scrydex implementation
 
-## Planned scanner decision spec
+## Backend Reset Direction
 
-- This section is the agreed target behavior for upcoming scanner work. Treat it as the implementation plan even if current runtime behavior still has older PSA-only or stricter fallback assumptions in places.
-- Scanner mode remains authoritative:
-  - `raw` mode => raw-card OCR payload + raw-card pricing lane
-  - `slab` mode => slab OCR payload + slab pricing lane
-  - no hidden cross-degrade between raw and slab flows
-- Bias toward aggressive best-effort identification, not conservative rejection:
-  - when OCR is incomplete, still return the best guess payload/candidate available
-  - keep detailed failure reasons in logs/debug artifacts, not in user-facing UI
-
-### Planned raw-card logic
-
-- Raw-card identity is still anchored on footer OCR:
-  - primary signals: collector number + set hint
-  - footer regions remain the most important OCR targets
-  - title/name clues are secondary support, not the primary contract
-- Raw mode must first-class support:
-  - naked raw cards
-  - raw cards in sleeves
-  - raw cards in toploaders or similar rigid holders
-  - slightly off-center captures
-  - slightly farther-away captures
-  - mildly blurry or mildly reflective captures, as long as the footer is still reasonably recoverable
-- Reticle behavior:
-  - the reticle is a positioning hint, not an exact OCR crop
-  - target selection should tolerate cards that are not perfectly centered inside the reticle
-- Pre-OCR target logic for raw:
-  - detect the best target near the reticle
-  - allow holder-aware geometry, not just naked-card geometry
-  - if the chosen rectangle is a holder/toploader, derive an inner-card crop before footer OCR
-  - normalize the card upright before running footer OCR
-- OCR order for raw:
-  - bottom-left
-  - bottom-right
-  - bottom-full fallback
-  - optional broader fallback only after the footer-specific path is exhausted
-- Minimum useful raw signal:
-  - ideal: collector number + set hint
-  - if that fails, still send the strongest best-effort raw payload to the backend rather than hard-failing locally
-- Capture fallback for raw:
-  - use preview-frame capture first
-  - allow automatic still-photo fallback only when geometry looks good but footer OCR quality is too weak
-  - do not default all scans to still-photo capture
-
-### Planned slab logic
-
-- Slab mode stays top-label-first:
-  - primary OCR target is the slab header/label
-  - the app should extract grader, grade, card-number clue, set/name clue, and cert number when visible
-- Grader support target:
-  - recognize and price all graders supported by Scrydex, not PSA-only
-  - current runtime/code may still contain PSA-oriented assumptions that need to be removed during implementation
-- Cert number role:
-  - cert is an auxiliary clue / shortcut when available
-  - it is not the only allowed lookup path
-- Preferred slab resolution flow:
-  - identify the underlying card from label clues
-  - resolve the exact card id
-  - choose the most likely variant automatically
-  - choose the most likely graded price row for the detected grader/grade
-- If slab grade/grader/cert is weak:
-  - still return the identified card and best pricing guess
-  - do not hard-fail just because one slab field is weak
-
-### Planned backend/provider ownership
-
-- Keep provider-specific query construction in the backend, not the app.
-- Raw provider direction remains unchanged:
-  - raw pricing stays on the current raw provider lane
-- Slab provider direction:
-  - use Scrydex to resolve the underlying card and the graded pricing
-  - app sends OCR-derived clues; backend owns provider search, exact id resolution, variant selection, and price-row selection
-- Scrydex mental model for planned slab work:
-  - OCR result => set/label clues + printed/card number + grader/grade/cert
-  - backend resolves exact card id
-  - backend uses that id for metadata/detail/pricing requests
-  - backend chooses the most likely variant automatically
-  - backend chooses the most likely graded price row automatically
-
-### Planned quality/debug rules
-
-- Distinguish failures in logs/debug artifacts, not UI:
-  - target not localized
-  - wrong geometry type
-  - holder/toploader detected
-  - target localized but footer/label text too small
-  - glare / contrast issue
-  - automatic still-photo escalation
-  - weak grader / weak grade / weak variant selection
-- When evaluating new scanner work, use real-world off-center and slightly zoomed-out cases as required acceptance cases, especially:
-  - raw cards where the footer is visible but not perfectly centered
-  - raw cards inside toploaders
-  - reflective / shiny raw cards
-  - slab labels with imperfect centering
-
-### Planning guardrails
-
-- Do not rewrite the OCR/parser stack just because one image is weak.
-- Solve geometry and target-normalization issues before changing parsing heuristics.
-- Preserve the current app/backend split:
+- The raw backend reset is active and intentionally replaced the old collector-number-first matcher:
+  - old `direct_lookup`-first raw routing is removed from the active raw runtime path
+  - runtime raw matching now uses evidence extraction -> title/broad retrieval -> footer rerank
+  - runtime SQLite target is simplified around:
+    - `cards`
+    - `card_price_snapshots`
+    - `scan_events`
+- Raw redesign target:
+  - title/header and broader text retrieve candidates first
+  - footer OCR confirms, reranks, and breaks ties later
+  - backend always returns a best candidate, even at low confidence
+- Current compatibility note:
+  - raw responses still surface `resolverPath = visual_fallback` to avoid breaking the current Swift enum/client contract
+  - the underlying raw matcher is no longer the old visual/direct-lookup path
+- Provider target after reset:
+  - raw identity/pricing => Pokemon TCG API lane
+  - slab identity/pricing => deferred until the slab rebuild lands
+- Keep the app/backend split:
   - app = capture, normalize, OCR, structured hints
-  - backend = resolve identity, choose provider record, choose pricing payload
-- If docs conflict:
-  - preserve current runtime behavior unless the task is explicitly changing it
-  - but use this section as the source of truth for planned scanner-direction work
+  - backend = candidate retrieval, identity resolution, pricing refresh, scan logging
+- The full phase-by-phase checklist, strict helper names, route-opening logic, and confidence math live in [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
 
 ## Local backend and catalog rules
 
@@ -215,7 +132,7 @@ Repo-specific workflow notes for future coding agents.
   - treat backend SQLite as the runtime cache/source for previously hydrated card metadata and pricing snapshots
   - treat provider APIs as the live source of truth for rich metadata and pricing:
     - raw/singles => Pokemon TCG API
-    - PSA/slabs => Scrydex
+    - future PSA/slabs => Scrydex after the slab rebuild
   - do not make Cloud Run correctness depend on a preseeded lightweight JSON catalog file or bundled local identifier asset
 - Preferred raw runtime flow:
   - app OCR extracts collector number/text locally
@@ -233,11 +150,9 @@ Repo-specific workflow notes for future coding agents.
   - 7. later scans of the same card should reuse SQLite until the stored snapshot is older than the `24 hour` freshness window
   - 8. once the stored snapshot is older than `24 hours`, backend should re-fetch live provider data, update SQLite, and then return the refreshed result
 - Canonical slab scan flow:
-  - 1. slab OCR reads the PSA label/cert/grade path
-  - 2. app sends slab payload directly to the backend
-  - 3. backend checks SQLite for an existing slab snapshot for the resolved card/grade context
-  - 4. if the slab snapshot is missing or stale, backend fetches live slab metadata/pricing from Scrydex, writes it into SQLite, and returns it
-  - 5. if PSA label OCR or Scrydex data is insufficient, return unsupported/no-price; do not fall back to raw-card pricing
+  - deferred in the current raw-only backend contraction
+  - do not rebuild slab behavior on top of deleted legacy slab modules
+  - rebuild slabs later using the preserved thin Scrydex adapter and the 3-table SQLite model
 - Freshness policy:
   - `updated_at` / persisted snapshot timestamps in SQLite are the correctness layer for freshness
   - the `24 hour` freshness window should be enforced against SQLite snapshot age
@@ -245,12 +160,12 @@ Repo-specific workflow notes for future coding agents.
   - `forceRefresh` should bypass the normal freshness gate and re-query the live provider
 - Rich card metadata and pricing should come from runtime metadata/provider APIs:
   - raw/singles => Pokemon TCG API
-  - PSA/slabs => Scrydex
+  - future PSA/slabs => Scrydex
   - do not silently cross-fallback slab pricing into raw pricing in the scanner flow
   not from large checked-in image bundles.
 - Do not use card-ID prefix hacks such as `me*` blocking in runtime matching or bundled identifier lookup.
 - Do not re-introduce bundled/local raw identifier maps or client-side candidate hydration hints for raw scans.
-- Treat `backend/catalog/pokemontcg/images/` as a legacy importer artifact, not a required product/runtime asset.
+- `backend/catalog/` has been deleted from the active backend. Do not reintroduce bundled catalog/image/sample artifacts as runtime dependencies.
 - If current backend code still references local reference images for visual retrieval, call that out as legacy technical debt instead of expanding that pattern.
 - Scanner presentation rule:
   - preserve the current raw-card OCR pipeline unless there is a concrete bug; raw footer OCR is working well now
@@ -269,10 +184,11 @@ Repo-specific workflow notes for future coding agents.
 
 - `backend/server.py`
 - `backend/catalog_tools.py`
+- `backend/import_pokemontcg_catalog.py`
+- `backend/pokemontcg_pricing_adapter.py`
+- `backend/pricing_provider.py`
 - `backend/scrydex_adapter.py`
-- `backend/slab_source_sync.py`
-- `backend/catalog_sync.py`
-- `backend/sync_catalog.py`
+- `backend/pricecharting_adapter.py`
 - `backend/validate_scrydex.py`
 
 ## Key app entry points
@@ -288,16 +204,13 @@ Repo-specific workflow notes for future coding agents.
 Run these after backend or app changes:
 
 ```bash
-python3 -m py_compile backend/catalog_tools.py backend/import_pokemontcg_catalog.py backend/catalog_sync.py backend/sync_catalog.py backend/slab_source_sync.py backend/sync_slab_sources.py backend/scrydex_adapter.py backend/validate_scrydex.py backend/server.py
-python3 -m unittest discover -s backend/tests -p 'test_*.py' -v
+python3 -m py_compile backend/catalog_tools.py backend/import_pokemontcg_catalog.py backend/pokemontcg_pricing_adapter.py backend/pricecharting_adapter.py backend/pricing_provider.py backend/pricing_utils.py backend/scrydex_adapter.py backend/validate_scrydex.py backend/server.py
+python3 -m unittest -v backend.tests.test_backend_reset_phase1 backend.tests.test_raw_evidence_phase3 backend.tests.test_raw_retrieval_phase4 backend.tests.test_raw_decision_phase5 backend.tests.test_pricing_phase6 backend.tests.test_scan_logging_phase7 backend.tests.test_import_pokemontcg_catalog backend.tests.test_pricing_utils
 zsh tools/run_card_identifier_parser_tests.sh
+zsh tools/run_raw_card_decision_tests.sh
 zsh tools/run_scanner_reticle_layout_tests.sh
 zsh tools/run_scan_tray_logic_tests.sh
 xcodebuild -project Spotlight.xcodeproj -scheme Spotlight -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .derivedData CODE_SIGNING_ALLOWED=NO build
-SPOTLIGHT_SCANNER_SERVER=http://127.0.0.1:8788/ zsh tools/run_scanner_regression.sh
-zsh tools/run_realworld_regression.sh
-SPOTLIGHT_BENCHMARK_ITERATIONS=1 zsh tools/run_scan_latency_benchmark.sh
-zsh tools/run_scan_performance_tests.sh
 ```
 
 ## Runtime commands
@@ -305,8 +218,7 @@ zsh tools/run_scan_performance_tests.sh
 Imported backend:
 
 ```bash
-export SCRYDEX_API_KEY=your_api_key
-export SCRYDEX_TEAM_ID=your_team_id
+export POKEMONTCG_API_KEY=your_api_key
 python3 backend/server.py \
   --skip-seed \
   --database-path backend/data/spotlight_scanner.sqlite \
@@ -341,38 +253,31 @@ Rules:
 - do not re-introduce duplicate local `.env` paths
 - `backend/deploy.sh` is the one-command entrypoint; helper scripts may remain underneath but should not become the primary documented flow
 
-Sample backend:
+Explicit seed/sample backend:
 
 ```bash
 python3 backend/server.py \
-  --cards-file backend/catalog/sample_catalog.json \
-  --database-path backend/data/sample_scanner.sqlite \
+  --cards-file /absolute/path/to/cards.json \
+  --database-path /absolute/path/to/dev_seed.sqlite \
   --port 8787
 ```
 
 ## QA assets
 
-- Clean image regression runner: `tools/run_scanner_regression.sh`
-- Real-world image regression runner: `tools/run_realworld_regression.sh`
-- Latency benchmark runner: `tools/run_scan_latency_benchmark.sh`
 - Simulator photo import: `tools/import_simulator_media.sh`
+- Local raw/OCR fixtures and manifests still live under `qa/` for future OCR work, but the old bundled scanner regression/benchmark harnesses were intentionally removed during the raw-backend reset.
 
 ## Notes
 
 - A `.git` directory may or may not be present depending on the workspace snapshot. Use `git status` when it exists, but do not rely on git state alone for change discovery.
-- Prefer updating the master status doc and `PLAN.md` when milestones move.
+- Prefer updating the backend reset spec, the master status doc, and `PLAN.md` when milestones move.
 - Before touching provider code, read the new provider-abstraction docs above. The intended behavior is:
   - one active/default provider result for the tray
   - future side-by-side provider display in details
   - no cross-provider averaging
 - Important ops endpoints now exist:
   - `GET /api/v1/ops/provider-status`
-  - `GET /api/v1/ops/catalog-sync-status`
-  - `GET /api/v1/ops/pricing-refresh-failures`
   - `GET /api/v1/ops/unmatched-scans`
-- The backend can now import live catalog misses through `POST /api/v1/catalog/import-card` and `POST /api/v1/catalog/resolve-miss`.
-- Production slab-source manifest sample exists at `backend/catalog/slab_sources.production.sample.json`.
-- Validate slab-source auth/readiness without running sync:
-  - `python3 backend/sync_slab_sources.py --manifest backend/catalog/slab_sources.production.sample.json --validate`
+- The backend can import raw card records through `POST /api/v1/catalog/import-card`.
 - Validate Scrydex creds/live provider wiring:
   - `python3 backend/validate_scrydex.py`
