@@ -8,6 +8,7 @@ actor ScanEventStore {
     private let encoder: JSONEncoder
     private let databaseURL: URL
     private let cropsDirectoryURL: URL
+    private var isBootstrapped = false
 
     init(fileManager: FileManager = .default) {
         encoder = JSONEncoder()
@@ -24,12 +25,11 @@ actor ScanEventStore {
 
         databaseURL = directoryURL.appendingPathComponent("scan_telemetry.sqlite")
         self.cropsDirectoryURL = cropsDirectoryURL
-
-        Self.bootstrapDatabaseIfNeeded(at: databaseURL)
     }
 
     func logPrediction(analysis: AnalyzedCapture, response: ScanMatchResponse) async {
         do {
+            try ensureBootstrappedIfNeeded()
             let imagePath = try persistNormalizedImage(analysis.normalizedImage, scanID: analysis.scanID)
             let requestPayload = ScanMatchRequestPayload(
                 scanID: analysis.scanID,
@@ -149,6 +149,7 @@ actor ScanEventStore {
         correctionType: CorrectionType
     ) async {
         do {
+            try ensureBootstrappedIfNeeded()
             let completedAt = iso8601String(for: Date())
 
             try withConnection { database in
@@ -195,10 +196,15 @@ actor ScanEventStore {
         }
     }
 
-    private static func bootstrapDatabaseIfNeeded(at databaseURL: URL) {
-        do {
-            try withConnection(at: databaseURL) { database in
-                try execute(
+    private func ensureBootstrappedIfNeeded() throws {
+        guard !isBootstrapped else { return }
+        try Self.bootstrapDatabaseIfNeeded(at: databaseURL)
+        isBootstrapped = true
+    }
+
+    private static func bootstrapDatabaseIfNeeded(at databaseURL: URL) throws {
+        try withConnection(at: databaseURL) { database in
+            try execute(
                     """
                     CREATE TABLE IF NOT EXISTS scan_events (
                         scan_id TEXT PRIMARY KEY,
@@ -220,7 +226,7 @@ actor ScanEventStore {
                     in: database
                 )
 
-                try execute(
+            try execute(
                     """
                     CREATE TABLE IF NOT EXISTS scan_candidates (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -237,7 +243,7 @@ actor ScanEventStore {
                     in: database
                 )
 
-                try execute(
+            try execute(
                     """
                     CREATE TABLE IF NOT EXISTS scan_feedback (
                         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,20 +257,15 @@ actor ScanEventStore {
                     in: database
                 )
 
-                try execute(
-                    "CREATE INDEX IF NOT EXISTS idx_scan_candidates_scan_id ON scan_candidates(scan_id)",
-                    in: database
-                )
+            try execute(
+                "CREATE INDEX IF NOT EXISTS idx_scan_candidates_scan_id ON scan_candidates(scan_id)",
+                in: database
+            )
 
-                try execute(
-                    "CREATE INDEX IF NOT EXISTS idx_scan_feedback_scan_id ON scan_feedback(scan_id)",
-                    in: database
-                )
-            }
-        } catch {
-            #if DEBUG
-            print("Failed to bootstrap scan telemetry database:", error.localizedDescription)
-            #endif
+            try execute(
+                "CREATE INDEX IF NOT EXISTS idx_scan_feedback_scan_id ON scan_feedback(scan_id)",
+                in: database
+            )
         }
     }
 

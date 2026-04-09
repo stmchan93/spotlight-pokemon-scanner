@@ -39,21 +39,10 @@ What is intentionally removed right now:
 
 ```bash
 python3 backend/server.py \
-  --skip-seed \
   --database-path backend/data/spotlight_scanner.sqlite \
   --port 8788
 ```
-
-Optional explicit seed flow:
-
-```bash
-python3 backend/server.py \
-  --cards-file /absolute/path/to/cards.json \
-  --database-path /absolute/path/to/dev_seed.sqlite \
-  --port 8787
-```
-
-If you do not pass `--cards-file`, the backend runs live-only and does not depend on any bundled catalog directory.
+The backend is always live-only. It does not support seeded catalog startup anymore.
 
 ## Environment
 

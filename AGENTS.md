@@ -220,7 +220,6 @@ Imported backend:
 ```bash
 export POKEMONTCG_API_KEY=your_api_key
 python3 backend/server.py \
-  --skip-seed \
   --database-path backend/data/spotlight_scanner.sqlite \
   --port 8788
 ```
@@ -229,7 +228,6 @@ python3 backend/server.py \
 
 ```bash
 python3 backend/server.py \
-  --skip-seed \
   --database-path backend/data/spotlight_scanner.sqlite \
   --host 0.0.0.0 \
   --port 8788
@@ -253,14 +251,7 @@ Rules:
 - do not re-introduce duplicate local `.env` paths
 - `backend/deploy.sh` is the one-command entrypoint; helper scripts may remain underneath but should not become the primary documented flow
 
-Explicit seed/sample backend:
-
-```bash
-python3 backend/server.py \
-  --cards-file /absolute/path/to/cards.json \
-  --database-path /absolute/path/to/dev_seed.sqlite \
-  --port 8787
-```
+The backend is always live-only. Do not reintroduce seeded startup or bundled catalog bootstrap modes.
 
 ## QA assets
 

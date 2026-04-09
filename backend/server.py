@@ -32,14 +32,12 @@ from catalog_tools import (
     connect,
     contextual_pricing_summary_for_card,
     finalize_raw_decision,
-    load_cards_json,
     load_index,
     merge_raw_candidate_pools,
     rank_raw_candidates,
     raw_debug_payload,
     raw_pricing_summary_for_card,
     resolver_mode_for_payload,
-    resolve_catalog_json_path,
     score_raw_signals,
     search_cards,
     search_cards_local,
@@ -47,7 +45,6 @@ from catalog_tools import (
     search_cards_local_collector_set,
     search_cards_local_title_only,
     search_cards_local_title_set,
-    seed_catalog,
     upsert_catalog_card,
     upsert_scan_event,
     utc_now,
@@ -72,10 +69,9 @@ class ServerConfig:
 
 
 class SpotlightScanService:
-    def __init__(self, database_path: Path, repo_root: Path, cards_path: Path | None = None) -> None:
+    def __init__(self, database_path: Path, repo_root: Path) -> None:
         self.database_path = database_path
         self.repo_root = repo_root
-        self.cards_path = cards_path
         self.connection = connect(database_path)
         self.index = load_index(self.connection)
 
@@ -1009,29 +1005,19 @@ def cli_int_value(flag: str, default: int) -> int:
 
 def bootstrap_backend(
     root: Path,
-    cards_file: str | None = None,
     database_path_override: str | None = None,
-    skip_seed: bool = False,
-) -> tuple[Path, Path | None]:
+) -> Path:
     repo_root = root.parent
     data_directory = root / "data"
     data_directory.mkdir(parents=True, exist_ok=True)
 
     database_path = Path(database_path_override) if database_path_override else data_directory / "spotlight_scanner.sqlite"
     schema_path = root / "schema.sql"
-    explicit_cards_path = cards_file or os.environ.get("SPOTLIGHT_CATALOG_PATH")
-    cards_path: Path | None = None
-    if explicit_cards_path:
-        cards_path = resolve_catalog_json_path(root, explicit_path=explicit_cards_path)
-    elif not skip_seed:
-        raise SystemExit("--cards-file or SPOTLIGHT_CATALOG_PATH is required when seeding the backend.")
 
     connection = connect(database_path)
     apply_schema(connection, schema_path)
-    if not skip_seed and cards_path is not None:
-        seed_catalog(connection, load_cards_json(cards_path), repo_root)
     connection.close()
-    return database_path, cards_path
+    return database_path
 
 
 def main() -> None:
@@ -1041,14 +1027,12 @@ def main() -> None:
         host=cli_value("--host") or os.environ.get("SPOTLIGHT_HOST", "127.0.0.1"),
         port=cli_int_value("--port", int(os.environ.get("SPOTLIGHT_PORT", "8787"))),
     )
-    database_path, cards_path = bootstrap_backend(
+    database_path = bootstrap_backend(
         root,
-        cards_file=cli_value("--cards-file"),
         database_path_override=cli_value("--database-path") or os.environ.get("SPOTLIGHT_DATABASE_PATH"),
-        skip_seed=("--skip-seed" in sys.argv) or (os.environ.get("SPOTLIGHT_SKIP_SEED") == "1"),
     )
 
-    SpotlightRequestHandler.service = SpotlightScanService(database_path, repo_root, cards_path=cards_path)
+    SpotlightRequestHandler.service = SpotlightScanService(database_path, repo_root)
     server = HTTPServer((config.host, config.port), SpotlightRequestHandler)
     print(f"Spotlight scan service listening on http://{config.host}:{config.port}", flush=True)
     try:
@@ -1059,13 +1043,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    if "--seed-only" in sys.argv:
-        root = Path(__file__).resolve().parent
-        database_path, _ = bootstrap_backend(
-            root,
-            cards_file=cli_value("--cards-file"),
-            database_path_override=cli_value("--database-path") or os.environ.get("SPOTLIGHT_DATABASE_PATH"),
-        )
-        print(f"Catalog initialized at {database_path}")
-    else:
-        main()
+    main()

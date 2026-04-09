@@ -16,9 +16,7 @@ fi
 
 # Start the server (python-dotenv will load backend/.env automatically)
 # Bind to 0.0.0.0 to allow iPhone to connect
-# Use --skip-seed to avoid reloading catalog on every start
 python3 backend/server.py \
   --database-path backend/data/spotlight_scanner.sqlite \
   --port 8788 \
-  --host 0.0.0.0 \
-  --skip-seed
+  --host 0.0.0.0

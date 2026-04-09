@@ -128,7 +128,125 @@ def connect(database_path: Path | str) -> sqlite3.Connection:
     return connection
 
 
+def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
+    rows = connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    return {str(row["name"]) for row in rows}
+
+
+def _runtime_schema_is_compatible(connection: sqlite3.Connection) -> bool:
+    required_cards_columns = {
+        "id",
+        "name",
+        "set_name",
+        "number",
+        "rarity",
+        "variant",
+        "language",
+        "source_provider",
+        "source_record_id",
+        "set_id",
+        "set_series",
+        "set_ptcgo_code",
+        "set_release_date",
+        "supertype",
+        "subtypes_json",
+        "types_json",
+        "artist",
+        "regulation_mark",
+        "national_pokedex_numbers_json",
+        "image_url",
+        "image_small_url",
+        "source_payload_json",
+        "created_at",
+        "updated_at",
+    }
+    required_snapshot_columns = {
+        "id",
+        "card_id",
+        "pricing_mode",
+        "provider",
+        "grader",
+        "grade",
+        "variant",
+        "currency_code",
+        "low_price",
+        "market_price",
+        "mid_price",
+        "high_price",
+        "direct_low_price",
+        "trend_price",
+        "source_url",
+        "source_updated_at",
+        "source_payload_json",
+        "updated_at",
+    }
+    required_scan_columns = {
+        "scan_id",
+        "created_at",
+        "resolver_mode",
+        "resolver_path",
+        "request_json",
+        "response_json",
+        "matcher_source",
+        "matcher_version",
+        "selected_card_id",
+        "confidence",
+        "review_disposition",
+        "correction_type",
+        "completed_at",
+    }
+
+    tables = {
+        str(row["name"])
+        for row in connection.execute(
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+        ).fetchall()
+    }
+
+    if not tables:
+        return True
+
+    if "cards" not in tables:
+        return False
+
+    cards_columns = _table_columns(connection, "cards")
+    if not required_cards_columns.issubset(cards_columns):
+        return False
+
+    if "card_price_snapshots" in tables:
+        snapshot_columns = _table_columns(connection, "card_price_snapshots")
+        if not required_snapshot_columns.issubset(snapshot_columns):
+            return False
+
+    if "scan_events" in tables:
+        scan_columns = _table_columns(connection, "scan_events")
+        if not required_scan_columns.issubset(scan_columns):
+            return False
+
+    return True
+
+
+def _reset_runtime_schema(connection: sqlite3.Connection) -> None:
+    connection.execute("PRAGMA foreign_keys = OFF")
+    table_rows = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+    index_rows = connection.execute(
+        "SELECT name FROM sqlite_master WHERE type = 'index' AND name NOT LIKE 'sqlite_%'"
+    ).fetchall()
+
+    for row in index_rows:
+        connection.execute(f'DROP INDEX IF EXISTS "{row["name"]}"')
+    for row in table_rows:
+        connection.execute(f'DROP TABLE IF EXISTS "{row["name"]}"')
+
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.commit()
+
+
 def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
+    if not _runtime_schema_is_compatible(connection):
+        _reset_runtime_schema(connection)
     connection.executescript(schema_path.read_text())
     connection.commit()
 
@@ -302,19 +420,6 @@ def build_raw_retrieval_plan(evidence: RawEvidence, signals: RawSignalScores) ->
         or signals.collector_signal >= 70
     )
     return RawRetrievalPlan(routes=tuple(routes), should_query_remote=should_query_remote)
-
-
-def resolve_catalog_json_path(backend_root: Path, explicit_path: str | None = None) -> Path:
-    if explicit_path:
-        return Path(explicit_path)
-    raise ValueError("An explicit cards-file path is required for seed/sample workflows.")
-
-
-def load_cards_json(cards_path: Path) -> list[dict[str, Any]]:
-    if not cards_path.exists():
-        return []
-    payload = json.loads(cards_path.read_text())
-    return [item for item in payload if isinstance(item, dict)]
 
 
 def _card_row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -812,16 +917,6 @@ def upsert_catalog_card(
                 source_url=tcgplayer.get("url"),
                 payload={"provider": "pokemontcg_api", "priceSource": "tcgplayer"},
             )
-
-
-def seed_catalog(connection: sqlite3.Connection, cards: list[dict[str, Any]], repo_root: Path) -> None:
-    del repo_root
-    connection.execute("DELETE FROM scan_events")
-    connection.execute("DELETE FROM card_price_snapshots")
-    connection.execute("DELETE FROM cards")
-    for card in cards:
-        upsert_catalog_card(connection, card, Path("."), utc_now())
-    connection.commit()
 
 
 def load_index(connection: sqlite3.Connection) -> CatalogIndex:

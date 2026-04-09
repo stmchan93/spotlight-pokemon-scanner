@@ -35,10 +35,6 @@ final class AppContainer: ObservableObject {
             cacheManager.cleanup()
             print("✅ [APP] Cache cleanup completed")
         }
-
-        // Start camera session immediately so it's ready when view appears
-        cameraController.requestAccessIfNeeded()
-
     }
 
     func primeLocalNetworkPermissionIfNeeded() {
@@ -46,6 +42,7 @@ final class AppContainer: ObservableObject {
         hasPrimedLocalNetworkPermission = true
 
         Task(priority: .utility) { [remoteMatcher] in
+            try? await Task.sleep(for: .milliseconds(600))
             await remoteMatcher.primeLocalNetworkPermissionIfNeeded()
         }
     }

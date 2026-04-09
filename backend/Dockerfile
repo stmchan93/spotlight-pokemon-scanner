@@ -14,6 +14,5 @@ ENV PORT=8080
 # Run the server in live-match mode. SQLite is a runtime cache, not a required
 # preseeded catalog source of truth.
 CMD python server.py \
-    --skip-seed \
     --port ${PORT} \
     --host 0.0.0.0
