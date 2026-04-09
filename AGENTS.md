@@ -7,6 +7,57 @@ Repo-specific workflow notes for future coding agents.
 - This repo is a local iOS + Python backend prototype for a Pokemon card scanner.
 - The active product/status doc is [docs/spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md).
 
+## Subagent workflow
+
+- Keep the workflow lightweight. This repo is one SwiftUI iOS app plus one Python backend, so most tasks should use one agent or a short `architect -> implementer -> QA` chain, not a large agent swarm.
+- Shared starting points for every agent:
+  - read this file first
+  - read [docs/spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md) for current product/runtime rules
+  - read [PLAN.md](/Users/stephenchan/Code/spotlight/PLAN.md) when milestone/status context matters
+  - then read only the code and docs for the touched area
+- Repo map for agent scoping:
+  - iOS composition/env: `Spotlight/App`, `Spotlight/Config`
+  - iOS UI: `Spotlight/Views`
+  - iOS scanner orchestration/state: `Spotlight/ViewModels`
+  - iOS parsing/network/cache helpers: `Spotlight/Services`
+  - shared app models/tray logic/API models: `Spotlight/Models`
+  - backend HTTP/runtime entrypoint: `backend/server.py`
+  - backend matching, SQLite, shared resolver helpers: `backend/catalog_tools.py`
+  - backend provider adapters/contracts: `backend/pricing_provider.py`, `backend/*adapter.py`
+  - validation/manifests/manual QA: `tools/`, `qa/`, `backend/tests/`, `Spotlight/Tests/`
+- Required handoff artifact between agents: keep it short and structured.
+  - `Scope:` request summary and exact surface
+  - `Files:` likely or actual touched files only
+  - `Acceptance:` concrete success conditions
+  - `Validation:` exact commands run or still needed
+  - `Risks:` edge cases, blockers, or `none`
+- Routing:
+  - `Implementer only`:
+    - doc-only updates
+    - single-view copy/layout tweaks
+    - isolated parser/test/helper changes with obvious scope
+    - narrow backend fixes with clear root cause and limited file spread
+  - `Architect -> Implementer`:
+    - medium ambiguity
+    - multi-file work inside one app/backend surface
+    - scanner state flow updates
+    - endpoint/model additions
+    - Xcode/backend config changes
+  - `Architect -> Implementer -> QA`:
+    - resolver/router logic
+    - OCR/parser behavior
+    - pricing freshness/provider selection
+    - raw/slab mode routing
+    - backend schema or API contract changes
+    - user-facing scanner tray behavior that can silently misidentify or misprice cards
+  - `Investigation first`:
+    - if the root cause is unclear, use Architect or Implementer to localize the issue before coding
+    - add QA once the fix scope is known or the change crosses app/backend boundaries
+- Role files live here:
+  - [.agents/architect.md](/Users/stephenchan/Code/spotlight/.agents/architect.md)
+  - [.agents/implementer.md](/Users/stephenchan/Code/spotlight/.agents/implementer.md)
+  - [.agents/qa.md](/Users/stephenchan/Code/spotlight/.agents/qa.md)
+
 ## Current provider rules
 
 - Pricing provider abstraction is now implemented with specialized providers:
@@ -35,6 +86,113 @@ Repo-specific workflow notes for future coding agents.
   - [backend/pokemontcg_pricing_adapter.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_pricing_adapter.py) - Pokemon TCG API implementation
   - [backend/pricecharting_adapter.py](/Users/stephenchan/Code/spotlight/backend/pricecharting_adapter.py) - PriceCharting implementation
   - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py) - Scrydex implementation
+
+## Planned scanner decision spec
+
+- This section is the agreed target behavior for upcoming scanner work. Treat it as the implementation plan even if current runtime behavior still has older PSA-only or stricter fallback assumptions in places.
+- Scanner mode remains authoritative:
+  - `raw` mode => raw-card OCR payload + raw-card pricing lane
+  - `slab` mode => slab OCR payload + slab pricing lane
+  - no hidden cross-degrade between raw and slab flows
+- Bias toward aggressive best-effort identification, not conservative rejection:
+  - when OCR is incomplete, still return the best guess payload/candidate available
+  - keep detailed failure reasons in logs/debug artifacts, not in user-facing UI
+
+### Planned raw-card logic
+
+- Raw-card identity is still anchored on footer OCR:
+  - primary signals: collector number + set hint
+  - footer regions remain the most important OCR targets
+  - title/name clues are secondary support, not the primary contract
+- Raw mode must first-class support:
+  - naked raw cards
+  - raw cards in sleeves
+  - raw cards in toploaders or similar rigid holders
+  - slightly off-center captures
+  - slightly farther-away captures
+  - mildly blurry or mildly reflective captures, as long as the footer is still reasonably recoverable
+- Reticle behavior:
+  - the reticle is a positioning hint, not an exact OCR crop
+  - target selection should tolerate cards that are not perfectly centered inside the reticle
+- Pre-OCR target logic for raw:
+  - detect the best target near the reticle
+  - allow holder-aware geometry, not just naked-card geometry
+  - if the chosen rectangle is a holder/toploader, derive an inner-card crop before footer OCR
+  - normalize the card upright before running footer OCR
+- OCR order for raw:
+  - bottom-left
+  - bottom-right
+  - bottom-full fallback
+  - optional broader fallback only after the footer-specific path is exhausted
+- Minimum useful raw signal:
+  - ideal: collector number + set hint
+  - if that fails, still send the strongest best-effort raw payload to the backend rather than hard-failing locally
+- Capture fallback for raw:
+  - use preview-frame capture first
+  - allow automatic still-photo fallback only when geometry looks good but footer OCR quality is too weak
+  - do not default all scans to still-photo capture
+
+### Planned slab logic
+
+- Slab mode stays top-label-first:
+  - primary OCR target is the slab header/label
+  - the app should extract grader, grade, card-number clue, set/name clue, and cert number when visible
+- Grader support target:
+  - recognize and price all graders supported by Scrydex, not PSA-only
+  - current runtime/code may still contain PSA-oriented assumptions that need to be removed during implementation
+- Cert number role:
+  - cert is an auxiliary clue / shortcut when available
+  - it is not the only allowed lookup path
+- Preferred slab resolution flow:
+  - identify the underlying card from label clues
+  - resolve the exact card id
+  - choose the most likely variant automatically
+  - choose the most likely graded price row for the detected grader/grade
+- If slab grade/grader/cert is weak:
+  - still return the identified card and best pricing guess
+  - do not hard-fail just because one slab field is weak
+
+### Planned backend/provider ownership
+
+- Keep provider-specific query construction in the backend, not the app.
+- Raw provider direction remains unchanged:
+  - raw pricing stays on the current raw provider lane
+- Slab provider direction:
+  - use Scrydex to resolve the underlying card and the graded pricing
+  - app sends OCR-derived clues; backend owns provider search, exact id resolution, variant selection, and price-row selection
+- Scrydex mental model for planned slab work:
+  - OCR result => set/label clues + printed/card number + grader/grade/cert
+  - backend resolves exact card id
+  - backend uses that id for metadata/detail/pricing requests
+  - backend chooses the most likely variant automatically
+  - backend chooses the most likely graded price row automatically
+
+### Planned quality/debug rules
+
+- Distinguish failures in logs/debug artifacts, not UI:
+  - target not localized
+  - wrong geometry type
+  - holder/toploader detected
+  - target localized but footer/label text too small
+  - glare / contrast issue
+  - automatic still-photo escalation
+  - weak grader / weak grade / weak variant selection
+- When evaluating new scanner work, use real-world off-center and slightly zoomed-out cases as required acceptance cases, especially:
+  - raw cards where the footer is visible but not perfectly centered
+  - raw cards inside toploaders
+  - reflective / shiny raw cards
+  - slab labels with imperfect centering
+
+### Planning guardrails
+
+- Do not rewrite the OCR/parser stack just because one image is weak.
+- Solve geometry and target-normalization issues before changing parsing heuristics.
+- Preserve the current app/backend split:
+  - app = capture, normalize, OCR, structured hints
+  - backend = resolve identity, choose provider record, choose pricing payload
+- If docs conflict:
+  - preserve current runtime behavior unless the task is explicitly changing it
+  - but use this section as the source of truth for planned scanner-direction work
 
 ## Local backend and catalog rules
 
@@ -151,7 +309,17 @@ export SCRYDEX_API_KEY=your_api_key
 export SCRYDEX_TEAM_ID=your_team_id
 python3 backend/server.py \
   --skip-seed \
-  --database-path backend/data/imported_scanner.sqlite \
+  --database-path backend/data/spotlight_scanner.sqlite \
+  --port 8788
+```
+
+- For physical-device testing over LAN, bind the backend to all interfaces:
+
+```bash
+python3 backend/server.py \
+  --skip-seed \
+  --database-path backend/data/spotlight_scanner.sqlite \
+  --host 0.0.0.0 \
   --port 8788
 ```
 
@@ -191,7 +359,7 @@ python3 backend/server.py \
 
 ## Notes
 
-- There is no `.git` directory in this workspace right now, so do not rely on `git status` for change discovery.
+- A `.git` directory may or may not be present depending on the workspace snapshot. Use `git status` when it exists, but do not rely on git state alone for change discovery.
 - Prefer updating the master status doc and `PLAN.md` when milestones move.
 - Before touching provider code, read the new provider-abstraction docs above. The intended behavior is:
   - one active/default provider result for the tray

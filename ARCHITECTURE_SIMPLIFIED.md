@@ -85,7 +85,7 @@ python3 fetch_all_pokemon.py
    # Old (required preseeded catalog snapshot):
    python3 server.py \
      --cards-file catalog/sample_catalog.json \
-     --database-path data/imported_scanner.sqlite \
+     --database-path data/spotlight_scanner.sqlite \
      --port 8788
 
    # New (no checked-in backend catalog snapshot needed):

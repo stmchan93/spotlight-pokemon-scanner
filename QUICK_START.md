@@ -16,7 +16,7 @@
 cd /Users/stephenchan/Code/spotlight/backend
 
 python3 server.py \
-  --database-path data/imported_scanner.sqlite \
+  --database-path data/spotlight_scanner.sqlite \
   --port 8788 \
   --skip-seed
 ```

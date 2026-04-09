@@ -148,7 +148,7 @@
 ### Pre-Flight Checks
 - [ ] Add `identifiers_pokemon.json` to Xcode Copy Bundle Resources
 - [ ] Build succeeds in Xcode
-- [ ] Backend running: `python3 server.py --database-path data/imported_scanner.sqlite --port 8788 --skip-seed`
+- [ ] Backend running: `python3 server.py --database-path data/spotlight_scanner.sqlite --port 8788 --skip-seed`
 - [ ] Backend URL correct in AppContainer: `http://192.168.0.225:8788/`
 
 ### Test 1: Identifier Map Loading
@@ -409,7 +409,7 @@ cd /Users/stephenchan/Code/spotlight/backend
 
 # Start backend
 python3 server.py \
-  --database-path data/imported_scanner.sqlite \
+  --database-path data/spotlight_scanner.sqlite \
   --port 8788 \
   --skip-seed
 

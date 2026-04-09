@@ -57,6 +57,8 @@ struct AnalyzedCapture: @unchecked Sendable {
     let resolverModeHint: ResolverMode
     let cropConfidence: Double
     let warnings: [String]
+    let shouldRetryWithStillPhoto: Bool
+    let stillPhotoRetryReason: String?
 }
 
 extension RecognizedToken: Codable {}
@@ -122,6 +124,19 @@ enum CacheStatus {
     case recent(hours: Int) // 1-24 hours
     case outdated(days: Int)// 1-7 days
     case offline            // No backend connection
+}
+
+enum ScanCaptureSource: String, Codable, Hashable, Sendable {
+    case livePreviewFrame = "live_preview_frame"
+    case liveStillPhoto = "live_still_photo"
+    case importedPhoto = "imported_photo"
+}
+
+struct ScanCaptureInput: @unchecked Sendable {
+    let originalImage: UIImage
+    let searchImage: UIImage
+    let fallbackImage: UIImage?
+    let captureSource: ScanCaptureSource
 }
 
 struct LiveScanStackItem: Identifiable {

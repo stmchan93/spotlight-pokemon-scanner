@@ -26,6 +26,11 @@
 	<true/>
 	<key>NSCameraUsageDescription</key>
 	<string>Spotlight needs camera access to scan Pokemon cards for identification and pricing.</string>
+	<key>NSAppTransportSecurity</key>
+	<dict>
+		<key>NSAllowsLocalNetworking</key>
+		<true/>
+	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Spotlight needs local network access to connect to your Mac for card pricing and catalog matching.</string>
 	<key>NSPhotoLibraryUsageDescription</key>

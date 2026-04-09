@@ -3,6 +3,8 @@ import Foundation
 @MainActor
 final class AppContainer: ObservableObject {
     let scannerViewModel: ScannerViewModel
+    private let remoteMatcher: RemoteScanMatchingService
+    private var hasPrimedLocalNetworkPermission = false
 
     init() {
         let cameraController = CameraSessionController()
@@ -17,6 +19,7 @@ final class AppContainer: ObservableObject {
         ))
         let remoteBaseURL = Self.resolveBackendBaseURL()
         let remoteMatcher = RemoteScanMatchingService(baseURL: remoteBaseURL)
+        self.remoteMatcher = remoteMatcher
         let logStore = ScanEventStore()
 
         scannerViewModel = ScannerViewModel(
@@ -36,6 +39,15 @@ final class AppContainer: ObservableObject {
         // Start camera session immediately so it's ready when view appears
         cameraController.requestAccessIfNeeded()
 
+    }
+
+    func primeLocalNetworkPermissionIfNeeded() {
+        guard !hasPrimedLocalNetworkPermission else { return }
+        hasPrimedLocalNetworkPermission = true
+
+        Task(priority: .utility) { [remoteMatcher] in
+            await remoteMatcher.primeLocalNetworkPermissionIfNeeded()
+        }
     }
 
     private static func resolveBackendBaseURL() -> URL {

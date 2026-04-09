@@ -41,7 +41,7 @@ def main() -> None:
         )
 
     database_path_value = cli_value("--database-path")
-    database_path = Path(database_path_value) if database_path_value else backend_root / "data" / "imported_scanner.sqlite"
+    database_path = Path(database_path_value) if database_path_value else backend_root / "data" / "spotlight_scanner.sqlite"
 
     cards_file_value = cli_value("--cards-file")
     cards_path = resolve_catalog_json_path(backend_root, explicit_path=cards_file_value)

@@ -964,16 +964,51 @@ def slab_label_support_tokens(payload: dict[str, Any]) -> set[str]:
 
 
 def slab_candidate_has_label_support(name: str, set_name: str, payload: dict[str, Any]) -> bool:
+    label_text = " ".join(
+        part for part in [
+            payload.get("topLabelRecognizedText") or "",
+            payload.get("fullRecognizedText") or "",
+        ]
+        if part
+    )
     label_tokens = slab_label_support_tokens(payload)
     if not label_tokens:
         return False
+    normalized_label_text = " ".join(tokenize(label_text))
 
     candidate_name_tokens = {
         token
         for token in tokenize(name)
-        if len(token) > 1 and token not in GENERIC_CARD_NAME_TOKENS
+        if len(token) > 1
+        and token not in GENERIC_CARD_NAME_TOKENS
+        and token
+        not in {
+            "pokemon",
+            "game",
+            "card",
+            "cards",
+            "base",
+            "set",
+            "series",
+            "sun",
+            "moon",
+            "sword",
+            "shield",
+            "scarlet",
+            "violet",
+            "tag",
+            "team",
+            "all",
+            "stars",
+            "go",
+        }
     }
-    if candidate_name_tokens and not candidate_name_tokens.isdisjoint(label_tokens):
+    name_overlap = candidate_name_tokens & label_tokens
+    if len(name_overlap) >= 2 or any(len(token) >= 5 for token in name_overlap):
+        return True
+
+    normalized_set_name = " ".join(tokenize(set_name))
+    if normalized_set_name and len(normalized_set_name.split()) >= 2 and normalized_set_name in normalized_label_text:
         return True
 
     set_stop_tokens = {
@@ -989,13 +1024,25 @@ def slab_candidate_has_label_support(name: str, set_name: str, payload: dict[str
         "shadowless",
         "edition",
         "series",
+        "sun",
+        "moon",
+        "sword",
+        "shield",
+        "scarlet",
+        "violet",
+        "tag",
+        "team",
+        "all",
+        "stars",
+        "go",
     }
     candidate_set_tokens = {
         token
         for token in tokenize(set_name)
         if len(token) > 1 and token not in set_stop_tokens
     }
-    return bool(candidate_set_tokens and not candidate_set_tokens.isdisjoint(label_tokens))
+    set_overlap = candidate_set_tokens & label_tokens
+    return len(set_overlap) >= 2 or any(len(token) >= 5 for token in set_overlap)
 
 
 @dataclass(frozen=True)

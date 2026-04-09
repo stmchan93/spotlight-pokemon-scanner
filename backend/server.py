@@ -84,7 +84,14 @@ from import_pokemontcg_catalog import fetch_card_by_id, map_card, search_cards a
 from pricing_provider import PricingProviderRegistry, PsaPricingResult, RawPricingResult
 from pokemontcg_pricing_adapter import PokemonTcgApiProvider
 from pricecharting_adapter import PriceChartingProvider
-from scrydex_adapter import ScrydexProvider
+from scrydex_adapter import (
+    ScrydexProvider,
+    map_scrydex_catalog_card,
+    normalize_scrydex_language_code,
+    scrydex_card_data,
+    scrydex_credentials,
+    search_scrydex_cards,
+)
 from slab_source_sync import (
     load_sync_state,
     manifest_sync_status,
@@ -615,17 +622,15 @@ class SpotlightScanService:
             state_path=self.slab_sync_state_path,
         )
 
-    def _persist_catalog_card(
+    def _persist_mapped_catalog_card(
         self,
         *,
-        raw_card: dict[str, Any],
+        mapped_card: dict[str, Any],
         sync_mode: str,
         trigger_source: str,
         query_text: str | None,
-        local_image_path: Path | None = None,
         refresh_embeddings: bool = False,
     ) -> dict[str, Any]:
-        mapped_card = map_card(raw_card, local_image_path)
         started_at = utc_now()
         cards_before = len(self.index)
         card_existed_before = self._card_exists(mapped_card["id"])
@@ -660,6 +665,25 @@ class SpotlightScanService:
             },
         )
         return mapped_card
+
+    def _persist_catalog_card(
+        self,
+        *,
+        raw_card: dict[str, Any],
+        sync_mode: str,
+        trigger_source: str,
+        query_text: str | None,
+        local_image_path: Path | None = None,
+        refresh_embeddings: bool = False,
+    ) -> dict[str, Any]:
+        mapped_card = map_card(raw_card, local_image_path)
+        return self._persist_mapped_catalog_card(
+            mapped_card=mapped_card,
+            sync_mode=sync_mode,
+            trigger_source=trigger_source,
+            query_text=query_text,
+            refresh_embeddings=refresh_embeddings,
+        )
 
     def import_catalog_card(self, card_id: str, api_key: str | None = None, *, trigger_source: str = "manual") -> dict[str, Any] | None:
         started_at = utc_now()
@@ -795,6 +819,55 @@ class SpotlightScanService:
 
         return queries
 
+    def _slab_scrydex_language_codes(self, payload: dict[str, Any]) -> list[str | None]:
+        recognized_text = " ".join(
+            part for part in [
+                payload.get("topLabelRecognizedText") or "",
+                payload.get("fullRecognizedText") or "",
+            ]
+            if part
+        ).upper()
+        codes: list[str | None] = []
+        if re.search(r"\b(?:JPN|JAPANESE|JP)\b", recognized_text):
+            codes.append("ja")
+        if re.search(r"\b(?:EN|ENGLISH)\b", recognized_text):
+            codes.append("en")
+        codes.append(None)
+
+        deduped: list[str | None] = []
+        seen: set[str] = set()
+        for code in codes:
+            key = code or "_default"
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(code)
+        return deduped
+
+    def _slab_catalog_series_names(self, payload: dict[str, Any]) -> list[str]:
+        recognized_text = " ".join(
+            part for part in [
+                payload.get("topLabelRecognizedText") or "",
+                payload.get("fullRecognizedText") or "",
+            ]
+            if part
+        ).upper()
+        series_names: list[str] = []
+        known_series = [
+            ("SCARLET & VIOLET", "Scarlet & Violet"),
+            ("SWORD & SHIELD", "Sword & Shield"),
+            ("SUN & MOON", "Sun & Moon"),
+            ("BLACK & WHITE", "Black & White"),
+            ("DIAMOND & PEARL", "Diamond & Pearl"),
+            ("HEARTGOLD & SOULSILVER", "HeartGold & SoulSilver"),
+            ("XY", "XY"),
+            ("EX", "EX"),
+        ]
+        for needle, label in known_series:
+            if needle in recognized_text:
+                series_names.append(label)
+        return list(dict.fromkeys(series_names))
+
     def _slab_catalog_name_tokens(self, payload: dict[str, Any]) -> list[str]:
         recognized_text = " ".join(
             part for part in [
@@ -857,9 +930,297 @@ class SpotlightScanService:
             set_names.append("Pokemon GO")
         if "BASE SET" in recognized_text or "SHADOWLESS" in recognized_text or "UNLIMITED" in recognized_text:
             set_names.append("Base")
-        return set_names
+        if "TAG TEAM GX ALL STARS" in recognized_text:
+            set_names.append("Tag Team GX All Stars")
+
+        cleaned_text = re.sub(r"\b[A-Z]{3,}(?:/[A-Z0-9.\-]{2,})+\b", " ", recognized_text)
+        candidate_tokens = [
+            token
+            for token in tokenize(cleaned_text)
+            if token
+            and not token.isdigit()
+            and token
+            not in {
+                "pokemon",
+                "pm",
+                "p",
+                "m",
+                "psa",
+                "cgc",
+                "bgs",
+                "sgc",
+                "jpn",
+                "japanese",
+                "english",
+                "mint",
+                "gem",
+                "nm",
+                "mt",
+                "grade",
+                "cert",
+                "certified",
+                "guaranty",
+                "company",
+                "holo",
+                "rev",
+                "foil",
+            }
+        ]
+        for start in range(len(candidate_tokens)):
+            for length in range(min(7, len(candidate_tokens) - start), 2, -1):
+                phrase_tokens = candidate_tokens[start:start + length]
+                if len(phrase_tokens) < 3:
+                    continue
+                phrase = " ".join("GX" if token == "gx" else token.title() for token in phrase_tokens)
+                set_names.append(phrase)
+
+        deduped: list[str] = []
+        seen: set[str] = set()
+        for name in set_names:
+            normalized = name.strip().lower()
+            if not normalized or normalized in seen:
+                continue
+            seen.add(normalized)
+            deduped.append(name.strip())
+        return deduped[:8]
+
+    def _slab_scrydex_queries(self, payload: dict[str, Any]) -> list[tuple[str | None, str]]:
+        collector_number = str(payload.get("slabCardNumberRaw") or payload.get("collectorNumber") or "").strip()
+        api_number_values = collector_number_api_query_values(collector_number)
+        if not api_number_values:
+            return []
+
+        set_names = self._slab_catalog_set_names(payload)
+        series_names = self._slab_catalog_series_names(payload)
+        language_codes = self._slab_scrydex_language_codes(payload)
+
+        queries: list[tuple[str | None, str]] = []
+        seen: set[tuple[str | None, str]] = set()
+
+        def add_query(language_code: str | None, query: str) -> None:
+            key = (language_code, query)
+            if key in seen:
+                return
+            seen.add(key)
+            queries.append(key)
+
+        for language_code in language_codes:
+            for api_number in api_number_values:
+                quoted_number = f"\"{api_number}\""
+                for set_name in set_names[:6]:
+                    add_query(language_code, f"expansion.name:\"{set_name}\" number:{quoted_number}")
+                    for series_name in series_names[:3]:
+                        add_query(
+                            language_code,
+                            f"expansion.series:\"{series_name}\" expansion.name:\"{set_name}\" number:{quoted_number}",
+                        )
+                for series_name in series_names[:3]:
+                    add_query(language_code, f"expansion.series:\"{series_name}\" number:{quoted_number}")
+                add_query(language_code, f"number:{quoted_number}")
+
+        return queries
+
+    def _slab_scrydex_expansion_ids(self, payload: dict[str, Any]) -> list[str]:
+        # Keep this small and explicit. These are only for high-value slab miss lookups
+        # where the OCR label gives us an English set name but the Japanese Scrydex
+        # endpoint expects a localized expansion search.
+        manual_aliases: dict[str, tuple[str, ...]] = {
+            "tag team gx all stars": ("sm12a_ja",),
+        }
+
+        expansion_ids: list[str] = []
+        seen: set[str] = set()
+        for set_name in self._slab_catalog_set_names(payload):
+            normalized = set_name.strip().lower()
+            for expansion_id in manual_aliases.get(normalized, ()):
+                if expansion_id in seen:
+                    continue
+                seen.add(expansion_id)
+                expansion_ids.append(expansion_id)
+        return expansion_ids
+
+    def _score_scrydex_slab_candidate(
+        self,
+        card_payload: dict[str, Any],
+        payload: dict[str, Any],
+    ) -> tuple[float, tuple[int, float, float, float, float]]:
+        card_data = scrydex_card_data(card_payload)
+        expansion = card_data.get("expansion") if isinstance(card_data.get("expansion"), dict) else {}
+        translation = card_data.get("translation") if isinstance(card_data.get("translation"), dict) else {}
+        translation_en = translation.get("en") if isinstance(translation.get("en"), dict) else {}
+
+        label_text = " ".join(
+            part for part in [
+                payload.get("topLabelRecognizedText") or "",
+                payload.get("fullRecognizedText") or "",
+            ]
+            if part
+        )
+        label_tokens = set(tokenize(label_text))
+        slab_number_hints = slab_payload_number_hints(payload)
+
+        candidate_number = str(card_data.get("printed_number") or card_data.get("number") or "")
+        candidate_number_keys = collector_number_lookup_keys(candidate_number)
+        number_match = 1 if slab_number_hints and not candidate_number_keys.isdisjoint(slab_number_hints) else 0
+
+        expected_languages = {
+            code for code in self._slab_scrydex_language_codes(payload)
+            if code is not None
+        }
+        candidate_language_code = normalize_scrydex_language_code(card_data.get("language"))
+        language_match = 1.0 if not expected_languages else (1.0 if candidate_language_code in expected_languages else 0.0)
+
+        set_name = str(expansion.get("name") or "")
+        set_series = str(expansion.get("series") or "")
+        set_text = " ".join(part for part in [set_name, set_series] if part)
+        set_tokens = set(tokenize(set_text))
+        set_overlap = len(set_tokens & label_tokens) / max(len(set_tokens), 1) if set_tokens else 0.0
+
+        candidate_set_names = {value.lower() for value in self._slab_catalog_set_names(payload)}
+        set_name_exact = 1.0 if set_name and set_name.lower() in candidate_set_names else 0.0
+
+        candidate_series_names = {value.lower() for value in self._slab_catalog_series_names(payload)}
+        series_match = 1.0 if set_series and set_series.lower() in candidate_series_names else 0.0
+
+        name_text = " ".join(
+            part for part in [
+                str(translation_en.get("name") or "").strip(),
+                str(card_data.get("name") or "").strip(),
+            ]
+            if part
+        )
+        name_tokens = {
+            token for token in tokenize(name_text)
+            if len(token) > 1 and token not in {"gx", "ex", "v", "vm", "vmax", "star"}
+        }
+        name_overlap = len(name_tokens & label_tokens) / max(len(name_tokens), 1) if name_tokens else 0.0
+
+        score = (
+            (number_match * 8.0) +
+            (set_name_exact * 5.0) +
+            (series_match * 2.5) +
+            (set_overlap * 3.5) +
+            (name_overlap * 2.0) +
+            (language_match * 1.0)
+        )
+        return score, (
+            number_match,
+            set_name_exact,
+            series_match,
+            set_overlap,
+            name_overlap,
+        )
+
+    def resolve_slab_catalog_miss(self, payload: dict[str, Any]) -> dict[str, Any] | None:
+        credentials = scrydex_credentials()
+        if credentials is None:
+            return None
+        api_key, team_id = credentials
+
+        best_results_by_card_id: dict[str, tuple[float, float, dict[str, Any], str, str | None]] = {}
+
+        def ingest_results(
+            results: list[dict[str, Any]],
+            *,
+            query: str,
+            language_code: str | None,
+        ) -> None:
+            for card_payload in results:
+                score, components = self._score_scrydex_slab_candidate(card_payload, payload)
+                exactish_score = components[1] + components[2] + components[3] + components[4]
+                card_data = scrydex_card_data(card_payload)
+                card_id = str(card_data.get("id") or "").strip()
+                if not card_id:
+                    continue
+
+                existing = best_results_by_card_id.get(card_id)
+                if existing is None or score > existing[0]:
+                    best_results_by_card_id[card_id] = (score, exactish_score, card_payload, query, language_code)
+
+        def best_importable_result() -> tuple[float, float, dict[str, Any], str, str | None] | None:
+            if not best_results_by_card_id:
+                return None
+            ranked_results = sorted(
+                best_results_by_card_id.values(),
+                key=lambda item: (-item[0], -item[1], str(scrydex_card_data(item[2]).get("id") or "")),
+            )
+            best_score, exactish_score, best_payload, query, language_code = ranked_results[0]
+            runner_up_score = ranked_results[1][0] if len(ranked_results) > 1 else 0.0
+            if best_score < 10.0 or exactish_score <= 0.0:
+                return None
+            if runner_up_score and (best_score - runner_up_score) < 1.2:
+                return None
+            return best_score, exactish_score, best_payload, query, language_code
+
+        # Phase 1: compact Japanese expansion-id lookup. This avoids dozens of
+        # low-signal queries when the OCR label already gives us a strong set clue.
+        language_codes = self._slab_scrydex_language_codes(payload)
+        japanese_expansion_ids = self._slab_scrydex_expansion_ids(payload)
+        if japanese_expansion_ids and "ja" in {code for code in language_codes if code}:
+            for expansion_id in japanese_expansion_ids:
+                query = f"expansion.id:{expansion_id}"
+                try:
+                    results = search_scrydex_cards(
+                        query,
+                        api_key,
+                        team_id,
+                        page_size=100,
+                        language_code="ja",
+                    )
+                except Exception:
+                    continue
+                ingest_results(results, query=query, language_code="ja")
+
+            compact_best_result = best_importable_result()
+            if compact_best_result is not None:
+                _, _, best_payload, query, _ = compact_best_result
+                imported = self._persist_mapped_catalog_card(
+                    mapped_card=map_scrydex_catalog_card(best_payload),
+                    sync_mode="slab_catalog_miss_lookup",
+                    trigger_source="scan_match",
+                    query_text=query,
+                )
+                return {
+                    "query": query,
+                    "card": imported,
+                }
+
+        for language_code, query in self._slab_scrydex_queries(payload):
+            try:
+                results = search_scrydex_cards(
+                    query,
+                    api_key,
+                    team_id,
+                    page_size=25,
+                    language_code=language_code,
+                )
+            except Exception:
+                continue
+
+            ingest_results(results, query=query, language_code=language_code)
+
+        best_result = best_importable_result()
+        if best_result is None:
+            return None
+        _, _, best_payload, query, _ = best_result
+
+        imported = self._persist_mapped_catalog_card(
+            mapped_card=map_scrydex_catalog_card(best_payload),
+            sync_mode="slab_catalog_miss_lookup",
+            trigger_source="scan_match",
+            query_text=query,
+        )
+        return {
+            "query": query,
+            "card": imported,
+        }
 
     def resolve_catalog_miss(self, payload: dict[str, Any], api_key: str | None = None) -> dict[str, Any] | None:
+        if resolver_mode_for_payload(payload) == "psa_slab":
+            imported_slab = self.resolve_slab_catalog_miss(payload)
+            if imported_slab is not None:
+                return imported_slab
+
         recognized_text = recognized_text_for_payload(payload)
         query_tokens = {
             token
@@ -1362,14 +1723,6 @@ class SpotlightScanService:
                 grade=slab_context.get("grade") if resolver_mode == "psa_slab" and slab_context else None,
             )
 
-        review_disposition, review_reason = self._review_disposition_for_response(
-            confidence=confidence,
-            resolver_mode=resolver_mode,
-            resolver_path=resolver_path,
-            payload=payload,
-            top_candidate=encoded_candidates[0] if encoded_candidates else None,
-        )
-
         canonical_collector_number = canonicalize_collector_number(str(payload.get("collectorNumber") or ""))
         recognized_text = recognized_text_for_payload(payload)
         trusted_set_hints = trusted_set_hints_for_payload(payload)
@@ -1436,6 +1789,24 @@ class SpotlightScanService:
                 retry_response["catalogMissImportedCardID"] = imported["card"]["id"]
                 retry_response["catalogMissImportQuery"] = imported["query"]
                 return retry_response
+
+        if (
+            resolver_mode == "psa_slab"
+            and slab_context is not None
+            and slab_context.get("certNumber")
+            and not matching_payload.get("_slabCertCardIDs")
+            and not top_has_exact_structured_match
+        ):
+            ambiguity_flags.append("PSA cert was not found in the local slab cache")
+            confidence = "low"
+
+        review_disposition, review_reason = self._review_disposition_for_response(
+            confidence=confidence,
+            resolver_mode=resolver_mode,
+            resolver_path=resolver_path,
+            payload=payload,
+            top_candidate=encoded_candidates[0] if encoded_candidates else None,
+        )
 
         response = {
             "scanID": payload["scanID"],

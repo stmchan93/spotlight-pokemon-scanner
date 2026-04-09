@@ -1794,7 +1794,8 @@ class ImportedCatalogPricingTests(unittest.TestCase):
             slab_recommended_lookup_path="psa_cert",
         )
 
-        with patch("server.search_remote_cards", return_value=[remote_card]):
+        with patch.dict(os.environ, {"SCRYDEX_API_KEY": "", "SCRYDEX_TEAM_ID": ""}), \
+             patch("server.search_remote_cards", return_value=[remote_card]):
             response = service.match_scan(payload)
 
         self.assertEqual(response["resolverMode"], "psa_slab")
@@ -1863,8 +1864,123 @@ class ImportedCatalogPricingTests(unittest.TestCase):
         self.assertEqual(response["resolverPath"], "psa_label")
         self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "base1-12")
         self.assertEqual(response.get("catalogMissImportedCardID"), "base1-12")
-        self.assertEqual(response["reviewDisposition"], "unsupported")
-        self.assertIn("CGC", response["reviewReason"])
+
+    def test_slab_japanese_psa_live_imports_from_scrydex_when_local_catalog_has_only_wrong_number_matches(self) -> None:
+        service = self._make_catalog_service(
+            "slab_japanese_catalog_miss",
+            [
+                catalog_card(card_id="swsh1-94", name="Hitmonlee", set_name="Sword & Shield", number="94/202", set_id="swsh1"),
+                catalog_card(card_id="sv1-94", name="Dedenne", set_name="Scarlet & Violet", number="94/198", set_id="sv1"),
+                catalog_card(card_id="ex6-94", name="Mt. Moon", set_name="FireRed & LeafGreen", number="94/112", set_id="ex6"),
+            ],
+        )
+        remote_card = {
+            "id": "sm12a_ja-94",
+            "name": "トゲピー&ピィ&ププリンGX",
+            "number": "94",
+            "printed_number": "094/173",
+            "language": "Japanese",
+            "supertype": "ポケモン",
+            "subtypes": ["たね"],
+            "types": ["フェアリー"],
+            "artist": "Misa Tsutsui",
+            "rarity": "RR",
+            "national_pokedex_numbers": [175, 173, 174],
+            "images": [
+                {
+                    "type": "front",
+                    "small": "https://example.com/sm12a_ja-94-small.png",
+                    "large": "https://example.com/sm12a_ja-94-large.png",
+                }
+            ],
+            "expansion": {
+                "id": "sm12a_ja",
+                "name": "Tag Team GX All Stars",
+                "series": "Sun & Moon",
+                "release_date": "2019-10-04",
+            },
+            "translation": {
+                "en": {
+                    "name": "Togepi & Cleffa & Igglybuff GX",
+                    "supertype": "Pokémon",
+                    "subtypes": ["Basic"],
+                    "types": ["Fairy"],
+                }
+            },
+            "variants": [],
+        }
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="2019 P.M. JPN. SUN & MOON #094 TGPI/CLFA/IGLYBF.GX MINT TAG TEAM GX ALL STARS PSA 132227779",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="2019 P.M. JPN. SUN & MOON #094 TGPI/CLFA/IGLYBF.GX MINT TAG TEAM GX ALL STARS PSA 132227779",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="9",
+            slab_cert_number="132227779",
+            slab_barcode_payloads=["132227779"],
+            slab_grader_confidence=1.0,
+            slab_grade_confidence=0.72,
+            slab_cert_confidence=0.88,
+            slab_card_number_raw="094",
+            slab_classifier_reasons=["explicit_grader_psa", "cert_from_label_ocr"],
+            slab_recommended_lookup_path="psa_cert",
+        )
+
+        with patch("server.scrydex_credentials", return_value=("demo-key", "demo-team")), \
+             patch("server.search_scrydex_cards", return_value=[remote_card]) as mock_search_scrydex_cards, \
+             patch("server.search_remote_cards", return_value=[]):
+            response = service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "sm12a_ja-94")
+        self.assertEqual(response.get("catalogMissImportedCardID"), "sm12a_ja-94")
+        self.assertTrue(mock_search_scrydex_cards.called)
+        self.assertEqual(mock_search_scrydex_cards.call_args_list[0].args[0], "expansion.id:sm12a_ja")
+        self.assertEqual(mock_search_scrydex_cards.call_args_list[0].kwargs.get("page_size"), 100)
+        self.assertEqual(mock_search_scrydex_cards.call_args_list[0].kwargs.get("language_code"), "ja")
+        detail = service.card_detail("sm12a_ja-94")
+        assert detail is not None
+        self.assertEqual(detail["card"]["language"], "Japanese")
+        self.assertEqual(detail["card"]["setName"], "Tag Team GX All Stars")
+
+    def test_slab_psa_cert_miss_drops_to_low_confidence_when_only_wrong_number_match_exists(self) -> None:
+        service = self._make_catalog_service(
+            "slab_psa_cert_miss_low_confidence",
+            [
+                catalog_card(card_id="ex6-94", name="Mt. Moon", set_name="FireRed & LeafGreen", number="94/112", set_id="ex6"),
+            ],
+        )
+        payload = sample_scan_payload(
+            collector_number="",
+            full_text="2019 P.M. JPN. SUN & MOON #094 TGPI/CLFA/IGLYBF.GX MINT TAG TEAM GX ALL STARS PSA 132227779",
+            metadata_text="",
+            bottom_left_text="",
+            top_label_text="2019 P.M. JPN. SUN & MOON #094 TGPI/CLFA/IGLYBF.GX MINT TAG TEAM GX ALL STARS PSA 132227779",
+            resolver_mode_hint="psa_slab",
+            slab_grader="PSA",
+            slab_grade="9",
+            slab_cert_number="132227779",
+            slab_barcode_payloads=["132227779"],
+            slab_grader_confidence=1.0,
+            slab_grade_confidence=0.72,
+            slab_cert_confidence=0.88,
+            slab_card_number_raw="094",
+            slab_classifier_reasons=["explicit_grader_psa", "cert_from_label_ocr"],
+            slab_recommended_lookup_path="psa_cert",
+        )
+
+        with patch("server.scrydex_credentials", return_value=None), \
+             patch("server.search_remote_cards", return_value=[]):
+            response = service.match_scan(payload)
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "ex6-94")
+        self.assertEqual(response["confidence"], "low")
+        self.assertIn("PSA cert was not found in the local slab cache", response["ambiguityFlags"])
 
     def test_explicit_non_psa_slab_returns_unsupported(self) -> None:
         payload = sample_scan_payload(

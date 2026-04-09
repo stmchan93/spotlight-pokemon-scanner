@@ -446,7 +446,7 @@ Current imported catalog:
 Imported artifacts:
 
 - [images](/Users/stephenchan/Code/spotlight/backend/catalog/pokemontcg/images)
-- [imported_scanner.sqlite](/Users/stephenchan/Code/spotlight/backend/data/imported_scanner.sqlite)
+- [spotlight_scanner.sqlite](/Users/stephenchan/Code/spotlight/backend/data/spotlight_scanner.sqlite)
 
 Current repo rules for development:
 
@@ -586,7 +586,7 @@ To complete that last step, those images need to exist on disk under the repo or
 cd /Users/stephenchan/Code/spotlight
 python3 backend/server.py \
   --skip-seed \
-  --database-path backend/data/imported_scanner.sqlite \
+  --database-path backend/data/spotlight_scanner.sqlite \
   --port 8788
 ```
 

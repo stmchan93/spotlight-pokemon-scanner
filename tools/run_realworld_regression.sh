@@ -16,7 +16,7 @@ PY
   )"
 fi
 SERVER_URL="${SPOTLIGHT_SCANNER_SERVER:-http://127.0.0.1:${PORT}/}"
-DATABASE_PATH="${SPOTLIGHT_REALWORLD_DATABASE_PATH:-$ROOT_DIR/backend/data/imported_scanner.sqlite}"
+DATABASE_PATH="${SPOTLIGHT_REALWORLD_DATABASE_PATH:-$ROOT_DIR/backend/data/spotlight_scanner.sqlite}"
 SLAB_SALES_FILE="${SPOTLIGHT_REALWORLD_SLAB_SALES_FILE:-$ROOT_DIR/backend/catalog/slab_sales.sample.json}"
 
 cd "$ROOT_DIR"

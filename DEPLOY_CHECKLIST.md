@@ -37,7 +37,7 @@ WORKDIR /app
 COPY . /app
 ENV PORT=8080
 CMD python server.py \
-    --database-path data/imported_scanner.sqlite \
+    --database-path data/spotlight_scanner.sqlite \
     --port ${PORT} \
     --host 0.0.0.0 \
     --skip-seed

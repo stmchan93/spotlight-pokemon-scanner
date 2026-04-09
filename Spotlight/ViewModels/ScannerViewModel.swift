@@ -25,6 +25,7 @@ final class ScannerViewModel: ObservableObject {
     private var currentScanID: UUID?
     private var currentPendingItemID: UUID?
     private var currentScanStartedAt: TimeInterval?
+    private var currentReticleRect: CGRect?
     private var idlePricingRefreshTask: Task<Void, Never>?
     private var hasShownPhotoSaveFailureBanner = false
 
@@ -45,8 +46,8 @@ final class ScannerViewModel: ObservableObject {
         self.matcher = matcher
         self.logStore = logStore
 
-        self.cameraController.onImageCaptured = { [weak self] image in
-            self?.processImportedPhoto(image)
+        self.cameraController.onImageCaptured = { [weak self] capture in
+            self?.processCapturedInput(capture)
         }
         self.cameraController.onCaptureFailed = { [weak self] message in
             self?.handleCaptureFailure(message)
@@ -84,6 +85,7 @@ final class ScannerViewModel: ObservableObject {
         guard !isProcessing, !isCapturingPhoto else { return }
         errorMessage = nil
         route = .scanner
+        currentReticleRect = reticleRect
 
         let scanID = UUID()
         let pendingItemID = enqueuePendingScan(scanID: scanID, previewImage: nil)
@@ -91,7 +93,7 @@ final class ScannerViewModel: ObservableObject {
         currentPendingItemID = pendingItemID
         currentScanStartedAt = Date().timeIntervalSinceReferenceDate
 
-        let didStartCapture = cameraController.capturePhoto(reticleRect: reticleRect)
+        let didStartCapture = cameraController.capturePhoto(scanID: scanID, reticleRect: reticleRect)
         if didStartCapture {
             isCapturingPhoto = true
         } else {
@@ -106,18 +108,30 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func processImportedPhoto(_ image: UIImage) {
+        processCapturedInput(
+            ScanCaptureInput(
+                originalImage: image,
+                searchImage: image,
+                fallbackImage: nil,
+                captureSource: .importedPhoto
+            )
+        )
+    }
+
+    private func processCapturedInput(_ capture: ScanCaptureInput) {
         guard !isProcessing else { return }
         isCapturingPhoto = false
         let scanID = currentScanID ?? UUID()
-        let pendingItemID = currentPendingItemID ?? enqueuePendingScan(scanID: scanID, previewImage: image)
+        let previewImage = capture.fallbackImage ?? capture.searchImage
+        let pendingItemID = currentPendingItemID ?? enqueuePendingScan(scanID: scanID, previewImage: previewImage)
         currentScanID = scanID
         currentPendingItemID = pendingItemID
         if currentScanStartedAt == nil {
             currentScanStartedAt = Date().timeIntervalSinceReferenceDate
         }
         Task {
-            await handleScannedImage(
-                image,
+            await handleScannedCapture(
+                capture,
                 scanID: scanID,
                 pendingItemID: pendingItemID,
                 scanStartedAt: currentScanStartedAt
@@ -200,31 +214,40 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
-    private func handleScannedImage(
-        _ image: UIImage,
+    private func handleScannedCapture(
+        _ capture: ScanCaptureInput,
         scanID: UUID? = nil,
         pendingItemID: UUID? = nil,
         scanStartedAt: TimeInterval? = nil
     ) async {
-        print("🔍 [SCAN] Starting handleScannedImage")
+        print("🔍 [SCAN] Starting handleScannedCapture")
         isCapturingPhoto = false
         errorMessage = nil
         route = .scanner
+        let resolverMode = selectedResolverMode
 
         // Balance OCR quality vs memory usage
-        // 1200px = 50% larger than old 800px, but won't crash like 2400px did
-        let processedImage = downscaleImage(image, maxDimension: 1200)
-        print("🔍 [SCAN] Downscaled image from \(image.size) to \(processedImage.size)")
+        // Use a slightly larger budget for raw still-photo retries so footer OCR gains real benefit.
+        let originalMaxDimension: CGFloat = (resolverMode == .rawCard && capture.captureSource == .liveStillPhoto) ? 1800 : 1400
+        let searchMaxDimension: CGFloat = (resolverMode == .rawCard && capture.captureSource == .liveStillPhoto) ? 1600 : 1200
+        let processedCapture = ScanCaptureInput(
+            originalImage: downscaleImage(capture.originalImage, maxDimension: originalMaxDimension),
+            searchImage: downscaleImage(capture.searchImage, maxDimension: searchMaxDimension),
+            fallbackImage: capture.fallbackImage.map { downscaleImage($0, maxDimension: searchMaxDimension) },
+            captureSource: capture.captureSource
+        )
+        print("🔍 [SCAN] Downscaled search image from \(capture.searchImage.size) to \(processedCapture.searchImage.size)")
 
         let effectiveScanID = scanID ?? currentScanID ?? UUID()
-        let effectivePendingItemID = pendingItemID ?? currentPendingItemID ?? enqueuePendingScan(scanID: effectiveScanID, previewImage: processedImage)
+        let previewImage = processedCapture.fallbackImage ?? processedCapture.searchImage
+        let effectivePendingItemID = pendingItemID ?? currentPendingItemID ?? enqueuePendingScan(scanID: effectiveScanID, previewImage: previewImage)
         let effectiveScanStartedAt = scanStartedAt ?? currentScanStartedAt ?? Date().timeIntervalSinceReferenceDate
         currentScanID = effectiveScanID
         currentPendingItemID = effectivePendingItemID
         currentScanStartedAt = effectiveScanStartedAt
         updateStackItem(id: effectivePendingItemID) { item in
             if item.previewImage == nil {
-                item.previewImage = downscaleImage(processedImage, maxDimension: 300)
+                item.previewImage = downscaleImage(previewImage, maxDimension: 300)
             }
             item.statusMessage = "Identifying card..."
         }
@@ -235,7 +258,6 @@ final class ScannerViewModel: ObservableObject {
             let analysisStarted = Date().timeIntervalSinceReferenceDate
             let tapToAnalysisStartMs = (analysisStarted - effectiveScanStartedAt) * 1000
             print("⏱️ [SCAN] Tap to OCR start: \(tapToAnalysisStartMs)ms")
-            let resolverMode = selectedResolverMode
 
             // Add timeout to prevent indefinite hanging on complex images
             let analysis = try await withThrowingTaskGroup(of: AnalyzedCapture.self) { group in
@@ -244,13 +266,13 @@ final class ScannerViewModel: ObservableObject {
                     case .psaSlab:
                         try await self.slabAnalyzer.analyze(
                             scanID: effectiveScanID,
-                            image: processedImage,
+                            capture: processedCapture,
                             resolverModeHint: resolverMode
                         )
                     case .rawCard, .unknownFallback:
                         try await self.rawAnalyzer.analyze(
                             scanID: effectiveScanID,
-                            image: processedImage,
+                            capture: processedCapture,
                             resolverModeHint: resolverMode
                         )
                     }
@@ -270,6 +292,27 @@ final class ScannerViewModel: ObservableObject {
 
             let analysisMs = (Date().timeIntervalSinceReferenceDate - analysisStarted) * 1000
             print("✅ [SCAN] Vision analysis completed in \(analysisMs)ms")
+
+            if analysis.shouldRetryWithStillPhoto,
+               let reticleRect = currentReticleRect {
+                print("🔁 [SCAN] Retrying with still photo: \(analysis.stillPhotoRetryReason ?? "footer OCR weak")")
+                updateStackItem(id: effectivePendingItemID) { item in
+                    item.statusMessage = "Trying a sharper capture…"
+                }
+                isProcessing = false
+                let didStartRetry = cameraController.capturePhoto(
+                    scanID: effectiveScanID,
+                    reticleRect: reticleRect,
+                    preferStillPhoto: true
+                )
+                if didStartRetry {
+                    isCapturingPhoto = true
+                    return
+                }
+                print("⚠️ [SCAN] Still-photo retry could not start; continuing with current analysis")
+                isProcessing = true
+            }
+
             print("🔍 [SCAN] Sending scan to backend matcher...")
 
             let performance = ScanPerformanceMetrics(
@@ -291,7 +334,7 @@ final class ScannerViewModel: ObservableObject {
             resetPendingScanState()
         }
 
-        print("🔍 [SCAN] Finished handleScannedImage")
+        print("🔍 [SCAN] Finished handleScannedCapture")
         isCapturingPhoto = false
         isProcessing = false
     }
@@ -374,6 +417,7 @@ final class ScannerViewModel: ObservableObject {
         currentScanID = nil
         currentPendingItemID = nil
         currentScanStartedAt = nil
+        currentReticleRect = nil
         analyzedCapture = nil
         matchResponse = nil
         searchQuery = ""

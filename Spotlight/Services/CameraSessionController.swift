@@ -18,7 +18,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var currentZoomLevel: CGFloat = 1.5  // Default 1.5x like Rare Candy
 
     let session = AVCaptureSession()
-    var onImageCaptured: ((UIImage) -> Void)?
+    var onImageCaptured: ((ScanCaptureInput) -> Void)?
     var onCaptureFailed: ((String) -> Void)?
     var onCaptureSavedToPhotoLibrary: ((Bool, String?) -> Void)?
 
@@ -31,8 +31,14 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         previewView?.previewLayer
     }
 
-    // Pending crop rect (normalized to photo output) set when user taps to scan
-    private var pendingCropRectNormalized: CGRect?
+    private struct PendingCaptureRequest {
+        let scanID: UUID
+        let exactCropRectNormalized: CGRect
+        let searchCropRectNormalized: CGRect
+    }
+
+    // Pending crop request set when user taps to scan
+    private var pendingCaptureRequest: PendingCaptureRequest?
 
     private let sessionQueue = DispatchQueue(label: "spotlight.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
@@ -77,6 +83,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                     self.authorizationState = granted ? .authorized : .denied
                     if granted {
                         self.configureSessionIfNeeded()
+                        self.startSession()
                     } else {
                         print("❌ [CAMERA] Permission denied by user")
                     }
@@ -126,7 +133,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     @MainActor
-    func capturePhoto(reticleRect: CGRect) -> Bool {
+    func capturePhoto(scanID: UUID, reticleRect: CGRect, preferStillPhoto: Bool = false) -> Bool {
         guard authorizationState == .authorized, isSessionConfigured else {
             lastErrorMessage = "Camera is not available. Import a photo instead."
             return false
@@ -151,15 +158,21 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         // This gives us coordinates normalized to the video feed's coordinate space
         let metadataRect = previewLayer.metadataOutputRectConverted(fromLayerRect: localRect)
         let photoRect = normalizedPhotoRect(fromMetadataRect: metadataRect)
+        let searchRect = expandedSearchRect(from: photoRect)
         print("📐 [CROP] Metadata rect (normalized 0-1): \(metadataRect)")
-        print("📐 [CROP] Photo rect (normalized 0-1): \(photoRect)")
+        print("📐 [CROP] Exact photo rect (normalized 0-1): \(photoRect)")
+        print("📐 [CROP] Expanded search rect (normalized 0-1): \(searchRect)")
 
         // metadataOutputRectConverted reports coordinates in the sensor/native orientation.
         // Our decoded UIImage is upright portrait, so swap axes into portrait photo space
         // before cropping, otherwise the crop becomes a tall narrow strip.
-        pendingCropRectNormalized = photoRect
+        pendingCaptureRequest = PendingCaptureRequest(
+            scanID: scanID,
+            exactCropRectNormalized: photoRect,
+            searchCropRectNormalized: searchRect
+        )
 
-        if captureLatestPreviewFrame(normalizedRect: photoRect) {
+        if !preferStillPhoto, captureLatestPreviewFrame() {
             print("📸 [CAPTURE] Using latest preview pixel buffer")
             return true
         }
@@ -167,9 +180,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         let settings = AVCapturePhotoSettings()
         settings.flashMode = .off
 
-        // Fallback only if the preview frame buffer is not ready yet.
+        // Fallback only if the preview frame buffer is not ready yet, or when a sharper retry is requested.
         settings.photoQualityPrioritization = .balanced
-        print("📸 [CAPTURE] Falling back to still photo capture")
+        if preferStillPhoto {
+            print("📸 [CAPTURE] Capturing still photo for OCR retry")
+        } else {
+            print("📸 [CAPTURE] Falling back to still photo capture")
+        }
 
         photoOutput.capturePhoto(with: settings, delegate: self)
         return true
@@ -322,12 +339,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         return rendered.cgImage
     }
 
-    private func captureLatestPreviewFrame(normalizedRect: CGRect) -> Bool {
+    private func captureLatestPreviewFrame() -> Bool {
         latestFrameLock.lock()
         let pixelBuffer = latestPreviewPixelBuffer
         latestFrameLock.unlock()
 
-        guard let pixelBuffer else {
+        guard let pixelBuffer,
+              let request = pendingCaptureRequest else {
             return false
         }
 
@@ -342,11 +360,21 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 return
             }
 
-            let croppedImage = self.cropImage(image, normalizedRect: normalizedRect)
+            let captureInput = self.makeCaptureInput(
+                from: image,
+                request: request,
+                source: .livePreviewFrame
+            )
             DispatchQueue.main.async {
-                self.pendingCropRectNormalized = nil
-                self.persistCapturedScan(croppedImage)
-                self.onImageCaptured?(croppedImage)
+                self.pendingCaptureRequest = nil
+                guard let captureInput else {
+                    let message = "Could not prepare the captured frame."
+                    self.lastErrorMessage = message
+                    self.onCaptureFailed?(message)
+                    return
+                }
+                self.persistCapturedScan(captureInput.fallbackImage ?? captureInput.searchImage)
+                self.onImageCaptured?(captureInput)
             }
         }
 
@@ -411,6 +439,33 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         return UIImage(cgImage: croppedCG)
     }
 
+    private func makeCaptureInput(
+        from image: UIImage,
+        request: PendingCaptureRequest,
+        source: ScanCaptureSource
+    ) -> ScanCaptureInput? {
+        let normalizedImage = image.normalizedOrientation()
+        let searchImage = cropImage(normalizedImage, normalizedRect: request.searchCropRectNormalized)
+        let fallbackImage = cropImage(normalizedImage, normalizedRect: request.exactCropRectNormalized)
+
+        ScanDebugArtifactWriter.recordCaptureArtifacts(
+            scanID: request.scanID,
+            source: source,
+            originalImage: normalizedImage,
+            searchImage: searchImage,
+            fallbackImage: fallbackImage,
+            exactCropRectNormalized: request.exactCropRectNormalized,
+            searchCropRectNormalized: request.searchCropRectNormalized
+        )
+
+        return ScanCaptureInput(
+            originalImage: normalizedImage,
+            searchImage: searchImage,
+            fallbackImage: fallbackImage,
+            captureSource: source
+        )
+    }
+
     /// Convert AVFoundation metadata coordinates into normalized upright photo coordinates.
     /// The preview layer conversion returns values in the camera sensor's orientation, which
     /// is rotated relative to the portrait JPEG we crop for OCR.
@@ -424,6 +479,38 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         ).standardized
 
         return portraitRect.intersection(unitRect)
+    }
+
+    private func expandedSearchRect(from exactRect: CGRect, expansionFactor: CGFloat = 1.45) -> CGRect {
+        let unitRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+        guard !exactRect.isEmpty else { return unitRect }
+
+        let expandedWidth = min(1, exactRect.width * expansionFactor)
+        let expandedHeight = min(1, exactRect.height * expansionFactor)
+        let centerX = exactRect.midX
+        let centerY = exactRect.midY
+
+        var expandedRect = CGRect(
+            x: centerX - (expandedWidth / 2),
+            y: centerY - (expandedHeight / 2),
+            width: expandedWidth,
+            height: expandedHeight
+        )
+
+        if expandedRect.minX < 0 {
+            expandedRect.origin.x = 0
+        }
+        if expandedRect.minY < 0 {
+            expandedRect.origin.y = 0
+        }
+        if expandedRect.maxX > 1 {
+            expandedRect.origin.x = 1 - expandedRect.width
+        }
+        if expandedRect.maxY > 1 {
+            expandedRect.origin.y = 1 - expandedRect.height
+        }
+
+        return expandedRect.intersection(unitRect)
     }
 
     private func persistCapturedScan(_ image: UIImage) {
@@ -508,7 +595,7 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
 
         guard let imageData = photo.fileDataRepresentation(),
               let image = UIImage(data: imageData),
-              let cropRect = pendingCropRectNormalized else {
+              let request = pendingCaptureRequest else {
             DispatchQueue.main.async {
                 let message = "Could not decode the captured photo."
                 self.lastErrorMessage = message
@@ -519,16 +606,25 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
 
         print("📐 [CROP] Captured image size: \(image.size)")
 
-        // Crop using the converted coordinates - what user saw in reticle!
-        let croppedImage = cropImage(image, normalizedRect: cropRect)
+        let captureInput = makeCaptureInput(
+            from: image,
+            request: request,
+            source: .liveStillPhoto
+        )
 
         DispatchQueue.main.async {
-            self.persistCapturedScan(croppedImage)
-            self.onImageCaptured?(croppedImage)
+            guard let captureInput else {
+                let message = "Could not prepare the captured photo."
+                self.lastErrorMessage = message
+                self.onCaptureFailed?(message)
+                return
+            }
+            self.persistCapturedScan(captureInput.fallbackImage ?? captureInput.searchImage)
+            self.onImageCaptured?(captureInput)
         }
 
         // Clear pending crop
-        pendingCropRectNormalized = nil
+        pendingCaptureRequest = nil
     }
 
 }

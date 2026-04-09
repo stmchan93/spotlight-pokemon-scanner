@@ -161,7 +161,7 @@ For day-to-day scanner work, run the imported backend in live-match mode:
 ```bash
 python3 backend/server.py \
   --skip-seed \
-  --database-path backend/data/imported_scanner.sqlite \
+  --database-path backend/data/spotlight_scanner.sqlite \
   --port 8788
 ```
 
@@ -190,7 +190,7 @@ Plan the next sync run:
 ```bash
 python3 backend/sync_catalog.py \
   --manifest backend/catalog/catalog_sync.sample.json \
-  --database-path backend/data/imported_scanner.sqlite \
+  --database-path backend/data/spotlight_scanner.sqlite \
   --cards-file backend/catalog/sample_catalog.json \
   --state-path backend/data/catalog_sync_state.json \
   --plan-only
@@ -201,7 +201,7 @@ Run once:
 ```bash
 python3 backend/sync_catalog.py \
   --manifest backend/catalog/catalog_sync.sample.json \
-  --database-path backend/data/imported_scanner.sqlite \
+  --database-path backend/data/spotlight_scanner.sqlite \
   --cards-file backend/catalog/sample_catalog.json \
   --state-path backend/data/catalog_sync_state.json
 ```
@@ -211,7 +211,7 @@ Watch mode:
 ```bash
 python3 backend/sync_catalog.py \
   --manifest backend/catalog/catalog_sync.sample.json \
-  --database-path backend/data/imported_scanner.sqlite \
+  --database-path backend/data/spotlight_scanner.sqlite \
   --cards-file backend/catalog/sample_catalog.json \
   --state-path backend/data/catalog_sync_state.json \
   --watch \
@@ -232,7 +232,7 @@ Run once:
 ```bash
 python3 backend/sync_slab_sources.py \
   --manifest backend/catalog/slab_sources.sample.json \
-  --database-path backend/data/imported_scanner.sqlite
+  --database-path backend/data/spotlight_scanner.sqlite
 ```
 
 Watch mode:
@@ -240,7 +240,7 @@ Watch mode:
 ```bash
 python3 backend/sync_slab_sources.py \
   --manifest backend/catalog/slab_sources.sample.json \
-  --database-path backend/data/imported_scanner.sqlite \
+  --database-path backend/data/spotlight_scanner.sqlite \
   --watch \
   --interval-seconds 900
 ```

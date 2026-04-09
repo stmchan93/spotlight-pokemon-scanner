@@ -41,6 +41,29 @@ def scrydex_request_url(path: str, **params: str) -> str:
     return f"{base_url}{path}?{query_string}" if query_string else f"{base_url}{path}"
 
 
+def normalize_scrydex_language_code(value: str | None) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"en", "english"}:
+        return "en"
+    if normalized in {"ja", "jp", "jpn", "japanese"}:
+        return "ja"
+    return None
+
+
+def scrydex_cards_path(language_code: str | None = None) -> str:
+    normalized = normalize_scrydex_language_code(language_code)
+    if normalized:
+        return f"/pokemon/v1/{normalized}/cards"
+    return "/pokemon/v1/cards"
+
+
+def scrydex_card_path(card_id: str, language_code: str | None = None) -> str:
+    normalized = normalize_scrydex_language_code(language_code)
+    if normalized:
+        return f"/pokemon/v1/{normalized}/cards/{card_id}"
+    return f"/pokemon/v1/cards/{card_id}"
+
+
 def fetch_json(url: str, api_key: str, team_id: str, timeout: int = 12) -> dict[str, Any]:
     request = Request(
         url,
@@ -54,10 +77,16 @@ def fetch_json(url: str, api_key: str, team_id: str, timeout: int = 12) -> dict[
         return json.loads(response.read().decode("utf-8"))
 
 
-def fetch_scrydex_card(card_id: str, api_key: str, team_id: str) -> dict[str, Any]:
+def fetch_scrydex_card(
+    card_id: str,
+    api_key: str,
+    team_id: str,
+    *,
+    language_code: str | None = None,
+) -> dict[str, Any]:
     return fetch_json(
         scrydex_request_url(
-            f"/pokemon/v1/en/cards/{card_id}",
+            scrydex_card_path(card_id, language_code),
             include="prices",
             casing="snake",
         ),
@@ -66,11 +95,98 @@ def fetch_scrydex_card(card_id: str, api_key: str, team_id: str) -> dict[str, An
     )
 
 
+def search_scrydex_cards(
+    query: str,
+    api_key: str,
+    team_id: str,
+    *,
+    page_size: int = 25,
+    language_code: str | None = None,
+) -> list[dict[str, Any]]:
+    payload = fetch_json(
+        scrydex_request_url(
+            scrydex_cards_path(language_code),
+            q=query,
+            page_size=str(max(1, min(page_size, 100))),
+            casing="snake",
+        ),
+        api_key,
+        team_id,
+    )
+    data = payload.get("data")
+    if isinstance(data, list):
+        return [item for item in data if isinstance(item, dict)]
+    return []
+
+
 def scrydex_card_data(card_payload: dict[str, Any]) -> dict[str, Any]:
     data = card_payload.get("data")
     if isinstance(data, dict):
         return data
     return card_payload
+
+
+def _scrydex_primary_image_urls(card_data: dict[str, Any]) -> tuple[str, str]:
+    images = card_data.get("images")
+    if isinstance(images, list):
+        for image in images:
+            if not isinstance(image, dict):
+                continue
+            image_type = str(image.get("type") or "").lower()
+            if image_type in {"front", ""}:
+                small = str(image.get("small") or image.get("medium") or image.get("large") or "")
+                large = str(image.get("large") or image.get("medium") or image.get("small") or "")
+                return small, large
+        for image in images:
+            if not isinstance(image, dict):
+                continue
+            small = str(image.get("small") or image.get("medium") or image.get("large") or "")
+            large = str(image.get("large") or image.get("medium") or image.get("small") or "")
+            return small, large
+    return "", ""
+
+
+def map_scrydex_catalog_card(card_payload: dict[str, Any]) -> dict[str, Any]:
+    card_data = scrydex_card_data(card_payload)
+    translation = card_data.get("translation") if isinstance(card_data.get("translation"), dict) else {}
+    translation_en = translation.get("en") if isinstance(translation.get("en"), dict) else {}
+    expansion = card_data.get("expansion") if isinstance(card_data.get("expansion"), dict) else {}
+
+    card_id = str(card_data["id"])
+    language = str(card_data.get("language") or expansion.get("language") or "English")
+    display_name = str(translation_en.get("name") or card_data.get("name") or "")
+    set_name = str(expansion.get("name") or "")
+    printed_number = str(card_data.get("printed_number") or "").strip()
+    number = printed_number or str(card_data.get("number") or "").strip()
+    image_small_url, image_large_url = _scrydex_primary_image_urls(card_data)
+
+    return {
+        "id": card_id,
+        "name": display_name,
+        "set_name": set_name,
+        "number": number,
+        "rarity": str(translation_en.get("rarity") or card_data.get("rarity") or "Unknown"),
+        "variant": "Raw",
+        "language": language,
+        "reference_image_path": None,
+        "reference_image_url": image_large_url or image_small_url,
+        "reference_image_small_url": image_small_url or image_large_url,
+        "source": SCRYDEX_SOURCE,
+        "source_record_id": card_id,
+        "set_id": expansion.get("id"),
+        "set_series": expansion.get("series"),
+        "set_ptcgo_code": None,
+        "set_release_date": expansion.get("release_date"),
+        "supertype": translation_en.get("supertype") or card_data.get("supertype") or "Pokémon",
+        "subtypes": list(translation_en.get("subtypes") or card_data.get("subtypes") or []),
+        "types": list(translation_en.get("types") or card_data.get("types") or []),
+        "artist": card_data.get("artist"),
+        "regulation_mark": card_data.get("regulation_mark"),
+        "national_pokedex_numbers": list(card_data.get("national_pokedex_numbers") or []),
+        "tcgplayer": {},
+        "cardmarket": {},
+        "source_payload": card_payload,
+    }
 
 
 def score_variant_name(name: str) -> tuple[int, str]:
@@ -212,7 +328,7 @@ def refresh_scrydex_raw_snapshot(
 
     variant, price = resolved
     variant_name = str(variant.get("name") or "normal")
-    source_url = scrydex_request_url(f"/pokemon/v1/en/cards/{card_id}", include="prices", casing="snake")
+    source_url = scrydex_request_url(scrydex_card_path(card_id), include="prices", casing="snake")
 
     upsert_external_price_mapping(
         connection,
@@ -286,7 +402,7 @@ def refresh_scrydex_graded_snapshot(
 
     variant, price = resolved
     variant_name = str(variant.get("name") or "normal")
-    source_url = scrydex_request_url(f"/pokemon/v1/en/cards/{card_id}", include="prices", casing="snake")
+    source_url = scrydex_request_url(scrydex_card_path(card_id), include="prices", casing="snake")
     bucket_key = bucket_key_for_card(connection, card_id)
 
     upsert_external_price_mapping(

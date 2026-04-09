@@ -84,7 +84,7 @@ def test_provider():
     print()
 
     # Test with database
-    db_path = Path(__file__).parent / "data" / "imported_scanner.sqlite"
+    db_path = Path(__file__).parent / "data" / "spotlight_scanner.sqlite"
     if db_path.exists():
         print(f"Testing live refresh with database: {db_path}")
         connection = connect(db_path)
