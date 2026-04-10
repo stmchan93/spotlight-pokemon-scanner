@@ -42,10 +42,22 @@ struct ScanTrayMetrics: Equatable, Sendable {
 
 enum ScanTrayCalculator {
     static func metrics(for inputs: [ScanTrayMetricInput]) -> ScanTrayMetrics {
-        let resolvedInputs = inputs.filter { $0.phase == .resolved }
-        let pendingCount = inputs.filter { $0.phase == .pending || $0.phase == .needsReview || $0.phase == .unsupported }.count
+        let pricedInputs = inputs.filter { input in
+            guard input.pricing?.primaryDisplayPrice != nil else { return false }
+            return input.phase == .resolved || input.phase == .needsReview
+        }
+        let pendingCount = inputs.filter { input in
+            switch input.phase {
+            case .pending, .unsupported:
+                return true
+            case .needsReview:
+                return input.pricing?.primaryDisplayPrice == nil
+            case .resolved, .failed:
+                return false
+            }
+        }.count
 
-        let currencies: Set<String> = Set(resolvedInputs.compactMap { input in
+        let currencies: Set<String> = Set(pricedInputs.compactMap { input in
             guard let pricing = input.pricing,
                   pricing.primaryDisplayPrice != nil else {
                 return nil
@@ -54,9 +66,9 @@ enum ScanTrayCalculator {
         })
 
         let hasMixedCurrencies = currencies.count > 1
-        let chosenCurrency = currencies.count == 1 ? currencies.first ?? nil : resolvedInputs.compactMap(\.pricing?.currencyCode).first
+        let chosenCurrency = currencies.count == 1 ? currencies.first ?? nil : pricedInputs.compactMap(\.pricing?.currencyCode).first
 
-        let totalValue = resolvedInputs.reduce(into: 0.0) { partialResult, input in
+        let totalValue = pricedInputs.reduce(into: 0.0) { partialResult, input in
             guard let pricing = input.pricing,
                   let value = pricing.primaryDisplayPrice else { return }
             if hasMixedCurrencies {
@@ -69,7 +81,7 @@ enum ScanTrayCalculator {
             totalValue: totalValue,
             currencyCode: chosenCurrency,
             totalCount: inputs.count,
-            resolvedCount: resolvedInputs.count,
+            resolvedCount: pricedInputs.count,
             pendingCount: pendingCount,
             hasMixedCurrencies: hasMixedCurrencies
         )

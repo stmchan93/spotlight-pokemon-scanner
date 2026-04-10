@@ -4,7 +4,7 @@ import os
 from typing import Any
 
 from catalog_tools import RAW_PRICING_MODE, card_by_id, upsert_price_snapshot
-from import_pokemontcg_catalog import fetch_card_by_id
+from pokemontcg_api_client import fetch_card_by_id
 from pricing_provider import ProviderMetadata, PricingProvider, PsaPricingResult, RawPricingResult
 from pricing_utils import normalize_price_summary
 

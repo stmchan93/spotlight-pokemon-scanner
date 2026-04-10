@@ -1,0 +1,31 @@
+{
+  "collectorNumber" : "185\/132",
+  "cropConfidence" : 0.7553153520110598,
+  "expected" : {
+    "cardName" : "Lt. Surge's Bargain",
+    "collectorNumber" : "185\/132",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "ME01",
+    "setName" : "Mega Evolution"
+  },
+  "fixtureName" : "raw_in_holder",
+  "fullRecognizedText" : "Supporter TRAINEE Lt. Surge's Bargain You may play only 1 Supporter card during your turn- 185\/132 O202- EIREAK TRAINER RAIN t. Surge's Bargain Yo Hion esars yс -D MEG SN only 1 Supporter card during",
+  "metadataStripRecognizedText" : "You may play only 1 Supporter card during your turn- 185\/132 O202- EIREAK",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7553153520110598,
+  "ocrUsedFallback" : true,
+  "scanID" : "715EDBB3-8FE7-496A-9DEB-2ED03CED7D8E",
+  "setHintTokens" : [
+    "o202"
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_in_holder.JPG",
+  "titleTextPrimary" : "TRAINEE Lt Surge's Bargain",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

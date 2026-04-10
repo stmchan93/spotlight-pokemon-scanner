@@ -1,0 +1,54 @@
+{
+  "bottomLeftRecognizedText" : "",
+  "bottomRightRecognizedText" : "",
+  "cropConfidence" : 0.691474138239436,
+  "directLookupLikely" : false,
+  "expected" : {
+    "cardName" : "Squirtle",
+    "collectorNumber" : "007\/018",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setName" : "McDonald's Pokemon-e Minimum Pack"
+  },
+  "fixtureName" : "slab_farther",
+  "fullRecognizedText" : "2002 POKEMON JAPANESE #007 SQUIRTLE - HOLO GEM MT McDONALD'S 49377407 10",
+  "metadataStripRecognizedText" : "",
+  "normalizedImageHeight" : 1620,
+  "normalizedImageWidth" : 1215,
+  "ocrLooksLikeRawScore" : 0.27999999999999997,
+  "ocrLooksLikeSlabScore" : 0.48000000000000004,
+  "ocrModeWarnings" : [
+    "Target selection used fallback crop"
+  ],
+  "ocrPipelineVersion" : "legacy_v1",
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrSelectedMode" : "slab",
+  "ocrTargetQualityScore" : 0.691474138239436,
+  "ocrUsedFallback" : true,
+  "resolverModeHint" : "psa_slab",
+  "scanID" : "025A8B46-DEC1-45B7-BC4F-2D28BD89AB7D",
+  "selectedMode" : "slab",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "slabCardNumberRaw" : "007",
+  "slabCertNumber" : "49377407",
+  "slabClassifierReasons" : [
+    "cert_from_label_ocr",
+    "grade_from_psa_adjective_only",
+    "barcode_region_detected",
+    "right_column_layout_detected",
+    "card_number:007",
+    "lookup_path:needs_review"
+  ],
+  "slabGrade" : "10",
+  "slabParsedLabelText" : [
+    "2002 POKEMON JAPANESE #007 SQUIRTLE - HOLO GEM MT MCDONALD S 49377407 10"
+  ],
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/slab_farther.jpg",
+  "topLabelRecognizedText" : "2002 POKEMON JAPANESE #007 SQUIRTLE - HOLO GEM MT McDONALD'S 49377407 10",
+  "warnings" : [
+    "Could not extract slab barcode payload"
+  ]
+}

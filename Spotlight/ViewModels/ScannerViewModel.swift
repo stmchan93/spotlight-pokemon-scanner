@@ -18,8 +18,7 @@ final class ScannerViewModel: ObservableObject {
 
     let cameraController: CameraSessionController
 
-    private let rawAnalyzer: RawCardScanner
-    private let slabAnalyzer: SlabScanner
+    private let ocrPipeline: OCRPipelineCoordinator
     private let matcher: CardMatchingService
     private let logStore: ScanEventStore
     private var currentScanID: UUID?
@@ -35,14 +34,12 @@ final class ScannerViewModel: ObservableObject {
 
     init(
         cameraController: CameraSessionController,
-        rawAnalyzer: RawCardScanner,
-        slabAnalyzer: SlabScanner,
+        ocrPipeline: OCRPipelineCoordinator,
         matcher: CardMatchingService,
         logStore: ScanEventStore
     ) {
         self.cameraController = cameraController
-        self.rawAnalyzer = rawAnalyzer
-        self.slabAnalyzer = slabAnalyzer
+        self.ocrPipeline = ocrPipeline
         self.matcher = matcher
         self.logStore = logStore
 
@@ -93,7 +90,14 @@ final class ScannerViewModel: ObservableObject {
         currentPendingItemID = pendingItemID
         currentScanStartedAt = Date().timeIntervalSinceReferenceDate
 
-        let didStartCapture = cameraController.capturePhoto(scanID: scanID, reticleRect: reticleRect)
+        // Temporary debugging mode: use a real still photo for raw scans so OCR can
+        // work from a sharper, higher-resolution source than the live preview frame.
+        let preferStillPhoto = scannerPresentationMode == .raw
+        let didStartCapture = cameraController.capturePhoto(
+            scanID: scanID,
+            reticleRect: reticleRect,
+            preferStillPhoto: preferStillPhoto
+        )
         if didStartCapture {
             isCapturingPhoto = true
         } else {
@@ -262,20 +266,11 @@ final class ScannerViewModel: ObservableObject {
             // Add timeout to prevent indefinite hanging on complex images
             let analysis = try await withThrowingTaskGroup(of: AnalyzedCapture.self) { group in
                 group.addTask {
-                    switch resolverMode {
-                    case .psaSlab:
-                        try await self.slabAnalyzer.analyze(
-                            scanID: effectiveScanID,
-                            capture: processedCapture,
-                            resolverModeHint: resolverMode
-                        )
-                    case .rawCard, .unknownFallback:
-                        try await self.rawAnalyzer.analyze(
-                            scanID: effectiveScanID,
-                            capture: processedCapture,
-                            resolverModeHint: resolverMode
-                        )
-                    }
+                    try await self.ocrPipeline.analyze(
+                        scanID: effectiveScanID,
+                        capture: processedCapture,
+                        resolverModeHint: resolverMode
+                    )
                 }
 
                 group.addTask {
@@ -292,6 +287,11 @@ final class ScannerViewModel: ObservableObject {
 
             let analysisMs = (Date().timeIntervalSinceReferenceDate - analysisStarted) * 1000
             print("✅ [SCAN] Vision analysis completed in \(analysisMs)ms")
+            logOCRSummary(
+                analysis,
+                captureSource: processedCapture.captureSource,
+                analysisMs: analysisMs
+            )
 
             if analysis.shouldRetryWithStillPhoto,
                let reticleRect = currentReticleRect {
@@ -527,7 +527,7 @@ final class ScannerViewModel: ObservableObject {
     }
 
     private func shouldAutoRefresh(_ item: LiveScanStackItem) -> Bool {
-        guard item.phase == .resolved else { return false }
+        guard item.phase == .resolved || item.phase == .needsReview else { return false }
         return ScanTrayCalculator.shouldAutoRefresh(pricing: item.pricing)
     }
 
@@ -633,6 +633,16 @@ final class ScannerViewModel: ObservableObject {
             item.slabContext = response.slabContext
             item.reviewDisposition = response.reviewDisposition ?? .ready
             item.reviewReason = response.reviewReason
+            if let bestMatch = response.bestMatch {
+                item.card = bestMatch
+                item.detail = nil
+                item.pricingContextNote = pricingContextNote(
+                    for: response.resolverMode,
+                    matcherSource: response.matcherSource,
+                    slabContext: response.slabContext,
+                    pricing: bestMatch.pricing
+                )
+            }
         }
     }
 
@@ -666,6 +676,79 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
+    private func logOCRSummary(
+        _ analysis: AnalyzedCapture,
+        captureSource: ScanCaptureSource,
+        analysisMs: Double
+    ) {
+        let rawEvidence = analysis.ocrAnalysis?.rawEvidence
+        let slabEvidence = analysis.ocrAnalysis?.slabEvidence
+
+        print(
+            "🧠 [OCR] Summary: "
+            + "scanID=\(analysis.scanID.uuidString) "
+            + "route=\(analysis.ocrAnalysis?.pipelineVersion.rawValue ?? "none") "
+            + "mode=\(analysis.resolverModeHint.rawValue) "
+            + "capture=\(captureSource.rawValue) "
+            + "crop=\(String(format: "%.2f", analysis.cropConfidence)) "
+            + "analysisMs=\(Int(analysisMs.rounded()))"
+        )
+        print(
+            "🧠 [OCR] Target: "
+            + "geometry=\(analysis.ocrAnalysis?.normalizedTarget?.geometryKind ?? "n/a") "
+            + "fallback=\(analysis.ocrAnalysis?.normalizedTarget?.usedFallback == true ? "yes" : "no") "
+            + "quality=\(formatDouble(analysis.ocrAnalysis?.normalizedTarget?.targetQuality.overallScore)) "
+            + "warnings=\(analysis.warnings)"
+        )
+        if let rawEvidence {
+            print(
+                "🧠 [OCR] Raw evidence: "
+                + "title=\(quoted(rawEvidence.titleTextPrimary)) "
+                + "titleScore=\(formatFieldConfidence(rawEvidence.titleConfidence)) "
+                + "collectorExact=\(quoted(rawEvidence.collectorNumberExact)) "
+                + "collectorPartial=\(quoted(rawEvidence.collectorNumberPartial)) "
+                + "collectorScore=\(formatFieldConfidence(rawEvidence.collectorConfidence)) "
+                + "setHints=\(rawEvidence.setHints) "
+                + "setScore=\(formatFieldConfidence(rawEvidence.setConfidence))"
+            )
+        }
+        if let slabEvidence {
+            print(
+                "🧠 [OCR] Slab evidence: "
+                + "title=\(quoted(slabEvidence.titleTextPrimary)) "
+                + "cardNumber=\(quoted(slabEvidence.cardNumber)) "
+                + "setHints=\(slabEvidence.setHints) "
+                + "grader=\(quoted(slabEvidence.grader)) "
+                + "grade=\(quoted(slabEvidence.grade)) "
+                + "cert=\(quoted(slabEvidence.cert))"
+            )
+        }
+
+        ScanStageArtifactWriter.recordFinalDecisionArtifact(
+            scanID: analysis.scanID,
+            stage: "frontend_ocr_summary",
+            payload: FrontendOCRSummaryArtifact(
+                scanID: analysis.scanID.uuidString,
+                resolverModeHint: analysis.resolverModeHint.rawValue,
+                captureSource: captureSource.rawValue,
+                analysisMs: analysisMs,
+                cropConfidence: analysis.cropConfidence,
+                pipelineVersion: analysis.ocrAnalysis?.pipelineVersion.rawValue,
+                selectedMode: analysis.ocrAnalysis?.selectedMode.rawValue,
+                geometryKind: analysis.ocrAnalysis?.normalizedTarget?.geometryKind,
+                usedFallback: analysis.ocrAnalysis?.normalizedTarget?.usedFallback,
+                targetQualityScore: analysis.ocrAnalysis?.normalizedTarget?.targetQuality.overallScore,
+                collectorNumber: analysis.collectorNumber,
+                setHintTokens: analysis.setHintTokens,
+                warnings: analysis.warnings,
+                shouldRetryWithStillPhoto: analysis.shouldRetryWithStillPhoto,
+                stillPhotoRetryReason: analysis.stillPhotoRetryReason,
+                rawEvidence: rawEvidence,
+                slabEvidence: slabEvidence
+            )
+        )
+    }
+
     // MARK: - Backend Matching Flow
 
     private func logPricingSnapshot(prefix: String, card: CardCandidate) {
@@ -694,10 +777,58 @@ final class ScannerViewModel: ObservableObject {
     ) async {
         do {
             print("🔍 [SCAN] Using backend match...")
+            print(
+                "🌐 [MATCH] Request: "
+                + "scanID=\(scanID.uuidString) "
+                + "mode=\(analysis.resolverModeHint.rawValue) "
+                + "pipeline=\(analysis.ocrAnalysis?.pipelineVersion.rawValue ?? "none") "
+                + "collector=\(quoted(analysis.collectorNumber)) "
+                + "setHints=\(analysis.setHintTokens) "
+                + "warnings=\(analysis.warnings)"
+            )
+            ScanStageArtifactWriter.recordFinalDecisionArtifact(
+                scanID: scanID,
+                stage: "frontend_backend_request",
+                payload: FrontendBackendRequestArtifact(
+                    scanID: scanID.uuidString,
+                    resolverModeHint: analysis.resolverModeHint.rawValue,
+                    pipelineVersion: analysis.ocrAnalysis?.pipelineVersion.rawValue,
+                    imageWidth: Int(analysis.normalizedImage.size.width.rounded()),
+                    imageHeight: Int(analysis.normalizedImage.size.height.rounded()),
+                    recognizedTokenCount: analysis.recognizedTokens.count,
+                    collectorNumber: analysis.collectorNumber,
+                    setHintTokens: analysis.setHintTokens,
+                    warnings: analysis.warnings
+                )
+            )
             let matchStarted = Date().timeIntervalSinceReferenceDate
             let response = try await matcher.match(analysis: analysis)
             let matchMs = (Date().timeIntervalSinceReferenceDate - matchStarted) * 1000
             print("✅ [SCAN] Backend match completed in \(matchMs)ms")
+            logBackendResponseSummary(response, matchMs: matchMs)
+            ScanStageArtifactWriter.recordFinalDecisionArtifact(
+                scanID: scanID,
+                stage: "frontend_backend_response",
+                payload: FrontendBackendResponseArtifact(
+                    scanID: scanID.uuidString,
+                    matchMs: matchMs,
+                    confidence: response.confidence.rawValue,
+                    resolverMode: response.resolverMode.rawValue,
+                    resolverPath: response.resolverPath?.rawValue,
+                    reviewDisposition: response.reviewDisposition?.rawValue,
+                    reviewReason: response.reviewReason,
+                    ambiguityFlags: response.ambiguityFlags,
+                    topCandidates: response.topCandidates.prefix(3).map { scored in
+                        FrontendBackendCandidateArtifact(
+                            id: scored.candidate.id,
+                            name: scored.candidate.name,
+                            setName: scored.candidate.setName,
+                            number: scored.candidate.number,
+                            finalScore: scored.finalScore
+                        )
+                    }
+                )
+            )
             if let bestMatch = response.bestMatch {
                 logPricingSnapshot(prefix: "Backend best match", card: bestMatch)
             }
@@ -728,6 +859,9 @@ final class ScannerViewModel: ObservableObject {
                     item.statusMessage = response.reviewReason ?? "Could not verify the card strongly enough."
                     item.isRefreshingPrice = false
                 }
+                if let bestMatch = response.bestMatch {
+                    scheduleIdlePricingRefresh(for: pendingItemID, cardID: bestMatch.id)
+                }
                 resetPendingScanState()
             } else {
                 updateStackItem(id: pendingItemID) { item in
@@ -742,9 +876,122 @@ final class ScannerViewModel: ObservableObject {
             }
         } catch {
             print("❌ [SCAN] Backend match failed: \(error.localizedDescription)")
+            ScanStageArtifactWriter.recordFinalDecisionArtifact(
+                scanID: scanID,
+                stage: "frontend_backend_error",
+                payload: FrontendBackendErrorArtifact(
+                    scanID: scanID.uuidString,
+                    errorType: String(describing: type(of: error)),
+                    message: error.localizedDescription,
+                    pipelineVersion: analysis.ocrAnalysis?.pipelineVersion.rawValue,
+                    resolverModeHint: analysis.resolverModeHint.rawValue,
+                    collectorNumber: analysis.collectorNumber,
+                    setHintTokens: analysis.setHintTokens,
+                    warnings: analysis.warnings
+                )
+            )
             errorMessage = error.localizedDescription
             markPendingScanFailed(itemID: pendingItemID, message: "Could not identify card")
             resetPendingScanState()
         }
     }
+
+    private func logBackendResponseSummary(_ response: ScanMatchResponse, matchMs: Double) {
+        let bestCandidate = response.bestMatch
+        print(
+            "🌐 [MATCH] Response: "
+            + "matchMs=\(Int(matchMs.rounded())) "
+            + "confidence=\(response.confidence.rawValue) "
+            + "resolverMode=\(response.resolverMode.rawValue) "
+            + "resolverPath=\(response.resolverPath?.rawValue ?? "n/a") "
+            + "review=\(response.reviewDisposition?.rawValue ?? "n/a") "
+            + "topCount=\(response.topCandidates.count)"
+        )
+        print(
+            "🌐 [MATCH] Best candidate: "
+            + "id=\(bestCandidate?.id ?? "n/a") "
+            + "name=\(quoted(bestCandidate?.name)) "
+            + "number=\(quoted(bestCandidate?.number)) "
+            + "set=\(quoted(bestCandidate?.setName)) "
+            + "reviewReason=\(quoted(response.reviewReason)) "
+            + "ambiguityFlags=\(response.ambiguityFlags)"
+        )
+    }
+
+    private func formatFieldConfidence(_ confidence: OCRFieldConfidence?) -> String {
+        formatDouble(confidence?.score)
+    }
+
+    private func formatDouble(_ value: Double?) -> String {
+        guard let value else { return "n/a" }
+        return String(format: "%.2f", value)
+    }
+
+    private func quoted(_ value: String?) -> String {
+        guard let value, !value.isEmpty else { return "\"\"" }
+        return "\"\(value)\""
+    }
+}
+
+private struct FrontendOCRSummaryArtifact: Codable {
+    let scanID: String
+    let resolverModeHint: String
+    let captureSource: String
+    let analysisMs: Double
+    let cropConfidence: Double
+    let pipelineVersion: String?
+    let selectedMode: String?
+    let geometryKind: String?
+    let usedFallback: Bool?
+    let targetQualityScore: Double?
+    let collectorNumber: String?
+    let setHintTokens: [String]
+    let warnings: [String]
+    let shouldRetryWithStillPhoto: Bool
+    let stillPhotoRetryReason: String?
+    let rawEvidence: OCRRawEvidence?
+    let slabEvidence: OCRSlabEvidence?
+}
+
+private struct FrontendBackendRequestArtifact: Codable {
+    let scanID: String
+    let resolverModeHint: String
+    let pipelineVersion: String?
+    let imageWidth: Int
+    let imageHeight: Int
+    let recognizedTokenCount: Int
+    let collectorNumber: String?
+    let setHintTokens: [String]
+    let warnings: [String]
+}
+
+private struct FrontendBackendCandidateArtifact: Codable {
+    let id: String
+    let name: String
+    let setName: String
+    let number: String
+    let finalScore: Double
+}
+
+private struct FrontendBackendResponseArtifact: Codable {
+    let scanID: String
+    let matchMs: Double
+    let confidence: String
+    let resolverMode: String
+    let resolverPath: String?
+    let reviewDisposition: String?
+    let reviewReason: String?
+    let ambiguityFlags: [String]
+    let topCandidates: [FrontendBackendCandidateArtifact]
+}
+
+private struct FrontendBackendErrorArtifact: Codable {
+    let scanID: String
+    let errorType: String
+    let message: String
+    let pipelineVersion: String?
+    let resolverModeHint: String
+    let collectorNumber: String?
+    let setHintTokens: [String]
+    let warnings: [String]
 }

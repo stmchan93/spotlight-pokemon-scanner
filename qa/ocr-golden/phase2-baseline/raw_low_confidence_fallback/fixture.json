@@ -1,0 +1,18 @@
+{
+  "expects" : {
+    "cardName" : "Slowpoke",
+    "collectorNumber" : "204\/198",
+    "confidenceBucket" : "low",
+    "preserveLowConfidenceEvidence" : true,
+    "setCodeHint" : "SV01",
+    "setName" : "Scarlet & Violet Base Set"
+  },
+  "fixtureName" : "raw_low_confidence_fallback",
+  "selectedMode" : "raw",
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_low_confidence_fallback.JPG",
+  "tags" : [
+    "raw",
+    "low_confidence",
+    "fallback"
+  ]
+}

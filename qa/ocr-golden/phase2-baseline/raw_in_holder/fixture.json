@@ -1,0 +1,18 @@
+{
+  "expects" : {
+    "cardName" : "Lt. Surge's Bargain",
+    "collectorNumber" : "185\/132",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "ME01",
+    "setName" : "Mega Evolution"
+  },
+  "fixtureName" : "raw_in_holder",
+  "selectedMode" : "raw",
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_in_holder.JPG",
+  "tags" : [
+    "raw",
+    "holder",
+    "top_loader"
+  ]
+}

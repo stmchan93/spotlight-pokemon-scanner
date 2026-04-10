@@ -16,6 +16,10 @@ What is intentionally removed right now:
 - slab sync/import pipelines
 - old catalog sync/cache layers
 - old collector-number-first raw matcher
+- legacy Pokemon TCG importer CLI / catalog JSON / image download path
+
+Runtime Pokemon TCG API helper code now lives in:
+- `backend/pokemontcg_api_client.py`
 
 ## Runtime tables
 
@@ -63,7 +67,7 @@ Compile the kept backend:
 ```bash
 python3 -m py_compile \
   backend/catalog_tools.py \
-  backend/import_pokemontcg_catalog.py \
+  backend/pokemontcg_api_client.py \
   backend/pokemontcg_pricing_adapter.py \
   backend/pricecharting_adapter.py \
   backend/pricing_provider.py \
@@ -83,7 +87,7 @@ python3 -m unittest -v \
   backend.tests.test_raw_decision_phase5 \
   backend.tests.test_pricing_phase6 \
   backend.tests.test_scan_logging_phase7 \
-  backend.tests.test_import_pokemontcg_catalog \
+  backend.tests.test_pokemontcg_api_client \
   backend.tests.test_pricing_utils
 ```
 

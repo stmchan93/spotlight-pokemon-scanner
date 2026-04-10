@@ -1,0 +1,29 @@
+{
+  "cropConfidence" : 0.7494489682021253,
+  "expected" : {
+    "cardName" : "Sabrina's Slowbro",
+    "collectorNumber" : "60\/132",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setName" : "Gym Heroes"
+  },
+  "fixtureName" : "raw_farther",
+  "fullRecognizedText" : "HCAL COFH. weakness resistance retreat cost LV. 29 #80 Men 1 (132 STAGE I- Evolves from Sabrine's Slowpoke Pur Sabrial Siodis on wealcness LV. 29 #80 as. Men Sugiment GAMDE 1132 •",
+  "metadataStripRecognizedText" : "HCAL COFH. weakness resistance retreat cost LV. 29 #80 Men 1 (132",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7494489682021253,
+  "ocrUsedFallback" : true,
+  "scanID" : "8832D9D5-1937-4451-8003-6415BD7D1A6F",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_farther.JPG",
+  "titleTextPrimary" : "Sabrine's Slowpoke Pur Sabrial",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

@@ -49,7 +49,7 @@ from catalog_tools import (
     upsert_scan_event,
     utc_now,
 )
-from import_pokemontcg_catalog import (
+from pokemontcg_api_client import (
     best_remote_raw_candidates,
     build_raw_provider_queries,
     fetch_card_by_id,
@@ -213,6 +213,82 @@ class SpotlightScanService:
             "errorType": type(error).__name__,
             "errorText": str(error),
             "matcherVersion": MATCHER_VERSION,
+        }
+
+    def _scan_request_log_payload(self, payload: dict[str, Any]) -> dict[str, Any]:
+        image = payload.get("image") or {}
+        ocr_analysis = payload.get("ocrAnalysis") or {}
+        raw_evidence = ocr_analysis.get("rawEvidence") or {}
+        slab_evidence = ocr_analysis.get("slabEvidence") or {}
+        normalized_target = ocr_analysis.get("normalizedTarget") or {}
+        mode_sanity = ocr_analysis.get("modeSanitySignals") or {}
+        collector_number = (
+            payload.get("collectorNumber")
+            or raw_evidence.get("collectorNumberExact")
+            or raw_evidence.get("collectorNumberPartial")
+        )
+        set_hint_tokens = payload.get("setHintTokens") or raw_evidence.get("setHints") or []
+        return {
+            "severity": "INFO",
+            "event": "scan_match_request",
+            "scanID": payload.get("scanID"),
+            "capturedAt": payload.get("capturedAt"),
+            "resolverModeHint": payload.get("resolverModeHint"),
+            "cropConfidence": payload.get("cropConfidence"),
+            "imageWidth": image.get("width"),
+            "imageHeight": image.get("height"),
+            "recognizedTokenCount": len(payload.get("recognizedTokens") or []),
+            "collectorNumber": collector_number,
+            "setHintTokens": set_hint_tokens,
+            "warnings": payload.get("warnings") or [],
+            "ocrPipelineVersion": ocr_analysis.get("pipelineVersion"),
+            "ocrSelectedMode": ocr_analysis.get("selectedMode"),
+            "normalizedGeometryKind": normalized_target.get("geometryKind"),
+            "normalizedUsedFallback": normalized_target.get("usedFallback"),
+            "normalizedTargetQuality": ((normalized_target.get("targetQuality") or {}).get("overallScore")),
+            "modeSanityWarnings": mode_sanity.get("warnings") or [],
+            "rawEvidence": {
+                "titleTextPrimary": raw_evidence.get("titleTextPrimary"),
+                "collectorNumberExact": raw_evidence.get("collectorNumberExact"),
+                "collectorNumberPartial": raw_evidence.get("collectorNumberPartial"),
+                "setHints": raw_evidence.get("setHints") or [],
+                "titleConfidence": ((raw_evidence.get("titleConfidence") or {}).get("score")),
+                "collectorConfidence": ((raw_evidence.get("collectorConfidence") or {}).get("score")),
+                "setConfidence": ((raw_evidence.get("setConfidence") or {}).get("score")),
+            },
+            "slabEvidence": {
+                "titleTextPrimary": slab_evidence.get("titleTextPrimary"),
+                "cardNumber": slab_evidence.get("cardNumber"),
+                "setHints": slab_evidence.get("setHints") or [],
+                "grader": slab_evidence.get("grader"),
+                "grade": slab_evidence.get("grade"),
+                "cert": slab_evidence.get("cert"),
+            },
+        }
+
+    def _raw_resolution_log_payload(
+        self,
+        payload: dict[str, Any],
+        debug_payload: dict[str, Any],
+        *,
+        local_candidate_count: int,
+        remote_candidate_count: int,
+        merged_candidate_count: int,
+    ) -> dict[str, Any]:
+        return {
+            "severity": "INFO",
+            "event": "scan_match_raw_resolution",
+            "scanID": payload.get("scanID"),
+            "resolverModeHint": payload.get("resolverModeHint"),
+            "localCandidateCount": local_candidate_count,
+            "remoteCandidateCount": remote_candidate_count,
+            "mergedCandidateCount": merged_candidate_count,
+            "evidence": debug_payload.get("evidence") or {},
+            "signals": debug_payload.get("signals") or {},
+            "retrievalPlan": debug_payload.get("retrievalPlan") or {},
+            "remote": debug_payload.get("remote") or {},
+            "topMatches": (debug_payload.get("topMatches") or [])[:3],
+            "decision": debug_payload.get("decision") or {},
         }
 
     def health(self) -> dict[str, Any]:
@@ -413,33 +489,6 @@ class SpotlightScanService:
             annotated.append(updated)
         return annotated
 
-    def _best_effort_local_raw_candidates(self, limit: int = 5) -> list[dict[str, Any]]:
-        candidates: list[dict[str, Any]] = []
-        for card in self.index.cards[:limit]:
-            candidates.append(
-                {
-                    "id": card.id,
-                    "name": card.name,
-                    "setName": card.set_name,
-                    "number": card.number,
-                    "rarity": card.rarity,
-                    "variant": card.variant,
-                    "language": card.language,
-                    "sourceProvider": None,
-                    "sourceRecordID": card.id,
-                    "setID": card.set_id,
-                    "setSeries": None,
-                    "setPtcgoCode": card.set_ptcgo_code,
-                    "imageURL": None,
-                    "imageSmallURL": None,
-                    "sourcePayload": {},
-                    "_cachePresence": True,
-                    "_retrievalScoreHint": 0.0,
-                    "_retrievalRoutes": ["no_signal_best_guess"],
-                }
-            )
-        return candidates
-
     def _retrieve_local_raw_candidates(
         self,
         evidence: RawEvidence,
@@ -479,50 +528,88 @@ class SpotlightScanService:
         signals: RawSignalScores,
         plan: RawRetrievalPlan,
         api_key: str | None,
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         if not plan.should_query_remote:
-            return []
+            return [], {
+                "queries": [],
+                "attempts": [],
+                "resultCount": 0,
+                "reason": "plan_disabled",
+            }
         queries = build_raw_provider_queries(evidence, signals)
         if not queries:
-            return []
-        remote_results = search_remote_raw_candidates(queries, api_key, page_size=10)
-        return best_remote_raw_candidates(remote_results, evidence, signals, limit=12)
+            return [], {
+                "queries": [],
+                "attempts": [],
+                "resultCount": 0,
+                "reason": "no_queries",
+            }
+        remote_search = search_remote_raw_candidates(queries, api_key, page_size=10)
+        remote_candidates = best_remote_raw_candidates(remote_search.cards, evidence, signals, limit=12)
+        return remote_candidates, {
+            "queries": queries,
+            "attempts": remote_search.attempts,
+            "resultCount": len(remote_search.cards),
+            "reason": None,
+        }
 
     def _ensure_raw_card_cached(self, card: dict[str, Any], trigger_source: str) -> dict[str, Any]:
         card_id = str(card.get("id") or "").strip()
         if not card_id:
             return card
+
+        source_payload = card.get("sourcePayload") or card.get("source_payload") or {}
+        mapped_card: dict[str, Any] | None = None
+        if isinstance(source_payload, dict) and source_payload.get("id") and source_payload.get("number") is not None:
+            try:
+                mapped_card = map_card(source_payload, None)
+            except Exception:
+                mapped_card = None
+
+        if mapped_card is None:
+            mapped_card = {
+                "id": card_id,
+                "name": str(card.get("name") or ""),
+                "set_name": str(card.get("setName") or ""),
+                "number": str(card.get("number") or ""),
+                "rarity": str(card.get("rarity") or "Unknown"),
+                "variant": str(card.get("variant") or "Raw"),
+                "language": str(card.get("language") or "English"),
+                "reference_image_path": None,
+                "reference_image_url": card.get("imageURL"),
+                "reference_image_small_url": card.get("imageSmallURL"),
+                "source": str(card.get("sourceProvider") or "pokemontcg_api"),
+                "source_record_id": str(card.get("sourceRecordID") or card_id),
+                "set_id": card.get("setID"),
+                "set_series": card.get("setSeries"),
+                "set_ptcgo_code": card.get("setPtcgoCode"),
+                "set_release_date": None,
+                "supertype": None,
+                "subtypes": [],
+                "types": [],
+                "artist": None,
+                "regulation_mark": None,
+                "national_pokedex_numbers": [],
+                "tcgplayer": {},
+                "cardmarket": {},
+                "source_payload": source_payload if isinstance(source_payload, dict) else {},
+            }
+
+        provider_prices = (((mapped_card.get("tcgplayer") or {}) if isinstance(mapped_card, dict) else {}).get("prices") or {})
         cached = card_by_id(self.connection, card_id)
         if cached is not None:
+            cached_pricing = contextual_pricing_summary_for_card(self.connection, card_id)
+            if cached_pricing is None and provider_prices:
+                self._persist_mapped_catalog_card(
+                    mapped_card=mapped_card,
+                    sync_mode="raw_candidate_cache",
+                    trigger_source=trigger_source,
+                    query_text=card_id,
+                    refresh_embeddings=False,
+                )
+                return card_by_id(self.connection, card_id) or cached
             return cached
 
-        mapped_card = {
-            "id": card_id,
-            "name": str(card.get("name") or ""),
-            "set_name": str(card.get("setName") or ""),
-            "number": str(card.get("number") or ""),
-            "rarity": str(card.get("rarity") or "Unknown"),
-            "variant": str(card.get("variant") or "Raw"),
-            "language": str(card.get("language") or "English"),
-            "reference_image_path": None,
-            "reference_image_url": card.get("imageURL"),
-            "reference_image_small_url": card.get("imageSmallURL"),
-            "source": str(card.get("sourceProvider") or "pokemontcg_api"),
-            "source_record_id": str(card.get("sourceRecordID") or card_id),
-            "set_id": card.get("setID"),
-            "set_series": card.get("setSeries"),
-            "set_ptcgo_code": card.get("setPtcgoCode"),
-            "set_release_date": None,
-            "supertype": None,
-            "subtypes": [],
-            "types": [],
-            "artist": None,
-            "regulation_mark": None,
-            "national_pokedex_numbers": [],
-            "tcgplayer": {},
-            "cardmarket": {},
-            "source_payload": card.get("sourcePayload") or {},
-        }
         self._persist_mapped_catalog_card(
             mapped_card=mapped_card,
             sync_mode="raw_candidate_cache",
@@ -577,6 +664,7 @@ class SpotlightScanService:
                 "topCandidates": [],
                 "confidence": decision.confidence,
                 "ambiguityFlags": list(decision.ambiguity_flags),
+                "ambiguityDebug": decision.debug_payload.get("ambiguity"),
                 "matcherSource": "remoteHybrid",
                 "matcherVersion": MATCHER_VERSION,
                 "resolverMode": "raw_card",
@@ -594,7 +682,7 @@ class SpotlightScanService:
                 match.card,
                 ensure_cached=index == 0,
                 api_key=api_key,
-                refresh_pricing_if_missing=index == 0 and decision.confidence != "low",
+                refresh_pricing_if_missing=index == 0,
             )
             scored_entry = {
                 "card": match.card,
@@ -621,6 +709,7 @@ class SpotlightScanService:
             "topCandidates": encoded_candidates,
             "confidence": decision.confidence,
             "ambiguityFlags": list(decision.ambiguity_flags),
+            "ambiguityDebug": decision.debug_payload.get("ambiguity"),
             "matcherSource": "remoteHybrid",
             "matcherVersion": MATCHER_VERSION,
             "resolverMode": "raw_card",
@@ -657,18 +746,33 @@ class SpotlightScanService:
         should_expand_remote = plan.should_query_remote and (
             len(local_candidates) < 3 or top_local_score < 70.0 or local_delta < 8.0
         )
-        remote_candidates = (
+        remote_candidates, remote_debug = (
             self._retrieve_remote_raw_candidates(evidence, signals, plan, api_key)
             if should_expand_remote
-            else []
+            else (
+                [],
+                {
+                    "queries": [],
+                    "attempts": [],
+                    "resultCount": 0,
+                    "reason": "remote_expansion_not_needed",
+                },
+            )
         )
 
         merged_candidates = merge_raw_candidate_pools([local_candidates, remote_candidates])
-        if not merged_candidates:
-            merged_candidates = self._best_effort_local_raw_candidates()
         matches = rank_raw_candidates(merged_candidates, evidence, signals)
         decision = finalize_raw_decision(matches, evidence, signals)
-        debug_payload = raw_debug_payload(evidence, signals, plan, matches, decision)
+        debug_payload = raw_debug_payload(evidence, signals, plan, matches, decision, remote_debug=remote_debug)
+        self._emit_structured_log(
+            self._raw_resolution_log_payload(
+                payload,
+                debug_payload,
+                local_candidate_count=len(local_candidates),
+                remote_candidate_count=len(remote_candidates),
+                merged_candidate_count=len(merged_candidates),
+            )
+        )
         decision = RawDecisionResult(
             matches=decision.matches,
             top_candidates=decision.top_candidates,
@@ -748,6 +852,7 @@ class SpotlightScanService:
         }
 
     def match_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
+        self._emit_structured_log(self._scan_request_log_payload(payload))
         resolver_mode = resolver_mode_for_payload(payload)
         if resolver_mode == "raw_card":
             return self._resolve_raw_candidates(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))

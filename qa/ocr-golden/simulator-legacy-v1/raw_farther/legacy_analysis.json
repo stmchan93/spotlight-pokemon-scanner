@@ -1,0 +1,46 @@
+{
+  "bottomLeftRecognizedText" : "wealeness retreat cost LY. 29 #80 3. Men Supma",
+  "bottomRightRecognizedText" : "(112",
+  "cropConfidence" : 0.45,
+  "directLookupLikely" : false,
+  "expected" : {
+    "cardName" : "Sabrina's Slowbro",
+    "collectorNumber" : "60\/132",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setName" : "Gym Heroes"
+  },
+  "fixtureName" : "raw_farther",
+  "fullRecognizedText" : "HCAL COFH. weakness resistance retreat cost LV. 29 #80 Men 1 (132 wealeness LY. 29 3. Men Supma (112",
+  "metadataStripRecognizedText" : "HCAL COFH. weakness resistance retreat cost LV. 29 #80 Men 1 (132",
+  "normalizedImageHeight" : 889,
+  "normalizedImageWidth" : 636,
+  "ocrLooksLikeRawScore" : 0.48000000000000004,
+  "ocrLooksLikeSlabScore" : 0.27999999999999997,
+  "ocrModeWarnings" : [
+    "Target selection used fallback crop"
+  ],
+  "ocrPipelineVersion" : "legacy_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7494489682021253,
+  "ocrUsedFallback" : true,
+  "resolverModeHint" : "raw_card",
+  "scanID" : "9BE8EAAA-C89D-4FB3-B5F3-453557245F50",
+  "selectedMode" : "raw",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "slabClassifierReasons" : [
+
+  ],
+  "slabParsedLabelText" : [
+
+  ],
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_farther.JPG",
+  "topLabelRecognizedText" : "",
+  "warnings" : [
+    "Could not read strong raw-card clues"
+  ]
+}

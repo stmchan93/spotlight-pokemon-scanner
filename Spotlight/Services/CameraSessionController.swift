@@ -180,10 +180,10 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         let settings = AVCapturePhotoSettings()
         settings.flashMode = .off
 
-        // Fallback only if the preview frame buffer is not ready yet, or when a sharper retry is requested.
-        settings.photoQualityPrioritization = .balanced
+        // Use the quality-focused still-photo path when explicitly requested.
+        settings.photoQualityPrioritization = preferStillPhoto ? .quality : .balanced
         if preferStillPhoto {
-            print("📸 [CAPTURE] Capturing still photo for OCR retry")
+            print("📸 [CAPTURE] Capturing high-resolution still photo for OCR")
         } else {
             print("📸 [CAPTURE] Falling back to still photo capture")
         }
@@ -245,9 +245,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             guard let self else { return }
 
             self.session.beginConfiguration()
-            // Use .high preset (1920x1080) - good OCR quality without memory crashes
-            // .photo (12MP) uses too much memory for Vision framework processing
-            self.session.sessionPreset = .high
+            // Temporary debugging mode: prefer the photo preset so raw scans can use
+            // a higher-resolution still image instead of the softer preview frame.
+            if self.session.canSetSessionPreset(.photo) {
+                self.session.sessionPreset = .photo
+            } else {
+                self.session.sessionPreset = .high
+            }
 
             defer {
                 self.session.commitConfiguration()
@@ -285,8 +289,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
 
                 if self.session.canAddOutput(self.photoOutput) {
                     self.session.addOutput(self.photoOutput)
-                    // Cap the output at balanced so taps do not pay the full still-photo latency.
-                    self.photoOutput.maxPhotoQualityPrioritization = .balanced
+                    self.photoOutput.maxPhotoQualityPrioritization = .quality
                 }
 
                 // Set initial zoom level
@@ -448,7 +451,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         let searchImage = cropImage(normalizedImage, normalizedRect: request.searchCropRectNormalized)
         let fallbackImage = cropImage(normalizedImage, normalizedRect: request.exactCropRectNormalized)
 
-        ScanDebugArtifactWriter.recordCaptureArtifacts(
+        ScanStageArtifactWriter.recordCaptureArtifacts(
             scanID: request.scanID,
             source: source,
             originalImage: normalizedImage,

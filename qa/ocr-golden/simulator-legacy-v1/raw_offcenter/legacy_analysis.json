@@ -1,0 +1,47 @@
+{
+  "bottomLeftRecognizedText" : "Explodei ck does 40 damage fe",
+  "bottomRightRecognizedText" : "her Now -40г Pokémon in play chat",
+  "cropConfidence" : 0.8655603906902266,
+  "directLookupLikely" : false,
+  "expected" : {
+    "cardName" : "Team Rocket's Weezing",
+    "collectorNumber" : "199\/182",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "SV10",
+    "setName" : "Destined Rivals"
+  },
+  "fixtureName" : "raw_offcenter",
+  "fullRecognizedText" : "Explode Together Now 40г ck does 40 damage for each Pokémen in play that ffing\" or\"Weezing\" in its name (both vours and vour Explodei ck does 40 damage fe her Now -40г Pokémon in play chat",
+  "metadataStripRecognizedText" : "Explode Together Now 40г ck does 40 damage for each Pokémen in play that ffing\" or\"Weezing\" in its name (both vours and vour",
+  "normalizedImageHeight" : 726,
+  "normalizedImageWidth" : 520,
+  "ocrLooksLikeRawScore" : 0.94,
+  "ocrLooksLikeSlabScore" : 0.13999999999999999,
+  "ocrModeWarnings" : [
+
+  ],
+  "ocrPipelineVersion" : "legacy_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.8655603906902266,
+  "ocrUsedFallback" : false,
+  "resolverModeHint" : "raw_card",
+  "scanID" : "00EBCCC3-1707-4BDD-BB23-4D64163AD061",
+  "selectedMode" : "raw",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "slabClassifierReasons" : [
+
+  ],
+  "slabParsedLabelText" : [
+
+  ],
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_offcenter.JPG",
+  "topLabelRecognizedText" : "",
+  "warnings" : [
+    "Could not read strong raw-card clues"
+  ]
+}

@@ -117,6 +117,85 @@ class RawDecisionResult:
     debug_payload: dict[str, Any]
 
 
+def _raw_same_exact_number_ambiguity(
+    matches: list[RawCandidateMatch],
+    evidence: RawEvidence,
+) -> dict[str, Any] | None:
+    if not evidence.collector_number_exact:
+        return None
+
+    expected = canonicalize_collector_number(evidence.collector_number_exact)
+    exact_matches = [
+        match for match in matches
+        if canonicalize_collector_number(str(match.card.get("number") or "")) == expected
+    ]
+    if len(exact_matches) < 2:
+        return None
+
+    disambiguated = any(
+        match.breakdown.title_overlap_score > 0.0 or match.breakdown.set_overlap_score > 0.0
+        for match in exact_matches
+    )
+    if disambiguated:
+        return None
+
+    return {
+        "kind": "same_exact_number_without_disambiguator",
+        "collectorNumber": evidence.collector_number_exact,
+        "candidateIDs": [str(match.card.get("id") or "") for match in exact_matches[:5]],
+        "candidateNames": [str(match.card.get("name") or "") for match in exact_matches[:5]],
+    }
+
+
+def _raw_minimal_signal_ambiguity(
+    matches: list[RawCandidateMatch],
+    evidence: RawEvidence,
+    signals: RawSignalScores,
+) -> dict[str, Any] | None:
+    if not matches:
+        return None
+
+    top_match = matches[0]
+    runner_up_score = matches[1].final_total if len(matches) > 1 else top_match.final_total
+    has_semantic_evidence = any([
+        bool(evidence.collector_number_exact),
+        bool(evidence.collector_number_partial),
+        bool(evidence.trusted_set_hint_tokens),
+        any(match.breakdown.title_overlap_score > 0.0 for match in matches[:3]),
+    ])
+    if has_semantic_evidence:
+        return None
+    if top_match.final_total > 0.0:
+        return None
+    if abs(top_match.final_total - runner_up_score) > 0.001:
+        return None
+    if signals.overall_signal > 35:
+        return None
+
+    return {
+        "kind": "arbitrary_best_guess_minimal_signal",
+        "collectorNumber": evidence.collector_number_exact,
+        "candidateIDs": [str(match.card.get("id") or "") for match in matches[:3]],
+        "candidateNames": [str(match.card.get("name") or "") for match in matches[:3]],
+    }
+
+
+def _raw_has_no_readable_signal(evidence: RawEvidence, signals: RawSignalScores) -> bool:
+    if any([
+        bool(evidence.title_text_primary.strip()),
+        bool(evidence.title_text_secondary.strip()),
+        bool(evidence.footer_band_text.strip()),
+        bool(evidence.bottom_left_text.strip()),
+        bool(evidence.bottom_right_text.strip()),
+        bool(evidence.collector_number_exact),
+        bool(evidence.collector_number_partial),
+        bool(evidence.trusted_set_hint_tokens),
+        bool(evidence.recognized_tokens),
+    ]):
+        return False
+    return signals.overall_signal <= 0
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -302,38 +381,59 @@ def _normalized_set_tokens(tokens: Iterable[str]) -> tuple[str, ...]:
     return tuple(normalized)
 
 
+def _payload_raw_evidence(payload: dict[str, Any]) -> dict[str, Any]:
+    ocr_analysis = payload.get("ocrAnalysis") or {}
+    if not isinstance(ocr_analysis, dict):
+        return {}
+    raw_evidence = ocr_analysis.get("rawEvidence") or {}
+    return raw_evidence if isinstance(raw_evidence, dict) else {}
+
+
+def _recognized_token_texts(payload: dict[str, Any]) -> tuple[str, ...]:
+    normalized: list[str] = []
+    for token in payload.get("recognizedTokens") or []:
+        text = ""
+        if isinstance(token, str):
+            text = token
+        elif isinstance(token, dict):
+            text = str(token.get("text") or "")
+        cleaned = text.strip().lower()
+        if cleaned:
+            normalized.append(cleaned)
+    return tuple(normalized)
+
+
 def build_raw_evidence(payload: dict[str, Any]) -> RawEvidence:
-    full_text = str(payload.get("fullRecognizedText") or "").strip()
-    metadata_text = str(payload.get("metadataStripRecognizedText") or "").strip()
-    bottom_left_text = str(payload.get("bottomLeftRecognizedText") or "").strip()
-    bottom_right_text = str(payload.get("bottomRightRecognizedText") or "").strip()
-    lines = [line.strip() for line in full_text.splitlines() if line.strip()]
-    title_primary = lines[0] if lines else ""
-    title_secondary = lines[1] if len(lines) > 1 else ""
-    collector_number_exact = str(payload.get("collectorNumber") or "").strip() or None
-    collector_number_partial = None if collector_number_exact else _collector_hint_from_text(
-        bottom_right_text, metadata_text, bottom_left_text
+    raw_evidence = _payload_raw_evidence(payload)
+    title_primary = str(raw_evidence.get("titleTextPrimary") or "").strip()
+    title_secondary = str(raw_evidence.get("titleTextSecondary") or "").strip()
+    whole_card_text = str(raw_evidence.get("wholeCardText") or "").strip()
+    footer_band_text = str(raw_evidence.get("footerBandText") or "").strip()
+    collector_number_exact = (
+        str(raw_evidence.get("collectorNumberExact") or "").strip()
+        or str(payload.get("collectorNumber") or "").strip()
+        or None
     )
+    collector_number_partial = (
+        str(raw_evidence.get("collectorNumberPartial") or "").strip()
+        or None
+    )
+    if not collector_number_exact and not collector_number_partial:
+        collector_number_partial = _collector_hint_from_text(footer_band_text, whole_card_text)
     query_value, printed_total = _collector_components(collector_number_exact or collector_number_partial)
     query_values = (query_value,) if query_value else ()
-    set_hint_tokens = _normalized_set_tokens(payload.get("setHintTokens") or [])
+    set_hint_tokens = _normalized_set_tokens(raw_evidence.get("setHints") or payload.get("setHintTokens") or [])
     trusted_set_hint_tokens = _normalized_set_tokens(payload.get("trustedSetHints") or set_hint_tokens)
     promo_code_hint = str(payload.get("promoCodeHint") or "").strip() or None
-    recognized_tokens = tuple(
-        token.lower()
-        for token in (payload.get("recognizedTokens") or [])
-        if isinstance(token, str) and token.strip()
-    )
-    footer_parts = [part for part in [metadata_text, bottom_left_text, bottom_right_text] if part]
-    footer_band_text = " ".join(footer_parts)
-    recognized_text = " ".join(part for part in [full_text, footer_band_text] if part).strip()
+    recognized_tokens = _recognized_token_texts(payload)
+    recognized_text = " ".join(part for part in [whole_card_text, footer_band_text] if part).strip()
     return RawEvidence(
         title_text_primary=title_primary,
         title_text_secondary=title_secondary,
         recognized_text=recognized_text,
         footer_band_text=footer_band_text,
-        bottom_left_text=bottom_left_text,
-        bottom_right_text=bottom_right_text,
+        bottom_left_text="",
+        bottom_right_text="",
         collector_number_exact=collector_number_exact,
         collector_number_partial=collector_number_partial,
         collector_number_query_values=query_values,
@@ -1106,8 +1206,7 @@ def score_raw_candidate_retrieval(candidate: dict[str, Any], evidence: RawEviden
     exact, partial, denominator = _collector_match(str(candidate.get("number") or ""), evidence)
     collector_score = max(exact * 30.0, partial * 20.0, denominator * 8.0)
     footer_bonus = 10.0 if evidence.footer_band_text and evidence.collector_number_exact and exact > 0 else 0.0
-    cache_bonus = 5.0 if candidate.get("_cachePresence") else 0.0
-    return round(title_score + set_score + collector_score + footer_bonus + cache_bonus, 4)
+    return round(title_score + set_score + collector_score + footer_bonus, 4)
 
 
 def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvidence) -> tuple[float, RawCandidateScoreBreakdown, tuple[str, ...]]:
@@ -1124,7 +1223,7 @@ def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvide
             for query_value in evidence.collector_number_query_values
         ) else 0.0
     promo_support_score = 5.0 if evidence.promo_code_hint and evidence.promo_code_hint.lower() in tokenize(str(candidate.get("number") or "")) else 0.0
-    cache_presence_score = 5.0 if candidate.get("_cachePresence") else 0.0
+    cache_presence_score = 0.0
     contradiction_penalty = 0.0
     reasons: list[str] = []
 
@@ -1140,8 +1239,6 @@ def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvide
         reasons.append("collector_denominator")
     if footer_text_support_score:
         reasons.append("footer_support")
-    if cache_presence_score:
-        reasons.append("cache_hit")
 
     if evidence.collector_number_exact and not (collector_exact_score or collector_partial_score):
         contradiction_penalty += 10.0
@@ -1265,7 +1362,37 @@ def finalize_raw_decision(
     evidence: RawEvidence,
     signals: RawSignalScores,
 ) -> RawDecisionResult:
+    if not matches and _raw_has_no_readable_signal(evidence, signals):
+        return RawDecisionResult(
+            matches=tuple(),
+            top_candidates=tuple(),
+            confidence="low",
+            confidence_percent=0.0,
+            ambiguity_flags=(
+                "Footer collector OCR is weak",
+                "Set hints are weak",
+                "No readable OCR signal was found",
+            ),
+            resolver_path="visual_fallback",
+            review_disposition="unsupported",
+            review_reason="No readable card signal was found. Try again with a sharper, closer scan.",
+            fallback_reason="no_signal",
+            selected_card_id=None,
+            debug_payload={},
+        )
+
     confidence, confidence_percent, ambiguity_flags, fallback_reason = compute_raw_confidence(matches, signals)
+    ambiguity_flag_list = list(ambiguity_flags)
+    ambiguity_context = (
+        _raw_same_exact_number_ambiguity(matches, evidence)
+        or _raw_minimal_signal_ambiguity(matches, evidence, signals)
+    )
+    if ambiguity_context is not None:
+        kind = str(ambiguity_context.get("kind") or "")
+        if kind == "same_exact_number_without_disambiguator":
+            ambiguity_flag_list.append("Best guess is arbitrary among same-number matches")
+        elif kind == "arbitrary_best_guess_minimal_signal":
+            ambiguity_flag_list.append("Best guess is arbitrary because OCR evidence is minimal")
     top_candidates = tuple(matches[:3])
     selected_card_id = top_candidates[0].card.get("id") if top_candidates else None
     review_disposition = "ready" if confidence != "low" else "needs_review"
@@ -1275,7 +1402,7 @@ def finalize_raw_decision(
         top_candidates=top_candidates,
         confidence=confidence,
         confidence_percent=confidence_percent,
-        ambiguity_flags=ambiguity_flags,
+        ambiguity_flags=tuple(dict.fromkeys(ambiguity_flag_list)),
         resolver_path="visual_fallback",
         review_disposition=review_disposition,
         review_reason=review_reason,
@@ -1291,7 +1418,13 @@ def raw_debug_payload(
     plan: RawRetrievalPlan,
     matches: list[RawCandidateMatch],
     decision: RawDecisionResult,
+    *,
+    remote_debug: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    ambiguity_context = (
+        _raw_same_exact_number_ambiguity(matches, evidence)
+        or _raw_minimal_signal_ambiguity(matches, evidence, signals)
+    )
     return {
         "evidence": {
             "titleTextPrimary": evidence.title_text_primary,
@@ -1315,6 +1448,8 @@ def raw_debug_payload(
             "routes": list(plan.routes),
             "shouldQueryRemote": plan.should_query_remote,
         },
+        "remote": remote_debug or {},
+        "ambiguity": ambiguity_context,
         "topMatches": [
             {
                 "id": match.card.get("id"),
@@ -1353,6 +1488,15 @@ def resolver_mode_for_payload(payload: dict[str, Any]) -> str:
     hint = str(payload.get("resolverModeHint") or "").strip().lower()
     if hint in {"psa_slab", "slab", "slab_card"}:
         return "psa_slab"
-    if payload.get("topLabelRecognizedText") or payload.get("slabGrader") or payload.get("slabGrade"):
+    ocr_analysis = payload.get("ocrAnalysis") or {}
+    slab_evidence = (ocr_analysis.get("slabEvidence") or {}) if isinstance(ocr_analysis, dict) else {}
+    if any([
+        payload.get("slabGrader"),
+        payload.get("slabGrade"),
+        slab_evidence.get("titleTextPrimary"),
+        slab_evidence.get("grader"),
+        slab_evidence.get("grade"),
+        slab_evidence.get("cert"),
+    ]):
         return "psa_slab"
     return "raw_card"

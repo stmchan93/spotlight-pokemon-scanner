@@ -1,0 +1,30 @@
+{
+  "cropConfidence" : 0.8655603906902266,
+  "expected" : {
+    "cardName" : "Team Rocket's Weezing",
+    "collectorNumber" : "199\/182",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "SV10",
+    "setName" : "Destined Rivals"
+  },
+  "fixtureName" : "raw_offcenter",
+  "fullRecognizedText" : "Explode Together Now 40 k does 40 damage for each Pokémon in play that ing\" or\"Weezing\" in its name (both vours and vour ExplodeT kdoes 40 damage fe her Now Pokémon in play chat",
+  "metadataStripRecognizedText" : "Explode Together Now 40 k does 40 damage for each Pokémon in play that ing\" or\"Weezing\" in its name (both vours and vour",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.8655603906902266,
+  "ocrUsedFallback" : false,
+  "scanID" : "C6CEB4C4-3EFC-43DD-9789-0509023AD86A",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_offcenter.JPG",
+  "warnings" : [
+    "Raw scene looks holder-like",
+    "Rewrite raw escalation used focused ROIs",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

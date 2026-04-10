@@ -1,0 +1,30 @@
+{
+  "cropConfidence" : 0.7494489682021253,
+  "expected" : {
+    "cardName" : "Sabrina's Slowbro",
+    "collectorNumber" : "60\/132",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setName" : "Gym Heroes"
+  },
+  "fixtureName" : "raw_farther",
+  "fullRecognizedText" : "соПa retreat cost LV. 29 #80 is. Men Su a, Cretures, GN ·132 LV. 29 #480 ias. Men Sug • ECI",
+  "metadataStripRecognizedText" : "retreat cost LV. 29 #80 is. Men Su a, Cretures, GN ·132",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7494489682021253,
+  "ocrUsedFallback" : true,
+  "scanID" : "07F1A09D-D553-4CAA-8DF8-DD01BBDB33DC",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_farther.JPG",
+  "titleTextPrimary" : "соПa",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

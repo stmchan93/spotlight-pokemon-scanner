@@ -7,7 +7,9 @@ Repo-specific workflow notes for future coding agents.
 - This repo is a local iOS + Python backend prototype for a Pokemon card scanner.
 - The active product/status doc is [docs/spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md).
 - The active backend reset / raw-matcher redesign plan is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
+- The active OCR rewrite / rollout plan is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 - For backend work, treat that reset spec as the source of truth over older raw-matcher, `direct_lookup`, `slab_sales`, or fragmented SQLite planning notes elsewhere in the repo.
+- For OCR work, treat the OCR rewrite spec as the source of truth over older raw-only OCR heuristics or legacy `CardRectangleAnalyzer.swift` structure.
 
 ## Subagent workflow
 
@@ -111,6 +113,40 @@ Repo-specific workflow notes for future coding agents.
   - backend = candidate retrieval, identity resolution, pricing refresh, scan logging
 - The full phase-by-phase checklist, strict helper names, route-opening logic, and confidence math live in [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
 
+## OCR Rewrite Direction
+
+- The next scanner rewrite is a full OCR rewrite with:
+  - a shared front half
+  - a raw branch
+  - a slab branch
+- Top-level OCR routing should follow the UI-selected scan mode:
+  - `raw`
+  - `slab`
+- Do not introduce a third top-level `rawInHolder` mode.
+  - holder / sleeve / top-loader cases stay inside the raw branch as scene traits
+- Shared front half responsibilities:
+  - frame source selection
+  - reticle-guided target selection
+  - perspective normalization
+  - mode sanity signals
+- After normalization, OCR must branch:
+  - raw OCR extracts evidence for backend matching
+  - slab OCR extracts card-identity evidence plus grader / grade / optional cert
+- Slab OCR is not cert-only:
+  - slab still needs the same identity fields raw relies on:
+    - title / name
+    - set
+    - card number
+  - grader + grade are then used to select slab pricing
+  - cert is optional support / verification, not the only useful key
+- OCR and backend confidence are separate:
+  - OCR confidence = field extraction confidence from the image
+  - backend confidence = card-match confidence from the evidence
+- Do not collapse OCR confidence and backend match confidence into one score.
+- The reticle is a target-selection hint, not the exact OCR crop.
+- The new OCR path must launch behind a feature flag and run side-by-side with the old path on fixtures before legacy OCR is deleted.
+- The full OCR architecture, fixture set, replay/debug requirements, and phase-by-phase rollout live in [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
+
 ## Local backend and catalog rules
 
 - During local development and scanner debugging, the app should target a **local backend**, not a production cloud URL.
@@ -168,7 +204,11 @@ Repo-specific workflow notes for future coding agents.
 - `backend/catalog/` has been deleted from the active backend. Do not reintroduce bundled catalog/image/sample artifacts as runtime dependencies.
 - If current backend code still references local reference images for visual retrieval, call that out as legacy technical debt instead of expanding that pattern.
 - Scanner presentation rule:
-  - preserve the current raw-card OCR pipeline unless there is a concrete bug; raw footer OCR is working well now
+  - preserve the current capture UX unless there is a concrete bug:
+    - tap-to-scan
+    - preview-frame-first capture
+    - raw/slab reticle behavior
+    - immediate pending tray row
   - tap-to-scan should use the current preview frame path first, not a new high-latency still-photo capture, unless preview-frame capture is unavailable and a fallback is required
   - the scan tray should show a pending row immediately on tap; do not reintroduce UX that waits for image capture to finish before the tray updates
   - treat raw-vs-slab reticle sizing as a UI/layout concern first, not a reason to casually retune raw OCR
@@ -176,15 +216,16 @@ Repo-specific workflow notes for future coding agents.
   - slab mode should keep the same reticle width as raw and grow primarily by height based on PSA slab proportions
   - keep comfortable spacing above the reticle, between the reticle and controls, and between the controls and tray
   - the raw/slab toggle is a real routing signal, not presentation-only:
-    - raw => raw-card matching/pricing flow
-    - slab => PSA slab matching/pricing flow
+    - raw => raw OCR branch + raw backend flow
+    - slab => slab OCR branch + future slab backend flow
+  - current backend runtime is still raw-only, so slab scans should remain clearly unsupported until the slab backend is rebuilt
   - do not silently degrade slab scans into raw matches or raw price proxies
 
 ## Key backend entry points
 
 - `backend/server.py`
 - `backend/catalog_tools.py`
-- `backend/import_pokemontcg_catalog.py`
+- `backend/pokemontcg_api_client.py`
 - `backend/pokemontcg_pricing_adapter.py`
 - `backend/pricing_provider.py`
 - `backend/scrydex_adapter.py`
@@ -204,8 +245,8 @@ Repo-specific workflow notes for future coding agents.
 Run these after backend or app changes:
 
 ```bash
-python3 -m py_compile backend/catalog_tools.py backend/import_pokemontcg_catalog.py backend/pokemontcg_pricing_adapter.py backend/pricecharting_adapter.py backend/pricing_provider.py backend/pricing_utils.py backend/scrydex_adapter.py backend/validate_scrydex.py backend/server.py
-python3 -m unittest -v backend.tests.test_backend_reset_phase1 backend.tests.test_raw_evidence_phase3 backend.tests.test_raw_retrieval_phase4 backend.tests.test_raw_decision_phase5 backend.tests.test_pricing_phase6 backend.tests.test_scan_logging_phase7 backend.tests.test_import_pokemontcg_catalog backend.tests.test_pricing_utils
+python3 -m py_compile backend/catalog_tools.py backend/pokemontcg_api_client.py backend/pokemontcg_pricing_adapter.py backend/pricecharting_adapter.py backend/pricing_provider.py backend/pricing_utils.py backend/scrydex_adapter.py backend/validate_scrydex.py backend/server.py
+python3 -m unittest -v backend.tests.test_backend_reset_phase1 backend.tests.test_raw_evidence_phase3 backend.tests.test_raw_retrieval_phase4 backend.tests.test_raw_decision_phase5 backend.tests.test_pricing_phase6 backend.tests.test_scan_logging_phase7 backend.tests.test_pokemontcg_api_client backend.tests.test_pricing_utils
 zsh tools/run_card_identifier_parser_tests.sh
 zsh tools/run_raw_card_decision_tests.sh
 zsh tools/run_scanner_reticle_layout_tests.sh
@@ -253,15 +294,43 @@ Rules:
 
 The backend is always live-only. Do not reintroduce seeded startup or bundled catalog bootstrap modes.
 
+## OCR Validation Direction
+
+- Before deleting old OCR logic, require a fixture harness with named raw and slab golden cases.
+- During migration, support a side-by-side OCR mode so old and new pipelines can run on the same input and emit diffable artifacts.
+- Required stage artifacts for the new OCR path:
+  - original full frame
+  - selected target rectangle
+  - normalized target crop
+  - generated ROIs
+  - OCR pass outputs per ROI
+  - synthesized evidence object
+  - final decision / fallback reason
+
 ## QA assets
 
 - Simulator photo import: `tools/import_simulator_media.sh`
-- Local raw/OCR fixtures and manifests still live under `qa/` for future OCR work, but the old bundled scanner regression/benchmark harnesses were intentionally removed during the raw-backend reset.
+- OCR fixture manifests and the host baseline runner now live under `qa/` and `tools/` per [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
+- The simulator-backed legacy OCR fixture runner is now landed:
+  - `zsh tools/run_ocr_simulator_fixture_tests.sh`
+  - outputs: [qa/ocr-golden/simulator-legacy-v1](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-legacy-v1)
+- The rewrite raw stage-2 branch is now landed behind the feature-flagged OCR coordinator:
+  - simulator outputs: [qa/ocr-golden/simulator-rewrite-v1-raw-stage2](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-rewrite-v1-raw-stage2)
+  - current scope:
+    - `headerWide`
+    - `footerBandWide`
+    - `nameplateTight`
+    - `footerLeft`
+    - `footerRight`
+  - centralized tuning now lives in [OCRTuning.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/OCRTuning.swift)
+  - raw evidence confidence now lives in [RawConfidenceModel.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/Raw/RawConfidenceModel.swift)
+- Legacy OCR now emits a transitional `ocrAnalysis` envelope with normalized-target metadata, mode sanity scores/warnings, and legacy evidence fields.
+- The next OCR milestone is slab branch stage 1 on top of that rewrite branch.
 
 ## Notes
 
 - A `.git` directory may or may not be present depending on the workspace snapshot. Use `git status` when it exists, but do not rely on git state alone for change discovery.
-- Prefer updating the backend reset spec, the master status doc, and `PLAN.md` when milestones move.
+- Prefer updating the backend reset spec, the OCR rewrite spec, the master status doc, and `PLAN.md` when milestones move.
 - Before touching provider code, read the new provider-abstraction docs above. The intended behavior is:
   - one active/default provider result for the tray
   - future side-by-side provider display in details

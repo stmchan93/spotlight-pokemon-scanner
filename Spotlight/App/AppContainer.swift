@@ -13,10 +13,18 @@ final class AppContainer: ObservableObject {
             bottomRegionOCR: .default,
             debug: .disabled
         ))
+        let rawRewritePipeline = RawPipeline()
         let slabAnalyzer = SlabScanner(config: .init(
             labelOCR: .default,
             debug: .disabled
         ))
+        let ocrFeatureFlags = OCRPipelineFeatureFlags.current()
+        let ocrPipeline = OCRPipelineCoordinator(
+            rawAnalyzer: rawAnalyzer,
+            rawRewritePipeline: rawRewritePipeline,
+            slabAnalyzer: slabAnalyzer,
+            featureFlags: ocrFeatureFlags
+        )
         let remoteBaseURL = Self.resolveBackendBaseURL()
         let remoteMatcher = RemoteScanMatchingService(baseURL: remoteBaseURL)
         self.remoteMatcher = remoteMatcher
@@ -24,16 +32,27 @@ final class AppContainer: ObservableObject {
 
         scannerViewModel = ScannerViewModel(
             cameraController: cameraController,
-            rawAnalyzer: rawAnalyzer,
-            slabAnalyzer: slabAnalyzer,
+            ocrPipeline: ocrPipeline,
             matcher: remoteMatcher,
             logStore: logStore
         )
+
+        print("🔍 [OCR] Pipeline route: \(ocrFeatureFlags.requestedRoute.rawValue)")
+        let artifactRoot = ScanStageArtifactWriter.artifactRootPath() ?? "<unavailable>"
+        print("🧪 [DEBUG] Scan artifact root: \(artifactRoot)")
 
         Task.detached(priority: .utility) {
             let cacheManager = ScanCacheManager()
             cacheManager.cleanup()
             print("✅ [APP] Cache cleanup completed")
+        }
+
+        if Self.boolEnv("SPOTLIGHT_CLEAR_SCAN_DEBUG_ON_LAUNCH") == true {
+            Task.detached(priority: .utility) {
+                let removedCount = ScanStageArtifactWriter.clearAllArtifacts()
+                let rootPath = ScanStageArtifactWriter.artifactRootPath() ?? "<unavailable>"
+                print("🧹 [DEBUG] Cleared \(removedCount) scan artifact director\(removedCount == 1 ? "y" : "ies") at \(rootPath)")
+            }
         }
     }
 
@@ -110,5 +129,20 @@ final class AppContainer: ObservableObject {
         }
 
         return URL(string: trimmed)
+    }
+
+    private static func boolEnv(_ key: String, processInfo: ProcessInfo = .processInfo) -> Bool? {
+        guard let value = processInfo.environment[key] else {
+            return nil
+        }
+
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 }

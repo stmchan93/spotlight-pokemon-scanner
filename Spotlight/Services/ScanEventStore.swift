@@ -41,11 +41,6 @@ actor ScanEventStore {
                     height: Int(analysis.normalizedImage.size.height.rounded())
                 ),
                 recognizedTokens: analysis.recognizedTokens,
-                fullRecognizedText: analysis.fullRecognizedText,
-                metadataStripRecognizedText: analysis.metadataStripRecognizedText,
-                topLabelRecognizedText: analysis.topLabelRecognizedText,
-                bottomLeftRecognizedText: analysis.bottomLeftRecognizedText,
-                bottomRightRecognizedText: analysis.bottomRightRecognizedText,
                 collectorNumber: analysis.collectorNumber,
                 setHintTokens: analysis.setHintTokens,
                 promoCodeHint: analysis.promoCodeHint,
@@ -63,7 +58,8 @@ actor ScanEventStore {
                 directLookupLikely: analysis.directLookupLikely,
                 resolverModeHint: analysis.resolverModeHint,
                 cropConfidence: analysis.cropConfidence,
-                warnings: analysis.warnings
+                warnings: analysis.warnings,
+                ocrAnalysis: analysis.ocrAnalysis
             )
 
             let requestJSON = try jsonString(for: requestPayload)

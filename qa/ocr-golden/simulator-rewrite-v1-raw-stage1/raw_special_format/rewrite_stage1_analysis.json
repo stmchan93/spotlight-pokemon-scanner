@@ -1,0 +1,31 @@
+{
+  "collectorNumber" : "SWSH286",
+  "cropConfidence" : 0.4,
+  "expected" : {
+    "cardName" : "Pikachu VMAX",
+    "collectorNumber" : "SWSH286",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "SWSH",
+    "setName" : "Sword & Shield Promos"
+  },
+  "fixtureName" : "raw_special_format",
+  "fullRecognizedText" : "PikachuVMAX пD310C VMAX Evolves from Pikachu V о-мах ишипаси weakness x2 resistance retreat ** Illus. AKIRA EGAWA VMAX rule When your Pokémon VMAX is Knocked Out, your opponent takes 3 Prize cards. SWSH286 02022 Pokemon \/ Nintendo \/ Creaturesr GAME FRE AN",
+  "metadataStripRecognizedText" : "о-мах ишипаси weakness x2 resistance retreat ** Illus. AKIRA EGAWA VMAX rule When your Pokémon VMAX is Knocked Out, your opponent takes 3 Prize cards. SWSH286 02022 Pokemon \/ Nintendo \/ Creaturesr GAME FRE AN",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "scanID" : "3A33EB44-FB55-484A-A5BB-B2893F2EE55B",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_special_format.JPG",
+  "titleTextPrimary" : "PikachuVMAX пD310C VMAX Evolves from Pikachu V",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak"
+  ]
+}

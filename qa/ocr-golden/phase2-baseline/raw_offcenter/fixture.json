@@ -1,0 +1,17 @@
+{
+  "expects" : {
+    "cardName" : "Team Rocket's Weezing",
+    "collectorNumber" : "199\/182",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "SV10",
+    "setName" : "Destined Rivals"
+  },
+  "fixtureName" : "raw_offcenter",
+  "selectedMode" : "raw",
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_offcenter.JPG",
+  "tags" : [
+    "raw",
+    "offcenter"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "fixtureName": "raw_centered_clean",
+  "selectedMode": "raw",
+  "sourceImage": "../../incoming-ocr-fixtures/raw_centered_clean.JPG",
+  "tags": [
+    "raw",
+    "centered",
+    "clean"
+  ],
+  "expects": {
+    "cardName": "Dark Weezing",
+    "collectorNumber": "14/82",
+    "setName": "Team Rocket",
+    "setCodeHint": null,
+    "confidenceBucket": "high",
+    "preserveLowConfidenceEvidence": false
+  }
+}

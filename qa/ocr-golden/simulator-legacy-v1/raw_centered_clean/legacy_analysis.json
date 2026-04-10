@@ -1,0 +1,46 @@
+{
+  "bottomLeftRecognizedText" : "Defending Pokér the Defending P weakness Researchers have obse indwetrial waste sites",
+  "bottomRightRecognizedText" : "v Poisoned; if tails, LU now Paralyzed. ce retreat cost se Pokémon reproducing in",
+  "cropConfidence" : 0.45,
+  "directLookupLikely" : false,
+  "expected" : {
+    "cardName" : "Dark Weezing",
+    "collectorNumber" : "14\/82",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setName" : "Team Rocket"
+  },
+  "fixtureName" : "raw_centered_clean",
+  "fullRecognizedText" : "Evolves from Koffing Put Dark Weezing on th Dark Weezing 60 Evolves from Koffing Put Dark Weezing on the Basic Pokémo STA Dark Weezing 60 HR 20 Defending Pokémon is now Poisoned; if tails, the Defending Pokémon is now Paralyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110 Defending Pokér the Defending P Researchers have obse indwetrial waste sites v Poisoned; if tails, LU now Paralyzed. ce se Pokémon reproducing in",
+  "metadataStripRecognizedText" : "20 Defending Pokémon is now Poisoned; if tails, the Defending Pokémon is now Paralyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110",
+  "normalizedImageHeight" : 889,
+  "normalizedImageWidth" : 636,
+  "ocrLooksLikeRawScore" : 0.48000000000000004,
+  "ocrLooksLikeSlabScore" : 0.27999999999999997,
+  "ocrModeWarnings" : [
+    "Target selection used fallback crop"
+  ],
+  "ocrPipelineVersion" : "legacy_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7904684633123501,
+  "ocrUsedFallback" : true,
+  "resolverModeHint" : "raw_card",
+  "scanID" : "CD383067-30FA-462D-855D-D8240AE2AA77",
+  "selectedMode" : "raw",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "slabClassifierReasons" : [
+
+  ],
+  "slabParsedLabelText" : [
+
+  ],
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_centered_clean.JPG",
+  "topLabelRecognizedText" : "",
+  "warnings" : [
+    "Footer OCR weak; relying on broader raw-card text"
+  ]
+}

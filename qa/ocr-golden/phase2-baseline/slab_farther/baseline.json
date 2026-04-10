@@ -1,0 +1,18 @@
+{
+  "baselineVersion" : "phase2_fixture_baseline_v1",
+  "copiedSourceImage" : "slab_farther.jpg",
+  "expects" : {
+    "cardName" : "Squirtle",
+    "collectorNumber" : "007\/018",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setName" : "McDonald's Pokemon-e Minimum Pack"
+  },
+  "fixtureName" : "slab_farther",
+  "selectedMode" : "slab",
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/slab_farther.jpg",
+  "tags" : [
+    "slab",
+    "farther"
+  ]
+}

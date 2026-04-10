@@ -1,0 +1,12 @@
+{
+  "fixtureCount" : 6,
+  "fixtures" : [
+    "raw_centered_clean",
+    "raw_farther",
+    "raw_in_holder",
+    "raw_low_confidence_fallback",
+    "raw_offcenter",
+    "raw_special_format"
+  ],
+  "generatedAt" : "2026-04-09T22:21:13Z"
+}

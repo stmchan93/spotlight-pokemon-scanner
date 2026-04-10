@@ -1,0 +1,17 @@
+{
+  "fixtureName": "raw_farther",
+  "selectedMode": "raw",
+  "sourceImage": "../../incoming-ocr-fixtures/raw_farther.JPG",
+  "tags": [
+    "raw",
+    "farther"
+  ],
+  "expects": {
+    "cardName": "Sabrina's Slowbro",
+    "collectorNumber": "60/132",
+    "setName": "Gym Heroes",
+    "setCodeHint": null,
+    "confidenceBucket": "high",
+    "preserveLowConfidenceEvidence": false
+  }
+}

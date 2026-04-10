@@ -1,0 +1,31 @@
+{
+  "cropConfidence" : 0.4,
+  "expected" : {
+    "cardName" : "Slowpoke",
+    "collectorNumber" : "204\/198",
+    "confidenceBucket" : "low",
+    "preserveLowConfidenceEvidence" : true,
+    "setCodeHint" : "SV01",
+    "setName" : "Scarlet & Violet Base Set"
+  },
+  "fixtureName" : "raw_low_confidence_fallback",
+  "fullRecognizedText" : "",
+  "metadataStripRecognizedText" : "",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "scanID" : "2CBA1AF8-40F8-4A9E-B0B4-9D3AC0298601",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_low_confidence_fallback.JPG",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Could not read strong raw-card clues",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

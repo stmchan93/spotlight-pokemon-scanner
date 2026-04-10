@@ -1,0 +1,141 @@
+{
+  "baselineVersion" : "phase2_fixture_baseline_v1",
+  "fixtureCount" : 7,
+  "fixtures" : [
+    {
+      "baselineVersion" : "phase2_fixture_baseline_v1",
+      "copiedSourceImage" : "raw_centered_clean.JPG",
+      "expects" : {
+        "cardName" : "Dark Weezing",
+        "collectorNumber" : "14\/82",
+        "confidenceBucket" : "high",
+        "preserveLowConfidenceEvidence" : false,
+        "setName" : "Team Rocket"
+      },
+      "fixtureName" : "raw_centered_clean",
+      "selectedMode" : "raw",
+      "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_centered_clean.JPG",
+      "tags" : [
+        "raw",
+        "centered",
+        "clean"
+      ]
+    },
+    {
+      "baselineVersion" : "phase2_fixture_baseline_v1",
+      "copiedSourceImage" : "raw_farther.JPG",
+      "expects" : {
+        "cardName" : "Sabrina's Slowbro",
+        "collectorNumber" : "60\/132",
+        "confidenceBucket" : "high",
+        "preserveLowConfidenceEvidence" : false,
+        "setName" : "Gym Heroes"
+      },
+      "fixtureName" : "raw_farther",
+      "selectedMode" : "raw",
+      "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_farther.JPG",
+      "tags" : [
+        "raw",
+        "farther"
+      ]
+    },
+    {
+      "baselineVersion" : "phase2_fixture_baseline_v1",
+      "copiedSourceImage" : "raw_in_holder.JPG",
+      "expects" : {
+        "cardName" : "Lt. Surge's Bargain",
+        "collectorNumber" : "185\/132",
+        "confidenceBucket" : "high",
+        "preserveLowConfidenceEvidence" : false,
+        "setCodeHint" : "ME01",
+        "setName" : "Mega Evolution"
+      },
+      "fixtureName" : "raw_in_holder",
+      "selectedMode" : "raw",
+      "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_in_holder.JPG",
+      "tags" : [
+        "raw",
+        "holder",
+        "top_loader"
+      ]
+    },
+    {
+      "baselineVersion" : "phase2_fixture_baseline_v1",
+      "copiedSourceImage" : "raw_low_confidence_fallback.JPG",
+      "expects" : {
+        "cardName" : "Slowpoke",
+        "collectorNumber" : "204\/198",
+        "confidenceBucket" : "low",
+        "preserveLowConfidenceEvidence" : true,
+        "setCodeHint" : "SV01",
+        "setName" : "Scarlet & Violet Base Set"
+      },
+      "fixtureName" : "raw_low_confidence_fallback",
+      "selectedMode" : "raw",
+      "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_low_confidence_fallback.JPG",
+      "tags" : [
+        "raw",
+        "low_confidence",
+        "fallback"
+      ]
+    },
+    {
+      "baselineVersion" : "phase2_fixture_baseline_v1",
+      "copiedSourceImage" : "raw_offcenter.JPG",
+      "expects" : {
+        "cardName" : "Team Rocket's Weezing",
+        "collectorNumber" : "199\/182",
+        "confidenceBucket" : "high",
+        "preserveLowConfidenceEvidence" : false,
+        "setCodeHint" : "SV10",
+        "setName" : "Destined Rivals"
+      },
+      "fixtureName" : "raw_offcenter",
+      "selectedMode" : "raw",
+      "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_offcenter.JPG",
+      "tags" : [
+        "raw",
+        "offcenter"
+      ]
+    },
+    {
+      "baselineVersion" : "phase2_fixture_baseline_v1",
+      "copiedSourceImage" : "raw_special_format.JPG",
+      "expects" : {
+        "cardName" : "Pikachu VMAX",
+        "collectorNumber" : "SWSH286",
+        "confidenceBucket" : "high",
+        "preserveLowConfidenceEvidence" : false,
+        "setCodeHint" : "SWSH",
+        "setName" : "Sword & Shield Promos"
+      },
+      "fixtureName" : "raw_special_format",
+      "selectedMode" : "raw",
+      "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_special_format.JPG",
+      "tags" : [
+        "raw",
+        "special_format",
+        "promo"
+      ]
+    },
+    {
+      "baselineVersion" : "phase2_fixture_baseline_v1",
+      "copiedSourceImage" : "slab_farther.jpg",
+      "expects" : {
+        "cardName" : "Squirtle",
+        "collectorNumber" : "007\/018",
+        "confidenceBucket" : "high",
+        "preserveLowConfidenceEvidence" : false,
+        "setName" : "McDonald's Pokemon-e Minimum Pack"
+      },
+      "fixtureName" : "slab_farther",
+      "selectedMode" : "slab",
+      "sourceImage" : "..\/..\/incoming-ocr-fixtures\/slab_farther.jpg",
+      "tags" : [
+        "slab",
+        "farther"
+      ]
+    }
+  ],
+  "generatedAt" : "2026-04-09T21:20:32Z"
+}

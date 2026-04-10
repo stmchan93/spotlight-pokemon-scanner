@@ -1,0 +1,31 @@
+{
+  "collectorNumber" : "185\/132",
+  "cropConfidence" : 0.7553153520110598,
+  "expected" : {
+    "cardName" : "Lt. Surge's Bargain",
+    "collectorNumber" : "185\/132",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "ME01",
+    "setName" : "Mega Evolution"
+  },
+  "fixtureName" : "raw_in_holder",
+  "fullRecognizedText" : "Supporter TRAINEE You may play only 1 Supporter card during your turn. MEG BN :185\/132 02025 Ppluem a \/ Creatures \/ GAME FREAX Bioh esarg MEG 3N 185\/132",
+  "metadataStripRecognizedText" : "You may play only 1 Supporter card during your turn. MEG BN :185\/132 02025 Ppluem a \/ Creatures \/ GAME FREAX",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7553153520110598,
+  "ocrUsedFallback" : true,
+  "scanID" : "FC937CFB-E19A-4DBC-AF81-685771B81C95",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_in_holder.JPG",
+  "titleTextPrimary" : "Supporter",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

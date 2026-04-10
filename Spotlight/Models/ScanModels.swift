@@ -34,11 +34,6 @@ struct AnalyzedCapture: @unchecked Sendable {
     let originalImage: UIImage
     let normalizedImage: UIImage
     let recognizedTokens: [RecognizedToken]
-    let fullRecognizedText: String
-    let metadataStripRecognizedText: String
-    let topLabelRecognizedText: String
-    let bottomLeftRecognizedText: String
-    let bottomRightRecognizedText: String
     let collectorNumber: String?
     let setHintTokens: [String]
     let promoCodeHint: String?
@@ -59,6 +54,7 @@ struct AnalyzedCapture: @unchecked Sendable {
     let warnings: [String]
     let shouldRetryWithStillPhoto: Bool
     let stillPhotoRetryReason: String?
+    let ocrAnalysis: OCRAnalysisEnvelope?
 }
 
 extension RecognizedToken: Codable {}

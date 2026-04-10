@@ -247,11 +247,6 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
                 height: Int(analysis.normalizedImage.size.height.rounded())
             ),
             recognizedTokens: analysis.recognizedTokens,
-            fullRecognizedText: analysis.fullRecognizedText,
-            metadataStripRecognizedText: analysis.metadataStripRecognizedText,
-            topLabelRecognizedText: analysis.topLabelRecognizedText,
-            bottomLeftRecognizedText: analysis.bottomLeftRecognizedText,
-            bottomRightRecognizedText: analysis.bottomRightRecognizedText,
             collectorNumber: analysis.collectorNumber,
             setHintTokens: analysis.setHintTokens,
             promoCodeHint: analysis.promoCodeHint,
@@ -269,7 +264,8 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             directLookupLikely: analysis.directLookupLikely,
             resolverModeHint: analysis.resolverModeHint,
             cropConfidence: analysis.cropConfidence,
-            warnings: analysis.warnings
+            warnings: analysis.warnings,
+            ocrAnalysis: analysis.ocrAnalysis
         )
     }
 
@@ -280,6 +276,17 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try encoder.encode(payload)
 
+        print(
+            "🌐 [MATCH] POST \(endpoint.path): "
+            + "scanID=\(payload.scanID.uuidString) "
+            + "mode=\(payload.resolverModeHint.rawValue) "
+            + "pipeline=\(payload.ocrAnalysis?.pipelineVersion.rawValue ?? "none") "
+            + "collector=\(payload.collectorNumber ?? "<none>") "
+            + "setHints=\(payload.setHintTokens) "
+            + "tokens=\(payload.recognizedTokens.count) "
+            + "image=\(payload.image.width)x\(payload.image.height)"
+        )
+
         let (data, response) = try await session.data(for: request)
         guard let httpResponse = response as? HTTPURLResponse else {
             throw MatcherError.invalidServerResponse
@@ -287,10 +294,25 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
 
         guard (200..<300).contains(httpResponse.statusCode) else {
             let message = String(data: data, encoding: .utf8) ?? "The scan service is unavailable."
+            print(
+                "❌ [MATCH] Non-2xx response: "
+                + "status=\(httpResponse.statusCode) "
+                + "scanID=\(payload.scanID.uuidString) "
+                + "body=\(message.prefix(400))"
+            )
             throw MatcherError.server(message: message)
         }
 
-        return try decoder.decode(ScanMatchResponse.self, from: data)
+        let decoded = try decoder.decode(ScanMatchResponse.self, from: data)
+        print(
+            "🌐 [MATCH] Decoded response: "
+            + "scanID=\(decoded.scanID.uuidString) "
+            + "confidence=\(decoded.confidence.rawValue) "
+            + "resolverPath=\(decoded.resolverPath?.rawValue ?? "n/a") "
+            + "review=\(decoded.reviewDisposition?.rawValue ?? "n/a") "
+            + "topCount=\(decoded.topCandidates.count)"
+        )
+        return decoded
     }
 
     private func detailQueryItems(for slabContext: SlabContext?, forceRefresh: Bool = false) -> [URLQueryItem] {

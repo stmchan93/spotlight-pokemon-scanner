@@ -198,7 +198,7 @@ Deleted in Phase 10:
 - `direct_lookup_has_exact_candidate`
 - `direct_lookup_score`
 
-#### `backend/import_pokemontcg_catalog.py`
+#### `backend/pokemontcg_api_client.py`
 
 Add these helpers:
 
@@ -458,7 +458,7 @@ Do:
 ### Phase 2: Rebuild card import around `cards`
 
 Files:
-- `backend/import_pokemontcg_catalog.py`
+- `backend/pokemontcg_api_client.py`
 - `backend/scrydex_adapter.py`
 - `backend/server.py`
 - `backend/catalog_tools.py`
@@ -483,7 +483,7 @@ Do:
 
 Files:
 - `backend/catalog_tools.py`
-- `backend/import_pokemontcg_catalog.py`
+- `backend/pokemontcg_api_client.py`
 - `backend/server.py`
 
 Do:

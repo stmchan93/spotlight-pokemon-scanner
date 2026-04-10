@@ -1,0 +1,29 @@
+{
+  "cropConfidence" : 0.7904684633123501,
+  "expected" : {
+    "cardName" : "Dark Weezing",
+    "collectorNumber" : "14\/82",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setName" : "Team Rocket"
+  },
+  "fixtureName" : "raw_centered_clean",
+  "fullRecognizedText" : "Evolves from Koffing Put Dark Weezing on the Basic Pokém STAI Dark Weezing 60 HP 20 Defending Pokémon is now Poisoned; if tails, the Defending Pokémon is now Paralyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110 TAU Put Dark Weezing on the Bas Dark Weezing 60 H Defending Poker the Defending P Researchers have obse rlal waste sites v Poisoned; if tails, LU now Paralyzed. ce se Pokémon reproducing in HIO",
+  "metadataStripRecognizedText" : "20 Defending Pokémon is now Poisoned; if tails, the Defending Pokémon is now Paralyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7904684633123501,
+  "ocrUsedFallback" : true,
+  "scanID" : "581B5116-CF15-4AE9-B4A0-6AC179BAE02C",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_centered_clean.JPG",
+  "titleTextPrimary" : "Pokém STAI Dark Weezing",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

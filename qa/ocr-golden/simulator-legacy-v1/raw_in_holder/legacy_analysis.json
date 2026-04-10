@@ -1,0 +1,48 @@
+{
+  "bottomLeftRecognizedText" : "Yc osar 185\/132",
+  "bottomRightRecognizedText" : "only I Supporter card during IGAME",
+  "collectorNumber" : "185\/132",
+  "cropConfidence" : 0.45,
+  "directLookupLikely" : false,
+  "expected" : {
+    "cardName" : "Lt. Surge's Bargain",
+    "collectorNumber" : "185\/132",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "ME01",
+    "setName" : "Mega Evolution"
+  },
+  "fixtureName" : "raw_in_holder",
+  "fullRecognizedText" : "Pperter Curaol, Raunn: Supporter TRAINER Lt. Surge's Bargain You may play only 1 Supporter card during your turn- 185\/132 O202- EIREAK Yc osar only I Supporter card during IGAME",
+  "metadataStripRecognizedText" : "You may play only 1 Supporter card during your turn- 185\/132 O202- EIREAK",
+  "normalizedImageHeight" : 889,
+  "normalizedImageWidth" : 636,
+  "ocrLooksLikeRawScore" : 0.48000000000000004,
+  "ocrLooksLikeSlabScore" : 0.27999999999999997,
+  "ocrModeWarnings" : [
+    "Target selection used fallback crop"
+  ],
+  "ocrPipelineVersion" : "legacy_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7553153520110598,
+  "ocrUsedFallback" : true,
+  "resolverModeHint" : "raw_card",
+  "scanID" : "577644C4-E215-414D-9719-40C11E45FD38",
+  "selectedMode" : "raw",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "slabClassifierReasons" : [
+
+  ],
+  "slabParsedLabelText" : [
+
+  ],
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_in_holder.JPG",
+  "topLabelRecognizedText" : "",
+  "warnings" : [
+
+  ]
+}

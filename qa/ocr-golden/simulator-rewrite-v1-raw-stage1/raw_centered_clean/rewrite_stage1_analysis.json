@@ -1,0 +1,30 @@
+{
+  "collectorNumber" : "14\/82",
+  "cropConfidence" : 0.7904684633123501,
+  "expected" : {
+    "cardName" : "Dark Weezing",
+    "collectorNumber" : "14\/82",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setName" : "Team Rocket"
+  },
+  "fixtureName" : "raw_centered_clean",
+  "fullRecognizedText" : "Evolves from Koffing Put Dark Weezing on the Basic Pokémon ST Dark Weezing 60 HP the Lerending rokemon is now rardiyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #|10 Illus. Shin-ichi Yoshida ©1995, 9, 98 Nintendo, Creatures, GAMEFREAK, 01999-2000 Wuards 14\/82 * Evolves from Koffing Put Dark Weezing on the Dark Weezing 60 1 Researchers have obs industrial waste sites. Illus. Shin-ichi Yoshida ©1995, %6, 98 N ce e Pokémon reproducing in 110 s, GAMEFREAK, ©1999-2000 Wizards.",
+  "metadataStripRecognizedText" : "the Lerending rokemon is now rardiyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #|10 Illus. Shin-ichi Yoshida ©1995, 9, 98 Nintendo, Creatures, GAMEFREAK, 01999-2000 Wuards 14\/82 *",
+  "ocrPipelineVersion" : "rewrite_v1",
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.7904684633123501,
+  "ocrUsedFallback" : true,
+  "scanID" : "34E4C361-994B-4B58-9263-E28B413ABAE2",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_centered_clean.JPG",
+  "titleTextPrimary" : "Evolves from Koffing Put Dark Weezing on the Dark Weezing 60 1",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import Mock
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -14,6 +15,9 @@ if str(BACKEND_ROOT) not in sys.path:
 from catalog_tools import (  # noqa: E402
     PSA_GRADE_PRICING_MODE,
     RAW_PRICING_MODE,
+    RawCandidateMatch,
+    RawCandidateScoreBreakdown,
+    RawDecisionResult,
     apply_schema,
     card_by_id,
     connect,
@@ -25,7 +29,7 @@ from catalog_tools import (  # noqa: E402
     upsert_scan_event,
     upsert_slab_price_snapshot,
 )
-from import_pokemontcg_catalog import map_card  # noqa: E402
+from pokemontcg_api_client import map_card  # noqa: E402
 from scrydex_adapter import map_scrydex_catalog_card  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
 
@@ -72,6 +76,44 @@ def sample_catalog_card() -> dict[str, object]:
             "id": "gym1-60",
             "name": "Sabrina's Slowbro",
         },
+    }
+
+
+def sample_provider_card() -> dict[str, object]:
+    return {
+        "id": "gym1-60",
+        "name": "Sabrina's Slowbro",
+        "number": "60",
+        "rarity": "Common",
+        "supertype": "Pokémon",
+        "subtypes": ["Stage 1"],
+        "types": ["Psychic"],
+        "artist": "Ken Sugimori",
+        "images": {
+            "small": "https://images.example/gym1-60-small.png",
+            "large": "https://images.example/gym1-60-large.png",
+        },
+        "set": {
+            "id": "gym1",
+            "name": "Gym Heroes",
+            "series": "Gym",
+            "printedTotal": 132,
+            "releaseDate": "2000-08-14",
+        },
+        "tcgplayer": {
+            "updatedAt": "2026-04-09T01:00:00Z",
+            "url": "https://prices.example/gym1-60",
+            "prices": {
+                "normal": {
+                    "low": 1.0,
+                    "mid": 2.0,
+                    "market": 2.5,
+                    "high": 3.0,
+                    "directLow": 1.8,
+                }
+            },
+        },
+        "cardmarket": {},
     }
 
 
@@ -360,6 +402,123 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(card["imageURL"], "https://images.example/base1-4-large.png")
         self.assertEqual(detail["source"], "pokemontcg_api")
         self.assertEqual(detail["card"]["name"], "Charizard")
+
+    def test_ensure_raw_card_cached_persists_remote_provider_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        provider_card = sample_provider_card()
+        mapped = map_card(provider_card, None)
+        remote_candidate = {
+            "id": mapped["id"],
+            "name": mapped["name"],
+            "setName": mapped["set_name"],
+            "number": mapped["number"],
+            "rarity": mapped["rarity"],
+            "variant": mapped["variant"],
+            "language": mapped["language"],
+            "sourceProvider": mapped["source"],
+            "sourceRecordID": mapped["source_record_id"],
+            "setID": mapped["set_id"],
+            "setSeries": mapped["set_series"],
+            "setPtcgoCode": mapped["set_ptcgo_code"],
+            "imageURL": mapped["reference_image_url"],
+            "imageSmallURL": mapped["reference_image_small_url"],
+            "sourcePayload": provider_card,
+        }
+
+        cached = service._ensure_raw_card_cached(remote_candidate, "test_remote_cache")
+        snapshot = price_snapshot_for_card(
+            service.connection,
+            "gym1-60",
+            pricing_mode=RAW_PRICING_MODE,
+        )
+        service.connection.close()
+
+        self.assertEqual(cached["id"], "gym1-60")
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot["provider"], "tcgplayer")
+        self.assertEqual(snapshot["market"], 2.5)
+
+    def test_low_confidence_top_candidate_still_refreshes_missing_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="gym1-60",
+            name="Sabrina's Slowbro",
+            set_name="Gym Heroes",
+            number="60/132",
+            rarity="Common",
+            variant="Raw",
+            language="English",
+            source_provider="pokemontcg_api",
+            source_record_id="gym1-60",
+            set_id="gym1",
+        )
+        service.connection.commit()
+
+        match = RawCandidateMatch(
+            card={
+                "id": "gym1-60",
+                "name": "Sabrina's Slowbro",
+                "setName": "Gym Heroes",
+                "number": "60/132",
+                "rarity": "Common",
+                "variant": "Raw",
+                "language": "English",
+            },
+            retrieval_score=43.0,
+            resolution_score=45.0,
+            final_total=44.0,
+            breakdown=RawCandidateScoreBreakdown(
+                title_overlap_score=4.0,
+                set_overlap_score=0.0,
+                collector_exact_score=30.0,
+                collector_partial_score=0.0,
+                collector_denominator_score=8.0,
+                footer_text_support_score=7.0,
+                promo_support_score=0.0,
+                cache_presence_score=0.0,
+                contradiction_penalty=0.0,
+                retrieval_total=43.0,
+                resolution_total=45.0,
+                final_total=44.0,
+            ),
+            reasons=("collector_exact",),
+        )
+        decision = RawDecisionResult(
+            matches=(match,),
+            top_candidates=(match,),
+            confidence="low",
+            confidence_percent=44.0,
+            ambiguity_flags=("Set hints are weak",),
+            resolver_path="visual_fallback",
+            review_disposition="needs_review",
+            review_reason="Review the best guess before relying on the card result.",
+            fallback_reason="weak_set",
+            selected_card_id="gym1-60",
+            debug_payload={},
+        )
+        service.refresh_card_pricing = Mock(return_value={  # type: ignore[method-assign]
+            "card": {
+                "pricing": {
+                    "source": "tcgplayer",
+                    "pricingMode": "raw",
+                    "market": 3.25,
+                    "currencyCode": "USD",
+                    "variant": "normal",
+                    "isFresh": True,
+                }
+            }
+        })
+
+        response, _ = service._build_raw_match_response({"scanID": "scan-low"}, decision, api_key="test-key")
+        top_candidate = response["topCandidates"][0]["candidate"]
+        service.connection.close()
+
+        service.refresh_card_pricing.assert_called_once_with("gym1-60", api_key="test-key")
+        self.assertEqual(top_candidate["id"], "gym1-60")
+        self.assertIn("pricing", top_candidate)
+        self.assertEqual(top_candidate["pricing"]["market"], 3.25)
 
     def test_scrydex_mapped_import_path_persists_primary_card_record(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)

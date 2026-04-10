@@ -1,0 +1,20 @@
+{
+  "baselineVersion" : "phase2_fixture_baseline_v1",
+  "copiedSourceImage" : "raw_special_format.JPG",
+  "expects" : {
+    "cardName" : "Pikachu VMAX",
+    "collectorNumber" : "SWSH286",
+    "confidenceBucket" : "high",
+    "preserveLowConfidenceEvidence" : false,
+    "setCodeHint" : "SWSH",
+    "setName" : "Sword & Shield Promos"
+  },
+  "fixtureName" : "raw_special_format",
+  "selectedMode" : "raw",
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_special_format.JPG",
+  "tags" : [
+    "raw",
+    "special_format",
+    "promo"
+  ]
+}

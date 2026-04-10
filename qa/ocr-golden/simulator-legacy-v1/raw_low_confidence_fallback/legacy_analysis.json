@@ -1,0 +1,49 @@
+{
+  "bottomLeftRecognizedText" : "",
+  "bottomRightRecognizedText" : "",
+  "cropConfidence" : 0.45,
+  "directLookupLikely" : false,
+  "expected" : {
+    "cardName" : "Slowpoke",
+    "collectorNumber" : "204\/198",
+    "confidenceBucket" : "low",
+    "preserveLowConfidenceEvidence" : true,
+    "setCodeHint" : "SV01",
+    "setName" : "Scarlet & Violet Base Set"
+  },
+  "fixtureName" : "raw_low_confidence_fallback",
+  "fullRecognizedText" : "",
+  "metadataStripRecognizedText" : "",
+  "normalizedImageHeight" : 889,
+  "normalizedImageWidth" : 636,
+  "ocrLooksLikeRawScore" : 0.48000000000000004,
+  "ocrLooksLikeSlabScore" : 0.27999999999999997,
+  "ocrModeWarnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak"
+  ],
+  "ocrPipelineVersion" : "legacy_v1",
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrSelectedMode" : "raw",
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "resolverModeHint" : "raw_card",
+  "scanID" : "6D6E3E63-3F71-4917-90A1-96FE7C61C90E",
+  "selectedMode" : "raw",
+  "setHintTokens" : [
+
+  ],
+  "shouldRetryWithStillPhoto" : false,
+  "slabClassifierReasons" : [
+
+  ],
+  "slabParsedLabelText" : [
+
+  ],
+  "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_low_confidence_fallback.JPG",
+  "topLabelRecognizedText" : "",
+  "warnings" : [
+    "Could not read strong raw-card clues",
+    "Low-confidence raw candidate set"
+  ]
+}

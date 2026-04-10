@@ -451,7 +451,6 @@ actor RawCardScanner {
             ]
         )
         let fullRecognizedText = recognizedTokens.map(\.text).joined(separator: " ")
-        let metadataText = fullFooter.text
 
         if config.debug.verboseLogging {
             if let collectorNumber {
@@ -461,10 +460,18 @@ actor RawCardScanner {
             }
         }
 
-        ScanDebugArtifactWriter.recordRawAnalysisArtifacts(
+        ScanStageArtifactWriter.recordRawAnalysisArtifacts(
             scanID: scanID,
             cropConfidence: cropConfidence,
-            regions: [titleHeader, nameplate, fullFooter, bottomLeft, bottomRight],
+            regions: [titleHeader, nameplate, fullFooter, bottomLeft, bottomRight].map { region in
+                ScanStageRawRegionArtifact(
+                    label: region.label,
+                    normalizedRect: ScanDebugRect(region.normalizedRect),
+                    text: region.text,
+                    averageConfidence: region.averageConfidence,
+                    tokens: region.tokens
+                )
+            },
             coarseCandidates: coarseCandidates,
             finalCandidates: finalCandidates,
             finalCollectorNumber: collectorNumber,
@@ -505,16 +512,29 @@ actor RawCardScanner {
             warnings.append("Low-confidence raw candidate set")
         }
 
+        let ocrAnalysis = buildLegacyRawOCRAnalysisEnvelope(
+            targetSelection: targetSelection,
+            primaryTitleText: primaryTitleText,
+            secondaryTitleText: secondaryTitleText,
+            titleConfidence: coarseSignals.titleConfidence,
+            footerBandText: fullFooter.text,
+            wholeCardText: fullRecognizedText,
+            collectorNumber: collectorNumber,
+            collectorWasFooterConfirmed: cornerBestParsed?.identifier != nil,
+            setHintTokens: setHintTokens,
+            warnings: warnings
+        )
+        ScanStageArtifactWriter.recordSynthesizedEvidenceArtifact(
+            scanID: scanID,
+            stage: "legacy_raw_ocr_analysis",
+            payload: ocrAnalysis
+        )
+
         return AnalyzedCapture(
             scanID: scanID,
             originalImage: normalizedOriginal,
             normalizedImage: UIImage(cgImage: cardImage),
             recognizedTokens: recognizedTokens,
-            fullRecognizedText: fullRecognizedText,
-            metadataStripRecognizedText: metadataText,
-            topLabelRecognizedText: "",
-            bottomLeftRecognizedText: bottomLeft.text,
-            bottomRightRecognizedText: bottomRight.text,
             collectorNumber: collectorNumber,
             setHintTokens: setHintTokens,
             promoCodeHint: extractPromoHint(from: collectorNumber),
@@ -534,7 +554,8 @@ actor RawCardScanner {
             cropConfidence: cropConfidence,
             warnings: warnings,
             shouldRetryWithStillPhoto: shouldRetryWithStillPhoto,
-            stillPhotoRetryReason: stillPhotoRetryReason
+            stillPhotoRetryReason: stillPhotoRetryReason,
+            ocrAnalysis: ocrAnalysis
         )
     }
 
@@ -682,11 +703,14 @@ actor RawCardScanner {
         cropConfidence: Double,
         titleEvidenceStrong: Bool
     ) -> Bool {
-        guard captureSource == .livePreviewFrame else { return false }
-        guard collectorNumber == nil else { return false }
-        guard setHintTokens.isEmpty else { return false }
-        guard !titleEvidenceStrong else { return false }
-        return cropConfidence >= 0.68
+        // Temporary debugging mode: disable automatic still-photo retries so the
+        // original preview-frame capture remains the only scan input.
+        _ = captureSource
+        _ = collectorNumber
+        _ = setHintTokens
+        _ = cropConfidence
+        _ = titleEvidenceStrong
+        return false
     }
 
     private func rawTitleEvidenceLooksStrong(primaryTitleText: String, titleConfidence: Double) -> Bool {
@@ -716,7 +740,7 @@ actor RawCardScanner {
         print("  🔍 [OCR] After \(upscaleFactor)x upscale: \(upscaled.width)x\(upscaled.height)")
 
         let targetImage = upscaled
-        ScanDebugArtifactWriter.recordRawRegionImage(scanID: scanID, image: UIImage(cgImage: targetImage), named: "\(label).jpg")
+        ScanStageArtifactWriter.recordRawRegionImage(scanID: scanID, image: UIImage(cgImage: targetImage), named: "\(label).jpg")
 
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
@@ -1036,10 +1060,16 @@ actor SlabScanner {
             region: config.labelOCR.expandedRegion,
             label: "slab_top_expanded"
         )
-        let barcodePayloads = try detectVerificationPayloads(
-            in: cgImage,
-            regions: [config.labelOCR.primaryRegion, config.labelOCR.expandedRegion]
-        )
+        let barcodePayloads: [String]
+        do {
+            barcodePayloads = try detectVerificationPayloads(
+                in: cgImage,
+                regions: [config.labelOCR.primaryRegion, config.labelOCR.expandedRegion]
+            )
+        } catch {
+            print("  ⚠️ [OCR] Slab barcode detection failed: \(error.localizedDescription)")
+            barcodePayloads = []
+        }
         let visualSignals = extractVisualSignals(from: primaryLabelImage)
 
         let topLabelText = preferredSlabLabelText(primary: primaryText, expanded: expandedText)
@@ -1062,6 +1092,9 @@ actor SlabScanner {
         }
         if slabLabelAnalysis.certNumber == nil {
             warnings.append("Could not extract slab cert number")
+        }
+        if barcodePayloads.isEmpty {
+            warnings.append("Could not extract slab barcode payload")
         }
 
         print("  🔍 [OCR] Slab top label: '\(topLabelText)'")
@@ -1091,16 +1124,24 @@ actor SlabScanner {
             print("  ⏱️ [SCAN] Slab OCR total: \(Int(elapsed * 1000))ms")
         }
 
+        let ocrAnalysis = buildLegacySlabOCRAnalysisEnvelope(
+            targetSelection: targetSelection,
+            topLabelText: topLabelText,
+            combinedText: combinedText,
+            slabLabelAnalysis: slabLabelAnalysis,
+            warnings: warnings
+        )
+        ScanStageArtifactWriter.recordSynthesizedEvidenceArtifact(
+            scanID: scanID,
+            stage: "legacy_slab_ocr_analysis",
+            payload: ocrAnalysis
+        )
+
         return AnalyzedCapture(
             scanID: scanID,
             originalImage: normalizedOriginal,
             normalizedImage: targetSelection.normalizedImage,
             recognizedTokens: [],
-            fullRecognizedText: combinedText,
-            metadataStripRecognizedText: "",
-            topLabelRecognizedText: topLabelText,
-            bottomLeftRecognizedText: "",
-            bottomRightRecognizedText: "",
             collectorNumber: nil,
             setHintTokens: [],
             promoCodeHint: nil,
@@ -1120,7 +1161,8 @@ actor SlabScanner {
             cropConfidence: targetSelection.selectionConfidence,
             warnings: warnings,
             shouldRetryWithStillPhoto: false,
-            stillPhotoRetryReason: nil
+            stillPhotoRetryReason: nil,
+            ocrAnalysis: ocrAnalysis
         )
     }
 
@@ -1449,552 +1491,6 @@ actor SlabScanner {
     }
 }
 
-enum OCRTargetMode: String, Codable {
-    case rawCard = "raw"
-    case psaSlab = "psa"
-
-    var expectedAspectRatio: CGFloat {
-        switch self {
-        case .rawCard:
-            return 88.0 / 63.0
-        case .psaSlab:
-            return 5.375 / 3.25
-        }
-    }
-
-    var minimumSelectionScore: Double {
-        switch self {
-        case .rawCard:
-            return 0.62
-        case .psaSlab:
-            return 0.60
-        }
-    }
-
-    var minimumCandidateArea: CGFloat {
-        switch self {
-        case .rawCard:
-            return 0.10
-        case .psaSlab:
-            return 0.12
-        }
-    }
-}
-
-enum OCRTargetGeometryKind: String, Codable {
-    case rawCard = "raw_card"
-    case rawHolder = "raw_holder"
-    case slab = "slab"
-    case fallback = "fallback"
-}
-
-private struct OCRTargetSelectionCandidate {
-    let observation: VNRectangleObservation
-    let summary: OCRTargetCandidateSummary
-}
-
-private struct OCRTargetSelectionResult {
-    let normalizedImage: UIImage
-    let selectionConfidence: Double
-    let usedFallback: Bool
-    let fallbackReason: String?
-    let chosenCandidateIndex: Int?
-    let candidates: [OCRTargetCandidateSummary]
-    let normalizedGeometryKind: OCRTargetGeometryKind
-    let normalizationReason: String?
-}
-
-struct OCRTargetCandidateSummary: Codable {
-    let rank: Int
-    let confidence: Double
-    let areaCoverage: Double
-    let aspectRatio: Double
-    let aspectScore: Double
-    let proximityScore: Double
-    let areaScore: Double
-    let totalScore: Double
-    let centerDistance: Double
-    let boundingBox: ScanDebugRect
-    let quadrilateral: [ScanDebugPoint]
-    let geometryKind: OCRTargetGeometryKind
-}
-
-private struct OCRTargetNormalizationResult {
-    let image: UIImage
-    let geometryKind: OCRTargetGeometryKind
-    let reason: String?
-}
-
-private func selectOCRInput(
-    scanID: UUID,
-    capture: ScanCaptureInput,
-    mode: OCRTargetMode
-) throws -> OCRTargetSelectionResult {
-    let searchImage = capture.searchImage.normalizedOrientation()
-    let fallbackImage = (capture.fallbackImage ?? capture.searchImage).normalizedOrientation()
-
-    guard let searchCGImage = searchImage.cgImage else {
-        throw AnalysisError.invalidImage
-    }
-
-    let candidates = try detectRectangleCandidates(in: searchCGImage, mode: mode)
-    let chosenCandidate = chooseBestCandidate(from: candidates, mode: mode)
-    let candidateOverlayImage = drawCandidateOverlay(on: searchImage, candidates: candidates, chosenIndex: chosenCandidate?.summary.rank)
-
-    if let chosenCandidate,
-       let normalizedCandidateImage = perspectiveCorrect(searchCGImage, observation: chosenCandidate.observation) {
-        let normalizationResult = normalizeOCRInputImage(
-            normalizedCandidateImage.normalizedOrientation(),
-            chosenCandidate: chosenCandidate.summary,
-            mode: mode
-        )
-        let normalizedImage = normalizationResult.image
-        let fallbackReason: String? = nil
-        print(
-            "  🎯 [TARGET] mode=\(mode.rawValue) source=\(capture.captureSource.rawValue) " +
-            "chosen=#\(chosenCandidate.summary.rank) score=\(String(format: "%.2f", chosenCandidate.summary.totalScore)) " +
-            "geometry=\(normalizationResult.geometryKind.rawValue)"
-        )
-        ScanDebugArtifactWriter.recordSelectionArtifacts(
-            scanID: scanID,
-            mode: mode,
-            source: capture.captureSource,
-            searchImage: searchImage,
-            candidateOverlayImage: candidateOverlayImage,
-            normalizedImage: normalizedImage,
-            chosenCandidateIndex: chosenCandidate.summary.rank,
-            candidates: candidates.map(\.summary),
-            fallbackReason: fallbackReason,
-            normalizedGeometryKind: normalizationResult.geometryKind,
-            normalizationReason: normalizationResult.reason
-        )
-        return OCRTargetSelectionResult(
-            normalizedImage: normalizedImage,
-            selectionConfidence: max(0.55, chosenCandidate.summary.totalScore),
-            usedFallback: false,
-            fallbackReason: fallbackReason,
-            chosenCandidateIndex: chosenCandidate.summary.rank,
-            candidates: candidates.map(\.summary),
-            normalizedGeometryKind: normalizationResult.geometryKind,
-            normalizationReason: normalizationResult.reason
-        )
-    }
-
-    let fallbackReason = fallbackReason(for: candidates, mode: mode)
-    print("  ⚠️ [TARGET] mode=\(mode.rawValue) fallback=\(fallbackReason)")
-    ScanDebugArtifactWriter.recordSelectionArtifacts(
-        scanID: scanID,
-        mode: mode,
-        source: capture.captureSource,
-        searchImage: searchImage,
-        candidateOverlayImage: candidateOverlayImage,
-        normalizedImage: fallbackImage,
-        chosenCandidateIndex: nil,
-        candidates: candidates.map(\.summary),
-        fallbackReason: fallbackReason,
-        normalizedGeometryKind: .fallback,
-        normalizationReason: "exact_reticle_fallback"
-    )
-
-    return OCRTargetSelectionResult(
-        normalizedImage: fallbackImage,
-        selectionConfidence: candidates.first?.summary.totalScore ?? 0.40,
-        usedFallback: true,
-        fallbackReason: fallbackReason,
-        chosenCandidateIndex: nil,
-        candidates: candidates.map(\.summary),
-        normalizedGeometryKind: .fallback,
-        normalizationReason: "exact_reticle_fallback"
-    )
-}
-
-private func detectRectangleCandidates(
-    in cgImage: CGImage,
-    mode: OCRTargetMode
-) throws -> [OCRTargetSelectionCandidate] {
-    let request = VNDetectRectanglesRequest()
-    request.maximumObservations = 8
-    request.minimumConfidence = 0.35
-    request.minimumAspectRatio = 0.5
-    request.maximumAspectRatio = 0.9
-
-    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-    try handler.perform([request])
-
-    let observations = request.results ?? []
-    let summaries = observations.enumerated().compactMap { index, observation -> OCRTargetSelectionCandidate? in
-        let areaCoverage = observation.boundingBox.width * observation.boundingBox.height
-        guard areaCoverage >= mode.minimumCandidateArea else {
-            return nil
-        }
-
-        let candidate = makeCandidateSummary(
-            observation: observation,
-            rank: index + 1,
-            mode: mode
-        )
-        return OCRTargetSelectionCandidate(observation: observation, summary: candidate)
-    }
-
-    return summaries.sorted { lhs, rhs in
-        lhs.summary.totalScore > rhs.summary.totalScore
-    }
-}
-
-private func makeCandidateSummary(
-    observation: VNRectangleObservation,
-    rank: Int,
-    mode: OCRTargetMode
-) -> OCRTargetCandidateSummary {
-    let center = CGPoint(x: observation.boundingBox.midX, y: observation.boundingBox.midY)
-    let dx = center.x - 0.5
-    let dy = center.y - 0.5
-    let centerDistance = sqrt((dx * dx) + (dy * dy))
-    let maxDistance = sqrt(0.5)
-    let proximityScore = max(0, 1 - (centerDistance / maxDistance))
-
-    let topWidth = distance(from: observation.topLeft, to: observation.topRight)
-    let bottomWidth = distance(from: observation.bottomLeft, to: observation.bottomRight)
-    let leftHeight = distance(from: observation.topLeft, to: observation.bottomLeft)
-    let rightHeight = distance(from: observation.topRight, to: observation.bottomRight)
-    let averageWidth = max(0.0001, (topWidth + bottomWidth) / 2)
-    let averageHeight = max(0.0001, (leftHeight + rightHeight) / 2)
-    let aspectRatio = averageHeight / averageWidth
-    let aspectDelta = abs(aspectRatio - mode.expectedAspectRatio)
-    let aspectScore = max(0, 1 - (aspectDelta / 0.45))
-    let geometryKind = inferredGeometryKind(for: aspectRatio, mode: mode)
-
-    let areaCoverage = observation.boundingBox.width * observation.boundingBox.height
-    let areaScore = min(1, sqrt(areaCoverage / 0.32))
-
-    let totalScore =
-        (Double(proximityScore) * 0.46) +
-        (Double(aspectScore) * 0.24) +
-        (Double(observation.confidence) * 0.15) +
-        (Double(areaScore) * 0.15)
-
-    return OCRTargetCandidateSummary(
-        rank: rank,
-        confidence: Double(observation.confidence),
-        areaCoverage: Double(areaCoverage),
-        aspectRatio: Double(aspectRatio),
-        aspectScore: Double(aspectScore),
-        proximityScore: Double(proximityScore),
-        areaScore: Double(areaScore),
-        totalScore: totalScore,
-        centerDistance: Double(centerDistance),
-        boundingBox: ScanDebugRect(observation.boundingBox),
-        quadrilateral: [
-            ScanDebugPoint(observation.topLeft),
-            ScanDebugPoint(observation.topRight),
-            ScanDebugPoint(observation.bottomRight),
-            ScanDebugPoint(observation.bottomLeft)
-        ],
-        geometryKind: geometryKind
-    )
-}
-
-private func chooseBestCandidate(
-    from candidates: [OCRTargetSelectionCandidate],
-    mode: OCRTargetMode
-) -> OCRTargetSelectionCandidate? {
-    guard let acceptedRank = chooseBestSelectionCandidateRank(from: candidates.map(\.summary), mode: mode) else {
-        return nil
-    }
-    return candidates.first { $0.summary.rank == acceptedRank }
-}
-
-func chooseBestSelectionCandidateRank(
-    from candidates: [OCRTargetCandidateSummary],
-    mode: OCRTargetMode
-) -> Int? {
-    guard let best = candidates.first else {
-        return nil
-    }
-
-    let margin = best.totalScore - (candidates.dropFirst().first?.totalScore ?? 0)
-    let holderAccepted = mode == .rawCard
-        && best.geometryKind == .rawHolder
-        && best.proximityScore >= 0.44
-        && best.areaCoverage >= 0.18
-    guard best.totalScore >= mode.minimumSelectionScore else {
-        return nil
-    }
-    guard best.aspectScore >= 0.45 || holderAccepted else {
-        return nil
-    }
-    guard best.proximityScore >= 0.32 else {
-        return nil
-    }
-    guard margin >= 0.05 || candidates.count == 1 else {
-        return nil
-    }
-    return best.rank
-}
-
-private func fallbackReason(
-    for candidates: [OCRTargetSelectionCandidate],
-    mode: OCRTargetMode
-) -> String {
-    guard let best = candidates.first else {
-        return "no_rectangle_detected"
-    }
-
-    if best.summary.totalScore < mode.minimumSelectionScore {
-        return "best_rectangle_score_too_low"
-    }
-    if best.summary.aspectScore < 0.45 {
-        return "best_rectangle_aspect_mismatch"
-    }
-    if best.summary.proximityScore < 0.32 {
-        return "best_rectangle_too_far_from_reticle"
-    }
-    let margin = best.summary.totalScore - (candidates.dropFirst().first?.summary.totalScore ?? 0)
-    if margin < 0.05 && candidates.count > 1 {
-        return "multiple_rectangles_too_close_to_call"
-    }
-    return "perspective_correction_failed"
-}
-
-private func inferredGeometryKind(for aspectRatio: CGFloat, mode: OCRTargetMode) -> OCRTargetGeometryKind {
-    switch mode {
-    case .rawCard:
-        if aspectRatio >= (mode.expectedAspectRatio + 0.10), aspectRatio <= 1.95 {
-            return .rawHolder
-        }
-        return .rawCard
-    case .psaSlab:
-        return .slab
-    }
-}
-
-private func normalizeOCRInputImage(
-    _ image: UIImage,
-    chosenCandidate: OCRTargetCandidateSummary,
-    mode: OCRTargetMode
-) -> OCRTargetNormalizationResult {
-    guard mode == .rawCard else {
-        return OCRTargetNormalizationResult(image: image, geometryKind: .slab, reason: nil)
-    }
-
-    if chosenCandidate.geometryKind == .rawHolder || rawImageLooksLikeHolder(image) {
-        if let innerCardImage = extractInnerRawCard(from: image) {
-            return innerCardImage
-        }
-        return OCRTargetNormalizationResult(image: image, geometryKind: .rawHolder, reason: "holder_detected_inner_card_not_found")
-    }
-
-    return OCRTargetNormalizationResult(image: image, geometryKind: .rawCard, reason: nil)
-}
-
-private func rawImageLooksLikeHolder(_ image: UIImage) -> Bool {
-    guard image.size.width > 0, image.size.height > 0 else { return false }
-    return (image.size.height / image.size.width) > 1.50
-}
-
-private func extractInnerRawCard(from image: UIImage) -> OCRTargetNormalizationResult? {
-    guard let correctedCGImage = image.cgImage else { return nil }
-
-    if let innerCardObservation = try? bestRawCardObservation(
-        in: correctedCGImage,
-        expectedWidthHeightAspect: 63.0 / 88.0,
-        minimumAreaCoverage: 0.20,
-        maxCenterDistance: 0.24
-    ), let normalizedInnerCard = perspectiveCorrect(correctedCGImage, observation: innerCardObservation)?.normalizedOrientation() {
-        return OCRTargetNormalizationResult(
-            image: normalizedInnerCard,
-            geometryKind: .rawCard,
-            reason: "holder_inner_card_detected"
-        )
-    }
-
-    guard let heuristicCrop = heuristicInnerRawCardCrop(from: correctedCGImage) else {
-        return nil
-    }
-
-    return OCRTargetNormalizationResult(
-        image: UIImage(cgImage: heuristicCrop),
-        geometryKind: .rawCard,
-        reason: "holder_inner_card_inset_fallback"
-    )
-}
-
-private func bestRawCardObservation(
-    in cgImage: CGImage,
-    expectedWidthHeightAspect: CGFloat,
-    minimumAreaCoverage: CGFloat,
-    maxCenterDistance: CGFloat
-) throws -> VNRectangleObservation? {
-    let request = VNDetectRectanglesRequest()
-    request.maximumObservations = 6
-    request.minimumConfidence = 0.25
-    request.minimumAspectRatio = 0.50
-    request.maximumAspectRatio = 0.90
-
-    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-    try handler.perform([request])
-
-    let scoredCandidates: [(Double, VNRectangleObservation)] = (request.results ?? []).compactMap { observation in
-        let areaCoverage = observation.boundingBox.width * observation.boundingBox.height
-        guard areaCoverage >= minimumAreaCoverage else { return nil }
-
-        let center = CGPoint(x: observation.boundingBox.midX, y: observation.boundingBox.midY)
-        let centerDistance = distance(from: center, to: CGPoint(x: 0.5, y: 0.5))
-        guard centerDistance <= maxCenterDistance else { return nil }
-
-        let topWidth = distance(from: observation.topLeft, to: observation.topRight)
-        let bottomWidth = distance(from: observation.bottomLeft, to: observation.bottomRight)
-        let leftHeight = distance(from: observation.topLeft, to: observation.bottomLeft)
-        let rightHeight = distance(from: observation.topRight, to: observation.bottomRight)
-        let averageWidth = max(0.0001, (topWidth + bottomWidth) / 2)
-        let averageHeight = max(0.0001, (leftHeight + rightHeight) / 2)
-        let widthHeightAspect = averageWidth / averageHeight
-        let aspectDelta = abs(widthHeightAspect - expectedWidthHeightAspect)
-        let aspectScore = max(0, 1 - (aspectDelta / 0.18))
-        guard aspectScore >= 0.40 else { return nil }
-
-        let proximityScore = max(0, 1 - (centerDistance / maxCenterDistance))
-        let areaScore = min(1, sqrt(areaCoverage / 0.50))
-        let totalScore =
-            (Double(proximityScore) * 0.46) +
-            (Double(aspectScore) * 0.29) +
-            (Double(observation.confidence) * 0.10) +
-            (Double(areaScore) * 0.15)
-
-        return (totalScore, observation)
-    }
-
-    return scoredCandidates.max { lhs, rhs in
-        lhs.0 < rhs.0
-    }?.1
-}
-
-private func heuristicInnerRawCardCrop(from cgImage: CGImage) -> CGImage? {
-    let width = CGFloat(cgImage.width)
-    let height = CGFloat(cgImage.height)
-    let containerRect = CGRect(
-        x: width * 0.06,
-        y: height * 0.03,
-        width: width * 0.88,
-        height: height * 0.91
-    )
-    let cropRect = centeredAspectFitRect(
-        in: containerRect,
-        widthHeightAspect: 63.0 / 88.0
-    ).integral
-
-    guard cropRect.width > 0, cropRect.height > 0 else { return nil }
-    return cgImage.cropping(to: cropRect)
-}
-
-private func centeredAspectFitRect(in rect: CGRect, widthHeightAspect: CGFloat) -> CGRect {
-    guard rect.width > 0, rect.height > 0, widthHeightAspect > 0 else { return rect }
-
-    let containerAspect = rect.width / rect.height
-    if containerAspect > widthHeightAspect {
-        let height = rect.height
-        let width = height * widthHeightAspect
-        return CGRect(
-            x: rect.midX - (width / 2),
-            y: rect.minY,
-            width: width,
-            height: height
-        )
-    }
-
-    let width = rect.width
-    let height = width / widthHeightAspect
-    return CGRect(
-        x: rect.minX,
-        y: rect.midY - (height / 2),
-        width: width,
-        height: height
-    )
-}
-
-private func perspectiveCorrect(_ cgImage: CGImage, observation: VNRectangleObservation) -> UIImage? {
-    let ciImage = CIImage(cgImage: cgImage)
-    guard let filter = CIFilter(name: "CIPerspectiveCorrection") else {
-        return nil
-    }
-
-    let width = CGFloat(cgImage.width)
-    let height = CGFloat(cgImage.height)
-    filter.setValue(ciImage, forKey: kCIInputImageKey)
-    filter.setValue(CIVector(cgPoint: pointInImage(observation.topLeft, width: width, height: height)), forKey: "inputTopLeft")
-    filter.setValue(CIVector(cgPoint: pointInImage(observation.topRight, width: width, height: height)), forKey: "inputTopRight")
-    filter.setValue(CIVector(cgPoint: pointInImage(observation.bottomRight, width: width, height: height)), forKey: "inputBottomRight")
-    filter.setValue(CIVector(cgPoint: pointInImage(observation.bottomLeft, width: width, height: height)), forKey: "inputBottomLeft")
-
-    guard let outputImage = filter.outputImage else {
-        return nil
-    }
-
-    let ciContext = CIContext()
-    guard let correctedCGImage = ciContext.createCGImage(outputImage, from: outputImage.extent.integral) else {
-        return nil
-    }
-
-    return UIImage(cgImage: correctedCGImage)
-}
-
-private func drawCandidateOverlay(
-    on image: UIImage,
-    candidates: [OCRTargetSelectionCandidate],
-    chosenIndex: Int?
-) -> UIImage {
-    let format = UIGraphicsImageRendererFormat()
-    format.scale = 1
-    if #available(iOS 12.0, *) {
-        format.preferredRange = .standard
-    }
-
-    let renderer = UIGraphicsImageRenderer(size: image.size, format: format)
-    return renderer.image { _ in
-        image.draw(in: CGRect(origin: .zero, size: image.size))
-
-        for candidate in candidates {
-            let isChosen = candidate.summary.rank == chosenIndex
-            let color = isChosen ? UIColor.systemGreen : UIColor.systemYellow
-            let quad = candidate.summary.quadrilateral.map { point in
-                CGPoint(
-                    x: point.x * image.size.width,
-                    y: (1 - point.y) * image.size.height
-                )
-            }
-
-            guard quad.count == 4 else { continue }
-            let path = UIBezierPath()
-            path.move(to: quad[0])
-            path.addLine(to: quad[1])
-            path.addLine(to: quad[2])
-            path.addLine(to: quad[3])
-            path.close()
-            color.setStroke()
-            path.lineWidth = isChosen ? 6 : 3
-            path.stroke()
-
-            let label = "#\(candidate.summary.rank) \(String(format: "%.2f", candidate.summary.totalScore))"
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: UIFont.monospacedSystemFont(ofSize: 18, weight: .bold),
-                .foregroundColor: color
-            ]
-            let labelPoint = CGPoint(x: quad[0].x + 8, y: quad[0].y + 8)
-            label.draw(at: labelPoint, withAttributes: attributes)
-        }
-    }
-}
-
-private func pointInImage(_ normalizedPoint: CGPoint, width: CGFloat, height: CGFloat) -> CGPoint {
-    CGPoint(x: normalizedPoint.x * width, y: normalizedPoint.y * height)
-}
-
-private func distance(from lhs: CGPoint, to rhs: CGPoint) -> CGFloat {
-    let dx = lhs.x - rhs.x
-    let dy = lhs.y - rhs.y
-    return sqrt((dx * dx) + (dy * dy))
-}
-
 private struct SlabRegionMetrics {
     let redDominantRatio: Float
     let brightRatio: Float
@@ -2021,197 +1517,6 @@ enum AnalysisError: LocalizedError {
         case .invalidImage:
             "The selected image could not be processed."
         }
-    }
-}
-
-struct ScanDebugPoint: Codable {
-    let x: Double
-    let y: Double
-
-    init(_ point: CGPoint) {
-        self.x = Double(point.x)
-        self.y = Double(point.y)
-    }
-}
-
-struct ScanDebugRect: Codable {
-    let x: Double
-    let y: Double
-    let width: Double
-    let height: Double
-
-    init(_ rect: CGRect) {
-        self.x = Double(rect.origin.x)
-        self.y = Double(rect.origin.y)
-        self.width = Double(rect.size.width)
-        self.height = Double(rect.size.height)
-    }
-}
-
-private struct CaptureArtifactManifest: Codable {
-    let stage: String
-    let source: ScanCaptureSource
-    let exactCropRectNormalized: ScanDebugRect
-    let searchCropRectNormalized: ScanDebugRect
-}
-
-private struct SelectionArtifactManifest: Codable {
-    let stage: String
-    let mode: OCRTargetMode
-    let source: ScanCaptureSource
-    let chosenCandidateIndex: Int?
-    let fallbackReason: String?
-    let normalizedGeometryKind: OCRTargetGeometryKind
-    let normalizationReason: String?
-    let candidates: [OCRTargetCandidateSummary]
-}
-
-private struct RawOCRRegionArtifact: Codable {
-    let label: String
-    let normalizedRect: ScanDebugRect
-    let text: String
-    let averageConfidence: Double
-    let tokens: [RecognizedToken]
-}
-
-private struct RawDecisionArtifactManifest: Codable {
-    let stage: String
-    let cropConfidence: Double
-    let fallbackReason: String?
-    let regions: [RawOCRRegionArtifact]
-    let coarseCandidates: [RawCandidateHypothesis]
-    let finalCandidates: [RawCandidateHypothesis]
-    let finalCollectorNumber: String?
-    let finalSetHintTokens: [String]
-}
-
-enum ScanDebugArtifactWriter {
-    static func recordCaptureArtifacts(
-        scanID: UUID,
-        source: ScanCaptureSource,
-        originalImage: UIImage,
-        searchImage: UIImage,
-        fallbackImage: UIImage,
-        exactCropRectNormalized: CGRect,
-        searchCropRectNormalized: CGRect
-    ) {
-        let manifest = CaptureArtifactManifest(
-            stage: "capture",
-            source: source,
-            exactCropRectNormalized: ScanDebugRect(exactCropRectNormalized),
-            searchCropRectNormalized: ScanDebugRect(searchCropRectNormalized)
-        )
-
-        write(image: originalImage, named: "01_original_frame.jpg", scanID: scanID)
-        write(image: searchImage, named: "02_search_region.jpg", scanID: scanID)
-        write(image: fallbackImage, named: "03_exact_reticle_fallback.jpg", scanID: scanID)
-        write(json: manifest, named: "capture_manifest.json", scanID: scanID)
-    }
-
-    fileprivate static func recordSelectionArtifacts(
-        scanID: UUID,
-        mode: OCRTargetMode,
-        source: ScanCaptureSource,
-        searchImage: UIImage,
-        candidateOverlayImage: UIImage,
-        normalizedImage: UIImage,
-        chosenCandidateIndex: Int?,
-        candidates: [OCRTargetCandidateSummary],
-        fallbackReason: String?,
-        normalizedGeometryKind: OCRTargetGeometryKind,
-        normalizationReason: String?
-    ) {
-        let manifest = SelectionArtifactManifest(
-            stage: "selection",
-            mode: mode,
-            source: source,
-            chosenCandidateIndex: chosenCandidateIndex,
-            fallbackReason: fallbackReason,
-            normalizedGeometryKind: normalizedGeometryKind,
-            normalizationReason: normalizationReason,
-            candidates: candidates
-        )
-
-        write(image: searchImage, named: "04_selection_search_input.jpg", scanID: scanID)
-        write(image: candidateOverlayImage, named: "05_selection_candidates.jpg", scanID: scanID)
-        write(image: normalizedImage, named: "06_ocr_input_normalized.jpg", scanID: scanID)
-        write(json: manifest, named: "selection_manifest.json", scanID: scanID)
-    }
-
-    fileprivate static func recordRawRegionImage(scanID: UUID, image: UIImage, named filename: String) {
-        write(image: image, named: filename, scanID: scanID)
-    }
-
-    fileprivate static func recordRawAnalysisArtifacts(
-        scanID: UUID,
-        cropConfidence: Double,
-        regions: [RawRecognizedRegionResult],
-        coarseCandidates: [RawCandidateHypothesis],
-        finalCandidates: [RawCandidateHypothesis],
-        finalCollectorNumber: String?,
-        finalSetHintTokens: [String],
-        fallbackReason: String?
-    ) {
-        let manifest = RawDecisionArtifactManifest(
-            stage: "raw_analysis",
-            cropConfidence: cropConfidence,
-            fallbackReason: fallbackReason,
-            regions: regions.map { region in
-                RawOCRRegionArtifact(
-                    label: region.label,
-                    normalizedRect: ScanDebugRect(region.normalizedRect),
-                    text: region.text,
-                    averageConfidence: region.averageConfidence,
-                    tokens: region.tokens
-                )
-            },
-            coarseCandidates: Array(coarseCandidates.prefix(3)),
-            finalCandidates: Array(finalCandidates.prefix(3)),
-            finalCollectorNumber: finalCollectorNumber,
-            finalSetHintTokens: finalSetHintTokens
-        )
-
-        write(json: manifest, named: "raw_analysis_manifest.json", scanID: scanID)
-    }
-
-    private static func write(image: UIImage, named filename: String, scanID: UUID) {
-        guard let data = image.jpegData(compressionQuality: 0.9) else {
-            return
-        }
-        write(data: data, named: filename, scanID: scanID)
-    }
-
-    private static func write<T: Encodable>(json payload: T, named filename: String, scanID: UUID) {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let data = try? encoder.encode(payload) else {
-            return
-        }
-        write(data: data, named: filename, scanID: scanID)
-    }
-
-    private static func write(data: Data, named filename: String, scanID: UUID) {
-        guard let directoryURL = scanDirectoryURL(for: scanID) else {
-            return
-        }
-        let fileURL = directoryURL.appendingPathComponent(filename)
-        try? data.write(to: fileURL, options: .atomic)
-    }
-
-    private static func scanDirectoryURL(for scanID: UUID) -> URL? {
-        let fileManager = FileManager.default
-        let baseURL = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
-            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
-        guard let baseURL else { return nil }
-
-        let directoryURL = baseURL
-            .appendingPathComponent("Spotlight", isDirectory: true)
-            .appendingPathComponent("ScanDebug", isDirectory: true)
-            .appendingPathComponent(scanID.uuidString, isDirectory: true)
-
-        try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        print("  🧪 [DEBUG] Scan artifacts directory: \(directoryURL.path)")
-        return directoryURL
     }
 }
 

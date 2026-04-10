@@ -48,17 +48,19 @@ func makePricing(
     )
 }
 
-func testResolvedTotalsOnlyUseResolvedRows() {
+func testTrayTotalsIncludePricedNeedsReviewRows() {
     let metrics = ScanTrayCalculator.metrics(for: [
         ScanTrayMetricInput(phase: .resolved, pricing: makePricing(market: 11)),
         ScanTrayMetricInput(phase: .pending, pricing: makePricing(market: 999)),
+        ScanTrayMetricInput(phase: .needsReview, pricing: makePricing(market: 7)),
+        ScanTrayMetricInput(phase: .needsReview, pricing: nil),
         ScanTrayMetricInput(phase: .resolved, pricing: makePricing(market: 5)),
     ])
 
-    require(metrics.resolvedCount == 2, "resolved count should be 2")
-    require(metrics.pendingCount == 1, "pending count should be 1")
-    require(abs(metrics.totalValue - 16) < 0.001, "total value should sum resolved primary prices only")
-    require(metrics.countLabel == "2 cards", "count label should reflect resolved rows")
+    require(metrics.resolvedCount == 3, "priced card count should include review rows with pricing")
+    require(metrics.pendingCount == 2, "pending count should exclude priced review rows")
+    require(abs(metrics.totalValue - 23) < 0.001, "total value should sum priced resolved and review rows")
+    require(metrics.countLabel == "3 cards", "count label should reflect priced cards included in total")
 }
 
 func testMixedCurrenciesFlag() {
@@ -130,7 +132,7 @@ func testFreshnessStateClassification() {
 @main
 struct ScanTrayLogicTestRunner {
     static func main() {
-        testResolvedTotalsOnlyUseResolvedRows()
+        testTrayTotalsIncludePricedNeedsReviewRows()
         testMixedCurrenciesFlag()
         testAutoRefreshHeuristic()
         testInitialStatusMessage()

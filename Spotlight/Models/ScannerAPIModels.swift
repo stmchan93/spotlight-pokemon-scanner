@@ -34,11 +34,6 @@ struct ScanMatchRequestPayload: Codable, Hashable, Sendable {
     let clientContext: ScanClientContext
     let image: ScanImagePayload
     let recognizedTokens: [RecognizedToken]
-    let fullRecognizedText: String
-    let metadataStripRecognizedText: String
-    let topLabelRecognizedText: String
-    let bottomLeftRecognizedText: String
-    let bottomRightRecognizedText: String
     let collectorNumber: String?
     let setHintTokens: [String]
     let promoCodeHint: String?
@@ -57,6 +52,7 @@ struct ScanMatchRequestPayload: Codable, Hashable, Sendable {
     let resolverModeHint: ResolverMode
     let cropConfidence: Double
     let warnings: [String]
+    let ocrAnalysis: OCRAnalysisEnvelope?
 }
 
 struct SearchResultsPayload: Codable, Hashable, Sendable {
