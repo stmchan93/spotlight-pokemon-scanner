@@ -31,6 +31,60 @@ Date: 2026-04-04
   - launched behind a feature flag
   - run side-by-side with the old path before old OCR is deleted
 
+## Current slab planning override
+
+- Do **not** expand the current slab path with more one-off card-specific fixes unless a blocker absolutely requires a short-lived quarantine rule.
+- The current slab path is proving that fixed slab-relative crops plus handwritten rescue heuristics are turning into whack-a-mole.
+- The next slab rewrite should treat slab OCR as:
+  - grader-family-aware at the top label
+  - card-window-relative at the footer
+  - manifest/data-driven for set resolution
+  - fixture-first across PSA, CGC, BGS, and TAG
+
+### Hardcoded slab logic to remove or downrank
+
+- App OCR geometry in [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift):
+  - one shared `SlabScanConfiguration.LabelOCR` for all graders
+  - one shared `SlabScanConfiguration.CardFooterOCR` for all graders
+  - one shared `psaLogoRegion` reused even when the slab is not PSA
+- App slab label parsing in [Spotlight/Services/SlabLabelParsing.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabLabelParsing.swift):
+  - PSA-weighted visual inference scores applied as the main fallback path
+  - regex-heavy shared parsing instead of grader-family-specific layouts
+  - shared slab-card-number extraction rules instead of family-aware label parsing
+- App slab footer set-hint extraction in [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift):
+  - `knownAlphaOnlyHints` allowlist (`par`, `svi`, `pgo`, `xyp`, `smp`, `mp`, etc.)
+  - slab-relative footer rescue rules should become fallback-only once the card window is localized
+- Backend slab matcher in [backend/server.py](/Users/stephenchan/Code/spotlight/backend/server.py):
+  - handwritten slab title abbreviation repair like `PRTD -> PRETEND`, `MGKRP -> MAGIKARP`, `TGPI -> TOGEPI`
+  - broad slab title stop-token lists that compensate for weak upstream parsing
+  - label-only slab title normalization doing too much identity recovery
+
+### Hardcoded logic that is still acceptable temporarily
+
+- Generic OCR cleanup that is not card-specific:
+  - separator normalization
+  - hyphen restoration for promo denominators
+  - OCR-confusable repair like `O -> 0`, `I/L -> 1` in constrained collector parsing
+- Variant-hint parsing that reflects real printed variants rather than specific cards:
+  - `shadowless`
+  - `1st edition`
+  - `red cheeks`
+  - `yellow cheeks`
+- Manifest-backed denominator and expansion resolution:
+  - `020/M-P -> mp_ja`
+  - `150/XY-P -> xyp_ja`
+  - `094/173 -> sm12a_ja`
+
+### Decision on per-card logic
+
+- Do **not** move slab OCR to a per-card rules engine as the normal design.
+- If a tester-blocking card must be unblocked before the architectural reset lands, allow a temporary quarantine rule only if:
+  - it is scoped to one clearly named card or cert shape
+  - it is marked as temporary in code
+  - it has a dedicated regression fixture
+  - it is scheduled for deletion once grader-family parsing and inner-card localization land
+- Default direction: grader-family profiles plus data-driven set resolution, not per-card heuristics.
+
 ## Current milestone status
 
 ### Milestone 1: Raw backend reset
@@ -81,6 +135,15 @@ Status: `deferred`
 - slab backend runtime remains removed for now
 - slab OCR branch and later slab backend rebuild will follow after OCR contracts settle
 
+### Milestone 5: Slab parser reset
+
+Status: `planned`
+
+- replace shared slab-relative crops with grader-family label profiles plus inner-card localization
+- stop letting slab footer OCR operate directly in slab coordinates
+- keep set resolution manifest-backed and remove handwritten slab-set allowlists
+- expand the slab golden suite beyond the single current fixture before more slab tuning
+
 ## Remaining tasks
 
 1. Freeze the OCR rewrite contracts and keep [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md) as the source of truth.
@@ -88,6 +151,65 @@ Status: `deferred`
 3. Run side-by-side old-vs-new OCR comparisons on fixtures and captured debug sessions.
 4. Do human tap-through verification for launch speed, permission flow, and raw/scanner behavior on device.
 5. Only then remove the old OCR path and proceed to slab backend/pricing rebuild on top of the new OCR payloads.
+
+## Slab parser reset execution plan
+
+1. Split top-label parsing by slab family.
+   - Add explicit label profiles for `PSA`, `CGC`, `BGS`, and `TAG`.
+   - Each profile should own:
+     - label-region geometry
+     - grade/cert parsing order
+     - brand detection rules
+   - Shared parsing should only handle normalization, not family-specific geometry.
+
+2. Localize the inner card window inside the slab.
+   - Detect the actual card rect inside the plastic slab after the slab target is normalized.
+   - Move slab footer OCR to run relative to the card rect, not the slab rect.
+   - Treat the existing `09`/`10`/`11` slab footer crops as temporary legacy artifacts.
+
+3. Rebuild slab footer OCR as raw-style footer OCR.
+   - Reuse the raw footer parsing ideas against the localized inner card window.
+   - Prefer collector/set evidence from the actual printed card footer.
+   - If the inner card window cannot be localized confidently, do not trust footer OCR strongly.
+
+4. Gate evidence by source quality.
+   - If label parsing already yields a strong collector like `SM162`, `020/M-P`, or `153/SV-P`, do not let weak footer OCR override it.
+   - If footer OCR disagrees with a strong label collector prefix, treat the footer as weak/noisy evidence.
+   - If target normalization falls back badly, downrank footer-derived collector/set hints.
+
+5. Reduce backend slab identity repair.
+   - Keep generic title cleanup and variant-hint parsing.
+   - Downrank or remove handwritten abbreviation repair once the new slab OCR path is live.
+   - Expect the backend to consume:
+     - grader
+     - grade
+     - cert
+     - canonical collector number
+     - manifest-backed set hints
+     rather than invent missing slab identity from the label.
+
+6. Expand the slab regression suite before more tuning.
+   - Add bootstrap fixtures for:
+     - PSA
+     - CGC
+     - BGS
+     - TAG
+   - It is acceptable to start with app-taken scans of slab images shown on a computer display.
+   - Mark those fixtures as synthetic/bootstrap coverage and later supplement them with real physical slab captures.
+
+7. Delete the current slab allowlist/crop hacks in order.
+   - First: remove shared slab-footer set-hint allowlists once card-window-relative footer OCR is working.
+   - Second: reduce slab title abbreviation hacks in the backend.
+   - Third: remove grader-mismatched crops like using a PSA-logo crop as a universal slab probe.
+
+## Immediate slab fixture plan
+
+1. Accept user-provided slab screenshots or app-captured screen scans as bootstrap fixtures.
+2. Add them under [qa/incoming-ocr-fixtures](/Users/stephenchan/Code/spotlight/qa/incoming-ocr-fixtures).
+3. Add manifests under [qa/ocr-fixtures](/Users/stephenchan/Code/spotlight/qa/ocr-fixtures).
+4. Rebuild the golden baseline with:
+   - `zsh tools/run_ocr_fixture_runner.sh`
+5. Treat those fixtures as the source of truth for the slab parser reset, not ad hoc manual tuning.
 
 ## Current validation priorities
 
