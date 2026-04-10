@@ -91,45 +91,58 @@ func selectOCRInput(
     let candidateOverlayImage = drawCandidateOverlay(on: searchImage, candidates: candidates, chosenIndex: chosenCandidate?.summary.rank)
 
     if let chosenCandidate,
-       let normalizedCandidateImage = perspectiveCorrect(searchCGImage, observation: chosenCandidate.observation) {
-        let normalizationResult = normalizeOCRInputImage(
-            normalizedCandidateImage.normalizedOrientation(),
-            chosenCandidate: chosenCandidate.summary,
-            mode: mode
-        )
-        let normalizedImage = normalizationResult.image
-        let fallbackReason: String? = nil
-        print(
-            "  🎯 [TARGET] mode=\(mode.rawValue) source=\(capture.captureSource.rawValue) " +
-            "chosen=#\(chosenCandidate.summary.rank) score=\(String(format: "%.2f", chosenCandidate.summary.totalScore)) " +
-            "geometry=\(normalizationResult.geometryKind.rawValue)"
-        )
-        ScanStageArtifactWriter.recordSelectionArtifacts(
-            scanID: scanID,
-            mode: mode,
-            source: capture.captureSource,
-            searchImage: searchImage,
-            candidateOverlayImage: candidateOverlayImage,
-            normalizedImage: normalizedImage,
-            chosenCandidateIndex: chosenCandidate.summary.rank,
-            candidates: candidates.map(\.summary),
-            fallbackReason: fallbackReason,
-            normalizedGeometryKind: normalizationResult.geometryKind,
-            normalizationReason: normalizationResult.reason
-        )
-        return OCRTargetSelectionResult(
-            normalizedImage: normalizedImage,
-            selectionConfidence: max(0.55, chosenCandidate.summary.totalScore),
-            usedFallback: false,
-            fallbackReason: fallbackReason,
-            chosenCandidateIndex: chosenCandidate.summary.rank,
-            candidates: candidates.map(\.summary),
-            normalizedGeometryKind: normalizationResult.geometryKind,
-            normalizationReason: normalizationResult.reason
-        )
+       let correctedCandidateImage = perspectiveCorrect(searchCGImage, observation: chosenCandidate.observation) {
+        let normalizedCandidateImage = correctedCandidateImage.normalizedOrientation()
+        if mode == .psaSlab, !slabPerspectiveLooksValid(normalizedCandidateImage) {
+            print(
+                "  ⚠️ [TARGET] mode=\(mode.rawValue) reject chosen=#\(chosenCandidate.summary.rank) " +
+                "score=\(String(format: "%.2f", chosenCandidate.summary.totalScore)) " +
+                "reason=slab_candidate_not_portrait"
+            )
+        } else {
+            let normalizationResult = normalizeOCRInputImage(
+                normalizedCandidateImage,
+                chosenCandidate: chosenCandidate.summary,
+                mode: mode
+            )
+            let normalizedImage = normalizationResult.image
+            let fallbackReason: String? = nil
+            print(
+                "  🎯 [TARGET] mode=\(mode.rawValue) source=\(capture.captureSource.rawValue) " +
+                "chosen=#\(chosenCandidate.summary.rank) score=\(String(format: "%.2f", chosenCandidate.summary.totalScore)) " +
+                "geometry=\(normalizationResult.geometryKind.rawValue)"
+            )
+            ScanStageArtifactWriter.recordSelectionArtifacts(
+                scanID: scanID,
+                mode: mode,
+                source: capture.captureSource,
+                searchImage: searchImage,
+                candidateOverlayImage: candidateOverlayImage,
+                normalizedImage: normalizedImage,
+                chosenCandidateIndex: chosenCandidate.summary.rank,
+                candidates: candidates.map(\.summary),
+                fallbackReason: fallbackReason,
+                normalizedGeometryKind: normalizationResult.geometryKind,
+                normalizationReason: normalizationResult.reason
+            )
+            return OCRTargetSelectionResult(
+                normalizedImage: normalizedImage,
+                selectionConfidence: max(0.55, chosenCandidate.summary.totalScore),
+                usedFallback: false,
+                fallbackReason: fallbackReason,
+                chosenCandidateIndex: chosenCandidate.summary.rank,
+                candidates: candidates.map(\.summary),
+                normalizedGeometryKind: normalizationResult.geometryKind,
+                normalizationReason: normalizationResult.reason
+            )
+        }
     }
 
-    let chosenFallbackReason = fallbackReason(for: candidates, mode: mode)
+    let chosenFallbackReason = if mode == .psaSlab, chosenCandidate != nil {
+        "slab_candidate_not_portrait"
+    } else {
+        fallbackReason(for: candidates, mode: mode)
+    }
     let normalizationResult = normalizeFallbackOCRInputImage(fallbackImage, mode: mode)
     print(
         "  ⚠️ [TARGET] mode=\(mode.rawValue) fallback=\(chosenFallbackReason) " +
@@ -367,4 +380,10 @@ private func drawCandidateOverlay(
             label.draw(at: labelPoint, withAttributes: attributes)
         }
     }
+}
+
+private func slabPerspectiveLooksValid(_ image: UIImage) -> Bool {
+    guard image.size.width > 0, image.size.height > 0 else { return false }
+    let heightWidthRatio = image.size.height / image.size.width
+    return heightWidthRatio >= 1.25
 }

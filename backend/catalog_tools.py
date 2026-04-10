@@ -855,6 +855,7 @@ def price_snapshot_for_card(
     pricing_mode: str,
     grader: str | None = None,
     grade: str | None = None,
+    variant: str | None = None,
 ) -> dict[str, Any] | None:
     query = """
         SELECT *
@@ -868,6 +869,9 @@ def price_snapshot_for_card(
     if grade is not None:
         query += " AND grade = ?"
         params.append(grade)
+    if variant is not None:
+        query += " AND variant = ?"
+        params.append(variant)
     query += " ORDER BY updated_at DESC LIMIT 1"
     row = connection.execute(query, params).fetchone()
     if row is None:
@@ -881,10 +885,11 @@ def price_snapshot_for_card(
         except ValueError:
             is_fresh = False
     payload = _json_load(row["source_payload_json"], {})
+    pricing_mode = row["pricing_mode"]
     return {
         "id": row["id"],
         "cardID": row["card_id"],
-        "pricingMode": row["pricing_mode"],
+        "pricingMode": "psa_grade_estimate" if pricing_mode == PSA_GRADE_PRICING_MODE else pricing_mode,
         "provider": row["provider"],
         "source": row["provider"],
         "grader": row["grader"],
@@ -900,6 +905,15 @@ def price_snapshot_for_card(
         "sourceURL": row["source_url"],
         "updatedAt": row["source_updated_at"],
         "refreshedAt": row["updated_at"],
+        "pricingTier": payload.get("pricingTier"),
+        "confidenceLabel": payload.get("confidenceLabel"),
+        "confidenceLevel": payload.get("confidenceLevel"),
+        "compCount": payload.get("compCount"),
+        "recentCompCount": payload.get("recentCompCount"),
+        "lastSoldPrice": payload.get("lastSalePrice"),
+        "lastSoldAt": payload.get("lastSaleDate"),
+        "bucketKey": payload.get("bucketKey"),
+        "methodologySummary": payload.get("summary"),
         "payload": payload,
         "isFresh": is_fresh,
     }
@@ -914,6 +928,7 @@ def contextual_pricing_summary_for_card(
     card_id: str,
     grader: str | None = None,
     grade: str | None = None,
+    variant: str | None = None,
 ) -> dict[str, Any] | None:
     if grader or grade:
         return price_snapshot_for_card(
@@ -922,6 +937,7 @@ def contextual_pricing_summary_for_card(
             pricing_mode=PSA_GRADE_PRICING_MODE,
             grader=grader,
             grade=grade,
+            variant=variant,
         )
     return raw_pricing_summary_for_card(connection, card_id)
 
@@ -968,6 +984,7 @@ def upsert_slab_price_snapshot(
     card_id: str,
     grader: str,
     grade: str,
+    variant: str | None = None,
     pricing_tier: str,
     currency_code: str,
     low_price: float | None,
@@ -1007,7 +1024,7 @@ def upsert_slab_price_snapshot(
         provider=source,
         grader=grader,
         grade=grade,
-        variant=f"{grader} {grade}",
+        variant=variant or f"{grader} {grade}",
         currency_code=currency_code,
         low_price=low_price,
         market_price=market_price,

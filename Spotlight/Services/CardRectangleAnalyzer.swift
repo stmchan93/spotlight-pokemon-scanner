@@ -58,16 +58,24 @@ struct RawCardScanConfiguration {
 
 struct SlabScanConfiguration {
     struct LabelOCR {
+        let panelRegion: CGRect
         let primaryRegion: CGRect
         let expandedRegion: CGRect
+        let certRegion: CGRect
         let minimumTextHeight: Float
         let upscaleFactor: CGFloat
+        let certMinimumTextHeight: Float
+        let certUpscaleFactor: CGFloat
 
         static let `default` = LabelOCR(
+            panelRegion: CGRect(x: 0.03, y: 0.00, width: 0.94, height: 0.24),
             primaryRegion: CGRect(x: 0.04, y: 0.00, width: 0.92, height: 0.20),
             expandedRegion: CGRect(x: 0.02, y: 0.00, width: 0.96, height: 0.30),
+            certRegion: CGRect(x: 0.54, y: 0.05, width: 0.38, height: 0.15),
             minimumTextHeight: 0.008,
-            upscaleFactor: 3.0
+            upscaleFactor: 3.0,
+            certMinimumTextHeight: 0.004,
+            certUpscaleFactor: 4.0
         )
     }
 
@@ -1043,23 +1051,60 @@ actor SlabScanner {
             throw AnalysisError.invalidImage
         }
 
-        guard let primaryLabelImage = cropToRect(cgImage, region: config.labelOCR.primaryRegion),
+        guard let panelLabelImage = cropToRect(cgImage, region: config.labelOCR.panelRegion),
+              let primaryLabelImage = cropToRect(cgImage, region: config.labelOCR.primaryRegion),
               let expandedLabelImage = cropToRect(cgImage, region: config.labelOCR.expandedRegion) else {
             throw AnalysisError.invalidImage
         }
+        let certLabelImage = cropToRect(cgImage, region: config.labelOCR.certRegion)
 
+        let panelText = try recognizeLabelRegion(
+            croppedImage: panelLabelImage,
+            sourceImage: cgImage,
+            region: config.labelOCR.panelRegion,
+            label: "slab_label_panel",
+            minimumTextHeight: config.labelOCR.minimumTextHeight,
+            upscaleFactor: config.labelOCR.upscaleFactor
+        )
+        ScanStageArtifactWriter.recordRawRegionImage(
+            scanID: scanID,
+            image: UIImage(cgImage: panelLabelImage),
+            named: "07_slab_label_panel.jpg"
+        )
         let primaryText = try recognizeLabelRegion(
             croppedImage: primaryLabelImage,
             sourceImage: cgImage,
             region: config.labelOCR.primaryRegion,
-            label: "slab_top_label"
+            label: "slab_top_label",
+            minimumTextHeight: config.labelOCR.minimumTextHeight,
+            upscaleFactor: config.labelOCR.upscaleFactor
         )
         let expandedText = try recognizeLabelRegion(
             croppedImage: expandedLabelImage,
             sourceImage: cgImage,
             region: config.labelOCR.expandedRegion,
-            label: "slab_top_expanded"
+            label: "slab_top_expanded",
+            minimumTextHeight: config.labelOCR.minimumTextHeight,
+            upscaleFactor: config.labelOCR.upscaleFactor
         )
+        let certText: String
+        if let certLabelImage {
+            certText = try recognizeLabelRegion(
+                croppedImage: certLabelImage,
+                sourceImage: cgImage,
+                region: config.labelOCR.certRegion,
+                label: "slab_cert_focus",
+                minimumTextHeight: config.labelOCR.certMinimumTextHeight,
+                upscaleFactor: config.labelOCR.certUpscaleFactor
+            )
+            ScanStageArtifactWriter.recordRawRegionImage(
+                scanID: scanID,
+                image: UIImage(cgImage: certLabelImage),
+                named: "08_slab_cert_focus.jpg"
+            )
+        } else {
+            certText = ""
+        }
         let barcodePayloads: [String]
         do {
             barcodePayloads = try detectVerificationPayloads(
@@ -1072,8 +1117,8 @@ actor SlabScanner {
         }
         let visualSignals = extractVisualSignals(from: primaryLabelImage)
 
-        let topLabelText = preferredSlabLabelText(primary: primaryText, expanded: expandedText)
-        let combinedText = [topLabelText, expandedText]
+        let topLabelText = preferredSlabLabelText(primary: panelText, expanded: expandedText)
+        let combinedText = [panelText, primaryText, expandedText, certText]
             .filter { !$0.isEmpty }
             .reduce(into: [String]()) { unique, text in
                 if !unique.contains(text) {
@@ -1082,7 +1127,7 @@ actor SlabScanner {
             }
             .joined(separator: " ")
         let slabLabelAnalysis = SlabLabelParser.analyze(
-            labelTexts: [topLabelText, expandedText],
+            labelTexts: [panelText, primaryText, expandedText, certText],
             barcodePayloads: barcodePayloads,
             visualSignals: visualSignals
         )
@@ -1098,6 +1143,9 @@ actor SlabScanner {
         }
 
         print("  🔍 [OCR] Slab top label: '\(topLabelText)'")
+        if !certText.isEmpty {
+            print("  🔍 [OCR] Slab cert focus: '\(certText)'")
+        }
         print("  🔍 [OCR] Slab combined text: '\(combinedText)'")
         if !barcodePayloads.isEmpty {
             print("  🔍 [OCR] Slab barcode payloads: \(barcodePayloads.joined(separator: " | "))")
@@ -1185,14 +1233,21 @@ actor SlabScanner {
         return score
     }
 
-    private func recognizeLabelRegion(croppedImage: CGImage, sourceImage: CGImage, region: CGRect, label: String) throws -> String {
+    private func recognizeLabelRegion(
+        croppedImage: CGImage,
+        sourceImage: CGImage,
+        region: CGRect,
+        label: String,
+        minimumTextHeight: Float,
+        upscaleFactor: CGFloat
+    ) throws -> String {
         print("  🔍 [OCR] Slab image size: \(sourceImage.width)x\(sourceImage.height)")
         print("  🔍 [OCR] Slab region: \(region)")
 
         print("  🔍 [OCR] Slab cropped region size: \(croppedImage.width)x\(croppedImage.height)")
 
-        let upscaled = upscale(croppedImage, factor: config.labelOCR.upscaleFactor) ?? croppedImage
-        print("  🔍 [OCR] Slab after \(config.labelOCR.upscaleFactor)x upscale: \(upscaled.width)x\(upscaled.height)")
+        let upscaled = upscale(croppedImage, factor: upscaleFactor) ?? croppedImage
+        print("  🔍 [OCR] Slab after \(upscaleFactor)x upscale: \(upscaled.width)x\(upscaled.height)")
 
         if config.debug.saveDebugImages {
             saveDebugImage(upscaled, label: label)
@@ -1201,7 +1256,7 @@ actor SlabScanner {
         let request = VNRecognizeTextRequest()
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = false
-        request.minimumTextHeight = config.labelOCR.minimumTextHeight
+        request.minimumTextHeight = minimumTextHeight
         request.recognitionLanguages = ["en-US"]
 
         let handler = VNImageRequestHandler(cgImage: upscaled, options: [:])

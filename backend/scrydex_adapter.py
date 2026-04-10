@@ -16,7 +16,9 @@ from catalog_tools import (
     _title_overlap,
     build_raw_retrieval_plan,
     canonicalize_collector_number,
+    tokenize,
     upsert_price_snapshot,
+    upsert_slab_price_snapshot,
 )
 from pricing_provider import ProviderMetadata, PricingProvider, PsaPricingResult, RawPricingResult
 
@@ -29,6 +31,12 @@ DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
 
 @dataclass(frozen=True)
 class ScrydexRawSearchResult:
+    cards: list[dict[str, Any]]
+    attempts: list[dict[str, Any]]
+
+
+@dataclass(frozen=True)
+class ScrydexSlabSearchResult:
     cards: list[dict[str, Any]]
     attempts: list[dict[str, Any]]
 
@@ -157,19 +165,7 @@ def _scrydex_japanese_title_clauses(evidence: RawEvidence) -> list[str]:
 
 
 def _scrydex_japanese_expansion_scopes(evidence: RawEvidence) -> list[str]:
-    tokens = list(evidence.trusted_set_hint_tokens or evidence.set_hint_tokens)
-    normalized: list[str] = []
-    seen: set[str] = set()
-    for token in tokens:
-        cleaned = token.strip().lower()
-        if not cleaned:
-            continue
-        scope = f"expansion.id:{cleaned}" if cleaned.endswith("_ja") else f"expansion.code:{cleaned}"
-        if scope in seen:
-            continue
-        seen.add(scope)
-        normalized.append(scope)
-    return normalized
+    return _scrydex_expansion_scopes(list(evidence.trusted_set_hint_tokens or evidence.set_hint_tokens))
 
 
 def _best_scrydex_raw_price(payload: dict[str, Any]) -> tuple[str, dict[str, Any]] | None:
@@ -249,6 +245,20 @@ def fetch_scrydex_card_by_id(
     return data
 
 
+def _scrydex_run_cards_query(query: str, *, include_prices: bool, page_size: int) -> list[dict[str, Any]]:
+    params = {
+        "q": query,
+        "page_size": str(page_size),
+    }
+    if include_prices:
+        params["include"] = "prices"
+    payload = scrydex_api_request("/pokemon/v1/cards", **params)
+    data = payload.get("data")
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
 def _scrydex_run_japanese_query(query: str, *, include_prices: bool, page_size: int) -> list[dict[str, Any]]:
     params = {
         "q": query,
@@ -261,6 +271,79 @@ def _scrydex_run_japanese_query(query: str, *, include_prices: bool, page_size: 
     if not isinstance(data, list):
         return []
     return [item for item in data if isinstance(item, dict)]
+
+
+def _scrydex_slab_title_clauses(title_text: str) -> list[str]:
+    title = title_text.strip()
+    if not title:
+        return []
+
+    clauses = [f'name:"{_quote_query_value(title)}"']
+    tokens = [token for token in tokenize(title) if len(token) >= 3]
+    if len(tokens) >= 2:
+        clauses.append(" ".join(f"name:{token}" for token in tokens[:5]))
+    elif len(tokens) == 1:
+        clauses.append(f"name:{tokens[0]}")
+    return clauses
+
+
+def _scrydex_expansion_scopes(tokens: list[str] | tuple[str, ...]) -> list[str]:
+    normalized: list[str] = []
+    seen: set[str] = set()
+    for token in tokens:
+        raw_value = str(token or "").strip()
+        cleaned = raw_value.lower()
+        if not cleaned:
+            continue
+        if " " in raw_value:
+            scope = f'expansion.name:"{_quote_query_value(raw_value)}"'
+        elif cleaned.isalpha() and len(cleaned) > 3:
+            scope = f'expansion.name:"{_quote_query_value(raw_value)}"'
+        else:
+            scope = f"expansion.id:{cleaned}" if cleaned.endswith("_ja") else f"expansion.code:{cleaned}"
+        if scope in seen:
+            continue
+        seen.add(scope)
+        normalized.append(scope)
+    return normalized
+
+
+def _normalize_slab_card_number(card_number: str | None) -> str | None:
+    raw = str(card_number or "").strip().lstrip("#").upper()
+    if not raw:
+        return None
+    if "/" in raw:
+        return canonicalize_collector_number(raw)
+    cleaned = re.sub(r"[^A-Z0-9-]+", "", raw)
+    if not cleaned:
+        return None
+    if cleaned.isdigit():
+        return str(int(cleaned)) if cleaned.strip("0") else "0"
+    return cleaned
+
+
+def _scrydex_slab_number_queries(card_number: str | None) -> list[str]:
+    normalized = _normalize_slab_card_number(card_number)
+    if not normalized:
+        return []
+    values: list[str] = []
+    seen: set[str] = set()
+
+    def add(query: str) -> None:
+        if query in seen:
+            return
+        seen.add(query)
+        values.append(query)
+
+    if "/" in normalized:
+        add(f'printed_number:"{_quote_query_value(normalized)}"')
+        number_prefix = normalized.split("/", 1)[0]
+        add(f'number:"{_quote_query_value(number_prefix)}"')
+    else:
+        add(f'number:"{_quote_query_value(normalized)}"')
+        add(f'printed_number:"{_quote_query_value(normalized)}"')
+
+    return values
 
 
 def search_remote_scrydex_japanese_raw_candidates(
@@ -386,6 +469,263 @@ def best_remote_scrydex_raw_candidates(
     return [candidate for _, candidate in scored[:limit]]
 
 
+def search_remote_scrydex_slab_candidates(
+    *,
+    title_text: str,
+    label_text: str,
+    parsed_label_text: list[str] | tuple[str, ...],
+    card_number: str | None,
+    set_hint_tokens: list[str] | tuple[str, ...],
+    page_size: int = 10,
+) -> ScrydexSlabSearchResult:
+    title_source = title_text.strip()
+    if not title_source and label_text.strip():
+        title_source = label_text.strip()
+    elif label_text.strip():
+        title_source = f"{title_source} {label_text.strip()}".strip()
+    if parsed_label_text:
+        title_source = " ".join([title_source, *[str(text).strip() for text in parsed_label_text if str(text).strip()]]).strip()
+
+    title_clauses = _scrydex_slab_title_clauses(title_text.strip() or title_source)
+    expansion_scopes = _scrydex_expansion_scopes(set_hint_tokens)
+    number_queries = _scrydex_slab_number_queries(card_number)
+    query_groups: list[list[str]] = []
+    combined_label_text = " ".join(
+        part for part in [label_text.strip(), *[str(text).strip() for text in parsed_label_text if str(text).strip()]] if part
+    ).upper()
+    prefer_japanese = "JAPANESE" in combined_label_text or any(str(token or "").strip().lower().endswith("_ja") for token in set_hint_tokens)
+    japanese_query_groups: list[list[str]] = []
+
+    if title_clauses and number_queries and expansion_scopes:
+        query_groups.append([
+            f"{clause} {number_query} {expansion_scope}"
+            for clause in title_clauses
+            for number_query in number_queries
+            for expansion_scope in expansion_scopes
+        ])
+    if number_queries and expansion_scopes:
+        query_groups.append([
+            f"{number_query} {expansion_scope}"
+            for number_query in number_queries
+            for expansion_scope in expansion_scopes
+        ])
+    if title_clauses and number_queries:
+        query_groups.append([
+            f"{clause} {number_query}"
+            for clause in title_clauses
+            for number_query in number_queries
+        ])
+    if title_clauses and expansion_scopes:
+        query_groups.append([
+            f"{clause} {expansion_scope}"
+            for clause in title_clauses
+            for expansion_scope in expansion_scopes
+        ])
+    if title_clauses:
+        query_groups.append(title_clauses)
+    if number_queries:
+        query_groups.append(number_queries)
+
+    if prefer_japanese and number_queries and expansion_scopes:
+        japanese_query_groups.append([
+            f"{number_query} {expansion_scope}"
+            for number_query in number_queries
+            for expansion_scope in expansion_scopes
+        ])
+    if prefer_japanese and number_queries:
+        japanese_query_groups.append(number_queries)
+
+    seen: set[str] = set()
+    results: list[dict[str, Any]] = []
+    attempts: list[dict[str, Any]] = []
+
+    query_plans: list[tuple[str, list[list[str]]]] = []
+    if japanese_query_groups:
+        query_plans.append(("ja", japanese_query_groups))
+    if query_groups:
+        query_plans.append(("default", query_groups))
+
+    for plan_name, groups in query_plans:
+        query_runner = _scrydex_run_japanese_query if plan_name == "ja" else _scrydex_run_cards_query
+        for group in groups:
+            group_hits = 0
+            for query in group:
+                try:
+                    cards = query_runner(query, include_prices=True, page_size=page_size)
+                except Exception as exc:
+                    attempts.append({
+                        "query": query,
+                        "count": 0,
+                        "error": str(exc),
+                    })
+                    continue
+                attempts.append({
+                    "query": query,
+                    "count": len(cards),
+                    "error": None,
+                })
+                if cards:
+                    group_hits += len(cards)
+                for card in cards:
+                    card_id = str(card.get("id") or "").strip()
+                    if not card_id or card_id in seen:
+                        continue
+                    seen.add(card_id)
+                    results.append(card)
+            if group_hits > 0:
+                break
+        if results:
+            break
+
+    return ScrydexSlabSearchResult(cards=results, attempts=attempts)
+
+
+def _normalize_variant_key(value: str | None) -> str:
+    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+
+def _humanize_scrydex_variant_name(value: str) -> str:
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", str(value or "").strip())
+    text = re.sub(r"\s+", " ", text).strip()
+    if not text:
+        return ""
+    return text.title()
+
+
+def _scrydex_variant_hint_score(variant_name: str, variant_hints: dict[str, Any] | None) -> int:
+    if not variant_hints:
+        return 0
+
+    score = 0
+    normalized = _normalize_variant_key(variant_name)
+    shadowless = bool(variant_hints.get("shadowless"))
+    red_cheeks = bool(variant_hints.get("redCheeks"))
+    yellow_cheeks = bool(variant_hints.get("yellowCheeks"))
+    jumbo = bool(variant_hints.get("jumbo"))
+    first_edition = variant_hints.get("firstEdition")
+
+    if shadowless:
+        score += 4 if "shadowless" in normalized else -4
+    if first_edition is True:
+        score += 4 if "firstedition" in normalized else -4
+    elif first_edition is False:
+        score += 2 if "firstedition" not in normalized else -3
+    if red_cheeks:
+        score += 5 if "redcheeks" in normalized else -5
+    elif yellow_cheeks:
+        score += 2 if "redcheeks" not in normalized else -5
+    if not jumbo and "jumbo" in normalized:
+        score -= 3
+
+    return score
+
+
+def _best_scrydex_graded_price(
+    payload: dict[str, Any],
+    *,
+    grader: str,
+    grade: str,
+    preferred_variant: str | None = None,
+    variant_hints: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]] | None:
+    data = _scrydex_card_data(payload)
+    variants = data.get("variants") if isinstance(data.get("variants"), list) else []
+    target_company = grader.strip().upper()
+    target_grade = grade.strip().upper()
+    requested_variant_key = _normalize_variant_key(preferred_variant)
+    ranked: list[tuple[tuple[int, int, int, int, int, int], str, dict[str, Any]]] = []
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        variant_name = str(variant.get("name") or "graded")
+        variant_key = _normalize_variant_key(variant_name)
+        prices = variant.get("prices") if isinstance(variant.get("prices"), list) else []
+        for price in prices:
+            if not isinstance(price, dict):
+                continue
+            if str(price.get("type") or "").lower() != "graded":
+                continue
+            if str(price.get("company") or "").strip().upper() != target_company:
+                continue
+            if str(price.get("grade") or "").strip().upper() != target_grade:
+                continue
+            has_market = 1 if isinstance(price.get("market"), (int, float)) else 0
+            plain_grade = 1 if not bool(price.get("is_signed")) and not bool(price.get("is_error")) and not bool(price.get("is_perfect")) else 0
+            has_currency = 1 if price.get("currency") else 0
+            has_mid = 1 if isinstance(price.get("mid"), (int, float)) else 0
+            exact_variant_match = 1 if requested_variant_key and variant_key == requested_variant_key else 0
+            variant_hint_score = _scrydex_variant_hint_score(variant_name, variant_hints)
+            ranked.append(((exact_variant_match, variant_hint_score, has_market, plain_grade, has_currency, has_mid), variant_name, price))
+    if not ranked:
+        return None
+    ranked.sort(key=lambda item: item[0], reverse=True)
+    _, variant_name, price = ranked[0]
+    return variant_name, price
+
+
+def persist_scrydex_psa_snapshot(
+    connection,
+    *,
+    card_id: str,
+    payload: dict[str, Any],
+    grader: str,
+    grade: str,
+    preferred_variant: str | None = None,
+    variant_hints: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    selected = _best_scrydex_graded_price(
+        payload,
+        grader=grader,
+        grade=grade,
+        preferred_variant=preferred_variant,
+        variant_hints=variant_hints,
+    )
+    if selected is None:
+        return None
+
+    variant_name, price = selected
+    display_variant = _humanize_scrydex_variant_name(variant_name) or variant_name
+    source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}", include="prices")
+    upsert_slab_price_snapshot(
+        connection,
+        card_id=card_id,
+        grader=grader,
+        grade=grade,
+        variant=display_variant,
+        pricing_tier="scrydex_exact_grade",
+        currency_code=str(price.get("currency") or "USD"),
+        low_price=price.get("low"),
+        market_price=price.get("market"),
+        mid_price=price.get("mid"),
+        high_price=price.get("high"),
+        last_sale_price=None,
+        last_sale_date=None,
+        comp_count=0,
+        recent_comp_count=0,
+        confidence_level=4,
+        confidence_label="High",
+        bucket_key=None,
+        source_url=source_url,
+        source=SCRYDEX_PROVIDER,
+        summary=f"Scrydex exact {grader} {grade} {display_variant} market snapshot.",
+        payload={
+            "provider": SCRYDEX_PROVIDER,
+            "priceSource": SCRYDEX_PROVIDER,
+            "variant": display_variant,
+            "variantKey": variant_name,
+            "company": price.get("company"),
+            "grade": price.get("grade"),
+            "isSigned": bool(price.get("is_signed")),
+            "isPerfect": bool(price.get("is_perfect")),
+            "isError": bool(price.get("is_error")),
+            "cardName": _scrydex_card_data(payload).get("name"),
+            "setName": ((_scrydex_card_data(payload).get("expansion") or {}).get("name")),
+        },
+    )
+    connection.commit()
+    return _scrydex_card_data(payload)
+
+
 class ScrydexProvider(PricingProvider):
     def get_metadata(self) -> ProviderMetadata:
         return ProviderMetadata(
@@ -427,11 +767,51 @@ class ScrydexProvider(PricingProvider):
             payload=payload,
         )
 
-    def refresh_psa_pricing(self, connection, card_id: str, grade: str) -> PsaPricingResult:
+    def refresh_psa_pricing(
+        self,
+        connection,
+        card_id: str,
+        grader: str,
+        grade: str,
+        preferred_variant: str | None = None,
+        variant_hints: dict[str, Any] | None = None,
+    ) -> PsaPricingResult:
+        try:
+            payload = fetch_scrydex_card_by_id(card_id, include_prices=True)
+        except Exception as exc:
+            return PsaPricingResult(
+                success=False,
+                provider_id=SCRYDEX_PROVIDER,
+                card_id=card_id,
+                grader=grader,
+                grade=grade,
+                error=str(exc),
+            )
+
+        persisted = persist_scrydex_psa_snapshot(
+            connection,
+            card_id=card_id,
+            payload=payload,
+            grader=grader,
+            grade=grade,
+            preferred_variant=preferred_variant,
+            variant_hints=variant_hints,
+        )
+        if persisted is None:
+            return PsaPricingResult(
+                success=False,
+                provider_id=SCRYDEX_PROVIDER,
+                card_id=card_id,
+                grader=grader,
+                grade=grade,
+                error="No graded pricing available from Scrydex for that grader and grade",
+            )
+
         return PsaPricingResult(
-            success=False,
+            success=True,
             provider_id=SCRYDEX_PROVIDER,
             card_id=card_id,
+            grader=grader,
             grade=grade,
-            error="Slab pricing is intentionally removed from the raw-only backend build.",
+            payload=payload,
         )

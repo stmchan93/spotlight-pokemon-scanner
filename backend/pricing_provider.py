@@ -37,6 +37,7 @@ class PsaPricingResult:
     success: bool
     provider_id: str
     card_id: str
+    grader: str
     grade: str
     payload: dict[str, Any] | None = None
     error: str | None = None
@@ -79,7 +80,13 @@ class PricingProvider(ABC):
 
     @abstractmethod
     def refresh_psa_pricing(
-        self, connection, card_id: str, grade: str
+        self,
+        connection,
+        card_id: str,
+        grader: str,
+        grade: str,
+        preferred_variant: str | None = None,
+        variant_hints: dict[str, Any] | None = None,
     ) -> PsaPricingResult:
         """
         Refresh PSA graded pricing for a card.
@@ -87,6 +94,7 @@ class PricingProvider(ABC):
         Args:
             connection: Database connection
             card_id: Card ID to refresh
+            grader: Grader (e.g., "PSA", "CGC")
             grade: PSA grade (e.g., "10", "9", "8")
 
         Returns:
@@ -171,7 +179,16 @@ class PricingProviderRegistry:
             error=last_error or "No ready providers available for raw pricing",
         )
 
-    def refresh_psa_pricing(self, connection, card_id: str, grade: str, use_cache: bool = False) -> PsaPricingResult:
+    def refresh_psa_pricing(
+        self,
+        connection,
+        card_id: str,
+        grader: str,
+        grade: str,
+        preferred_variant: str | None = None,
+        variant_hints: dict[str, Any] | None = None,
+        use_cache: bool = False,
+    ) -> PsaPricingResult:
         del use_cache
         last_error = None
         for provider in self._providers:
@@ -181,7 +198,14 @@ class PricingProviderRegistry:
             if not metadata.supports_psa_pricing:
                 continue
 
-            result = provider.refresh_psa_pricing(connection, card_id, grade)
+            result = provider.refresh_psa_pricing(
+                connection,
+                card_id,
+                grader,
+                grade,
+                preferred_variant=preferred_variant,
+                variant_hints=variant_hints,
+            )
             if result.success:
                 return result
             last_error = result.error
@@ -191,6 +215,7 @@ class PricingProviderRegistry:
             success=False,
             provider_id="none",
             card_id=card_id,
+            grader=grader,
             grade=grade,
             error=last_error or "No ready providers available for PSA pricing",
         )

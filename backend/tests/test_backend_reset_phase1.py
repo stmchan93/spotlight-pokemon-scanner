@@ -32,8 +32,12 @@ from catalog_tools import (  # noqa: E402
     upsert_slab_price_snapshot,
 )
 from pokemontcg_api_client import map_card  # noqa: E402
-from pricing_provider import RawPricingResult  # noqa: E402
-from scrydex_adapter import map_scrydex_catalog_card  # noqa: E402
+from pricing_provider import PsaPricingResult, RawPricingResult  # noqa: E402
+from scrydex_adapter import (  # noqa: E402
+    _best_scrydex_graded_price,
+    map_scrydex_catalog_card,
+    search_remote_scrydex_slab_candidates,
+)
 from server import SpotlightScanService  # noqa: E402
 
 
@@ -178,9 +182,382 @@ def sample_scrydex_card() -> dict[str, object]:
                             }
                         },
                     }
+                    ,
+                    {
+                        "company": "PSA",
+                        "grade": "9",
+                        "is_perfect": False,
+                        "is_signed": False,
+                        "is_error": False,
+                        "type": "graded",
+                        "low": 28.0,
+                        "mid": 31.0,
+                        "high": 44.0,
+                        "market": 30.83,
+                        "currency": "USD",
+                    }
                 ],
             }
         ],
+    }
+
+
+def sample_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-1",
+        "capturedAt": "2026-04-09T04:00:00Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.91,
+        "directLookupLikely": True,
+        "setHintTokens": ["m2a"],
+        "warnings": [],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "Mega Dragonite ex",
+                "titleTextSecondary": None,
+                "cardNumber": "232/193",
+                "setHints": ["m2a"],
+                "grader": "PSA",
+                "grade": "9",
+                "cert": "12345678",
+                "labelWideText": "PSA 9 Mega Dragonite ex 232/193 M2a",
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "9",
+        "slabCertNumber": "12345678",
+        "slabCardNumberRaw": "232/193",
+    }
+
+
+def sample_pgo_charizard_scrydex_card() -> dict[str, object]:
+    return {
+        "id": "pgo-10",
+        "name": "Charizard",
+        "language": "en",
+        "language_code": "EN",
+        "printed_number": "010/078",
+        "number": "10",
+        "rarity": "Rare Holo",
+        "artist": "NC Empire",
+        "supertype": "Pokémon",
+        "subtypes": ["Stage 2"],
+        "types": ["Fire"],
+        "expansion": {
+            "id": "pgo",
+            "name": "Pokemon GO",
+            "code": "PGO",
+            "series": "Sword & Shield",
+            "release_date": "2022-07-01",
+            "language": "en",
+        },
+        "translation": {},
+        "images": [
+            {
+                "type": "front",
+                "small": "https://images.example/pgo-10-small.png",
+                "large": "https://images.example/pgo-10-large.png",
+            }
+        ],
+        "variants": [
+            {
+                "name": "holofoil",
+                "prices": [
+                    {
+                        "condition": "NM",
+                        "is_perfect": False,
+                        "is_signed": False,
+                        "is_error": False,
+                        "type": "raw",
+                        "low": 3.0,
+                        "mid": 4.0,
+                        "high": 6.0,
+                        "market": 4.5,
+                        "currency": "USD",
+                    },
+                    {
+                        "company": "PSA",
+                        "grade": "7",
+                        "is_perfect": False,
+                        "is_signed": False,
+                        "is_error": False,
+                        "type": "graded",
+                        "low": 19.0,
+                        "mid": 23.0,
+                        "high": 28.0,
+                        "market": 24.99,
+                        "currency": "USD",
+                    },
+                ],
+            }
+        ],
+    }
+
+
+def sample_charizard_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-charizard",
+        "capturedAt": "2026-04-10T04:07:49Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.81,
+        "directLookupLikely": True,
+        "setHintTokens": [],
+        "warnings": ["Could not extract slab barcode payload"],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+                "titleTextSecondary": None,
+                "cardNumber": "010",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "7",
+                "cert": "103377816",
+                "labelWideText": "2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816 2022 POKEMON GO CHARIZARD-HOLO #010 NM 7 PSA 103377816",
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "7",
+        "slabCertNumber": "103377816",
+        "slabCardNumberRaw": "010",
+        "slabParsedLabelText": [
+            "2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+            "2022 POKEMON GO CHARIZARD-HOLO #010 NM 7 PSA 103377816",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
+def sample_noisy_charizard_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-charizard-noisy",
+        "capturedAt": "2026-04-10T04:36:09Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.72,
+        "directLookupLikely": True,
+        "setHintTokens": [],
+        "warnings": ["Could not extract slab barcode payload"],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "wetwenvery + $4.99 de 2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+                "titleTextSecondary": "Charizard",
+                "cardNumber": "010",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "7",
+                "cert": "103377816",
+                "labelWideText": (
+                    "wrwenvery + $4.99 d 2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 "
+                    "wettwelvery + $4.99 2022 POKEMON GO #010 CHARIZARD-HOLO NM "
+                    "wetwenvery + $4.99 de 2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816 #010"
+                ),
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "7",
+        "slabCertNumber": "103377816",
+        "slabCardNumberRaw": "010",
+        "slabParsedLabelText": [
+            "wrwenvery + $4.99 d 2022 POKEMON GO #010 CHARIZARD-HOLO NM 7",
+            "wetwenvery + $4.99 de 2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
+def sample_xy_promo_pikachu_scrydex_card() -> dict[str, object]:
+    return {
+        "id": "xyp_ja-150",
+        "name": "コイキングごっこピカチュウ",
+        "language": "ja",
+        "language_code": "JA",
+        "printed_number": "150",
+        "number": "150",
+        "rarity": "Promo",
+        "artist": "Naoki Saito",
+        "supertype": "Pokémon",
+        "subtypes": ["Basic"],
+        "types": ["Lightning"],
+        "expansion": {
+            "id": "xyp_ja",
+            "name": "XY Promos",
+            "series": "XY",
+            "language": "ja",
+        },
+        "translation": {
+            "en": {
+                "name": "Pretend Magikarp Pikachu",
+            }
+        },
+        "images": [
+            {
+                "type": "front",
+                "small": "https://images.example/xyp_ja-150-small.png",
+                "large": "https://images.example/xyp_ja-150-large.png",
+            }
+        ],
+        "variants": [],
+    }
+
+
+def sample_base_pikachu_scrydex_card() -> dict[str, object]:
+    return {
+        "id": "base1-58",
+        "name": "Pikachu",
+        "language": "en",
+        "language_code": "EN",
+        "printed_number": "58/102",
+        "number": "58",
+        "rarity": "Common",
+        "artist": "Mitsuhiro Arita",
+        "supertype": "Pokémon",
+        "subtypes": ["Basic"],
+        "types": ["Lightning"],
+        "expansion": {
+            "id": "base1",
+            "name": "Base",
+            "series": "Base",
+            "language": "en",
+        },
+        "translation": {},
+        "images": [
+            {
+                "type": "front",
+                "small": "https://images.example/base1-58-small.png",
+                "large": "https://images.example/base1-58-large.png",
+            }
+        ],
+        "variants": [
+            {
+                "name": "firstEditionShadowless",
+                "prices": [
+                    {
+                        "grade": "7",
+                        "company": "PSA",
+                        "is_perfect": False,
+                        "is_signed": False,
+                        "is_error": False,
+                        "type": "graded",
+                        "low": 173.5,
+                        "mid": 195.25,
+                        "high": 325.0,
+                        "market": 269.73,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            {
+                "name": "unlimitedShadowless",
+                "prices": [
+                    {
+                        "grade": "7",
+                        "company": "PSA",
+                        "is_perfect": False,
+                        "is_signed": False,
+                        "is_error": False,
+                        "type": "graded",
+                        "low": 39.99,
+                        "mid": 49.99,
+                        "high": 95.26,
+                        "market": 58.55,
+                        "currency": "USD",
+                    }
+                ],
+            },
+            {
+                "name": "unlimitedShadowlessRedCheeks",
+                "prices": [
+                    {
+                        "grade": "7",
+                        "company": "PSA",
+                        "is_perfect": False,
+                        "is_signed": False,
+                        "is_error": False,
+                        "type": "graded",
+                        "low": 46.0,
+                        "mid": 87.5,
+                        "high": 133.64,
+                        "market": 92.88,
+                        "currency": "USD",
+                    }
+                ],
+            },
+        ],
+    }
+
+
+def sample_xy_promo_pikachu_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-pikachu-jp-promo",
+        "capturedAt": "2026-04-10T04:42:28Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.77,
+        "directLookupLikely": True,
+        "setHintTokens": [],
+        "warnings": ["Could not extract slab barcode payload"],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "2015 P.M. JAPANESE XY #150 PRTD.MGKRP. PIKACHU GEM MT PROMO - HOLO 10 PA 24925641",
+                "titleTextSecondary": None,
+                "cardNumber": "150",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "10",
+                "cert": "24925641",
+                "labelWideText": (
+                    "2015 P.M. JAPANESE XY #150 PRTD.MGKRP. PIKACHU GEM MT PROMO - HOLO 10 PA 24925641 "
+                    "2015 P.M. JAPANESE XY #150 PRTD.MGKRP. PIKACHU GEM MT PROMO - HOLO 10 24925641"
+                ),
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "10",
+        "slabCertNumber": "24925641",
+        "slabCardNumberRaw": "150",
+        "slabParsedLabelText": [
+            "2015 P.M. JAPANESE XY #150 PRTD.MGKRP. PIKACHU GEM MT PROMO - HOLO 10 PA 24925641",
+            "2015 P.M. JAPANESE XY #150 PRTD.MGKRP. PIKACHU GEM MT PROMO - HOLO 10 24925641",
+            "E XY # 150 HU GEM MT 10 24925641",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
+def sample_shadowless_pikachu_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-pikachu-shadowless",
+        "capturedAt": "2026-04-10T04:46:41Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.77,
+        "directLookupLikely": True,
+        "setHintTokens": [],
+        "warnings": ["Could not extract slab barcode payload"],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "1999 POKEMON GAME #58 PIK ACHU NM YEL. CHEEKS - SHADOWLESS 7 FEA 53447910",
+                "titleTextSecondary": None,
+                "cardNumber": "58",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "7",
+                "cert": "53447910",
+                "labelWideText": (
+                    "1999 POKEMON GAME #58 PIK ACHU NM YEL CHEEKS - SHADOWLESS 7 PEA 53447910 "
+                    "1999 POKEMON GAME #58 PIKACHU NM YEL CHEEKS - SHADOWLESS 7 PEA 53447910 "
+                    "1999 POKEMON GAME #58 PIK ACHU NM YEL. CHEEKS - SHADOWLESS 7 FEA 53447910"
+                ),
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "7",
+        "slabCertNumber": "53447910",
+        "slabCardNumberRaw": "58",
+        "slabParsedLabelText": [
+            "1999 POKEMON GAME #58 PIK ACHU NM YEL CHEEKS - SHADOWLESS 7 PEA 53447910",
+            "1999 POKEMON GAME #58 PIKACHU NM YEL CHEEKS - SHADOWLESS 7 PEA 53447910",
+            "1999 POKEMON GAME #58 PIK ACHU NM YEL. CHEEKS - SHADOWLESS 7 FEA 53447910",
+            "#58 NM NLESS 7 53447910",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
     }
 
 
@@ -774,6 +1151,276 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(pricing["market"], 16.07)
         self.assertEqual(pricing["nativeMarket"], 2550.0)
         self.assertEqual(pricing["fxSource"], "ecb")
+
+    def test_refresh_card_pricing_uses_scrydex_provider_for_exact_slab_grade(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        service._persist_mapped_catalog_card(
+            mapped_card=map_scrydex_catalog_card(sample_scrydex_card()),
+            sync_mode="slab_candidate_cache",
+            trigger_source="test",
+            query_text="m2a_ja-232",
+            refresh_embeddings=False,
+        )
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_psa_pricing = Mock(return_value=PsaPricingResult(  # type: ignore[method-assign]
+            success=True,
+            provider_id="scrydex",
+            card_id="m2a_ja-232",
+            grader="PSA",
+            grade="9",
+            payload={"id": "m2a_ja-232"},
+        ))
+
+        service.refresh_card_pricing("m2a_ja-232", grader="PSA", grade="9")
+        service.connection.close()
+
+        scrydex_provider.refresh_psa_pricing.assert_called_once_with(service.connection, "m2a_ja-232", "PSA", "9")
+
+    def test_match_scan_resolves_psa_slab_and_returns_exact_grade_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+            search_scrydex.return_value = type("SlabSearchResult", (), {
+                "cards": [sample_scrydex_card()],
+                "attempts": [
+                    {
+                        "query": 'name:"Mega Dragonite ex" printed_number:"232/193" expansion.code:m2a',
+                        "count": 1,
+                        "error": None,
+                    }
+                ],
+            })()
+
+            response = service.match_scan(sample_slab_scan_payload())
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["reviewDisposition"], "ready")
+        self.assertEqual(response["slabContext"]["grader"], "PSA")
+        self.assertEqual(response["slabContext"]["grade"], "9")
+        self.assertEqual(response["slabContext"]["certNumber"], "12345678")
+        top_candidate = response["topCandidates"][0]["candidate"]
+        self.assertEqual(top_candidate["id"], "m2a_ja-232")
+        self.assertEqual(top_candidate["pricing"]["pricingMode"], "psa_grade_estimate")
+        self.assertEqual(top_candidate["pricing"]["grader"], "PSA")
+        self.assertEqual(top_candidate["pricing"]["grade"], "9")
+        self.assertEqual(top_candidate["pricing"]["provider"], "scrydex")
+        self.assertEqual(top_candidate["pricing"]["market"], 30.83)
+
+    def test_build_slab_evidence_normalizes_card_number_and_infers_set_and_title(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_charizard_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "10")
+        self.assertEqual(evidence.title_text_primary, "Charizard")
+        self.assertIn("pokemon go", evidence.set_hint_tokens)
+        self.assertIn("pgo", evidence.set_hint_tokens)
+
+    def test_build_slab_evidence_ignores_noisy_marketplace_prefixes_when_set_is_explicit(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_noisy_charizard_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "10")
+        self.assertEqual(evidence.title_text_primary, "Charizard")
+        self.assertEqual(evidence.title_text_secondary, "Charizard")
+        self.assertEqual(evidence.set_hint_tokens, ("pokemon go", "pgo"))
+
+    def test_build_slab_evidence_infers_japanese_xy_promo_scope_and_expands_title_abbreviations(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_xy_promo_pikachu_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "150")
+        self.assertEqual(evidence.title_text_primary, "Pretend Magikarp Pikachu")
+        self.assertEqual(evidence.title_text_secondary, "Pretend Magikarp Pikachu")
+        self.assertIn("xy promos", evidence.set_hint_tokens)
+        self.assertIn("xyp_ja", evidence.set_hint_tokens)
+
+    def test_build_slab_evidence_merges_split_pikachu_and_skips_generic_pokemon_game_hint(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_shadowless_pikachu_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "58")
+        self.assertEqual(evidence.title_text_primary, "Pikachu")
+        self.assertEqual(evidence.title_text_secondary, "Pikachu")
+        self.assertEqual(evidence.set_hint_tokens, ("base",))
+        self.assertEqual(
+            evidence.variant_hints,
+            {
+                "shadowless": True,
+                "firstEdition": False,
+                "redCheeks": False,
+                "yellowCheeks": True,
+                "jumbo": False,
+            },
+        )
+
+    def test_best_scrydex_graded_price_prefers_yellow_cheeks_shadowless_variant(self) -> None:
+        selected = _best_scrydex_graded_price(
+            sample_base_pikachu_scrydex_card(),
+            grader="PSA",
+            grade="7",
+            variant_hints={
+                "shadowless": True,
+                "firstEdition": False,
+                "redCheeks": False,
+                "yellowCheeks": True,
+                "jumbo": False,
+            },
+        )
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        variant_name, price = selected
+        self.assertEqual(variant_name, "unlimitedShadowless")
+        self.assertEqual(price["market"], 58.55)
+
+    def test_best_scrydex_graded_price_prefers_exact_requested_variant(self) -> None:
+        selected = _best_scrydex_graded_price(
+            sample_base_pikachu_scrydex_card(),
+            grader="PSA",
+            grade="7",
+            preferred_variant="Unlimited Shadowless Red Cheeks",
+            variant_hints={
+                "shadowless": True,
+                "firstEdition": False,
+                "redCheeks": False,
+                "yellowCheeks": True,
+                "jumbo": False,
+            },
+        )
+
+        self.assertIsNotNone(selected)
+        assert selected is not None
+        variant_name, price = selected
+        self.assertEqual(variant_name, "unlimitedShadowlessRedCheeks")
+        self.assertEqual(price["market"], 92.88)
+
+    def test_search_remote_scrydex_slab_candidates_uses_japanese_route_for_japanese_promos(self) -> None:
+        with patch("scrydex_adapter._scrydex_run_japanese_query") as run_ja, patch(
+            "scrydex_adapter._scrydex_run_cards_query"
+        ) as run_cards:
+            run_ja.side_effect = lambda query, include_prices, page_size: (
+                [sample_xy_promo_pikachu_scrydex_card()]
+                if query == 'number:"150" expansion.name:"XY Promos"'
+                else []
+            )
+            run_cards.return_value = []
+
+            result = search_remote_scrydex_slab_candidates(
+                title_text="Pretend Magikarp Pikachu",
+                label_text="2015 P.M. JAPANESE XY #150 PRTD.MGKRP. PIKACHU GEM MT PROMO - HOLO 10",
+                parsed_label_text=[],
+                card_number="150",
+                set_hint_tokens=["XY Promos", "xyp_ja"],
+            )
+
+        self.assertEqual([card["id"] for card in result.cards], ["xyp_ja-150"])
+        self.assertGreaterEqual(run_ja.call_count, 1)
+        run_cards.assert_not_called()
+
+    def test_search_remote_scrydex_slab_candidates_uses_name_scope_for_plain_english_set_names(self) -> None:
+        with patch("scrydex_adapter._scrydex_run_cards_query") as run_cards:
+            run_cards.side_effect = lambda query, include_prices, page_size: (
+                [{
+                    "id": "base1-58",
+                    "name": "Pikachu",
+                    "number": "58",
+                    "expansion": {"id": "base1", "name": "Base"},
+                }]
+                if query == 'name:"Pikachu" number:"58" expansion.name:"Base"'
+                else []
+            )
+
+            result = search_remote_scrydex_slab_candidates(
+                title_text="Pikachu",
+                label_text="1999 POKEMON GAME #58 PIKACHU NM YEL CHEEKS SHADOWLESS 7 53447910",
+                parsed_label_text=[],
+                card_number="58",
+                set_hint_tokens=["Base"],
+            )
+
+        self.assertEqual([card["id"] for card in result.cards], ["base1-58"])
+        self.assertEqual(result.attempts[0]["query"], 'name:"Pikachu" number:"58" expansion.name:"Base"')
+
+    def test_refresh_card_pricing_passes_preferred_slab_variant_to_provider(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        mapped = map_scrydex_catalog_card(sample_base_pikachu_scrydex_card())
+        service._persist_mapped_catalog_card(
+            mapped_card=mapped,
+            sync_mode="raw_candidate_cache",
+            trigger_source="test",
+            query_text="base1-58",
+            refresh_embeddings=False,
+        )
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_psa_pricing = Mock(return_value=PsaPricingResult(  # type: ignore[method-assign]
+            success=True,
+            provider_id="scrydex",
+            card_id="base1-58",
+            grader="PSA",
+            grade="7",
+            payload={"id": "base1-58"},
+        ))
+
+        service.refresh_card_pricing(
+            "base1-58",
+            grader="PSA",
+            grade="7",
+            preferred_variant="Unlimited Shadowless",
+        )
+        service.connection.close()
+
+        scrydex_provider.refresh_psa_pricing.assert_called_once_with(
+            service.connection,
+            "base1-58",
+            "PSA",
+            "7",
+            preferred_variant="Unlimited Shadowless",
+        )
+
+    def test_match_scan_resolves_psa_slab_with_cleaned_label_number(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+            search_scrydex.return_value = type("SlabSearchResult", (), {
+                "cards": [sample_pgo_charizard_scrydex_card()],
+                "attempts": [
+                    {
+                        "query": 'name:"Charizard" number:"10" expansion.name:"pokemon go"',
+                        "count": 1,
+                        "error": None,
+                    }
+                ],
+            })()
+
+            response = service.match_scan(sample_charizard_slab_scan_payload())
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["reviewDisposition"], "ready")
+        self.assertEqual(response["slabContext"]["grader"], "PSA")
+        self.assertEqual(response["slabContext"]["grade"], "7")
+        top_candidate = response["topCandidates"][0]["candidate"]
+        self.assertEqual(top_candidate["id"], "pgo-10")
+        self.assertEqual(top_candidate["name"], "Charizard")
+        self.assertEqual(top_candidate["pricing"]["pricingMode"], "psa_grade_estimate")
+        self.assertEqual(top_candidate["pricing"]["grader"], "PSA")
+        self.assertEqual(top_candidate["pricing"]["grade"], "7")
+        self.assertEqual(top_candidate["pricing"]["provider"], "scrydex")
+        self.assertIsNotNone(top_candidate["pricing"]["market"])
 
     def test_reimport_updates_existing_card_row_in_primary_cards_table(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)

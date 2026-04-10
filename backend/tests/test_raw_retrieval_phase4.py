@@ -27,7 +27,11 @@ from pokemontcg_api_client import (  # noqa: E402
     best_remote_raw_candidates,
     build_raw_provider_queries,
 )
-from scrydex_adapter import ScrydexRawSearchResult, best_remote_scrydex_raw_candidates  # noqa: E402
+from scrydex_adapter import (  # noqa: E402
+    ScrydexRawSearchResult,
+    best_remote_scrydex_raw_candidates,
+    search_remote_scrydex_slab_candidates,
+)
 from server import SpotlightScanService  # noqa: E402
 
 
@@ -468,6 +472,31 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         self.assertTrue(candidates)
         self.assertEqual(candidates[0]["id"], "swsh10a_ja-77")
         self.assertEqual(candidates[0]["setPtcgoCode"], "S10a")
+
+    def test_scrydex_slab_queries_normalize_label_number_and_infer_expansion_name(self) -> None:
+        observed_queries: list[str] = []
+
+        def fake_run(query: str, *, include_prices: bool, page_size: int) -> list[dict[str, object]]:
+            observed_queries.append(query)
+            return []
+
+        with patch("scrydex_adapter._scrydex_run_cards_query", side_effect=fake_run):
+            result = search_remote_scrydex_slab_candidates(
+                title_text="Charizard",
+                label_text="2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+                parsed_label_text=[
+                    "2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+                    "2022 POKEMON GO CHARIZARD-HOLO #010 NM 7 PSA 103377816",
+                ],
+                card_number="010",
+                set_hint_tokens=["pokemon go", "pgo"],
+                page_size=10,
+            )
+
+        self.assertEqual(result.cards, [])
+        self.assertIn('name:"Charizard" number:"10" expansion.name:"pokemon go"', observed_queries)
+        self.assertIn('name:"Charizard" number:"10" expansion.code:pgo', observed_queries)
+        self.assertNotIn('printed_number:"010"', " ".join(observed_queries))
 
 
 if __name__ == "__main__":

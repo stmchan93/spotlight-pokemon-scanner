@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 import traceback
 from dataclasses import dataclass
@@ -28,6 +29,7 @@ from catalog_tools import (
     apply_schema,
     build_raw_evidence,
     build_raw_retrieval_plan,
+    canonicalize_collector_number,
     card_by_id,
     connect,
     contextual_pricing_summary_for_card,
@@ -45,6 +47,7 @@ from catalog_tools import (
     search_cards_local_collector_set,
     search_cards_local_title_only,
     search_cards_local_title_set,
+    tokenize,
     upsert_catalog_card,
     upsert_scan_event,
     utc_now,
@@ -65,6 +68,7 @@ from scrydex_adapter import (
     best_remote_scrydex_raw_candidates,
     map_scrydex_catalog_card,
     persist_scrydex_raw_snapshot,
+    search_remote_scrydex_slab_candidates,
     raw_evidence_looks_japanese,
     search_remote_scrydex_japanese_raw_candidates,
 )
@@ -74,6 +78,21 @@ from scrydex_adapter import (
 class ServerConfig:
     host: str = "127.0.0.1"
     port: int = 8787
+
+
+@dataclass(frozen=True)
+class SlabMatchEvidence:
+    title_text_primary: str
+    title_text_secondary: str
+    label_text: str
+    parsed_label_text: tuple[str, ...]
+    card_number: str | None
+    set_hint_tokens: tuple[str, ...]
+    variant_hints: dict[str, Any]
+    grader: str | None
+    grade: str | None
+    cert_number: str | None
+    recommended_lookup_path: str | None
 
 
 class SpotlightScanService:
@@ -97,12 +116,14 @@ class SpotlightScanService:
         *,
         grader: str | None = None,
         grade: str | None = None,
+        preferred_variant: str | None = None,
     ) -> dict[str, Any] | None:
         pricing = contextual_pricing_summary_for_card(
             self.connection,
             card_id,
             grader=grader,
             grade=grade,
+            variant=preferred_variant,
         )
         return decorate_pricing_summary_with_fx(self.connection, pricing)
 
@@ -123,6 +144,461 @@ class SpotlightScanService:
         )
 
     @staticmethod
+    def _build_slab_evidence(payload: dict[str, Any]) -> SlabMatchEvidence:
+        ocr_analysis = payload.get("ocrAnalysis") or {}
+        slab_evidence = (ocr_analysis.get("slabEvidence") or {}) if isinstance(ocr_analysis, dict) else {}
+        recommended_lookup_path = payload.get("slabRecommendedLookupPath")
+        parsed_label_text = tuple(
+            str(text or "").strip()
+            for text in (payload.get("slabParsedLabelText") or [])
+            if str(text or "").strip()
+        )
+        label_text = str(slab_evidence.get("labelWideText") or " ".join(parsed_label_text) or "")
+        card_number = str(slab_evidence.get("cardNumber") or payload.get("slabCardNumberRaw") or "").strip() or None
+        raw_title_primary = str(slab_evidence.get("titleTextPrimary") or "").strip()
+        raw_title_secondary = str(slab_evidence.get("titleTextSecondary") or "").strip()
+        normalized_title_primary = SpotlightScanService._normalized_slab_title_text(
+            raw_title_primary,
+            label_text=label_text,
+            parsed_label_text=parsed_label_text,
+            card_number=card_number,
+        )
+        normalized_title_secondary = SpotlightScanService._normalized_slab_title_text(
+            raw_title_secondary,
+            label_text=label_text,
+            parsed_label_text=parsed_label_text,
+            card_number=card_number,
+        )
+        set_hints = slab_evidence.get("setHints") or SpotlightScanService._inferred_slab_set_hints(
+            label_text,
+            parsed_label_text=parsed_label_text,
+            card_number=card_number,
+        )
+        normalized_set_hints = tuple(
+            dict.fromkeys(str(token or "").strip().lower() for token in set_hints if str(token or "").strip())
+        )
+        variant_hints = SpotlightScanService._inferred_slab_variant_hints(label_text, parsed_label_text=parsed_label_text)
+        return SlabMatchEvidence(
+            title_text_primary=normalized_title_primary or raw_title_primary,
+            title_text_secondary=normalized_title_secondary or raw_title_secondary,
+            label_text=label_text,
+            parsed_label_text=parsed_label_text,
+            card_number=SpotlightScanService._normalized_slab_card_number(card_number) or card_number,
+            set_hint_tokens=normalized_set_hints,
+            variant_hints=variant_hints,
+            grader=str(slab_evidence.get("grader") or payload.get("slabGrader") or "").strip() or None,
+            grade=str(slab_evidence.get("grade") or payload.get("slabGrade") or "").strip() or None,
+            cert_number=str(slab_evidence.get("cert") or payload.get("slabCertNumber") or "").strip() or None,
+            recommended_lookup_path=str(recommended_lookup_path or "").strip() or None,
+        )
+
+    @staticmethod
+    def _normalized_slab_card_number(value: str | None) -> str | None:
+        raw = str(value or "").strip().lstrip("#").upper()
+        if not raw:
+            return None
+        if "/" in raw:
+            return canonicalize_collector_number(raw)
+        cleaned = re.sub(r"[^A-Z0-9-]+", "", raw)
+        if not cleaned:
+            return None
+        if cleaned.isdigit():
+            return str(int(cleaned)) if cleaned.strip("0") else "0"
+        return cleaned
+
+    @staticmethod
+    def _slab_query_tokens(value: str) -> list[str]:
+        normalized = re.sub(r"[^A-Z0-9#/&+\\-]+", " ", str(value or "").upper())
+        normalized = normalized.replace("-", " ")
+        return [token for token in normalized.split() if token]
+
+    @staticmethod
+    def _normalize_slab_title_tokens(tokens: list[str]) -> list[str]:
+        abbreviation_map = {
+            "PRTD": "PRETEND",
+            "MGKRP": "MAGIKARP",
+        }
+        merged_pair_map = {
+            ("PIK", "ACHU"): "PIKACHU",
+        }
+
+        normalized_tokens: list[str] = []
+        index = 0
+        while index < len(tokens):
+            current = str(tokens[index] or "").lstrip("#").upper()
+            if not current:
+                index += 1
+                continue
+            if index + 1 < len(tokens):
+                following = str(tokens[index + 1] or "").lstrip("#").upper()
+                merged = merged_pair_map.get((current, following))
+                if merged:
+                    normalized_tokens.append(merged)
+                    index += 2
+                    continue
+            normalized_tokens.append(abbreviation_map.get(current, current))
+            index += 1
+        return normalized_tokens
+
+    @staticmethod
+    def _normalize_slab_variant_key(value: str | None) -> str:
+        return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+
+    @staticmethod
+    def _slab_variant_matches(
+        variant_name: str | None,
+        *,
+        preferred_variant: str | None = None,
+        variant_hints: dict[str, Any] | None = None,
+    ) -> bool:
+        normalized_variant = SpotlightScanService._normalize_slab_variant_key(variant_name)
+        if preferred_variant:
+            return normalized_variant == SpotlightScanService._normalize_slab_variant_key(preferred_variant)
+        if not variant_hints:
+            return True
+        if not normalized_variant:
+            return False
+        if bool(variant_hints.get("shadowless")) and "shadowless" not in normalized_variant:
+            return False
+        first_edition = variant_hints.get("firstEdition")
+        if first_edition is True and "firstedition" not in normalized_variant:
+            return False
+        if first_edition is False and "firstedition" in normalized_variant:
+            return False
+        if bool(variant_hints.get("redCheeks")) and "redcheeks" not in normalized_variant:
+            return False
+        if bool(variant_hints.get("yellowCheeks")) and "redcheeks" in normalized_variant:
+            return False
+        if not bool(variant_hints.get("jumbo")) and "jumbo" in normalized_variant:
+            return False
+        return True
+
+    @staticmethod
+    def _inferred_slab_variant_hints(
+        label_text: str,
+        *,
+        parsed_label_text: tuple[str, ...],
+    ) -> dict[str, Any]:
+        combined_upper = " ".join(
+            text.upper()
+            for text in [label_text, *parsed_label_text]
+            if text
+        ).strip()
+        explicit_first_edition = bool(re.search(r"\b(?:1ST|FIRST)\s+EDITION\b", combined_upper))
+        shadowless = "SHADOWLESS" in combined_upper
+        red_cheeks = bool(re.search(r"\bRED\s+CHEEKS\b", combined_upper))
+        yellow_cheeks = not red_cheeks and bool(re.search(r"\bYEL(?:LOW)?\.?\s+CHEEKS\b", combined_upper))
+        jumbo = "JUMBO" in combined_upper
+        first_edition: bool | None = True if explicit_first_edition else (False if shadowless else None)
+        return {
+            "shadowless": shadowless,
+            "firstEdition": first_edition,
+            "redCheeks": red_cheeks,
+            "yellowCheeks": yellow_cheeks,
+            "jumbo": jumbo,
+        }
+
+    @staticmethod
+    def _inferred_slab_set_hints(
+        label_text: str,
+        *,
+        parsed_label_text: tuple[str, ...],
+        card_number: str | None,
+    ) -> list[str]:
+        texts = [label_text, *parsed_label_text]
+        hints: list[str] = []
+        seen: set[str] = set()
+
+        def add(value: str) -> None:
+            cleaned = value.strip()
+            normalized = cleaned.lower()
+            if not cleaned or normalized in seen:
+                return
+            seen.add(normalized)
+            hints.append(cleaned)
+
+        combined_upper = " ".join(text.upper() for text in texts if text).strip()
+
+        if "POKEMON GO" in combined_upper:
+            add("Pokemon GO")
+            add("pgo")
+            return hints
+
+        if "JAPANESE" in combined_upper and "PROMO" in combined_upper and re.search(r"\bXY\b", combined_upper):
+            add("XY Promos")
+            add("xyp_ja")
+            add("XY")
+            return hints
+
+        if "SHADOWLESS" in combined_upper and "POKEMON GAME" in combined_upper:
+            add("Base")
+            return hints
+
+        normalized_number = SpotlightScanService._normalized_slab_card_number(card_number)
+        generic_tokens = {"P", "M", "PM", "POKEMON", "GAME", "CARD", "CARDS", "JAPANESE"}
+        if normalized_number:
+            number_pattern = rf"#?0*{re.escape(normalized_number)}\b" if normalized_number.isdigit() else rf"#?{re.escape(normalized_number)}\b"
+            for text in texts:
+                normalized_text = re.sub(r"[^A-Z0-9#/&+\\-]+", " ", text.upper()).strip()
+                if not normalized_text:
+                    continue
+                match = re.search(rf"^(?:20\d{{2}}\s+)?(?P<pre>.*?)\s+{number_pattern}(?:\s+|$)", normalized_text)
+                if not match:
+                    continue
+                pre_tokens = [
+                    token
+                    for token in match.group("pre").split()
+                    if token and not token.isdigit()
+                ]
+                for prefix_length in range(2, min(4, len(pre_tokens)) + 1):
+                    prefix_tokens = pre_tokens[:prefix_length]
+                    if not any(token not in generic_tokens for token in prefix_tokens):
+                        continue
+                    add(" ".join(token.title() for token in prefix_tokens))
+
+        return hints
+
+    @staticmethod
+    def _normalized_slab_title_text(
+        title_text: str,
+        *,
+        label_text: str,
+        parsed_label_text: tuple[str, ...],
+        card_number: str | None,
+    ) -> str:
+        texts = [title_text, label_text, *parsed_label_text]
+        normalized_number = SpotlightScanService._normalized_slab_card_number(card_number)
+        title_candidates: list[list[str]] = []
+        stop_tokens = {
+            "PSA",
+            "CGC",
+            "BGS",
+            "BECKETT",
+            "NM",
+            "MINT",
+            "GEM",
+            "MT",
+            "PRISTINE",
+            "PERFECT",
+            "GOOD",
+            "FAIR",
+            "POOR",
+            "DELIVERY",
+            "DELIVE",
+            "SHIPPING",
+            "SHIP",
+        }
+        drop_from_title = {"HOLO", "HOLOFOIL", "REVERSE", "FOIL"}
+
+        direct_title_tokens = SpotlightScanService._normalize_slab_title_tokens([
+            token.lstrip("#")
+            for token in SpotlightScanService._slab_query_tokens(title_text)
+            if token and not token.isdigit()
+        ])
+        if normalized_number:
+            number_pattern = rf"#?0*{re.escape(normalized_number)}\b" if normalized_number.isdigit() else rf"#?{re.escape(normalized_number)}\b"
+            for text in texts:
+                normalized_text = re.sub(r"[^A-Z0-9#/&+\\-]+", " ", text.upper()).strip()
+                if not normalized_text:
+                    continue
+                match = re.search(rf"^(?:20\d{{2}}\s+)?(?P<pre>.*?)\s+{number_pattern}(?:\s+(?P<post>.*))?$", normalized_text)
+                if not match:
+                    continue
+                post_tokens = SpotlightScanService._normalize_slab_title_tokens(
+                    SpotlightScanService._slab_query_tokens(match.group("post") or "")
+                )
+                leading_title: list[str] = []
+                for token in post_tokens:
+                    normalized_token = token.lstrip("#")
+                    if (
+                        normalized_token in stop_tokens
+                        or normalized_token.isdigit()
+                        or re.fullmatch(r"\d{7,10}", normalized_token)
+                    ):
+                        break
+                    leading_title.append(normalized_token)
+                if leading_title:
+                    title_candidates.append(leading_title)
+
+                pre_tokens = SpotlightScanService._normalize_slab_title_tokens([
+                    token.lstrip("#")
+                    for token in SpotlightScanService._slab_query_tokens(match.group("pre") or "")
+                    if token and not token.isdigit()
+                ])
+                if len(pre_tokens) >= 2:
+                    for suffix_length in range(1, min(3, len(pre_tokens) - 1) + 1):
+                        title_candidates.append(pre_tokens[-suffix_length:])
+
+        cleaned_direct_title = [
+            token
+            for token in direct_title_tokens
+            if token not in stop_tokens
+            and not re.fullmatch(r"\d{7,10}", token)
+            and (not normalized_number or token != normalized_number and not token.endswith(normalized_number))
+            and token not in {"POKEMON", "GO"}
+            and token not in drop_from_title
+        ]
+        if cleaned_direct_title and len(cleaned_direct_title) <= 4:
+            title_candidates.append(cleaned_direct_title)
+
+        if not title_candidates:
+            tokens = SpotlightScanService._normalize_slab_title_tokens([
+                token.lstrip("#")
+                for token in SpotlightScanService._slab_query_tokens(title_text)
+                if token and not token.isdigit()
+            ])
+            if tokens:
+                title_candidates.append(tokens)
+
+        for tokens in title_candidates:
+            filtered = [
+                token
+                for token in tokens
+                if token not in stop_tokens
+                and not re.fullmatch(r"\d{7,10}", token)
+                and token not in {"POKEMON", "GO"}
+            ]
+            filtered = [token for token in filtered if token not in drop_from_title]
+            if filtered:
+                return " ".join(token.title() for token in filtered)
+
+        return title_text
+
+    @staticmethod
+    def _slab_title_values(card: dict[str, Any]) -> tuple[str, ...]:
+        values: list[str] = []
+        seen: set[str] = set()
+
+        def add(value: object) -> None:
+            text = str(value or "").strip()
+            if not text or text in seen:
+                return
+            seen.add(text)
+            values.append(text)
+
+        add(card.get("name"))
+        source_payload = card.get("sourcePayload") or {}
+        if isinstance(source_payload, dict):
+            add(source_payload.get("name"))
+            translation = source_payload.get("translation")
+            if isinstance(translation, dict):
+                translation_en = translation.get("en")
+                if isinstance(translation_en, dict):
+                    add(translation_en.get("name"))
+        return tuple(values)
+
+    @staticmethod
+    def _slab_set_values(card: dict[str, Any]) -> tuple[str, ...]:
+        values: list[str] = []
+        seen: set[str] = set()
+
+        def add(value: object) -> None:
+            text = str(value or "").strip()
+            if not text or text in seen:
+                return
+            seen.add(text)
+            values.append(text)
+
+        add(card.get("setName"))
+        add(card.get("setSeries"))
+        add(card.get("setID"))
+        add(card.get("setPtcgoCode"))
+        source_payload = card.get("sourcePayload") or {}
+        if isinstance(source_payload, dict):
+            expansion = source_payload.get("expansion")
+            if isinstance(expansion, dict):
+                add(expansion.get("name"))
+                add(expansion.get("series"))
+                add(expansion.get("id"))
+                add(expansion.get("code"))
+        return tuple(values)
+
+    @staticmethod
+    def _slab_title_overlap(card: dict[str, Any], evidence: SlabMatchEvidence) -> float:
+        query_tokens = set(tokenize(" ".join(filter(None, [evidence.title_text_primary, evidence.title_text_secondary]))))
+        if not query_tokens:
+            return 0.0
+        candidate_tokens: set[str] = set()
+        for value in SpotlightScanService._slab_title_values(card):
+            candidate_tokens.update(tokenize(value))
+        return len(query_tokens & candidate_tokens) / max(1, len(query_tokens))
+
+    @staticmethod
+    def _slab_set_overlap(card: dict[str, Any], evidence: SlabMatchEvidence) -> float:
+        query_tokens = set(evidence.set_hint_tokens)
+        if not query_tokens:
+            return 0.0
+        candidate_tokens: set[str] = set()
+        exact_tokens: set[str] = set()
+        for value in SpotlightScanService._slab_set_values(card):
+            candidate_tokens.update(tokenize(value))
+            exact_tokens.add(value.lower())
+        overlap = len(query_tokens & candidate_tokens)
+        if any(token in exact_tokens for token in query_tokens):
+            overlap += 1
+        return overlap / max(1, len(query_tokens))
+
+    @staticmethod
+    def _slab_card_number_overlap(card: dict[str, Any], evidence: SlabMatchEvidence) -> float:
+        if not evidence.card_number:
+            return 0.0
+        expected = SpotlightScanService._normalized_slab_card_number(evidence.card_number)
+        candidate = canonicalize_collector_number(str(card.get("number") or ""))
+        if not expected or not candidate:
+            return 0.0
+        if candidate == expected:
+            return 1.0
+        candidate_prefix = SpotlightScanService._normalized_slab_card_number(candidate.split("/", 1)[0]) or candidate.split("/", 1)[0]
+        expected_prefix = SpotlightScanService._normalized_slab_card_number(expected.split("/", 1)[0]) or expected.split("/", 1)[0]
+        if candidate_prefix == expected or expected_prefix == candidate:
+            return 0.9
+        if candidate_prefix == expected_prefix:
+            return 0.6
+        if expected in candidate or candidate in expected:
+            return 0.4
+        return 0.0
+
+    def _score_slab_candidate(self, card: dict[str, Any], evidence: SlabMatchEvidence) -> tuple[float, list[str]]:
+        title_overlap = self._slab_title_overlap(card, evidence)
+        set_overlap = self._slab_set_overlap(card, evidence)
+        card_number_overlap = self._slab_card_number_overlap(card, evidence)
+        score = (title_overlap * 50.0) + (card_number_overlap * 30.0) + (set_overlap * 20.0)
+        reasons: list[str] = []
+        if title_overlap > 0:
+            reasons.append("title_overlap")
+        if card_number_overlap >= 1.0:
+            reasons.append("card_number_exact")
+        elif card_number_overlap > 0:
+            reasons.append("card_number_partial")
+        if set_overlap > 0:
+            reasons.append("set_overlap")
+        return round(score, 4), reasons
+
+    @staticmethod
+    def _slab_candidate_from_card(card: dict[str, Any], score_hint: float, reasons: list[str], route: str) -> dict[str, Any]:
+        return {
+            "id": card["id"],
+            "name": card["name"],
+            "setName": card["setName"],
+            "number": card["number"],
+            "rarity": card["rarity"],
+            "variant": card["variant"],
+            "language": card["language"],
+            "sourceProvider": card.get("sourceProvider"),
+            "sourceRecordID": card.get("sourceRecordID"),
+            "setID": card.get("setID"),
+            "setSeries": card.get("setSeries"),
+            "setPtcgoCode": card.get("setPtcgoCode"),
+            "imageURL": card.get("imageURL"),
+            "imageSmallURL": card.get("imageSmallURL"),
+            "sourcePayload": card.get("sourcePayload") or {},
+            "_cachePresence": True,
+            "_retrievalScoreHint": score_hint,
+            "_retrievalRoutes": [route],
+            "_reasons": reasons,
+        }
+
+    @staticmethod
     def _primary_price_value(pricing: dict[str, Any] | None) -> float | None:
         if not pricing:
             return None
@@ -132,8 +608,14 @@ class SpotlightScanService:
                 return float(value)
         return None
 
-    def _pricing_provenance_for_card(self, card_id: str) -> dict[str, Any] | None:
-        pricing = self._display_pricing_summary_for_card(card_id)
+    def _pricing_provenance_for_card(
+        self,
+        card_id: str,
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
+    ) -> dict[str, Any] | None:
+        pricing = self._display_pricing_summary_for_card(card_id, grader=grader, grade=grade)
         if pricing is None:
             return None
         return {
@@ -153,8 +635,15 @@ class SpotlightScanService:
             "sourceURL": pricing.get("sourceURL"),
         }
 
-    def _log_pricing_provenance(self, context: str, card_id: str) -> None:
-        provenance = self._pricing_provenance_for_card(card_id)
+    def _log_pricing_provenance(
+        self,
+        context: str,
+        card_id: str,
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
+    ) -> None:
+        provenance = self._pricing_provenance_for_card(card_id, grader=grader, grade=grade)
         if provenance is None:
             print(f"[PRICING DEBUG] {context}: card={card_id} has no stored pricing snapshot")
             return
@@ -198,8 +687,13 @@ class SpotlightScanService:
             )
 
         best_candidate = top_candidate_summaries[0] if top_candidate_summaries else None
+        slab_context = response_payload.get("slabContext") or {}
         best_provenance = (
-            self._pricing_provenance_for_card(str(best_candidate["id"]))
+            self._pricing_provenance_for_card(
+                str(best_candidate["id"]),
+                grader=slab_context.get("grader"),
+                grade=slab_context.get("grade"),
+            )
             if best_candidate and best_candidate.get("id")
             else None
         )
@@ -342,10 +836,10 @@ class SpotlightScanService:
                 "single_card_photo",
                 "raw_cards",
                 "english_first",
-            ],
-            "unsupportedScanScopes": [
                 "psa_slabs",
                 "graded_pricing",
+            ],
+            "unsupportedScanScopes": [
                 "binder_pages",
                 "multi_card_photo",
                 "bulk_auto_detect_without_capture",
@@ -392,7 +886,7 @@ class SpotlightScanService:
         return {
             "providers": provider_details,
             "activeRawProvider": active_raw_provider.get_metadata().provider_id if active_raw_provider else None,
-            "runtimeMode": "raw_only",
+            "runtimeMode": "raw_and_slab",
         }
 
     def cache_status(self) -> dict[str, Any]:
@@ -615,6 +1109,86 @@ class SpotlightScanService:
             "reason": None,
         }
 
+    def _retrieve_local_slab_candidates(self, evidence: SlabMatchEvidence) -> list[dict[str, Any]]:
+        query_parts = [
+            evidence.title_text_primary,
+            evidence.title_text_secondary,
+            evidence.card_number,
+            *evidence.set_hint_tokens,
+        ]
+        seen: set[str] = set()
+        candidates: list[dict[str, Any]] = []
+        for query in [part for part in query_parts if part]:
+            for card in search_cards_local(self.connection, query, limit=12):
+                card_id = str(card.get("id") or "")
+                if not card_id or card_id in seen:
+                    continue
+                seen.add(card_id)
+                score, reasons = self._score_slab_candidate(card, evidence)
+                if score <= 0:
+                    continue
+                candidates.append(self._slab_candidate_from_card(card, score, reasons, "local_slab_lookup"))
+        candidates.sort(
+            key=lambda candidate: (
+                -float(candidate.get("_retrievalScoreHint") or 0.0),
+                str(candidate.get("name") or ""),
+                str(candidate.get("number") or ""),
+            )
+        )
+        return candidates[:12]
+
+    def _retrieve_remote_slab_candidates(self, evidence: SlabMatchEvidence) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        title_text = evidence.title_text_primary or evidence.title_text_secondary
+        search_result = search_remote_scrydex_slab_candidates(
+            title_text=title_text,
+            label_text=evidence.label_text,
+            parsed_label_text=list(evidence.parsed_label_text),
+            card_number=evidence.card_number,
+            set_hint_tokens=list(evidence.set_hint_tokens),
+            page_size=10,
+        )
+        candidates: list[dict[str, Any]] = []
+        for raw_card in search_result.cards:
+            mapped = map_scrydex_catalog_card(raw_card)
+            candidate = {
+                "id": mapped["id"],
+                "name": mapped["name"],
+                "setName": mapped["set_name"],
+                "number": mapped["number"],
+                "rarity": mapped["rarity"],
+                "variant": mapped["variant"],
+                "language": mapped["language"],
+                "sourceProvider": mapped.get("source"),
+                "sourceRecordID": mapped.get("source_record_id"),
+                "setID": mapped.get("set_id"),
+                "setSeries": mapped.get("set_series"),
+                "setPtcgoCode": mapped.get("set_ptcgo_code"),
+                "imageURL": mapped.get("reference_image_url"),
+                "imageSmallURL": mapped.get("reference_image_small_url"),
+                "sourcePayload": mapped.get("source_payload") or {},
+                "_cachePresence": False,
+                "_retrievalRoutes": ["remote_provider_scrydex_slab"],
+            }
+            score, reasons = self._score_slab_candidate(candidate, evidence)
+            if score <= 0:
+                continue
+            candidate["_retrievalScoreHint"] = score
+            candidate["_reasons"] = reasons
+            candidates.append(candidate)
+        candidates.sort(
+            key=lambda candidate: (
+                -float(candidate.get("_retrievalScoreHint") or 0.0),
+                str(candidate.get("name") or ""),
+                str(candidate.get("number") or ""),
+            )
+        )
+        return candidates[:12], {
+            "queries": [attempt["query"] for attempt in search_result.attempts],
+            "attempts": search_result.attempts,
+            "resultCount": len(search_result.cards),
+            "reason": None if search_result.attempts else "no_queries",
+        }
+
     def _ensure_raw_card_cached(self, card: dict[str, Any], trigger_source: str) -> dict[str, Any]:
         card_id = str(card.get("id") or "").strip()
         if not card_id:
@@ -724,6 +1298,64 @@ class SpotlightScanService:
             candidate["pricing"] = pricing
         return candidate
 
+    def _slab_candidate_payload(
+        self,
+        card: dict[str, Any],
+        *,
+        slab_context: dict[str, Any],
+        ensure_cached: bool = False,
+        refresh_pricing_if_missing: bool = False,
+    ) -> dict[str, Any]:
+        resolved_card = self._ensure_raw_card_cached(card, "scan_match_slab") if ensure_cached else card
+        card_id = str(resolved_card.get("id") or "").strip()
+        grader = str(slab_context.get("grader") or "").strip() or None
+        grade = str(slab_context.get("grade") or "").strip() or None
+        preferred_variant = str(slab_context.get("variantName") or "").strip() or None
+        variant_hints = slab_context.get("variantHints")
+        pricing = (
+            self._display_pricing_summary_for_card(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
+            if card_id and grader and grade
+            else None
+        )
+        if pricing is not None and not self._slab_variant_matches(
+            pricing.get("variant"),
+            preferred_variant=preferred_variant,
+            variant_hints=variant_hints if isinstance(variant_hints, dict) else None,
+        ):
+            pricing = None
+
+        if card_id and grader and grade and refresh_pricing_if_missing and pricing is None:
+            refreshed_detail = self.refresh_card_pricing(
+                card_id,
+                grader=grader,
+                grade=grade,
+                preferred_variant=preferred_variant,
+                variant_hints=variant_hints if isinstance(variant_hints, dict) else None,
+            )
+            pricing = ((refreshed_detail or {}).get("card", {}) or {}).get("pricing") if isinstance(refreshed_detail, dict) else None
+            if pricing is None:
+                pricing = self._display_pricing_summary_for_card(
+                    card_id,
+                    grader=grader,
+                    grade=grade,
+                    preferred_variant=preferred_variant,
+                )
+
+        candidate = {
+            "id": card_id or str(card.get("id") or ""),
+            "name": str(resolved_card.get("name") or card.get("name") or ""),
+            "setName": str(resolved_card.get("setName") or card.get("setName") or ""),
+            "number": str(resolved_card.get("number") or card.get("number") or ""),
+            "rarity": str(resolved_card.get("rarity") or card.get("rarity") or "Unknown"),
+            "variant": str(resolved_card.get("variant") or card.get("variant") or "Raw"),
+            "language": str(resolved_card.get("language") or card.get("language") or "English"),
+            "imageSmallURL": resolved_card.get("imageSmallURL") or card.get("imageSmallURL"),
+            "imageLargeURL": resolved_card.get("imageURL") or card.get("imageLargeURL") or card.get("imageURL"),
+        }
+        if pricing is not None:
+            candidate["pricing"] = pricing
+        return candidate
+
     def _build_raw_match_response(
         self,
         payload: dict[str, Any],
@@ -794,6 +1426,261 @@ class SpotlightScanService:
             "rawDecisionDebug": decision.debug_payload,
         }
         return response, scored_candidates
+
+    def _slab_resolution_log_payload(
+        self,
+        payload: dict[str, Any],
+        evidence: SlabMatchEvidence,
+        *,
+        local_candidate_count: int,
+        remote_candidate_count: int,
+        merged_candidate_count: int,
+        remote_debug: dict[str, Any],
+        ranked_candidates: list[dict[str, Any]],
+        confidence: str,
+        confidence_percent: float,
+        ambiguity_flags: list[str],
+        review_disposition: str,
+        review_reason: str | None,
+    ) -> dict[str, Any]:
+        return {
+            "severity": "INFO",
+            "event": "scan_match_slab_resolution",
+            "scanID": payload.get("scanID"),
+            "resolverModeHint": payload.get("resolverModeHint"),
+            "localCandidateCount": local_candidate_count,
+            "remoteCandidateCount": remote_candidate_count,
+            "mergedCandidateCount": merged_candidate_count,
+            "evidence": {
+                "titleTextPrimary": evidence.title_text_primary,
+                "titleTextSecondary": evidence.title_text_secondary,
+                "labelText": evidence.label_text,
+                "cardNumber": evidence.card_number,
+                "setHintTokens": list(evidence.set_hint_tokens),
+                "variantHints": dict(evidence.variant_hints),
+                "grader": evidence.grader,
+                "grade": evidence.grade,
+                "cert": evidence.cert_number,
+                "lookupPath": evidence.recommended_lookup_path,
+            },
+            "remote": remote_debug,
+            "topMatches": [
+                {
+                    "id": candidate.get("id"),
+                    "name": candidate.get("name"),
+                    "number": candidate.get("number"),
+                    "score": round(float(candidate.get("_retrievalScoreHint") or 0.0), 4),
+                    "reasons": list(candidate.get("_reasons") or []),
+                }
+                for candidate in ranked_candidates[:3]
+            ],
+            "decision": {
+                "confidence": confidence,
+                "confidencePercent": confidence_percent,
+                "ambiguityFlags": ambiguity_flags,
+                "reviewDisposition": review_disposition,
+                "reviewReason": review_reason,
+            },
+        }
+
+    def _build_slab_match_response(
+        self,
+        payload: dict[str, Any],
+        evidence: SlabMatchEvidence,
+        ranked_candidates: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        slab_context = {
+            "grader": evidence.grader,
+            "grade": evidence.grade,
+            "certNumber": evidence.cert_number,
+            "variantHints": dict(evidence.variant_hints),
+        } if evidence.grader else None
+
+        if not evidence.grader or not evidence.grade:
+            response = {
+                "scanID": payload["scanID"],
+                "topCandidates": [],
+                "confidence": "low",
+                "ambiguityFlags": ["Slab OCR is missing a confident grader or grade."],
+                "matcherSource": "remoteHybrid",
+                "matcherVersion": MATCHER_VERSION,
+                "resolverMode": "psa_slab",
+                "resolverPath": "psa_label",
+                "slabContext": slab_context,
+                "reviewDisposition": "unsupported",
+                "reviewReason": "Could not extract a confident slab grader and grade.",
+            }
+            return response, []
+
+        if not ranked_candidates:
+            response = {
+                "scanID": payload["scanID"],
+                "topCandidates": [],
+                "confidence": "low",
+                "ambiguityFlags": ["No slab candidates were available."],
+                "matcherSource": "remoteHybrid",
+                "matcherVersion": MATCHER_VERSION,
+                "resolverMode": "psa_slab",
+                "resolverPath": "psa_label",
+                "slabContext": slab_context,
+                "reviewDisposition": "unsupported",
+                "reviewReason": "Could not identify the slabbed card from the label OCR.",
+            }
+            return response, []
+
+        top_score = float(ranked_candidates[0].get("_retrievalScoreHint") or 0.0)
+        runner_up_score = float(ranked_candidates[1].get("_retrievalScoreHint") or 0.0) if len(ranked_candidates) > 1 else 0.0
+        margin = top_score - runner_up_score
+        completeness = 0.0
+        if evidence.title_text_primary or evidence.title_text_secondary:
+            completeness += 35.0
+        if evidence.card_number:
+            completeness += 20.0
+        if evidence.set_hint_tokens:
+            completeness += 10.0
+        if evidence.grader:
+            completeness += 20.0
+        if evidence.grade:
+            completeness += 15.0
+        if evidence.cert_number:
+            completeness += 10.0
+        confidence_percent = round(min(100.0, (top_score * 0.70) + (completeness * 0.30)), 2)
+        ambiguity_flags: list[str] = []
+        if len(ranked_candidates) > 1 and margin < 10.0:
+            ambiguity_flags.append("Top slab matches are close together")
+        if not evidence.card_number:
+            ambiguity_flags.append("Slab card number OCR is weak")
+        if not evidence.set_hint_tokens:
+            ambiguity_flags.append("Slab set hints are weak")
+
+        if top_score >= 72.0 and margin >= 12.0:
+            confidence = "high"
+        elif top_score >= 52.0 and margin >= 6.0:
+            confidence = "medium"
+        else:
+            confidence = "low"
+
+        scored_candidates: list[dict[str, Any]] = []
+        encoded_candidates: list[dict[str, Any]] = []
+        for index, candidate in enumerate(ranked_candidates[:3]):
+            candidate_payload = self._slab_candidate_payload(
+                candidate,
+                slab_context=slab_context or {},
+                ensure_cached=index == 0,
+                refresh_pricing_if_missing=index == 0,
+            )
+            score_hint = round(float(candidate.get("_retrievalScoreHint") or 0.0) / 100.0, 4)
+            scored_entry = {
+                "card": candidate,
+                "candidate": candidate_payload,
+                "finalScore": score_hint,
+                "reasons": list(candidate.get("_reasons") or []),
+            }
+            scored_candidates.append(scored_entry)
+            encoded_candidates.append(
+                {
+                    "rank": index + 1,
+                    "candidate": candidate_payload,
+                    "imageScore": score_hint,
+                    "collectorNumberScore": score_hint,
+                    "nameScore": score_hint,
+                    "finalScore": score_hint,
+                }
+            )
+
+        if slab_context is not None and encoded_candidates:
+            top_pricing = ((encoded_candidates[0].get("candidate") or {}).get("pricing") or {})
+            if isinstance(top_pricing, dict):
+                variant_name = str(top_pricing.get("variant") or "").strip()
+                if variant_name:
+                    slab_context["variantName"] = variant_name
+
+        best_pricing = ((encoded_candidates[0].get("candidate") or {}).get("pricing") or {}) if encoded_candidates else {}
+        if not best_pricing:
+            response = {
+                "scanID": payload["scanID"],
+                "topCandidates": encoded_candidates,
+                "confidence": "low",
+                "ambiguityFlags": list(dict.fromkeys([*ambiguity_flags, "No exact graded price was available for this slab."])),
+                "matcherSource": "remoteHybrid",
+                "matcherVersion": MATCHER_VERSION,
+                "resolverMode": "psa_slab",
+                "resolverPath": "psa_label",
+                "slabContext": slab_context,
+                "reviewDisposition": "unsupported",
+                "reviewReason": "Could not find exact graded pricing for this slab.",
+            }
+            return response, scored_candidates
+
+        review_disposition = "ready" if confidence != "low" else "needs_review"
+        review_reason = None if review_disposition == "ready" else "Review the slab match before relying on the result."
+        response = {
+            "scanID": payload["scanID"],
+            "topCandidates": encoded_candidates,
+            "confidence": confidence,
+            "ambiguityFlags": list(dict.fromkeys(ambiguity_flags)),
+            "matcherSource": "remoteHybrid",
+            "matcherVersion": MATCHER_VERSION,
+            "resolverMode": "psa_slab",
+            "resolverPath": "psa_label",
+            "slabContext": slab_context,
+            "reviewDisposition": review_disposition,
+            "reviewReason": review_reason,
+        }
+        return response, scored_candidates
+
+    def _resolve_slab_candidates(self, payload: dict[str, Any]) -> dict[str, Any]:
+        evidence = self._build_slab_evidence(payload)
+        local_candidates = self._retrieve_local_slab_candidates(evidence)
+        top_local_score = float(local_candidates[0].get("_retrievalScoreHint") or 0.0) if local_candidates else 0.0
+        local_delta = (
+            top_local_score - float(local_candidates[1].get("_retrievalScoreHint") or 0.0)
+            if len(local_candidates) > 1
+            else top_local_score
+        )
+        should_expand_remote = len(local_candidates) < 3 or top_local_score < 70.0 or local_delta < 8.0
+        remote_candidates, remote_debug = (
+            self._retrieve_remote_slab_candidates(evidence)
+            if should_expand_remote
+            else (
+                [],
+                {
+                    "queries": [],
+                    "attempts": [],
+                    "resultCount": 0,
+                    "reason": "remote_expansion_not_needed",
+                },
+            )
+        )
+        merged_candidates = merge_raw_candidate_pools([local_candidates, remote_candidates])
+        ranked_candidates = sorted(
+            merged_candidates,
+            key=lambda candidate: (
+                -float(candidate.get("_retrievalScoreHint") or 0.0),
+                str(candidate.get("name") or ""),
+                str(candidate.get("number") or ""),
+            ),
+        )
+        response, top_candidates = self._build_slab_match_response(payload, evidence, ranked_candidates)
+        self._emit_structured_log(
+            self._slab_resolution_log_payload(
+                payload,
+                evidence,
+                local_candidate_count=len(local_candidates),
+                remote_candidate_count=len(remote_candidates),
+                merged_candidate_count=len(merged_candidates),
+                remote_debug=remote_debug,
+                ranked_candidates=ranked_candidates,
+                confidence=str(response.get("confidence") or "low"),
+                confidence_percent=0.0 if not ranked_candidates else round(min(100.0, float(ranked_candidates[0].get("_retrievalScoreHint") or 0.0)), 2),
+                ambiguity_flags=list(response.get("ambiguityFlags") or []),
+                review_disposition=str(response.get("reviewDisposition") or "needs_review"),
+                review_reason=response.get("reviewReason"),
+            )
+        )
+        self._emit_structured_log(self._scan_log_payload(payload, response, top_candidates))
+        self._log_scan(payload, response, top_candidates)
+        return response
 
     def _log_raw_scan_event(
         self,
@@ -871,10 +1758,52 @@ class SpotlightScanService:
         api_key: str | None = None,
         grader: str | None = None,
         grade: str | None = None,
+        preferred_variant: str | None = None,
+        variant_hints: dict[str, Any] | None = None,
         force_refresh: bool = False,
     ) -> dict[str, Any] | None:
         if grader or grade:
-            return None
+            if not grader or not grade:
+                return self.card_detail(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
+
+            existing_pricing = contextual_pricing_summary_for_card(
+                self.connection,
+                card_id,
+                grader=grader,
+                grade=grade,
+                variant=preferred_variant,
+            )
+            if existing_pricing is not None and not self._slab_variant_matches(
+                existing_pricing.get("variant"),
+                preferred_variant=preferred_variant,
+                variant_hints=variant_hints,
+            ):
+                existing_pricing = None
+            if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
+                self._log_pricing_provenance("refresh_slab_cached", card_id, grader=grader, grade=grade)
+                return self.card_detail(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
+
+            existing_card = card_by_id(self.connection, card_id)
+            provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
+            psa_provider = self.pricing_registry.get_provider(provider_id) or self.pricing_registry.get_provider("scrydex")
+            if psa_provider is None or not psa_provider.is_ready() or not psa_provider.get_metadata().supports_psa_pricing:
+                return self.card_detail(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
+
+            refresh_kwargs: dict[str, Any] = {}
+            if preferred_variant:
+                refresh_kwargs["preferred_variant"] = preferred_variant
+            if variant_hints:
+                refresh_kwargs["variant_hints"] = variant_hints
+            refresh_result = psa_provider.refresh_psa_pricing(
+                self.connection,
+                card_id,
+                grader,
+                grade,
+                **refresh_kwargs,
+            )
+            if refresh_result.success:
+                self._log_pricing_provenance("refresh_slab", card_id, grader=grader, grade=grade)
+            return self.card_detail(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
 
         existing_card = card_by_id(self.connection, card_id)
         if existing_card is None and api_key:
@@ -899,11 +1828,24 @@ class SpotlightScanService:
             self._log_pricing_provenance("refresh_raw", card_id)
         return self.card_detail(card_id)
 
-    def card_detail(self, card_id: str, *, grader: str | None = None, grade: str | None = None) -> dict[str, Any] | None:
+    def card_detail(
+        self,
+        card_id: str,
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
+        preferred_variant: str | None = None,
+    ) -> dict[str, Any] | None:
         card = card_by_id(self.connection, card_id)
         if card is None:
             return None
-        pricing = self._display_pricing_summary_for_card(card_id, grader=grader, grade=grade)
+        pricing = self._display_pricing_summary_for_card(
+            card_id,
+            grader=grader,
+            grade=grade,
+            preferred_variant=preferred_variant,
+        )
+        resolved_variant = preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
         return {
             "card": {
                 "id": card["id"],
@@ -917,7 +1859,12 @@ class SpotlightScanService:
                 "imageLargeURL": card["imageURL"],
                 "pricing": pricing,
             },
-            "slabContext": None,
+            "slabContext": {
+                "grader": grader,
+                "grade": grade,
+                "certNumber": None,
+                "variantName": resolved_variant,
+            } if grader else None,
             "source": card["sourceProvider"],
             "sourceRecordID": card["sourceRecordID"],
             "setID": card["setID"],
@@ -935,19 +1882,21 @@ class SpotlightScanService:
         resolver_mode = resolver_mode_for_payload(payload)
         if resolver_mode == "raw_card":
             return self._resolve_raw_candidates(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))
+        if resolver_mode == "psa_slab":
+            return self._resolve_slab_candidates(payload)
 
         response = {
             "scanID": payload["scanID"],
             "topCandidates": [],
             "confidence": "low",
-            "ambiguityFlags": ["Runtime is raw-only. Slab matching was intentionally removed."],
+            "ambiguityFlags": ["Could not determine whether this scan is raw or slab."],
             "matcherSource": "remoteHybrid",
             "matcherVersion": MATCHER_VERSION,
             "resolverMode": resolver_mode,
             "resolverPath": "visual_fallback",
             "slabContext": None,
             "reviewDisposition": "unsupported",
-            "reviewReason": "This backend build only supports raw card matching right now.",
+            "reviewReason": "This scan could not be routed to a supported matcher.",
         }
         self._emit_structured_log(self._scan_log_payload(payload, response, []))
         self._log_scan(payload, response, [])
@@ -1051,7 +2000,17 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
                 return
 
-            payload = self.service.card_detail(card_id)
+            query = parse_qs(parsed.query)
+            grader = query.get("grader", [""])[0].strip() or None
+            grade = query.get("grade", [""])[0].strip() or None
+            preferred_variant = query.get("variant", [""])[0].strip() or None
+
+            payload = self.service.card_detail(
+                card_id,
+                grader=grader,
+                grade=grade,
+                preferred_variant=preferred_variant,
+            )
             if payload is None:
                 api_key = os.environ.get("POKEMONTCG_API_KEY")
                 try:
@@ -1061,7 +2020,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                         trigger_source="auto_import_on_request",
                     )
                     if imported is not None:
-                        payload = self.service.card_detail(card_id)
+                        payload = self.service.card_detail(
+                            card_id,
+                            grader=grader,
+                            grade=grade,
+                            preferred_variant=preferred_variant,
+                        )
                 except Exception:
                     pass
 
@@ -1085,10 +2049,16 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
             query = parse_qs(parsed.query)
             force_refresh = query.get("forceRefresh", ["0"])[0].lower() in {"1", "true", "yes"}
+            grader = query.get("grader", [""])[0].strip() or None
+            grade = query.get("grade", [""])[0].strip() or None
+            preferred_variant = query.get("variant", [""])[0].strip() or None
             try:
                 payload = self.service.refresh_card_pricing(
                     card_id,
                     api_key=os.environ.get("POKEMONTCG_API_KEY"),
+                    grader=grader,
+                    grade=grade,
+                    preferred_variant=preferred_variant,
                     force_refresh=force_refresh,
                 )
             except Exception as error:

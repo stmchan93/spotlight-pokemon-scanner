@@ -107,7 +107,7 @@ struct RawROIPlanner {
                 ),
                 minimumTextHeight: 0.008,
                 upscaleFactor: 3.0,
-                preprocessing: .contrastBoosted,
+                preprocessing: .none,
                 usesLanguageCorrection: true,
                 recognitionLanguages: ["ja-JP", "en-US"]
             ),

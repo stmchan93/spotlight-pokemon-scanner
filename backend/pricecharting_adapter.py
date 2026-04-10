@@ -43,11 +43,21 @@ class PriceChartingProvider(PricingProvider):
             error="PriceCharting is preserved only as a thin provider shell in the raw-only backend build.",
         )
 
-    def refresh_psa_pricing(self, connection, card_id: str, grade: str) -> PsaPricingResult:
+    def refresh_psa_pricing(
+        self,
+        connection,
+        card_id: str,
+        grader: str,
+        grade: str,
+        preferred_variant: str | None = None,
+        variant_hints: dict | None = None,
+    ) -> PsaPricingResult:
+        del preferred_variant, variant_hints
         return PsaPricingResult(
             success=False,
             provider_id=PRICECHARTING_PROVIDER,
             card_id=card_id,
+            grader=grader,
             grade=grade,
             error="Graded pricing is intentionally removed from the raw-only backend build.",
         )

@@ -4,6 +4,7 @@ struct SlabContext: Codable, Hashable, Sendable {
     let grader: String
     let grade: String?
     let certNumber: String?
+    let variantName: String?
 }
 
 struct CardPricingSummary: Codable, Hashable, Sendable {

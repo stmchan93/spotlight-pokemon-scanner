@@ -240,8 +240,10 @@ enum SlabLabelParser {
                     (#"\bFAIR\s+(10|[1-9](?:\.5)?)\b"#, 0.84, "grade_from_psa_fair"),
                     (#"\bPR\s+(10|[1-9])\b"#, 0.84, "grade_from_psa_poor"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+PSA\b)"#, 0.96, "grade_before_psa_token"),
+                    (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z0-9]{1,4}\s+){1,2}PSA\b)"#, 0.94, "grade_before_psa_with_noise"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z]{2,4}\s+)?\d{7,10}\b)"#, 0.91, "grade_before_cert_number"),
-                    (#"\bNM\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+(?:PSA|[A-Z]{2,4})\b|\s+\d{7,10}\b|$)(?:\s+\d{7,10}\b|$)"#, 0.94, "grade_from_nm_layout"),
+                    (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z0-9]{1,4}\s+){1,2}(?:[A-Z]{2,4}\s+)?\d{7,10}\b)"#, 0.89, "grade_before_cert_number_with_noise"),
+                    (#"\bNM\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+[A-Z0-9]{1,4}){0,2}(?:\s+(?:PSA|[A-Z]{2,4})\b|\s+\d{7,10}\b|$)(?:\s+\d{7,10}\b|$)"#, 0.94, "grade_from_nm_layout"),
                 ]
             ) {
                 return explicit
@@ -288,7 +290,7 @@ enum SlabLabelParser {
            let inferred = firstCapturedField(
                 in: normalizedText,
                 patterns: [
-                    (#"\b(?:NM|MINT|GEM MT|GEM MINT)\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+[A-Z]{2,4}\b)?(?:\s+\d{7,10}\b|$)"#, 0.79, "grade_from_cert_aligned_layout")
+                    (#"\b(?:NM|MINT|GEM MT|GEM MINT)\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+[A-Z0-9]{1,4}){0,2}(?:\s+[A-Z]{2,4}\b)?(?:\s+\d{7,10}\b|$)"#, 0.79, "grade_from_cert_aligned_layout")
                 ]
            ) {
             return inferred

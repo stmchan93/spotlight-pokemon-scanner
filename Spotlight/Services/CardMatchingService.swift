@@ -322,6 +322,9 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             if let grade = slabContext.grade {
                 items.append(URLQueryItem(name: "grade", value: grade))
             }
+            if let variantName = slabContext.variantName, !variantName.isEmpty {
+                items.append(URLQueryItem(name: "variant", value: variantName))
+            }
         }
         if forceRefresh {
             items.append(URLQueryItem(name: "forceRefresh", value: "1"))

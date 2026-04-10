@@ -100,11 +100,21 @@ class PokemonTcgApiProvider(PricingProvider):
             payload=payload,
         )
 
-    def refresh_psa_pricing(self, connection, card_id: str, grade: str) -> PsaPricingResult:
+    def refresh_psa_pricing(
+        self,
+        connection,
+        card_id: str,
+        grader: str,
+        grade: str,
+        preferred_variant: str | None = None,
+        variant_hints: dict | None = None,
+    ) -> PsaPricingResult:
+        del preferred_variant, variant_hints
         return PsaPricingResult(
             success=False,
             provider_id=POKEMONTCG_API_PROVIDER,
             card_id=card_id,
+            grader=grader,
             grade=grade,
             error="Pokemon TCG API does not support graded pricing in the raw-only backend build.",
         )
