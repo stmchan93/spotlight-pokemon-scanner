@@ -206,6 +206,8 @@ class RawDecisionPhase5Tests(unittest.TestCase):
 
         candidate = response["topCandidates"][0]["candidate"]
         self.assertEqual(candidate["id"], "sv7-101")
+        self.assertEqual(candidate["imageSmallURL"], "https://images.example/sv7-101-small.png")
+        self.assertEqual(candidate["imageLargeURL"], "https://images.example/sv7-101-large.png")
         self.assertIn("pricing", candidate)
         self.assertEqual(candidate["pricing"]["market"], 7.5)
 

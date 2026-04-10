@@ -645,6 +645,8 @@ class SpotlightScanService:
             "rarity": str(resolved_card.get("rarity") or card.get("rarity") or "Unknown"),
             "variant": str(resolved_card.get("variant") or card.get("variant") or "Raw"),
             "language": str(resolved_card.get("language") or card.get("language") or "English"),
+            "imageSmallURL": resolved_card.get("imageSmallURL") or card.get("imageSmallURL"),
+            "imageLargeURL": resolved_card.get("imageURL") or card.get("imageLargeURL") or card.get("imageURL"),
         }
         if pricing is not None:
             candidate["pricing"] = pricing
@@ -836,6 +838,8 @@ class SpotlightScanService:
                 "rarity": card["rarity"],
                 "variant": card["variant"],
                 "language": card["language"],
+                "imageSmallURL": card["imageSmallURL"],
+                "imageLargeURL": card["imageURL"],
                 "pricing": pricing,
             },
             "slabContext": None,

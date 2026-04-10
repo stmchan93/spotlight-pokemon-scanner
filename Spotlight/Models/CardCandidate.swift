@@ -246,6 +246,8 @@ struct CardCandidate: Identifiable, Codable, Hashable, Sendable {
     let rarity: String
     let variant: String
     let language: String
+    let imageSmallURL: String?
+    let imageLargeURL: String?
     let pricing: CardPricingSummary?
 
     var subtitle: String {

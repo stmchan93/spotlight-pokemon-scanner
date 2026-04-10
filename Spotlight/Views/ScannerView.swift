@@ -984,7 +984,10 @@ private struct StackItemThumbnail: View {
 
     var body: some View {
         Group {
-            if let urlString = item.detail?.imageSmallURL ?? item.detail?.imageLargeURL,
+            if let urlString = item.detail?.imageSmallURL
+                ?? item.detail?.imageLargeURL
+                ?? item.displayCard?.imageSmallURL
+                ?? item.displayCard?.imageLargeURL,
                let url = URL(string: urlString) {
                 AsyncImage(url: url) { phase in
                     switch phase {
