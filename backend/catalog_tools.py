@@ -196,6 +196,23 @@ def _raw_has_no_readable_signal(evidence: RawEvidence, signals: RawSignalScores)
     return signals.overall_signal <= 0
 
 
+def _contains_japanese_text(text: str) -> bool:
+    return bool(re.search(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]", text))
+
+
+def _raw_looks_like_japanese_provider_gap(evidence: RawEvidence) -> bool:
+    return any(
+        _contains_japanese_text(text)
+        for text in [
+            evidence.title_text_primary,
+            evidence.title_text_secondary,
+            evidence.footer_band_text,
+            evidence.recognized_text,
+        ]
+        if text
+    )
+
+
 def utc_now() -> str:
     return datetime.now(UTC).isoformat()
 
@@ -259,6 +276,17 @@ def _runtime_schema_is_compatible(connection: sqlite3.Connection) -> bool:
         "source_payload_json",
         "updated_at",
     }
+    required_fx_columns = {
+        "id",
+        "base_currency",
+        "quote_currency",
+        "rate",
+        "source",
+        "effective_at",
+        "source_url",
+        "source_payload_json",
+        "updated_at",
+    }
     required_scan_columns = {
         "scan_id",
         "created_at",
@@ -297,6 +325,11 @@ def _runtime_schema_is_compatible(connection: sqlite3.Connection) -> bool:
         if not required_snapshot_columns.issubset(snapshot_columns):
             return False
 
+    if "fx_rate_snapshots" in tables:
+        fx_columns = _table_columns(connection, "fx_rate_snapshots")
+        if not required_fx_columns.issubset(fx_columns):
+            return False
+
     if "scan_events" in tables:
         scan_columns = _table_columns(connection, "scan_events")
         if not required_scan_columns.issubset(scan_columns):
@@ -331,7 +364,7 @@ def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
 
 
 def tokenize(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.lower())
+    return re.findall(r"[^\W_]+", text.lower(), flags=re.UNICODE)
 
 
 def _json_load(value: Any, default: Any) -> Any:
@@ -736,6 +769,85 @@ def upsert_price_snapshot(
     )
 
 
+def upsert_fx_rate_snapshot(
+    connection: sqlite3.Connection,
+    *,
+    base_currency: str,
+    quote_currency: str,
+    rate: float,
+    source: str,
+    effective_at: str | None = None,
+    source_url: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    snapshot_id = f"{base_currency.upper()}:{quote_currency.upper()}:{source}"
+    connection.execute(
+        """
+        INSERT INTO fx_rate_snapshots (
+            id, base_currency, quote_currency, rate, source, effective_at,
+            source_url, source_payload_json, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            rate=excluded.rate,
+            effective_at=excluded.effective_at,
+            source_url=excluded.source_url,
+            source_payload_json=excluded.source_payload_json,
+            updated_at=excluded.updated_at
+        """,
+        (
+            snapshot_id,
+            base_currency.upper(),
+            quote_currency.upper(),
+            rate,
+            source,
+            effective_at,
+            source_url,
+            json.dumps(payload or {}),
+            utc_now(),
+        ),
+    )
+
+
+def fx_rate_snapshot_for_pair(
+    connection: sqlite3.Connection,
+    base_currency: str,
+    quote_currency: str,
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        """
+        SELECT *
+        FROM fx_rate_snapshots
+        WHERE base_currency = ? AND quote_currency = ?
+        ORDER BY updated_at DESC
+        LIMIT 1
+        """,
+        (base_currency.upper(), quote_currency.upper()),
+    ).fetchone()
+    if row is None:
+        return None
+    updated_at = row["updated_at"]
+    is_fresh = False
+    if updated_at:
+        try:
+            refreshed = datetime.fromisoformat(str(updated_at))
+            is_fresh = datetime.now(UTC) - refreshed <= timedelta(hours=24)
+        except ValueError:
+            is_fresh = False
+    return {
+        "id": row["id"],
+        "baseCurrency": row["base_currency"],
+        "quoteCurrency": row["quote_currency"],
+        "rate": row["rate"],
+        "source": row["source"],
+        "effectiveAt": row["effective_at"],
+        "sourceURL": row["source_url"],
+        "refreshedAt": row["updated_at"],
+        "payload": _json_load(row["source_payload_json"], {}),
+        "isFresh": is_fresh,
+    }
+
+
 def price_snapshot_for_card(
     connection: sqlite3.Connection,
     card_id: str,
@@ -1067,11 +1179,56 @@ def _candidate_from_card(card: dict[str, Any], route: str, score_hint: float, *,
     }
 
 
+def _candidate_title_values(card: dict[str, Any]) -> tuple[str, ...]:
+    values: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: object) -> None:
+        text = str(value or "").strip()
+        if not text or text in seen:
+            return
+        seen.add(text)
+        values.append(text)
+
+    add(card.get("name"))
+    source_payload = card.get("sourcePayload") or {}
+    if isinstance(source_payload, dict):
+        add(source_payload.get("name"))
+        translation = source_payload.get("translation")
+        if isinstance(translation, dict):
+            translation_en = translation.get("en")
+            if isinstance(translation_en, dict):
+                add(translation_en.get("name"))
+
+    return tuple(values)
+
+
+def _candidate_source_expansion_values(card: dict[str, Any]) -> tuple[str, ...]:
+    source_payload = card.get("sourcePayload") or {}
+    if not isinstance(source_payload, dict):
+        return tuple()
+    expansion = source_payload.get("expansion")
+    if not isinstance(expansion, dict):
+        return tuple()
+    return tuple(
+        str(value).strip()
+        for value in [
+            expansion.get("name"),
+            expansion.get("series"),
+            expansion.get("id"),
+            expansion.get("code"),
+        ]
+        if str(value or "").strip()
+    )
+
+
 def _title_overlap(card: dict[str, Any], evidence: RawEvidence) -> float:
     query_tokens = set(tokenize(" ".join(filter(None, [evidence.title_text_primary, evidence.title_text_secondary]))))
     if not query_tokens:
         return 0.0
-    candidate_tokens = set(tokenize(card["name"]))
+    candidate_tokens: set[str] = set()
+    for value in _candidate_title_values(card):
+        candidate_tokens.update(tokenize(value))
     return len(query_tokens & candidate_tokens) / max(1, len(query_tokens))
 
 
@@ -1079,17 +1236,35 @@ def _set_overlap(card: dict[str, Any], evidence: RawEvidence) -> float:
     query_tokens = set(evidence.trusted_set_hint_tokens or evidence.set_hint_tokens)
     if not query_tokens:
         return 0.0
+    exact_candidate_tokens = {
+        str(card.get("setID") or "").lower(),
+        str(card.get("setPtcgoCode") or "").lower(),
+    }
+    source_payload = card.get("sourcePayload") or {}
+    if isinstance(source_payload, dict):
+        expansion = source_payload.get("expansion")
+        if isinstance(expansion, dict):
+            exact_candidate_tokens.update({
+                str(expansion.get("id") or "").lower(),
+                str(expansion.get("code") or "").lower(),
+            })
     candidate_tokens = set(
         tokenize(
             " ".join(
                 part
-                for part in [card.get("setName") or "", card.get("setSeries") or "", card.get("setID") or "", card.get("setPtcgoCode") or ""]
+                for part in [
+                    card.get("setName") or "",
+                    card.get("setSeries") or "",
+                    card.get("setID") or "",
+                    card.get("setPtcgoCode") or "",
+                    *(_candidate_source_expansion_values(card)),
+                ]
                 if part
             )
         )
     )
     overlap = len(query_tokens & candidate_tokens)
-    if any(token in {str(card.get("setID") or "").lower(), str(card.get("setPtcgoCode") or "").lower()} for token in query_tokens):
+    if any(token in exact_candidate_tokens for token in query_tokens):
         overlap += 1
     return overlap / max(1, len(query_tokens))
 
@@ -1377,6 +1552,24 @@ def finalize_raw_decision(
             review_disposition="unsupported",
             review_reason="No readable card signal was found. Try again with a sharper, closer scan.",
             fallback_reason="no_signal",
+            selected_card_id=None,
+            debug_payload={},
+        )
+
+    if not matches and _raw_looks_like_japanese_provider_gap(evidence):
+        return RawDecisionResult(
+            matches=tuple(),
+            top_candidates=tuple(),
+            confidence="low",
+            confidence_percent=0.0,
+            ambiguity_flags=(
+                "No candidates were available.",
+                "Japanese raw cards are not currently supported by the active provider.",
+            ),
+            resolver_path="visual_fallback",
+            review_disposition="unsupported",
+            review_reason="Japanese raw cards are not currently supported by the Pokemon TCG API-backed matcher.",
+            fallback_reason="provider_unsupported_japanese",
             selected_card_id=None,
             debug_payload={},
         )

@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -26,6 +27,7 @@ from pokemontcg_api_client import (  # noqa: E402
     best_remote_raw_candidates,
     build_raw_provider_queries,
 )
+from scrydex_adapter import ScrydexRawSearchResult, best_remote_scrydex_raw_candidates  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
 
 
@@ -135,6 +137,56 @@ def remote_card(
     }
 
 
+def scrydex_remote_card(
+    *,
+    card_id: str,
+    name: str,
+    printed_number: str,
+    expansion_id: str,
+    expansion_name: str,
+    expansion_code: str | None = None,
+    translation_name: str | None = None,
+) -> dict[str, object]:
+    return {
+        "id": card_id,
+        "name": name,
+        "language": "ja",
+        "language_code": "JA",
+        "printed_number": printed_number,
+        "number": printed_number.split("/", 1)[0],
+        "rarity": "UR",
+        "artist": "DOM",
+        "supertype": "Pokémon",
+        "subtypes": ["Mega", "ex"],
+        "types": ["Dragon"],
+        "expansion": {
+            "id": expansion_id,
+            "name": expansion_name,
+            "code": expansion_code,
+            "series": "Scarlet & Violet",
+            "release_date": "2026-01-01",
+            "language": "ja",
+        },
+        "translation": {
+            "en": {
+                "name": translation_name or "Mega Dragonite ex",
+                "rarity": "Ultra Rare",
+                "supertype": "Pokémon",
+                "subtypes": ["Mega", "ex"],
+                "types": ["Dragon"],
+            }
+        },
+        "images": [
+            {
+                "type": "front",
+                "small": f"https://images.example/{card_id}-small.png",
+                "large": f"https://images.example/{card_id}-large.png",
+            }
+        ],
+        "variants": [],
+    }
+
+
 class RawRetrievalPhase4Tests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -221,9 +273,9 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         queries = build_raw_provider_queries(evidence, signals)
 
         self.assertTrue(any('name:"Charizard ex"' in query for query in queries))
-        self.assertTrue(any('number:"223"' in query for query in queries))
-        self.assertTrue(any("set.printedTotal:197" in query for query in queries))
         self.assertTrue(any("set.ptcgoCode:OBF" in query or 'set.id:obf' in query for query in queries))
+        self.assertFalse(any(query == 'number:"223"' for query in queries))
+        self.assertFalse(any(query == 'set.printedTotal:197 number:"223"' for query in queries))
 
     def test_build_raw_provider_queries_generates_tokenized_title_clauses_for_noisy_ocr(self) -> None:
         payload = raw_payload(
@@ -241,6 +293,24 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         self.assertTrue(any("name:sabrina name:slowbro" in query for query in queries))
         self.assertTrue(any('number:"60"' in query for query in queries))
         self.assertTrue(any("set.printedTotal:132" in query for query in queries))
+
+    def test_build_raw_provider_queries_with_japanese_title_and_trusted_set_skips_relaxed_queries(self) -> None:
+        payload = raw_payload(
+            title_text_primary="ハクリューから進化 カイリコ",
+            whole_card_text="ハクリューから進化 カイリコ",
+            footer_band_text="M2a 232/193 MA",
+            collector_number_exact="232/193",
+            set_hint_tokens=["m2a"],
+        )
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+
+        queries = build_raw_provider_queries(evidence, signals)
+
+        self.assertTrue(any("set.id:m2a number:\"232\"" in query or "set.ptcgoCode:M2A number:\"232\"" in query for query in queries))
+        self.assertFalse(any(query == 'number:"232"' for query in queries))
+        self.assertFalse(any(query == 'set.printedTotal:193 number:"232"' for query in queries))
+        self.assertFalse(any("name:ハクリューから進化" in query for query in queries))
 
     def test_best_remote_raw_candidates_prefers_title_set_match(self) -> None:
         payload = raw_payload(
@@ -286,6 +356,118 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         self.assertTrue(candidates)
         self.assertEqual(candidates[0]["id"], "obf-223")
         self.assertIn("collector_set_exact", candidates[0]["_retrievalRoutes"])
+
+    def test_server_local_retrieval_does_not_fall_back_to_wrong_set_collector_only_when_set_is_trusted(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_catalog_card(
+            service.connection,
+            catalog_card(card_id="sv2-232", name="Wo-Chien ex", set_name="Paldea Evolved", number="232/193", set_id="sv2"),
+            REPO_ROOT,
+            "2026-04-09T04:00:00Z",
+            refresh_embeddings=False,
+        )
+        service.connection.commit()
+
+        payload = raw_payload(
+            title_text_primary="ハクリューから進化 カイリコ",
+            whole_card_text="ハクリューから進化 カイリコ",
+            footer_band_text="M2a 232/193 MA",
+            collector_number_exact="232/193",
+            set_hint_tokens=["m2a"],
+        )
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+        plan = build_raw_retrieval_plan(evidence, signals)
+
+        candidates = service._retrieve_local_raw_candidates(evidence, signals, plan)
+        service.connection.close()
+
+        self.assertEqual(candidates, [])
+
+    def test_server_remote_retrieval_routes_japanese_raw_to_scrydex(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        payload = raw_payload(
+            title_text_primary="ハクリューから進化 カイリコ",
+            whole_card_text="ハクリューから進化 カイリコ",
+            footer_band_text="M2a 232/193 MA",
+            collector_number_exact="232/193",
+            set_hint_tokens=["m2a"],
+        )
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+        plan = build_raw_retrieval_plan(evidence, signals)
+
+        with patch("server.search_remote_scrydex_japanese_raw_candidates") as search_scrydex, patch("server.search_remote_raw_candidates") as search_pokemontcg:
+            search_scrydex.return_value = ScrydexRawSearchResult(
+                cards=[
+                    scrydex_remote_card(
+                        card_id="m2a_ja-232",
+                        name="メガカイリューex",
+                        printed_number="232/193",
+                        expansion_id="m2a_ja",
+                        expansion_name="MEGAドリームex",
+                        expansion_code="M2a",
+                    )
+                ],
+                attempts=[
+                    {
+                        "query": 'printed_number:"232/193" expansion.code:m2a',
+                        "count": 1,
+                        "error": None,
+                    }
+                ],
+            )
+
+            candidates, debug = service._retrieve_remote_raw_candidates(evidence, signals, plan, api_key="test-key")
+
+        service.connection.close()
+
+        search_scrydex.assert_called_once()
+        search_pokemontcg.assert_not_called()
+        self.assertEqual(candidates[0]["id"], "m2a_ja-232")
+        self.assertEqual(debug["queries"], ['printed_number:"232/193" expansion.code:m2a'])
+
+    def test_best_remote_scrydex_raw_candidates_prefers_native_japanese_title_and_set_code(self) -> None:
+        payload = raw_payload(
+            title_text_primary="たね カビゴン uP",
+            title_text_secondary="たね カビゴン HP",
+            whole_card_text="たね カビゴン HP",
+            footer_band_text="S10a 077/071 CHR",
+            collector_number_exact="077/071",
+            set_hint_tokens=["s10a"],
+        )
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+
+        candidates = best_remote_scrydex_raw_candidates(
+            [
+                scrydex_remote_card(
+                    card_id="sv2p_ja-77",
+                    name="セグレイブ",
+                    printed_number="077/071",
+                    expansion_id="sv2p_ja",
+                    expansion_name="スノーハザード",
+                    expansion_code="SV2P",
+                    translation_name="Baxcalibur",
+                ),
+                scrydex_remote_card(
+                    card_id="swsh10a_ja-77",
+                    name="カビゴン",
+                    printed_number="077/071",
+                    expansion_id="swsh10a_ja",
+                    expansion_name="ダークファンタズマ",
+                    expansion_code="S10a",
+                    translation_name="Snorlax",
+                ),
+            ],
+            evidence,
+            signals,
+            limit=5,
+        )
+
+        self.assertTrue(candidates)
+        self.assertEqual(candidates[0]["id"], "swsh10a_ja-77")
+        self.assertEqual(candidates[0]["setPtcgoCode"], "S10a")
 
 
 if __name__ == "__main__":

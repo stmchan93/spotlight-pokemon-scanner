@@ -31,7 +31,7 @@ struct OCRPipelineFeatureFlags: Codable, Hashable, Sendable {
                 bundleKey: "SpotlightUseNewOCRPipeline",
                 bundle: bundle,
                 processInfo: processInfo
-            ) ?? false
+            ) ?? true
         let runBothOCRPipelinesForDebug =
             boolOverride(
                 envKey: "SPOTLIGHT_RUN_BOTH_OCR_PIPELINES_FOR_DEBUG",

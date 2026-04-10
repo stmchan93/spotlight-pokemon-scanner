@@ -4,7 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -18,6 +18,8 @@ from catalog_tools import (  # noqa: E402
     RawCandidateMatch,
     RawCandidateScoreBreakdown,
     RawDecisionResult,
+    RawEvidence,
+    RawSignalScores,
     apply_schema,
     card_by_id,
     connect,
@@ -30,6 +32,7 @@ from catalog_tools import (  # noqa: E402
     upsert_slab_price_snapshot,
 )
 from pokemontcg_api_client import map_card  # noqa: E402
+from pricing_provider import RawPricingResult  # noqa: E402
 from scrydex_adapter import map_scrydex_catalog_card  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
 
@@ -114,6 +117,70 @@ def sample_provider_card() -> dict[str, object]:
             },
         },
         "cardmarket": {},
+    }
+
+
+def sample_scrydex_card() -> dict[str, object]:
+    return {
+        "id": "m2a_ja-232",
+        "name": "メガカイリューex",
+        "language": "ja",
+        "language_code": "JA",
+        "printed_number": "232/193",
+        "number": "232",
+        "rarity": "UR",
+        "artist": "DOM",
+        "supertype": "Pokémon",
+        "subtypes": ["Stage 2", "Mega", "ex"],
+        "types": ["Dragon"],
+        "expansion": {
+            "id": "m2a_ja",
+            "name": "MEGAドリームex",
+            "code": "M2a",
+            "series": "Scarlet & Violet",
+            "release_date": "2026-01-01",
+            "language": "ja",
+        },
+        "translation": {
+            "en": {
+                "name": "Mega Dragonite ex",
+                "rarity": "Ultra Rare",
+                "supertype": "Pokémon",
+                "subtypes": ["Stage 2", "Mega", "ex"],
+                "types": ["Dragon"],
+            }
+        },
+        "images": [
+            {
+                "type": "front",
+                "small": "https://images.example/m2a_ja-232-small.png",
+                "large": "https://images.example/m2a_ja-232-large.png",
+            }
+        ],
+        "variants": [
+            {
+                "name": "holofoil",
+                "prices": [
+                    {
+                        "condition": "NM",
+                        "is_perfect": False,
+                        "is_signed": False,
+                        "is_error": False,
+                        "type": "raw",
+                        "low": 2400.0,
+                        "mid": 2500.0,
+                        "high": 2600.0,
+                        "market": 2550.0,
+                        "currency": "JPY",
+                        "trends": {
+                            "days_30": {
+                                "price_change": 125.0,
+                            }
+                        },
+                    }
+                ],
+            }
+        ],
     }
 
 
@@ -582,6 +649,131 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(card["number"], "094/173")
         self.assertEqual(detail["source"], "scrydex")
         self.assertEqual(detail["card"]["setName"], "Tag Team GX All Stars")
+
+    def test_ensure_raw_card_cached_persists_scrydex_search_result_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        scrydex_payload = sample_scrydex_card()
+        mapped = map_scrydex_catalog_card(scrydex_payload)
+        remote_candidate = {
+            "id": mapped["id"],
+            "name": mapped["name"],
+            "setName": mapped["set_name"],
+            "number": mapped["number"],
+            "rarity": mapped["rarity"],
+            "variant": mapped["variant"],
+            "language": mapped["language"],
+            "sourceProvider": mapped["source"],
+            "sourceRecordID": mapped["source_record_id"],
+            "setID": mapped["set_id"],
+            "setSeries": mapped["set_series"],
+            "setPtcgoCode": mapped["set_ptcgo_code"],
+            "imageURL": mapped["reference_image_url"],
+            "imageSmallURL": mapped["reference_image_small_url"],
+            "sourcePayload": scrydex_payload,
+        }
+
+        cached = service._ensure_raw_card_cached(remote_candidate, "test_scrydex_cache")
+        snapshot = price_snapshot_for_card(
+            service.connection,
+            "m2a_ja-232",
+            pricing_mode=RAW_PRICING_MODE,
+        )
+        service.connection.close()
+
+        self.assertEqual(cached["id"], "m2a_ja-232")
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot["provider"], "scrydex")
+        self.assertEqual(snapshot["currencyCode"], "JPY")
+        self.assertEqual(snapshot["market"], 2550.0)
+        self.assertEqual(snapshot["variant"], "holofoil")
+
+    def test_refresh_card_pricing_uses_scrydex_provider_for_scrydex_raw_cards(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        service._persist_mapped_catalog_card(
+            mapped_card=map_scrydex_catalog_card(sample_scrydex_card()),
+            sync_mode="raw_candidate_cache",
+            trigger_source="test",
+            query_text="m2a_ja-232",
+            refresh_embeddings=False,
+        )
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        pokemontcg_provider = service.pricing_registry.get_provider("pokemontcg_api")
+        assert scrydex_provider is not None
+        assert pokemontcg_provider is not None
+        scrydex_provider.refresh_raw_pricing = Mock(return_value=RawPricingResult(  # type: ignore[method-assign]
+            success=True,
+            provider_id="scrydex",
+            card_id="m2a_ja-232",
+            payload={"id": "m2a_ja-232"},
+        ))
+        pokemontcg_provider.refresh_raw_pricing = Mock(return_value=RawPricingResult(  # type: ignore[method-assign]
+            success=True,
+            provider_id="pokemontcg_api",
+            card_id="m2a_ja-232",
+            payload={"id": "m2a_ja-232"},
+        ))
+
+        service.refresh_card_pricing("m2a_ja-232")
+        service.connection.close()
+
+        scrydex_provider.refresh_raw_pricing.assert_called_once_with(service.connection, "m2a_ja-232")
+        pokemontcg_provider.refresh_raw_pricing.assert_not_called()
+
+    def test_card_detail_keeps_native_jpy_snapshot_but_returns_usd_display_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        scrydex_payload = sample_scrydex_card()
+        mapped = map_scrydex_catalog_card(scrydex_payload)
+        remote_candidate = {
+            "id": mapped["id"],
+            "name": mapped["name"],
+            "setName": mapped["set_name"],
+            "number": mapped["number"],
+            "rarity": mapped["rarity"],
+            "variant": mapped["variant"],
+            "language": mapped["language"],
+            "sourceProvider": mapped["source"],
+            "sourceRecordID": mapped["source_record_id"],
+            "setID": mapped["set_id"],
+            "setSeries": mapped["set_series"],
+            "setPtcgoCode": mapped["set_ptcgo_code"],
+            "imageURL": mapped["reference_image_url"],
+            "imageSmallURL": mapped["reference_image_small_url"],
+            "sourcePayload": scrydex_payload,
+        }
+        service._ensure_raw_card_cached(remote_candidate, "test_scrydex_cache")
+
+        stored_snapshot = price_snapshot_for_card(
+            service.connection,
+            "m2a_ja-232",
+            pricing_mode=RAW_PRICING_MODE,
+        )
+        assert stored_snapshot is not None
+        self.assertEqual(stored_snapshot["currencyCode"], "JPY")
+        self.assertEqual(stored_snapshot["market"], 2550.0)
+
+        with patch("fx_rates.ensure_fx_rate_snapshot", return_value={
+            "baseCurrency": "JPY",
+            "quoteCurrency": "USD",
+            "rate": 0.0063,
+            "source": "ecb",
+            "effectiveAt": "2026-04-09",
+            "refreshedAt": "2026-04-10T00:00:00Z",
+            "isFresh": True,
+        }):
+            detail = service.card_detail("m2a_ja-232")
+        service.connection.close()
+
+        self.assertIsNotNone(detail)
+        assert detail is not None
+        pricing = detail["card"]["pricing"]
+        self.assertIsNotNone(pricing)
+        assert pricing is not None
+        self.assertEqual(pricing["currencyCode"], "USD")
+        self.assertEqual(pricing["nativeCurrencyCode"], "JPY")
+        self.assertEqual(pricing["market"], 16.07)
+        self.assertEqual(pricing["nativeMarket"], 2550.0)
+        self.assertEqual(pricing["fxSource"], "ecb")
 
     def test_reimport_updates_existing_card_row_in_primary_cards_table(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)

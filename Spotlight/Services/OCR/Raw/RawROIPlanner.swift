@@ -23,6 +23,7 @@ struct RawROIPlanItem: Codable, Hashable, Sendable {
     let upscaleFactor: Double
     let preprocessing: RawOCRPreprocessing
     let usesLanguageCorrection: Bool
+    let recognitionLanguages: [String]
 
     var cgRect: CGRect {
         CGRect(
@@ -53,7 +54,8 @@ struct RawROIPlanner {
                 minimumTextHeight: 0.008,
                 upscaleFactor: sceneTraits.holderLikely ? 3.0 : 2.6,
                 preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-                usesLanguageCorrection: true
+                usesLanguageCorrection: true,
+                recognitionLanguages: ["ja-JP", "en-US"]
             ),
             RawROIPlanItem(
                 kind: .footerBandWide,
@@ -67,7 +69,8 @@ struct RawROIPlanner {
                 minimumTextHeight: 0.0035,
                 upscaleFactor: 3.6,
                 preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-                usesLanguageCorrection: false
+                usesLanguageCorrection: false,
+                recognitionLanguages: ["ja-JP", "en-US"]
             )
         ]
     }
@@ -90,7 +93,8 @@ struct RawROIPlanner {
                 minimumTextHeight: 0.007,
                 upscaleFactor: 3.2,
                 preprocessing: .contrastBoosted,
-                usesLanguageCorrection: true
+                usesLanguageCorrection: true,
+                recognitionLanguages: ["ja-JP", "en-US"]
             ),
             RawROIPlanItem(
                 kind: .nameplateTight,
@@ -104,7 +108,8 @@ struct RawROIPlanner {
                 minimumTextHeight: 0.008,
                 upscaleFactor: 3.0,
                 preprocessing: .contrastBoosted,
-                usesLanguageCorrection: true
+                usesLanguageCorrection: true,
+                recognitionLanguages: ["ja-JP", "en-US"]
             ),
             RawROIPlanItem(
                 kind: .footerLeft,
@@ -118,7 +123,8 @@ struct RawROIPlanner {
                 minimumTextHeight: 0.001,
                 upscaleFactor: 4.0,
                 preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-                usesLanguageCorrection: false
+                usesLanguageCorrection: false,
+                recognitionLanguages: ["ja-JP", "en-US"]
             ),
             RawROIPlanItem(
                 kind: .footerRight,
@@ -132,7 +138,8 @@ struct RawROIPlanner {
                 minimumTextHeight: 0.001,
                 upscaleFactor: 4.0,
                 preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-                usesLanguageCorrection: false
+                usesLanguageCorrection: false,
+                recognitionLanguages: ["ja-JP", "en-US"]
             )
         ]
     }

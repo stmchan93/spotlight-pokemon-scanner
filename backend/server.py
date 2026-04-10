@@ -49,6 +49,7 @@ from catalog_tools import (
     upsert_scan_event,
     utc_now,
 )
+from fx_rates import decorate_pricing_summary_with_fx
 from pokemontcg_api_client import (
     best_remote_raw_candidates,
     build_raw_provider_queries,
@@ -59,7 +60,14 @@ from pokemontcg_api_client import (
 from pokemontcg_pricing_adapter import PokemonTcgApiProvider
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
-from scrydex_adapter import ScrydexProvider
+from scrydex_adapter import (
+    ScrydexProvider,
+    best_remote_scrydex_raw_candidates,
+    map_scrydex_catalog_card,
+    persist_scrydex_raw_snapshot,
+    raw_evidence_looks_japanese,
+    search_remote_scrydex_japanese_raw_candidates,
+)
 
 
 @dataclass
@@ -83,6 +91,37 @@ class SpotlightScanService:
     def refresh_index(self) -> None:
         self.index = load_index(self.connection)
 
+    def _display_pricing_summary_for_card(
+        self,
+        card_id: str,
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
+    ) -> dict[str, Any] | None:
+        pricing = contextual_pricing_summary_for_card(
+            self.connection,
+            card_id,
+            grader=grader,
+            grade=grade,
+        )
+        return decorate_pricing_summary_with_fx(self.connection, pricing)
+
+    @staticmethod
+    def _should_use_scrydex_japanese_raw(evidence: RawEvidence) -> bool:
+        return raw_evidence_looks_japanese(evidence)
+
+    @staticmethod
+    def _candidate_is_japanese(candidate: dict[str, Any]) -> bool:
+        language = str(candidate.get("language") or "").strip().lower()
+        set_id = str(candidate.get("setID") or "").strip().lower()
+        card_id = str(candidate.get("id") or "").strip().lower()
+        return (
+            language.startswith("ja")
+            or language == "japanese"
+            or set_id.endswith("_ja")
+            or "_ja-" in card_id
+        )
+
     @staticmethod
     def _primary_price_value(pricing: dict[str, Any] | None) -> float | None:
         if not pricing:
@@ -94,7 +133,7 @@ class SpotlightScanService:
         return None
 
     def _pricing_provenance_for_card(self, card_id: str) -> dict[str, Any] | None:
-        pricing = contextual_pricing_summary_for_card(self.connection, card_id)
+        pricing = self._display_pricing_summary_for_card(card_id)
         if pricing is None:
             return None
         return {
@@ -497,6 +536,7 @@ class SpotlightScanService:
     ) -> list[dict[str, Any]]:
         candidate_groups: list[list[dict[str, Any]]] = []
         routes = set(plan.routes)
+        has_trusted_set = bool(evidence.trusted_set_hint_tokens)
 
         if "collector_set_exact" in routes:
             candidate_groups.append(search_cards_local_collector_set(self.connection, evidence, limit=12))
@@ -504,11 +544,12 @@ class SpotlightScanService:
             candidate_groups.append(search_cards_local_title_set(self.connection, evidence, limit=12))
         if "title_collector" in routes:
             candidate_groups.append(self._with_retrieval_route(search_cards_local_title_only(self.connection, evidence, limit=12), "title_collector"))
-            candidate_groups.append(self._with_retrieval_route(search_cards_local_collector_only(self.connection, evidence, limit=12), "title_collector"))
+            if not has_trusted_set:
+                candidate_groups.append(self._with_retrieval_route(search_cards_local_collector_only(self.connection, evidence, limit=12), "title_collector"))
         else:
             if "title_only" in routes:
                 candidate_groups.append(search_cards_local_title_only(self.connection, evidence, limit=12))
-            if "collector_only" in routes:
+            if "collector_only" in routes and not has_trusted_set:
                 candidate_groups.append(search_cards_local_collector_only(self.connection, evidence, limit=12))
 
         if "broad_text_fallback" in routes and evidence.recognized_text:
@@ -520,7 +561,10 @@ class SpotlightScanService:
                 candidate["_cachePresence"] = True
             candidate_groups.append(fallback_group)
 
-        return merge_raw_candidate_pools(candidate_groups)
+        merged = merge_raw_candidate_pools(candidate_groups)
+        if self._should_use_scrydex_japanese_raw(evidence):
+            merged = [candidate for candidate in merged if self._candidate_is_japanese(candidate)]
+        return merged
 
     def _retrieve_remote_raw_candidates(
         self,
@@ -536,6 +580,24 @@ class SpotlightScanService:
                 "resultCount": 0,
                 "reason": "plan_disabled",
             }
+        if self._should_use_scrydex_japanese_raw(evidence):
+            remote_search = search_remote_scrydex_japanese_raw_candidates(evidence, signals, page_size=10)
+            remote_candidates = best_remote_scrydex_raw_candidates(remote_search.cards, evidence, signals, limit=12)
+            queries = [attempt["query"] for attempt in remote_search.attempts]
+            if not queries:
+                return [], {
+                    "queries": [],
+                    "attempts": [],
+                    "resultCount": 0,
+                    "reason": "no_queries",
+                }
+            return remote_candidates, {
+                "queries": queries,
+                "attempts": remote_search.attempts,
+                "resultCount": len(remote_search.cards),
+                "reason": None,
+            }
+
         queries = build_raw_provider_queries(evidence, signals)
         if not queries:
             return [], {
@@ -559,10 +621,14 @@ class SpotlightScanService:
             return card
 
         source_payload = card.get("sourcePayload") or card.get("source_payload") or {}
+        source_provider = str(card.get("sourceProvider") or card.get("source") or "").strip().lower()
         mapped_card: dict[str, Any] | None = None
-        if isinstance(source_payload, dict) and source_payload.get("id") and source_payload.get("number") is not None:
+        if isinstance(source_payload, dict):
             try:
-                mapped_card = map_card(source_payload, None)
+                if source_provider == "scrydex" or source_payload.get("printed_number") is not None or source_payload.get("expansion") is not None:
+                    mapped_card = map_scrydex_catalog_card(source_payload)
+                elif source_payload.get("id") and source_payload.get("number") is not None:
+                    mapped_card = map_card(source_payload, None)
             except Exception:
                 mapped_card = None
 
@@ -599,6 +665,10 @@ class SpotlightScanService:
         cached = card_by_id(self.connection, card_id)
         if cached is not None:
             cached_pricing = contextual_pricing_summary_for_card(self.connection, card_id)
+            if cached_pricing is None and source_provider == "scrydex" and isinstance(source_payload, dict):
+                persisted = persist_scrydex_raw_snapshot(self.connection, card_id, source_payload)
+                if persisted is not None:
+                    return card_by_id(self.connection, card_id) or cached
             if cached_pricing is None and provider_prices:
                 self._persist_mapped_catalog_card(
                     mapped_card=mapped_card,
@@ -617,6 +687,8 @@ class SpotlightScanService:
             query_text=card_id,
             refresh_embeddings=False,
         )
+        if source_provider == "scrydex" and isinstance(source_payload, dict):
+            persist_scrydex_raw_snapshot(self.connection, card_id, source_payload)
         return card_by_id(self.connection, card_id) or card
 
     def _raw_candidate_payload(
@@ -629,13 +701,13 @@ class SpotlightScanService:
     ) -> dict[str, Any]:
         resolved_card = self._ensure_raw_card_cached(card, "scan_match_raw") if ensure_cached else card
         card_id = str(resolved_card.get("id") or "").strip()
-        pricing = contextual_pricing_summary_for_card(self.connection, card_id) if card_id else None
+        pricing = self._display_pricing_summary_for_card(card_id) if card_id else None
 
         if card_id and refresh_pricing_if_missing and pricing is None:
             refreshed_detail = self.refresh_card_pricing(card_id, api_key=api_key)
             pricing = ((refreshed_detail or {}).get("card", {}) or {}).get("pricing") if isinstance(refreshed_detail, dict) else None
             if pricing is None:
-                pricing = contextual_pricing_summary_for_card(self.connection, card_id)
+                pricing = self._display_pricing_summary_for_card(card_id)
 
         candidate = {
             "id": card_id or str(card.get("id") or ""),
@@ -804,19 +876,22 @@ class SpotlightScanService:
         if grader or grade:
             return None
 
-        if card_by_id(self.connection, card_id) is None and api_key:
+        existing_card = card_by_id(self.connection, card_id)
+        if existing_card is None and api_key:
             try:
                 self.import_catalog_card(card_id, api_key=api_key, trigger_source="refresh_pricing_auto_import")
             except Exception:
                 return None
+            existing_card = card_by_id(self.connection, card_id)
 
         existing_pricing = raw_pricing_summary_for_card(self.connection, card_id)
         if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
             self._log_pricing_provenance("refresh_raw_cached", card_id)
             return self.card_detail(card_id)
 
-        raw_provider = self.pricing_registry.get_provider("pokemontcg_api")
-        if raw_provider is None or not raw_provider.is_ready():
+        provider_id = str((existing_card or {}).get("sourceProvider") or "pokemontcg_api")
+        raw_provider = self.pricing_registry.get_provider(provider_id)
+        if raw_provider is None or not raw_provider.is_ready() or not raw_provider.get_metadata().supports_raw_pricing:
             return self.card_detail(card_id)
 
         provider_refresh_result = raw_provider.refresh_raw_pricing(self.connection, card_id)
@@ -828,7 +903,7 @@ class SpotlightScanService:
         card = card_by_id(self.connection, card_id)
         if card is None:
             return None
-        pricing = contextual_pricing_summary_for_card(self.connection, card_id)
+        pricing = self._display_pricing_summary_for_card(card_id, grader=grader, grade=grade)
         return {
             "card": {
                 "id": card["id"],

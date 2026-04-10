@@ -212,12 +212,13 @@ def _raw_title_query_clauses(evidence: RawEvidence) -> list[str]:
     if title_text:
         add(f'name:"{_quote_query_value(title_text)}"')
 
-    if len(terms) >= 2:
-        add(" ".join(f'name:{term}' for term in [terms[0], terms[-1]]))
-        add(" ".join(f'name:{term}' for term in terms[: min(3, len(terms))]))
-        add(" ".join(f'name:{term}' for term in terms[-min(3, len(terms)) :]))
-    elif len(terms) == 1:
-        add(f'name:{terms[0]}')
+    safe_terms = [term for term in terms if term.isascii()]
+    if len(safe_terms) >= 2:
+        add(" ".join(f'name:{term}' for term in [safe_terms[0], safe_terms[-1]]))
+        add(" ".join(f'name:{term}' for term in safe_terms[: min(3, len(safe_terms))]))
+        add(" ".join(f'name:{term}' for term in safe_terms[-min(3, len(safe_terms)) :]))
+    elif len(safe_terms) == 1:
+        add(f'name:{safe_terms[0]}')
 
     return clauses
 
@@ -234,6 +235,7 @@ def build_raw_provider_queries(evidence: RawEvidence, signals: RawSignalScores) 
     title_clauses = _raw_title_query_clauses(evidence)
     set_tokens = _raw_set_query_tokens(evidence)
     query_values = list(evidence.collector_number_query_values)
+    has_trusted_set = bool(evidence.trusted_set_hint_tokens)
 
     def add(query: str) -> None:
         normalized = query.strip()
@@ -245,13 +247,19 @@ def build_raw_provider_queries(evidence: RawEvidence, signals: RawSignalScores) 
     for route in plan.routes:
         if route == RAW_ROUTE_COLLECTOR_SET_EXACT:
             for number in query_values:
-                add(f'number:"{number.upper()}"')
-                if evidence.collector_number_printed_total is not None:
-                    add(f'set.printedTotal:{evidence.collector_number_printed_total} number:"{number.upper()}"')
-                for set_token in set_tokens:
-                    add(f'set.ptcgoCode:{set_token.upper()} number:"{number.upper()}"')
-                    add(f'set.id:{set_token.lower()} number:"{number.lower()}"')
-                    add(f'set.name:"{_quote_query_value(set_token)}" number:"{number.upper()}"')
+                if has_trusted_set and set_tokens:
+                    for set_token in set_tokens:
+                        add(f'set.ptcgoCode:{set_token.upper()} number:"{number.upper()}"')
+                        add(f'set.id:{set_token.lower()} number:"{number.lower()}"')
+                        add(f'set.name:"{_quote_query_value(set_token)}" number:"{number.upper()}"')
+                else:
+                    add(f'number:"{number.upper()}"')
+                    if evidence.collector_number_printed_total is not None:
+                        add(f'set.printedTotal:{evidence.collector_number_printed_total} number:"{number.upper()}"')
+                    for set_token in set_tokens:
+                        add(f'set.ptcgoCode:{set_token.upper()} number:"{number.upper()}"')
+                        add(f'set.id:{set_token.lower()} number:"{number.lower()}"')
+                        add(f'set.name:"{_quote_query_value(set_token)}" number:"{number.upper()}"')
 
         elif route == RAW_ROUTE_TITLE_SET_PRIMARY and title_clauses:
             for clause in title_clauses:
@@ -264,19 +272,26 @@ def build_raw_provider_queries(evidence: RawEvidence, signals: RawSignalScores) 
         elif route == RAW_ROUTE_TITLE_COLLECTOR and title_clauses:
             for number in query_values:
                 for clause in title_clauses:
-                    add(f'{clause} number:"{number.upper()}"')
-                    if evidence.collector_number_printed_total is not None:
-                        add(f'{clause} number:"{number.upper()}" set.printedTotal:{evidence.collector_number_printed_total}')
+                    if has_trusted_set and set_tokens:
+                        for set_token in set_tokens:
+                            add(f'{clause} number:"{number.upper()}" set.ptcgoCode:{set_token.upper()}')
+                            add(f'{clause} number:"{number.upper()}" set.id:{set_token.lower()}')
+                            add(f'{clause} number:"{number.upper()}" set.name:"{_quote_query_value(set_token)}"')
+                    else:
+                        add(f'{clause} number:"{number.upper()}"')
+                        if evidence.collector_number_printed_total is not None:
+                            add(f'{clause} number:"{number.upper()}" set.printedTotal:{evidence.collector_number_printed_total}')
 
         elif route == RAW_ROUTE_TITLE_ONLY and title_clauses:
             for clause in title_clauses:
                 add(clause)
 
         elif route == RAW_ROUTE_COLLECTOR_ONLY:
-            for number in query_values:
-                add(f'number:"{number.upper()}"')
-                if evidence.collector_number_printed_total is not None:
-                    add(f'number:"{number.upper()}" set.printedTotal:{evidence.collector_number_printed_total}')
+            if not has_trusted_set:
+                for number in query_values:
+                    add(f'number:"{number.upper()}"')
+                    if evidence.collector_number_printed_total is not None:
+                        add(f'number:"{number.upper()}" set.printedTotal:{evidence.collector_number_printed_total}')
 
         elif route == RAW_ROUTE_BROAD_TEXT_FALLBACK:
             fallback_tokens = [token for token in evidence.recognized_tokens if token.isalpha() and len(token) > 2][:3]

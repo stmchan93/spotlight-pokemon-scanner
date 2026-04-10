@@ -11,7 +11,14 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import apply_schema, connect, upsert_catalog_card  # noqa: E402
+from catalog_tools import (  # noqa: E402
+    apply_schema,
+    build_raw_evidence,
+    connect,
+    finalize_raw_decision,
+    score_raw_signals,
+    upsert_catalog_card,
+)
 from server import SpotlightScanService  # noqa: E402
 
 
@@ -173,6 +180,25 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         self.assertEqual(response["reviewDisposition"], "unsupported")
         self.assertIn("No readable OCR signal was found", response["ambiguityFlags"])
         self.assertIsNone(response["ambiguityDebug"])
+
+    def test_japanese_provider_gap_returns_unsupported(self) -> None:
+        payload = raw_payload(
+            title_text_primary="カビゴン",
+            whole_card_text="カビゴン",
+            footer_band_text="s10a 077/071 CHR ©2022 Pokémon/Nintendo/Creatures/GAME FREAK.",
+            collector_number_exact="077/071",
+            set_hint_tokens=["s10a"],
+            recognized_tokens=["カビゴン", "s10a", "077/071", "CHR"],
+            crop_confidence=0.81,
+        )
+
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+        decision = finalize_raw_decision([], evidence, signals)
+
+        self.assertEqual(decision.review_disposition, "unsupported")
+        self.assertEqual(decision.fallback_reason, "provider_unsupported_japanese")
+        self.assertIn("Japanese raw cards are not currently supported by the active provider.", decision.ambiguity_flags)
 
     def test_same_exact_number_without_disambiguator_is_explicit_in_ambiguity_debug(self) -> None:
         response = self.service.match_scan(

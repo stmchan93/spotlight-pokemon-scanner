@@ -70,6 +70,20 @@ private struct ScanStageEncodedArtifact<T: Encodable>: Encodable {
 enum ScanStageArtifactWriter {
     private static let logQueue = DispatchQueue(label: "ScanStageArtifactWriter.logQueue")
     nonisolated(unsafe) private static var loggedDirectoryPaths: Set<String> = []
+    nonisolated(unsafe) private static var debugExportsEnabled = true
+
+    static func setDebugExportsEnabled(_ enabled: Bool) {
+        logQueue.sync {
+            debugExportsEnabled = enabled
+            if !enabled {
+                loggedDirectoryPaths.removeAll()
+            }
+        }
+    }
+
+    static func isDebugExportsEnabled() -> Bool {
+        logQueue.sync { debugExportsEnabled }
+    }
 
     static func clearAllArtifacts() -> Int {
         let fileManager = FileManager.default
@@ -218,6 +232,9 @@ enum ScanStageArtifactWriter {
     }
 
     private static func write(data: Data, named filename: String, scanID: UUID) {
+        guard isDebugExportsEnabled() else {
+            return
+        }
         guard let directoryURL = scanDirectoryURL(for: scanID) else {
             return
         }
@@ -237,6 +254,9 @@ enum ScanStageArtifactWriter {
     }
 
     private static func artifactRootURL() -> URL? {
+        guard isDebugExportsEnabled() else {
+            return nil
+        }
         let fileManager = FileManager.default
         guard let documentsURL = fileManager.urls(for: .documentDirectory, in: .userDomainMask).first else {
             return nil

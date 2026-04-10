@@ -48,6 +48,18 @@ CREATE TABLE IF NOT EXISTS card_price_snapshots (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS fx_rate_snapshots (
+    id TEXT PRIMARY KEY,
+    base_currency TEXT NOT NULL,
+    quote_currency TEXT NOT NULL,
+    rate REAL NOT NULL,
+    source TEXT NOT NULL,
+    effective_at TEXT,
+    source_url TEXT,
+    source_payload_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS scan_events (
     scan_id TEXT PRIMARY KEY,
     created_at TEXT NOT NULL,
@@ -81,6 +93,9 @@ CREATE INDEX IF NOT EXISTS idx_cards_set_ptcgo_code
 
 CREATE INDEX IF NOT EXISTS idx_card_price_snapshots_lookup
     ON card_price_snapshots(card_id, pricing_mode, grader, grade, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_fx_rate_snapshots_lookup
+    ON fx_rate_snapshots(base_currency, quote_currency, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_scan_events_created_at
     ON scan_events(created_at DESC);

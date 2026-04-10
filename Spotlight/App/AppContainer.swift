@@ -38,8 +38,14 @@ final class AppContainer: ObservableObject {
         )
 
         print("🔍 [OCR] Pipeline route: \(ocrFeatureFlags.requestedRoute.rawValue)")
-        let artifactRoot = ScanStageArtifactWriter.artifactRootPath() ?? "<unavailable>"
-        print("🧪 [DEBUG] Scan artifact root: \(artifactRoot)")
+        let scanDebugEnabled = Self.shouldEnableScanDebugExports()
+        ScanStageArtifactWriter.setDebugExportsEnabled(scanDebugEnabled)
+        if scanDebugEnabled {
+            let artifactRoot = ScanStageArtifactWriter.artifactRootPath() ?? "<unavailable>"
+            print("🧪 [DEBUG] Scan artifact root: \(artifactRoot)")
+        } else {
+            print("🧪 [DEBUG] Scan artifact exports disabled for this build")
+        }
 
         Task.detached(priority: .utility) {
             let cacheManager = ScanCacheManager()
@@ -47,7 +53,7 @@ final class AppContainer: ObservableObject {
             print("✅ [APP] Cache cleanup completed")
         }
 
-        if Self.boolEnv("SPOTLIGHT_CLEAR_SCAN_DEBUG_ON_LAUNCH") == true {
+        if scanDebugEnabled, Self.boolEnv("SPOTLIGHT_CLEAR_SCAN_DEBUG_ON_LAUNCH") == true {
             Task.detached(priority: .utility) {
                 let removedCount = ScanStageArtifactWriter.clearAllArtifacts()
                 let rootPath = ScanStageArtifactWriter.artifactRootPath() ?? "<unavailable>"
@@ -144,5 +150,14 @@ final class AppContainer: ObservableObject {
         default:
             return nil
         }
+    }
+
+    private static func shouldEnableScanDebugExports() -> Bool {
+        if let envOverride = boolEnv("SPOTLIGHT_ENABLE_SCAN_DEBUG_EXPORTS") {
+            return envOverride
+        }
+
+        let environment = infoPlistString(forKey: "SpotlightEnvironment", fallback: "local")
+        return environment == "local"
     }
 }

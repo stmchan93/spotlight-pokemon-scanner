@@ -71,7 +71,10 @@ actor RawOCRPassRunner {
         request.recognitionLevel = .accurate
         request.usesLanguageCorrection = plan.usesLanguageCorrection
         request.minimumTextHeight = plan.minimumTextHeight
-        request.recognitionLanguages = ["en-US"]
+        request.recognitionLanguages = plan.recognitionLanguages
+        if #available(iOS 16.0, *) {
+            request.automaticallyDetectsLanguage = plan.recognitionLanguages.count > 1
+        }
 
         let handler = VNImageRequestHandler(cgImage: upscaled, options: [:])
         try handler.perform([request])
