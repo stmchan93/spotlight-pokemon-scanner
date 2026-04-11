@@ -1,0 +1,489 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "178\/162",
+  "contentRectNormalized" : {
+    "height" : 0.9992504197649316,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.0003747901175342153
+  },
+  "fixtureName" : "metagross-178-162",
+  "footerRouting" : {
+    "anchorIdentifier" : "178\/162",
+    "collectorAnchor" : {
+      "height" : 0.01778907147049469,
+      "width" : 0.11293586852058529,
+      "x" : 0.32686539836818895,
+      "y" : 0.9243221564091316
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.21983509234828494,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7797901175341808
+      },
+      "text" : "Discard\/2.Enargy from this Pokémon. weak 1¢55 7x\/2 atesistance @ -30 Doomuse.thomapnetic powersofth Illes. Kofsunori Sato gutetrongayinfreezingcomperaturosotwog H TEF IM 178\/162★ Dstogomswwymounkansaxetalladoo.om 02024 Pokémon\/ Ninte AK",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.026563407152276286,
+            "width" : 0.4525641116725915,
+            "x" : 0.2551282002774863,
+            "y" : 0.7797901176201062
+          },
+          "text" : "Discard\/2.Enargy from this Pokémon."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010075775106011006,
+            "width" : 0.04230769054809788,
+            "x" : 0.23589743720031,
+            "y" : 0.8613122975475136
+          },
+          "text" : "weak"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0073514575206194656,
+            "width" : 0.026923077026582476,
+            "x" : 0.2858974355764523,
+            "y" : 0.8631442568112456
+          },
+          "text" : "1¢55"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019235570820762705,
+            "width" : 0.050000000672786094,
+            "x" : 0.3423076923879659,
+            "y" : 0.8558164201310533
+          },
+          "text" : "7x\/2"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012826178031614411,
+            "width" : 0.1040448789243345,
+            "x" : 0.42169550999623456,
+            "y" : 0.8608530756034308
+          },
+          "text" : "atesistance"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.018582049353221806,
+            "width" : 0.07820512882616149,
+            "x" : 0.5371794865431159,
+            "y" : 0.8547482147058729
+          },
+          "text" : "@ -30"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01795214937514649,
+            "width" : 0.3125,
+            "x" : 0.5249999947916668,
+            "y" : 0.8837236141958357
+          },
+          "text" : "Doomuse.thomapnetic powersofth"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012915574093737971,
+            "width" : 0.15256410090801367,
+            "x" : 0.2410256424818906,
+            "y" : 0.8997834385659533
+          },
+          "text" : "Illes. Kofsunori Sato"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.023765955280117913,
+            "width" : 0.40833332256875554,
+            "x" : 0.5208333455211774,
+            "y" : 0.8986198974075907
+          },
+          "text" : "gutetrongayinfreezingcomperaturosotwog"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01831959022806449,
+            "width" : 0.019230768583859498,
+            "x" : 0.24102564140251467,
+            "y" : 0.9190190099079042
+          },
+          "text" : "H"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.014810523114351942,
+            "width" : 0.037179486040926024,
+            "x" : 0.27435897513480767,
+            "y" : 0.9199349889557757
+          },
+          "text" : "TEF IM"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01778907147049474,
+            "width" : 0.11293586852058529,
+            "x" : 0.32686539836818895,
+            "y" : 0.9243221564091316
+          },
+          "text" : "178\/162★"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02079521026938372,
+            "width" : 0.39583333333333337,
+            "x" : 0.5500000065972219,
+            "y" : 0.9194151090562002
+          },
+          "text" : "Dstogomswwymounkansaxetalladoo.om"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009201788706215684,
+            "width" : 0.14230769189367015,
+            "x" : 0.43333333455682793,
+            "y" : 0.9482883615699994
+          },
+          "text" : "02024 Pokémon\/ Ninte"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008243815722772914,
+            "width" : 0.016666666330273694,
+            "x" : 0.7461538463701196,
+            "y" : 0.9474143754668443
+          },
+          "text" : "AK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.0979265411369633,
+        "width" : 0.138,
+        "x" : 0.14647333262848156,
+        "y" : 0.882354845778344
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.0919310386183737,
+        "width" : 0.275,
+        "x" : 0.24583333262848156,
+        "y" : 0.8872511728351922
+      },
+      "text" : "Ko i Sato TEF IN 178\/163 0202",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008866445348980201,
+            "width" : 0.02160714285714286,
+            "x" : 0.280535713760922,
+            "y" : 0.9026507884374269
+          },
+          "text" : "Ko"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009799755385714972,
+            "width" : 0.05499999999999999,
+            "x" : 0.33880952330110065,
+            "y" : 0.9017174783345827
+          },
+          "text" : "i Sato"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013066340514286626,
+            "width" : 0.03732142857142858,
+            "x" : 0.2759523800765636,
+            "y" : 0.9208503340850527
+          },
+          "text" : "TEF IN"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016799580661225652,
+            "width" : 0.10345238095238095,
+            "x" : 0.32767857109319243,
+            "y" : 0.92458357427125
+          },
+          "text" : "178\/163"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.008399790330612831,
+            "width" : 0.032083333333333346,
+            "x" : 0.43309523756862706,
+            "y" : 0.948849635233761
+          },
+          "text" : "0202"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10192354281602302,
+        "width" : 0.125,
+        "x" : 0.23419105095995485,
+        "y" : 0.8751002877308505
+      },
+      "text" : "TEF IN 178",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01368417935955865,
+            "width" : 0.037760416666666664,
+            "x" : 0.2745556341052095,
+            "y" : 0.9199277717637263
+          },
+          "text" : "TEF IN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010852969836891331,
+            "width" : 0.029947916666666657,
+            "x" : 0.3285920925371033,
+            "y" : 0.9270057957142488
+          },
+          "text" : "178"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09992504197649316,
+        "width" : 0.20328456333705353,
+        "x" : 0.28169105095995484,
+        "y" : 0.8832541711561324
+      },
+      "text" : "Ket neri Sato EF IN 178\/162★ 0202",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009338788969765716,
+            "width" : 0.02754177954889112,
+            "x" : 0.2816910511894697,
+            "y" : 0.9019317490800991
+          },
+          "text" : "Ket"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012660059314294762,
+            "width" : 0.06772344474727929,
+            "x" : 0.32553649216966657,
+            "y" : 0.89980417438708
+          },
+          "text" : "neri Sato"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013074304557672002,
+            "width" : 0.031476319484447,
+            "x" : 0.2816910508288035,
+            "y" : 0.9201423875213354
+          },
+          "text" : "EF IN"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019940560941052034,
+            "width" : 0.1122325875624705,
+            "x" : 0.32721703930972856,
+            "y" : 0.9220790630045471
+          },
+          "text" : "178\/162★"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.007937970624300853,
+            "width" : 0.03344358945222494,
+            "x" : 0.43317083871773876,
+            "y" : 0.9486256939211454
+          },
+          "text" : "0202"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.1049212940753178,
+        "width" : 0.115,
+        "x" : 0.37572561429700835,
+        "y" : 0.8696643654473293
+      },
+      "text" : "163 0202",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016937966756553548,
+            "width" : 0.04780898876404494,
+            "x" : 0.3757256142739345,
+            "y" : 0.9247127573456355
+          },
+          "text" : "163"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.008468983378276774,
+            "width" : 0.03165730337078652,
+            "x" : 0.4332256140991502,
+            "y" : 0.948708210340652
+          },
+          "text" : "0202"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10192354281602302,
+        "width" : 0.20328456333705353,
+        "x" : 0.28169105095995484,
+        "y" : 0.8822549207363675
+      },
+      "text" : "Koh ori Sato EF IN 178\/162",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009773490407015912,
+            "width" : 0.02950904951666906,
+            "x" : 0.2816910512058636,
+            "y" : 0.9018019015310075
+          },
+          "text" : "Koh"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012612005012312221,
+            "width" : 0.06134088404605395,
+            "x" : 0.3320065557892354,
+            "y" : 0.8999172398755152
+          },
+          "text" : "ori Sato"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013496724847783864,
+            "width" : 0.031476319484447,
+            "x" : 0.2816910508288035,
+            "y" : 0.9199526693816594
+          },
+          "text" : "EF IN"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01723344504867417,
+            "width" : 0.10062674738930254,
+            "x" : 0.3281017844320669,
+            "y" : 0.9236691609884582
+          },
+          "text" : "178\/162"
+        }
+      ]
+    }
+  ],
+  "scanID" : "DA76D40D-07D6-4F9E-AE2B-4CA0F0B9C7CA",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

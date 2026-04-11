@@ -1,0 +1,154 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : true,
+    "backendRecoverableReasons" : [
+      "exact_collector_plus_title"
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : false,
+    "titlePass" : true
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 0.9996807967313586,
+      "width" : 1,
+      "x" : 0,
+      "y" : 0.00015960163432069408
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.21992977528089888,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.7799106230847804
+        },
+        "text" : "bakness x2 resistance -30 retreat Ifus. Neinal The body that supports the ball barely moves. Therefore, it is thought that the true body of PAF EN 163\/091 this Pokemon is actually inside the bal!. C2024 Pokemon\/ N endo\/Creatures\/GAME FREAK"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.09796871807967314,
+          "width" : 0.138,
+          "x" : 0,
+          "y" : 0.8449481895429103
+        },
+        "text" : "Ilus. Nel G PAF EN"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.09197063329928498,
+          "width" : 0.275,
+          "x" : 0.07275641073485678,
+          "y" : 0.8498466254468939
+        },
+        "text" : "us. Neinal PAF EN 163\/091 ©2024"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.10196744126659857,
+          "width" : 0.125,
+          "x" : 0.067957647520261,
+          "y" : 0.8376905069586406
+        },
+        "text" : "us. Neinal PAF EN 16."
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.09996807967313587,
+          "width" : 0.1895975264291916,
+          "x" : 0.115457647520261,
+          "y" : 0.8458479022599684
+        },
+        "text" : "leinal FEN 163\/091"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.10496648365679265,
+          "width" : 0.115,
+          "x" : 0.19600641073485675,
+          "y" : 0.8322522434244221
+        },
+        "text" : "1\/091"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.10196744126659857,
+          "width" : 0.19,
+          "x" : 0.11525641073485679,
+          "y" : 0.8448482214632371
+        },
+        "text" : "leinal EN 163\/091"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.19993615934627174,
+          "width" : 0.88,
+          "x" : 0.06,
+          "y" : 0.00015960163432069408
+        },
+        "text" : "STAGE] Rabsca Evolves from Rellor 2"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.7840345839870445,
+    "usedFallback" : true
+  },
+  "fixtureName" : "rabsca-163-091",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "163\/091",
+    "cropConfidence" : 0.7840345839870445,
+    "setConfidenceScore" : 0.48,
+    "setHintTokens" : [
+      "pal"
+    ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "Rabsca Evolves from Rellor",
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Rabsca",
+    "collectorNumber" : "163\/091",
+    "setCode" : "PAF"
+  }
+}

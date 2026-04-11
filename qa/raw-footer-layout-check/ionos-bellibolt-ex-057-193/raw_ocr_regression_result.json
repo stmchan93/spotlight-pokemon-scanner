@@ -1,0 +1,142 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : true,
+    "backendRecoverableReasons" : [
+      "exact_collector_plus_set_hint"
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : true,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.999512325577737,
+      "x" : 0.00024383721113155034,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "text" : "x2 抵抗力 にげ る * eXルール Illus. Sbon Graphies м2a 057\/193 RR ポケモンをくがきぜつしたなき、相手はサイドを2枚とる Ida\/Creature\/GAM: FREAK"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.1379327009297277,
+          "x" : 0.00024383721113155034,
+          "y" : 0.8340570198741563
+        },
+        "text" : "Illus. 5bc M20"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.2748658895338777,
+          "x" : 0.09346758278593595,
+          "y" : 0.8389570198741563
+        },
+        "text" : "5 5ban Graphics M2a 057\/193 RR"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12493904069721712,
+          "x" : 0.05886908218775135,
+          "y" : 0.8267970198741563
+        },
+        "text" : "Illus. 5bon Gr M2a"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.24910921980036188,
+          "x" : 0.10634591765269386,
+          "y" : 0.8349570198741563
+        },
+        "text" : "Sban Graphies M2a 057\/193 RR"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11494391744143975,
+          "x" : 0.24625841588368796,
+          "y" : 0.8213570198741563
+        },
+        "text" : "3 RR"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.24910921980036188,
+          "x" : 0.10634591765269386,
+          "y" : 0.8339570198741563
+        },
+        "text" : "Sban Graphics M2a 057\/193 RR"
+      }
+    ],
+    "requestedGeometryKind" : "fallback",
+    "stage1AssessmentReasons" : [
+      "footer_signal_sufficient_for_early_exit",
+      "target_quality_too_low_for_escalation"
+    ],
+    "targetQualityScore" : 0.4,
+    "usedFallback" : true
+  },
+  "fixtureName" : "ionos-bellibolt-ex-057-193",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "057\/193",
+    "cropConfidence" : 0.4,
+    "setConfidenceScore" : 0.62,
+    "setHintTokens" : [
+      "m20",
+      "m2a"
+    ],
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Target selection confidence is weak"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Iono's Bellibolt ex",
+    "collectorNumber" : "057\/193",
+    "setCode" : "M2a"
+  }
+}

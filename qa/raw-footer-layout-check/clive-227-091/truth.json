@@ -1,0 +1,12 @@
+{
+  "cardName": "Clive",
+  "collectorNumber": "227/091",
+  "setCode": "PAF",
+  "layoutBias": "left",
+  "footerFamily": "modern_left",
+  "runtimeValidation": {
+    "enabled": true,
+    "requireCollectorExact": true,
+    "requireCollectorFromExpectedFamily": true
+  }
+}

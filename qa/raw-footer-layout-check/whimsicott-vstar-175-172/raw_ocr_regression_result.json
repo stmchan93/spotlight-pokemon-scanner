@@ -1,0 +1,142 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.999512325577737,
+      "x" : 0.00024383721113155034,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "text" : "weakness x2 resistance retreat ilus, Sban Graphics VSTAR rule When your Pokémon VSTAR 175\/172 is Knocked Out, your opponent takes 2 Prize cards. 02022 Pokemon \/Nintendu \/Creatures I GAME FREAX"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.1379327009297277,
+          "x" : 0.007611012427043387,
+          "y" : 0.8409333332886154
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.2748658895338777,
+          "x" : 0.10692255709644732,
+          "y" : 0.8458333332886154
+        },
+        "text" : "Illus. Sban Graphics 175\/172 D2022"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12493904069721712,
+          "x" : 0.10442377628250302,
+          "y" : 0.8336733332886155
+        },
+        "text" : "illus: 5ban Gr F 17"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.18490978023188134,
+          "x" : 0.1519006117474455,
+          "y" : 0.8418333332886154
+        },
+        "text" : "Sban Graphics 175\/172"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11494391744143975,
+          "x" : 0.23011245122390345,
+          "y" : 0.8282333332886155
+        },
+        "text" : "aphics 5\/172"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.18990734185977,
+          "x" : 0.14940183093350118,
+          "y" : 0.8408333332886154
+        },
+        "text" : "Sban Graphics F) 175\/172 D."
+      }
+    ],
+    "requestedGeometryKind" : "fallback",
+    "stage1AssessmentReasons" : [
+      "title_signal_weak",
+      "set_signal_weak",
+      "target_quality_too_low_for_escalation"
+    ],
+    "targetQualityScore" : 0.4,
+    "usedFallback" : true
+  },
+  "fixtureName" : "whimsicott-vstar-175-172",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "175\/172",
+    "cropConfidence" : 0.4,
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Target selection confidence is weak",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Whimsicott VSTAR",
+    "collectorNumber" : "175\/172",
+    "setCode" : "SWSH09"
+  }
+}

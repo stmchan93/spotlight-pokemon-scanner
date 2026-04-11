@@ -1,0 +1,141 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : true,
+    "backendRecoverableReasons" : [
+      "exact_collector_plus_set_hint"
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : true,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1.0000000000000002,
+      "width" : 0.9984236958832804,
+      "x" : 0.0007881520583598305,
+      "y" : -6.45947941600091e-17
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22000000000000006,
+          "width" : 0.9984236958832804,
+          "x" : 0.0007881520583598305,
+          "y" : 0.7800000000000001
+        },
+        "text" : "22 resistance Sep gradapertinne de mandko unong dhe tetae 3 YoMhtro Toda pelsem gassebydi aean io the bigluset lsor 199\/182 C: 125 Pokémon \/ Nintendo \/ Creatures \/ GAMEFREAX O. 125 POK"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.09800000000000003,
+          "width" : 0.1377824700318927,
+          "x" : 0.0007881520583598305,
+          "y" : 0.8652249998802711
+        },
+        "text" : "ODRI"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.09200000000000001,
+          "width" : 0.27456651636790214,
+          "x" : 0.06958978469121352,
+          "y" : 0.8701249998802711
+        },
+        "text" : "B Valtiro Toda 199\/182 C. 125 1"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.10200000000000002,
+          "width" : 0.12480296198541005,
+          "x" : 0.057993035503820324,
+          "y" : 0.8579649998802711
+        },
+        "text" : "Toв YOM Ire1 DRIN 19"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.10000000000000003,
+          "width" : 0.20290976363377689,
+          "x" : 0.10541816105827614,
+          "y" : 0.8661249998802711
+        },
+        "text" : "alliro Tada 199\/182"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.10500000000000002,
+          "width" : 0.11481872502657725,
+          "x" : 0.19925013591680468,
+          "y" : 0.8525249998802711
+        },
+        "text" : "4182"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.10200000000000002,
+          "width" : 0.20290976363377689,
+          "x" : 0.10541816105827614,
+          "y" : 0.8651249998802711
+        },
+        "text" : "ito Tada 199\/182"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "footer_signal_sufficient_for_early_exit"
+    ],
+    "targetQualityScore" : 0.809675248984217,
+    "usedFallback" : true
+  },
+  "fixtureName" : "team-rockets-weezing-199-182",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "199\/182",
+    "cropConfidence" : 0.809675248984217,
+    "setConfidenceScore" : 0.62,
+    "setHintTokens" : [
+      "dri",
+      "ire1",
+      "lor"
+    ],
+    "warnings" : [
+      "Target selection used fallback crop"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Team Rocket's Weezing",
+    "collectorNumber" : "199\/182",
+    "setCode" : "DRI"
+  }
+}

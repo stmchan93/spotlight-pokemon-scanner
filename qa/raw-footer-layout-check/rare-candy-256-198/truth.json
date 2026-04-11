@@ -1,0 +1,12 @@
+{
+  "cardName": "Rare Candy",
+  "collectorNumber": "256/198",
+  "setCode": "SVI",
+  "layoutBias": "left",
+  "footerFamily": "modern_left",
+  "runtimeValidation": {
+    "enabled": true,
+    "requireCollectorExact": true,
+    "requireCollectorFromExpectedFamily": true
+  }
+}

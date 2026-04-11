@@ -1,0 +1,152 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 0.9976539589442814,
+      "width" : 1,
+      "x" : 0,
+      "y" : 0.0011730205278592688
+    },
+    "footerRoutingReasons" : [
+      "footer_band_anchor_unavailable"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.1995307917888563,
+          "width" : 0.9,
+          "x" : 0.05,
+          "y" : 0.7593900293255131
+        },
+        "text" : "一風の税込価"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.09777008797653959,
+          "width" : 0.138,
+          "x" : 0.07064000000000001,
+          "y" : 0.8442903812316715
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.09178416422287389,
+          "width" : 0.275,
+          "x" : 0.17,
+          "y" : 0.8491788856304985
+        },
+        "text" : "（の夢"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.1017607038123167,
+          "width" : 0.125,
+          "x" : 0.6725,
+          "y" : 0.8410380293255132
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.09976539589442815,
+          "width" : 0.185,
+          "x" : 0.72,
+          "y" : 0.8491788856304985
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.10475366568914955,
+          "width" : 0.115,
+          "x" : 0.7857500000000001,
+          "y" : 0.8286272140762463
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.1017607038123167,
+          "width" : 0.19,
+          "x" : 0.705,
+          "y" : 0.8411976539589442
+        },
+        "text" : ""
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2194838709677419,
+          "width" : 0.8,
+          "x" : 0.1,
+          "y" : 0.0211260997067449
+        },
+        "text" : ""
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "collector_signal_weak",
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.8133062067620479,
+    "usedFallback" : false
+  },
+  "fixtureName" : "snorlax-077-071-overhead",
+  "ocr" : {
+    "cropConfidence" : 0.8133062067620479,
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Raw scene looks holder-like",
+      "Rewrite raw escalation used focused ROIs",
+      "Could not read strong raw-card clues",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Snorlax",
+    "collectorNumber" : "077\/071",
+    "setCode" : "S10a"
+  }
+}

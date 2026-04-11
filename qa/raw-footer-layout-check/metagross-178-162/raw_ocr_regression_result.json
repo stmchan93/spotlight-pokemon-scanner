@@ -1,0 +1,142 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 0.9992504197649316,
+      "width" : 1,
+      "x" : 0,
+      "y" : 0.0003747901175342153
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.21983509234828494,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.7797901175341808
+        },
+        "text" : "Discard 2 Energy from this Pokémon. weak 1¢55 1x2 maresistance •-30 Doomuse.thomapnetic powersofth Illus. Katuneri Sato gatatmangorin freezinstomporturos, Muny H TEF IM 178\/162★ \"Toingonsnouy apaminsare hallaaf saans 02034 Pokemton \/ Ninke Ak"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.0979265411369633,
+          "width" : 0.138,
+          "x" : 0.14647333262848156,
+          "y" : 0.882354845778344
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.0919310386183737,
+          "width" : 0.275,
+          "x" : 0.24583333262848156,
+          "y" : 0.8872511728351922
+        },
+        "text" : "wi Sato TEF IN 178\/163 V 0203"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.10192354281602302,
+          "width" : 0.125,
+          "x" : 0.23419105095995485,
+          "y" : 0.8751002877308505
+        },
+        "text" : "A TEF IN 178"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.09992504197649316,
+          "width" : 0.20328456333705353,
+          "x" : 0.28169105095995484,
+          "y" : 0.8832541711561324
+        },
+        "text" : "Kat nori Sato EF IN 178\/162★ 0207"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.1049212940753178,
+          "width" : 0.115,
+          "x" : 0.37572561429700835,
+          "y" : 0.8696643654473293
+        },
+        "text" : "163 0203"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.10192354281602302,
+          "width" : 0.20328456333705353,
+          "x" : 0.28169105095995484,
+          "y" : 0.8822549207363675
+        },
+        "text" : "Kat ori Sato EF IN 178\/162Y"
+      }
+    ],
+    "requestedGeometryKind" : "fallback",
+    "stage1AssessmentReasons" : [
+      "title_signal_weak",
+      "set_signal_weak",
+      "target_quality_too_low_for_escalation"
+    ],
+    "targetQualityScore" : 0.4,
+    "usedFallback" : true
+  },
+  "fixtureName" : "metagross-178-162",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "178\/162",
+    "cropConfidence" : 0.4,
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Target selection confidence is weak",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Metagross",
+    "collectorNumber" : "178\/162",
+    "setCode" : "TEF"
+  }
+}

@@ -1,0 +1,152 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9997229149348851,
+      "x" : 0.00013854253255748706,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_anchor_unavailable"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8997506234413966,
+          "x" : 0.05012468827930175,
+          "y" : 0.76
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.13796176226101414,
+          "x" : 0.07075896924355779,
+          "y" : 0.8451
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.2749238016070934,
+          "x" : 0.17009143807148797,
+          "y" : 0.85
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12496536436686063,
+          "x" : 0.6724522028262677,
+          "y" : 0.84184
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.18494873926295374,
+          "x" : 0.7199390412856748,
+          "y" : 0.85
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11496813521751179,
+          "x" : 0.7856708229426435,
+          "y" : 0.8294
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.18994735383762817,
+          "x" : 0.7049431975616515,
+          "y" : 0.842
+        },
+        "text" : ""
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.7997783319479081,
+          "x" : 0.10011083402604601,
+          "y" : 0.02
+        },
+        "text" : ""
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "collector_signal_weak",
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.851881542270959,
+    "usedFallback" : false
+  },
+  "fixtureName" : "pikachu-vmax-swsh286-overhead",
+  "ocr" : {
+    "cropConfidence" : 0.851881542270959,
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Raw scene looks holder-like",
+      "Rewrite raw escalation used focused ROIs",
+      "Could not read strong raw-card clues",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Pikachu VMAX",
+    "collectorNumber" : "SWSH286",
+    "setCode" : "SWSD"
+  }
+}

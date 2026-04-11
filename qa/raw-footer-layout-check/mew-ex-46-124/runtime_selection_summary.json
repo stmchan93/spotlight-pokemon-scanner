@@ -1,0 +1,268 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "46\/124",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9998229775181448,
+    "x" : 8.851124092760955e-05,
+    "y" : 0
+  },
+  "fixtureName" : "mew-ex-46-124",
+  "footerRouting" : {
+    "anchorIdentifier" : "46\/124",
+    "collectorAnchor" : {
+      "height" : 0.014485514730983584,
+      "width" : 0.09122144352596351,
+      "x" : 0.7485679626575316,
+      "y" : 0.8832155759272711
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9998229775181448,
+        "x" : 8.851124092760955e-05,
+        "y" : 0.78
+      },
+      "text" : "• ELCee jees Louriad Dal L,1тu cak Ls Elo toclanoo 46\/124",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01104465118451923,
+            "width" : 0.19099182560651765,
+            "x" : 0.6153641914165758,
+            "y" : 0.8285386817697787
+          },
+          "text" : "• ELCee jees Louriad Dal"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010238299684059983,
+            "width" : 0.13202790683349908,
+            "x" : 0.6102368903287284,
+            "y" : 0.8449283670599373
+          },
+          "text" : "L,1тu cak"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012977793455807065,
+            "width" : 0.13843702434476704,
+            "x" : 0.5717821652979197,
+            "y" : 0.8852722065632379
+          },
+          "text" : "Ls Elo toclanoo"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01448551473098362,
+            "width" : 0.09122144352596354,
+            "x" : 0.7485679626575316,
+            "y" : 0.8832155759272711
+          },
+          "text" : "46\/124"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13797557089750398,
+        "x" : 0.5573606139655655,
+        "y" : 0.8395583332927629
+      },
+      "text" : "Pra la. Eia kains",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01268235294117648,
+            "width" : 0.028136194849687077,
+            "x" : 0.6612481026954412,
+            "y" : 0.8414799018714355
+          },
+          "text" : "Pra"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01268235294117648,
+            "width" : 0.11579126341986609,
+            "x" : 0.5741341144518622,
+            "y" : 0.8849073529227041
+          },
+          "text" : "la. Eia kains"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.27495131881748985,
+        "x" : 0.6567030250117684,
+        "y" : 0.8444583332927629
+      },
+      "text" : "46\/124",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013105071634205465,
+            "width" : 0.07790287433408215,
+            "x" : 0.7506447258296298,
+            "y" : 0.8827238201725249
+          },
+          "text" : "46\/124"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.1249778721897681,
+        "x" : 0.654203467567973,
+        "y" : 0.8322983332927629
+      },
+      "text" : "MOM41",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010045464862476688,
+            "width" : 0.08186323505880004,
+            "x" : 0.6542034680796182,
+            "y" : 0.8435028735791382
+          },
+          "text" : "MOM41"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18496725084085677,
+        "x" : 0.7016950590000849,
+        "y" : 0.8404583332927629
+      },
+      "text" : "46\/124",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013527420079596687,
+            "width" : 0.06957072618717312,
+            "x" : 0.7501778708375686,
+            "y" : 0.8832273335954683
+          },
+          "text" : "46\/124"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11497964241458665,
+        "x" : 0.7799312069908798,
+        "y" : 0.8268583332927629
+      },
+      "text" : "1124",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0111504424778761,
+            "width" : 0.04073564474116784,
+            "x" : 0.7799312071475554,
+            "y" : 0.8840043509632871
+          },
+          "text" : "1124"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.1899663657284475,
+        "x" : 0.6991955015562896,
+        "y" : 0.8394583332927629
+      },
+      "text" : "46\/124",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013631977107426889,
+            "width" : 0.06761189476636985,
+            "x" : 0.7512334615013297,
+            "y" : 0.8831765915969475
+          },
+          "text" : "46\/124"
+        }
+      ]
+    }
+  ],
+  "scanID" : "8C25AC28-AD7F-48E6-B5B8-0C4C289ECE23",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_family_set_hints"
+  ],
+  "setConfidenceScore" : 0.62,
+  "setHintTokens" : [
+    "mom41",
+    "pal"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak"
+  ]
+}

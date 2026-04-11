@@ -89,6 +89,7 @@ final class OCRFixtureExecutionTests: XCTestCase {
 
         for manifestURL in manifests {
             let fixture = try decodeFixtureManifest(at: manifestURL)
+            guard fixture.selectedMode == "slab" else { continue }
             let sourceImageURL = manifestURL.deletingLastPathComponent().appendingPathComponent(fixture.sourceImage)
 
             XCTAssertTrue(fileManager.fileExists(atPath: sourceImageURL.path), "missing source image for \(fixture.fixtureName)")
@@ -105,31 +106,26 @@ final class OCRFixtureExecutionTests: XCTestCase {
             )
 
             let scanID = UUID()
-            let analyzed: AnalyzedCapture
-
-            if fixture.selectedMode == "raw" {
-                let scanner = RawCardScanner()
-                analyzed = try await scanner.analyze(
-                    scanID: scanID,
-                    capture: capture,
-                    resolverModeHint: .rawCard
+            let scanner = SlabScanner(
+                config: SlabScanConfiguration(
+                    labelOCR: .default,
+                    debug: .disabled
                 )
-            } else {
-                let scanner = SlabScanner(
-                    config: SlabScanConfiguration(
-                        labelOCR: .default,
-                        debug: .disabled
-                    )
-                )
-                analyzed = try await scanner.analyze(
-                    scanID: scanID,
-                    capture: capture,
-                    resolverModeHint: .psaSlab
-                )
-            }
+            )
+            let analyzed = try await scanner.analyze(
+                scanID: scanID,
+                capture: capture,
+                resolverModeHint: .psaSlab
+            )
 
             let outputDirectory = outputRoot.appendingPathComponent(fixture.fixtureName, isDirectory: true)
             try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+
+            let rawEvidence = analyzed.ocrAnalysis?.rawEvidence
+            let slabEvidence = analyzed.ocrAnalysis?.slabEvidence
+            let fullRecognizedText = rawEvidence?.wholeCardText ?? slabEvidence?.labelWideText ?? ""
+            let metadataStripRecognizedText = rawEvidence?.footerBandText ?? ""
+            let topLabelRecognizedText = slabEvidence?.titleTextPrimary ?? ""
 
             let summary = OCRFixtureExecutionSummary(
                 fixtureName: fixture.fixtureName,
@@ -149,11 +145,11 @@ final class OCRFixtureExecutionTests: XCTestCase {
                 cropConfidence: analyzed.cropConfidence,
                 collectorNumber: analyzed.collectorNumber,
                 setHintTokens: analyzed.setHintTokens,
-                fullRecognizedText: analyzed.fullRecognizedText,
-                metadataStripRecognizedText: analyzed.metadataStripRecognizedText,
-                topLabelRecognizedText: analyzed.topLabelRecognizedText,
-                bottomLeftRecognizedText: analyzed.bottomLeftRecognizedText,
-                bottomRightRecognizedText: analyzed.bottomRightRecognizedText,
+                fullRecognizedText: fullRecognizedText,
+                metadataStripRecognizedText: metadataStripRecognizedText,
+                topLabelRecognizedText: topLabelRecognizedText,
+                bottomLeftRecognizedText: "",
+                bottomRightRecognizedText: "",
                 slabGrader: analyzed.slabGrader,
                 slabGrade: analyzed.slabGrade,
                 slabCertNumber: analyzed.slabCertNumber,

@@ -1,0 +1,479 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "128\/142",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999987628202749,
+    "x" : 6.185898625484957e-06,
+    "y" : 0
+  },
+  "fixtureName" : "terapagos-ex-128-142",
+  "footerRouting" : {
+    "anchorIdentifier" : "128\/142",
+    "collectorAnchor" : {
+      "height" : 0.027318465880473264,
+      "width" : 0.1535500530453774,
+      "x" : 0.23043606497483415,
+      "y" : 0.8715169938581473
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.8008823851640186,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999987628202749,
+        "x" : 6.185898625484957e-06,
+        "y" : 0.78
+      },
+      "text" : "weakness resistance retreat Pokémon eX rule Mius Sbon Gros When your Pokémon eX SCR EM 128\/142 ** in fascied Out, your epponent takes 2 Prize cards. 62824 Pustmon \/ Juintacdo \/Creatures \/ GAMAE FREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013651004124507506,
+            "width" : 0.08996438434027224,
+            "x" : 0.13194488269313556,
+            "y" : 0.8052578312426031
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010999999278595912,
+            "width" : 0.0974346869070199,
+            "x" : 0.3666683178011413,
+            "y" : 0.8065833337490355
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.012597541371867442,
+            "width" : 0.0707311339713654,
+            "x" : 0.6588627989899324,
+            "y" : 0.8062428958641811
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018409503182572437,
+            "width" : 0.2089717650986085,
+            "x" : 0.451282659995742,
+            "y" : 0.8340833337188356
+          },
+          "text" : "Pokémon eX rule"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012833333493645332,
+            "width" : 0.14102389939013132,
+            "x" : 0.1346199045345142,
+            "y" : 0.852416666547225
+          },
+          "text" : "Mius Sbon Gros"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016521012216037866,
+            "width" : 0.22435618828480466,
+            "x" : 0.7320484155551775,
+            "y" : 0.8441666670446347
+          },
+          "text" : "When your Pokémon eX"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013868194842406874,
+            "width" : 0.04358920239144457,
+            "x" : 0.17179893355094067,
+            "y" : 0.8761318051379503
+          },
+          "text" : "SCR EM"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.027318465880473236,
+            "width" : 0.15355005304537736,
+            "x" : 0.23043606497483415,
+            "y" : 0.8715169938581473
+          },
+          "text" : "128\/142 **"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01954154727793697,
+            "width" : 0.46794294928291075,
+            "x" : 0.4333341506940324,
+            "y" : 0.8651002862982125
+          },
+          "text" : "in fascied Out, your epponent takes 2 Prize cards."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011036771648592793,
+            "width" : 0.38589266537875316,
+            "x" : 0.35384795733553076,
+            "y" : 0.9101666669173687
+          },
+          "text" : "62824 Pustmon \/ Juintacdo \/Creatures \/ GAMAE FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13799829269197939,
+        "x" : 0.06965727301845805,
+        "y" : 0.8342762267983839
+      },
+      "text" : "Mus. 56 H SCR =",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016268774703557316,
+            "width" : 0.072516749885197,
+            "x" : 0.1345976459340128,
+            "y" : 0.84938294610787
+          },
+          "text" : "Mus. 56"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.023241106719367587,
+            "width" : 0.022729130561031895,
+            "x" : 0.1351388158462859,
+            "y" : 0.8714619976139306
+          },
+          "text" : "H"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01471936758893281,
+            "width" : 0.035717205167335835,
+            "x" : 0.17139719066321277,
+            "y" : 0.8749481635082126
+          },
+          "text" : "SCR ="
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2763900954816793,
+        "x" : 0.1690160437566832,
+        "y" : 0.8391762267983839
+      },
+      "text" : "- Sbon Gios SCR EN 128\/142 ** €2924 Puкa",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014477157360406093,
+            "width" : 0.10792375156903666,
+            "x" : 0.16901604429630193,
+            "y" : 0.8522523689093483
+          },
+          "text" : "- Sbon Gios"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013543147208121838,
+            "width" : 0.04738115922543074,
+            "x" : 0.16901604401991185,
+            "y" : 0.87653663288716
+          },
+          "text" : "SCR EN"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.02321091956898645,
+            "width" : 0.15350949257822294,
+            "x" : 0.23218378439961262,
+            "y" : 0.8751990851323012
+          },
+          "text" : "128\/142 **"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009340101522842648,
+            "width" : 0.0816008853326863,
+            "x" : 0.3545922512329591,
+            "y" : 0.9092269882138662
+          },
+          "text" : "€2924 Puкa"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12499845352534363,
+        "x" : 0.12151663141705261,
+        "y" : 0.8270162267983839
+      },
+      "text" : "ilbs. Sbo",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013041095890410958,
+            "width" : 0.08268126873811793,
+            "x" : 0.13518833778814499,
+            "y" : 0.8521669117240689
+          },
+          "text" : "ilbs. Sbo"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.2763900954816793,
+        "x" : 0.1690160437566832,
+        "y" : 0.8351762267983839
+      },
+      "text" : "- Sbon Gios 128\/142 ** €2924 Puie",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016360940665842216,
+            "width" : 0.10763718072266247,
+            "x" : 0.16883029376487413,
+            "y" : 0.8517621115931041
+          },
+          "text" : "- Sbon Gios"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.022779423722596937,
+            "width" : 0.15201455251492363,
+            "x" : 0.2312038160845863,
+            "y" : 0.875013625322751
+          },
+          "text" : "128\/142 **"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.00981308411214954,
+            "width" : 0.08423317195632132,
+            "x" : 0.3539341787526328,
+            "y" : 0.9094752921644275
+          },
+          "text" : "€2924 Puie"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11499857724331614,
+        "x" : 0.33615749085721214,
+        "y" : 0.8215762267983839
+      },
+      "text" : "$2924 P",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008362831858407081,
+            "width" : 0.05620716977622755,
+            "x" : 0.3574774522752088,
+            "y" : 0.9098505630583397
+          },
+          "text" : "$2924 P"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.2763900954816793,
+        "x" : 0.1690160437566832,
+        "y" : 0.8341762267983839
+      },
+      "text" : "- Sbon Giopta 128\/142 ** C2124 Poio",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.015583333333333334,
+            "width" : 0.1316143311817521,
+            "x" : 0.16901604430507622,
+            "y" : 0.8516484490068329
+          },
+          "text" : "- Sbon Giopta"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016999999999999994,
+            "width" : 0.14016926270856592,
+            "x" : 0.23219092218481163,
+            "y" : 0.8795095601644095
+          },
+          "text" : "128\/142 **"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010439797374937273,
+            "width" : 0.07646491701603526,
+            "x" : 0.3545279479442487,
+            "y" : 0.9089979944925765
+          },
+          "text" : "C2124 Poio"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.8799891128184191,
+        "x" : 0.06000544359079042,
+        "y" : 0
+      },
+      "text" : "BASIG Terapagos@* \" 230 Tera As long as this Pokémon is on your Bench, prevent all damage done to this Pokémon by attacks (both yours and your opponent's).",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.0169245507519318,
+            "width" : 0.09880849744968427,
+            "x" : 0.1433581722718678,
+            "y" : 0.08813636415282958
+          },
+          "text" : "BASIG"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0408163245588411,
+            "width" : 0.34706467805451163,
+            "x" : 0.27241660578885124,
+            "y" : 0.08979591955731414
+          },
+          "text" : "Terapagos@*"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.041048034934497823,
+            "width" : 0.14792920719185754,
+            "x" : 0.718100749242934,
+            "y" : 0.0829694321058522
+          },
+          "text" : "\" 230"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01699123465858694,
+            "width" : 0.09504450677584547,
+            "x" : 0.716095175754858,
+            "y" : 0.13027989279981425
+          },
+          "text" : "Tera"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.023556880034734086,
+            "width" : 0.5582577430511492,
+            "x" : 0.29864590410219716,
+            "y" : 0.15070223263062552
+          },
+          "text" : "As long as this Pokémon is on your Bench, prevent all damage done to this"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02021635796825958,
+            "width" : 0.41393894523902036,
+            "x" : 0.2835350118491814,
+            "y" : 0.16969495918576546
+          },
+          "text" : "Pokémon by attacks (both yours and your opponent's)."
+        }
+      ]
+    }
+  ],
+  "scanID" : "353FBC3C-88D5-4E9E-A67D-8997B78E03F3",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

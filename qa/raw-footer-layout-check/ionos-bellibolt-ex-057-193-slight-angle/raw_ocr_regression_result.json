@@ -1,0 +1,142 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.999512325577737,
+      "x" : 0.00024383721113155034,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "text" : "GX：ルール 3Mus. 5ban Grophics ポケモンexがきばつしたとき、相手はサイド L.22g 057\/193.2"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.1379327009297277,
+          "x" : 0.00024383721113155034,
+          "y" : 0.7844059874552262
+        },
+        "text" : "-55 12d"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.09647021338708846,
+          "width" : 0.3467158432307523,
+          "x" : 0.00024383721113155034,
+          "y" : 0.7893059874552262
+        },
+        "text" : "ius. 55ca Graphies ポケ D C20 05711932R D20s BolEn"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12493904069721712,
+          "x" : 0.00024383721113155034,
+          "y" : 0.7793810941487704
+        },
+        "text" : "3.56 ①"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.3467158432307523,
+          "x" : 0.00024383721113155034,
+          "y" : 0.7875410941487704
+        },
+        "text" : "Jllus. 5ban Graphics ポケ D Z2d 057\/193 28 D2035 B0"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11494391744143975,
+          "x" : 0.23776295887251603,
+          "y" : 0.7739410941487704
+        },
+        "text" : "e ボケモ R"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.3467158432307523,
+          "x" : 0.00024383721113155034,
+          "y" : 0.7865410941487704
+        },
+        "text" : "Ius. 5ban Grophics ボケ D L2g 057\/193 RR 15 B0"
+      }
+    ],
+    "requestedGeometryKind" : "fallback",
+    "stage1AssessmentReasons" : [
+      "title_signal_weak",
+      "set_signal_weak",
+      "target_quality_too_low_for_escalation"
+    ],
+    "targetQualityScore" : 0.4,
+    "usedFallback" : true
+  },
+  "fixtureName" : "ionos-bellibolt-ex-057-193-slight-angle",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "057\/193",
+    "cropConfidence" : 0.4,
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Target selection confidence is weak",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Iono's Bellibolt ex",
+    "collectorNumber" : "057\/193",
+    "setCode" : "M2a"
+  }
+}

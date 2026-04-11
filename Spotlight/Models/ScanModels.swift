@@ -27,6 +27,17 @@ enum ReviewDisposition: String, Codable, Hashable, Sendable {
 struct RecognizedToken: Hashable, Sendable {
     let text: String
     let confidence: Float
+    let normalizedBoundingBox: OCRNormalizedRect?
+
+    init(
+        text: String,
+        confidence: Float,
+        normalizedBoundingBox: OCRNormalizedRect? = nil
+    ) {
+        self.text = text
+        self.confidence = confidence
+        self.normalizedBoundingBox = normalizedBoundingBox
+    }
 }
 
 struct AnalyzedCapture: @unchecked Sendable {

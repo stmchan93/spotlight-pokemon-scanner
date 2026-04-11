@@ -32,6 +32,10 @@ enum MatcherError: LocalizedError {
 }
 
 final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable {
+    // Temporary local-only mode: keep OCR running, but stop the app from hitting backend match endpoints.
+    private static let isScanMatchRequestTemporarilyDisabled = true
+    private static let temporaryDisableReason = "Backend match is temporarily disabled in the app."
+
     private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
@@ -57,6 +61,11 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
     }
 
     func primeLocalNetworkPermissionIfNeeded() async {
+        guard !Self.isScanMatchRequestTemporarilyDisabled else {
+            print("⚠️ [APP] Skipping local backend warmup because scan match is temporarily disabled")
+            return
+        }
+
         guard baseURL.requiresLocalNetworkPermissionPrompt else {
             return
         }
@@ -82,7 +91,13 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
     }
 
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
-        try await performMatch(payload: makePayload(analysis: analysis))
+        let payload = makePayload(analysis: analysis)
+        guard !Self.isScanMatchRequestTemporarilyDisabled else {
+            print("⚠️ [MATCH] Skipping POST /api/v1/scan/match because it is temporarily disabled")
+            return temporarilyDisabledMatchResponse(for: payload)
+        }
+
+        return try await performMatch(payload: payload)
     }
 
     func search(query: String) async -> [CardCandidate] {
@@ -266,6 +281,22 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             cropConfidence: analysis.cropConfidence,
             warnings: analysis.warnings,
             ocrAnalysis: analysis.ocrAnalysis
+        )
+    }
+
+    private func temporarilyDisabledMatchResponse(for payload: ScanMatchRequestPayload) -> ScanMatchResponse {
+        ScanMatchResponse(
+            scanID: payload.scanID,
+            topCandidates: [],
+            confidence: .low,
+            ambiguityFlags: ["backend_match_disabled"],
+            matcherSource: .remoteHybrid,
+            matcherVersion: "frontend_temp_backend_disabled",
+            resolverMode: payload.resolverModeHint,
+            resolverPath: nil,
+            slabContext: nil,
+            reviewDisposition: .unsupported,
+            reviewReason: Self.temporaryDisableReason
         )
     }
 

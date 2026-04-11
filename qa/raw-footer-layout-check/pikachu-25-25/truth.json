@@ -1,0 +1,12 @@
+{
+  "cardName": "Pikachu",
+  "collectorNumber": "25/25",
+  "setCode": "MCD21",
+  "layoutBias": "left",
+  "footerFamily": "modern_left",
+  "runtimeValidation": {
+    "enabled": true,
+    "requireCollectorExact": true,
+    "requireCollectorFromExpectedFamily": true
+  }
+}

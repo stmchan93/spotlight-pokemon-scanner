@@ -12,11 +12,11 @@
   "fullRecognizedText" : "",
   "metadataStripRecognizedText" : "",
   "ocrPipelineVersion" : "rewrite_v1",
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrSelectedMode" : "raw",
   "ocrTargetQualityScore" : 0.4,
   "ocrUsedFallback" : true,
-  "scanID" : "2CBA1AF8-40F8-4A9E-B0B4-9D3AC0298601",
+  "scanID" : "189A759A-E1C4-4713-BD46-8DEDDD5F1853",
   "setHintTokens" : [
 
   ],

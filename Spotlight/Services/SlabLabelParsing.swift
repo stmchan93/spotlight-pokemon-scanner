@@ -54,10 +54,13 @@ struct SlabLabelAnalysis: Hashable, Sendable {
     let visualSignals: SlabVisualSignals
     let reasons: [String]
     let recommendedLookupPath: SlabRecommendedLookupPath
+    let isPSAConfident: Bool
+    let unsupportedReason: String?
 
     var isLikelySlab: Bool {
         graderConfidence >= 0.6
             || certConfidence >= 0.72
+            || unsupportedReason == "non_psa_slab_not_supported_yet"
             || recommendedLookupPath != .needsReview
             || SlabLabelParser.looksLikeSlabText(normalizedLabelText)
     }
@@ -88,6 +91,7 @@ enum SlabLabelParser {
         let combinedText = [normalizedLabelText, normalizedBarcodeText]
             .filter { !$0.isEmpty }
             .joined(separator: " ")
+        let explicitNonPSAGrader = detectExplicitNonPSAGrader(from: combinedText)
 
         let certCandidate = resolveCertCandidate(
             normalizedLabelText: normalizedLabelText,
@@ -115,6 +119,9 @@ enum SlabLabelParser {
             visualSignals: visualSignals,
             gradeCandidate: gradeCandidate
         )
+        let isPSAConfident = explicitNonPSAGrader == nil
+            && graderCandidate.normalizedValue == "PSA"
+            && graderCandidate.confidence >= 0.62
         let verificationMethod: SlabVerificationMethod
         if certCandidate.source == .barcode {
             verificationMethod = .barcode
@@ -131,8 +138,17 @@ enum SlabLabelParser {
             certNumber: certCandidate.normalizedValue,
             certConfidence: certCandidate.confidence,
             grade: gradeCandidate.normalizedValue,
-            gradeConfidence: gradeCandidate.confidence
+            gradeConfidence: gradeCandidate.confidence,
+            isPSAConfident: isPSAConfident
         )
+        let unsupportedReason: String?
+        if explicitNonPSAGrader != nil {
+            unsupportedReason = "non_psa_slab_not_supported_yet"
+        } else if !isPSAConfident {
+            unsupportedReason = "psa_label_not_confident_enough"
+        } else {
+            unsupportedReason = nil
+        }
         var reasons = graderCandidate.reasons
         reasons += certCandidate.reasons
         reasons += gradeCandidate.reasons
@@ -140,26 +156,34 @@ enum SlabLabelParser {
         if let cardNumberRaw {
             reasons.append("card_number:\(cardNumberRaw)")
         }
+        if let explicitNonPSAGrader {
+            reasons.append("explicit_non_psa_grader:\(explicitNonPSAGrader)")
+        }
+        if let unsupportedReason {
+            reasons.append("unsupported_reason:\(unsupportedReason)")
+        }
         reasons.append("lookup_path:\(recommendedLookupPath.rawValue)")
         reasons = dedupe(reasons)
 
         return SlabLabelAnalysis(
             parsedLabelText: normalizedSegments,
             normalizedLabelText: normalizedLabelText,
-            grader: graderCandidate.normalizedValue,
-            graderConfidence: graderCandidate.confidence,
-            grade: gradeCandidate.normalizedValue,
-            gradeRaw: gradeCandidate.rawValue,
-            gradeConfidence: gradeCandidate.confidence,
-            certNumber: certCandidate.normalizedValue,
-            certNumberRaw: certCandidate.rawValue,
-            certConfidence: certCandidate.confidence,
+            grader: explicitNonPSAGrader == nil ? graderCandidate.normalizedValue : nil,
+            graderConfidence: explicitNonPSAGrader == nil ? graderCandidate.confidence : 0,
+            grade: explicitNonPSAGrader == nil ? gradeCandidate.normalizedValue : nil,
+            gradeRaw: explicitNonPSAGrader == nil ? gradeCandidate.rawValue : nil,
+            gradeConfidence: explicitNonPSAGrader == nil ? gradeCandidate.confidence : 0,
+            certNumber: explicitNonPSAGrader == nil ? certCandidate.normalizedValue : nil,
+            certNumberRaw: explicitNonPSAGrader == nil ? certCandidate.rawValue : nil,
+            certConfidence: explicitNonPSAGrader == nil ? certCandidate.confidence : 0,
             cardNumberRaw: cardNumberRaw,
             barcodePayloads: dedupedBarcodePayloads,
             verificationMethod: verificationMethod,
             visualSignals: visualSignals,
             reasons: reasons,
-            recommendedLookupPath: recommendedLookupPath
+            recommendedLookupPath: recommendedLookupPath,
+            isPSAConfident: isPSAConfident,
+            unsupportedReason: unsupportedReason
         )
     }
 
@@ -201,7 +225,7 @@ enum SlabLabelParser {
         guard !normalized.isEmpty else { return nil }
 
         let patterns = [
-            #"(?:PSACARD|CGCCARDS|BECKETT|BGS)[^0-9]{0,24}(\d{7,10})"#,
+            #"(?:PSACARD|PSA)[^0-9]{0,24}(\d{7,10})"#,
             #"(?:CERT|CERTIFICATE|CERTNUMBER|VERIFY)[^0-9]{0,12}(\d{7,10})"#,
             #"/CERT/(\d{7,10})"#,
             #"\b(\d{7,10})\b"#,
@@ -273,19 +297,6 @@ enum SlabLabelParser {
             }
         }
 
-        if let genericGrade = firstCapturedField(
-            in: normalizedText,
-            patterns: [
-                (#"\b(?:PRISTINE|PERFECT|GEM MINT|MINT|NM\/MT|NM-MT|NM MT|EX-MT|EX MT)\s+(10|9\.5|9|8\.5|8|7\.5|7|6\.5|6|5\.5|5|4\.5|4|3\.5|3|2\.5|2|1\.5|1)\b"#, 0.88, "grade_from_generic_slab_layout"),
-                (#"\b(?:CGC|BGS|BECKETT)\b.{0,24}\b(10|9\.5|9|8\.5|8|7\.5|7|6\.5|6|5\.5|5|4\.5|4|3\.5|3|2\.5|2|1\.5|1)\b"#, 0.92, "grade_from_explicit_other_grader"),
-                (#"\b(?:NM/MINT\+?|NM MINT\+?|NM\/MT\+?|NM-MT\+?|NM MT\+?)(?=\s)(?:\s+[A-Z][A-Z0-9()/#.+&:\-]*){0,4}\s+(10|9\.5|9|8\.5|8|7\.5|7|6\.5|6|5\.5|5|4\.5|4|3\.5|3|2\.5|2|1\.5|1)\b"#, 0.92, "grade_from_plus_layout"),
-                (#"\b(?:GEM MINT|PRISTINE|PERFECT|MINT|NM/MINT\+?|NM MINT\+?|NM\/MT\+?|NM-MT\+?|NM MT\+?|NM\/MT|NM-MT|NM MT)(?:\s+[A-Z0-9()/#.+&:\-]+){0,10}\s+(10|9\.5|9|8\.5|8|7\.5|7|6\.5|6|5\.5|5|4\.5|4|3\.5|3|2\.5|2|1\.5|1)\b"#, 0.90, "grade_from_extended_slab_layout"),
-                (#"\b(?:CGC|BGS|BECKETT)\b(?:\s+[A-Z0-9()/#.+&:\-]+){0,18}\s+(10|9\.5|9|8\.5|8|7\.5|7|6\.5|6|5\.5|5|4\.5|4|3\.5|3|2\.5|2|1\.5|1)\b"#, 0.90, "grade_from_explicit_other_grader_layout"),
-            ]
-        ) {
-            return genericGrade
-        }
-
         if certNumber != nil,
            let inferred = firstCapturedField(
                 in: normalizedText,
@@ -316,7 +327,7 @@ enum SlabLabelParser {
         }
 
         guard let certNumber = extractCertNumber(from: normalizedLabelText) else { return nil }
-        let confidence: Float = normalizedLabelText.containsMatch(of: #"(?:PSACARD|CGCCARDS|BECKETT|BGS|CERT|VERIFY)[^0-9]{0,24}\d{7,10}"#)
+        let confidence: Float = normalizedLabelText.containsMatch(of: #"(?:PSACARD|PSA|CERT|VERIFY)[^0-9]{0,24}\d{7,10}"#)
             ? 0.95
             : 0.88
         return SlabFieldCandidate(
@@ -335,6 +346,7 @@ enum SlabLabelParser {
         visualSignals: SlabVisualSignals,
         gradeCandidate: SlabFieldCandidate?
     ) -> SlabFieldCandidate? {
+        guard detectExplicitNonPSAGrader(from: normalizedText) == nil else { return nil }
         if let explicit = parseExplicitGrader(from: normalizedText) {
             return explicit
         }
@@ -363,22 +375,6 @@ enum SlabLabelParser {
                 reasons: ["explicit_grader_psa"]
             )
         }
-        if normalizedText.contains("CGC") || normalizedText.contains("CGCCARDS") {
-            return SlabFieldCandidate(
-                rawValue: "CGC",
-                normalizedValue: "CGC",
-                confidence: 1.0,
-                reasons: ["explicit_grader_cgc"]
-            )
-        }
-        if normalizedText.contains("BGS") || normalizedText.contains("BECKETT") {
-            return SlabFieldCandidate(
-                rawValue: "BGS",
-                normalizedValue: "BGS",
-                confidence: 1.0,
-                reasons: ["explicit_grader_bgs"]
-            )
-        }
 
         return nil
     }
@@ -390,6 +386,7 @@ enum SlabLabelParser {
         visualSignals: SlabVisualSignals,
         gradeCandidate: SlabFieldCandidate?
     ) -> SlabFieldCandidate? {
+        guard detectExplicitNonPSAGrader(from: normalizedText) == nil else { return nil }
         guard certNumber != nil || looksLikeSlabText(normalizedText) else { return nil }
 
         var score = max(0, visualSignals.psaStyleConfidence * 0.48)
@@ -438,6 +435,7 @@ enum SlabLabelParser {
         visualSignals: SlabVisualSignals,
         includeGradeSignal: Bool
     ) -> Float {
+        guard detectExplicitNonPSAGrader(from: normalizedText) == nil else { return 0 }
         guard certNumber != nil || looksLikeSlabText(normalizedText) else { return 0 }
 
         var score = max(0, visualSignals.psaStyleConfidence * 0.48)
@@ -473,8 +471,10 @@ enum SlabLabelParser {
         certNumber: String?,
         certConfidence: Float,
         grade: String?,
-        gradeConfidence: Float
+        gradeConfidence: Float,
+        isPSAConfident: Bool
     ) -> SlabRecommendedLookupPath {
+        guard isPSAConfident else { return .needsReview }
         if grader == "PSA",
            graderConfidence >= 0.62,
            certNumber != nil,
@@ -482,8 +482,8 @@ enum SlabLabelParser {
             return .psaCert
         }
 
-        if grader != nil,
-           graderConfidence >= 0.6,
+        if grader == "PSA",
+           graderConfidence >= 0.62,
            (grade != nil || certNumber != nil || gradeConfidence >= 0.7) {
             return .labelTextSearch
         }
@@ -506,6 +506,25 @@ enum SlabLabelParser {
             reasons.append("white_label_panel_detected")
         }
         return reasons
+    }
+
+    private static func detectExplicitNonPSAGrader(from normalizedText: String) -> String? {
+        guard !normalizedText.isEmpty else { return nil }
+
+        if normalizedText.contains("CGC") || normalizedText.contains("CGCCARDS") {
+            return "CGC"
+        }
+        if normalizedText.contains("BGS") || normalizedText.contains("BECKETT") {
+            return "BGS"
+        }
+        if normalizedText.contains("TAG") {
+            return "TAG"
+        }
+        if normalizedText.contains("SGC") {
+            return "SGC"
+        }
+
+        return nil
     }
 
     private static func extractCardNumber(from normalizedText: String) -> String? {

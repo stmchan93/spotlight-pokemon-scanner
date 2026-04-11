@@ -23,6 +23,13 @@ struct ScanDebugRect: Codable {
         self.width = Double(rect.size.width)
         self.height = Double(rect.size.height)
     }
+
+    init(_ rect: OCRNormalizedRect) {
+        self.x = rect.x
+        self.y = rect.y
+        self.width = rect.width
+        self.height = rect.height
+    }
 }
 
 struct ScanStageRawRegionArtifact: Codable {
@@ -44,22 +51,12 @@ private struct ScanStageSelectionArtifactManifest: Codable {
     let stage: String
     let mode: OCRTargetMode
     let source: ScanCaptureSource
+    let normalizedContentRect: ScanDebugRect?
     let chosenCandidateIndex: Int?
     let fallbackReason: String?
     let normalizedGeometryKind: OCRTargetGeometryKind
     let normalizationReason: String?
     let candidates: [OCRTargetCandidateSummary]
-}
-
-private struct ScanStageRawDecisionArtifactManifest: Codable {
-    let stage: String
-    let cropConfidence: Double
-    let fallbackReason: String?
-    let regions: [ScanStageRawRegionArtifact]
-    let coarseCandidates: [RawCandidateHypothesis]
-    let finalCandidates: [RawCandidateHypothesis]
-    let finalCollectorNumber: String?
-    let finalSetHintTokens: [String]
 }
 
 private struct ScanStageEncodedArtifact<T: Encodable>: Encodable {
@@ -134,8 +131,8 @@ enum ScanStageArtifactWriter {
         )
 
         write(image: originalImage, named: "01_full_camera_frame.jpg", scanID: scanID)
-        write(image: searchImage, named: "02_expanded_search_crop.jpg", scanID: scanID)
-        write(image: fallbackImage, named: "03_exact_reticle_crop.jpg", scanID: scanID)
+        write(image: searchImage, named: "02_reticle_expanded_search_crop.jpg", scanID: scanID)
+        write(image: fallbackImage, named: "03_reticle_exact_crop.jpg", scanID: scanID)
         write(json: manifest, named: "capture_manifest.json", scanID: scanID)
     }
 
@@ -143,9 +140,10 @@ enum ScanStageArtifactWriter {
         scanID: UUID,
         mode: OCRTargetMode,
         source: ScanCaptureSource,
-        searchImage: UIImage,
+        selectedTargetImage: UIImage?,
         candidateOverlayImage: UIImage,
         normalizedImage: UIImage,
+        normalizedContentRect: OCRNormalizedRect?,
         chosenCandidateIndex: Int?,
         candidates: [OCRTargetCandidateSummary],
         fallbackReason: String?,
@@ -156,6 +154,7 @@ enum ScanStageArtifactWriter {
             stage: "selection",
             mode: mode,
             source: source,
+            normalizedContentRect: normalizedContentRect.map(ScanDebugRect.init),
             chosenCandidateIndex: chosenCandidateIndex,
             fallbackReason: fallbackReason,
             normalizedGeometryKind: normalizedGeometryKind,
@@ -163,38 +162,20 @@ enum ScanStageArtifactWriter {
             candidates: candidates
         )
 
-        write(image: searchImage, named: "04_selection_search_input.jpg", scanID: scanID)
-        write(image: candidateOverlayImage, named: "05_selection_candidate_overlay.jpg", scanID: scanID)
-        write(image: normalizedImage, named: "06_normalized_ocr_input.jpg", scanID: scanID)
+        if let selectedTargetImage {
+            write(
+                image: scaledSelectionDebugImage(from: selectedTargetImage),
+                named: "04_selected_target_crop.jpg",
+                scanID: scanID
+            )
+        }
+        write(image: candidateOverlayImage, named: "05_rectangle_candidate_overlay.jpg", scanID: scanID)
+        write(image: normalizedImage, named: "06_ocr_input_normalized.jpg", scanID: scanID)
         write(json: manifest, named: "selection_manifest.json", scanID: scanID)
     }
 
     static func recordRawRegionImage(scanID: UUID, image: UIImage, named filename: String) {
         write(image: image, named: filename, scanID: scanID)
-    }
-
-    static func recordRawAnalysisArtifacts(
-        scanID: UUID,
-        cropConfidence: Double,
-        regions: [ScanStageRawRegionArtifact],
-        coarseCandidates: [RawCandidateHypothesis],
-        finalCandidates: [RawCandidateHypothesis],
-        finalCollectorNumber: String?,
-        finalSetHintTokens: [String],
-        fallbackReason: String?
-    ) {
-        let manifest = ScanStageRawDecisionArtifactManifest(
-            stage: "raw_analysis",
-            cropConfidence: cropConfidence,
-            fallbackReason: fallbackReason,
-            regions: regions,
-            coarseCandidates: Array(coarseCandidates.prefix(3)),
-            finalCandidates: Array(finalCandidates.prefix(3)),
-            finalCollectorNumber: finalCollectorNumber,
-            finalSetHintTokens: finalSetHintTokens
-        )
-
-        write(json: manifest, named: "raw_analysis_manifest.json", scanID: scanID)
     }
 
     static func recordSynthesizedEvidenceArtifact<T: Encodable>(
@@ -273,5 +254,28 @@ enum ScanStageArtifactWriter {
         }
         guard shouldLog else { return }
         print("  🧪 [DEBUG] Scan artifacts directory: \(directoryURL.path)")
+    }
+
+    private static func scaledSelectionDebugImage(from image: UIImage) -> UIImage {
+        let longestSide = max(image.size.width, image.size.height)
+        guard longestSide > 0 else { return image }
+
+        let targetLongestSide: CGFloat = 1400
+        let scaleFactor = targetLongestSide / longestSide
+        let renderSize = CGSize(
+            width: max(1, (image.size.width * scaleFactor).rounded(.toNearestOrAwayFromZero)),
+            height: max(1, (image.size.height * scaleFactor).rounded(.toNearestOrAwayFromZero))
+        )
+
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        if #available(iOS 12.0, *) {
+            format.preferredRange = .standard
+        }
+
+        let renderer = UIGraphicsImageRenderer(size: renderSize, format: format)
+        return renderer.image { _ in
+            image.draw(in: CGRect(origin: .zero, size: renderSize))
+        }
     }
 }

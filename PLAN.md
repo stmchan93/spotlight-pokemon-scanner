@@ -5,7 +5,9 @@ Date: 2026-04-04
 ## Current planning override
 
 - The current backend reset / raw-matcher redesign source of truth is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
+- The current backend latency / network-call refactor pre-implementation source of truth is [docs/backend-latency-refactor-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/backend-latency-refactor-spec-2026-04-10.md).
 - The current OCR rewrite / rollout source of truth is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
+- The current OCR simplification / performance implementation source of truth for the next OCR pass is [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
 - The raw backend reset has now landed.
 - Treat the current backend runtime as:
   - raw-only
@@ -20,6 +22,10 @@ Date: 2026-04-04
   - a shared front half
   - a raw branch
   - a slab branch
+- The next OCR implementation pass should apply the concrete scope in [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md):
+  - raw = footer-first
+  - slab = PSA-only for now
+  - local debug artifact export may remain on temporarily while OCR troubleshooting is active
 - Top-level OCR routing follows the UI-selected mode:
   - `raw`
   - `slab`
@@ -34,12 +40,13 @@ Date: 2026-04-04
 ## Current slab planning override
 
 - Do **not** expand the current slab path with more one-off card-specific fixes unless a blocker absolutely requires a short-lived quarantine rule.
-- The current slab path is proving that fixed slab-relative crops plus handwritten rescue heuristics are turning into whack-a-mole.
-- The next slab rewrite should treat slab OCR as:
-  - grader-family-aware at the top label
-  - card-window-relative at the footer
-  - manifest/data-driven for set resolution
-  - fixture-first across PSA, CGC, BGS, and TAG
+- The active slab OCR path is now PSA-only by design.
+- Non-PSA slabs should return explicit unsupported / needs-review OCR output instead of going through fake generic parsing.
+- The current slab rewrite should treat slab OCR as:
+  - PSA top-label-focused
+  - cert / grade / card-number extraction when PSA evidence is strong
+  - fixture-first on PSA slab captures
+- Future non-PSA slab families should be rebuilt with their own label parsers, not folded back into shared regex heuristics.
 
 ### Hardcoded slab logic to remove or downrank
 
@@ -110,19 +117,28 @@ Status: `active`
   - target selection
   - perspective normalization
 - simulator-backed legacy OCR fixture execution is landed
-- mode sanity signals and the feature-flagged OCR coordinator are landed
+- mode sanity signals and the OCR coordinator are landed
 - raw branch stage 1 is landed behind the rewrite path
 - raw escalation and confidence is landed behind the rewrite path
+- raw preview-frame-first capture is restored
+- raw footer-first staging is landed
+- remnant-aware fallback normalization is landed for partial/off-center raw scans
+- fallback salvage now re-canonicalizes recovered raw cards into tighter card-filling OCR inputs
+- deterministic footer band/corner extraction is the live raw path
+- debug artifact `04_selected_target_crop.jpg` is now the chosen/recovered target image, not a duplicate search image
+- raw runtime now routes directly through `RawPipeline`
+- slab stage 1 is landed as a PSA-only top-label parser with staged fallback
 - the current OCR path is still the active runtime path
 
 ### Milestone 3: OCR fixture-first rollout
 
 Status: `active`
 
+- concrete hardening follow-up is tracked in [docs/raw-ocr-hardening-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/raw-ocr-hardening-spec-2026-04-10.md)
 - fixture manifests and host baseline runner are landed
 - stage-local replay artifact wiring is landed
 - simulator-backed legacy OCR execution is landed
-- mode sanity signals and the feature-flagged OCR coordinator are landed
+- mode sanity signals and the OCR coordinator are landed
 - simulator-backed rewrite raw stage-1 execution is landed
 - raw branch stage 1 is landed
 - raw escalation and confidence is landed

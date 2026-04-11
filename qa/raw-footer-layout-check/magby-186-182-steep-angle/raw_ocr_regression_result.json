@@ -1,0 +1,152 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9995869475423379,
+      "x" : 0.00020652622883105887,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.9995869475423379,
+          "x" : 0.00020652622883105887,
+          "y" : 0.78
+        },
+        "text" : "cetreat x2 resistance This Pokémen makes tts horns arar Acthe cnd ofthe duy Magbysorls kaf reetingand tscovertngtano thedi 6\/182 02023 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.13794299876084265,
+          "x" : 0.00020652622883105887,
+          "y" : 0.8610999999266667
+        },
+        "text" : "kat 6\/182"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.2748864105741429,
+          "x" : 0.00020652622883105887,
+          "y" : 0.8659999999266668
+        },
+        "text" : "kai 6\/1821 02023 F"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12494836844279224,
+          "x" : 0.00020652622883105887,
+          "y" : 0.8538399999266668
+        },
+        "text" : "kaf 6\/182"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.22606044169106873,
+          "x" : 0.00020652622883105887,
+          "y" : 0.8619999999266668
+        },
+        "text" : "kal 6\/1821 020"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11495249896736887,
+          "x" : 0.11706209390089936,
+          "y" : 0.8483999999266668
+        },
+        "text" : "0202"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.22606044169106873,
+          "x" : 0.00020652622883105887,
+          "y" : 0.8609999999266668
+        },
+        "text" : "kal 6\/182食 020"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8796365138372574,
+          "x" : 0.06018174308137133,
+          "y" : 0
+        },
+        "text" : ""
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.6829183739802874,
+    "usedFallback" : true
+  },
+  "fixtureName" : "magby-186-182-steep-angle",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "6\/182",
+    "cropConfidence" : 0.6829183739802874,
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Magby",
+    "collectorNumber" : "186\/182",
+    "setCode" : "PAR"
+  }
+}

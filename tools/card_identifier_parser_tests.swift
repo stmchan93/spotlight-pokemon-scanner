@@ -49,6 +49,13 @@ func testRepairsSplitLeadingZeroStandardCollectorNumber() {
     require(parsed?.identifier == "011/078", "should repair split leading-zero standard collector numbers")
 }
 
+func testCollapsesRepeatedSlashInStandardCollectorNumber() {
+    let parser = CardIdentifierParser()
+    let parsed = parser.parse(text: "U DRIM 199//182", sourceRegion: "bottom-left")
+
+    require(parsed?.identifier == "199/182", "should collapse repeated slashes in standard collector numbers")
+}
+
 @main
 struct CardIdentifierParserTestRunner {
     static func main() {
@@ -58,6 +65,7 @@ struct CardIdentifierParserTestRunner {
         testParsesPromoCollectorNumberWithoutSlash()
         testPrefersExactStandardCollectorNumberOverWeaknessNoise()
         testRepairsSplitLeadingZeroStandardCollectorNumber()
+        testCollapsesRepeatedSlashInStandardCollectorNumber()
         print("card_identifier_parser_tests: PASS")
     }
 }

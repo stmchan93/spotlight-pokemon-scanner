@@ -1,0 +1,288 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_metadata_collector"
+  ],
+  "collectorConfidenceScore" : 0.8512000007629394,
+  "collectorNumber" : "101\/995",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999901409839298,
+    "x" : 4.929508035101684e-05,
+    "y" : 0
+  },
+  "fixtureName" : "sabrinas-slowbro-60-132",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.836677093300405,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999901409839298,
+        "x" : 4.929508035101684e-05,
+        "y" : 0.78
+      },
+      "text" : "resistance st 1401995. ndo, Creatures, GAMERNEAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019976778768195112,
+            "width" : 0.12224632965663033,
+            "x" : 0.35106498017713306,
+            "y" : 0.7874282771241852
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.014666666506354644,
+            "width" : 0.028202347405258156,
+            "x" : 0.21028497610662847,
+            "y" : 0.8322500002023783
+          },
+          "text" : "st"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017837837350402643,
+            "width" : 0.07082634717273781,
+            "x" : 0.27918844118636704,
+            "y" : 0.8929729731175915
+          },
+          "text" : "1401995."
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.02111747851002866,
+            "width" : 0.2115176038576368,
+            "x" : 0.43974953242915743,
+            "y" : 0.889054441679181
+          },
+          "text" : "ndo, Creatures, GAMERNEAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13798639455782313,
+        "x" : 0.07068233067139902,
+        "y" : 0.8451
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.27497288770580697,
+        "x" : 0.17003253475303168,
+        "y" : 0.85
+      },
+      "text" : "101995,",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013964285200070113,
+            "width" : 0.061868896722500365,
+            "x" : 0.2868960140492269,
+            "y" : 0.895178571651453
+          },
+          "text" : "101995,"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12498767622991225,
+        "x" : 0.6724829931972789,
+        "y" : 0.84184
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18498176082027012,
+        "x" : 0.7199783101646455,
+        "y" : 0.85
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11498866213151927,
+        "x" : 0.7857218278615794,
+        "y" : 0.8294
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.18998126786946662,
+        "x" : 0.704979789017056,
+        "y" : 0.842
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.8799132406585822,
+        "x" : 0.06004337967070889,
+        "y" : 0
+      },
+      "text" : "Evolves from Sabrina's Slowpoke Put Sabrina: orbro on the Pokemon STAGE I Sabrina's Slowbro 20 Par",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019237738197026812,
+            "width" : 0.2654910563075037,
+            "x" : 0.23071620818392455,
+            "y" : 0.06375545840754777
+          },
+          "text" : "Evolves from Sabrina's Slowpoke"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.016593886462882113,
+            "width" : 0.10050733296922733,
+            "x" : 0.5341345655750005,
+            "y" : 0.06375545855718423
+          },
+          "text" : "Put Sabrina:"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.013682678172682074,
+            "width" : 0.10050733296922733,
+            "x" : 0.647916448132774,
+            "y" : 0.06666666691089973
+          },
+          "text" : "orbro on the"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.013605441797248142,
+            "width" : 0.07775095061259042,
+            "x" : 0.7901438085411608,
+            "y" : 0.06666666682246436
+          },
+          "text" : "Pokemon"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016326531156181767,
+            "width" : 0.09102550157092407,
+            "x" : 0.12072705391306289,
+            "y" : 0.07891156421782748
+          },
+          "text" : "STAGE I"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03558209348453705,
+            "width" : 0.34893109090274355,
+            "x" : 0.2705398779935765,
+            "y" : 0.08843537373726568
+          },
+          "text" : "Sabrina's Slowbro"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.029931973786333256,
+            "width" : 0.13653825699899005,
+            "x" : 0.6517091826404239,
+            "y" : 0.09115646200867983
+          },
+          "text" : "20 Par"
+        }
+      ]
+    }
+  ],
+  "scanID" : "473CF0F6-678E-4B25-BAB1-25AB456211E0",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints"
+  ],
+  "setConfidenceScore" : 0.48,
+  "setHintTokens" : [
+    "par"
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

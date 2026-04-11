@@ -1,0 +1,454 @@
+{
+  "collectorConfidenceReasons" : [
+
+  ],
+  "contentRectNormalized" : {
+    "height" : 0.9995860927152318,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.00020695364238411623
+  },
+  "fixtureName" : "mew-ex-rc24-rc25",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.8300439578345553,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.219908940397351,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7798841059602649
+      },
+      "text" : "weakness resistance Piheian EXrule x2 Whea a Posemon EX has been Knorked Out reud Offonant takes 2 Prize cards. retreat ©2013 Polemo ilos:\/MAHOU R€Z4\/RC25",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014200578648152011,
+            "width" : 0.08859824125098174,
+            "x" : 0.11788036643763546,
+            "y" : 0.8254703334912481
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014660595866244424,
+            "width" : 0.09487179683840047,
+            "x" : 0.2782051274416056,
+            "y" : 0.824782181266795
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013744308774834438,
+            "width" : 0.17564102791814784,
+            "x" : 0.5115384589362252,
+            "y" : 0.8229496068415296
+          },
+          "text" : "Piheian EXrule"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.0210746055061142,
+            "width" : 0.0435897416748908,
+            "x" : 0.15641025742466283,
+            "y" : 0.8431079268484047
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012828021683424453,
+            "width" : 0.3115384540860615,
+            "x" : 0.5128205148159435,
+            "y" : 0.8522707988118416
+          },
+          "text" : "Whea a Posemon EX has been Knorked Out"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013862454695535018,
+            "width" : 0.25384615674430944,
+            "x" : 0.5025641029282115,
+            "y" : 0.8687298382273454
+          },
+          "text" : "reud Offonant takes 2 Prize cards."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013509802871321449,
+            "width" : 0.06947214977661349,
+            "x" : 0.11526392551557284,
+            "y" : 0.8904139726256295
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014807622061139676,
+            "width" : 0.1115384581227782,
+            "x" : 0.08461538562611091,
+            "y" : 0.9191387643381922
+          },
+          "text" : "©2013 Polemo"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0146605958662444,
+            "width" : 0.1192307648835359,
+            "x" : 0.5794871825124445,
+            "y" : 0.9118294702264391
+          },
+          "text" : "ilos:\/MAHOU"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01557688295765436,
+            "width" : 0.1307692351164641,
+            "x" : 0.7076923045846252,
+            "y" : 0.9109131831530799
+          },
+          "text" : "R€Z4\/RC25"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09795943708609273,
+        "width" : 0.138,
+        "x" : 0.07064000000000001,
+        "y" : 0.8449571605960264
+      },
+      "text" : "x2 retreat 02013 Pokémor",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02015433394594252,
+            "width" : 0.05101421800947868,
+            "x" : 0.1484693837268365,
+            "y" : 0.8449571606267853
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0098428142526696,
+            "width" : 0.06474881516587677,
+            "x" : 0.11773004785585647,
+            "y" : 0.8932338209480368
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011717636015082859,
+            "width" : 0.10922274881516587,
+            "x" : 0.08764473994328595,
+            "y" : 0.9194813256441416
+          },
+          "text" : "02013 Pokémor"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09196192052980133,
+        "width" : 0.275,
+        "x" : 0.17,
+        "y" : 0.8498551324503311
+      },
+      "text" : "79 it",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014471168721003111,
+            "width" : 0.028947373440391146,
+            "x" : 0.16999999745743602,
+            "y" : 0.849855130653141
+          },
+          "text" : "79"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009803047366120953,
+            "width" : 0.013157894736842106,
+            "x" : 0.16999999997368423,
+            "y" : 0.8923350043211733
+          },
+          "text" : "it"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10195778145695364,
+        "width" : 0.125,
+        "x" : 0.6725,
+        "y" : 0.8416985099337748
+      },
+      "text" : "Las been Knocked Priza cards. R€Z4\/R",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010707894856209736,
+            "width" : 0.12369791666666666,
+            "x" : 0.6725000008835565,
+            "y" : 0.853803086704473
+          },
+          "text" : "Las been Knocked"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.0128875521964974,
+            "width" : 0.08407615621884663,
+            "x" : 0.6724541097970073,
+            "y" : 0.869007880951268
+          },
+          "text" : "Priza cards."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013966819377664882,
+            "width" : 0.078125,
+            "x" : 0.7180729171549479,
+            "y" : 0.9106014855244354
+          },
+          "text" : "R€Z4\/R"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09995860927152318,
+        "width" : 0.185,
+        "x" : 0.72,
+        "y" : 0.8498551324503311
+      },
+      "text" : "n Knocked Qut. ards. REZ4\/RC25 *",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014140729287875246,
+            "width" : 0.10408856422235604,
+            "x" : 0.7199256820692849,
+            "y" : 0.8532944347415389
+          },
+          "text" : "n Knocked Qut."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011945983902345738,
+            "width" : 0.03677402428940412,
+            "x" : 0.7199168747705534,
+            "y" : 0.8698059853437162
+          },
+          "text" : "ards."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020881264986817454,
+            "width" : 0.14218666696716953,
+            "x" : 0.7198342289992101,
+            "y" : 0.9085447530697566
+          },
+          "text" : "REZ4\/RC25 *"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10495653973509933,
+        "width" : 0.115,
+        "x" : 0.7857500000000001,
+        "y" : 0.8292636589403973
+      },
+      "text" : "d Out RC25",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010217008292797272,
+            "width" : 0.03811428571428572,
+            "x" : 0.7857499999408571,
+            "y" : 0.8538773606855966
+          },
+          "text" : "d Out"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.012726073521774234,
+            "width" : 0.05594063938685827,
+            "x" : 0.7857082520456121,
+            "y" : 0.9113706257835972
+          },
+          "text" : "RC25"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10195778145695364,
+        "width" : 0.19,
+        "x" : 0.705,
+        "y" : 0.8418584437086093
+      },
+      "text" : "een Knorked Qut cards. REZ4\/RC25 *",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011173455502131904,
+            "width" : 0.12006944444444444,
+            "x" : 0.7050000006670524,
+            "y" : 0.8539630204870668
+          },
+          "text" : "een Knorked Qut"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012570137439898387,
+            "width" : 0.05211805555555556,
+            "x" : 0.705000000343998,
+            "y" : 0.8693265219078036
+          },
+          "text" : "cards."
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.024484257121641134,
+            "width" : 0.1511644310421414,
+            "x" : 0.714851812561082,
+            "y" : 0.9068993822991097
+          },
+          "text" : "REZ4\/RC25 *"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.19991721854304637,
+        "width" : 0.88,
+        "x" : 0.06,
+        "y" : 0.00020695364238411623
+      },
+      "text" : "BASIC Mew EX иР 120",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.023479698904302734,
+            "width" : 0.11210323265149552,
+            "x" : 0.07886217739232489,
+            "y" : 0.08099635717304637
+          },
+          "text" : "BASIC"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.044576135850110596,
+            "width" : 0.24844828034502503,
+            "x" : 0.25534482637992995,
+            "y" : 0.0826052669870803
+          },
+          "text" : "Mew EX"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03533201959748935,
+            "width" : 0.11568965421178039,
+            "x" : 0.7237931046516528,
+            "y" : 0.0810430464355365
+          },
+          "text" : "иР 120"
+        }
+      ]
+    }
+  ],
+  "scanID" : "EC83C9A7-AC60-46CB-9051-F85B380AFC34",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_footer_family_set_agreement"
+  ],
+  "setConfidenceScore" : 0.74,
+  "setHintTokens" : [
+    "mew",
+    "rc25"
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs",
+    "Rewrite raw is relying on broader title evidence"
+  ]
+}

@@ -1,0 +1,152 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 0.9976129639591178,
+      "width" : 1,
+      "x" : 0,
+      "y" : 0.0011935180204410757
+    },
+    "footerRoutingReasons" : [
+      "footer_band_anchor_unavailable"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.19952259279182358,
+          "width" : 0.9,
+          "x" : 0.05,
+          "y" : 0.7593793706293707
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.09776607046799354,
+          "width" : 0.138,
+          "x" : 0.07064000000000001,
+          "y" : 0.8442762338622916
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.09178039268423883,
+          "width" : 0.275,
+          "x" : 0.17,
+          "y" : 0.8491645373856912
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.10175652232383,
+          "width" : 0.125,
+          "x" : 0.6725,
+          "y" : 0.8410240155997848
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.09976129639591179,
+          "width" : 0.185,
+          "x" : 0.72,
+          "y" : 0.8491645373856912
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.10474936121570737,
+          "width" : 0.115,
+          "x" : 0.7857500000000001,
+          "y" : 0.8286137103281334
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.10175652232383,
+          "width" : 0.19,
+          "x" : 0.705,
+          "y" : 0.8411836336740183
+        },
+        "text" : ""
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.21947485207100592,
+          "width" : 0.8,
+          "x" : 0.1,
+          "y" : 0.021145777299623435
+        },
+        "text" : ""
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "collector_signal_weak",
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.8701296772439889,
+    "usedFallback" : false
+  },
+  "fixtureName" : "slowpoke-204-198-overhead",
+  "ocr" : {
+    "cropConfidence" : 0.8701296772439889,
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Raw scene looks holder-like",
+      "Rewrite raw escalation used focused ROIs",
+      "Could not read strong raw-card clues",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Slowpoke",
+    "collectorNumber" : "204\/198",
+    "setCode" : "SVI"
+  }
+}

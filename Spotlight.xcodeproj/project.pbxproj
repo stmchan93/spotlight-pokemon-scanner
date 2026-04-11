@@ -42,6 +42,7 @@
 		C2EE97F53B03E6525C299E46 /* ScanCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2876B6D775130E8BD64C6636 /* ScanCacheManager.swift */; };
 		DA0000000000000000000001 /* OCRFixtureExecutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000001 /* OCRFixtureExecutionTests.swift */; };
 		DA0000000000000000000002 /* OCRRewriteStage1FixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */; };
+		DA0000000000000000000003 /* RawOCRRegressionSuiteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -98,6 +99,7 @@
 		FFC12345000000000000000D /* RawPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawPipeline.swift; sourceTree = "<group>"; };
 		FFC12345000000000000000F /* RawConfidenceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawConfidenceModel.swift; sourceTree = "<group>"; };
 		DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRRewriteStage1FixtureTests.swift; sourceTree = "<group>"; };
+		DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawOCRRegressionSuiteTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -259,6 +261,7 @@
 			children = (
 				DB0000000000000000000001 /* OCRFixtureExecutionTests.swift */,
 				DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */,
+				DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */,
 			);
 			path = SpotlightTests;
 			sourceTree = "<group>";
@@ -402,6 +405,7 @@
 			files = (
 				DA0000000000000000000001 /* OCRFixtureExecutionTests.swift in Sources */,
 				DA0000000000000000000002 /* OCRRewriteStage1FixtureTests.swift in Sources */,
+				DA0000000000000000000003 /* RawOCRRegressionSuiteTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

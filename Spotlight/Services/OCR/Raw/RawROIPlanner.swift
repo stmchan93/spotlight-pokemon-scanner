@@ -4,15 +4,37 @@ import Foundation
 enum RawROIKind: String, Codable, Hashable, Sendable {
     case headerWide = "header_wide"
     case footerBandWide = "footer_band_wide"
-    case nameplateTight = "nameplate_tight"
-    case titleBandExpanded = "title_band_expanded"
     case footerLeft = "footer_left"
     case footerRight = "footer_right"
+    case footerMetadata = "footer_metadata"
 }
 
 enum RawOCRPreprocessing: String, Codable, Hashable, Sendable {
     case none
     case contrastBoosted = "contrast_boosted"
+}
+
+enum RawFooterFamily: String, Codable, Hashable, Sendable, CaseIterable {
+    case modernLeft = "modern_left"
+    case legacyRightMid = "legacy_right_mid"
+    case legacyRightCorner = "legacy_right_corner"
+}
+
+enum RawFooterFieldRole: String, Codable, Hashable, Sendable {
+    case setBadge = "set_badge"
+    case collector = "collector"
+}
+
+struct RawFooterRoutingContext: Codable, Hashable, Sendable {
+    let collectorAnchor: OCRNormalizedRect?
+    let anchorIdentifier: String?
+    let reasons: [String]
+
+    static let none = RawFooterRoutingContext(
+        collectorAnchor: nil,
+        anchorIdentifier: nil,
+        reasons: ["footer_band_anchor_unavailable"]
+    )
 }
 
 struct RawROIPlanItem: Codable, Hashable, Sendable {
@@ -24,6 +46,32 @@ struct RawROIPlanItem: Codable, Hashable, Sendable {
     let preprocessing: RawOCRPreprocessing
     let usesLanguageCorrection: Bool
     let recognitionLanguages: [String]
+    let footerFamily: RawFooterFamily?
+    let footerRole: RawFooterFieldRole?
+
+    init(
+        kind: RawROIKind,
+        label: String,
+        normalizedRect: OCRNormalizedRect,
+        minimumTextHeight: Float,
+        upscaleFactor: Double,
+        preprocessing: RawOCRPreprocessing,
+        usesLanguageCorrection: Bool,
+        recognitionLanguages: [String],
+        footerFamily: RawFooterFamily? = nil,
+        footerRole: RawFooterFieldRole? = nil
+    ) {
+        self.kind = kind
+        self.label = label
+        self.normalizedRect = normalizedRect
+        self.minimumTextHeight = minimumTextHeight
+        self.upscaleFactor = upscaleFactor
+        self.preprocessing = preprocessing
+        self.usesLanguageCorrection = usesLanguageCorrection
+        self.recognitionLanguages = recognitionLanguages
+        self.footerFamily = footerFamily
+        self.footerRole = footerRole
+    }
 
     var cgRect: CGRect {
         CGRect(
@@ -36,111 +84,244 @@ struct RawROIPlanItem: Codable, Hashable, Sendable {
 }
 
 struct RawROIPlanner {
-    func stage1Plan(for sceneTraits: RawSceneTraits) -> [RawROIPlanItem] {
-        let titleInsetX = sceneTraits.holderLikely ? 0.08 : (sceneTraits.usedFallback ? 0.02 : 0.0)
-        let footerInsetX = sceneTraits.holderLikely ? 0.05 : 0.0
-        let topInsetY = sceneTraits.holderLikely ? 0.02 : 0.0
+    func stage1BroadPlan(for sceneTraits: RawSceneTraits) -> [RawROIPlanItem] {
+        let footerNeedsBoost =
+            sceneTraits.holderLikely ||
+            sceneTraits.usedFallback ||
+            sceneTraits.targetQualityScore < 0.72
 
         return [
             RawROIPlanItem(
-                kind: .headerWide,
-                label: "12_rewrite_raw_header_wide",
-                normalizedRect: OCRNormalizedRect(
-                    x: 0.04 + titleInsetX,
-                    y: topInsetY,
-                    width: 0.92 - (titleInsetX * 2),
-                    height: sceneTraits.holderLikely ? 0.22 : 0.20
-                ),
-                minimumTextHeight: 0.008,
-                upscaleFactor: sceneTraits.holderLikely ? 3.0 : 2.6,
-                preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-                usesLanguageCorrection: true,
-                recognitionLanguages: ["ja-JP", "en-US"]
-            ),
-            RawROIPlanItem(
                 kind: .footerBandWide,
-                label: "13_rewrite_raw_footer_band_wide",
-                normalizedRect: OCRNormalizedRect(
-                    x: footerInsetX,
-                    y: sceneTraits.holderLikely ? 0.76 : 0.78,
-                    width: 1.00 - (footerInsetX * 2),
-                    height: sceneTraits.holderLikely ? 0.20 : 0.22
+                label: "13_raw_footer_band",
+                normalizedRect: mapCardRelativeRect(
+                    OCRNormalizedRect(
+                        x: sceneTraits.holderLikely ? 0.05 : 0.0,
+                        y: sceneTraits.holderLikely ? 0.76 : 0.78,
+                        width: sceneTraits.holderLikely ? 0.90 : 1.0,
+                        height: sceneTraits.holderLikely ? 0.20 : 0.22
+                    ),
+                    sceneTraits: sceneTraits
                 ),
                 minimumTextHeight: 0.0035,
                 upscaleFactor: 3.6,
-                preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
+                preprocessing: footerNeedsBoost ? .contrastBoosted : .none,
                 usesLanguageCorrection: false,
                 recognitionLanguages: ["ja-JP", "en-US"]
             )
         ]
     }
 
+    func stage1TightPlan(
+        for sceneTraits: RawSceneTraits,
+        routing: RawFooterRoutingContext
+    ) -> [RawROIPlanItem] {
+        let footerNeedsBoost =
+            sceneTraits.holderLikely ||
+            sceneTraits.usedFallback ||
+            sceneTraits.targetQualityScore < 0.72
+
+        var plans: [RawROIPlanItem] = []
+        var nextArtifactIndex = 14
+
+        for family in RawFooterFamily.allCases {
+            let collectorRect = collectorRect(
+                for: family,
+                sceneTraits: sceneTraits,
+                anchor: routing.collectorAnchor
+            )
+            let setBadgeRect = setBadgeRect(
+                for: family,
+                sceneTraits: sceneTraits,
+                collectorRect: collectorRect
+            )
+
+            plans.append(
+                RawROIPlanItem(
+                    kind: .footerMetadata,
+                    label: String(format: "%02d_raw_footer_%@_set", nextArtifactIndex, family.rawValue),
+                    normalizedRect: setBadgeRect,
+                    minimumTextHeight: 0.001,
+                    upscaleFactor: 4.8,
+                    preprocessing: footerNeedsBoost ? .contrastBoosted : .none,
+                    usesLanguageCorrection: false,
+                    recognitionLanguages: ["ja-JP", "en-US"],
+                    footerFamily: family,
+                    footerRole: .setBadge
+                )
+            )
+            nextArtifactIndex += 1
+
+            plans.append(
+                RawROIPlanItem(
+                    kind: .footerMetadata,
+                    label: String(format: "%02d_raw_footer_%@_collector", nextArtifactIndex, family.rawValue),
+                    normalizedRect: collectorRect,
+                    minimumTextHeight: 0.001,
+                    upscaleFactor: 4.8,
+                    preprocessing: footerNeedsBoost ? .contrastBoosted : .none,
+                    usesLanguageCorrection: false,
+                    recognitionLanguages: ["ja-JP", "en-US"],
+                    footerFamily: family,
+                    footerRole: .collector
+                )
+            )
+            nextArtifactIndex += 1
+        }
+
+        return plans
+    }
+
     func stage2Plan(for sceneTraits: RawSceneTraits) -> [RawROIPlanItem] {
         let titleInsetX = sceneTraits.holderLikely ? 0.06 : (sceneTraits.usedFallback ? 0.02 : 0.0)
-        let titleBandY = sceneTraits.holderLikely ? 0.03 : 0.05
-        let footerInsetX = sceneTraits.holderLikely ? 0.05 : 0.0
+        let topInsetY = sceneTraits.holderLikely ? 0.02 : 0.0
 
         return [
             RawROIPlanItem(
-                kind: .titleBandExpanded,
-                label: "17_rewrite_raw_title_band_expanded",
-                normalizedRect: OCRNormalizedRect(
-                    x: 0.08 + titleInsetX,
-                    y: max(0, titleBandY - 0.01),
-                    width: 0.84 - (titleInsetX * 2),
-                    height: sceneTraits.holderLikely ? 0.24 : 0.26
-                ),
-                minimumTextHeight: 0.007,
-                upscaleFactor: 3.2,
-                preprocessing: .contrastBoosted,
-                usesLanguageCorrection: true,
-                recognitionLanguages: ["ja-JP", "en-US"]
-            ),
-            RawROIPlanItem(
-                kind: .nameplateTight,
-                label: "14_rewrite_raw_nameplate_tight",
-                normalizedRect: OCRNormalizedRect(
-                    x: 0.10 + titleInsetX,
-                    y: sceneTraits.holderLikely ? 0.03 : 0.02,
-                    width: 0.76 - (titleInsetX * 2),
-                    height: sceneTraits.holderLikely ? 0.18 : 0.17
+                kind: .headerWide,
+                label: "12_raw_header_wide",
+                normalizedRect: mapCardRelativeRect(
+                    OCRNormalizedRect(
+                        x: 0.04 + titleInsetX,
+                        y: topInsetY,
+                        width: 0.92 - (titleInsetX * 2),
+                        height: sceneTraits.holderLikely ? 0.22 : 0.20
+                    ),
+                    sceneTraits: sceneTraits
                 ),
                 minimumTextHeight: 0.008,
-                upscaleFactor: 3.0,
-                preprocessing: .none,
+                upscaleFactor: sceneTraits.holderLikely ? 3.0 : 2.6,
+                preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
                 usesLanguageCorrection: true,
-                recognitionLanguages: ["ja-JP", "en-US"]
-            ),
-            RawROIPlanItem(
-                kind: .footerLeft,
-                label: "15_rewrite_raw_footer_left",
-                normalizedRect: OCRNormalizedRect(
-                    x: footerInsetX,
-                    y: sceneTraits.holderLikely ? 0.78 : 0.80,
-                    width: 0.42 - footerInsetX,
-                    height: 0.18
-                ),
-                minimumTextHeight: 0.001,
-                upscaleFactor: 4.0,
-                preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-                usesLanguageCorrection: false,
-                recognitionLanguages: ["ja-JP", "en-US"]
-            ),
-            RawROIPlanItem(
-                kind: .footerRight,
-                label: "16_rewrite_raw_footer_right",
-                normalizedRect: OCRNormalizedRect(
-                    x: 0.56 - (sceneTraits.holderLikely ? 0.02 : 0.0),
-                    y: sceneTraits.holderLikely ? 0.78 : 0.80,
-                    width: 0.44 - footerInsetX,
-                    height: 0.18
-                ),
-                minimumTextHeight: 0.001,
-                upscaleFactor: 4.0,
-                preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-                usesLanguageCorrection: false,
                 recognitionLanguages: ["ja-JP", "en-US"]
             )
         ]
+    }
+
+    private func collectorRect(
+        for family: RawFooterFamily,
+        sceneTraits: RawSceneTraits,
+        anchor: OCRNormalizedRect?
+    ) -> OCRNormalizedRect {
+        let defaultRect = mapCardRelativeRect(defaultCollectorRect(for: family), sceneTraits: sceneTraits)
+        guard let anchor else {
+            return defaultRect
+        }
+
+        let contentBounds = contentBounds(for: sceneTraits)
+        let targetWidth = max(defaultRect.width, anchor.width * 1.8)
+        let targetHeight = max(defaultRect.height, anchor.height * 2.2)
+        let anchoredRect = OCRNormalizedRect(
+            x: clamp(
+                anchor.x + (anchor.width / 2) - (targetWidth / 2),
+                min: contentBounds.x,
+                max: contentBounds.x + contentBounds.width - targetWidth
+            ),
+            y: clamp(
+                anchor.y + (anchor.height / 2) - (targetHeight / 2),
+                min: contentBounds.y,
+                max: contentBounds.y + contentBounds.height - targetHeight
+            ),
+            width: min(targetWidth, contentBounds.width),
+            height: min(targetHeight, contentBounds.height)
+        )
+
+        return clampRect(anchoredRect, within: contentBounds)
+    }
+
+    private func setBadgeRect(
+        for family: RawFooterFamily,
+        sceneTraits: RawSceneTraits,
+        collectorRect: OCRNormalizedRect
+    ) -> OCRNormalizedRect {
+        let defaultRect = mapCardRelativeRect(defaultSetBadgeRect(for: family), sceneTraits: sceneTraits)
+        let contentBounds = contentBounds(for: sceneTraits)
+
+        let proposedX: Double
+        let proposedY: Double
+
+        switch family {
+        case .modernLeft:
+            proposedX = collectorRect.x - (defaultRect.width * 0.72)
+            proposedY = collectorRect.y - (defaultRect.height * 0.05)
+        case .legacyRightMid:
+            proposedX = collectorRect.x - (defaultRect.width * 0.38)
+            proposedY = collectorRect.y - (defaultRect.height * 0.08)
+        case .legacyRightCorner:
+            proposedX = (collectorRect.x + collectorRect.width) - (defaultRect.width * 0.95)
+            proposedY = collectorRect.y - (defaultRect.height * 0.12)
+        }
+
+        let anchoredRect = OCRNormalizedRect(
+            x: clamp(
+                proposedX,
+                min: contentBounds.x,
+                max: contentBounds.x + contentBounds.width - defaultRect.width
+            ),
+            y: clamp(
+                proposedY,
+                min: contentBounds.y,
+                max: contentBounds.y + contentBounds.height - defaultRect.height
+            ),
+            width: defaultRect.width,
+            height: defaultRect.height
+        )
+
+        return clampRect(anchoredRect, within: contentBounds)
+    }
+
+    private func defaultCollectorRect(for family: RawFooterFamily) -> OCRNormalizedRect {
+        switch family {
+        case .modernLeft:
+            return OCRNormalizedRect(x: 0.170, y: 0.850, width: 0.275, height: 0.092)
+        case .legacyRightMid:
+            return OCRNormalizedRect(x: 0.720, y: 0.850, width: 0.185, height: 0.100)
+        case .legacyRightCorner:
+            return OCRNormalizedRect(x: 0.705, y: 0.842, width: 0.190, height: 0.102)
+        }
+    }
+
+    private func defaultSetBadgeRect(for family: RawFooterFamily) -> OCRNormalizedRect {
+        switch family {
+        case .modernLeft:
+            return OCRNormalizedRect(x: 0.118, y: 0.845, width: 0.138, height: 0.098)
+        case .legacyRightMid:
+            return OCRNormalizedRect(x: 0.665, y: 0.842, width: 0.125, height: 0.102)
+        case .legacyRightCorner:
+            return OCRNormalizedRect(x: 0.705, y: 0.836, width: 0.115, height: 0.105)
+        }
+    }
+
+    private func mapCardRelativeRect(
+        _ rect: OCRNormalizedRect,
+        sceneTraits: RawSceneTraits
+    ) -> OCRNormalizedRect {
+        let contentRect = contentBounds(for: sceneTraits)
+        return OCRNormalizedRect(
+            x: contentRect.x + (rect.x * contentRect.width),
+            y: contentRect.y + (rect.y * contentRect.height),
+            width: rect.width * contentRect.width,
+            height: rect.height * contentRect.height
+        )
+    }
+
+    private func contentBounds(for sceneTraits: RawSceneTraits) -> OCRNormalizedRect {
+        sceneTraits.normalizedContentRect ?? OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1)
+    }
+
+    private func clampRect(_ rect: OCRNormalizedRect, within bounds: OCRNormalizedRect) -> OCRNormalizedRect {
+        let width = min(rect.width, bounds.width)
+        let height = min(rect.height, bounds.height)
+        return OCRNormalizedRect(
+            x: clamp(rect.x, min: bounds.x, max: bounds.x + bounds.width - width),
+            y: clamp(rect.y, min: bounds.y, max: bounds.y + bounds.height - height),
+            width: width,
+            height: height
+        )
+    }
+
+    private func clamp(_ value: Double, min minValue: Double, max maxValue: Double) -> Double {
+        guard minValue <= maxValue else { return minValue }
+        return Swift.min(Swift.max(value, minValue), maxValue)
     }
 }

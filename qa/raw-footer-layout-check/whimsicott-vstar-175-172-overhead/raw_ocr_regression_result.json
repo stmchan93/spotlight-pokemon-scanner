@@ -1,0 +1,154 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9995869475423379,
+      "x" : 0.00020652622883105887,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_anchor_unavailable"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8996282527881041,
+          "x" : 0.05018587360594796,
+          "y" : 0.76
+        },
+        "text" : "retreat"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.13794299876084265,
+          "x" : 0.07081734820322179,
+          "y" : 0.8451
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.2748864105741429,
+          "x" : 0.1701363073110285,
+          "y" : 0.85
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12494836844279224,
+          "x" : 0.6724287484510533,
+          "y" : 0.84184
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.1849235852953325,
+          "x" : 0.7199091284593143,
+          "y" : 0.85
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11495249896736887,
+          "x" : 0.785631970260223,
+          "y" : 0.8294
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.18992152003304422,
+          "x" : 0.7049153242461793,
+          "y" : 0.842
+        },
+        "text" : ""
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.7996695580338704,
+          "x" : 0.10016522098306486,
+          "y" : 0.02
+        },
+        "text" : "ext turns they can't play any ergy cards from their hand Power"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "collector_signal_weak",
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.896186267499202,
+    "usedFallback" : false
+  },
+  "fixtureName" : "whimsicott-vstar-175-172-overhead",
+  "ocr" : {
+    "cropConfidence" : 0.896186267499202,
+    "setHintTokens" : [
+
+    ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "turns they can't play",
+    "warnings" : [
+      "Raw scene looks holder-like",
+      "Rewrite raw escalation used focused ROIs",
+      "Rewrite raw is relying on broader title evidence",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Whimsicott VSTAR",
+    "collectorNumber" : "175\/172",
+    "setCode" : "SWSH09"
+  }
+}

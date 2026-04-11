@@ -10,6 +10,8 @@ Repo-specific workflow notes for future coding agents.
 - The active OCR rewrite / rollout plan is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 - For backend work, treat that reset spec as the source of truth over older raw-matcher, `direct_lookup`, `slab_sales`, or fragmented SQLite planning notes elsewhere in the repo.
 - For OCR work, treat the OCR rewrite spec as the source of truth over older raw-only OCR heuristics or legacy `CardRectangleAnalyzer.swift` structure.
+- For raw OCR runtime behavior, treat the normalized-target rewrite path in `Spotlight/Services/OCR/Raw/*`, `TargetSelection.swift`, and `PerspectiveNormalization.swift` as the live source of truth.
+- The old `RawCardScanner` raw path has been deleted from app runtime. Do not recreate it.
 
 ## Subagent workflow
 
@@ -144,8 +146,42 @@ Repo-specific workflow notes for future coding agents.
   - backend confidence = card-match confidence from the evidence
 - Do not collapse OCR confidence and backend match confidence into one score.
 - The reticle is a target-selection hint, not the exact OCR crop.
-- The new OCR path must launch behind a feature flag and run side-by-side with the old path on fixtures before legacy OCR is deleted.
+- Raw runtime now goes through the rewrite path directly.
+- Do not add new raw OCR behavior back into `CardRectangleAnalyzer.swift`.
 - The full OCR architecture, fixture set, replay/debug requirements, and phase-by-phase rollout live in [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
+
+### Current raw OCR source of truth
+
+- Raw runtime OCR path:
+  - preview-frame-first capture
+  - reticle-expanded search crop
+  - target selection from rectangle candidates
+  - remnant-aware fallback normalization for partial/off-center cards
+  - fallback salvage re-canonicalizes into a card-filling OCR target before footer reads
+  - deterministic normalized target crop
+  - raw stage 1 footer ROIs:
+    - footer band
+    - footer left metadata strip
+    - footer right metadata strip
+  - raw stage 2 header fallback only when stage 1 is weak
+- Primary implementation files:
+  - [Spotlight/Services/OCR/TargetSelection.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/TargetSelection.swift)
+  - [Spotlight/Services/OCR/PerspectiveNormalization.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/PerspectiveNormalization.swift)
+  - [Spotlight/Services/OCR/Raw/RawPipeline.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/Raw/RawPipeline.swift)
+  - [Spotlight/Services/OCR/Raw/RawROIPlanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/Raw/RawROIPlanner.swift)
+  - [Spotlight/Services/OCR/Raw/RawConfidenceModel.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/Raw/RawConfidenceModel.swift)
+  - [Spotlight/Services/OCR/Raw/RawEvidenceSynthesizer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/Raw/RawEvidenceSynthesizer.swift)
+- Debug artifact naming for the shared front half:
+  - `01_full_camera_frame.jpg`
+  - `02_reticle_expanded_search_crop.jpg`
+  - `03_reticle_exact_crop.jpg`
+  - `04_selected_target_crop.jpg`
+  - `05_rectangle_candidate_overlay.jpg`
+  - `06_ocr_input_normalized.jpg`
+- Raw footer ROI artifacts:
+  - `13_raw_footer_band.jpg`
+  - `14_raw_footer_left.jpg`
+  - `15_raw_footer_right.jpg`
 
 ## Local backend and catalog rules
 
@@ -311,15 +347,14 @@ The backend is always live-only. Do not reintroduce seeded startup or bundled ca
 
 - Simulator photo import: `tools/import_simulator_media.sh`
 - OCR fixture manifests and the host baseline runner now live under `qa/` and `tools/` per [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
-- The simulator-backed legacy OCR fixture runner is now landed:
+- The simulator-backed legacy slab OCR fixture runner is now landed:
   - `zsh tools/run_ocr_simulator_fixture_tests.sh`
   - outputs: [qa/ocr-golden/simulator-legacy-v1](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-legacy-v1)
-- The rewrite raw stage-2 branch is now landed behind the feature-flagged OCR coordinator:
+- The rewrite raw stage-2 branch is now the live raw runtime path:
   - simulator outputs: [qa/ocr-golden/simulator-rewrite-v1-raw-stage2](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-rewrite-v1-raw-stage2)
   - current scope:
     - `headerWide`
     - `footerBandWide`
-    - `nameplateTight`
     - `footerLeft`
     - `footerRight`
   - centralized tuning now lives in [OCRTuning.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/OCRTuning.swift)

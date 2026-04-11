@@ -1,0 +1,399 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "114\/123",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9996396806432648,
+    "x" : 0.00018015967836757025,
+    "y" : 0
+  },
+  "fixtureName" : "lugia-legend-113-123",
+  "footerRouting" : {
+    "anchorIdentifier" : "114\/123",
+    "collectorAnchor" : {
+      "height" : 0.011916666987290658,
+      "width" : 0.07305059328862695,
+      "x" : 0.7973287245386009,
+      "y" : 0.9275833332142713
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.791188832558563,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9996396806432648,
+        "x" : 0.00018015967836757025,
+        "y" : 0.78
+      },
+      "text" : "Elem Discard a d ! to Lugia NO, 249 Diving Po main tid to ho chc f 02010 Pokémon\/Nintendo 114\/123",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0958415121608614,
+            "width" : 0.08438194575080216,
+            "x" : 0.6284273520495025,
+            "y" : 0.7709012012736507
+          },
+          "text" : "Elem"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.11289714911605706,
+            "width" : 0.06776404675257094,
+            "x" : 0.682786669461521,
+            "y" : 0.7752925916768076
+          },
+          "text" : "Discard a d !"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.07602210889231506,
+            "width" : 0.05018100719794781,
+            "x" : 0.754913801544563,
+            "y" : 0.7779182875608717
+          },
+          "text" : "to Lugia"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.11366666602541863,
+            "width" : 0.02050544199552343,
+            "x" : 0.8383395778233181,
+            "y" : 0.7799999998039574
+          },
+          "text" : "NO, 249 Diving Po"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.13168449248830366,
+            "width" : 0.04921308903609143,
+            "x" : 0.8698235638389635,
+            "y" : 0.7795896004913317
+          },
+          "text" : "main tid to ho chc f"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01375,
+            "width" : 0.22940449329752596,
+            "x" : 0.39619126433018376,
+            "y" : 0.9248333333136904
+          },
+          "text" : "02010 Pokémon\/Nintendo"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011916666987290688,
+            "width" : 0.07305059328862691,
+            "x" : 0.7973287245386009,
+            "y" : 0.9275833332142713
+          },
+          "text" : "114\/123"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13795027592877054,
+        "x" : 0.5970793664257508,
+        "y" : 0.8826416667079166
+      },
+      "text" : "opt",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013944666986880102,
+            "width" : 0.026508096364654263,
+            "x" : 0.5970793643222921,
+            "y" : 0.9279618232920399
+          },
+          "text" : "opt"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2749009121768978,
+        "x" : 0.6964035650944655,
+        "y" : 0.8875416667079166
+      },
+      "text" : "114\/123",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012266666666666664,
+            "width" : 0.07300000299434369,
+            "x" : 0.7989981640318479,
+            "y" : 0.9271724358829282
+          },
+          "text" : "114\/123"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.1249549600804081,
+        "x" : 0.6939044658928574,
+        "y" : 0.8753816667079166
+      },
+      "text" : "1 1",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009315068493150695,
+            "width" : 0.009207207584872177,
+            "x" : 0.7991296954013708,
+            "y" : 0.9280118036359988
+          },
+          "text" : "1"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008383561643835604,
+            "width" : 0.00789189221560472,
+            "x" : 0.8103098760401442,
+            "y" : 0.928011803624355
+          },
+          "text" : "1"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18493334091900399,
+        "x" : 0.7413873507234124,
+        "y" : 0.8835416667079166
+      },
+      "text" : "2 114\/123",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.008878504672897204,
+            "width" : 0.013820641136295667,
+            "x" : 0.8414224674892932,
+            "y" : 0.8844762461101752
+          },
+          "text" : "2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012278126333361462,
+            "width" : 0.07586246140078026,
+            "x" : 0.7978971682609365,
+            "y" : 0.9271689586705496
+          },
+          "text" : "114\/123"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11495856327397545,
+        "x" : 0.8196091557337479,
+        "y" : 0.8699416667079166
+      },
+      "text" : "NO. 4\/123",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.023542600896860985,
+            "width" : 0.01510884225047744,
+            "x" : 0.8412870549466669,
+            "y" : 0.8699416666294413
+          },
+          "text" : "NO."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011300448430493283,
+            "width" : 0.05189557999225177,
+            "x" : 0.8196091559190893,
+            "y" : 0.9278564648872888
+          },
+          "text" : "4\/123"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.18993153932222032,
+        "x" : 0.7388882515218043,
+        "y" : 0.8825416667079166
+      },
+      "text" : "2 114\/123",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011178082191780821,
+            "width" : 0.015664456851317145,
+            "x" : 0.8407072210227314,
+            "y" : 0.8825416666679948
+          },
+          "text" : "2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012305330772922462,
+            "width" : 0.07251187169382811,
+            "x" : 0.7982507713401271,
+            "y" : 0.927156124586655
+          },
+          "text" : "114\/123"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.879682918966073,
+        "x" : 0.060158540516963455,
+        "y" : 0
+      },
+      "text" : "Lugia LEGEND Put this card from your hand onto our bench only with the other half of Lugia LEGEND LEGEND 1D into",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.04152996946109955,
+            "width" : 0.2660051709097508,
+            "x" : 0.10157584297010713,
+            "y" : 0.05610576338084714
+          },
+          "text" : "Lugia LEGEND"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017687073753390247,
+            "width" : 0.32419349977582,
+            "x" : 0.47914544341788556,
+            "y" : 0.05578231368452938
+          },
+          "text" : "Put this card from your hand onto"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01724727997092699,
+            "width" : 0.3305204551876218,
+            "x" : 0.4712335377429116,
+            "y" : 0.06865385175152228
+          },
+          "text" : "our bench only with the other half"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01373020780138572,
+            "width" : 0.1611488112266488,
+            "x" : 0.4544991606552161,
+            "y" : 0.0855895197911159
+          },
+          "text" : "of Lugia LEGEND"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.022493833850044356,
+            "width" : 0.13293808871758672,
+            "x" : 0.12260854536523877,
+            "y" : 0.11800478369881505
+          },
+          "text" : "LEGEND"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.05614693987317481,
+            "width" : 0.01852468154590203,
+            "x" : 0.5179485637991844,
+            "y" : 0.13726526926911645
+          },
+          "text" : "1D into"
+        }
+      ]
+    }
+  ],
+  "scanID" : "57BE6A6B-4470-4C52-9267-8A6F3985F74A",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

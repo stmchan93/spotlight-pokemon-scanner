@@ -1,6 +1,5 @@
 {
-  "collectorNumber" : "185\/132",
-  "cropConfidence" : 0.7553153520110598,
+  "cropConfidence" : 0.8390469177415063,
   "expected" : {
     "cardName" : "Lt. Surge's Bargain",
     "collectorNumber" : "185\/132",
@@ -10,22 +9,23 @@
     "setName" : "Mega Evolution"
   },
   "fixtureName" : "raw_in_holder",
-  "fullRecognizedText" : "Supporter TRAINEE Lt. Surge's Bargain You may play only 1 Supporter card during your turn- 185\/132 O202- EIREAK TRAINER RAIN t. Surge's Bargain Yo Hion esars yс -D MEG SN only 1 Supporter card during",
-  "metadataStripRecognizedText" : "You may play only 1 Supporter card during your turn- 185\/132 O202- EIREAK",
+  "fullRecognizedText" : "",
+  "metadataStripRecognizedText" : "",
   "ocrPipelineVersion" : "rewrite_v1",
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrSelectedMode" : "raw",
-  "ocrTargetQualityScore" : 0.7553153520110598,
-  "ocrUsedFallback" : true,
-  "scanID" : "715EDBB3-8FE7-496A-9DEB-2ED03CED7D8E",
+  "ocrTargetQualityScore" : 0.8390469177415063,
+  "ocrUsedFallback" : false,
+  "scanID" : "E4018E64-09AF-4EBB-97C5-C2DB85E78358",
   "setHintTokens" : [
-    "o202"
+
   ],
   "shouldRetryWithStillPhoto" : false,
   "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_in_holder.JPG",
-  "titleTextPrimary" : "TRAINEE Lt Surge's Bargain",
   "warnings" : [
-    "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs"
+    "Raw scene looks holder-like",
+    "Rewrite raw escalation used focused ROIs",
+    "Could not read strong raw-card clues",
+    "Low-confidence rewrite raw evidence"
   ]
 }

@@ -1,0 +1,153 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : true,
+    "backendRecoverableReasons" : [
+      "title_plus_near_miss_collector"
+    ],
+    "collectorNearMiss" : true,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : true
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9996396806432648,
+      "x" : 0.00018015967836757025,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.9996396806432648,
+          "x" : 0.00018015967836757025,
+          "y" : 0.78
+        },
+        "text" : "Eleme Discard a d E to Lugia \/ NO.249 Diving Po nta mch t tn hc fi 02010 Pokémon\/Nintendo 114\/123"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.13795027592877054,
+          "x" : 0.5970793664257508,
+          "y" : 0.8826416667079166
+        },
+        "text" : "do"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.2749009121768978,
+          "x" : 0.6964035650944655,
+          "y" : 0.8875416667079166
+        },
+        "text" : "114\/123"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.1249549600804081,
+          "x" : 0.6939044658928574,
+          "y" : 0.8753816667079166
+        },
+        "text" : "1 1"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.18493334091900399,
+          "x" : 0.7413873507234124,
+          "y" : 0.8835416667079166
+        },
+        "text" : "114\/123"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11495856327397545,
+          "x" : 0.8196091557337479,
+          "y" : 0.8699416667079166
+        },
+        "text" : "NO. 4\/123"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.18993153932222032,
+          "x" : 0.7388882515218043,
+          "y" : 0.8825416667079166
+        },
+        "text" : "2 114\/123"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.879682918966073,
+          "x" : 0.060158540516963455,
+          "y" : 0
+        },
+        "text" : "Lugia LEGEND Put this card from your hand onto rour Bench only with the other half of Lugia LEGEND. LEGEND D into"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.791188832558563,
+    "usedFallback" : true
+  },
+  "fixtureName" : "lugia-legend-113-123",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "114\/123",
+    "cropConfidence" : 0.791188832558563,
+    "setHintTokens" : [
+
+    ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "of Lugia LEGEND LEGEND",
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Lugia LEGEND",
+    "collectorNumber" : "113\/123",
+    "setCode" : "HS"
+  }
+}

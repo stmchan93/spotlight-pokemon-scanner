@@ -1,0 +1,78 @@
+{
+  "fixtures" : [
+    {
+      "actualSetHintTokens" : [
+
+      ],
+      "collectorExactMatch" : false,
+      "collectorFamilyMatched" : false,
+      "expectedCollector" : "200\/165",
+      "expectedFooterFamily" : "modern_left",
+      "fixtureName" : "blastoise-ex-200-165",
+      "passed" : false,
+      "requiredSetHintTokens" : [
+
+      ]
+    },
+    {
+      "actualSetHintTokens" : [
+
+      ],
+      "collectorExactMatch" : false,
+      "collectorFamilyMatched" : false,
+      "expectedCollector" : "227\/091",
+      "expectedFooterFamily" : "modern_left",
+      "fixtureName" : "clive-227-091",
+      "passed" : false,
+      "requiredSetHintTokens" : [
+
+      ]
+    },
+    {
+      "actualSetHintTokens" : [
+
+      ],
+      "collectorExactMatch" : false,
+      "collectorFamilyMatched" : false,
+      "expectedCollector" : "25\/25",
+      "expectedFooterFamily" : "modern_left",
+      "fixtureName" : "pikachu-25-25",
+      "passed" : false,
+      "requiredSetHintTokens" : [
+
+      ]
+    },
+    {
+      "actualSetHintTokens" : [
+
+      ],
+      "collectorExactMatch" : false,
+      "collectorFamilyMatched" : false,
+      "expectedCollector" : "GG30\/GG70",
+      "expectedFooterFamily" : "modern_left",
+      "fixtureName" : "pikachu-gg30-gg70",
+      "passed" : false,
+      "requiredSetHintTokens" : [
+
+      ]
+    },
+    {
+      "actualCollector" : "256\/198",
+      "actualSetHintTokens" : [
+        "svi"
+      ],
+      "collectorExactMatch" : true,
+      "collectorFamilyMatched" : true,
+      "expectedCollector" : "256\/198",
+      "expectedFooterFamily" : "modern_left",
+      "fixtureName" : "rare-candy-256-198",
+      "passed" : true,
+      "requiredSetHintTokens" : [
+
+      ]
+    }
+  ],
+  "generatedAt" : "2026-04-11T19:56:11Z",
+  "passedFixtureCount" : 1,
+  "validatedFixtureCount" : 5
+}

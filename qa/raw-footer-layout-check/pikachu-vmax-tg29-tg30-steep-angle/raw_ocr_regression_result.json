@@ -1,0 +1,153 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 0.9987129583124059,
+      "width" : 1,
+      "x" : 0,
+      "y" : 0.000643520843797063
+    },
+    "footerRoutingReasons" : [
+      "footer_band_anchor_unavailable"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.2197168508287293,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.7796396283274737
+        },
+        "text" : "ack does 150 more damage. Tetreat resistance Whet your Po MAX rule botient takes 3 Priz"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.09787386991461579,
+          "width" : 0.138,
+          "x" : 0.07064000000000001,
+          "y" : 0.8446558419136113
+        },
+        "text" : "0〇し） 2"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.09188159216474134,
+          "width" : 0.275,
+          "x" : 0.17,
+          "y" : 0.8495495354093421
+        },
+        "text" : "resistance"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.1018687217478654,
+          "width" : 0.125,
+          "x" : 0.6725,
+          "y" : 0.8414000376695129
+        },
+        "text" : "retr"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.0998712958312406,
+          "width" : 0.185,
+          "x" : 0.72,
+          "y" : 0.8495495354093421
+        },
+        "text" : "etrext"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.10486486062280262,
+          "width" : 0.115,
+          "x" : 0.7857500000000001,
+          "y" : 0.8289760484681065
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.1018687217478654,
+          "width" : 0.19,
+          "x" : 0.705,
+          "y" : 0.8415598317428428
+        },
+        "text" : "re Creat"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.1997425916624812,
+          "width" : 0.88,
+          "x" : 0.06,
+          "y" : 0.000643520843797063
+        },
+        "text" : ""
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "collector_signal_weak",
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.745650877345416,
+    "usedFallback" : true
+  },
+  "fixtureName" : "pikachu-vmax-tg29-tg30-steep-angle",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.42,
+    "collectorNumberPartial" : "150",
+    "cropConfidence" : 0.745650877345416,
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Pikachu VMAX",
+    "collectorNumber" : "TG29\/TG30",
+    "setCode" : "SWSH11"
+  }
+}

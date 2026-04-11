@@ -1,0 +1,157 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : true
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9996031746031746,
+      "x" : 0.0001984126984126984,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_anchor_unavailable"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8996428571428572,
+          "x" : 0.050178571428571433,
+          "y" : 0.76
+        },
+        "text" : "Explode Together Now n40 3 attackidoes 40 damage for each Pokemon in play that \"Koffing\"lor\"Weezing\" in its name (both yours and your bonentis)5"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.13794523809523812,
+          "x" : 0.07081038095238094,
+          "y" : 0.8451
+        },
+        "text" : "Nouting nents)g"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.27489087301587306,
+          "x" : 0.17013095238095238,
+          "y" : 0.85
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12495039682539683,
+          "x" : 0.6724315476190476,
+          "y" : 0.84184
+        },
+        "text" : "oth your"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.1849265873015873,
+          "x" : 0.7199126984126983,
+          "y" : 0.85
+        },
+        "text" : "Apup sinok"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11495436507936509,
+          "x" : 0.7856366071428572,
+          "y" : 0.8294
+        },
+        "text" : "Sar"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.1899246031746032,
+          "x" : 0.7049186507936508,
+          "y" : 0.842
+        },
+        "text" : "byours and y"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.7996825396825398,
+          "x" : 0.10015873015873017,
+          "y" : 0.02
+        },
+        "text" : "1 Rocke 1500"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "collector_signal_weak",
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.8727646147863436,
+    "usedFallback" : false
+  },
+  "fixtureName" : "team-rockets-weezing-199-182-overhead",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.42,
+    "collectorNumberPartial" : "40",
+    "cropConfidence" : 0.8727646147863436,
+    "setConfidenceScore" : 0.56,
+    "setHintTokens" : [
+      "lor",
+      "n40",
+      "par"
+    ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "Rocke",
+    "warnings" : [
+      "Raw scene looks holder-like",
+      "Rewrite raw escalation used focused ROIs"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Team Rocket's Weezing",
+    "collectorNumber" : "199\/182",
+    "setCode" : "DRI"
+  }
+}

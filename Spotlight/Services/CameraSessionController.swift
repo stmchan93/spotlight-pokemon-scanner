@@ -245,12 +245,12 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             guard let self else { return }
 
             self.session.beginConfiguration()
-            // Temporary debugging mode: prefer the photo preset so raw scans can use
-            // a higher-resolution still image instead of the softer preview frame.
-            if self.session.canSetSessionPreset(.photo) {
-                self.session.sessionPreset = .photo
-            } else {
+            // Favor the live preview path for tap-to-scan. `.high` keeps preview
+            // capture responsive while still allowing explicit still-photo fallback.
+            if self.session.canSetSessionPreset(.high) {
                 self.session.sessionPreset = .high
+            } else {
+                self.session.sessionPreset = .photo
             }
 
             defer {

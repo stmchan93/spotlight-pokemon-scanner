@@ -90,9 +90,10 @@ final class ScannerViewModel: ObservableObject {
         currentPendingItemID = pendingItemID
         currentScanStartedAt = Date().timeIntervalSinceReferenceDate
 
-        // Temporary debugging mode: use a real still photo for raw scans so OCR can
-        // work from a sharper, higher-resolution source than the live preview frame.
-        let preferStillPhoto = scannerPresentationMode == .raw
+        // Tap-to-scan should prefer the live preview frame first so OCR starts
+        // immediately. Still-photo capture remains available as a fallback or
+        // future explicit retry path.
+        let preferStillPhoto = false
         let didStartCapture = cameraController.capturePhoto(
             scanID: scanID,
             reticleRect: reticleRect,
@@ -796,8 +797,13 @@ final class ScannerViewModel: ObservableObject {
                     imageWidth: Int(analysis.normalizedImage.size.width.rounded()),
                     imageHeight: Int(analysis.normalizedImage.size.height.rounded()),
                     recognizedTokenCount: analysis.recognizedTokens.count,
+                    cropConfidence: analysis.cropConfidence,
                     collectorNumber: analysis.collectorNumber,
+                    collectorNumberPartial: analysis.ocrAnalysis?.rawEvidence?.collectorNumberPartial,
                     setHintTokens: analysis.setHintTokens,
+                    titleTextPrimary: analysis.ocrAnalysis?.rawEvidence?.titleTextPrimary,
+                    titleTextSecondary: analysis.ocrAnalysis?.rawEvidence?.titleTextSecondary,
+                    ocrAnalysisIncluded: analysis.ocrAnalysis != nil,
                     warnings: analysis.warnings
                 )
             )
@@ -960,8 +966,13 @@ private struct FrontendBackendRequestArtifact: Codable {
     let imageWidth: Int
     let imageHeight: Int
     let recognizedTokenCount: Int
+    let cropConfidence: Double
     let collectorNumber: String?
+    let collectorNumberPartial: String?
     let setHintTokens: [String]
+    let titleTextPrimary: String?
+    let titleTextSecondary: String?
+    let ocrAnalysisIncluded: Bool
     let warnings: [String]
 }
 

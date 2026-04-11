@@ -1,0 +1,421 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_metadata_families_agree"
+  ],
+  "collectorConfidenceScore" : 0.94,
+  "collectorNumber" : "110\/14",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9995577995577997,
+    "x" : 0.00022110022110016162,
+    "y" : 0
+  },
+  "fixtureName" : "dark-weezing-14-82",
+  "footerRouting" : {
+    "anchorIdentifier" : "14\/82",
+    "collectorAnchor" : {
+      "height" : 0.03337503537066,
+      "width" : 0.8340183805169649,
+      "x" : 0.08302091966954019,
+      "y" : 0.8995282100862018
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.8342420695898636,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9995577995577997,
+        "x" : 0.00022110022110016162,
+        "y" : 0.78
+      },
+      "text" : "weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110 #110 Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK 01999-2000 Wiards 14\/82 *",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01759802340094886,
+            "width" : 0.11794870491243523,
+            "x" : 0.1270619796221584,
+            "y" : 0.7973259881904992
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016814092838320128,
+            "width" : 0.1192623307086508,
+            "x" : 0.4410095764304652,
+            "y" : 0.7935929534422992
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014666666506354644,
+            "width" : 0.14096328252861154,
+            "x" : 0.7357931189854385,
+            "y" : 0.7928333334868227
+          },
+          "text" : "retreat cost"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02488437882125546,
+            "width" : 0.7206027464609848,
+            "x" : 0.14353997423119466,
+            "y" : 0.8562503647118791
+          },
+          "text" : "Researchers have observed these Pokémon reproducing in"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.028438656104669856,
+            "width" : 0.4468491506476688,
+            "x" : 0.13698541468367884,
+            "y" : 0.8754605881673968
+          },
+          "text" : "industrial waste sites. LV. 24 #110"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01925000024046802,
+            "width" : 0.06920015369864488,
+            "x" : 0.5128148449884206,
+            "y" : 0.8789999998110161
+          },
+          "text" : "#110"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.033375035370660035,
+            "width" : 0.8340183805169649,
+            "x" : 0.08302091966954019,
+            "y" : 0.8995282100862018
+          },
+          "text" : "Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK 01999-2000 Wiards 14\/82 *"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13793897633897637,
+        "x" : 0.00022110022110016162,
+        "y" : 0.8653157277715317
+      },
+      "text" : "Ilus",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010784688995215324,
+            "width" : 0.037916875012609624,
+            "x" : 0.08324598188657756,
+            "y" : 0.9183013736853638
+          },
+          "text" : "Ilus"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.9995577995577997,
+        "x" : 0.00022110022110016162,
+        "y" : 0.8702157277715317
+      },
+      "text" : "Kesedrcners nove ouserree industrial waste sites. LV. 24 #110 14\/82 * Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wiards",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012142131979695428,
+            "width" : 0.3382124492830641,
+            "x" : 0.14239957582777804,
+            "y" : 0.8702157279018791
+          },
+          "text" : "Kesedrcners nove ouserree"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021845501933606133,
+            "width" : 0.2699277476009906,
+            "x" : 0.1398230608634036,
+            "y" : 0.8818437232686533
+          },
+          "text" : "industrial waste sites."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02000622407554975,
+            "width" : 0.1745824742198479,
+            "x" : 0.40732321614535316,
+            "y" : 0.8805732708863564
+          },
+          "text" : "LV. 24 #110"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.0196792872085184,
+            "width" : 0.08616876956284744,
+            "x" : 0.836058229202985,
+            "y" : 0.8988714658095406
+          },
+          "text" : "14\/82 *"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.028678034322515963,
+            "width" : 0.7223445995527159,
+            "x" : 0.08821437476952385,
+            "y" : 0.9053403216972282
+          },
+          "text" : "Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wiards"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12494472494472496,
+        "x" : 0.00022110022110016162,
+        "y" : 0.8580557277715317
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.9995577995577997,
+        "x" : 0.00022110022110016162,
+        "y" : 0.8662157277715317
+      },
+      "text" : "Researchers have observed these. industrial waste sites. LV. 24 #110 14\/82 * Illus. Shin-ichl Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wiards",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015186915887850472,
+            "width" : 0.42007277935903625,
+            "x" : 0.14239957909651565,
+            "y" : 0.8662157274961771
+          },
+          "text" : "Researchers have observed these."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02307518486664674,
+            "width" : 0.37092961183033585,
+            "x" : 0.1400240214233472,
+            "y" : 0.8796514387689794
+          },
+          "text" : "industrial waste sites. LV. 24"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01969697007509036,
+            "width" : 0.07539767588932376,
+            "x" : 0.5064626591265567,
+            "y" : 0.8768217882859345
+          },
+          "text" : "#110"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.018602209893342492,
+            "width" : 0.08634618550729119,
+            "x" : 0.833815300757075,
+            "y" : 0.8993388649009615
+          },
+          "text" : "14\/82 *"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.028064753630450957,
+            "width" : 0.7224117408152937,
+            "x" : 0.08170541991872025,
+            "y" : 0.9051295000920282
+          },
+          "text" : "Illus. Shin-ichl Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wiards"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11494914694914697,
+        "x" : 0.8848297528297528,
+        "y" : 0.8526157277715317
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.9995577995577997,
+        "x" : 0.00022110022110016162,
+        "y" : 0.8652157277715317
+      },
+      "text" : "Researchers have observed these Fokemon reproesens industrial waste sites. LV. 24 #110 14\/82 * Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1 999-2000 Wiards",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016767123287671232,
+            "width" : 0.7001213258312714,
+            "x" : 0.14239956531020617,
+            "y" : 0.8652157280332773
+          },
+          "text" : "Researchers have observed these Fokemon reproesens"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.025184986062245823,
+            "width" : 0.44035040904111783,
+            "x" : 0.13979752851148544,
+            "y" : 0.8783836794874103
+          },
+          "text" : "industrial waste sites. LV. 24 #110"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020363024567904536,
+            "width" : 0.08643165544686773,
+            "x" : 0.8337725671144796,
+            "y" : 0.8984222753580478
+          },
+          "text" : "14\/82 *"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.027601238302988534,
+            "width" : 0.7222617220567215,
+            "x" : 0.08178461372015511,
+            "y" : 0.9055957932770429
+          },
+          "text" : "Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1 999-2000 Wiards"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.8796108636108637,
+        "x" : 0.060194568194568136,
+        "y" : 0
+      },
+      "text" : "Evolves from Koffing Put Dark Weezing on the Basic Pokémon STAGE Dark Weezing 60 HP",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.023718684833643235,
+            "width" : 0.6450479814991941,
+            "x" : 0.23245169628918144,
+            "y" : 0.06842105327819192
+          },
+          "text" : "Evolves from Koffing Put Dark Weezing on the Basic Pokémon"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018315302753032038,
+            "width" : 0.07044412322757759,
+            "x" : 0.11881030351300821,
+            "y" : 0.08267908349370795
+          },
+          "text" : "STAGE"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.051991261977816255,
+            "width" : 0.5230097294840552,
+            "x" : 0.2715059576712709,
+            "y" : 0.09480182404126142
+          },
+          "text" : "Dark Weezing 60 HP"
+        }
+      ]
+    }
+  ],
+  "scanID" : "EE4CF92D-57BE-40C2-913F-CD2BE1A98ACA",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

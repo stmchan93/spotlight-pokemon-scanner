@@ -1,5 +1,6 @@
 {
-  "cropConfidence" : 0.7904684633123501,
+  "collectorNumber" : "14\/82",
+  "cropConfidence" : 0.8505594385688882,
   "expected" : {
     "cardName" : "Dark Weezing",
     "collectorNumber" : "14\/82",
@@ -8,20 +9,20 @@
     "setName" : "Team Rocket"
   },
   "fixtureName" : "raw_centered_clean",
-  "fullRecognizedText" : "Evolves from Koffing Put Dark Weezing on the Basic Pokém STAI Dark Weezing 60 HP 20 Defending Pokémon is now Poisoned; if tails, the Defending Pokémon is now Paralyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110 TAU Put Dark Weezing on the Bas Dark Weezing 60 H Defending Poker the Defending P Researchers have obse rlal waste sites v Poisoned; if tails, LU now Paralyzed. ce se Pokémon reproducing in HIO",
-  "metadataStripRecognizedText" : "20 Defending Pokémon is now Poisoned; if tails, the Defending Pokémon is now Paralyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110",
+  "fullRecognizedText" : "the Defending Pokémon is now Paralyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110 Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK. D1999-2000 Wiards 14\/82 * Researchers have observe‹ industrial waste sites. LV.. s. Shin-ichi Yoshida ©1995, 96, 98 Nintendo okémon reproducing in 1EFREAK. 01999-2000 Wuards. Evolves from Koffing Put Dark Weezing on the Basic Pokémon Dark Weezing 60 HR",
+  "metadataStripRecognizedText" : "the Defending Pokémon is now Paralyzed. weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110 Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK. D1999-2000 Wiards 14\/82 *",
   "ocrPipelineVersion" : "rewrite_v1",
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrSelectedMode" : "raw",
-  "ocrTargetQualityScore" : 0.7904684633123501,
+  "ocrTargetQualityScore" : 0.8505594385688882,
   "ocrUsedFallback" : true,
-  "scanID" : "581B5116-CF15-4AE9-B4A0-6AC179BAE02C",
+  "scanID" : "D013B227-FE5D-4105-8947-6A966BB3480E",
   "setHintTokens" : [
 
   ],
   "shouldRetryWithStillPhoto" : false,
   "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_centered_clean.JPG",
-  "titleTextPrimary" : "Pokém STAI Dark Weezing",
+  "titleTextPrimary" : "Basic Pokémon Dark Weezing",
   "warnings" : [
     "Target selection used fallback crop",
     "Rewrite raw escalation used focused ROIs"

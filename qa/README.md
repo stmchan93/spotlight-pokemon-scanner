@@ -43,6 +43,7 @@ The actively kept lightweight checks are:
 - `zsh tools/run_card_identifier_parser_tests.sh`
 - `zsh tools/run_ocr_fixture_runner.sh`
 - `zsh tools/run_ocr_simulator_fixture_tests.sh`
+- `zsh tools/run_raw_ocr_regression_suite.sh`
 - `zsh tools/run_raw_card_decision_tests.sh`
 - `zsh tools/run_scanner_reticle_layout_tests.sh`
 - `zsh tools/run_scan_tray_logic_tests.sh`
@@ -72,7 +73,8 @@ Run:
 zsh tools/run_ocr_simulator_fixture_tests.sh
 ```
 
-That executes the real legacy OCR analyzers on the simulator fixture pack and
+That executes the remaining legacy slab OCR analyzer plus the rewrite raw OCR
+pipeline on the simulator fixture pack and
 writes the current simulator reference outputs under:
 
 - [qa/ocr-golden/simulator-legacy-v1](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-legacy-v1)
@@ -88,10 +90,46 @@ The rewrite raw corpus now includes selective escalation:
 
 - `headerWide`
 - `footerBandWide`
-- `nameplateTight`
 - `footerLeft`
 - `footerRight`
 
 It also records centralized raw field-confidence and still-photo retry
 decisions. The next OCR fixture milestone is the first slab rewrite corpus,
 then old-vs-new diff reporting on top of that same output layout.
+
+## Raw OCR Regression Seed Suite
+
+The current raw OCR regression seed suite uses the folder-per-image pack under:
+
+- [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check)
+
+Each fixture folder should contain:
+
+- `source_scan.jpg`
+- `truth.json`
+
+Minimal `truth.json` fields:
+
+- `cardName`
+- `collectorNumber`
+- `setCode`
+
+Run:
+
+```bash
+zsh tools/run_raw_ocr_regression_suite.sh
+```
+
+That executes the live rewrite raw pipeline on each fixture and writes:
+
+- per-fixture `raw_ocr_regression_result.json`
+- root [raw_ocr_regression_scorecard.json](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check/raw_ocr_regression_scorecard.json)
+
+The scorecard tracks:
+
+- exact collector accuracy
+- set-hint accuracy
+- backend-recoverable accuracy
+
+This is the baseline harness for future raw OCR changes. Expand it with more
+folders and angles rather than tuning OCR against single failures.

@@ -33,31 +33,30 @@ Use this OCR planning spec next:
 - raw scan UX remains active
 - backend now always returns a best raw candidate for valid raw scans
 - low-confidence raw scans still return a best guess plus review state
-- current OCR implementation remains the legacy path while a full shared-front-half OCR rewrite is planned
+- raw OCR runtime now uses the rewrite path while slab OCR still uses the legacy slab path
 - the shared front half has now been extracted into dedicated OCR modules:
   - frame source selection
   - target selection
   - perspective normalization
-- the simulator-backed OCR fixture runner is landed and now writes legacy reference outputs under:
+- the simulator-backed OCR fixture runner is landed and now writes legacy slab reference outputs under:
   - [qa/ocr-golden/simulator-legacy-v1](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-legacy-v1)
-- the rewrite raw branch is now landed behind the feature-flagged coordinator
+- the rewrite raw branch is now the live raw runtime path
 - the simulator-backed OCR fixture runner now also writes rewrite raw stage-2 outputs under:
   - [qa/ocr-golden/simulator-rewrite-v1-raw-stage2](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-rewrite-v1-raw-stage2)
-- the legacy OCR path now emits a transitional `ocrAnalysis` envelope with:
+- the remaining legacy slab OCR path now emits a transitional `ocrAnalysis` envelope with:
   - normalized target metadata
   - mode sanity scores/warnings
-  - legacy raw/slab evidence fields
+  - legacy slab evidence fields
 - the rewrite raw stage-2 path now emits:
   - rewrite pipeline version metadata
   - broad raw evidence plus selective escalation from:
     - `headerWide`
     - `footerBandWide`
-    - `nameplateTight`
     - `footerLeft`
     - `footerRight`
   - centralized OCR field-confidence outputs and still-photo retry decisions
   - per-fixture simulator outputs for review
-- the app now routes scanner OCR through a feature-flagged OCR coordinator, while still keeping legacy OCR as the active runtime path
+- the app now routes raw scanner OCR through the rewrite coordinator path directly
 - slab matching, slab pricing, and slab backend logic are deferred until the slab rebuild
 
 ## Current Scope Order
@@ -65,7 +64,7 @@ Use this OCR planning spec next:
 1. raw backend reset: done
 2. OCR rewrite contracts + fixture baseline: active
 3. simulator-backed OCR fixture execution: done
-4. mode sanity signals + feature-flagged rewrite entrypoint: done
+4. mode sanity signals + rewrite entrypoint: done
 5. raw branch stage 1: done
 6. raw escalation and confidence: done
 7. slab branch stage 1: next

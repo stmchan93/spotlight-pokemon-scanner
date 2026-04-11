@@ -8,7 +8,7 @@ Current subtrees:
 - `phase2-baseline/`
   - host-side manifest validation and copied-image baseline output
 - `simulator-legacy-v1/`
-  - simulator-backed execution of the current legacy OCR analyzers
+  - simulator-backed execution of the remaining legacy slab OCR analyzer
 - `simulator-rewrite-v1-raw-stage2/`
   - simulator-backed execution of the rewrite raw branch with selective escalation and field-confidence output
 

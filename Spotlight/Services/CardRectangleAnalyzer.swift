@@ -4,76 +4,28 @@ import Vision
 import CoreImage
 import Photos
 
-// MARK: - Configuration
-
-/// Configuration for raw Pokémon card scanning
-struct RawCardScanConfiguration {
-    struct CardDetection {
-        let minimumConfidence: Float
-        let minimumAspectRatio: Float
-        let maximumAspectRatio: Float
-        let edgeInsetPercentage: CGFloat
-
-        static let `default` = CardDetection(
-            minimumConfidence: 0.45,
-            minimumAspectRatio: 0.6,
-            maximumAspectRatio: 0.85,
-            edgeInsetPercentage: 0.0  // Keep footer text that sits close to the card edge
-        )
-    }
-
-    struct BottomRegionOCR {
-        let bottomLeftRegion: CGRect
-        let bottomRightRegion: CGRect
-        let minimumTextHeight: Float
-        let upscaleFactor: CGFloat
-
-        static let `default` = BottomRegionOCR(
-            // Cover the full footer band so slight reticle/card drift still captures the identifier.
-            bottomLeftRegion: CGRect(x: 0.00, y: 0.80, width: 0.42, height: 0.18),
-            bottomRightRegion: CGRect(x: 0.56, y: 0.80, width: 0.44, height: 0.18),
-            minimumTextHeight: 0.001,  // Very sensitive
-            upscaleFactor: 4.0  // Aggressive upscaling for tiny collector numbers
-        )
-    }
-
-    struct Debug {
-        let saveDebugImages: Bool
-        let verboseLogging: Bool
-
-        static let disabled = Debug(saveDebugImages: false, verboseLogging: false)
-        static let enabled = Debug(saveDebugImages: true, verboseLogging: true)
-    }
-
-    let cardDetection: CardDetection
-    let bottomRegionOCR: BottomRegionOCR
-    let debug: Debug
-
-    static let `default` = RawCardScanConfiguration(
-        cardDetection: .default,
-        bottomRegionOCR: .default,
-        debug: .enabled  // Enable to see OCR debug output
-    )
-}
-
 struct SlabScanConfiguration {
     struct LabelOCR {
-        let panelRegion: CGRect
-        let primaryRegion: CGRect
-        let expandedRegion: CGRect
+        let topLabelWideRegion: CGRect
+        let topLabelExpandedRegion: CGRect
+        let rightColumnRegion: CGRect
         let certRegion: CGRect
         let minimumTextHeight: Float
         let upscaleFactor: CGFloat
+        let fallbackMinimumTextHeight: Float
+        let fallbackUpscaleFactor: CGFloat
         let certMinimumTextHeight: Float
         let certUpscaleFactor: CGFloat
 
         static let `default` = LabelOCR(
-            panelRegion: CGRect(x: 0.03, y: 0.00, width: 0.94, height: 0.24),
-            primaryRegion: CGRect(x: 0.04, y: 0.00, width: 0.92, height: 0.20),
-            expandedRegion: CGRect(x: 0.02, y: 0.00, width: 0.96, height: 0.30),
+            topLabelWideRegion: CGRect(x: 0.03, y: 0.00, width: 0.94, height: 0.24),
+            topLabelExpandedRegion: CGRect(x: 0.02, y: 0.00, width: 0.96, height: 0.30),
+            rightColumnRegion: CGRect(x: 0.66, y: 0.01, width: 0.28, height: 0.22),
             certRegion: CGRect(x: 0.54, y: 0.05, width: 0.38, height: 0.15),
             minimumTextHeight: 0.008,
             upscaleFactor: 3.0,
+            fallbackMinimumTextHeight: 0.006,
+            fallbackUpscaleFactor: 3.5,
             certMinimumTextHeight: 0.004,
             certUpscaleFactor: 4.0
         )
@@ -96,937 +48,7 @@ struct SlabScanConfiguration {
     )
 }
 
-struct RawBroadOCRSignals: Equatable {
-    let primaryTitleText: String
-    let secondaryTitleText: String?
-    let titleConfidence: Double
-    let secondaryTitleConfidence: Double
-    let footerBandText: String
-    let footerBandConfidence: Double
-    let footerCollectorNumber: String?
-    let footerSetHintTokens: [String]
-    let cropConfidence: Double
-}
-
-struct RawFooterConfirmationSignals: Equatable {
-    let collectorNumber: String?
-    let setHintTokens: [String]
-}
-
-struct RawCandidateHypothesis: Codable, Equatable {
-    let titleText: String
-    let collectorNumber: String?
-    let setHintTokens: [String]
-    let score: Double
-    let reasons: [String]
-    let sourceLabels: [String]
-    let footerConfirmed: Bool
-}
-
-private struct RawRecognizedRegionResult {
-    let label: String
-    let normalizedRect: CGRect
-    let text: String
-    let tokens: [RecognizedToken]
-
-    var averageConfidence: Double {
-        guard !tokens.isEmpty else { return 0 }
-        return Double(tokens.map(\.confidence).reduce(0, +)) / Double(tokens.count)
-    }
-}
-
-func buildCoarseRawCandidateHypotheses(from signals: RawBroadOCRSignals) -> [RawCandidateHypothesis] {
-    var hypotheses: [RawCandidateHypothesis] = []
-    let footerHasCollector = signals.footerCollectorNumber != nil
-    let footerHasSetHints = !signals.footerSetHintTokens.isEmpty
-    let titleStrength = min(0.42, signals.titleConfidence * 0.42)
-    let secondaryTitleStrength = min(0.30, signals.secondaryTitleConfidence * 0.30)
-    let footerStrength = min(0.20, signals.footerBandConfidence * 0.20)
-    let cropStrength = min(0.18, signals.cropConfidence * 0.18)
-    let collectorStrength = footerHasCollector ? 0.18 : 0
-    let setHintStrength = footerHasSetHints ? 0.08 : 0
-
-    func appendHypothesis(
-        titleText: String,
-        titleScore: Double,
-        sourceLabels: [String],
-        baseBonus: Double
-    ) {
-        let normalizedTitle = titleText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedTitle.isEmpty || !signals.footerBandText.isEmpty else { return }
-
-        var reasons: [String] = []
-        if !normalizedTitle.isEmpty {
-            reasons.append("title/header candidate")
-        }
-        if !signals.footerBandText.isEmpty {
-            reasons.append("footer band candidate")
-        }
-        if footerHasCollector {
-            reasons.append("broad footer collector")
-        }
-        if footerHasSetHints {
-            reasons.append("broad footer set hints")
-        }
-
-        hypotheses.append(
-            RawCandidateHypothesis(
-                titleText: normalizedTitle,
-                collectorNumber: signals.footerCollectorNumber,
-                setHintTokens: signals.footerSetHintTokens,
-                score: baseBonus + titleScore + footerStrength + cropStrength + collectorStrength + setHintStrength,
-                reasons: reasons,
-                sourceLabels: sourceLabels,
-                footerConfirmed: false
-            )
-        )
-    }
-
-    appendHypothesis(
-        titleText: signals.primaryTitleText,
-        titleScore: titleStrength,
-        sourceLabels: ["title_header", "footer_full"],
-        baseBonus: 0.18
-    )
-
-    if let secondaryTitleText = signals.secondaryTitleText,
-       normalizedRawCollectorIdentifier(secondaryTitleText) != normalizedRawCollectorIdentifier(signals.primaryTitleText) {
-        appendHypothesis(
-            titleText: secondaryTitleText,
-            titleScore: secondaryTitleStrength,
-            sourceLabels: ["title_secondary", "footer_full"],
-            baseBonus: 0.14
-        )
-    }
-
-    if !signals.footerBandText.isEmpty {
-        hypotheses.append(
-            RawCandidateHypothesis(
-                titleText: "",
-                collectorNumber: signals.footerCollectorNumber,
-                setHintTokens: signals.footerSetHintTokens,
-                score: 0.14 + footerStrength + cropStrength + collectorStrength + setHintStrength,
-                reasons: ["footer-only candidate"],
-                sourceLabels: ["footer_full"],
-                footerConfirmed: false
-            )
-        )
-    }
-
-    let deduped = Dictionary(grouping: hypotheses) { hypothesis in
-        [
-            normalizedRawCollectorIdentifier(hypothesis.titleText),
-            normalizedRawCollectorIdentifier(hypothesis.collectorNumber ?? ""),
-            hypothesis.setHintTokens.sorted().joined(separator: ",")
-        ].joined(separator: "|")
-    }
-    .compactMap { $0.value.max(by: { $0.score < $1.score }) }
-
-    return deduped.sorted { lhs, rhs in
-        if lhs.score == rhs.score {
-            return lhs.titleText < rhs.titleText
-        }
-        return lhs.score > rhs.score
-    }
-}
-
-func rerankRawCandidateHypotheses(
-    _ hypotheses: [RawCandidateHypothesis],
-    footerConfirmation: RawFooterConfirmationSignals
-) -> [RawCandidateHypothesis] {
-    let footerHintSet = Set(footerConfirmation.setHintTokens)
-
-    return hypotheses
-        .map { hypothesis in
-            var score = hypothesis.score
-            var reasons = hypothesis.reasons
-            var collectorNumber = hypothesis.collectorNumber
-            var setHintTokens = hypothesis.setHintTokens
-            var footerConfirmed = hypothesis.footerConfirmed
-
-            if let confirmedCollector = footerConfirmation.collectorNumber {
-                if let existingCollector = collectorNumber {
-                    if normalizedRawCollectorIdentifier(existingCollector) == normalizedRawCollectorIdentifier(confirmedCollector) {
-                        score += 0.22
-                        reasons.append("footer corners confirm collector")
-                        footerConfirmed = true
-                    } else {
-                        score -= 0.10
-                        collectorNumber = confirmedCollector
-                        reasons.append("footer corners override collector")
-                    }
-                } else {
-                    collectorNumber = confirmedCollector
-                    score += 0.24
-                    footerConfirmed = true
-                    reasons.append("footer corners supply collector")
-                }
-            }
-
-            if !footerHintSet.isEmpty {
-                let existingHints = Set(setHintTokens)
-                if existingHints.isEmpty {
-                    setHintTokens = footerConfirmation.setHintTokens.sorted()
-                    score += 0.08
-                    reasons.append("footer corners supply set hints")
-                } else if !existingHints.isDisjoint(with: footerHintSet) {
-                    score += 0.06
-                    reasons.append("footer corners confirm set hints")
-                }
-            }
-
-            return RawCandidateHypothesis(
-                titleText: hypothesis.titleText,
-                collectorNumber: collectorNumber,
-                setHintTokens: setHintTokens,
-                score: score,
-                reasons: reasons,
-                sourceLabels: hypothesis.sourceLabels,
-                footerConfirmed: footerConfirmed
-            )
-        }
-        .sorted { lhs, rhs in
-            if lhs.score == rhs.score {
-                return lhs.titleText < rhs.titleText
-            }
-            return lhs.score > rhs.score
-        }
-}
-
-func normalizedRawCollectorIdentifier(_ value: String) -> String {
-    value
-        .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-        .uppercased()
-        .replacingOccurrences(of: #"\s+"#, with: "", options: .regularExpression)
-        .replacingOccurrences(of: #"\s*/\s*"#, with: "/", options: .regularExpression)
-}
-
-// MARK: - Main Scanner
-
-/// Focused scanner for raw Pokémon cards with broader OCR evidence before footer confirmation.
-actor RawCardScanner {
-    private let config: RawCardScanConfiguration
-    private let parser = CardIdentifierParser()
-    private let titleHeaderRegion = CGRect(x: 0.04, y: 0.00, width: 0.92, height: 0.18)
-    private let nameplateRegion = CGRect(x: 0.16, y: 0.02, width: 0.62, height: 0.14)
-    private let footerFallbackRegion = CGRect(x: 0.00, y: 0.78, width: 1.00, height: 0.22)
-    private let rawCardWidthHeightAspect = 63.0 / 88.0
-
-    init(config: RawCardScanConfiguration = .default) {
-        self.config = config
-    }
-
-    func analyze(
-        scanID: UUID,
-        capture: ScanCaptureInput,
-        resolverModeHint: ResolverMode = .rawCard
-    ) async throws -> AnalyzedCapture {
-        let startTime = Date()
-
-        // Step 1: Select the OCR target from a larger search region around the reticle.
-        if config.debug.verboseLogging {
-            print("  🔍 [SCAN] Step 1: Selecting raw-card OCR target")
-        }
-        let targetSelection = try selectOCRInput(
-            scanID: scanID,
-            capture: capture,
-            mode: .rawCard
-        )
-        let normalizedOriginal = capture.originalImage.normalizedOrientation()
-        let workingImage = targetSelection.normalizedImage
-
-        guard let workingCGImage = workingImage.cgImage else {
-            throw AnalysisError.invalidImage
-        }
-
-        // Preserve the old aligned-card path if rectangle selection was inconclusive.
-        let (cardImage, cropConfidence): (CGImage, Double)
-        if targetSelection.usedFallback {
-            if config.debug.verboseLogging {
-                print("  🔍 [SCAN] Step 2: Refining fallback crop to card bounds")
-            }
-            (cardImage, cropConfidence) = try detectAndCropCard(from: workingCGImage)
-        } else {
-            cardImage = workingCGImage
-            cropConfidence = targetSelection.selectionConfidence
-        }
-
-        if config.debug.verboseLogging {
-            print("  🔍 [SCAN] Step 3: OCR broader raw-card regions")
-        }
-        let titleHeader = try recognizeRawRegion(
-            scanID: scanID,
-            in: cardImage,
-            region: titleHeaderRegion,
-            label: "07_raw_title_header",
-            minimumTextHeight: 0.012,
-            upscaleFactor: 2.4
-        )
-        let nameplate = try recognizeRawRegion(
-            scanID: scanID,
-            in: cardImage,
-            region: nameplateRegion,
-            label: "08_raw_nameplate",
-            minimumTextHeight: 0.015,
-            upscaleFactor: 2.2
-        )
-        let fullFooter = try recognizeRawRegion(
-            scanID: scanID,
-            in: cardImage,
-            region: footerFallbackRegion,
-            label: "09_raw_footer_full",
-            minimumTextHeight: 0.004,
-            upscaleFactor: 3.6
-        )
-
-        let primaryTitleText = !nameplate.text.isEmpty ? nameplate.text : titleHeader.text
-        let secondaryTitleText: String? = {
-            let candidate = titleHeader.text.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !candidate.isEmpty,
-                  normalizedRawCollectorIdentifier(candidate) != normalizedRawCollectorIdentifier(primaryTitleText) else {
-                return nil
-            }
-            return candidate
-        }()
-
-        let footerBandParsed = parser.parse(text: fullFooter.text, sourceRegion: "bottom-full")
-        let broadFooterCollector = footerBandParsed.flatMap { parsed in
-            isPlausibleCollectorNumber(parsed.identifier) ? parsed.identifier : nil
-        }
-        let broadFooterSetHints = extractSetHintTokens(from: [fullFooter.text])
-        let coarseSignals = RawBroadOCRSignals(
-            primaryTitleText: primaryTitleText,
-            secondaryTitleText: secondaryTitleText,
-            titleConfidence: max(titleHeader.averageConfidence, nameplate.averageConfidence),
-            secondaryTitleConfidence: titleHeader.averageConfidence,
-            footerBandText: fullFooter.text,
-            footerBandConfidence: fullFooter.averageConfidence,
-            footerCollectorNumber: broadFooterCollector,
-            footerSetHintTokens: broadFooterSetHints,
-            cropConfidence: cropConfidence
-        )
-        let coarseCandidates = buildCoarseRawCandidateHypotheses(from: coarseSignals)
-
-        if config.debug.verboseLogging {
-            print("  🔍 [SCAN] Step 4: OCR footer confirmation regions")
-        }
-        let bottomLeft = try recognizeRawRegion(
-            scanID: scanID,
-            in: cardImage,
-            region: config.bottomRegionOCR.bottomLeftRegion,
-            label: "10_raw_bottom_left",
-            minimumTextHeight: config.bottomRegionOCR.minimumTextHeight,
-            upscaleFactor: config.bottomRegionOCR.upscaleFactor
-        )
-        let bottomRight = try recognizeRawRegion(
-            scanID: scanID,
-            in: cardImage,
-            region: config.bottomRegionOCR.bottomRightRegion,
-            label: "11_raw_bottom_right",
-            minimumTextHeight: config.bottomRegionOCR.minimumTextHeight,
-            upscaleFactor: config.bottomRegionOCR.upscaleFactor
-        )
-
-        if config.debug.verboseLogging {
-            print("  📋 [SCAN] Title header: \"\(titleHeader.text)\"")
-            print("  📋 [SCAN] Nameplate: \"\(nameplate.text)\"")
-            print("  📋 [SCAN] Footer full: \"\(fullFooter.text)\"")
-            print("  📋 [SCAN] Bottom-left: \"\(bottomLeft.text)\"")
-            print("  📋 [SCAN] Bottom-right: \"\(bottomRight.text)\"")
-        }
-
-        let leftParsed = parser.parse(text: bottomLeft.text, sourceRegion: "bottom-left")
-        let rightParsed = parser.parse(text: bottomRight.text, sourceRegion: "bottom-right")
-        let cornerBestParsed = bestParsedIdentifier(left: leftParsed, right: rightParsed)
-        let cornerSetHintTokens = extractSetHintTokens(from: [bottomLeft.text, bottomRight.text])
-        let finalCandidates = rerankRawCandidateHypotheses(
-            coarseCandidates,
-            footerConfirmation: RawFooterConfirmationSignals(
-                collectorNumber: cornerBestParsed?.identifier,
-                setHintTokens: cornerSetHintTokens
-            )
-        )
-        let finalBestCandidate = finalCandidates.first
-        let collectorNumber = cornerBestParsed?.identifier ?? finalBestCandidate?.collectorNumber ?? broadFooterCollector
-        let setHintTokens = finalBestCandidate?.setHintTokens ?? broadFooterSetHints
-        let recognizedTokens = mergedRecognizedTokens(
-            prioritizedGroups: [
-                nameplate.tokens,
-                titleHeader.tokens,
-                fullFooter.tokens,
-                bottomLeft.tokens,
-                bottomRight.tokens
-            ]
-        )
-        let fullRecognizedText = recognizedTokens.map(\.text).joined(separator: " ")
-
-        if config.debug.verboseLogging {
-            if let collectorNumber {
-                print("  ✅ [SCAN] Identifier after footer confirmation: \(collectorNumber)")
-            } else {
-                print("  ⚠️ [SCAN] Footer confirmation stayed weak; keeping coarse candidate path")
-            }
-        }
-
-        ScanStageArtifactWriter.recordRawAnalysisArtifacts(
-            scanID: scanID,
-            cropConfidence: cropConfidence,
-            regions: [titleHeader, nameplate, fullFooter, bottomLeft, bottomRight].map { region in
-                ScanStageRawRegionArtifact(
-                    label: region.label,
-                    normalizedRect: ScanDebugRect(region.normalizedRect),
-                    text: region.text,
-                    averageConfidence: region.averageConfidence,
-                    tokens: region.tokens
-                )
-            },
-            coarseCandidates: coarseCandidates,
-            finalCandidates: finalCandidates,
-            finalCollectorNumber: collectorNumber,
-            finalSetHintTokens: setHintTokens,
-            fallbackReason: targetSelection.usedFallback ? targetSelection.fallbackReason : nil
-        )
-
-        let directLookupLikely = collectorNumber != nil && cropConfidence >= 0.55
-        let shouldRetryWithStillPhoto = shouldRetryRawScanWithStillPhoto(
-            captureSource: capture.captureSource,
-            collectorNumber: collectorNumber,
-            setHintTokens: setHintTokens,
-            cropConfidence: cropConfidence,
-            titleEvidenceStrong: rawTitleEvidenceLooksStrong(primaryTitleText: primaryTitleText, titleConfidence: coarseSignals.titleConfidence)
-        )
-        let stillPhotoRetryReason = shouldRetryWithStillPhoto ? "preview_frame_footer_ocr_too_weak" : nil
-
-        print("  🔍 [OCR] Parsed collector number: \(collectorNumber ?? "<none>")")
-        print("  🔍 [OCR] Parsed set hints: \(setHintTokens)")
-        if let stillPhotoRetryReason {
-            print("  🔁 [OCR] Recommended still-photo retry: \(stillPhotoRetryReason)")
-        }
-
-        let elapsed = Date().timeIntervalSince(startTime)
-        if config.debug.verboseLogging {
-            print("  ⏱️ [SCAN] Total: \(Int(elapsed * 1000))ms")
-        }
-
-        var warnings: [String] = []
-        if collectorNumber == nil {
-            if rawTitleEvidenceLooksStrong(primaryTitleText: primaryTitleText, titleConfidence: coarseSignals.titleConfidence) {
-                warnings.append("Footer OCR weak; relying on broader raw-card text")
-            } else {
-                warnings.append("Could not read strong raw-card clues")
-            }
-        }
-        if (finalBestCandidate?.score ?? 0) < 0.40 {
-            warnings.append("Low-confidence raw candidate set")
-        }
-
-        let ocrAnalysis = buildLegacyRawOCRAnalysisEnvelope(
-            targetSelection: targetSelection,
-            primaryTitleText: primaryTitleText,
-            secondaryTitleText: secondaryTitleText,
-            titleConfidence: coarseSignals.titleConfidence,
-            footerBandText: fullFooter.text,
-            wholeCardText: fullRecognizedText,
-            collectorNumber: collectorNumber,
-            collectorWasFooterConfirmed: cornerBestParsed?.identifier != nil,
-            setHintTokens: setHintTokens,
-            warnings: warnings
-        )
-        ScanStageArtifactWriter.recordSynthesizedEvidenceArtifact(
-            scanID: scanID,
-            stage: "legacy_raw_ocr_analysis",
-            payload: ocrAnalysis
-        )
-
-        return AnalyzedCapture(
-            scanID: scanID,
-            originalImage: normalizedOriginal,
-            normalizedImage: UIImage(cgImage: cardImage),
-            recognizedTokens: recognizedTokens,
-            collectorNumber: collectorNumber,
-            setHintTokens: setHintTokens,
-            promoCodeHint: extractPromoHint(from: collectorNumber),
-            slabGrader: nil,
-            slabGrade: nil,
-            slabCertNumber: nil,
-            slabBarcodePayloads: [],
-            slabGraderConfidence: nil,
-            slabGradeConfidence: nil,
-            slabCertConfidence: nil,
-            slabCardNumberRaw: nil,
-            slabParsedLabelText: [],
-            slabClassifierReasons: [],
-            slabRecommendedLookupPath: nil,
-            directLookupLikely: directLookupLikely,
-            resolverModeHint: resolverModeHint,
-            cropConfidence: cropConfidence,
-            warnings: warnings,
-            shouldRetryWithStillPhoto: shouldRetryWithStillPhoto,
-            stillPhotoRetryReason: stillPhotoRetryReason,
-            ocrAnalysis: ocrAnalysis
-        )
-    }
-
-    // MARK: - Private Methods
-
-    private func detectAndCropCard(from cgImage: CGImage) throws -> (CGImage, Double) {
-        guard let rectangle = try bestRawCardObservation(
-            in: cgImage,
-            minimumAreaCoverage: 0.28,
-            maxCenterDistance: 0.30
-        ) else {
-            if config.debug.verboseLogging {
-                print("  ⚠️ [SCAN] No card rectangle detected inside reticle crop; using original crop")
-            }
-            return (cgImage, 0.45)
-        }
-
-        let areaCoverage = rectangle.boundingBox.width * rectangle.boundingBox.height
-        if config.debug.verboseLogging {
-            print("  🔍 [SCAN] Rectangle box: \(rectangle.boundingBox), confidence: \(rectangle.confidence), area: \(areaCoverage)")
-        }
-
-        guard areaCoverage >= 0.45 else {
-            if config.debug.verboseLogging {
-                print("  ⚠️ [SCAN] Rectangle too small to trust for footer OCR; using original crop")
-            }
-            return (cgImage, 0.50)
-        }
-
-        let correctedCGImage = perspectiveCorrect(cgImage, observation: rectangle)?.cgImage
-        let cropped: CGImage?
-        if let correctedCGImage {
-            cropped = correctedCGImage
-        } else {
-            cropped = cropWithInset(cgImage, observation: rectangle)
-        }
-
-        guard let cropped else {
-            if config.debug.verboseLogging {
-                print("  ⚠️ [SCAN] Rectangle crop failed; using original crop")
-            }
-            return (cgImage, 0.50)
-        }
-
-        let croppedAspectRatio = cardAspectRatio(for: cropped)
-        let minimumAcceptedAspectRatio = max(0, CGFloat(config.cardDetection.minimumAspectRatio) - 0.03)
-        let maximumAcceptedAspectRatio = min(1, CGFloat(config.cardDetection.maximumAspectRatio) + 0.03)
-        guard croppedAspectRatio >= minimumAcceptedAspectRatio,
-              croppedAspectRatio <= maximumAcceptedAspectRatio else {
-            if config.debug.verboseLogging {
-                print("  ⚠️ [SCAN] Refined crop aspect ratio \(croppedAspectRatio) looks wrong; using original crop")
-            }
-            return (cgImage, 0.52)
-        }
-
-        if config.debug.verboseLogging {
-            print("  ✅ [SCAN] Refined card crop to \(cropped.width)x\(cropped.height)")
-        }
-
-        return (cropped, max(0.72, Double(rectangle.confidence)))
-    }
-
-    private func cardAspectRatio(for cgImage: CGImage) -> CGFloat {
-        let width = CGFloat(cgImage.width)
-        let height = CGFloat(cgImage.height)
-        guard width > 0, height > 0 else { return 0 }
-        return min(width, height) / max(width, height)
-    }
-
-    private func cropWithInset(_ cgImage: CGImage, observation: VNRectangleObservation) -> CGImage? {
-        let width = CGFloat(cgImage.width)
-        let height = CGFloat(cgImage.height)
-        let box = observation.boundingBox
-
-        let inset = box.insetBy(
-            dx: box.width * config.cardDetection.edgeInsetPercentage,
-            dy: box.height * config.cardDetection.edgeInsetPercentage
-        )
-
-        let cropRect = CGRect(
-            x: inset.minX * width,
-            y: (1 - inset.maxY) * height,
-            width: inset.width * width,
-            height: inset.height * height
-        ).integral
-
-        let clampedRect = cropRect.intersection(CGRect(x: 0, y: 0, width: width, height: height))
-        guard !clampedRect.isEmpty else { return nil }
-        return cgImage.cropping(to: clampedRect)
-    }
-
-    private func bestRawCardObservation(
-        in cgImage: CGImage,
-        minimumAreaCoverage: CGFloat,
-        maxCenterDistance: CGFloat
-    ) throws -> VNRectangleObservation? {
-        let request = VNDetectRectanglesRequest()
-        request.maximumObservations = 6
-        request.minimumConfidence = max(0.25, config.cardDetection.minimumConfidence - 0.15)
-        request.minimumAspectRatio = 0.50
-        request.maximumAspectRatio = 0.90
-
-        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
-        try handler.perform([request])
-
-        let scoredCandidates: [(Double, VNRectangleObservation)] = (request.results ?? []).compactMap { observation in
-            let areaCoverage = observation.boundingBox.width * observation.boundingBox.height
-            guard areaCoverage >= minimumAreaCoverage else { return nil }
-
-            let center = CGPoint(x: observation.boundingBox.midX, y: observation.boundingBox.midY)
-            let centerDistance = distance(from: center, to: CGPoint(x: 0.5, y: 0.5))
-            guard centerDistance <= maxCenterDistance else { return nil }
-
-            let topWidth = distance(from: observation.topLeft, to: observation.topRight)
-            let bottomWidth = distance(from: observation.bottomLeft, to: observation.bottomRight)
-            let leftHeight = distance(from: observation.topLeft, to: observation.bottomLeft)
-            let rightHeight = distance(from: observation.topRight, to: observation.bottomRight)
-            let averageWidth = max(0.0001, (topWidth + bottomWidth) / 2)
-            let averageHeight = max(0.0001, (leftHeight + rightHeight) / 2)
-            let widthHeightAspect = averageWidth / averageHeight
-            let aspectDelta = abs(widthHeightAspect - rawCardWidthHeightAspect)
-            let aspectScore = max(0, 1 - (aspectDelta / 0.18))
-            guard aspectScore >= 0.40 else { return nil }
-
-            let proximityScore = max(0, 1 - (centerDistance / maxCenterDistance))
-            let areaScore = min(1, sqrt(areaCoverage / 0.50))
-            let totalScore =
-                (Double(proximityScore) * 0.46) +
-                (Double(aspectScore) * 0.29) +
-                (Double(observation.confidence) * 0.10) +
-                (Double(areaScore) * 0.15)
-
-            return (totalScore, observation)
-        }
-
-        return scoredCandidates.max { lhs, rhs in
-            lhs.0 < rhs.0
-        }?.1
-    }
-
-    private func shouldRetryRawScanWithStillPhoto(
-        captureSource: ScanCaptureSource,
-        collectorNumber: String?,
-        setHintTokens: [String],
-        cropConfidence: Double,
-        titleEvidenceStrong: Bool
-    ) -> Bool {
-        // Temporary debugging mode: disable automatic still-photo retries so the
-        // original preview-frame capture remains the only scan input.
-        _ = captureSource
-        _ = collectorNumber
-        _ = setHintTokens
-        _ = cropConfidence
-        _ = titleEvidenceStrong
-        return false
-    }
-
-    private func rawTitleEvidenceLooksStrong(primaryTitleText: String, titleConfidence: Double) -> Bool {
-        let trimmedTitle = primaryTitleText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmedTitle.count >= 4 && titleConfidence >= 0.33
-    }
-
-    private func recognizeRawRegion(
-        scanID: UUID,
-        in cardImage: CGImage,
-        region: CGRect,
-        label: String,
-        minimumTextHeight: Float,
-        upscaleFactor: CGFloat
-    ) throws -> RawRecognizedRegionResult {
-        print("  🔍 [OCR] Card size: \(cardImage.width)x\(cardImage.height)")
-        print("  🔍 [OCR] Region: \(region)")
-
-        guard let regionImage = cropToRect(cardImage, region: region) else {
-            print("  ❌ [OCR] Failed to crop region!")
-            return RawRecognizedRegionResult(label: label, normalizedRect: region, text: "", tokens: [])
-        }
-
-        print("  🔍 [OCR] Cropped region size: \(regionImage.width)x\(regionImage.height)")
-
-        let upscaled = upscale(regionImage, factor: upscaleFactor) ?? regionImage
-        print("  🔍 [OCR] After \(upscaleFactor)x upscale: \(upscaled.width)x\(upscaled.height)")
-
-        let targetImage = upscaled
-        ScanStageArtifactWriter.recordRawRegionImage(scanID: scanID, image: UIImage(cgImage: targetImage), named: "\(label).jpg")
-
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-        request.minimumTextHeight = minimumTextHeight
-        request.recognitionLanguages = ["en-US"]
-
-        let handler = VNImageRequestHandler(cgImage: targetImage, options: [:])
-        try handler.perform([request])
-
-        let observations = (request.results ?? []).sorted {
-            let lhsTop = $0.boundingBox.maxY
-            let rhsTop = $1.boundingBox.maxY
-            if abs(lhsTop - rhsTop) > 0.05 {
-                return lhsTop > rhsTop
-            }
-            return $0.boundingBox.minX < $1.boundingBox.minX
-        }
-        print("  🔍 [OCR] Found \(observations.count) text observations")
-
-        let tokens = observations.compactMap { observation -> RecognizedToken? in
-            guard let candidate = observation.topCandidates(1).first else { return nil }
-            let text = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !text.isEmpty else { return nil }
-            print("  🔍 [OCR] Detected: '\(text)' (confidence: \(observation.confidence))")
-            return RecognizedToken(text: text, confidence: candidate.confidence)
-        }
-
-        return RawRecognizedRegionResult(
-            label: label,
-            normalizedRect: region,
-            text: tokens.map(\.text).joined(separator: " "),
-            tokens: tokens
-        )
-    }
-
-    private func mergedRecognizedTokens(prioritizedGroups: [[RecognizedToken]]) -> [RecognizedToken] {
-        var merged: [RecognizedToken] = []
-        var seen = Set<String>()
-
-        for group in prioritizedGroups {
-            for token in group {
-                let key = token.text
-                    .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
-                    .lowercased()
-                guard !key.isEmpty, !seen.contains(key) else { continue }
-                seen.insert(key)
-                merged.append(token)
-            }
-        }
-
-        return merged
-    }
-
-    /// Preprocess image for better OCR - gentle enhancement only
-    private func preprocessForOCR(_ cgImage: CGImage) -> CGImage? {
-        let ciImage = CIImage(cgImage: cgImage)
-
-        // Gentle contrast boost only - don't over-process or text becomes unreadable
-        guard let enhanced = CIFilter(name: "CIColorControls", parameters: [
-            kCIInputImageKey: ciImage,
-            kCIInputContrastKey: 1.3,      // Mild contrast (was 2.0 - too aggressive)
-            kCIInputBrightnessKey: 0.05    // Very slight brightness
-        ])?.outputImage else { return nil }
-
-        // Render back to CGImage
-        let context = CIContext(options: [.useSoftwareRenderer: false])
-        let extent = enhanced.extent
-        return context.createCGImage(enhanced, from: extent)
-    }
-
-    private func cropToRect(_ cgImage: CGImage, region: CGRect) -> CGImage? {
-        let cropRect = CGRect(
-            x: region.minX * CGFloat(cgImage.width),
-            y: region.minY * CGFloat(cgImage.height),
-            width: region.width * CGFloat(cgImage.width),
-            height: region.height * CGFloat(cgImage.height)
-        ).integral
-
-        guard cropRect.width > 0, cropRect.height > 0 else { return nil }
-        return cgImage.cropping(to: cropRect)
-    }
-
-    private func upscale(_ cgImage: CGImage, factor: CGFloat) -> CGImage? {
-        guard factor > 1 else { return cgImage }
-
-        let requestedWidth = CGFloat(cgImage.width) * factor
-        let requestedHeight = CGFloat(cgImage.height) * factor
-        let maxLongestSide: CGFloat = 4096
-        let longestSide = max(requestedWidth, requestedHeight)
-        let clampedScale = longestSide > maxLongestSide
-            ? maxLongestSide / longestSide
-            : 1.0
-
-        let width = Int((requestedWidth * clampedScale).rounded(.toNearestOrAwayFromZero))
-        let height = Int((requestedHeight * clampedScale).rounded(.toNearestOrAwayFromZero))
-
-        // Some camera crops come through with extended-range color spaces that cannot back
-        // a standard 8-bit bitmap context. Always render OCR intermediates into plain sRGB.
-        guard width > 0, height > 0,
-              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
-              let context = CGContext(
-                data: nil,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: 0,
-                space: colorSpace,
-                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-              ) else {
-            return nil
-        }
-
-        context.interpolationQuality = .high
-        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
-        return context.makeImage()
-    }
-
-    private func extractPromoHint(from identifier: String?) -> String? {
-        guard let identifier = identifier else { return nil }
-        let normalized = identifier.uppercased()
-
-        if let match = firstMatch(in: normalized, pattern: #"\b([A-Z]{2,5})\s?\d{1,3}\b"#) {
-            return match
-        }
-
-        if let match = firstMatch(in: normalized, pattern: #"\b([A-Z]{1,5})\d{1,3}/[A-Z]{1,5}\d{1,3}\b"#) {
-            return match
-        }
-
-        return nil
-    }
-
-    private func extractSetHintTokens(from texts: [String]) -> [String] {
-        var hints = Set<String>()
-        let alphanumericPattern = #"\b([A-Z]{1,4}\d{1,3}[A-Z]{0,2})\b"#
-        let spacedLanguagePattern = #"\b([A-Z]{2,5})\s+(?:EN|JP|DE|FR|IT|ES|PT)\b"#
-
-        for text in texts {
-            let normalizedText = normalizedSetHintText(text)
-
-            for match in captureGroups(in: normalizedText, pattern: alphanumericPattern) {
-                if let hint = normalizedSetHintToken(match) {
-                    hints.insert(hint)
-                }
-            }
-
-            for match in captureGroups(in: normalizedText, pattern: spacedLanguagePattern) {
-                if let hint = normalizedSetHintToken(match) {
-                    hints.insert(hint)
-                }
-            }
-        }
-
-        return hints.sorted()
-    }
-
-    private func normalizedSetHintText(_ text: String) -> String {
-        normalizeConfusableLatinCharacters(in: text)
-            .uppercased()
-            .replacingOccurrences(of: #"[§$](?=\d{1,3}[A-Z]{0,2}\b)"#, with: "S", options: .regularExpression)
-    }
-
-    private func normalizedSetHintToken(_ token: String) -> String? {
-        let knownAlphaOnlyHints = Set([
-            "dri", "obf", "pal", "mew", "gg", "crz", "svp", "prsv", "pr-sv",
-            "par", "svi", "brs", "lor", "ssp", "meg",
-        ])
-        var normalized = token
-            .uppercased()
-            .replacingOccurrences(of: #"[^A-Z0-9]"#, with: "", options: .regularExpression)
-
-        guard !normalized.isEmpty else { return nil }
-
-        for suffix in ["EN", "JP", "DE", "FR", "IT", "ES", "PT"] where normalized.hasSuffix(suffix) && normalized.count > suffix.count + 1 {
-            normalized.removeLast(suffix.count)
-            break
-        }
-
-        guard normalized.count >= 3 else { return nil }
-        guard normalized.contains(where: \.isLetter) else { return nil }
-
-        if normalized.hasPrefix("X"), normalized.dropFirst().allSatisfy(\.isNumber) {
-            return nil
-        }
-
-        if normalized.allSatisfy(\.isLetter) {
-            let lowercased = normalized.lowercased()
-            return knownAlphaOnlyHints.contains(lowercased) ? lowercased : nil
-        }
-
-        guard normalized.range(of: #"^[A-Z]{1,3}\d{1,2}[A-Z]{0,2}$"#, options: .regularExpression) != nil else {
-            return nil
-        }
-
-        return normalized.lowercased()
-    }
-
-    private func bestParsedIdentifier(left: ParsedCardIdentifier?, right: ParsedCardIdentifier?) -> ParsedCardIdentifier? {
-        [left, right]
-            .compactMap { $0 }
-            .filter { isPlausibleCollectorNumber($0.identifier) }
-            .sorted { lhs, rhs in
-                if lhs.confidence == rhs.confidence {
-                    return lhs.sourceRegion < rhs.sourceRegion
-                }
-                return lhs.confidence > rhs.confidence
-            }
-            .first
-    }
-
-    private func isPlausibleCollectorNumber(_ identifier: String) -> Bool {
-        let parts = identifier.split(separator: "/", omittingEmptySubsequences: false)
-        guard parts.count == 2 else {
-            return true
-        }
-
-        guard let numerator = Int(parts[0]),
-              let denominator = Int(parts[1]) else {
-            return true
-        }
-
-        guard denominator >= 10 else { return false }
-        guard numerator > 0 else { return false }
-        return true
-    }
-
-    private func firstMatch(in text: String, pattern: String) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
-
-        let range = NSRange(text.startIndex..., in: text)
-        guard let match = regex.firstMatch(in: text, options: [], range: range),
-              match.numberOfRanges > 1,
-              let captureRange = Range(match.range(at: 1), in: text) else {
-            return nil
-        }
-
-        return String(text[captureRange])
-    }
-
-    private func captureGroups(in text: String, pattern: String) -> [String] {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return []
-        }
-
-        let range = NSRange(text.startIndex..., in: text)
-        return regex.matches(in: text, options: [], range: range).compactMap { match in
-            guard match.numberOfRanges > 1,
-                  let captureRange = Range(match.range(at: 1), in: text) else {
-                return nil
-            }
-            return String(text[captureRange])
-        }
-    }
-
-    private func saveDebugImage(_ cgImage: CGImage, label: String) {
-        let image = UIImage(cgImage: cgImage)
-
-        PHPhotoLibrary.requestAuthorization { status in
-            guard status == .authorized else {
-                print("  ⚠️ [DEBUG] Photos permission denied")
-                return
-            }
-
-            PHPhotoLibrary.shared().performChanges({
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
-            }) { success, error in
-                if success {
-                    print("  💾 [DEBUG] Saved \(label) region to Photos library")
-                } else if let error = error {
-                    print("  ❌ [DEBUG] Failed to save \(label): \(error.localizedDescription)")
-                }
-            }
-        }
-    }
-}
+// MARK: - Slab Scanner
 
 actor SlabScanner {
     private let config: SlabScanConfiguration
@@ -1051,41 +73,23 @@ actor SlabScanner {
             throw AnalysisError.invalidImage
         }
 
-        guard let panelLabelImage = cropToRect(cgImage, region: config.labelOCR.panelRegion),
-              let primaryLabelImage = cropToRect(cgImage, region: config.labelOCR.primaryRegion),
-              let expandedLabelImage = cropToRect(cgImage, region: config.labelOCR.expandedRegion) else {
+        guard let topLabelWideImage = cropToRect(cgImage, region: config.labelOCR.topLabelWideRegion) else {
             throw AnalysisError.invalidImage
         }
         let certLabelImage = cropToRect(cgImage, region: config.labelOCR.certRegion)
 
-        let panelText = try recognizeLabelRegion(
-            croppedImage: panelLabelImage,
+        let topLabelWideText = try recognizeLabelRegion(
+            croppedImage: topLabelWideImage,
             sourceImage: cgImage,
-            region: config.labelOCR.panelRegion,
-            label: "slab_label_panel",
+            region: config.labelOCR.topLabelWideRegion,
+            label: "slab_top_label_wide",
             minimumTextHeight: config.labelOCR.minimumTextHeight,
             upscaleFactor: config.labelOCR.upscaleFactor
         )
         ScanStageArtifactWriter.recordRawRegionImage(
             scanID: scanID,
-            image: UIImage(cgImage: panelLabelImage),
-            named: "07_slab_label_panel.jpg"
-        )
-        let primaryText = try recognizeLabelRegion(
-            croppedImage: primaryLabelImage,
-            sourceImage: cgImage,
-            region: config.labelOCR.primaryRegion,
-            label: "slab_top_label",
-            minimumTextHeight: config.labelOCR.minimumTextHeight,
-            upscaleFactor: config.labelOCR.upscaleFactor
-        )
-        let expandedText = try recognizeLabelRegion(
-            croppedImage: expandedLabelImage,
-            sourceImage: cgImage,
-            region: config.labelOCR.expandedRegion,
-            label: "slab_top_expanded",
-            minimumTextHeight: config.labelOCR.minimumTextHeight,
-            upscaleFactor: config.labelOCR.upscaleFactor
+            image: UIImage(cgImage: topLabelWideImage),
+            named: "07_slab_top_label_wide.jpg"
         )
         let certText: String
         if let certLabelImage {
@@ -1109,16 +113,77 @@ actor SlabScanner {
         do {
             barcodePayloads = try detectVerificationPayloads(
                 in: cgImage,
-                regions: [config.labelOCR.primaryRegion, config.labelOCR.expandedRegion]
+                regions: [config.labelOCR.topLabelWideRegion]
             )
         } catch {
             print("  ⚠️ [OCR] Slab barcode detection failed: \(error.localizedDescription)")
             barcodePayloads = []
         }
-        let visualSignals = extractVisualSignals(from: primaryLabelImage)
+        let visualSignals = extractVisualSignals(from: topLabelWideImage)
 
-        let topLabelText = preferredSlabLabelText(primary: panelText, expanded: expandedText)
-        let combinedText = [panelText, primaryText, expandedText, certText]
+        var labelTexts = [topLabelWideText]
+        if !certText.isEmpty {
+            labelTexts.append(certText)
+        }
+        var topLabelCandidates = [topLabelWideText]
+        var slabLabelAnalysis = SlabLabelParser.analyze(
+            labelTexts: labelTexts,
+            barcodePayloads: barcodePayloads,
+            visualSignals: visualSignals
+        )
+        var stage2Used = false
+        if shouldRunSecondaryPSAPass(for: slabLabelAnalysis) {
+            stage2Used = true
+            print("  🔍 [OCR] Slab stage 2 triggered")
+
+            if let expandedLabelImage = cropToRect(cgImage, region: config.labelOCR.topLabelExpandedRegion) {
+                let expandedText = try recognizeLabelRegion(
+                    croppedImage: expandedLabelImage,
+                    sourceImage: cgImage,
+                    region: config.labelOCR.topLabelExpandedRegion,
+                    label: "slab_top_label_expanded",
+                    minimumTextHeight: config.labelOCR.fallbackMinimumTextHeight,
+                    upscaleFactor: config.labelOCR.fallbackUpscaleFactor
+                )
+                if !expandedText.isEmpty {
+                    labelTexts.append(expandedText)
+                    topLabelCandidates.append(expandedText)
+                }
+                ScanStageArtifactWriter.recordRawRegionImage(
+                    scanID: scanID,
+                    image: UIImage(cgImage: expandedLabelImage),
+                    named: "09_slab_top_label_expanded.jpg"
+                )
+            }
+
+            if let rightColumnImage = cropToRect(cgImage, region: config.labelOCR.rightColumnRegion) {
+                let rightColumnText = try recognizeLabelRegion(
+                    croppedImage: rightColumnImage,
+                    sourceImage: cgImage,
+                    region: config.labelOCR.rightColumnRegion,
+                    label: "slab_right_column_focus",
+                    minimumTextHeight: config.labelOCR.fallbackMinimumTextHeight,
+                    upscaleFactor: config.labelOCR.fallbackUpscaleFactor
+                )
+                if !rightColumnText.isEmpty {
+                    labelTexts.append(rightColumnText)
+                }
+                ScanStageArtifactWriter.recordRawRegionImage(
+                    scanID: scanID,
+                    image: UIImage(cgImage: rightColumnImage),
+                    named: "10_slab_right_column_focus.jpg"
+                )
+            }
+
+            slabLabelAnalysis = SlabLabelParser.analyze(
+                labelTexts: labelTexts,
+                barcodePayloads: barcodePayloads,
+                visualSignals: visualSignals
+            )
+        }
+
+        let topLabelText = preferredSlabLabelText(candidates: topLabelCandidates)
+        let combinedText = labelTexts
             .filter { !$0.isEmpty }
             .reduce(into: [String]()) { unique, text in
                 if !unique.contains(text) {
@@ -1126,17 +191,16 @@ actor SlabScanner {
                 }
             }
             .joined(separator: " ")
-        let slabLabelAnalysis = SlabLabelParser.analyze(
-            labelTexts: [panelText, primaryText, expandedText, certText],
-            barcodePayloads: barcodePayloads,
-            visualSignals: visualSignals
-        )
         var warnings: [String] = []
         if topLabelText.isEmpty {
-            warnings.append("Could not read slab label text")
+            warnings.append("Could not read PSA label text")
         }
-        if slabLabelAnalysis.certNumber == nil {
-            warnings.append("Could not extract slab cert number")
+        if let unsupportedReason = slabLabelAnalysis.unsupportedReason {
+            warnings.append(userVisibleWarning(for: unsupportedReason))
+        }
+        if slabLabelAnalysis.certNumber == nil,
+           slabLabelAnalysis.unsupportedReason != "non_psa_slab_not_supported_yet" {
+            warnings.append("Could not extract PSA cert number")
         }
         if barcodePayloads.isEmpty {
             warnings.append("Could not extract slab barcode payload")
@@ -1157,6 +221,11 @@ actor SlabScanner {
         print("  🔍 [OCR] Slab cert: \(slabLabelAnalysis.certNumber ?? "<none>")")
         print("  🔍 [OCR] Slab cert confidence: \(String(format: "%.2f", slabLabelAnalysis.certConfidence))")
         print("  🔍 [OCR] Slab lookup path: \(slabLabelAnalysis.recommendedLookupPath.rawValue)")
+        print("  🔍 [OCR] Slab PSA confident: \(slabLabelAnalysis.isPSAConfident)")
+        if let unsupportedReason = slabLabelAnalysis.unsupportedReason {
+            print("  🔍 [OCR] Slab unsupported reason: \(unsupportedReason)")
+        }
+        print("  🔍 [OCR] Slab stage 2 used: \(stage2Used)")
         print(
             "  🔍 [OCR] Slab signals: red=\(String(format: "%.2f", visualSignals.redBandConfidence)) " +
             "barcode=\(String(format: "%.2f", visualSignals.barcodeRegionConfidence)) " +
@@ -1204,7 +273,8 @@ actor SlabScanner {
             slabParsedLabelText: slabLabelAnalysis.parsedLabelText,
             slabClassifierReasons: slabLabelAnalysis.reasons,
             slabRecommendedLookupPath: slabLabelAnalysis.recommendedLookupPath,
-            directLookupLikely: slabLabelAnalysis.recommendedLookupPath != .needsReview,
+            directLookupLikely: slabLabelAnalysis.isPSAConfident
+                && slabLabelAnalysis.recommendedLookupPath != .needsReview,
             resolverModeHint: resolverModeHint,
             cropConfidence: targetSelection.selectionConfidence,
             warnings: warnings,
@@ -1214,13 +284,28 @@ actor SlabScanner {
         )
     }
 
-    private func preferredSlabLabelText(primary: String, expanded: String) -> String {
-        let texts = [primary, expanded].filter { !$0.isEmpty }
+    private func preferredSlabLabelText(candidates: [String]) -> String {
+        let texts = candidates.filter { !$0.isEmpty }
         guard !texts.isEmpty else { return "" }
 
         return texts.max { lhs, rhs in
             slabLabelScore(lhs) < slabLabelScore(rhs)
         } ?? ""
+    }
+
+    private func shouldRunSecondaryPSAPass(for analysis: SlabLabelAnalysis) -> Bool {
+        analysis.unsupportedReason != "non_psa_slab_not_supported_yet" && !analysis.isPSAConfident
+    }
+
+    private func userVisibleWarning(for unsupportedReason: String) -> String {
+        switch unsupportedReason {
+        case "non_psa_slab_not_supported_yet":
+            return "Only PSA slabs are supported right now"
+        case "psa_label_not_confident_enough":
+            return "Could not verify this PSA label strongly enough"
+        default:
+            return unsupportedReason
+        }
     }
 
     private func slabLabelScore(_ text: String) -> Int {
@@ -1456,7 +541,7 @@ actor SlabScanner {
             guard let regionImage = cropToRect(image, region: region) else { continue }
 
             let request = VNDetectBarcodesRequest()
-            request.symbologies = [.QR, .Code128, .Code39, .Code93, .DataMatrix, .Aztec, .EAN13]
+            request.symbologies = [.qr, .code128, .code39, .code93, .dataMatrix, .aztec, .ean13]
 
             let handler = VNImageRequestHandler(cgImage: regionImage, options: [:])
             try handler.perform([request])

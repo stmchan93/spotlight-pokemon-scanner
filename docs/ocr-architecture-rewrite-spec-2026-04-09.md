@@ -5,7 +5,9 @@ Date: 2026-04-09
 ## Status
 
 - This document is the planning source of truth for the upcoming OCR rewrite.
-- The current OCR path remains in place until the new path proves better on named fixtures.
+- The concrete implementation spec for the next OCR simplification / performance pass now lives in [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
+- The raw runtime OCR path now uses the rewrite branch directly.
+- Slab OCR still uses the PSA-focused slab branch while the broader rewrite remains in progress.
 - This is a full OCR rewrite plan with:
   - a shared front half
   - a raw branch
@@ -17,10 +19,12 @@ Date: 2026-04-09
   - Phase 3 stage artifact and replay framework: landed
   - Phase 4 shared front half extraction: landed
   - Phase 5 simulator-backed legacy OCR fixture execution: landed
-  - Phase 6 mode sanity signals + feature-flagged rewrite entrypoint: landed
+  - Phase 6 mode sanity signals + rewrite entrypoint: landed
   - Phase 7 raw branch stage 1: landed
   - Phase 8 raw escalation and confidence: landed
-  - Phase 9 slab branch stage 1: next
+  - Phase 8a remnant-aware fallback normalization: landed
+  - Phase 8b deterministic footer metadata strips: landed
+  - Phase 9 slab branch stage 1: landed as PSA-only
 
 ## Current Fixture Outputs
 
@@ -28,7 +32,7 @@ Date: 2026-04-09
   - [qa/ocr-fixtures](/Users/stephenchan/Code/spotlight/qa/ocr-fixtures)
 - Host-side manifest validation and baseline materialization writes to:
   - [qa/ocr-golden/phase2-baseline](/Users/stephenchan/Code/spotlight/qa/ocr-golden/phase2-baseline)
-- Simulator-backed legacy OCR execution now writes per-fixture outputs to:
+- Simulator-backed legacy slab OCR execution now writes per-fixture outputs to:
   - [qa/ocr-golden/simulator-legacy-v1](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-legacy-v1)
 - Simulator-backed rewrite raw stage-2 execution now writes per-fixture outputs to:
   - [qa/ocr-golden/simulator-rewrite-v1-raw-stage2](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-rewrite-v1-raw-stage2)
@@ -39,10 +43,10 @@ Date: 2026-04-09
 
 The simulator-backed runs are now the current reference corpora for:
 
-- legacy OCR
+- legacy slab OCR
 - rewrite raw stage 2
 
-They should be used for side-by-side comparison before the legacy path is removed.
+They should be used for slab regression coverage and rewrite raw comparison.
 
 ## Core Decisions
 

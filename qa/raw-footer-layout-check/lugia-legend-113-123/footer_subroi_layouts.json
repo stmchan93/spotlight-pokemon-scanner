@@ -1,0 +1,711 @@
+{
+  "imageFilename" : "source_scan.jpg",
+  "imageHeight" : 2959,
+  "imageWidth" : 2118,
+  "stage" : "footer_metadata_subroi_diagnostic",
+  "variants" : [
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "left set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.065,
+            "width" : 0.14,
+            "x" : 0.055,
+            "y" : 0.905
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "left collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.065,
+            "width" : 0.24,
+            "x" : 0.18,
+            "y" : 0.905
+          },
+          "role" : "collector_primary"
+        },
+        {
+          "colorHex" : "#EF4444",
+          "dashed" : false,
+          "label" : "right metadata fallback",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.075,
+            "width" : 0.22,
+            "x" : 0.58,
+            "y" : 0.895
+          },
+          "role" : "right_fallback"
+        }
+      ],
+      "description" : "Compact left-biased badge\/collector split plus a narrow right fallback for modern layouts.",
+      "name" : "left_metadata_compact"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "left set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.09,
+            "width" : 0.17,
+            "x" : 0.04,
+            "y" : 0.89
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "left collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.09,
+            "width" : 0.3,
+            "x" : 0.165,
+            "y" : 0.89
+          },
+          "role" : "collector_primary"
+        },
+        {
+          "colorHex" : "#EF4444",
+          "dashed" : false,
+          "label" : "right metadata fallback",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.095,
+            "width" : 0.29,
+            "x" : 0.545,
+            "y" : 0.885
+          },
+          "role" : "right_fallback"
+        }
+      ],
+      "description" : "More forgiving left-biased split intended to reveal whether one fixed left layout can cover multiple eras.",
+      "name" : "left_metadata_generous"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "left collector probe",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.24,
+            "x" : 0.145,
+            "y" : 0.892
+          },
+          "role" : "collector_probe"
+        },
+        {
+          "colorHex" : "#EF4444",
+          "dashed" : false,
+          "label" : "right metadata primary",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.1,
+            "width" : 0.32,
+            "x" : 0.52,
+            "y" : 0.885
+          },
+          "role" : "right_primary"
+        }
+      ],
+      "description" : "Right-biased fallback layout for older cards whose footer identity fields shift away from the left corner.",
+      "name" : "right_metadata_generous"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "left set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.16,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "left collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.086,
+            "width" : 0.285,
+            "x" : 0.188,
+            "y" : 0.87
+          },
+          "role" : "collector_primary"
+        },
+        {
+          "colorHex" : "#EF4444",
+          "dashed" : false,
+          "label" : "right metadata fallback",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.095,
+            "width" : 0.27,
+            "x" : 0.565,
+            "y" : 0.872
+          },
+          "role" : "right_fallback"
+        }
+      ],
+      "description" : "Adjusted left-biased layout from fixture review: move badge and collector slightly up and right relative to the generous variant.",
+      "name" : "left_metadata_shifted"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "right set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.105,
+            "width" : 0.15,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "right collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.095,
+            "width" : 0.18,
+            "x" : 0.73,
+            "y" : 0.858
+          },
+          "role" : "collector_primary"
+        }
+      ],
+      "description" : "Older\/right-biased layout from fixture review: set symbol lives mid-right and collector number sits deeper in the bottom-right corner.",
+      "name" : "right_metadata_shifted"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "left set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.095,
+            "width" : 0.15,
+            "x" : 0.1,
+            "y" : 0.855
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "left collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.09,
+            "width" : 0.282,
+            "x" : 0.178,
+            "y" : 0.858
+          },
+          "role" : "collector_primary"
+        },
+        {
+          "colorHex" : "#EF4444",
+          "dashed" : false,
+          "label" : "right metadata fallback",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.095,
+            "width" : 0.265,
+            "x" : 0.57,
+            "y" : 0.868
+          },
+          "role" : "right_fallback"
+        }
+      ],
+      "description" : "Second-wave left-family layout: move the badge up and right, and lift the collector slightly while trimming far-left noise.",
+      "name" : "left_metadata_refined"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "right set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.105,
+            "width" : 0.145,
+            "x" : 0.63,
+            "y" : 0.84
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "right collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.1,
+            "width" : 0.185,
+            "x" : 0.72,
+            "y" : 0.85
+          },
+          "role" : "collector_primary"
+        }
+      ],
+      "description" : "Second-wave right-family variant for older cards whose set badge sits mid-right while the collector remains in the lower-right corner.",
+      "name" : "right_metadata_mid_badge"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "right set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.1,
+            "width" : 0.135,
+            "x" : 0.675,
+            "y" : 0.845
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "right collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.1,
+            "width" : 0.185,
+            "x" : 0.72,
+            "y" : 0.85
+          },
+          "role" : "collector_primary"
+        }
+      ],
+      "description" : "Second-wave right-family variant for cards whose set badge sits closer to the bottom-right corner than the mid-right layout.",
+      "name" : "right_metadata_corner_badge"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "left set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.098,
+            "width" : 0.138,
+            "x" : 0.118,
+            "y" : 0.845
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "left collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.092,
+            "width" : 0.275,
+            "x" : 0.17,
+            "y" : 0.85
+          },
+          "role" : "collector_primary"
+        },
+        {
+          "colorHex" : "#EF4444",
+          "dashed" : false,
+          "label" : "right metadata fallback",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.095,
+            "width" : 0.265,
+            "x" : 0.57,
+            "y" : 0.868
+          },
+          "role" : "right_fallback"
+        }
+      ],
+      "description" : "Third-wave left-family candidate: shift the badge farther right, lift both boxes slightly, and pull the collector back left from the overrun cases.",
+      "name" : "left_metadata_balanced"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "right set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.102,
+            "width" : 0.125,
+            "x" : 0.665,
+            "y" : 0.842
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "right collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.1,
+            "width" : 0.185,
+            "x" : 0.72,
+            "y" : 0.85
+          },
+          "role" : "collector_primary"
+        }
+      ],
+      "description" : "Third-wave right-mid candidate: move the badge farther right while keeping the collector near the same successful lower-right lane.",
+      "name" : "right_metadata_mid_badge_refined"
+    },
+    {
+      "boxes" : [
+        {
+          "colorHex" : "#F59E0B",
+          "dashed" : true,
+          "label" : "current footerLeft",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.088,
+            "width" : 0.398,
+            "x" : 0.075,
+            "y" : 0.868
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#A855F7",
+          "dashed" : true,
+          "label" : "current footerRight",
+          "lineWidth" : 2,
+          "normalizedRect" : {
+            "height" : 0.108,
+            "width" : 0.31,
+            "x" : 0.6,
+            "y" : 0.845
+          },
+          "role" : "reference"
+        },
+        {
+          "colorHex" : "#22C55E",
+          "dashed" : false,
+          "label" : "right set badge",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.105,
+            "width" : 0.115,
+            "x" : 0.705,
+            "y" : 0.836
+          },
+          "role" : "set_badge_primary"
+        },
+        {
+          "colorHex" : "#0EA5E9",
+          "dashed" : false,
+          "label" : "right collector",
+          "lineWidth" : 3,
+          "normalizedRect" : {
+            "height" : 0.102,
+            "width" : 0.19,
+            "x" : 0.705,
+            "y" : 0.842
+          },
+          "role" : "collector_primary"
+        }
+      ],
+      "description" : "Third-wave right-corner candidate: push the badge into the corner lane and lift the collector slightly up and left for RC-era cases.",
+      "name" : "right_metadata_corner_badge_refined"
+    }
+  ]
+}

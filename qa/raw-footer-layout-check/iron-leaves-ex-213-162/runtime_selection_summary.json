@@ -1,0 +1,469 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "213\/162",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999809371306569,
+    "x" : 9.531434671547658e-05,
+    "y" : 0
+  },
+  "fixtureName" : "iron-leaves-ex-213-162",
+  "footerRouting" : {
+    "anchorIdentifier" : "213\/162",
+    "collectorAnchor" : {
+      "height" : 0.016789234456496827,
+      "width" : 0.10135420985975577,
+      "x" : 0.17822073888463383,
+      "y" : 0.8971887162074537
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7817403328008734,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999809371306569,
+        "x" : 9.531434671547658e-05,
+        "y" : 0.78
+      },
+      "text" : "weakness x 2 esistanice retreat Pokémon eX rule llios: Sban Grophics When your Pokémon eX is Asecked Qus, gour opponent takes 2 Prize cards. 213\/162 Gaxes rosemoo\/suotendo\/ Creutures \/ GAIVE PREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01331820840480332,
+            "width" : 0.09241965199373268,
+            "x" : 0.07693894934312175,
+            "y" : 0.8173408957054528
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02212870064984079,
+            "width" : 0.04999046923798635,
+            "x" : 0.21287525682216463,
+            "y" : 0.8120833341234874
+          },
+          "text" : "x 2"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.011916666987290688,
+            "width" : 0.09100828799525118,
+            "x" : 0.3333651061580076,
+            "y" : 0.8194166664605214
+          },
+          "text" : "esistanice"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012326602443924622,
+            "width" : 0.0744712904390198,
+            "x" : 0.6281174426994414,
+            "y" : 0.8210450321594824
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019871955150177967,
+            "width" : 0.22096774427703061,
+            "x" : 0.4075001083264578,
+            "y" : 0.8482802629163654
+          },
+          "text" : "Pokémon eX rule"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01859598853868196,
+            "width" : 0.1807347726227299,
+            "x" : 0.0770037277003393,
+            "y" : 0.8651002867625714
+          },
+          "text" : "llios: Sban Grophics"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.016499999519063956,
+            "width" : 0.2345706486007442,
+            "x" : 0.7050891056469264,
+            "y" : 0.8606666669224124
+          },
+          "text" : "When your Pokémon eX"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.025297813087616413,
+            "width" : 0.4967794096033629,
+            "x" : 0.38941558573771823,
+            "y" : 0.879169281453231
+          },
+          "text" : "is Asecked Qus, gour opponent takes 2 Prize cards."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016789234456496806,
+            "width" : 0.10135420985975575,
+            "x" : 0.17822073888463383,
+            "y" : 0.8971887162074537
+          },
+          "text" : "213\/162"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012922636103151862,
+            "width" : 0.4050509673749802,
+            "x" : 0.30772897477825845,
+            "y" : 0.9284527220725598
+          },
+          "text" : "Gaxes rosemoo\/suotendo\/ Creutures \/ GAIVE PREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13797369324030653,
+        "x" : 9.531434671547658e-05,
+        "y" : 0.854683333435702
+      },
+      "text" : "HliDs H",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010845849802371533,
+            "width" : 0.03653848793320371,
+            "x" : 0.08080719834245556,
+            "y" : 0.8670785903483942
+          },
+          "text" : "HliDs"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019754940711462447,
+            "width" : 0.02235937321285599,
+            "x" : 0.08026184754408154,
+            "y" : 0.8868335309936072
+          },
+          "text" : "H"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2749475771093065,
+        "x" : 0.09142405525985847,
+        "y" : 0.859583333435702
+      },
+      "text" : "lus: 5ban Grephics LEF EN 213\/162 62124",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017746192893401007,
+            "width" : 0.16838894674636953,
+            "x" : 0.09142405582115495,
+            "y" : 0.8642533841815565
+          },
+          "text" : "lus: 5ban Grephics"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01541116751269036,
+            "width" : 0.044728313979504414,
+            "x" : 0.11970813631840671,
+            "y" : 0.890872673522214
+          },
+          "text" : "LEF EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01681218274111675,
+            "width" : 0.10195424510034092,
+            "x" : 0.17890737493400216,
+            "y" : 0.8964767345209812
+          },
+          "text" : "213\/162"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008873096446700514,
+            "width" : 0.046043852625960446,
+            "x" : 0.30783016277453684,
+            "y" : 0.9277660746079102
+          },
+          "text" : "62124"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12497617141332112,
+        "x" : 0.08892453183159205,
+        "y" : 0.8474233334357021
+      },
+      "text" : "Tus: Sbon Gro 日號 21",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.018230422921376683,
+            "width" : 0.12523378501835183,
+            "x" : 0.08845574999291247,
+            "y" : 0.8637729944231058
+          },
+          "text" : "Tus: Sbon Gro"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013506849315068497,
+            "width" : 0.03815062074722434,
+            "x" : 0.12444407549785225,
+            "y" : 0.8916699087704053
+          },
+          "text" : "日號"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.013972602739726026,
+            "width" : 0.02959961954526026,
+            "x" : 0.1796966986014992,
+            "y" : 0.8977247032780157
+          },
+          "text" : "21"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18496473369171526,
+        "x" : 0.13641547696865408,
+        "y" : 0.855583333435702
+      },
+      "text" : "5bon Grophics 213\/162",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01728971962616822,
+            "width" : 0.12287409870686383,
+            "x" : 0.13641547740749013,
+            "y" : 0.8649291278132054
+          },
+          "text" : "5bon Grophics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017887810680353756,
+            "width" : 0.11141553666195486,
+            "x" : 0.1787455529806956,
+            "y" : 0.8957048485997395
+          },
+          "text" : "213\/162"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11497807770025543,
+        "x" : 0.21465056027339313,
+        "y" : 0.8419833334357021
+      },
+      "text" : "phic 3\/162",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016261061946902657,
+            "width" : 0.04204912555895056,
+            "x" : 0.214650560038744,
+            "y" : 0.8661426255872507
+          },
+          "text" : "phic"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01672566371681415,
+            "width" : 0.07490000490188069,
+            "x" : 0.2146505604141826,
+            "y" : 0.8963417405750826
+          },
+          "text" : "3\/162"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.1899637805482481,
+        "x" : 0.13391595354038766,
+        "y" : 0.854583333435702
+      },
+      "text" : "Shan Grophics Ta 213\/162",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.018416666666666668,
+            "width" : 0.12533692737204,
+            "x" : 0.13391595398801953,
+            "y" : 0.8640277778615949
+          },
+          "text" : "Shan Grophics"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01511111111111111,
+            "width" : 0.029375842352821875,
+            "x" : 0.13391595365337167,
+            "y" : 0.8904722223136935
+          },
+          "text" : "Ta"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01747222222222223,
+            "width" : 0.12207294488839313,
+            "x" : 0.17177815055818743,
+            "y" : 0.8956666667066345
+          },
+          "text" : "213\/162"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.8798322467497807,
+        "x" : 0.06008387662510961,
+        "y" : 0
+      },
+      "text" : "BASIC Iron LeaveseX พ. 220 Future",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01847676939318794,
+            "width" : 0.10454509391294649,
+            "x" : 0.09788036337763406,
+            "y" : 0.06491127531605345
+          },
+          "text" : "BASIC"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03973799126637554,
+            "width" : 0.40009612688751406,
+            "x" : 0.23074099723277686,
+            "y" : 0.06375545894867651
+          },
+          "text" : "Iron LeaveseX"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.046300091805937,
+            "width" : 0.16307234711442017,
+            "x" : 0.6972037847413797,
+            "y" : 0.05850340216053556
+          },
+          "text" : "พ. 220"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.029931973786333256,
+            "width" : 0.21995806168744517,
+            "x" : 0.7009961611925756,
+            "y" : 0.123809523225881
+          },
+          "text" : "Future"
+        }
+      ]
+    }
+  ],
+  "scanID" : "59FDA626-B1E5-40BD-9341-52B33C527382",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

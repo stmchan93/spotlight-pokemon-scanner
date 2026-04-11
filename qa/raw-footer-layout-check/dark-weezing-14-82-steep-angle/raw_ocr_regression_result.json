@@ -1,0 +1,154 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : false,
+    "setHintPass" : false,
+    "titlePass" : true
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 0.9994090909090909,
+      "width" : 1,
+      "x" : 0,
+      "y" : 0.0002954545454545351
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.21987,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.7798345454545454
+        },
+        "text" : "searchers have observed these Pokémon reproducing in noustrial waste sites. LV. 24 #10 Havichr Yoshida D1995, 96, 98 Nintendo, Creatures. GAMEFREAK. ©1999-2000 Wizards 14\/8"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.09794209090909091,
+          "width" : 0.138,
+          "x" : 0,
+          "y" : 0.819759478911667
+        },
+        "text" : "Research Houstria Hn-tchr Yost"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.11408269952307827,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.8246565834571216
+        },
+        "text" : "Assearchers have observed these Pokémon reproducing in noustriol waste sites. LV. 24 #|10 In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards 14\/8"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.10193972727272727,
+          "width" : 0.125,
+          "x" : 0,
+          "y" : 0.8165014052753033
+        },
+        "text" : "2STR"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.11408269952307827,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.8246565834571216
+        },
+        "text" : "Assearchers have observed these Pokémon reproducing in noustriol waste sites. LV. 24 #|10 In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards 14\/8"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.10493795454545454,
+          "width" : 0.115,
+          "x" : 0.885,
+          "y" : 0.8120640289116671
+        },
+        "text" : "ing in 14\/8"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.11408269952307827,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.8246565834571216
+        },
+        "text" : "Assearchers have observed these Pokémon reproducing in noustriol waste sites. LV. 24 #|10 In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards 14\/8"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.1998818181818182,
+          "width" : 0.88,
+          "x" : 0.06,
+          "y" : 0.0002954545454545351
+        },
+        "text" : "Dark Weezing 60 HP"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "collector_signal_weak",
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.7739913199205359,
+    "usedFallback" : true
+  },
+  "fixtureName" : "dark-weezing-14-82-steep-angle",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.42,
+    "collectorNumberPartial" : "24",
+    "cropConfidence" : 0.7739913199205359,
+    "setHintTokens" : [
+
+    ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "Dark Weezing",
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Dark Weezing",
+    "collectorNumber" : "14\/82",
+    "setCode" : "TR"
+  }
+}

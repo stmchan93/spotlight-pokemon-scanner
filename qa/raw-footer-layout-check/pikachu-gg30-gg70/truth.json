@@ -1,0 +1,12 @@
+{
+  "cardName": "Pikachu",
+  "collectorNumber": "GG30/GG70",
+  "setCode": "CRZ",
+  "layoutBias": "left",
+  "footerFamily": "modern_left",
+  "runtimeValidation": {
+    "enabled": true,
+    "requireCollectorExact": true,
+    "requireCollectorFromExpectedFamily": true
+  }
+}

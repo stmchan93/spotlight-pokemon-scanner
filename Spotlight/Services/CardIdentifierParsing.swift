@@ -116,6 +116,7 @@ struct CardIdentifierParser {
             .replacingOccurrences(of: "O", with: "0")
             .replacingOccurrences(of: #"(?<=\d)[I|L](?=\d)"#, with: "/", options: .regularExpression)
             .replacingOccurrences(of: #"(?<![A-Z])(?<=\d)\s+(?=\d{2,3}\b)"#, with: "/", options: .regularExpression)
+            .replacingOccurrences(of: #"/{2,}"#, with: "/", options: .regularExpression)
             .replacingOccurrences(of: #"(?<=\d)ZZ(?=\d)"#, with: "7/", options: .regularExpression)
             .replacingOccurrences(of: #"(?<=/\d{2})Z\b"#, with: "1", options: .regularExpression)
             .replacingOccurrences(of: #"([A-Z]{2})(\d{1,3})([A-Z]{2})(\d{1,3})"#, with: "$1$2/$3$4", options: .regularExpression)
@@ -127,6 +128,7 @@ struct CardIdentifierParser {
         }
 
         return identifier
+            .replacingOccurrences(of: #"/{2,}"#, with: "/", options: .regularExpression)
             .replacingOccurrences(of: #"\s*/\s*"#, with: "/", options: .regularExpression)
             .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)

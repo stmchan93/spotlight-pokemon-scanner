@@ -10,20 +10,19 @@
     "setName" : "Sword & Shield Promos"
   },
   "fixtureName" : "raw_special_format",
-  "fullRecognizedText" : "PikachuVNAX GD3104 MAX Evolves from Pikachu V Gigantamax u or your rокетоnь 400 G-Max Thunder 250 weakness x2 resistance retreat ** Illus, AKIRA EGAWA VMAX rule When your Pokemon VMAX is Knocked Out, your opponent takes 3 Prize cards. F SWSH286",
-  "metadataStripRecognizedText" : "u or your rокетоnь 400 G-Max Thunder 250 weakness x2 resistance retreat ** Illus, AKIRA EGAWA VMAX rule When your Pokemon VMAX is Knocked Out, your opponent takes 3 Prize cards. F SWSH286",
+  "fullRecognizedText" : "사 u-max inunaer weakness x2 resistance retreat ** Illus. AKIRA EGAWA VMAX rule When your Pokémon VMAX i Knocked Out, your opponent takes 3 Frize cards SWSH286 sagzt Pokemen Pmtends re es SAME FREa VMA is Knocke 02023 Pokemon : Pi When your Pekémon VMAX sonent takes 3 Prize carc. ANTE FREAKT",
+  "metadataStripRecognizedText" : "사 u-max inunaer weakness x2 resistance retreat ** Illus. AKIRA EGAWA VMAX rule When your Pokémon VMAX i Knocked Out, your opponent takes 3 Frize cards SWSH286 sagzt Pokemen Pmtends re es SAME FREa",
   "ocrPipelineVersion" : "rewrite_v1",
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrSelectedMode" : "raw",
   "ocrTargetQualityScore" : 0.4,
   "ocrUsedFallback" : true,
-  "scanID" : "6B120BEE-EA48-429E-8387-678CB837D655",
+  "scanID" : "76895471-F4BE-4E1F-9E3C-8A97FB811A48",
   "setHintTokens" : [
     "swsh286"
   ],
   "shouldRetryWithStillPhoto" : false,
   "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_special_format.JPG",
-  "titleTextPrimary" : "PikachuVNAX GD3104 MAX Evolves",
   "warnings" : [
     "Target selection used fallback crop",
     "Target selection confidence is weak"

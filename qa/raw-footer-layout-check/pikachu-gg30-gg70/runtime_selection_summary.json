@@ -1,0 +1,218 @@
+{
+  "collectorConfidenceReasons" : [
+
+  ],
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.7556596409055426,
+    "x" : 0.12217017954722871,
+    "y" : 0
+  },
+  "fixtureName" : "pikachu-gg30-gg70",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7699637143178801,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.7556596409055426,
+        "x" : 0.12217017954722871,
+        "y" : 0.78
+      },
+      "text" : "WeuNenLOCNK Flip a coin. If tails, this attack does n",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.022448978806635024,
+            "width" : 0.3715326407082433,
+            "x" : 0.5031485852281059,
+            "y" : 0.7800000003364784
+          },
+          "text" : "WeuNenLOCNK"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.048397724403009726,
+            "width" : 0.6894926362823636,
+            "x" : 0.18772296951342352,
+            "y" : 0.8063307238206059
+          },
+          "text" : "Flip a coin. If tails, this attack does n"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1042810304449649,
+        "x" : 0.17554997658079624,
+        "y" : 0.8451
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.20780640124902425,
+        "x" : 0.25063231850117096,
+        "y" : 0.85
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.09445745511319283,
+        "x" : 0.6303512880562061,
+        "y" : 0.84184
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.13979703356752538,
+        "x" : 0.6662451209992194,
+        "y" : 0.85
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.0869008587041374,
+        "x" : 0.7159297423887587,
+        "y" : 0.8294
+      },
+      "text" : "NUO",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012544247787610615,
+            "width" : 0.08360915951079886,
+            "x" : 0.7159297426191776,
+            "y" : 0.8294000000418141
+          },
+          "text" : "NUO"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.1435753317720531,
+        "x" : 0.6549102263856362,
+        "y" : 0.842
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.6649804839968775,
+        "x" : 0.16750975800156126,
+        "y" : 0
+      },
+      "text" : "45IC Pikachu",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.020512819914838644,
+            "width" : 0.08455571193937064,
+            "x" : 0.16750975626800613,
+            "y" : 0.023589743795494434
+          },
+          "text" : "45IC"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.04079943327924569,
+            "width" : 0.240186521404583,
+            "x" : 0.2774366851790844,
+            "y" : 0.016010539808927107
+          },
+          "text" : "Pikachu"
+        }
+      ]
+    }
+  ],
+  "scanID" : "528040C5-8C15-4EEE-8F41-58B0CC614F19",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs",
+    "Rewrite raw is relying on broader title evidence",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

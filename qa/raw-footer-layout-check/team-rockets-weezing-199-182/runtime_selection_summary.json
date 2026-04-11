@@ -1,0 +1,396 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "199\/182",
+  "contentRectNormalized" : {
+    "height" : 1.0000000000000002,
+    "width" : 0.9984236958832804,
+    "x" : 0.0007881520583598305,
+    "y" : -6.45947941600091e-17
+  },
+  "fixtureName" : "team-rockets-weezing-199-182",
+  "footerRouting" : {
+    "anchorIdentifier" : "199\/182",
+    "collectorAnchor" : {
+      "height" : 0.019506388448370937,
+      "width" : 0.11272764646320937,
+      "x" : 0.1505092196435599,
+      "y" : 0.9063718056560858
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.809675248984217,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22000000000000006,
+        "width" : 0.9984236958832804,
+        "x" : 0.0007881520583598305,
+        "y" : 0.7800000000000001
+      },
+      "text" : "cacei\/ +02705 22 resistance Sep-gadiepertunne ie sundhs uatorg ths detten 3 tollito Tada poisan gasaslydi ursae to liuo os lsstkoua 199\/182 O: 125 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK C. 125 POR",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.03879346404854411,
+            "width" : 0.33280789862776017,
+            "x" : 0.608162570382101,
+            "y" : 0.80363896800777
+          },
+          "text" : "cacei\/ +02705"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02016666674682267,
+            "width" : 0.05376127613886143,
+            "x" : 0.18895261805364363,
+            "y" : 0.8258333332245055
+          },
+          "text" : "22"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01649999951906396,
+            "width" : 0.104962491829075,
+            "x" : 0.30543538190585107,
+            "y" : 0.8258333334559443
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.03651848866809747,
+            "width" : 0.5007741742072971,
+            "x" : 0.42626742976098103,
+            "y" : 0.8572493722678336
+          },
+          "text" : "Sep-gadiepertunne ie sundhs uatorg ths detten"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017650429799426926,
+            "width" : 0.15488366721908065,
+            "x" : 0.07630994988596737,
+            "y" : 0.8761318054192887
+          },
+          "text" : "3 tollito Tada"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020171920371943708,
+            "width" : 0.20224479559495043,
+            "x" : 0.3963175422886697,
+            "y" : 0.8899999998590888
+          },
+          "text" : "poisan gasaslydi"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02600874837968275,
+            "width" : 0.25470953385290857,
+            "x" : 0.6850278655151266,
+            "y" : 0.8805131659892609
+          },
+          "text" : "ursae to liuo os lsstkoua"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019506388448370923,
+            "width" : 0.11272764646320937,
+            "x" : 0.1505092196435599,
+            "y" : 0.9063718056560858
+          },
+          "text" : "199\/182"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01796561604584529,
+            "width" : 0.43265026284228336,
+            "x" : 0.2836748688839322,
+            "y" : 0.9256160458317905
+          },
+          "text" : "O: 125 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010782221818721753,
+            "width" : 0.08080672880110226,
+            "x" : 0.2848724894930045,
+            "y" : 0.9345672223610579
+          },
+          "text" : "C. 125 POR"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09800000000000003,
+        "width" : 0.1377824700318927,
+        "x" : 0.0007881520583598305,
+        "y" : 0.8652249998802711
+      },
+      "text" : "O DRI",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02625837320574164,
+            "width" : 0.0803186910612455,
+            "x" : 0.041926993728384654,
+            "y" : 0.8989857654961563
+          },
+          "text" : "O DRI"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09200000000000001,
+        "width" : 0.27456651636790214,
+        "x" : 0.06958978469121352,
+        "y" : 0.8701249998802711
+      },
+      "text" : "a Tolilito Tada 4 1EN 199\/182 c: 125 1",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.021811781132886864,
+            "width" : 0.1625606529188751,
+            "x" : 0.06910233997426615,
+            "y" : 0.8741385547982267
+          },
+          "text" : "a Tolilito Tada"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008406091370558371,
+            "width" : 0.026274307786402117,
+            "x" : 0.10637381564965154,
+            "y" : 0.9070184009480377
+          },
+          "text" : "4 1EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.022730980035617264,
+            "width" : 0.11703927006912004,
+            "x" : 0.15163769665768423,
+            "y" : 0.9045260073042358
+          },
+          "text" : "199\/182"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01023062923838039,
+            "width" : 0.05859801875650047,
+            "x" : 0.28497026644745305,
+            "y" : 0.9338929340542598
+          },
+          "text" : "c: 125 1"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10200000000000002,
+        "width" : 0.12480296198541005,
+        "x" : 0.057993035503820324,
+        "y" : 0.8579649998802711
+      },
+      "text" : "los TeCa Htol DRIN 19",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01841666666666667,
+            "width" : 0.08710206721898409,
+            "x" : 0.05799303593933065,
+            "y" : 0.8754372220765211
+          },
+          "text" : "los TeCa"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016527777777777787,
+            "width" : 0.04095097190146267,
+            "x" : 0.1411950103232642,
+            "y" : 0.8759094442328945
+          },
+          "text" : "Htol"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01700000000000001,
+            "width" : 0.05525131129562423,
+            "x" : 0.08009355979185623,
+            "y" : 0.9023538887967063
+          },
+          "text" : "DRIN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013222222222222227,
+            "width" : 0.028600678788323133,
+            "x" : 0.15094524153632435,
+            "y" : 0.9099094443848166
+          },
+          "text" : "19"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.10000000000000003,
+        "width" : 0.20290976363377689,
+        "x" : 0.10541816105827614,
+        "y" : 0.8661249998802711
+      },
+      "text" : "Wilito Tado 199\/182",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020560747663551412,
+            "width" : 0.12370950105414139,
+            "x" : 0.10541816144486833,
+            "y" : 0.8740689250759487
+          },
+          "text" : "Wilito Tado"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020350721840546523,
+            "width" : 0.10809371219899395,
+            "x" : 0.151844365753954,
+            "y" : 0.9052487043454208
+          },
+          "text" : "199\/182"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10500000000000002,
+        "width" : 0.11481872502657725,
+        "x" : 0.19925013591680468,
+        "y" : 0.8525249998802711
+      },
+      "text" : "4182",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0179220653756317,
+            "width" : 0.06782642269087077,
+            "x" : 0.19912643476630135,
+            "y" : 0.9073644155381582
+          },
+          "text" : "4182"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10200000000000002,
+        "width" : 0.20290976363377689,
+        "x" : 0.10541816105827614,
+        "y" : 0.8651249998802711
+      },
+      "text" : "tro Tada 199\/182",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019095890410958914,
+            "width" : 0.08509119120126127,
+            "x" : 0.14469101833318326,
+            "y" : 0.8753715752482424
+          },
+          "text" : "tro Tada"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02204733161403709,
+            "width" : 0.11261480096301736,
+            "x" : 0.15014291412073377,
+            "y" : 0.9039013340373686
+          },
+          "text" : "199\/182"
+        }
+      ]
+    }
+  ],
+  "scanID" : "4391D127-B9D9-41F7-A846-536FDDBA3E55",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_family_set_hints"
+  ],
+  "setConfidenceScore" : 0.62,
+  "setHintTokens" : [
+    "dri",
+    "lor"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop"
+  ]
+}

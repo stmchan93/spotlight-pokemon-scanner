@@ -60,6 +60,7 @@ struct OCRModeSanitySignals: Codable, Hashable, Sendable {
 
 struct OCRNormalizedTarget: Codable, Hashable, Sendable {
     let selectedRectNormalized: OCRNormalizedRect?
+    let contentRectNormalized: OCRNormalizedRect?
     let normalizedWidth: Int
     let normalizedHeight: Int
     let usedFallback: Bool

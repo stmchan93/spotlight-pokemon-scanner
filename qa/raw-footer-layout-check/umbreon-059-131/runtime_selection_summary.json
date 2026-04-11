@@ -1,0 +1,499 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "059\/130",
+  "contentRectNormalized" : {
+    "height" : 0.9996679863686478,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.00016600681567608563
+  },
+  "fixtureName" : "umbreon-059-131",
+  "footerRouting" : {
+    "anchorIdentifier" : "059\/130",
+    "collectorAnchor" : {
+      "height" : 0.021317285193247493,
+      "width" : 0.1234381943152695,
+      "x" : 0.18828090222770968,
+      "y" : 0.9332772490590333
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.8202750843774143,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.2199269570011025,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7799070361832214
+      },
+      "text" : "weakness x2 resistance retreat Шuь mafazo 11 hen expicord to the moon's aura, the eingson its PRE EN 059\/130 tusti glum tainti and it gains a mysterious power. ©2025 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01556715296073128,
+            "width" : 0.09408047926699253,
+            "x" : 0.08821617140107882,
+            "y" : 0.855054249685297
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0247417831434004,
+            "width" : 0.060256406323199146,
+            "x" : 0.21153846317030925,
+            "y" : 0.8513832970241915
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017530024646547165,
+            "width" : 0.1031099887962274,
+            "x" : 0.3279321852863024,
+            "y" : 0.8559055384223783
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013745434812568907,
+            "width" : 0.07435897208185216,
+            "x" : 0.6294871812453988,
+            "y" : 0.8605469203635046
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01864652860023532,
+            "width" : 0.12232979264839616,
+            "x" : 0.08691202656491293,
+            "y" : 0.9025399458830752
+          },
+          "text" : "Шuь mafazo"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02529813635407761,
+            "width" : 0.5288784558600639,
+            "x" : 0.41634296713113267,
+            "y" : 0.9023791572854007
+          },
+          "text" : "11 hen expicord to the moon's aura, the eingson its"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01575408001440564,
+            "width" : 0.053846154053164966,
+            "x" : 0.12307692258880214,
+            "y" : 0.9283104696442229
+          },
+          "text" : "PRE EN"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.021317285193247527,
+            "width" : 0.1234381943152695,
+            "x" : 0.18828090222770968,
+            "y" : 0.9332772490590333
+          },
+          "text" : "059\/130"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.02086351042836727,
+            "width" : 0.5208333333333333,
+            "x" : 0.42083333984374977,
+            "y" : 0.9254747358365134
+          },
+          "text" : "tusti glum tainti and it gains a mysterious power."
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.015123916813829394,
+            "width" : 0.3958333333333333,
+            "x" : 0.3166666732638887,
+            "y" : 0.9610789563480804
+          },
+          "text" : "©2025 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.0979674626641275,
+        "width" : 0.138,
+        "x" : 0.013139999385344436,
+        "y" : 0.8930527911494929
+      },
+      "text" : "U5. 0 PR",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011607519273000888,
+            "width" : 0.04251184834123223,
+            "x" : 0.10797412248620614,
+            "y" : 0.9065175134534125
+          },
+          "text" : "U5. 0"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016250526982201238,
+            "width" : 0.019620853080568726,
+            "x" : 0.12955706094221647,
+            "y" : 0.927411048129865
+          },
+          "text" : "PR"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.0919694547459156,
+        "width" : 0.275,
+        "x" : 0.11249999938534444,
+        "y" : 0.8979511642826993
+      },
+      "text" : "UE. mafazo PRE EN 059\/130 ©2025 Po",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014939200770910151,
+            "width" : 0.09690476190476192,
+            "x" : 0.11249999916876936,
+            "y" : 0.9049539147015219
+          },
+          "text" : "UE. mafazo"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01587290081909204,
+            "width" : 0.048452380952380955,
+            "x" : 0.1295238088972492,
+            "y" : 0.9273627157282791
+          },
+          "text" : "PRE EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02007455103591051,
+            "width" : 0.10803571428571428,
+            "x" : 0.19238095212641587,
+            "y" : 0.9329649160630651
+          },
+          "text" : "059\/130"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009693507358373836,
+            "width" : 0.06818962187994096,
+            "x" : 0.31804804607454384,
+            "y" : 0.9635987642320273
+          },
+          "text" : "©2025 Po"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10196613460960208,
+        "width" : 0.125,
+        "x" : 0.09140562450160188,
+        "y" : 0.8857952015684565
+      },
+      "text" : "lllus, matazo PREEN 05",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.015830358797837764,
+            "width" : 0.11653645833333333,
+            "x" : 0.09140562486577831,
+            "y" : 0.9034879555044311
+          },
+          "text" : "lllus, matazo"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020951945467726447,
+            "width" : 0.05013020833333332,
+            "x" : 0.12851499935416008,
+            "y" : 0.9267678949426295
+          },
+          "text" : "PREEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012105568492464185,
+            "width" : 0.02278645833333333,
+            "x" : 0.19296812439802707,
+            "y" : 0.9360798707206289
+          },
+          "text" : "05"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09996679863686479,
+        "width" : 0.22218874976748512,
+        "x" : 0.13890562450160188,
+        "y" : 0.8939524923372246
+      },
+      "text" : "motazo RE EN 059\/130 ©202",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01261263347287546,
+            "width" : 0.07013037234548941,
+            "x" : 0.13890562445691387,
+            "y" : 0.9060979911797005
+          },
+          "text" : "motazo"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01728397920357009,
+            "width" : 0.03801459435549893,
+            "x" : 0.13890562444334195,
+            "y" : 0.9280533160752732
+          },
+          "text" : "RE EN"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019336283871762644,
+            "width" : 0.11213904695726265,
+            "x" : 0.1926196280697741,
+            "y" : 0.9340341823591766
+          },
+          "text" : "059\/130"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.009342691461389234,
+            "width" : 0.03932544243672304,
+            "x" : 0.31783638783447565,
+            "y" : 0.964022678268448
+          },
+          "text" : "©202"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10496513856870802,
+        "width" : 0.115,
+        "x" : 0.25184437426908696,
+        "y" : 0.880357007722611
+      },
+      "text" : "131 C2025",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016255663052676023,
+            "width" : 0.04587078651685393,
+            "x" : 0.2518443743848407,
+            "y" : 0.9356262621694414
+          },
+          "text" : "131"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01021784534739635,
+            "width" : 0.045870786516853945,
+            "x" : 0.31774325048245305,
+            "y" : 0.9630286655565857
+          },
+          "text" : "C2025"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10196613460960208,
+        "width" : 0.22218874976748512,
+        "x" : 0.13890562450160188,
+        "y" : 0.892952824350856
+      },
+      "text" : "motazo RE EN 059\/130 ©202",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.012571167280635877,
+            "width" : 0.07013037234548941,
+            "x" : 0.13890562500253312,
+            "y" : 0.9059895904096864
+          },
+          "text" : "motazo"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01629595758600946,
+            "width" : 0.03801459435549892,
+            "x" : 0.13890562438362555,
+            "y" : 0.9283383323333849
+          },
+          "text" : "RE EN"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.019157708859565147,
+            "width" : 0.11028771606618143,
+            "x" : 0.1919067334322225,
+            "y" : 0.9341242378887152
+          },
+          "text" : "059\/130"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.009777574551605684,
+            "width" : 0.038670018396110985,
+            "x" : 0.3178363878035251,
+            "y" : 0.963723840124501
+          },
+          "text" : "©202"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.19993359727372959,
+        "width" : 0.88,
+        "x" : 0.06,
+        "y" : 0.00016600681567608563
+      },
+      "text" : "STAGE 1 Umbreon н 110 Evolves from Eevee",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020427997982315864,
+            "width" : 0.11568965421178033,
+            "x" : 0.0713793115363512,
+            "y" : 0.050149406278923864
+          },
+          "text" : "STAGE 1"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.039019255393523036,
+            "width" : 0.267741594538814,
+            "x" : 0.22104299559531163,
+            "y" : 0.05495602656635868
+          },
+          "text" : "Umbreon"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.05138129028065701,
+            "width" : 0.17448274773351052,
+            "x" : 0.7275862118660035,
+            "y" : 0.04744760093259373
+          },
+          "text" : "н 110"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017585228788175318,
+            "width" : 0.2010344859607322,
+            "x" : 0.22310344868515108,
+            "y" : 0.10688731932634649
+          },
+          "text" : "Evolves from Eevee"
+        }
+      ]
+    }
+  ],
+  "scanID" : "45689DA8-EFDC-4062-88EC-22C09979D1EE",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

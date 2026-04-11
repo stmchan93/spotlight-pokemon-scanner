@@ -1,104 +1,16 @@
 import Foundation
 import UIKit
 
-enum OCRPipelineRequestedRoute: String, Codable, Hashable, Sendable {
-    case legacyOnly = "legacy_only"
-    case rewritePreferred = "rewrite_preferred"
-    case dualRunDebug = "dual_run_debug"
-}
-
-struct OCRPipelineFeatureFlags: Codable, Hashable, Sendable {
-    let useNewOCRPipeline: Bool
-    let runBothOCRPipelinesForDebug: Bool
-
-    var requestedRoute: OCRPipelineRequestedRoute {
-        if runBothOCRPipelinesForDebug {
-            return .dualRunDebug
-        }
-        if useNewOCRPipeline {
-            return .rewritePreferred
-        }
-        return .legacyOnly
-    }
-
-    static func current(
-        bundle: Bundle = .main,
-        processInfo: ProcessInfo = .processInfo
-    ) -> OCRPipelineFeatureFlags {
-        let useNewOCRPipeline =
-            boolOverride(
-                envKey: "SPOTLIGHT_USE_NEW_OCR_PIPELINE",
-                bundleKey: "SpotlightUseNewOCRPipeline",
-                bundle: bundle,
-                processInfo: processInfo
-            ) ?? true
-        let runBothOCRPipelinesForDebug =
-            boolOverride(
-                envKey: "SPOTLIGHT_RUN_BOTH_OCR_PIPELINES_FOR_DEBUG",
-                bundleKey: "SpotlightRunBothOCRPipelinesForDebug",
-                bundle: bundle,
-                processInfo: processInfo
-            ) ?? false
-
-        return OCRPipelineFeatureFlags(
-            useNewOCRPipeline: useNewOCRPipeline,
-            runBothOCRPipelinesForDebug: runBothOCRPipelinesForDebug
-        )
-    }
-
-    private static func boolOverride(
-        envKey: String,
-        bundleKey: String,
-        bundle: Bundle,
-        processInfo: ProcessInfo
-    ) -> Bool? {
-        if let envValue = processInfo.environment[envKey] {
-            return parseBool(envValue)
-        }
-
-        if let value = bundle.object(forInfoDictionaryKey: bundleKey) {
-            if let boolValue = value as? Bool {
-                return boolValue
-            }
-            if let numberValue = value as? NSNumber {
-                return numberValue.boolValue
-            }
-            if let stringValue = value as? String {
-                return parseBool(stringValue)
-            }
-        }
-
-        return nil
-    }
-
-    private static func parseBool(_ value: String) -> Bool? {
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "1", "true", "yes", "on":
-            return true
-        case "0", "false", "no", "off":
-            return false
-        default:
-            return nil
-        }
-    }
-}
-
 actor OCRPipelineCoordinator {
-    private let rawAnalyzer: RawCardScanner
     private let rawRewritePipeline: RawPipeline
     private let slabAnalyzer: SlabScanner
-    private let featureFlags: OCRPipelineFeatureFlags
 
     init(
-        rawAnalyzer: RawCardScanner,
         rawRewritePipeline: RawPipeline,
-        slabAnalyzer: SlabScanner,
-        featureFlags: OCRPipelineFeatureFlags = .current()
+        slabAnalyzer: SlabScanner
     ) {
-        self.rawAnalyzer = rawAnalyzer
         self.rawRewritePipeline = rawRewritePipeline
         self.slabAnalyzer = slabAnalyzer
-        self.featureFlags = featureFlags
     }
 
     func analyze(
@@ -114,77 +26,13 @@ actor OCRPipelineCoordinator {
                 resolverModeHint: resolverModeHint
             )
         case .rawCard, .unknownFallback:
-            switch featureFlags.requestedRoute {
-            case .legacyOnly:
-                return try await rawAnalyzer.analyze(
-                    scanID: scanID,
-                    capture: capture,
-                    resolverModeHint: resolverModeHint
-                )
-            case .rewritePreferred:
-                return try await rawRewritePipeline.analyze(
-                    scanID: scanID,
-                    capture: capture,
-                    resolverModeHint: resolverModeHint
-                )
-            case .dualRunDebug:
-                let legacyResult = try await rawAnalyzer.analyze(
-                    scanID: scanID,
-                    capture: capture,
-                    resolverModeHint: resolverModeHint
-                )
-                let rewriteScanID = UUID()
-                let rewriteResult = try await rawRewritePipeline.analyze(
-                    scanID: rewriteScanID,
-                    capture: capture,
-                    resolverModeHint: resolverModeHint
-                )
-                ScanStageArtifactWriter.recordFinalDecisionArtifact(
-                    scanID: scanID,
-                    stage: "raw_pipeline_dual_run_debug",
-                    payload: OCRPipelineDualRunArtifact(
-                        requestedRoute: featureFlags.requestedRoute,
-                        legacyScanID: scanID.uuidString,
-                        rewriteScanID: rewriteScanID.uuidString,
-                        legacy: OCRPipelineDualRunResult(
-                            pipelineVersion: legacyResult.ocrAnalysis?.pipelineVersion.rawValue,
-                            titleTextPrimary: legacyResult.ocrAnalysis?.rawEvidence?.titleTextPrimary,
-                            collectorNumber: legacyResult.collectorNumber,
-                            setHintTokens: legacyResult.setHintTokens,
-                            cropConfidence: legacyResult.cropConfidence,
-                            warnings: legacyResult.warnings
-                        ),
-                        rewrite: OCRPipelineDualRunResult(
-                            pipelineVersion: rewriteResult.ocrAnalysis?.pipelineVersion.rawValue,
-                            titleTextPrimary: rewriteResult.ocrAnalysis?.rawEvidence?.titleTextPrimary,
-                            collectorNumber: rewriteResult.collectorNumber,
-                            setHintTokens: rewriteResult.setHintTokens,
-                            cropConfidence: rewriteResult.cropConfidence,
-                            warnings: rewriteResult.warnings
-                        )
-                    )
-                )
-                return legacyResult
-            }
+            return try await rawRewritePipeline.analyze(
+                scanID: scanID,
+                capture: capture,
+                resolverModeHint: resolverModeHint
+            )
         }
     }
-}
-
-private struct OCRPipelineDualRunResult: Codable, Hashable, Sendable {
-    let pipelineVersion: String?
-    let titleTextPrimary: String?
-    let collectorNumber: String?
-    let setHintTokens: [String]
-    let cropConfidence: Double
-    let warnings: [String]
-}
-
-private struct OCRPipelineDualRunArtifact: Codable, Hashable, Sendable {
-    let requestedRoute: OCRPipelineRequestedRoute
-    let legacyScanID: String
-    let rewriteScanID: String
-    let legacy: OCRPipelineDualRunResult
-    let rewrite: OCRPipelineDualRunResult
 }
 
 func buildLegacyNormalizedTarget(
@@ -207,6 +55,7 @@ func buildLegacyNormalizedTarget(
                 height: candidate.boundingBox.height
             )
         },
+        contentRectNormalized: targetSelection.normalizedContentRect,
         normalizedWidth: Int(targetSelection.normalizedImage.size.width.rounded()),
         normalizedHeight: Int(targetSelection.normalizedImage.size.height.rounded()),
         usedFallback: targetSelection.usedFallback,
@@ -280,74 +129,6 @@ func buildLegacyModeSanitySignals(
         looksLikeRawScore: looksLikeRawScore,
         looksLikeSlabScore: looksLikeSlabScore,
         warnings: warnings
-    )
-}
-
-func buildLegacyRawOCRAnalysisEnvelope(
-    targetSelection: OCRTargetSelectionResult,
-    primaryTitleText: String,
-    secondaryTitleText: String?,
-    titleConfidence: Double,
-    footerBandText: String,
-    wholeCardText: String,
-    collectorNumber: String?,
-    collectorWasFooterConfirmed: Bool,
-    setHintTokens: [String],
-    warnings: [String]
-) -> OCRAnalysisEnvelope {
-    let normalizedTarget = buildLegacyNormalizedTarget(from: targetSelection)
-    let modeSanitySignals = buildLegacyModeSanitySignals(
-        selectedMode: .raw,
-        targetSelection: targetSelection
-    )
-    let titleConfidenceValue = trimmedNonEmpty(primaryTitleText).map { _ in
-        OCRFieldConfidence(
-            score: clamp01(titleConfidence),
-            agreementScore: secondaryTitleText == nil ? nil : clamp01(titleConfidence * 0.82),
-            tokenConfidenceAverage: clamp01(titleConfidence),
-            reasons: secondaryTitleText == nil
-                ? ["legacy_raw_primary_title_region"]
-                : ["legacy_raw_primary_title_region", "legacy_raw_secondary_title_region"]
-        )
-    }
-    let collectorConfidence = collectorNumber.map { _ in
-        OCRFieldConfidence(
-            score: collectorWasFooterConfirmed ? 0.92 : 0.68,
-            agreementScore: collectorWasFooterConfirmed ? 0.88 : nil,
-            tokenConfidenceAverage: nil,
-            reasons: collectorWasFooterConfirmed
-                ? ["legacy_raw_footer_confirmation"]
-                : ["legacy_raw_footer_band"]
-        )
-    }
-    let setConfidence = setHintTokens.isEmpty ? nil : OCRFieldConfidence(
-        score: 0.56,
-        agreementScore: nil,
-        tokenConfidenceAverage: nil,
-        reasons: ["legacy_raw_footer_set_hints"]
-    )
-
-    let rawEvidence = OCRRawEvidence(
-        titleTextPrimary: trimmedNonEmpty(primaryTitleText),
-        titleTextSecondary: trimmedNonEmpty(secondaryTitleText),
-        titleConfidence: titleConfidenceValue,
-        collectorNumberExact: collectorNumber,
-        collectorNumberPartial: nil,
-        collectorConfidence: collectorConfidence,
-        setHints: setHintTokens,
-        setConfidence: setConfidence,
-        footerBandText: footerBandText,
-        wholeCardText: wholeCardText,
-        warnings: warnings
-    )
-
-    return OCRAnalysisEnvelope(
-        pipelineVersion: .legacyV1,
-        selectedMode: .raw,
-        normalizedTarget: normalizedTarget,
-        modeSanitySignals: modeSanitySignals,
-        rawEvidence: rawEvidence,
-        slabEvidence: nil
     )
 }
 

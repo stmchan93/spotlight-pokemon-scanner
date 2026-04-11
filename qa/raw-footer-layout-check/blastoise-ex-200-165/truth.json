@@ -1,0 +1,12 @@
+{
+  "cardName": "Blastoise ex",
+  "collectorNumber": "200/165",
+  "setCode": "MEW",
+  "layoutBias": "left",
+  "footerFamily": "modern_left",
+  "runtimeValidation": {
+    "enabled": true,
+    "requireCollectorExact": true,
+    "requireCollectorFromExpectedFamily": true
+  }
+}

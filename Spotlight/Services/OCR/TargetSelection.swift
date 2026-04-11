@@ -59,6 +59,7 @@ struct OCRTargetCandidateSummary: Codable {
 
 struct OCRTargetSelectionResult {
     let normalizedImage: UIImage
+    let normalizedContentRect: OCRNormalizedRect?
     let selectionConfidence: Double
     let usedFallback: Bool
     let fallbackReason: String?
@@ -71,6 +72,11 @@ struct OCRTargetSelectionResult {
 private struct OCRTargetSelectionCandidate {
     let observation: VNRectangleObservation
     let summary: OCRTargetCandidateSummary
+}
+
+private struct OCRRelaxedDetectionResult {
+    let observation: VNRectangleObservation
+    let sourceLabel: String
 }
 
 func selectOCRInput(
@@ -116,9 +122,10 @@ func selectOCRInput(
                 scanID: scanID,
                 mode: mode,
                 source: capture.captureSource,
-                searchImage: searchImage,
+                selectedTargetImage: normalizedCandidateImage,
                 candidateOverlayImage: candidateOverlayImage,
                 normalizedImage: normalizedImage,
+                normalizedContentRect: normalizationResult.normalizedContentRect,
                 chosenCandidateIndex: chosenCandidate.summary.rank,
                 candidates: candidates.map(\.summary),
                 fallbackReason: fallbackReason,
@@ -127,6 +134,7 @@ func selectOCRInput(
             )
             return OCRTargetSelectionResult(
                 normalizedImage: normalizedImage,
+                normalizedContentRect: normalizationResult.normalizedContentRect,
                 selectionConfidence: max(0.55, chosenCandidate.summary.totalScore),
                 usedFallback: false,
                 fallbackReason: fallbackReason,
@@ -138,12 +146,64 @@ func selectOCRInput(
         }
     }
 
+    if mode == .rawCard,
+       let relaxedDetection = try recoverRelaxedRectangleCandidate(in: searchCGImage),
+       let correctedCandidateImage = perspectiveCorrect(searchCGImage, observation: relaxedDetection.observation) {
+        let relaxedSummary = makeCandidateSummary(
+            observation: relaxedDetection.observation,
+            rank: candidates.count + 1,
+            mode: mode
+        )
+        let normalizedCandidateImage = correctedCandidateImage.normalizedOrientation()
+        let normalizationResult = normalizeOCRInputImage(
+            normalizedCandidateImage,
+            chosenCandidate: relaxedSummary,
+            mode: mode
+        )
+        let promotedReason = normalizationResult.reason ?? "relaxed_rectangle_detector_promoted"
+        print(
+            "  🎯 [TARGET] mode=\(mode.rawValue) source=\(capture.captureSource.rawValue) " +
+            "chosen=relaxed:\(relaxedDetection.sourceLabel) score=\(String(format: "%.2f", relaxedSummary.totalScore)) " +
+            "geometry=\(normalizationResult.geometryKind.rawValue)"
+        )
+        ScanStageArtifactWriter.recordSelectionArtifacts(
+            scanID: scanID,
+            mode: mode,
+            source: capture.captureSource,
+            selectedTargetImage: normalizedCandidateImage,
+            candidateOverlayImage: candidateOverlayImage,
+            normalizedImage: normalizationResult.image,
+            normalizedContentRect: normalizationResult.normalizedContentRect,
+            chosenCandidateIndex: nil,
+            candidates: candidates.map(\.summary),
+            fallbackReason: nil,
+            normalizedGeometryKind: normalizationResult.geometryKind,
+            normalizationReason: promotedReason
+        )
+        return OCRTargetSelectionResult(
+            normalizedImage: normalizationResult.image,
+            normalizedContentRect: normalizationResult.normalizedContentRect,
+            selectionConfidence: max(0.50, relaxedSummary.totalScore),
+            usedFallback: false,
+            fallbackReason: nil,
+            chosenCandidateIndex: nil,
+            candidates: candidates.map(\.summary),
+            normalizedGeometryKind: normalizationResult.geometryKind,
+            normalizationReason: promotedReason
+        )
+    }
+
     let chosenFallbackReason = if mode == .psaSlab, chosenCandidate != nil {
         "slab_candidate_not_portrait"
     } else {
         fallbackReason(for: candidates, mode: mode)
     }
-    let normalizationResult = normalizeFallbackOCRInputImage(fallbackImage, mode: mode)
+    let normalizationResult = normalizeFallbackOCRInputImage(
+        searchImage: searchImage,
+        fallbackImage: fallbackImage,
+        mode: mode,
+        scanID: scanID
+    )
     print(
         "  ⚠️ [TARGET] mode=\(mode.rawValue) fallback=\(chosenFallbackReason) " +
         "normalized=\(normalizationResult.geometryKind.rawValue) " +
@@ -153,9 +213,10 @@ func selectOCRInput(
         scanID: scanID,
         mode: mode,
         source: capture.captureSource,
-        searchImage: searchImage,
+        selectedTargetImage: normalizationResult.image,
         candidateOverlayImage: candidateOverlayImage,
         normalizedImage: normalizationResult.image,
+        normalizedContentRect: normalizationResult.normalizedContentRect,
         chosenCandidateIndex: nil,
         candidates: candidates.map(\.summary),
         fallbackReason: chosenFallbackReason,
@@ -165,6 +226,7 @@ func selectOCRInput(
 
     return OCRTargetSelectionResult(
         normalizedImage: normalizationResult.image,
+        normalizedContentRect: normalizationResult.normalizedContentRect,
         selectionConfidence: candidates.first?.summary.totalScore ?? 0.40,
         usedFallback: true,
         fallbackReason: chosenFallbackReason,
@@ -209,9 +271,10 @@ private func detectRectangleCandidates(
 ) throws -> [OCRTargetSelectionCandidate] {
     let request = VNDetectRectanglesRequest()
     request.maximumObservations = 8
-    request.minimumConfidence = 0.35
-    request.minimumAspectRatio = 0.5
-    request.maximumAspectRatio = 0.9
+    request.minimumConfidence = 0.20
+    request.minimumAspectRatio = 0.35
+    request.maximumAspectRatio = 0.96
+    request.quadratureTolerance = 30.0
 
     let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
     try handler.perform([request])
@@ -254,7 +317,7 @@ private func makeCandidateSummary(
     let rightHeight = distance(from: observation.topRight, to: observation.bottomRight)
     let averageWidth = max(0.0001, (topWidth + bottomWidth) / 2)
     let averageHeight = max(0.0001, (leftHeight + rightHeight) / 2)
-    let aspectRatio = averageHeight / averageWidth
+    let aspectRatio = averageWidth / averageHeight
     let aspectDelta = abs(aspectRatio - mode.expectedAspectRatio)
     let aspectScore = max(0, 1 - (aspectDelta / 0.45))
     let geometryKind = inferredGeometryKind(for: aspectRatio, mode: mode)
@@ -287,6 +350,34 @@ private func makeCandidateSummary(
         ],
         geometryKind: geometryKind
     )
+}
+
+private func recoverRelaxedRectangleCandidate(in cgImage: CGImage) throws -> OCRRelaxedDetectionResult? {
+    let expectedAspect = 63.0 / 88.0
+    let searchImages: [(CGImage, String)] = [
+        (cgImage, "original"),
+        (enhancedRawSelectionImage(from: cgImage), "enhanced")
+    ].compactMap { image, sourceLabel in
+        guard let image else { return nil }
+        return (image, sourceLabel)
+    }
+
+    for (candidateImage, sourceLabel) in searchImages {
+        if let observation = try bestRawCardObservation(
+            in: candidateImage,
+            expectedWidthHeightAspect: expectedAspect,
+            minimumAreaCoverage: 0.025,
+            maxCenterDistance: 0.48,
+            requestMinimumConfidence: 0.12,
+            requestMinimumAspectRatio: 0.28,
+            requestMaximumAspectRatio: 0.96,
+            minimumAspectScore: 0.16
+        ) {
+            return OCRRelaxedDetectionResult(observation: observation, sourceLabel: sourceLabel)
+        }
+    }
+
+    return nil
 }
 
 private func chooseBestCandidate(

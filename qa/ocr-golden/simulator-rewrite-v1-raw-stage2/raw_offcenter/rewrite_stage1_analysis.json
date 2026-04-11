@@ -1,5 +1,5 @@
 {
-  "cropConfidence" : 0.8655603906902266,
+  "cropConfidence" : 0.8979459373753425,
   "expected" : {
     "cardName" : "Team Rocket's Weezing",
     "collectorNumber" : "199\/182",
@@ -9,16 +9,16 @@
     "setName" : "Destined Rivals"
   },
   "fixtureName" : "raw_offcenter",
-  "fullRecognizedText" : "Explode Together Now 4 does 40 damage for each Pokémon in olay tha Drfae Explode ] does 40 damage fc ther Now -N4 Pokémon in play th",
-  "metadataStripRecognizedText" : "Explode Together Now 4 does 40 damage for each Pokémon in olay tha",
+  "fullRecognizedText" : "Explode Together Now does 40 damage for each Pokémon in play tha Explode Tog hac 4n damaco fon o er Now kémon iniolavt",
+  "metadataStripRecognizedText" : "Explode Together Now does 40 damage for each Pokémon in play tha",
   "ocrPipelineVersion" : "rewrite_v1",
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrSelectedMode" : "raw",
-  "ocrTargetQualityScore" : 0.8655603906902266,
+  "ocrTargetQualityScore" : 0.8979459373753425,
   "ocrUsedFallback" : false,
-  "scanID" : "1C2DAE79-D24B-4A9E-AD40-87F72F46E367",
+  "scanID" : "DC01C944-EAF4-41B6-879D-2D020E4132F4",
   "setHintTokens" : [
-
+    "lor"
   ],
   "shouldRetryWithStillPhoto" : false,
   "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_offcenter.JPG",

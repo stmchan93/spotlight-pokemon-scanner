@@ -1,0 +1,410 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "256\/198",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9998267428997908,
+    "x" : 8.662855010461571e-05,
+    "y" : 0
+  },
+  "fixtureName" : "rare-candy-256-198",
+  "footerRouting" : {
+    "anchorIdentifier" : "256\/198",
+    "collectorAnchor" : {
+      "height" : 0.021083332050837233,
+      "width" : 0.12177377203831669,
+      "x" : 0.15134246878428176,
+      "y" : 0.8606666672722666
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.8428233719512224,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9998267428997908,
+        "x" : 8.662855010461571e-05,
+        "y" : 0.78
+      },
+      "text" : "You may play any number of Item cards during Mos, Studio Bero Ins your turn. SVI EN 256\/198 oleado \/ CiRatureS\/ CABAE FREAK",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.023999552685756733,
+            "width" : 0.5744561892481401,
+            "x" : 0.3640200992767801,
+            "y" : 0.8074611102413095
+          },
+          "text" : "You may play any number of Item cards during"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.023008595988538685,
+            "width" : 0.20509266727996595,
+            "x" : 0.048796136528117394,
+            "y" : 0.8275931226961497
+          },
+          "text" : "Mos, Studio Bero Ins"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020425873239948964,
+            "width" : 0.13001276320710092,
+            "x" : 0.36385209938776203,
+            "y" : 0.8357870634986337
+          },
+          "text" : "your turn."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017650429799426923,
+            "width" : 0.052554995822323876,
+            "x" : 0.09109649837444107,
+            "y" : 0.8559598856424606
+          },
+          "text" : "SVI EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021083332050837227,
+            "width" : 0.1217737720383167,
+            "x" : 0.15134246878428176,
+            "y" : 0.8606666672722666
+          },
+          "text" : "256\/198"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012980420568952598,
+            "width" : 0.26149315683598257,
+            "x" : 0.44359951085290295,
+            "y" : 0.8918333332924631
+          },
+          "text" : "oleado \/ CiRatureS\/ CABAE FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13797609052017115,
+        "x" : 8.662855010461571e-05,
+        "y" : 0.8203083332976852
+      },
+      "text" : "Nlus. Si G SVla",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013469194312796206,
+            "width" : 0.06337657746381066,
+            "x" : 0.05620130696554348,
+            "y" : 0.8314552527190122
+          },
+          "text" : "Nlus. Si"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01207582938388625,
+            "width" : 0.014523799002123286,
+            "x" : 0.059502169889418484,
+            "y" : 0.8579291863027799
+          },
+          "text" : "G"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017649289099526063,
+            "width" : 0.05479433259891964,
+            "x" : 0.08260821372042339,
+            "y" : 0.8560713665532647
+          },
+          "text" : "SVla"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.27495235429744247,
+        "x" : 0.07475317765471887,
+        "y" : 0.8252083332976852
+      },
+      "text" : "13. Studio Baro lins SVIEN 256\/198",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.018680203045685285,
+            "width" : 0.17299633775174011,
+            "x" : 0.07475317806473551,
+            "y" : 0.8284773687684127
+          },
+          "text" : "13. Studio Baro lins"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017279187817258884,
+            "width" : 0.05393802165643609,
+            "x" : 0.08988213472385553,
+            "y" : 0.8555636632644364
+          },
+          "text" : "SVIEN"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.024190716506260902,
+            "width" : 0.12856566485497956,
+            "x" : 0.15287987841660833,
+            "y" : 0.858879472468252
+          },
+          "text" : "256\/198"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12497834286247385,
+        "x" : 0.055141189681215015,
+        "y" : 0.8130483332976852
+      },
+      "text" : "Illos, Studio & G SVIEN",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.018653641948961217,
+            "width" : 0.12469675971064452,
+            "x" : 0.0549565166563558,
+            "y" : 0.8286393201663973
+          },
+          "text" : "Illos, Studio &"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01816438356164385,
+            "width" : 0.01692415059596,
+            "x" : 0.058395834000554786,
+            "y" : 0.8549661414260414
+          },
+          "text" : "G"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.017698630136986287,
+            "width" : 0.052074309526030774,
+            "x" : 0.09159320617585552,
+            "y" : 0.8558976484645041
+          },
+          "text" : "SVIEN"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.21919278966897005,
+        "x" : 0.10263295996895508,
+        "y" : 0.8212083332976852
+      },
+      "text" : "Stodio Bora ins. VIEN 256\/198",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.023434228986223174,
+            "width" : 0.14925461468841392,
+            "x" : 0.10243987121253706,
+            "y" : 0.8270236862405961
+          },
+          "text" : "Stodio Bora ins."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016355140186915886,
+            "width" : 0.04134474775193147,
+            "x" : 0.10263295985410856,
+            "y" : 0.8562550622112366
+          },
+          "text" : "VIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018224299065420568,
+            "width" : 0.11025266067181726,
+            "x" : 0.15579049325225305,
+            "y" : 0.8613952491680122
+          },
+          "text" : "256\/198"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11498007543347595,
+        "x" : 0.21259467797612294,
+        "y" : 0.8076083332976852
+      },
+      "text" : "Ins 198",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01951327433628318,
+            "width" : 0.02777608563842397,
+            "x" : 0.21970018821373266,
+            "y" : 0.8266570057664905
+          },
+          "text" : "Ins"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016261061946902657,
+            "width" : 0.052968349356994536,
+            "x" : 0.21259467774644988,
+            "y" : 0.8628959440074935
+          },
+          "text" : "198"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.21919278966897005,
+        "x" : 0.10263295996895508,
+        "y" : 0.8202083332976852
+      },
+      "text" : "Spudio Bora lins VI EN 256\/198",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.021424657534246584,
+            "width" : 0.14831607923708753,
+            "x" : 0.102632960463342,
+            "y" : 0.8285918949228906
+          },
+          "text" : "Spudio Bora lins"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01630136986301369,
+            "width" : 0.04200101358926371,
+            "x" : 0.10263296010525644,
+            "y" : 0.8565371004836704
+          },
+          "text" : "VI EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018964550802152445,
+            "width" : 0.10985420068138015,
+            "x" : 0.15631785625500874,
+            "y" : 0.8612603044549992
+          },
+          "text" : "256\/198"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.8798475337518159,
+        "x" : 0.060076233124092056,
+        "y" : 0
+      },
+      "text" : "Rare Candy",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.04082329429393253,
+            "width" : 0.3286405048811502,
+            "x" : 0.05977928338796968,
+            "y" : -0.0013640278736034351
+          },
+          "text" : "Rare Candy"
+        }
+      ]
+    }
+  ],
+  "scanID" : "81C763D9-3196-477A-A37C-08EBD0068890",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints"
+  ],
+  "setConfidenceScore" : 0.48,
+  "setHintTokens" : [
+    "svi"
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

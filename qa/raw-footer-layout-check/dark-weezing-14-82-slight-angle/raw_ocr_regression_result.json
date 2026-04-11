@@ -1,0 +1,153 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : true,
+    "backendRecoverableReasons" : [
+      "exact_collector_plus_title"
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : false,
+    "titlePass" : true
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9990143095068149,
+      "x" : 0.0004928452465925321,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.9990143095068149,
+          "x" : 0.0004928452465925321,
+          "y" : 0.78
+        },
+        "text" : "the Defending Pokémon is now Paralyzed. Defending Pokemo. retreat cost resistance weakness Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #|10 14\/82* illas, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK, ©1999-2000 Wizards."
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.13786397471194048,
+          "x" : 0.6155900543735323,
+          "y" : 0.8840166665383333
+        },
+        "text" : "on reprodи 01999-2000 Wizar"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.27472893511437413,
+          "x" : 0.7148521161661294,
+          "y" : 0.8889166665383333
+        },
+        "text" : "IUUSD 14\/82 * Vizards."
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12487678868835186,
+          "x" : 0.7123545803923623,
+          "y" : 0.8767566665383334
+        },
+        "text" : "oducing in Mizards. 14"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.18481764725876076,
+          "x" : 0.759807760093936,
+          "y" : 0.8849166665383333
+        },
+        "text" : "14\/82 *"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11488664559328372,
+          "x" : 0.8379806298128443,
+          "y" : 0.8713166665383334
+        },
+        "text" : "82★"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.18981271880629483,
+          "x" : 0.757310224320169,
+          "y" : 0.8839166665383333
+        },
+        "text" : "cing 14\/82 *"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8791325923659972,
+          "x" : 0.06043370381700142,
+          "y" : 0
+        },
+        "text" : "Put Dark Weezing on the Basic Pokémon Dark Weezing 60 HP Evolves from Koffing"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.8827519689821426,
+    "usedFallback" : true
+  },
+  "fixtureName" : "dark-weezing-14-82-slight-angle",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.94,
+    "collectorNumberExact" : "14\/82",
+    "cropConfidence" : 0.8827519689821426,
+    "setHintTokens" : [
+
+    ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "Basic Pokémon Dark Weezing",
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Dark Weezing",
+    "collectorNumber" : "14\/82",
+    "setCode" : "TR"
+  }
+}

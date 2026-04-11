@@ -1,0 +1,140 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : true,
+    "backendRecoverableReasons" : [
+      "exact_collector_plus_set_hint"
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : true,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9715821812596006,
+      "x" : 0.014208909370199672,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.9715821812596006,
+          "x" : 0.014208909370199672,
+          "y" : 0.78
+        },
+        "text" : "eakness x2 resistance Ilbes Tolihto Toda Tep-gradepen DRIEN 199\/182 puisanigase 07175F monu\/N wtendo FOmetue\/("
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.1340783410138249,
+          "x" : 0.014208909370199672,
+          "y" : 0.8996000000500001
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.26718509984639016,
+          "x" : 0.09474795813551012,
+          "y" : 0.9045000000500001
+        },
+        "text" : "Ius ToRihiro Toda DRI EN 199\/182 07175 F"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12144777265745008,
+          "x" : 0.08899516858660995,
+          "y" : 0.8918400000000001
+        },
+        "text" : "lus Yokihito 1 IDRIEN 19"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.18639037172452846,
+          "x" : 0.135145322196441,
+          "y" : 0.9
+        },
+        "text" : "olihito Toda 199\/182"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11173195084485407,
+          "x" : 0.2153903406183581,
+          "y" : 0.8854000000000001
+        },
+        "text" : "ada \/182"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.18639037172452846,
+          "x" : 0.135145322196441,
+          "y" : 0.898
+        },
+        "text" : "ukihito Toda 199\/182"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "set_signal_weak",
+      "footer_signal_sufficient_for_early_exit"
+    ],
+    "targetQualityScore" : 0.8518428798536338,
+    "usedFallback" : false
+  },
+  "fixtureName" : "team-rockets-weezing-199-182-slight-angle",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "199\/182",
+    "cropConfidence" : 0.8518428798536338,
+    "setConfidenceScore" : 0.48,
+    "setHintTokens" : [
+      "dri"
+    ],
+    "warnings" : [
+
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Team Rocket's Weezing",
+    "collectorNumber" : "199\/182",
+    "setCode" : "DRI"
+  }
+}

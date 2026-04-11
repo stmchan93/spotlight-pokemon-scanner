@@ -1,0 +1,139 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : true,
+    "backendRecoverableReasons" : [
+      "exact_collector_plus_set_hint"
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : true,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9992537463947884,
+      "x" : 0.00037312680260583877,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.9992537463947884,
+          "x" : 0.00037312680260583877,
+          "y" : 0.78
+        },
+        "text" : "Toshindo доки nigogdartshngwit SVIEN 204\/198 ©2:23 Pokemon \/ Nintendo \/ Creatures \/ GAME FREAK"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.1378970170024808,
+          "x" : 0.00037312680260583877,
+          "y" : 0.7634260548472058
+        },
+        "text" : "Toshinao SVIEN 20"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.2747947802585668,
+          "x" : 0.030145914260192697,
+          "y" : 0.7683260548472058
+        },
+        "text" : "Toshinao Aoki VIEN 204\/198 D2"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12490671829934855,
+          "x" : 0.00037312680260583877,
+          "y" : 0.7561660548472059
+        },
+        "text" : "Toshina SVIEN 2"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.24275224365831752,
+          "x" : 0.046167182560317335,
+          "y" : 0.7643260548472058
+        },
+        "text" : "oshinaa Aoki- |204\/198"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11491418083540067,
+          "x" : 0.17975095442500422,
+          "y" : 0.7507260548472059
+        },
+        "text" : "1985 D2"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.24275224365831752,
+          "x" : 0.046167182560317335,
+          "y" : 0.7633260548472058
+        },
+        "text" : "oshinad Aoki LEN 204\/198"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "footer_signal_sufficient_for_early_exit"
+    ],
+    "targetQualityScore" : 0.7294490998126257,
+    "usedFallback" : true
+  },
+  "fixtureName" : "slowpoke-204-198-steep-angle",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "204\/198",
+    "cropConfidence" : 0.7294490998126257,
+    "setConfidenceScore" : 0.74,
+    "setHintTokens" : [
+      "svi"
+    ],
+    "warnings" : [
+      "Target selection used fallback crop"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Slowpoke",
+    "collectorNumber" : "204\/198",
+    "setCode" : "SVI"
+  }
+}

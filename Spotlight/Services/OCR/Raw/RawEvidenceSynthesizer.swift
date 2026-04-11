@@ -16,6 +16,7 @@ struct RawPipelineResult {
 
 private struct RawRewriteArtifactPayload: Codable {
     let sceneTraits: RawSceneTraits
+    let routing: RawFooterRoutingContext
     let stage1Assessment: RawStageAssessment
     let plans: [RawROIPlanItem]
     let regions: [ScanStageRawRegionArtifact]
@@ -39,6 +40,7 @@ struct RawEvidenceSynthesizer {
         targetSelection: OCRTargetSelectionResult,
         sceneTraits: RawSceneTraits,
         stage1Assessment: RawStageAssessment,
+        routing: RawFooterRoutingContext,
         plans: [RawROIPlanItem],
         passResults: [RawOCRPassResult],
         didEscalate: Bool
@@ -115,6 +117,7 @@ struct RawEvidenceSynthesizer {
             stage: "rewrite_raw_regions",
             payload: RawRewriteArtifactPayload(
                 sceneTraits: sceneTraits,
+                routing: routing,
                 stage1Assessment: stage1Assessment,
                 plans: plans,
                 regions: passResults.map(\.artifactRegion),

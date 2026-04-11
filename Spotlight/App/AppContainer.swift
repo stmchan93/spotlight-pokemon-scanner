@@ -8,22 +8,14 @@ final class AppContainer: ObservableObject {
 
     init() {
         let cameraController = CameraSessionController()
-        let rawAnalyzer = RawCardScanner(config: .init(
-            cardDetection: .default,
-            bottomRegionOCR: .default,
-            debug: .disabled
-        ))
         let rawRewritePipeline = RawPipeline()
         let slabAnalyzer = SlabScanner(config: .init(
             labelOCR: .default,
             debug: .disabled
         ))
-        let ocrFeatureFlags = OCRPipelineFeatureFlags.current()
         let ocrPipeline = OCRPipelineCoordinator(
-            rawAnalyzer: rawAnalyzer,
             rawRewritePipeline: rawRewritePipeline,
-            slabAnalyzer: slabAnalyzer,
-            featureFlags: ocrFeatureFlags
+            slabAnalyzer: slabAnalyzer
         )
         let remoteBaseURL = Self.resolveBackendBaseURL()
         let remoteMatcher = RemoteScanMatchingService(baseURL: remoteBaseURL)
@@ -37,7 +29,7 @@ final class AppContainer: ObservableObject {
             logStore: logStore
         )
 
-        print("🔍 [OCR] Pipeline route: \(ocrFeatureFlags.requestedRoute.rawValue)")
+        print("🔍 [OCR] Pipeline route: raw_rewrite_live")
         let scanDebugEnabled = Self.shouldEnableScanDebugExports()
         ScanStageArtifactWriter.setDebugExportsEnabled(scanDebugEnabled)
         if scanDebugEnabled {

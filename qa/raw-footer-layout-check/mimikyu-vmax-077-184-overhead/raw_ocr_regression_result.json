@@ -1,0 +1,154 @@
+{
+  "checks" : {
+    "backendRecoverablePass" : false,
+    "backendRecoverableReasons" : [
+
+    ],
+    "collectorNearMiss" : false,
+    "exactCollectorPass" : true,
+    "setHintPass" : false,
+    "titlePass" : false
+  },
+  "debug" : {
+    "contentRectNormalized" : {
+      "height" : 1,
+      "width" : 0.9998110355253212,
+      "x" : 9.448223733935872e-05,
+      "y" : 0
+    },
+    "footerRoutingReasons" : [
+      "footer_band_collector_anchor"
+    ],
+    "passSummaries" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.9998110355253212,
+          "x" : 9.448223733935872e-05,
+          "y" : 0.78
+        },
+        "text" : "BlorStrudho Baxe Bars VHAXルール s8 077\/184 RRR ボケモンVMAXびきせうしたとさ、前事はサイドを3版とる 0\/021 Pokemen\/Nastendo\/Ciestures\/GAM\/FREAK"
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.098,
+          "width" : 0.13797392290249436,
+          "x" : 0.03181823027843389,
+          "y" : 0.7850455587620669
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.092,
+          "width" : 0.2749480347694634,
+          "x" : 0.13115945476822982,
+          "y" : 0.789945558762067
+        },
+        "text" : "bnStodho Boe Ina 8b 11 077\/184 RRR OJ01 R"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.12497637944066516,
+          "x" : 0.09308972724962294,
+          "y" : 0.777785558762067
+        },
+        "text" : "do F 0 37 495"
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.1,
+          "width" : 0.2561054414317716,
+          "x" : 0.1405807514370757,
+          "y" : 0.785945558762067
+        },
+        "text" : "i-Studho Boxe Dne Б Е 077\/184 RRR 07021 Pel"
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.105,
+          "width" : 0.11497826908541195,
+          "x" : 0.287456837237706,
+          "y" : 0.772345558762067
+        },
+        "text" : ""
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.102,
+          "width" : 0.2561054414317716,
+          "x" : 0.1405807514370757,
+          "y" : 0.784945558762067
+        },
+        "text" : "nStodho Boxee dhaa 6 0 0720130 RRA"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8798337112622827,
+          "x" : 0.06008314436885863,
+          "y" : 0
+        },
+        "text" : "Vi企 ミミッキュ VIax ¥300 ミミッキュレが"
+      }
+    ],
+    "requestedGeometryKind" : "raw_card",
+    "stage1AssessmentReasons" : [
+      "title_signal_weak",
+      "set_signal_weak"
+    ],
+    "targetQualityScore" : 0.7853114046748491,
+    "usedFallback" : true
+  },
+  "fixtureName" : "mimikyu-vmax-077-184-overhead",
+  "ocr" : {
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "077\/184",
+    "cropConfidence" : 0.7853114046748491,
+    "setConfidenceScore" : 0.48,
+    "setHintTokens" : [
+      "brs"
+    ],
+    "titleConfidenceScore" : 0.664999976158142,
+    "titleTextPrimary" : "Vi企 ミミッキュ VIax",
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs"
+    ]
+  },
+  "sourceImage" : "source_scan.jpg",
+  "truth" : {
+    "cardName" : "Mimikyu VMAX",
+    "collectorNumber" : "077\/184",
+    "setCode" : "S8b"
+  }
+}
