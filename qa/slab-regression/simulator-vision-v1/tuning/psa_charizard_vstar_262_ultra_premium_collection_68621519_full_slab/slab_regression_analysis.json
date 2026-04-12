@@ -1,0 +1,47 @@
+{
+  "captureKind" : "full_slab",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "262",
+  "certExactMatch" : true,
+  "certNumber" : "68621519",
+  "cropConfidence" : 0.7521338773073046,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_charizard_vstar_262_ultra_premium_collection_68621519_full_slab",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2022 POKEMON SWSH BSP FA\/CHARIZARD VSTAR ULTRA - PREMIUM COLLECTION GEM MT #262 PSA 68621519 10 VSTAR EVOLVES FROM CHARIZARD V CHARIZARD SAR NP 280 ATTACK DOES 100 MORE DAMAGE. IF THIS POK MON HAS ANY DAMAGE COUNTERS ON IT THIS EXPLOSIVE FIRE 130+ DISCARD 2 ENERGY FROM THIS POK MON. YOU CAN T USE MORE STAR BLAZE VSTAR POWER THAN I VSIAR POWER IN A GAME. 320 WEAKNESS TT K UOTAKA OSHIYAMA O SWSH2CR X2 RESISTANCE VSTAR RULE IS KNOCKED OUT YOUR OPPONENT TAKES 2 PRIZE CARDS. RETREAT 2022 POK MON \/ NINTENDO \/ CREATURES \/GAME FREAK WHEN YOUR POKEMON VSTAR",
+    "RD VSTAR ON SWSH BSP GEM MT #262 MIUM COLLECTION PSA 68621519 10 ZARDSTAR ARIZARD V HP 280 XPLOSIVE FIRE HAS ANY DAMAGE COUNTERS ON IT THIS 130 NORE DAMAGE. TAR BLAZE VSTAR POWER FROM THIS POK MON. YOU CANIT USE MORE 320 ER IN A GAME. SISTANCE VSTAR RULE IS KNOCKED OUT YOUR OPPONENT TAKES 2 PRIZE CARDS. RETREAT 12 POK MON \/ NINTENDO \/ CREATURES \/GAME FREAK WHEN YOUR POK MON VSTAR"
+  ],
+  "scanID" : "8AA98235-394E-49A0-8A56-C6DFF5D0F6A2",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-charizard-vstar-262-ultra-premium-collection-68621519-full-slab.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Charizard VSTAR",
+    "cardNumber" : "262",
+    "certNumber" : "68621519",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "Ultra-Premium Collection"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

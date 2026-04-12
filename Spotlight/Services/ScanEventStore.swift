@@ -55,7 +55,6 @@ actor ScanEventStore {
                 slabParsedLabelText: analysis.slabParsedLabelText,
                 slabClassifierReasons: analysis.slabClassifierReasons,
                 slabRecommendedLookupPath: analysis.slabRecommendedLookupPath,
-                directLookupLikely: analysis.directLookupLikely,
                 resolverModeHint: analysis.resolverModeHint,
                 cropConfidence: analysis.cropConfidence,
                 warnings: analysis.warnings,

@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_poncho_wear_pikachu_230_rayquaza_box_111274095_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-poncho-wear-pikachu-230-rayquaza-box-111274095-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "japanese",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "111274095",
+    "cardID": null,
+    "cardName": "Poncho-Wear Pikachu",
+    "setName": "Rayquaza P.W. Pikachu Box",
+    "cardNumber": "230",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0166.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

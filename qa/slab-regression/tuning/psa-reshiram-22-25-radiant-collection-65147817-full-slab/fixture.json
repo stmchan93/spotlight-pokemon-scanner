@@ -1,0 +1,36 @@
+{
+  "fixtureName": "psa_reshiram_22_25_radiant_collection_65147817_full_slab",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "full_slab",
+  "sourceImage": "../../../incoming-slab-regression/psa-reshiram-22-25-radiant-collection-65147817-full-slab.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "full_slab"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "9",
+    "certNumber": "65147817",
+    "cardID": null,
+    "cardName": "Reshiram",
+    "setName": "Legendary Treasures Radiant Collection",
+    "cardNumber": "22/25",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "9"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Radiant Collection full-slab PSA photo. Source download file: IMG_0159.JPG."
+}

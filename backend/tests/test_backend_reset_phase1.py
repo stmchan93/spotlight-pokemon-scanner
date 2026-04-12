@@ -208,7 +208,6 @@ def sample_slab_scan_payload() -> dict[str, object]:
         "capturedAt": "2026-04-09T04:00:00Z",
         "resolverModeHint": "psa_slab",
         "cropConfidence": 0.91,
-        "directLookupLikely": True,
         "setHintTokens": ["m2a"],
         "warnings": [],
         "ocrAnalysis": {
@@ -300,7 +299,6 @@ def sample_charizard_slab_scan_payload() -> dict[str, object]:
         "capturedAt": "2026-04-10T04:07:49Z",
         "resolverModeHint": "psa_slab",
         "cropConfidence": 0.81,
-        "directLookupLikely": True,
         "setHintTokens": [],
         "warnings": ["Could not extract slab barcode payload"],
         "ocrAnalysis": {
@@ -333,7 +331,6 @@ def sample_noisy_charizard_slab_scan_payload() -> dict[str, object]:
         "capturedAt": "2026-04-10T04:36:09Z",
         "resolverModeHint": "psa_slab",
         "cropConfidence": 0.72,
-        "directLookupLikely": True,
         "setHintTokens": [],
         "warnings": ["Could not extract slab barcode payload"],
         "ocrAnalysis": {
@@ -491,7 +488,6 @@ def sample_xy_promo_pikachu_slab_scan_payload() -> dict[str, object]:
         "capturedAt": "2026-04-10T04:42:28Z",
         "resolverModeHint": "psa_slab",
         "cropConfidence": 0.77,
-        "directLookupLikely": True,
         "setHintTokens": [],
         "warnings": ["Could not extract slab barcode payload"],
         "ocrAnalysis": {
@@ -528,7 +524,6 @@ def sample_shadowless_pikachu_slab_scan_payload() -> dict[str, object]:
         "capturedAt": "2026-04-10T04:46:41Z",
         "resolverModeHint": "psa_slab",
         "cropConfidence": 0.77,
-        "directLookupLikely": True,
         "setHintTokens": [],
         "warnings": ["Could not extract slab barcode payload"],
         "ocrAnalysis": {
@@ -1421,6 +1416,212 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(top_candidate["pricing"]["grade"], "7")
         self.assertEqual(top_candidate["pricing"]["provider"], "scrydex")
         self.assertIsNotNone(top_candidate["pricing"]["market"])
+
+    def test_match_scan_uses_cached_psa_cert_resolution_from_prior_scan(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_psa_pricing = Mock(return_value=PsaPricingResult(  # type: ignore[method-assign]
+            success=False,
+            provider_id="scrydex",
+            card_id="m2a_ja-232",
+            grader="PSA",
+            grade="9",
+            error="skip live pricing refresh in cert cache test",
+        ))
+
+        service._persist_mapped_catalog_card(
+            mapped_card=map_scrydex_catalog_card(sample_scrydex_card()),
+            sync_mode="raw_candidate_cache",
+            trigger_source="test",
+            query_text="m2a_ja-232",
+            refresh_embeddings=False,
+        )
+        upsert_scan_event(
+            service.connection,
+            scan_id="prior-slab-cert-scan",
+            request_payload={
+                "scanID": "prior-slab-cert-scan",
+                "resolverModeHint": "psa_slab",
+                "slabCertNumber": "12345678",
+                "slabBarcodePayloads": [],
+            },
+            response_payload={
+                "scanID": "prior-slab-cert-scan",
+                "resolverMode": "psa_slab",
+                "resolverPath": "psa_label",
+                "reviewDisposition": "ready",
+                "slabContext": {
+                    "grader": "PSA",
+                    "grade": "9",
+                    "certNumber": "12345678",
+                },
+            },
+            matcher_source="remoteHybrid",
+            matcher_version="test",
+            created_at="2026-04-10T00:00:00+00:00",
+            selected_card_id="m2a_ja-232",
+            confidence="high",
+            review_disposition="ready",
+            resolver_mode="psa_slab",
+            resolver_path="psa_label",
+            completed_at="2026-04-10T00:00:02+00:00",
+        )
+        service.connection.commit()
+
+        with patch("server.search_remote_scrydex_slab_candidates", side_effect=AssertionError("remote slab lookup should be bypassed")):
+            response = service.match_scan(sample_slab_scan_payload())
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_cert_ocr")
+        self.assertEqual(response["reviewDisposition"], "ready")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "m2a_ja-232")
+
+    def test_match_scan_marks_barcode_backed_cached_psa_cert_resolution(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_psa_pricing = Mock(return_value=PsaPricingResult(  # type: ignore[method-assign]
+            success=False,
+            provider_id="scrydex",
+            card_id="m2a_ja-232",
+            grader="PSA",
+            grade="9",
+            error="skip live pricing refresh in cert cache test",
+        ))
+
+        service._persist_mapped_catalog_card(
+            mapped_card=map_scrydex_catalog_card(sample_scrydex_card()),
+            sync_mode="raw_candidate_cache",
+            trigger_source="test",
+            query_text="m2a_ja-232",
+            refresh_embeddings=False,
+        )
+        upsert_scan_event(
+            service.connection,
+            scan_id="prior-slab-barcode-cert-scan",
+            request_payload={
+                "scanID": "prior-slab-barcode-cert-scan",
+                "resolverModeHint": "psa_slab",
+                "slabCertNumber": "12345678",
+                "slabBarcodePayloads": ["12345678"],
+            },
+            response_payload={
+                "scanID": "prior-slab-barcode-cert-scan",
+                "resolverMode": "psa_slab",
+                "resolverPath": "psa_label",
+                "reviewDisposition": "ready",
+                "slabContext": {
+                    "grader": "PSA",
+                    "grade": "9",
+                    "certNumber": "12345678",
+                },
+            },
+            matcher_source="remoteHybrid",
+            matcher_version="test",
+            created_at="2026-04-10T00:10:00+00:00",
+            selected_card_id="m2a_ja-232",
+            confidence="high",
+            review_disposition="ready",
+            resolver_mode="psa_slab",
+            resolver_path="psa_label",
+            completed_at="2026-04-10T00:10:02+00:00",
+        )
+        service.connection.commit()
+
+        payload = dict(sample_slab_scan_payload())
+        payload["slabBarcodePayloads"] = ["12345678"]
+
+        with patch("server.search_remote_scrydex_slab_candidates", side_effect=AssertionError("remote slab lookup should be bypassed")):
+            response = service.match_scan(payload)
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverPath"], "psa_cert_barcode")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "m2a_ja-232")
+
+    def test_match_scan_returns_slab_identity_even_without_exact_grade_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_psa_pricing = Mock(return_value=PsaPricingResult(  # type: ignore[method-assign]
+            success=False,
+            provider_id="scrydex",
+            card_id="m2a_ja-232",
+            grader="PSA",
+            grade="9",
+            error="no exact grade price",
+        ))
+
+        priceless_card = sample_scrydex_card()
+        priceless_card["variants"] = [
+            {
+                "name": "holofoil",
+                "prices": [
+                    {
+                        "condition": "NM",
+                        "is_perfect": False,
+                        "is_signed": False,
+                        "is_error": False,
+                        "type": "raw",
+                        "low": 2400.0,
+                        "mid": 2500.0,
+                        "high": 2600.0,
+                        "market": 2550.0,
+                        "currency": "JPY",
+                    }
+                ],
+            }
+        ]
+
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+            search_scrydex.return_value = type("SlabSearchResult", (), {
+                "cards": [priceless_card],
+                "attempts": [
+                    {
+                        "query": 'name:"Mega Dragonite ex" printed_number:"232/193" expansion.code:m2a',
+                        "count": 1,
+                        "error": None,
+                    }
+                ],
+            })()
+
+            response = service.match_scan(sample_slab_scan_payload())
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["reviewDisposition"], "ready")
+        self.assertIn("Exact graded pricing is unavailable for this slab.", response["ambiguityFlags"])
+        top_candidate = response["topCandidates"][0]["candidate"]
+        self.assertEqual(top_candidate["id"], "m2a_ja-232")
+        self.assertNotIn("pricing", top_candidate)
+
+    def test_card_detail_preserves_slab_cert_number(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        service._persist_mapped_catalog_card(
+            mapped_card=map_scrydex_catalog_card(sample_scrydex_card()),
+            sync_mode="raw_candidate_cache",
+            trigger_source="test",
+            query_text="m2a_ja-232",
+            refresh_embeddings=False,
+        )
+
+        detail = service.card_detail(
+            "m2a_ja-232",
+            grader="PSA",
+            grade="9",
+            cert_number="12345678",
+        )
+        service.connection.close()
+
+        assert detail is not None
+        self.assertEqual(detail["slabContext"]["grader"], "PSA")
+        self.assertEqual(detail["slabContext"]["grade"], "9")
+        self.assertEqual(detail["slabContext"]["certNumber"], "12345678")
 
     def test_reimport_updates_existing_card_row_in_primary_cards_table(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)

@@ -10,6 +10,7 @@ Repo-specific workflow notes for future coding agents.
 - The active next-step implementation plan for improving raw visual retrieval is [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md).
 - The earlier landed backend reset / OCR-primary raw-matcher baseline is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
 - The active OCR rewrite / rollout plan is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
+- The active slab rebuild / rollout plan is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
 - For raw identity backend work, treat the hybrid migration spec as the source of truth over older OCR-primary raw-matcher planning, `direct_lookup`, `slab_sales`, or fragmented SQLite planning notes elsewhere in the repo.
 - Treat the older raw-backend-reset spec as the source of truth for the currently landed OCR-primary baseline only.
 - The revised implementation order in the hybrid migration spec is authoritative:
@@ -20,6 +21,7 @@ Repo-specific workflow notes for future coding agents.
   - keep the held-out regression suite frozen
   - improve the visual model before more OCR tuning
 - For OCR work, treat the OCR rewrite spec as the source of truth over older raw-only OCR heuristics or legacy `CardRectangleAnalyzer.swift` structure.
+- For slab OCR/backend work, treat the slab cert-first rebuild spec as the source of truth over older slab parser-reset ideas, generic multi-grader heuristics, or backend slab title-repair notes elsewhere in the repo.
 - For raw OCR runtime behavior, treat the normalized-target rewrite path in `Spotlight/Services/OCR/Raw/*`, `TargetSelection.swift`, and `PerspectiveNormalization.swift` as the live source of truth.
 - The canonical seed raw regression corpus is [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check).
 - The live normalized image produced by the rewrite raw path is the query image source of truth for visual matching experiments, not raw `source_scan.jpg`.
@@ -85,9 +87,13 @@ Repo-specific workflow notes for future coding agents.
     - send OCR payloads directly to the backend matcher
     - refresh/display raw pricing from **Pokemon TCG API** only
   - **Slab mode**:
-    - backend runtime support is intentionally removed for now
-    - current raw-only backend should return unsupported rather than attempting slab matching/pricing
-- PriceCharting and Scrydex remain as thin provider shells for env/config structure and later rebuild work, but they are not active runtime lanes right now.
+    - the shipped app path keeps slab matching feature-flagged off by default
+    - experimental slab rebuild work should stay isolated from the raw runtime lane
+    - rebuild against the cert-first slab spec instead of reviving the old heuristic slab matcher
+- PriceCharting remains a thin provider shell for env/config structure and later work, but it is not an active runtime lane right now.
+- Scrydex is the intended PSA slab identity/pricing lane for the cert-first rebuild.
+- Do not add a PSA API or “official verification” dependency to the slab rebuild.
+- Treat slab certs as OCR-derived lookup keys and repeat-scan cache keys, not as an official PSA-validation contract.
 - Each provider implements the shared `PricingProvider` contract.
 - Provider prices are **not** blended or averaged together.
 - The tray shows one active/default provider result.
@@ -199,14 +205,18 @@ Repo-specific workflow notes for future coding agents.
   - mode sanity signals
 - After normalization, OCR must branch:
   - raw OCR extracts evidence for backend matching
-  - slab OCR extracts card-identity evidence plus grader / grade / optional cert
-- Slab OCR is not cert-only:
-  - slab still needs the same identity fields raw relies on:
+  - slab OCR extracts cert-first card-identity evidence plus grader / grade / fallback title-set-card-number fields
+- Slab OCR in phase 1 is cert-first, not cert-only:
+  - cert is the primary slab key when barcode or OCR cert extraction is strong
+  - slab still needs:
     - title / name
     - set
     - card number
-  - grader + grade are then used to select slab pricing
-  - cert is optional support / verification, not the only useful key
+    as fallback identity evidence
+  - grader + grade remain explicit for display context and pricing selection
+  - label-only slab scans are a first-class path, not a degraded fallback
+  - phase 1 slab runtime target is PSA Pokemon only
+- Do not add raw-style visual matching for slabs.
 - OCR and backend confidence are separate:
   - OCR confidence = field extraction confidence from the image
   - backend confidence = card-match confidence from the evidence
@@ -214,6 +224,7 @@ Repo-specific workflow notes for future coding agents.
 - The reticle is a target-selection hint, not the exact OCR crop.
 - Raw runtime now goes through the rewrite path directly.
 - Do not add new raw OCR behavior back into `CardRectangleAnalyzer.swift`.
+- Do not keep new slab runtime logic in `CardRectangleAnalyzer.swift` once the dedicated slab pipeline exists.
 - The full OCR architecture, fixture set, replay/debug requirements, and phase-by-phase rollout live in [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 
 ### Current raw OCR source of truth
@@ -294,8 +305,30 @@ Repo-specific workflow notes for future coding agents.
   - 10. once the stored snapshot is older than `24 hours`, backend should re-fetch live provider data, update SQLite, and then return the refreshed result
 - Required raw migration cleanup rule:
   - after the hybrid path is proven and cut over, schedule an explicit cleanup pass to remove dead OCR-primary resolver code, misleading compatibility names, obsolete tests, and stale docs before starting major new raw feature work
+- Required slab rebuild cleanup rule:
+  - after the cert-first slab path is proven on the held-out suite, schedule an explicit cleanup pass to remove hard-disable branches, obsolete slab heuristics, misleading ops metadata, stale tests, and stale docs before starting non-PSA slab work
 - Canonical slab scan flow:
-  - deferred in the current raw-only backend contraction
+  - shipped app runtime keeps slab matching feature-flagged off by default while the rebuild is in progress
+  - use [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md) as the source of truth when slab work resumes
+  - phase 1 slab target is:
+    - PSA
+    - Pokemon
+    - full slab photos
+    - label-only photos
+  - the required slab rebuild order is:
+    - build `qa/slab-regression/` tuning and held-out fixtures
+    - split slab OCR into full-slab and label-only entry paths
+    - make cert resolution dominant: barcode -> OCR -> repeat-scan cert cache -> label-text fallback
+    - resolve first-seen slab identity/pricing through Scrydex once the card is known
+    - let identity succeed with `pricing = null`
+    - do not add PSA API verification calls or claims
+    - finish cleanup/deletion before non-PSA expansion
+  - current imported tuning corpus from `~/Downloads/drive-download-20260412T181003Z-3-001` is:
+    - `14` real PSA full-slab photos
+    - `14` derived label-only crops from those same photos
+    - excluded: `IMG_0162.JPG` because it is `CGC`, not `PSA`
+  - do not treat the derived label-only crops as held-out evidence
+  - before claiming slab accuracy or cutting over runtime, collect at least `10` real PSA label-only photos and place them in the held-out split
   - do not rebuild slab behavior on top of deleted legacy slab modules
   - rebuild slabs later using the preserved thin Scrydex adapter and the 3-table SQLite model
 - Freshness policy:

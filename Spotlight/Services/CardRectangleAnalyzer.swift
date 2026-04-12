@@ -51,6 +51,10 @@ struct SlabScanConfiguration {
 // MARK: - Slab Scanner
 
 actor SlabScanner {
+    private static let fullImageRegion = CGRect(x: 0, y: 0, width: 1, height: 1)
+    private static let labelOnlyCertRegion = CGRect(x: 0.42, y: 0.10, width: 0.56, height: 0.82)
+    private static let labelOnlyRightColumnRegion = CGRect(x: 0.58, y: 0.02, width: 0.40, height: 0.96)
+
     private let config: SlabScanConfiguration
 
     init(config: SlabScanConfiguration = .default) {
@@ -73,38 +77,51 @@ actor SlabScanner {
             throw AnalysisError.invalidImage
         }
 
-        guard let topLabelWideImage = cropToRect(cgImage, region: config.labelOCR.topLabelWideRegion) else {
+        let labelOnlyPath = targetSelection.normalizedGeometryKind == .slabLabel
+        let topLabelWideRegion = labelOnlyPath ? Self.fullImageRegion : config.labelOCR.topLabelWideRegion
+        let topLabelExpandedRegion = labelOnlyPath ? Self.fullImageRegion : config.labelOCR.topLabelExpandedRegion
+        let rightColumnRegion = labelOnlyPath ? Self.labelOnlyRightColumnRegion : config.labelOCR.rightColumnRegion
+        let certRegion = labelOnlyPath ? Self.labelOnlyCertRegion : config.labelOCR.certRegion
+        let barcodeRegions = labelOnlyPath ? [Self.fullImageRegion] : [config.labelOCR.topLabelWideRegion]
+        let primaryMinimumTextHeight = labelOnlyPath
+            ? config.labelOCR.fallbackMinimumTextHeight
+            : config.labelOCR.minimumTextHeight
+        let primaryUpscaleFactor = labelOnlyPath
+            ? config.labelOCR.fallbackUpscaleFactor
+            : config.labelOCR.upscaleFactor
+
+        guard let topLabelWideImage = cropToRect(cgImage, region: topLabelWideRegion) else {
             throw AnalysisError.invalidImage
         }
-        let certLabelImage = cropToRect(cgImage, region: config.labelOCR.certRegion)
+        let certLabelImage = cropToRect(cgImage, region: certRegion)
 
         let topLabelWideText = try recognizeLabelRegion(
             croppedImage: topLabelWideImage,
             sourceImage: cgImage,
-            region: config.labelOCR.topLabelWideRegion,
-            label: "slab_top_label_wide",
-            minimumTextHeight: config.labelOCR.minimumTextHeight,
-            upscaleFactor: config.labelOCR.upscaleFactor
+            region: topLabelWideRegion,
+            label: labelOnlyPath ? "slab_label_only_wide" : "slab_top_label_wide",
+            minimumTextHeight: primaryMinimumTextHeight,
+            upscaleFactor: primaryUpscaleFactor
         )
         ScanStageArtifactWriter.recordRawRegionImage(
             scanID: scanID,
             image: UIImage(cgImage: topLabelWideImage),
-            named: "07_slab_top_label_wide.jpg"
+            named: labelOnlyPath ? "07_slab_label_only_wide.jpg" : "07_slab_top_label_wide.jpg"
         )
         let certText: String
         if let certLabelImage {
             certText = try recognizeLabelRegion(
                 croppedImage: certLabelImage,
                 sourceImage: cgImage,
-                region: config.labelOCR.certRegion,
-                label: "slab_cert_focus",
+                region: certRegion,
+                label: labelOnlyPath ? "slab_label_only_cert_focus" : "slab_cert_focus",
                 minimumTextHeight: config.labelOCR.certMinimumTextHeight,
                 upscaleFactor: config.labelOCR.certUpscaleFactor
             )
             ScanStageArtifactWriter.recordRawRegionImage(
                 scanID: scanID,
                 image: UIImage(cgImage: certLabelImage),
-                named: "08_slab_cert_focus.jpg"
+                named: labelOnlyPath ? "08_slab_label_only_cert_focus.jpg" : "08_slab_cert_focus.jpg"
             )
         } else {
             certText = ""
@@ -113,7 +130,7 @@ actor SlabScanner {
         do {
             barcodePayloads = try detectVerificationPayloads(
                 in: cgImage,
-                regions: [config.labelOCR.topLabelWideRegion]
+                regions: barcodeRegions
             )
         } catch {
             print("  ⚠️ [OCR] Slab barcode detection failed: \(error.localizedDescription)")
@@ -134,14 +151,14 @@ actor SlabScanner {
         var stage2Used = false
         if shouldRunSecondaryPSAPass(for: slabLabelAnalysis) {
             stage2Used = true
-            print("  🔍 [OCR] Slab stage 2 triggered")
+            print("  🔍 [OCR] Slab stage 2 triggered path=\(labelOnlyPath ? "label_only" : "full_slab")")
 
-            if let expandedLabelImage = cropToRect(cgImage, region: config.labelOCR.topLabelExpandedRegion) {
+            if let expandedLabelImage = cropToRect(cgImage, region: topLabelExpandedRegion) {
                 let expandedText = try recognizeLabelRegion(
                     croppedImage: expandedLabelImage,
                     sourceImage: cgImage,
-                    region: config.labelOCR.topLabelExpandedRegion,
-                    label: "slab_top_label_expanded",
+                    region: topLabelExpandedRegion,
+                    label: labelOnlyPath ? "slab_label_only_expanded" : "slab_top_label_expanded",
                     minimumTextHeight: config.labelOCR.fallbackMinimumTextHeight,
                     upscaleFactor: config.labelOCR.fallbackUpscaleFactor
                 )
@@ -152,16 +169,16 @@ actor SlabScanner {
                 ScanStageArtifactWriter.recordRawRegionImage(
                     scanID: scanID,
                     image: UIImage(cgImage: expandedLabelImage),
-                    named: "09_slab_top_label_expanded.jpg"
+                    named: labelOnlyPath ? "09_slab_label_only_expanded.jpg" : "09_slab_top_label_expanded.jpg"
                 )
             }
 
-            if let rightColumnImage = cropToRect(cgImage, region: config.labelOCR.rightColumnRegion) {
+            if let rightColumnImage = cropToRect(cgImage, region: rightColumnRegion) {
                 let rightColumnText = try recognizeLabelRegion(
                     croppedImage: rightColumnImage,
                     sourceImage: cgImage,
-                    region: config.labelOCR.rightColumnRegion,
-                    label: "slab_right_column_focus",
+                    region: rightColumnRegion,
+                    label: labelOnlyPath ? "slab_label_only_right_column" : "slab_right_column_focus",
                     minimumTextHeight: config.labelOCR.fallbackMinimumTextHeight,
                     upscaleFactor: config.labelOCR.fallbackUpscaleFactor
                 )
@@ -171,7 +188,7 @@ actor SlabScanner {
                 ScanStageArtifactWriter.recordRawRegionImage(
                     scanID: scanID,
                     image: UIImage(cgImage: rightColumnImage),
-                    named: "10_slab_right_column_focus.jpg"
+                    named: labelOnlyPath ? "10_slab_label_only_right_column.jpg" : "10_slab_right_column_focus.jpg"
                 )
             }
 
@@ -205,11 +222,15 @@ actor SlabScanner {
         if barcodePayloads.isEmpty {
             warnings.append("Could not extract slab barcode payload")
         }
+        if labelOnlyPath {
+            warnings.append("Used slab label-only OCR path")
+        }
 
         print("  🔍 [OCR] Slab top label: '\(topLabelText)'")
         if !certText.isEmpty {
             print("  🔍 [OCR] Slab cert focus: '\(certText)'")
         }
+        print("  🔍 [OCR] Slab geometry path: \(targetSelection.normalizedGeometryKind.rawValue)")
         print("  🔍 [OCR] Slab combined text: '\(combinedText)'")
         if !barcodePayloads.isEmpty {
             print("  🔍 [OCR] Slab barcode payloads: \(barcodePayloads.joined(separator: " | "))")
@@ -273,8 +294,6 @@ actor SlabScanner {
             slabParsedLabelText: slabLabelAnalysis.parsedLabelText,
             slabClassifierReasons: slabLabelAnalysis.reasons,
             slabRecommendedLookupPath: slabLabelAnalysis.recommendedLookupPath,
-            directLookupLikely: slabLabelAnalysis.isPSAConfident
-                && slabLabelAnalysis.recommendedLookupPath != .needsReview,
             resolverModeHint: resolverModeHint,
             cropConfidence: targetSelection.selectionConfidence,
             warnings: warnings,
@@ -302,7 +321,7 @@ actor SlabScanner {
         case "non_psa_slab_not_supported_yet":
             return "Only PSA slabs are supported right now"
         case "psa_label_not_confident_enough":
-            return "Could not verify this PSA label strongly enough"
+            return "Could not read this PSA label strongly enough"
         default:
             return unsupportedReason
         }

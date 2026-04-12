@@ -73,6 +73,7 @@ from scrydex_adapter import (
     raw_evidence_looks_japanese,
     search_remote_scrydex_japanese_raw_candidates,
 )
+from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 
 
 @dataclass
@@ -729,7 +730,6 @@ class SpotlightScanService:
             "scanID": request_payload.get("scanID"),
             "capturedAt": request_payload.get("capturedAt"),
             "cropConfidence": request_payload.get("cropConfidence"),
-            "directLookupLikely": request_payload.get("directLookupLikely"),
             "resolverMode": response_payload.get("resolverMode"),
             "resolverPath": response_payload.get("resolverPath"),
             "confidence": response_payload.get("confidence"),
@@ -754,7 +754,6 @@ class SpotlightScanService:
             "scanID": request_payload.get("scanID"),
             "capturedAt": request_payload.get("capturedAt"),
             "cropConfidence": request_payload.get("cropConfidence"),
-            "directLookupLikely": request_payload.get("directLookupLikely"),
             "resolverModeHint": request_payload.get("resolverModeHint"),
             "collectorNumber": request_payload.get("collectorNumber"),
             "setHintTokens": request_payload.get("setHintTokens") or [],
@@ -852,6 +851,8 @@ class SpotlightScanService:
                 "single_card_photo",
                 "raw_cards",
                 "english_first",
+            ],
+            "experimentalScanScopes": [
                 "psa_slabs",
                 "graded_pricing",
             ],
@@ -902,7 +903,8 @@ class SpotlightScanService:
         return {
             "providers": provider_details,
             "activeRawProvider": active_raw_provider.get_metadata().provider_id if active_raw_provider else None,
-            "runtimeMode": "raw_and_slab",
+            "runtimeMode": "raw_only",
+            "experimentalResolverModes": ["psa_slab"],
         }
 
     def cache_status(self) -> dict[str, Any]:
@@ -1710,6 +1712,7 @@ class SpotlightScanService:
         ambiguity_flags: list[str],
         review_disposition: str,
         review_reason: str | None,
+        cert_debug: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return {
             "severity": "INFO",
@@ -1731,6 +1734,7 @@ class SpotlightScanService:
                 "cert": evidence.cert_number,
                 "lookupPath": evidence.recommended_lookup_path,
             },
+            "certResolution": cert_debug or {},
             "remote": remote_debug,
             "topMatches": [
                 {
@@ -1756,6 +1760,8 @@ class SpotlightScanService:
         payload: dict[str, Any],
         evidence: SlabMatchEvidence,
         ranked_candidates: list[dict[str, Any]],
+        *,
+        resolver_path: str = "psa_label",
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         slab_context = {
             "grader": evidence.grader,
@@ -1773,7 +1779,7 @@ class SpotlightScanService:
                 "matcherSource": "remoteHybrid",
                 "matcherVersion": MATCHER_VERSION,
                 "resolverMode": "psa_slab",
-                "resolverPath": "psa_label",
+                "resolverPath": resolver_path,
                 "slabContext": slab_context,
                 "reviewDisposition": "unsupported",
                 "reviewReason": "Could not extract a confident slab grader and grade.",
@@ -1789,7 +1795,7 @@ class SpotlightScanService:
                 "matcherSource": "remoteHybrid",
                 "matcherVersion": MATCHER_VERSION,
                 "resolverMode": "psa_slab",
-                "resolverPath": "psa_label",
+                "resolverPath": resolver_path,
                 "slabContext": slab_context,
                 "reviewDisposition": "unsupported",
                 "reviewReason": "Could not identify the slabbed card from the label OCR.",
@@ -1864,24 +1870,11 @@ class SpotlightScanService:
                     slab_context["variantName"] = variant_name
 
         best_pricing = ((encoded_candidates[0].get("candidate") or {}).get("pricing") or {}) if encoded_candidates else {}
-        if not best_pricing:
-            response = {
-                "scanID": payload["scanID"],
-                "topCandidates": encoded_candidates,
-                "confidence": "low",
-                "ambiguityFlags": list(dict.fromkeys([*ambiguity_flags, "No exact graded price was available for this slab."])),
-                "matcherSource": "remoteHybrid",
-                "matcherVersion": MATCHER_VERSION,
-                "resolverMode": "psa_slab",
-                "resolverPath": "psa_label",
-                "slabContext": slab_context,
-                "reviewDisposition": "unsupported",
-                "reviewReason": "Could not find exact graded pricing for this slab.",
-            }
-            return response, scored_candidates
 
         review_disposition = "ready" if confidence != "low" else "needs_review"
         review_reason = None if review_disposition == "ready" else "Review the slab match before relying on the result."
+        if not best_pricing:
+            ambiguity_flags.append("Exact graded pricing is unavailable for this slab.")
         response = {
             "scanID": payload["scanID"],
             "topCandidates": encoded_candidates,
@@ -1890,15 +1883,93 @@ class SpotlightScanService:
             "matcherSource": "remoteHybrid",
             "matcherVersion": MATCHER_VERSION,
             "resolverMode": "psa_slab",
-            "resolverPath": "psa_label",
+            "resolverPath": resolver_path,
             "slabContext": slab_context,
             "reviewDisposition": review_disposition,
             "reviewReason": review_reason,
         }
         return response, scored_candidates
 
+    def _resolve_psa_cert_candidate(
+        self,
+        payload: dict[str, Any],
+        evidence: SlabMatchEvidence,
+    ) -> tuple[dict[str, Any] | None, dict[str, Any]]:
+        if evidence.grader != "PSA":
+            return None, {"attempted": False, "reason": "grader_not_psa"}
+        if not evidence.cert_number:
+            return None, {"attempted": False, "reason": "missing_cert"}
+
+        barcode_payloads = payload.get("slabBarcodePayloads") or []
+        cached_resolution = resolve_psa_cert_from_scan_cache(
+            self.connection,
+            evidence.cert_number,
+            barcode_payloads=barcode_payloads if isinstance(barcode_payloads, list) else [],
+        )
+        if cached_resolution is None:
+            return None, {"attempted": True, "reason": "no_scan_cache_hit"}
+
+        cached_card = card_by_id(self.connection, cached_resolution.card_id)
+        if cached_card is None:
+            return None, {
+                "attempted": True,
+                "reason": "cached_card_missing",
+                "matchedScanID": cached_resolution.matched_scan_id,
+                "cardID": cached_resolution.card_id,
+            }
+
+        candidate = self._slab_candidate_from_card(
+            cached_card,
+            100.0,
+            ["psa_cert_cache_hit", "cert_number_exact"],
+            "slab_cert_cache",
+        )
+        return candidate, {
+            "attempted": True,
+            "reason": "scan_cache_hit",
+            "matchedScanID": cached_resolution.matched_scan_id,
+            "cardID": cached_resolution.card_id,
+            "resolverPath": cached_resolution.resolver_path,
+        }
+
     def _resolve_slab_candidates(self, payload: dict[str, Any]) -> dict[str, Any]:
         evidence = self._build_slab_evidence(payload)
+        cert_candidate, cert_debug = self._resolve_psa_cert_candidate(payload, evidence)
+        if cert_candidate is not None:
+            ranked_candidates = [cert_candidate]
+            response, top_candidates = self._build_slab_match_response(
+                payload,
+                evidence,
+                ranked_candidates,
+                resolver_path=str(cert_debug.get("resolverPath") or "psa_label"),
+            )
+            remote_debug = {
+                "queries": [],
+                "attempts": [],
+                "resultCount": 0,
+                "reason": "psa_cert_scan_cache_hit",
+            }
+            self._emit_structured_log(
+                self._slab_resolution_log_payload(
+                    payload,
+                    evidence,
+                    local_candidate_count=1,
+                    remote_candidate_count=0,
+                    merged_candidate_count=1,
+                    remote_debug=remote_debug,
+                    ranked_candidates=ranked_candidates,
+                    confidence=str(response.get("confidence") or "low"),
+                    confidence_percent=100.0,
+                    ambiguity_flags=list(response.get("ambiguityFlags") or []),
+                    review_disposition=str(response.get("reviewDisposition") or "needs_review"),
+                    review_reason=response.get("reviewReason"),
+                    cert_debug=cert_debug,
+                )
+            )
+            self._emit_structured_log(self._scan_log_payload(payload, response, top_candidates))
+            self._log_scan(payload, response, top_candidates)
+            return response
+
         local_candidates = self._retrieve_local_slab_candidates(evidence)
         top_local_score = float(local_candidates[0].get("_retrievalScoreHint") or 0.0) if local_candidates else 0.0
         local_delta = (
@@ -1929,7 +2000,12 @@ class SpotlightScanService:
                 str(candidate.get("number") or ""),
             ),
         )
-        response, top_candidates = self._build_slab_match_response(payload, evidence, ranked_candidates)
+        response, top_candidates = self._build_slab_match_response(
+            payload,
+            evidence,
+            ranked_candidates,
+            resolver_path="psa_label",
+        )
         self._emit_structured_log(
             self._slab_resolution_log_payload(
                 payload,
@@ -1944,6 +2020,7 @@ class SpotlightScanService:
                 ambiguity_flags=list(response.get("ambiguityFlags") or []),
                 review_disposition=str(response.get("reviewDisposition") or "needs_review"),
                 review_reason=response.get("reviewReason"),
+                cert_debug=cert_debug,
             )
         )
         self._emit_structured_log(self._scan_log_payload(payload, response, top_candidates))
@@ -2026,13 +2103,20 @@ class SpotlightScanService:
         api_key: str | None = None,
         grader: str | None = None,
         grade: str | None = None,
+        cert_number: str | None = None,
         preferred_variant: str | None = None,
         variant_hints: dict[str, Any] | None = None,
         force_refresh: bool = False,
     ) -> dict[str, Any] | None:
         if grader or grade:
             if not grader or not grade:
-                return self.card_detail(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
+                return self.card_detail(
+                    card_id,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=preferred_variant,
+                )
 
             existing_pricing = contextual_pricing_summary_for_card(
                 self.connection,
@@ -2049,13 +2133,25 @@ class SpotlightScanService:
                 existing_pricing = None
             if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
                 self._log_pricing_provenance("refresh_slab_cached", card_id, grader=grader, grade=grade)
-                return self.card_detail(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
+                return self.card_detail(
+                    card_id,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=preferred_variant,
+                )
 
             existing_card = card_by_id(self.connection, card_id)
             provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
             psa_provider = self.pricing_registry.get_provider(provider_id) or self.pricing_registry.get_provider("scrydex")
             if psa_provider is None or not psa_provider.is_ready() or not psa_provider.get_metadata().supports_psa_pricing:
-                return self.card_detail(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
+                return self.card_detail(
+                    card_id,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=preferred_variant,
+                )
 
             refresh_kwargs: dict[str, Any] = {}
             if preferred_variant:
@@ -2071,7 +2167,13 @@ class SpotlightScanService:
             )
             if refresh_result.success:
                 self._log_pricing_provenance("refresh_slab", card_id, grader=grader, grade=grade)
-            return self.card_detail(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
+            return self.card_detail(
+                card_id,
+                grader=grader,
+                grade=grade,
+                cert_number=cert_number,
+                preferred_variant=preferred_variant,
+            )
 
         existing_card = card_by_id(self.connection, card_id)
         if existing_card is None and api_key:
@@ -2102,6 +2204,7 @@ class SpotlightScanService:
         *,
         grader: str | None = None,
         grade: str | None = None,
+        cert_number: str | None = None,
         preferred_variant: str | None = None,
     ) -> dict[str, Any] | None:
         card = card_by_id(self.connection, card_id)
@@ -2130,7 +2233,7 @@ class SpotlightScanService:
             "slabContext": {
                 "grader": grader,
                 "grade": grade,
-                "certNumber": None,
+                "certNumber": cert_number,
                 "variantName": resolved_variant,
             } if grader else None,
             "source": card["sourceProvider"],
@@ -2276,12 +2379,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             query = parse_qs(parsed.query)
             grader = query.get("grader", [""])[0].strip() or None
             grade = query.get("grade", [""])[0].strip() or None
+            cert_number = query.get("cert", [""])[0].strip() or None
             preferred_variant = query.get("variant", [""])[0].strip() or None
 
             payload = self.service.card_detail(
                 card_id,
                 grader=grader,
                 grade=grade,
+                cert_number=cert_number,
                 preferred_variant=preferred_variant,
             )
             if payload is None:
@@ -2297,6 +2402,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                             card_id,
                             grader=grader,
                             grade=grade,
+                            cert_number=cert_number,
                             preferred_variant=preferred_variant,
                         )
                 except Exception:
@@ -2324,6 +2430,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             force_refresh = query.get("forceRefresh", ["0"])[0].lower() in {"1", "true", "yes"}
             grader = query.get("grader", [""])[0].strip() or None
             grade = query.get("grade", [""])[0].strip() or None
+            cert_number = query.get("cert", [""])[0].strip() or None
             preferred_variant = query.get("variant", [""])[0].strip() or None
             try:
                 payload = self.service.refresh_card_pricing(
@@ -2331,6 +2438,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                     api_key=os.environ.get("POKEMONTCG_API_KEY"),
                     grader=grader,
                     grade=grade,
+                    cert_number=cert_number,
                     preferred_variant=preferred_variant,
                     force_refresh=force_refresh,
                 )

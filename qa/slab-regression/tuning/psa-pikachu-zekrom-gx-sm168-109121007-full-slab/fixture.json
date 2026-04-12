@@ -1,0 +1,36 @@
+{
+  "fixtureName": "psa_pikachu_zekrom_gx_sm168_109121007_full_slab",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "full_slab",
+  "sourceImage": "../../../incoming-slab-regression/psa-pikachu-zekrom-gx-sm168-109121007-full-slab.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "full_slab"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "109121007",
+    "cardID": null,
+    "cardName": "Pikachu & Zekrom GX",
+    "setName": "Promo-Tag Team Tins-FA",
+    "cardNumber": "SM168",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Clean full-slab PSA photo from the 2026-04-12 download set. Source download file: IMG_0137.JPG."
+}

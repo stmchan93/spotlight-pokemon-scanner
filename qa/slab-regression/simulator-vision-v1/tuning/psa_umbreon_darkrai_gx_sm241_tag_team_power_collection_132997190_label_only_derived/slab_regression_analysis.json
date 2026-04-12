@@ -1,0 +1,47 @@
+{
+  "captureKind" : "label_only",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "SM241",
+  "certExactMatch" : true,
+  "certNumber" : "132997190",
+  "cropConfidence" : 0.7222671672898789,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_umbreon_darkrai_gx_sm241_tag_team_power_collection_132997190_label_only_derived",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2020 P.M. SM BLACK STAR #SM241 UMBREON & DARKRAI GX GEM MT PRM-TAG TEAM PWR.CLL. 10 PEA 132997190",
+    "BLACK STAR #SM241 ARKRAI GX GEM MT M PWR.CLL. 10 PEA 132997190"
+  ],
+  "scanID" : "0B73A062-9DD3-42D0-A455-6814ACCA34CB",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-umbreon-darkrai-gx-sm241-tag-team-power-collection-132997190-label-only-derived.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Umbreon & Darkrai GX",
+    "cardNumber" : "SM241",
+    "certNumber" : "132997190",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "PRM-Tag Team PWR.CLL."
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

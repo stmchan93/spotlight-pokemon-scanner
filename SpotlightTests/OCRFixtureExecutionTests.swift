@@ -51,7 +51,6 @@ private struct OCRFixtureExecutionSummary: Codable {
     let warnings: [String]
     let shouldRetryWithStillPhoto: Bool
     let stillPhotoRetryReason: String?
-    let directLookupLikely: Bool
     let resolverModeHint: String
     let expected: OCRFixtureExpectations
 }
@@ -159,7 +158,6 @@ final class OCRFixtureExecutionTests: XCTestCase {
                 warnings: analyzed.warnings,
                 shouldRetryWithStillPhoto: analyzed.shouldRetryWithStillPhoto,
                 stillPhotoRetryReason: analyzed.stillPhotoRetryReason,
-                directLookupLikely: analyzed.directLookupLikely,
                 resolverModeHint: analyzed.resolverModeHint.rawValue,
                 expected: fixture.expects
             )
@@ -212,5 +210,317 @@ final class OCRFixtureExecutionTests: XCTestCase {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(value).write(to: url, options: .atomic)
+    }
+}
+
+private struct SlabRegressionManifest: Decodable {
+    let fixtureName: String
+    let split: String
+    let selectedMode: String
+    let captureKind: String
+    let sourceImage: String
+    let tags: [String]
+    let truth: SlabRegressionTruth
+    let expects: SlabRegressionExpectations
+    let notes: String?
+}
+
+private struct SlabRegressionTruth: Codable {
+    let grader: String
+    let grade: String
+    let certNumber: String
+    let cardID: String?
+    let cardName: String
+    let setName: String
+    let cardNumber: String
+    let pricingProvider: String
+    let pricingLookup: SlabRegressionPricingLookup
+}
+
+private struct SlabRegressionPricingLookup: Codable {
+    let mode: String
+    let cardID: String?
+    let grader: String
+    let grade: String
+}
+
+private struct SlabRegressionExpectations: Codable {
+    let certReadRequired: Bool
+    let identityMustMatch: Bool
+    let pricingMayBeUnavailable: Bool
+}
+
+private struct SlabRegressionFixtureSummary: Codable {
+    let fixtureName: String
+    let split: String
+    let captureKind: String
+    let sourceImage: String
+    let scanID: String
+    let normalizedGeometryKind: String?
+    let usedFallback: Bool?
+    let cropConfidence: Double
+    let grader: String?
+    let grade: String?
+    let certNumber: String?
+    let cardNumberRaw: String?
+    let parsedLabelText: [String]
+    let lookupPath: String?
+    let warnings: [String]
+    let truth: SlabRegressionTruth
+    let expects: SlabRegressionExpectations
+    let certExactMatch: Bool
+    let graderExactMatch: Bool
+    let gradeExactMatch: Bool
+    let cardNumberExactMatch: Bool
+}
+
+private struct SlabRegressionScoreEntry: Codable {
+    let fixtureName: String
+    let split: String
+    let captureKind: String
+    let certExactMatch: Bool
+    let graderExactMatch: Bool
+    let gradeExactMatch: Bool
+    let cardNumberExactMatch: Bool
+    let lookupPath: String?
+    let normalizedGeometryKind: String?
+}
+
+private struct SlabRegressionAggregate: Codable {
+    let fixtureCount: Int
+    let certExactMatches: Int
+    let graderExactMatches: Int
+    let gradeExactMatches: Int
+    let cardNumberExactMatches: Int
+    let certExactRate: Double
+    let graderExactRate: Double
+    let gradeExactRate: Double
+    let cardNumberExactRate: Double
+}
+
+private struct SlabRegressionScorecard: Codable {
+    let generatedAt: String
+    let fixtureCount: Int
+    let bySplit: [String: SlabRegressionAggregate]
+    let byCaptureKind: [String: SlabRegressionAggregate]
+    let fixtures: [SlabRegressionScoreEntry]
+    let notes: [String]
+}
+
+final class SlabRegressionFixtureExecutionTests: XCTestCase {
+    private let fileManager = FileManager.default
+
+    private var repoRoot: URL {
+        URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+    }
+
+    private var fixturesRoot: URL {
+        repoRoot.appendingPathComponent("qa/slab-regression", isDirectory: true)
+    }
+
+    private var outputRoot: URL {
+        repoRoot.appendingPathComponent("qa/slab-regression/simulator-vision-v1", isDirectory: true)
+    }
+
+    func testSlabRegressionFixtures() async throws {
+        let manifests = try fixtureManifestURLs()
+        XCTAssertFalse(manifests.isEmpty, "expected at least one slab regression fixture")
+
+        try recreateDirectory(at: outputRoot)
+
+        let scanner = SlabScanner(
+            config: SlabScanConfiguration(
+                labelOCR: .default,
+                debug: .disabled
+            )
+        )
+
+        var scoreEntries: [SlabRegressionScoreEntry] = []
+
+        for manifestURL in manifests {
+            let fixture = try decodeFixtureManifest(at: manifestURL)
+            guard fixture.selectedMode == "slab" else { continue }
+
+            let sourceImageURL = manifestURL.deletingLastPathComponent().appendingPathComponent(fixture.sourceImage)
+            XCTAssertTrue(fileManager.fileExists(atPath: sourceImageURL.path), "missing source image for \(fixture.fixtureName)")
+            guard let sourceImage = UIImage(contentsOfFile: sourceImageURL.path) else {
+                XCTFail("unable to load source image for \(fixture.fixtureName)")
+                continue
+            }
+
+            let capture = ScanCaptureInput(
+                originalImage: sourceImage,
+                searchImage: sourceImage,
+                fallbackImage: sourceImage,
+                captureSource: .importedPhoto
+            )
+
+            let scanID = UUID()
+            let analyzed = try await scanner.analyze(
+                scanID: scanID,
+                capture: capture,
+                resolverModeHint: .psaSlab
+            )
+
+            let certExactMatch = analyzed.slabCertNumber == fixture.truth.certNumber
+            let graderExactMatch = normalizeComparison(analyzed.slabGrader) == normalizeComparison(fixture.truth.grader)
+            let gradeExactMatch = normalizeComparison(analyzed.slabGrade) == normalizeComparison(fixture.truth.grade)
+            let cardNumberExactMatch = normalizeCardNumber(analyzed.slabCardNumberRaw) == normalizeCardNumber(fixture.truth.cardNumber)
+
+            let summary = SlabRegressionFixtureSummary(
+                fixtureName: fixture.fixtureName,
+                split: fixture.split,
+                captureKind: fixture.captureKind,
+                sourceImage: fixture.sourceImage,
+                scanID: scanID.uuidString,
+                normalizedGeometryKind: analyzed.ocrAnalysis?.normalizedTarget?.geometryKind,
+                usedFallback: analyzed.ocrAnalysis?.normalizedTarget?.usedFallback,
+                cropConfidence: analyzed.cropConfidence,
+                grader: analyzed.slabGrader,
+                grade: analyzed.slabGrade,
+                certNumber: analyzed.slabCertNumber,
+                cardNumberRaw: analyzed.slabCardNumberRaw,
+                parsedLabelText: analyzed.slabParsedLabelText,
+                lookupPath: analyzed.slabRecommendedLookupPath?.rawValue,
+                warnings: analyzed.warnings,
+                truth: fixture.truth,
+                expects: fixture.expects,
+                certExactMatch: certExactMatch,
+                graderExactMatch: graderExactMatch,
+                gradeExactMatch: gradeExactMatch,
+                cardNumberExactMatch: cardNumberExactMatch
+            )
+
+            let outputDirectory = outputRoot
+                .appendingPathComponent(fixture.split, isDirectory: true)
+                .appendingPathComponent(fixture.fixtureName, isDirectory: true)
+            try fileManager.createDirectory(at: outputDirectory, withIntermediateDirectories: true)
+            try writeJSON(summary, to: outputDirectory.appendingPathComponent("slab_regression_analysis.json"))
+            if let jpegData = analyzed.normalizedImage.jpegData(compressionQuality: 0.92) {
+                try jpegData.write(to: outputDirectory.appendingPathComponent("normalized.jpg"), options: .atomic)
+            }
+
+            scoreEntries.append(
+                SlabRegressionScoreEntry(
+                    fixtureName: fixture.fixtureName,
+                    split: fixture.split,
+                    captureKind: fixture.captureKind,
+                    certExactMatch: certExactMatch,
+                    graderExactMatch: graderExactMatch,
+                    gradeExactMatch: gradeExactMatch,
+                    cardNumberExactMatch: cardNumberExactMatch,
+                    lookupPath: analyzed.slabRecommendedLookupPath?.rawValue,
+                    normalizedGeometryKind: analyzed.ocrAnalysis?.normalizedTarget?.geometryKind
+                )
+            )
+        }
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+
+        let scorecard = SlabRegressionScorecard(
+            generatedAt: formatter.string(from: Date()),
+            fixtureCount: scoreEntries.count,
+            bySplit: aggregateByKey(scoreEntries, keyPath: \.split),
+            byCaptureKind: aggregateByKey(scoreEntries, keyPath: \.captureKind),
+            fixtures: scoreEntries.sorted { $0.fixtureName < $1.fixtureName },
+            notes: [
+                "This first slab regression runner is OCR-only. Backend identity/pricing scoring is not wired into this scorecard yet.",
+                "Derived label-only crops are valid for tuning only and must not be used as held-out evidence."
+            ]
+        )
+
+        try writeJSON(scorecard, to: outputRoot.appendingPathComponent("scorecard.json"))
+    }
+
+    private func fixtureManifestURLs() throws -> [URL] {
+        let roots = [
+            fixturesRoot.appendingPathComponent("tuning", isDirectory: true),
+            fixturesRoot.appendingPathComponent("heldout", isDirectory: true),
+        ]
+
+        var manifests: [URL] = []
+        for root in roots where fileManager.fileExists(atPath: root.path) {
+            let directories = try fileManager.contentsOfDirectory(
+                at: root,
+                includingPropertiesForKeys: [.isDirectoryKey],
+                options: [.skipsHiddenFiles]
+            )
+            manifests += directories
+                .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+                .map { $0.appendingPathComponent("fixture.json") }
+                .filter { fileManager.fileExists(atPath: $0.path) }
+        }
+
+        return manifests.sorted { lhs, rhs in
+            lhs.deletingLastPathComponent().lastPathComponent < rhs.deletingLastPathComponent().lastPathComponent
+        }
+    }
+
+    private func decodeFixtureManifest(at url: URL) throws -> SlabRegressionManifest {
+        let data = try Data(contentsOf: url)
+        return try JSONDecoder().decode(SlabRegressionManifest.self, from: data)
+    }
+
+    private func recreateDirectory(at url: URL) throws {
+        if fileManager.fileExists(atPath: url.path) {
+            try fileManager.removeItem(at: url)
+        }
+        try fileManager.createDirectory(at: url, withIntermediateDirectories: true)
+    }
+
+    private func writeJSON<T: Encodable>(_ value: T, to url: URL) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try encoder.encode(value).write(to: url, options: .atomic)
+    }
+
+    private func aggregateByKey(
+        _ entries: [SlabRegressionScoreEntry],
+        keyPath: KeyPath<SlabRegressionScoreEntry, String>
+    ) -> [String: SlabRegressionAggregate] {
+        let grouped = Dictionary(grouping: entries, by: { $0[keyPath: keyPath] })
+        return grouped.mapValues(aggregate)
+    }
+
+    private func aggregate(_ entries: [SlabRegressionScoreEntry]) -> SlabRegressionAggregate {
+        let fixtureCount = entries.count
+        let certExactMatches = entries.filter(\.certExactMatch).count
+        let graderExactMatches = entries.filter(\.graderExactMatch).count
+        let gradeExactMatches = entries.filter(\.gradeExactMatch).count
+        let cardNumberExactMatches = entries.filter(\.cardNumberExactMatch).count
+
+        func rate(_ matches: Int) -> Double {
+            guard fixtureCount > 0 else { return 0 }
+            return Double(matches) / Double(fixtureCount)
+        }
+
+        return SlabRegressionAggregate(
+            fixtureCount: fixtureCount,
+            certExactMatches: certExactMatches,
+            graderExactMatches: graderExactMatches,
+            gradeExactMatches: gradeExactMatches,
+            cardNumberExactMatches: cardNumberExactMatches,
+            certExactRate: rate(certExactMatches),
+            graderExactRate: rate(graderExactMatches),
+            gradeExactRate: rate(gradeExactMatches),
+            cardNumberExactRate: rate(cardNumberExactMatches)
+        )
+    }
+
+    private func normalizeComparison(_ value: String?) -> String? {
+        value?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+    }
+
+    private func normalizeCardNumber(_ value: String?) -> String? {
+        guard let value else { return nil }
+        return value
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: " ", with: "")
     }
 }

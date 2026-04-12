@@ -1,0 +1,47 @@
+{
+  "captureKind" : "label_only",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "262",
+  "certExactMatch" : true,
+  "certNumber" : "68621519",
+  "cropConfidence" : 0.4,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_charizard_vstar_262_ultra_premium_collection_68621519_label_only_derived",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2022 POKEMON SWSH BSP #262 FA\/CHARIZARD VSTAR GEM MT ULTRA - PREMIUM COLLECTION 10 PSA 68621519",
+    "ON SWSH BSP #262 RD VSTAR GEM MT MIUM COLLECTION 10 PA 68621519"
+  ],
+  "scanID" : "32EE40AB-2837-44C2-89B7-11BF71DD3C9A",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-charizard-vstar-262-ultra-premium-collection-68621519-label-only-derived.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Charizard VSTAR",
+    "cardNumber" : "262",
+    "certNumber" : "68621519",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "Ultra-Premium Collection"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

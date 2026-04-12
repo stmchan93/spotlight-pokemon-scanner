@@ -1,0 +1,47 @@
+{
+  "captureKind" : "full_slab",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "211",
+  "certExactMatch" : true,
+  "certNumber" : "104065475",
+  "cropConfidence" : 0.6664180626083478,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_cherry_blossom_afro_pikachu_211_tokyo_dx_104065475_full_slab",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "CHRY.BLSM.AFR.PIKACHU 2018 P.M. JPN. SM PROMO POKEMON CENTER TOKYO DX GEM MT #211 PSA 104065475 10 TE TA HP60 :ESINO.025 52 E:04M 8E:60KG 50 LUS.KOUKI SAILOU 211\/SM-P 2 ME 8S 7O -20 HELOUE XUZEI VS .",
+    "1.AFR.PIKACHU PN. SM PROMO CENTER TOKYO DX GEM MT #211 PSA 104065475 10 HP60 4 IENO.025 82:04M 82:60KG J. E D 30 U . 0 5 50 8 8 7 -20 DO\/CREATURES\/GAME FREAK T DO BK W TU O HI LEUD XRUXE SCE."
+  ],
+  "scanID" : "AB4353E6-B368-4BB3-A157-ABCF73A6FDC3",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-cherry-blossom-afro-pikachu-211-tokyo-dx-104065475-full-slab.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Cherry Blossom Afro Pikachu",
+    "cardNumber" : "211",
+    "certNumber" : "104065475",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "Pokemon Center Tokyo DX"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

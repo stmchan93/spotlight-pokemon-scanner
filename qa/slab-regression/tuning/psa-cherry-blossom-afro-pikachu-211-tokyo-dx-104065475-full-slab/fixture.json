@@ -1,0 +1,36 @@
+{
+  "fixtureName": "psa_cherry_blossom_afro_pikachu_211_tokyo_dx_104065475_full_slab",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "full_slab",
+  "sourceImage": "../../../incoming-slab-regression/psa-cherry-blossom-afro-pikachu-211-tokyo-dx-104065475-full-slab.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "japanese",
+    "download_2026_04_12",
+    "full_slab"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "104065475",
+    "cardID": null,
+    "cardName": "Cherry Blossom Afro Pikachu",
+    "setName": "Pokemon Center Tokyo DX",
+    "cardNumber": "211",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Japanese full-slab PSA promo photo. Source download file: IMG_0171.JPG."
+}

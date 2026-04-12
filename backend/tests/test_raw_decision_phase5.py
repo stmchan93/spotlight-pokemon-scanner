@@ -43,7 +43,6 @@ def raw_payload(
         "recognizedTokens": [{"text": token, "confidence": 0.9} for token in (recognized_tokens or [])],
         "resolverModeHint": "raw_card",
         "cropConfidence": crop_confidence,
-        "directLookupLikely": True,
         "warnings": [],
         "ocrAnalysis": {
             "rawEvidence": {

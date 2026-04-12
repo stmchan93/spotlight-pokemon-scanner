@@ -121,7 +121,6 @@ actor RawPipeline {
             slabParsedLabelText: [],
             slabClassifierReasons: [],
             slabRecommendedLookupPath: nil,
-            directLookupLikely: synthesized.directLookupLikely,
             resolverModeHint: resolverModeHint,
             cropConfidence: targetSelection.selectionConfidence,
             warnings: synthesized.warnings,

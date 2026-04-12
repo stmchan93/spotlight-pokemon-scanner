@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_umbreon_darkrai_gx_sm241_tag_team_power_collection_132997190_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-umbreon-darkrai-gx-sm241-tag-team-power-collection-132997190-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "132997190",
+    "cardID": null,
+    "cardName": "Umbreon & Darkrai GX",
+    "setName": "PRM-Tag Team PWR.CLL.",
+    "cardNumber": "SM241",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0172.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

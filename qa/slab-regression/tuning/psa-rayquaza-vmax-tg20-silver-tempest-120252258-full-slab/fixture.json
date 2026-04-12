@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_rayquaza_vmax_tg20_silver_tempest_120252258_full_slab",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "full_slab",
+  "sourceImage": "../../../incoming-slab-regression/psa-rayquaza-vmax-tg20-silver-tempest-120252258-full-slab.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "price_sticker_occlusion",
+    "full_slab"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "120252258",
+    "cardID": null,
+    "cardName": "Rayquaza VMAX",
+    "setName": "Silver Tempest",
+    "cardNumber": "TG20",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Full-slab PSA photo with a price sticker covering part of the art. Source download file: IMG_0176.JPG."
+}

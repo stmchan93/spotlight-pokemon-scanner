@@ -1,0 +1,47 @@
+{
+  "captureKind" : "full_slab",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "22\/25",
+  "certExactMatch" : true,
+  "certNumber" : "65147817",
+  "cropConfidence" : 0.7362290462117322,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_reshiram_22_25_radiant_collection_65147817_full_slab",
+  "grade" : "9",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2013 POKEMON B & W FA\/RESHIRAM LEG.TREAS. RADIANT COLL. #22\/25 PSA 65147817 MINT 9 BASIC RESHIRAM HP130 THIS POK MON. DOES 10 MORE DAMAGEFOREACH DAMAGE COUNTER OR OUTRAGE 20+ DISCARD 2 ENERGY ATTACHED TO THIS POK MON. BLUE FLARE 120 RETREAT WEAKNESS X2 RESISTANCE BUILD A WORLD OF TRUTH. IT HELPS THOSE WHO WANT TO CORCH THE WORLD WITH FIRE THIS LEGENDARY POK MON CAR 2013 POK M N ILUS. KAGEMARU HIMENO RC22\/RC25N",
+    "ON B & W #22\/25 ADIANT COLL. MINT PSA 65147817 9 HIRAM 130 RAGE LAMAGE FOR EACH DAMAGE COUNTER ON 20+ E FLARE RGY ATTACHED TO THIS POK MON. .120 BUILD A WORLD OF TRUTH. IT HELPS THOSE WHO WANT TO SCORCH THE WORLD WITH FIR HIS LEGENDARY POK MON CA ILLUS. KOGEMARU HIMENO RC22\/RC25"
+  ],
+  "scanID" : "7D04FD41-74E0-43D1-BDAC-0FEDC0A3E897",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-reshiram-22-25-radiant-collection-65147817-full-slab.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Reshiram",
+    "cardNumber" : "22\/25",
+    "certNumber" : "65147817",
+    "grade" : "9",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "9",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "Legendary Treasures Radiant Collection"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

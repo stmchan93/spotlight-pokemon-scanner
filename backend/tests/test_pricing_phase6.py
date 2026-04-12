@@ -173,6 +173,10 @@ class PricingPhase6Tests(unittest.TestCase):
         providers = {provider["providerId"]: provider for provider in provider_status["providers"]}
         self.assertIsNotNone(providers["pokemontcg_api"]["lastRawRefreshAt"])
         self.assertIsNotNone(providers["scrydex"]["lastPsaRefreshAt"])
+        self.assertFalse(providers["pricecharting"]["supportsRawPricing"])
+        self.assertFalse(providers["pricecharting"]["supportsPsaPricing"])
+        self.assertEqual(provider_status["runtimeMode"], "raw_only")
+        self.assertEqual(provider_status["experimentalResolverModes"], ["psa_slab"])
         self.assertEqual(cache_status["rawSnapshots"]["count"], 1)
         self.assertEqual(cache_status["slabSnapshots"]["count"], 1)
 

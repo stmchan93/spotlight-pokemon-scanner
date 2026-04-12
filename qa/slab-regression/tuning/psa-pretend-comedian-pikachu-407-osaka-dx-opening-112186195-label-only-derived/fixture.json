@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_pretend_comedian_pikachu_407_osaka_dx_opening_112186195_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-pretend-comedian-pikachu-407-osaka-dx-opening-112186195-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "japanese",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "112186195",
+    "cardID": null,
+    "cardName": "Pretend Comedian Pikachu",
+    "setName": "PM.Center Osaka DX Opening",
+    "cardNumber": "407",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0173.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

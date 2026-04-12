@@ -1,0 +1,47 @@
+{
+  "captureKind" : "label_only",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "266",
+  "certExactMatch" : true,
+  "certNumber" : "129236570",
+  "cropConfidence" : 0.7028553942816559,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_inteleon_vmax_266_fusion_strike_secret_129236570_label_only_derived",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2021 POKEMON SWSH #266 FA\/INTELEON VMAX GEM MT FUSION STRIKE-SECRET 10 PSA 129236570",
+    "N SWSH #266 VMAX GEM MT E-SECRET 10 PSA 129236570"
+  ],
+  "scanID" : "EA1FE8DC-4A0E-4ADE-AA7E-EC0F5F6281FF",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-inteleon-vmax-266-fusion-strike-secret-129236570-label-only-derived.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Inteleon VMAX",
+    "cardNumber" : "266",
+    "certNumber" : "129236570",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "Fusion Strike - Secret"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_reshiram_22_25_radiant_collection_65147817_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-reshiram-22-25-radiant-collection-65147817-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "9",
+    "certNumber": "65147817",
+    "cardID": null,
+    "cardName": "Reshiram",
+    "setName": "Legendary Treasures Radiant Collection",
+    "cardNumber": "22/25",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "9"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0159.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

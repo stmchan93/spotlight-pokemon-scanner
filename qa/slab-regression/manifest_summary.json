@@ -1,0 +1,29 @@
+{
+  "fixtureCount": 28,
+  "splitCounts": {
+    "tuning": 28
+  },
+  "captureKindCounts": {
+    "full_slab": 14,
+    "label_only": 14
+  },
+  "splitCaptureKindCounts": {
+    "tuning": {
+      "full_slab": 14,
+      "label_only": 14
+    }
+  },
+  "missingImageCount": 0,
+  "errorCount": 0,
+  "warningCount": 1,
+  "isScaffoldOnly": false,
+  "issues": [
+    {
+      "fixture": null,
+      "path": "qa/slab-regression/heldout",
+      "severity": "warning",
+      "reason": "heldout_fixtures_missing",
+      "detail": "Add heldout slab fixtures before claiming regression improvements."
+    }
+  ]
+}

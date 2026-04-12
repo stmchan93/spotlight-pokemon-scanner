@@ -1,0 +1,36 @@
+{
+  "fixtureName": "psa_charizard_v_079_champions_path_secret_52300610_full_slab",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "full_slab",
+  "sourceImage": "../../../incoming-slab-regression/psa-charizard-v-079-champions-path-secret-52300610-full-slab.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "full_slab"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "52300610",
+    "cardID": null,
+    "cardName": "Charizard V",
+    "setName": "Champion's Path - Secret",
+    "cardNumber": "079",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Black slab bumper around the PSA case. Source download file: IMG_0146.JPG."
+}

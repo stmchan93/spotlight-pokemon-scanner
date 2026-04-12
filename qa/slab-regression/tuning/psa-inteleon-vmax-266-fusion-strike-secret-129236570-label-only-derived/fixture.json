@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_inteleon_vmax_266_fusion_strike_secret_129236570_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-inteleon-vmax-266-fusion-strike-secret-129236570-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "129236570",
+    "cardID": null,
+    "cardName": "Inteleon VMAX",
+    "setName": "Fusion Strike - Secret",
+    "cardNumber": "266",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0164.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

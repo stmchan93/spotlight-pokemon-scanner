@@ -1,0 +1,47 @@
+{
+  "captureKind" : "label_only",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "407",
+  "certExactMatch" : true,
+  "certNumber" : "112186195",
+  "cropConfidence" : 0.4,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_pretend_comedian_pikachu_407_osaka_dx_opening_112186195_label_only_derived",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2019 P.M. JPN. SM PROMO #407 PRTND.CMDN.PIKACHU GEM MT PM.CENTER OSAKA DX OPENING 10 PA 112186195",
+    "PN. SM PROMO #407 ON.PIKACHU GEM MT 1 OSAKA DX OPENING 10 PEA 112186195"
+  ],
+  "scanID" : "6FDA323F-33B5-4457-8D3A-F8F251457151",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-pretend-comedian-pikachu-407-osaka-dx-opening-112186195-label-only-derived.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Pretend Comedian Pikachu",
+    "cardNumber" : "407",
+    "certNumber" : "112186195",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "PM.Center Osaka DX Opening"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

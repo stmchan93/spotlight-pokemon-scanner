@@ -1,0 +1,47 @@
+{
+  "captureKind" : "full_slab",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "144",
+  "certExactMatch" : true,
+  "certNumber" : "129956034",
+  "cropConfidence" : 0.6778632765955048,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_kanazawas_pikachu_144_kanazawa_open_129956034_full_slab",
+  "grade" : "9",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "P.M. CNTR.KANAZAWA OPEN KANAZAWA S PIKACHU 2020 POKEMON JPN. S-P MINT #144 PSA 129956034 9 TE 12 HP60 4 RE : 60KG. 30+ 144\/S-P X2 ERD XO TIS SBT EN7A2A8 A BSA Z H0AZ. PSA.",
+    "PIKACHU N JPN. S-P #144 JAZAWA OPEN MINT PSA 129956034 9 HP60 4 07 7E 13:04 RE:60G E5145.305X- 1810. 30+ EU3 1940 TIS L T EN7AOAG DU SO Z #08Z. FELE"
+  ],
+  "scanID" : "8FD8A29A-8E5A-4641-A04A-A9A6DF32A59A",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-kanazawas-pikachu-144-kanazawa-open-129956034-full-slab.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Kanazawa's Pikachu",
+    "cardNumber" : "144",
+    "certNumber" : "129956034",
+    "grade" : "9",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "9",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "P.M. CNTR Kanazawa Open."
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "fixtureName": "example_psa_label_only_charizard",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/example_psa_label_only_charizard.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "label_only",
+    "english"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "7",
+    "certNumber": "103377816",
+    "cardID": "pgo-10",
+    "cardName": "Charizard",
+    "setName": "Pokemon GO",
+    "cardNumber": "010/078",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": "pgo-10",
+      "grader": "PSA",
+      "grade": "7"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": false
+  },
+  "notes": "Template only. Copy this into tuning/ or heldout/ and replace all values."
+}

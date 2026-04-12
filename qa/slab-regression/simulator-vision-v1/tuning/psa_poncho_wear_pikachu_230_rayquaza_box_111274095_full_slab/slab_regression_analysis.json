@@ -1,0 +1,47 @@
+{
+  "captureKind" : "full_slab",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "230",
+  "certExactMatch" : true,
+  "certNumber" : "111274095",
+  "cropConfidence" : 0.8115350542231868,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_poncho_wear_pikachu_230_rayquaza_box_111274095_full_slab",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2016 P.M. JPN. XY PROMO RAYQUAZA P.W. PIKACHU BOX PONCHO-WEAR.PIKACHU GEM MT #230 PA 111274095 10 TE 70 0FE0 L072 MPZO 4 LEACE 20 25723 TESAS.KO 50 ELF3 E 1N 73 -20 MORTO TIE NEXO 2016 POK ILLUN.KOUKI SAILOU LTOLOE 230\/XY-P 1",
+    "R.PIKACHU XY PROMO GEM MT #230 N. PIKACHU BOX PSA 111274095 10 ARTUTA H704 20 5223 50 MNA BE LOROLEE MASEO AIIE NECO TEMON\/NINTENDO\/CREATURES\/GAME FREAK ILLUNKOUKI SAILOU 230\/XY-R"
+  ],
+  "scanID" : "880BDE66-212B-4960-AFD7-2C8FC15D702F",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-poncho-wear-pikachu-230-rayquaza-box-111274095-full-slab.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Poncho-Wear Pikachu",
+    "cardNumber" : "230",
+    "certNumber" : "111274095",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "Rayquaza P.W. Pikachu Box"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

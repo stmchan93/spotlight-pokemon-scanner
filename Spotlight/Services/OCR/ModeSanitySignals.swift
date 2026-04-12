@@ -71,7 +71,7 @@ func buildLegacyModeSanitySignals(
     let selectedCandidate = targetSelection.chosenCandidateIndex.flatMap { chosenRank in
         targetSelection.candidates.first(where: { $0.rank == chosenRank })
     }
-    let referenceGeometry = targetSelection.usedFallback
+    let referenceGeometry = targetSelection.normalizedGeometryKind == .fallback
         ? selectedCandidate?.geometryKind ?? .fallback
         : targetSelection.normalizedGeometryKind
 
@@ -85,7 +85,7 @@ func buildLegacyModeSanitySignals(
     case .rawHolder:
         looksLikeRawScore = 0.78
         looksLikeSlabScore = 0.24
-    case .slab:
+    case .slab, .slabLabel:
         looksLikeRawScore = 0.18
         looksLikeSlabScore = 0.88
     case .fallback:
@@ -98,7 +98,7 @@ func buildLegacyModeSanitySignals(
             looksLikeRawScore + (selectedCandidate.geometryKind == .rawCard || selectedCandidate.geometryKind == .rawHolder ? 0.06 : -0.04)
         )
         looksLikeSlabScore = clamp01(
-            looksLikeSlabScore + (selectedCandidate.geometryKind == .slab ? 0.06 : -0.04)
+            looksLikeSlabScore + ((selectedCandidate.geometryKind == .slab || selectedCandidate.geometryKind == .slabLabel) ? 0.06 : -0.04)
         )
     }
     if targetSelection.usedFallback {

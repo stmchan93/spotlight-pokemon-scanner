@@ -7,8 +7,9 @@ enum ScannerRoute {
 }
 
 enum ResolverPath: String, Codable, Hashable, Sendable {
-    case directLookup = "direct_lookup"
     case psaLabel = "psa_label"
+    case psaCertBarcode = "psa_cert_barcode"
+    case psaCertOCR = "psa_cert_ocr"
     case visualFallback = "visual_fallback"
 }
 
@@ -59,7 +60,6 @@ struct AnalyzedCapture: @unchecked Sendable {
     let slabParsedLabelText: [String]
     let slabClassifierReasons: [String]
     let slabRecommendedLookupPath: SlabRecommendedLookupPath?
-    let directLookupLikely: Bool
     let resolverModeHint: ResolverMode
     let cropConfidence: Double
     let warnings: [String]

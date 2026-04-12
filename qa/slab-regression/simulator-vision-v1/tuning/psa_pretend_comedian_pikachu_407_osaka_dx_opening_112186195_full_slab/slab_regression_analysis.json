@@ -1,0 +1,47 @@
+{
+  "captureKind" : "full_slab",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "407",
+  "certExactMatch" : true,
+  "certNumber" : "112186195",
+  "cropConfidence" : 0.7114097949965346,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_pretend_comedian_pikachu_407_osaka_dx_opening_112186195_full_slab",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "PM.CENTER OSAKA DX OPENING 2019 P.M. JPN. SM PROMO PRTND.CMDN.PIKACHU #407 PSA 112186195 GEM MT 10 TE TA HP60 M : 0.4M LIA : 6.0KG 7 SB5. # 3 60 PROMO ILLUS.KOUKI SAITOU 56 407\/SM-P 2 HE X7 TESTE 10IS0 1E1L. -20 2019 POK MON\/NINTENDO\/CREATURES\/GAME FREAK. TI R. INR",
+    "PN. SM PROMO ON.PIKACHU GEM MT #407 I OSAKA DX OPENING PSA 112186195 10 HP60 JISNO.025 # :04M LI : 6.0KG T5. FE1I2 1 .ZN N 51 ZB+EF 60 HE IX 73 TE E 10IT TH. -20 #5 MT WHS DEET KHF3 2019 POK MON\/NINTENDO\/CREATURES\/GAME FREAK. CNH NE TI LK T ."
+  ],
+  "scanID" : "775F0020-EBF9-4CB1-AB2F-8825CC048C97",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-pretend-comedian-pikachu-407-osaka-dx-opening-112186195-full-slab.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Pretend Comedian Pikachu",
+    "cardNumber" : "407",
+    "certNumber" : "112186195",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "PM.Center Osaka DX Opening"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

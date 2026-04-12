@@ -1,0 +1,36 @@
+{
+  "fixtureName": "psa_umbreon_darkrai_gx_sm241_tag_team_power_collection_132997190_full_slab",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "full_slab",
+  "sourceImage": "../../../incoming-slab-regression/psa-umbreon-darkrai-gx-sm241-tag-team-power-collection-132997190-full-slab.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "full_slab"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "132997190",
+    "cardID": null,
+    "cardName": "Umbreon & Darkrai GX",
+    "setName": "PRM-Tag Team PWR.CLL.",
+    "cardNumber": "SM241",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Full-slab PSA tag-team promo photo. Source download file: IMG_0172.JPG."
+}

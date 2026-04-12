@@ -1,0 +1,36 @@
+{
+  "fixtureName": "psa_tohokus_pikachu_088_pm_cnt_tohoku_reopening_108142586_full_slab",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "full_slab",
+  "sourceImage": "../../../incoming-slab-regression/psa-tohokus-pikachu-088-pm-cnt-tohoku-reopening-108142586-full-slab.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "japanese",
+    "download_2026_04_12",
+    "full_slab"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "9",
+    "certNumber": "108142586",
+    "cardID": null,
+    "cardName": "Tohoku's Pikachu",
+    "setName": "PM.CNT. Tohoku Reopening",
+    "cardNumber": "088",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "9"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Japanese promo full-slab PSA photo. Source download file: IMG_0163.JPG."
+}

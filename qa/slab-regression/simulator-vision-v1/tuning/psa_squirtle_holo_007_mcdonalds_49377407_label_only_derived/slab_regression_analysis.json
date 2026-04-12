@@ -1,0 +1,47 @@
+{
+  "captureKind" : "label_only",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "007",
+  "certExactMatch" : true,
+  "certNumber" : "49377407",
+  "cropConfidence" : 0.7839743840132233,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_squirtle_holo_007_mcdonalds_49377407_label_only_derived",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2002 POKEMON JAPANESE #007 SQUIRTLE - HOLO GEM MT MCDONALD S 10 PFA 49377407",
+    "ON JAPANESE #007 OLO GEM MT 10 PSA 49377407"
+  ],
+  "scanID" : "4EA48ECC-D2CF-47DF-8AA9-5EEAA6E41421",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-squirtle-holo-007-mcdonalds-49377407-label-only-derived.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Squirtle - Holo",
+    "cardNumber" : "007",
+    "certNumber" : "49377407",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "McDonald's"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

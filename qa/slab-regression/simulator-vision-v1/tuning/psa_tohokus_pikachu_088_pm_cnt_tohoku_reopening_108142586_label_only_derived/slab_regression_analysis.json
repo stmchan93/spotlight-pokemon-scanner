@@ -1,0 +1,47 @@
+{
+  "captureKind" : "label_only",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "088",
+  "certExactMatch" : true,
+  "certNumber" : "108142586",
+  "cropConfidence" : 0.6867625892302953,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_tohokus_pikachu_088_pm_cnt_tohoku_reopening_108142586_label_only_derived",
+  "grade" : "9",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2017 P.M. JPN. SM PROMO #088 TOHOKU S PIKACHU MINT PM.CNT.TOHOKU REOPENING 9 PSA 108142586",
+    "VI PROMO #088 CHU MINT J REOPENING 9 PSA 108142586"
+  ],
+  "scanID" : "B8AC3B9C-A14C-4D13-A0A4-6406DF90368F",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-tohokus-pikachu-088-pm-cnt-tohoku-reopening-108142586-label-only-derived.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Tohoku's Pikachu",
+    "cardNumber" : "088",
+    "certNumber" : "108142586",
+    "grade" : "9",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "9",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "PM.CNT. Tohoku Reopening"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

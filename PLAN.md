@@ -10,6 +10,7 @@ Date: 2026-04-11
 - The current backend latency / network-call refactor pre-implementation source of truth is [docs/backend-latency-refactor-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/backend-latency-refactor-spec-2026-04-10.md).
 - The current OCR rewrite / rollout source of truth is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 - The current OCR simplification / performance implementation source of truth for the next OCR pass is [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
+- The current slab rebuild implementation source of truth is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
 - The raw backend reset has now landed.
 - The next raw identity direction is now:
   - visual matching first
@@ -58,10 +59,33 @@ Date: 2026-04-11
 
 ## Current slab planning override
 
+- The slab rebuild implementation source of truth is now [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
+- Keep slab/backend runtime deferred until the raw hybrid direction settles, but when slab work resumes the revised implementation order in the slab spec is authoritative.
+- Product goal for slabs is identification + graded pricing through Scrydex, not PSA verification.
 - Do **not** expand the current slab path with more one-off card-specific fixes unless a blocker absolutely requires a short-lived quarantine rule.
-- The active slab OCR path is now PSA-only by design.
+- Do **not** reintroduce the older slab parser-reset direction that front-loads CGC/BGS/TAG support or card-window-relative footer OCR ahead of the PSA cert-first rebuild.
+- The active slab OCR path is PSA-only by design.
+- Phase 1 slab target is:
+  - PSA
+  - Pokemon
+- Label-only scans are Priority 1, not a polish phase.
+- Slab OCR is cert-first, not cert-only.
+- Certs are OCR-derived lookup keys and repeat-scan cache keys, not an official verification lane.
+- Treat slab runtime as two valid OCR entry paths:
+  - full slab
+  - label only
+- Repeat-scan cert hits should resolve immediately from local scan history when possible.
+- First-seen slabs should identify the card from label OCR and then fetch graded pricing from Scrydex.
+- Do **not** add PSA API dependencies or “official verification” claims to phase 1.
+- Backend slab identity must resolve before pricing and must still succeed when pricing is unavailable.
+- Do not add slab visual matching for this phase.
+- Cleanup/deletion after slab cutover is mandatory before any non-PSA expansion.
 - Non-PSA slabs should return explicit unsupported / needs-review OCR output instead of going through fake generic parsing.
 - The current slab rewrite should treat slab OCR as:
+  - label-only scans as a first-class path
+  - barcode / cert-first extraction before fallback text identity
+  - full-slab and label-only OCR entry paths
+  - identity decoupled from graded pricing
   - PSA top-label-focused
   - cert / grade / card-number extraction when PSA evidence is strong
   - fixture-first on PSA slab captures
@@ -75,11 +99,11 @@ Date: 2026-04-11
   - one shared `psaLogoRegion` reused even when the slab is not PSA
 - App slab label parsing in [Spotlight/Services/SlabLabelParsing.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabLabelParsing.swift):
   - PSA-weighted visual inference scores applied as the main fallback path
-  - regex-heavy shared parsing instead of grader-family-specific layouts
-  - shared slab-card-number extraction rules instead of family-aware label parsing
+  - regex-heavy shared parsing instead of PSA-specific phase-1 parsing
+  - shared slab-card-number extraction rules instead of cleaner cert-first PSA parsing
 - App slab footer set-hint extraction in [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift):
   - `knownAlphaOnlyHints` allowlist (`par`, `svi`, `pgo`, `xyp`, `smp`, `mp`, etc.)
-  - slab-relative footer rescue rules should become fallback-only once the card window is localized
+  - slab-relative footer rescue rules should become fallback-only once the cert-first PSA path is live
 - Backend slab matcher in [backend/server.py](/Users/stephenchan/Code/spotlight/backend/server.py):
   - handwritten slab title abbreviation repair like `PRTD -> PRETEND`, `MGKRP -> MAGIKARP`, `TGPI -> TOGEPI`
   - broad slab title stop-token lists that compensate for weak upstream parsing
@@ -208,19 +232,52 @@ Status: `active`
 
 ### Milestone 4: Slab/backend rebuild
 
-Status: `deferred`
+Status: `active`
 
-- slab backend runtime remains removed for now
-- slab OCR branch and later slab backend rebuild will follow after OCR contracts settle
+- shipped slab matching remains feature-flagged off by default in the app
+- groundwork already landed:
+  - slab match requests are gated by a real feature flag instead of a hard-disable branch
+  - repeat-scan cert cache resolution paths are landed:
+    - `psa_cert_barcode`
+    - `psa_cert_ocr`
+  - slab identity can now succeed without exact graded pricing
+  - slab detail / refresh preserves `certNumber`
+  - first label-only slab OCR fallback is landed:
+    - slab fallback normalization now preserves the search crop as `slab_label`
+    - slab OCR can treat that crop as a label-only input instead of pretending it is a full slab
+  - `qa/slab-regression/` scaffold is landed
+  - current slab regression scaffold contents:
+    - tuning fixtures: `28`
+    - full slab fixtures: `14`
+    - label-only fixtures: `14` derived crops
+    - held-out fixtures: `0` so far
+    - excluded from phase 1: `IMG_0162.JPG` because it is `CGC`
+  - `zsh tools/run_slab_regression.sh` now validates the slab fixture corpus layout and replays the Apple Vision slab OCR path on simulator
+  - current OCR-only slab tuning score on `qa/slab-regression/simulator-vision-v1/scorecard.json`:
+    - grader exact: `28/28`
+    - grade exact: `28/28`
+    - cert exact: `28/28`
+    - card number exact: `28/28`
+    - this is a tuning-only milestone because the `label_only` half is still derived from the same source photos
+- next required sequence is:
+  - keep the imported `2026-04-12` PSA photo set as the first tuning corpus
+  - collect at least `10` real PSA label-only photos for the held-out split
+  - tune and harden the experimental full-slab and label-only slab OCR entry paths
+  - keep cert-first backend resolution centered on repeat-scan cert cache plus Scrydex-backed first-seen identity
+  - keep identity decoupled from graded pricing
+  - re-enable slab backend matching in user-facing runtime only when the rebuilt path is ready
+- do not add PSA verification or PSA API integration to this milestone
+- do not broaden beyond PSA Pokemon until the held-out suite passes and the cleanup phase is complete
 
-### Milestone 5: Slab parser reset
+### Milestone 5: Slab cleanup / cutover
 
 Status: `planned`
 
-- replace shared slab-relative crops with grader-family label profiles plus inner-card localization
-- stop letting slab footer OCR operate directly in slab coordinates
-- keep set resolution manifest-backed and remove handwritten slab-set allowlists
-- expand the slab golden suite beyond the single current fixture before more slab tuning
+- remove the hard-disabled slab match path from the app once the feature-flagged rebuilt path is proven
+- delete obsolete slab logic from `CardRectangleAnalyzer.swift` once `SlabPipeline` is live
+- remove backend slab title-repair heuristics that only compensate for weak OCR
+- align docs and ops/provider-status output with actual runtime behavior
+- do not begin non-PSA expansion until this cleanup phase is complete
 
 ## Remaining tasks
 
@@ -232,66 +289,92 @@ Status: `planned`
 6. Keep runtime `top-K = 10` and current OCR extraction stable until the visual model improves.
 7. Do human tap-through verification only after the improved visual model is integrated.
 8. Run an explicit deletion/cleanup pass after the improved hybrid path is proven better.
-9. Only then proceed to slab backend/pricing rebuild on top of the settled raw contract.
+9. Build `qa/slab-regression/` with tuning and held-out PSA fixtures for the cert-first slab rebuild.
+10. Implement the label-only slab OCR entry path before any more slab text heuristics.
+11. Keep slab cert-first routing focused on repeat-scan cache hits plus Scrydex-backed first-seen identity/pricing.
+9. Only then proceed to slab backend/pricing rebuild on top of the settled raw contract:
+  - follow the cert-first slab rebuild spec
+  - treat label-only handling as Priority 1
+  - ship identity-without-pricing as a valid success state
+  - complete cleanup before any non-PSA expansion
 
-## Slab parser reset execution plan
+## Slab cert-first rebuild execution order
 
-1. Split top-label parsing by slab family.
-   - Add explicit label profiles for `PSA`, `CGC`, `BGS`, and `TAG`.
-   - Each profile should own:
-     - label-region geometry
-     - grade/cert parsing order
-     - brand detection rules
-   - Shared parsing should only handle normalization, not family-specific geometry.
-
-2. Localize the inner card window inside the slab.
-   - Detect the actual card rect inside the plastic slab after the slab target is normalized.
-   - Move slab footer OCR to run relative to the card rect, not the slab rect.
-   - Treat the existing `09`/`10`/`11` slab footer crops as temporary legacy artifacts.
-
-3. Rebuild slab footer OCR as raw-style footer OCR.
-   - Reuse the raw footer parsing ideas against the localized inner card window.
-   - Prefer collector/set evidence from the actual printed card footer.
-   - If the inner card window cannot be localized confidently, do not trust footer OCR strongly.
-
-4. Gate evidence by source quality.
-   - If label parsing already yields a strong collector like `SM162`, `020/M-P`, or `153/SV-P`, do not let weak footer OCR override it.
-   - If footer OCR disagrees with a strong label collector prefix, treat the footer as weak/noisy evidence.
-   - If target normalization falls back badly, downrank footer-derived collector/set hints.
-
-5. Reduce backend slab identity repair.
-   - Keep generic title cleanup and variant-hint parsing.
-   - Downrank or remove handwritten abbreviation repair once the new slab OCR path is live.
-   - Expect the backend to consume:
+1. Build `qa/slab-regression/` with separate tuning and held-out PSA fixtures.
+   - Include both:
+     - full slab
+     - label only
+   - Record ground truth for:
+     - cert
      - grader
      - grade
-     - cert
-     - canonical collector number
-     - manifest-backed set hints
-     rather than invent missing slab identity from the label.
+     - card identity
 
-6. Expand the slab regression suite before more tuning.
-   - Add bootstrap fixtures for:
-     - PSA
-     - CGC
-     - BGS
-     - TAG
-   - It is acceptable to start with app-taken scans of slab images shown on a computer display.
-   - Mark those fixtures as synthetic/bootstrap coverage and later supplement them with real physical slab captures.
+2. Measure the current baseline against that suite.
+   - Report:
+     - cert exact match
+     - grader exact match
+     - grade exact match
+     - card identity exact match
+     - end-to-end scan success
 
-7. Delete the current slab allowlist/crop hacks in order.
-   - First: remove shared slab-footer set-hint allowlists once card-window-relative footer OCR is working.
-   - Second: reduce slab title abbreviation hacks in the backend.
-   - Third: remove grader-mismatched crops like using a PSA-logo crop as a universal slab probe.
+3. Split slab OCR into two entry paths.
+   - Path A:
+     - full slab rectangle detected
+     - perspective-correct and normalize the slab
+   - Path B:
+     - no confident full slab rectangle
+     - treat the crop as a valid label-only candidate
 
-## Immediate slab fixture plan
+4. Make cert extraction dominant in the slab app path.
+   - Prefer:
+     - barcode-derived cert
+     - then OCR-derived cert
+     - then fallback text identity
+   - Keep text normalization conservative.
 
-1. Accept user-provided slab screenshots or app-captured screen scans as bootstrap fixtures.
-2. Add them under [qa/incoming-ocr-fixtures](/Users/stephenchan/Code/spotlight/qa/incoming-ocr-fixtures).
-3. Add manifests under [qa/ocr-fixtures](/Users/stephenchan/Code/spotlight/qa/ocr-fixtures).
-4. Rebuild the golden baseline with:
-   - `zsh tools/run_ocr_fixture_runner.sh`
-5. Treat those fixtures as the source of truth for the slab parser reset, not ad hoc manual tuning.
+5. Add a dedicated backend cert-first resolver.
+   - Distinguish:
+     - `psa_cert_barcode`
+     - `psa_cert_ocr`
+     - `psa_label`
+   - Keep title/set/card-number search as fallback only.
+
+6. Decouple slab identity from graded pricing.
+   - Identity success with `pricing = null` is still success.
+   - Exact-grade pricing remains a follow-up serving concern, not the identity gate.
+
+7. Re-enable slab backend matching behind a real feature flag.
+   - Do not keep the current hard-disable path as the shipped steady state.
+
+8. Fix the known slab bugs during cutover.
+   - Preserve cert on detail refresh.
+   - Stop medium-confidence slab auto-accept.
+   - Make provider-status metadata honest.
+
+9. Run held-out regression and tune only on the tuning suite.
+   - Do not claim `95%+` from the tuning corpus.
+
+10. Perform the required cleanup/deletion phase before any non-PSA expansion.
+
+## Immediate slab regression fixture plan
+
+1. Collect PSA captures under [qa/slab-regression](/Users/stephenchan/Code/spotlight/qa/slab-regression).
+   - Split them into:
+     - `tuning`
+     - `heldout`
+2. Include both:
+   - full slab photos
+   - label-only photos
+3. Add a manifest that records:
+   - cert
+   - grader
+   - grade
+   - card identity
+   - scan shape
+4. Add a dedicated runner:
+   - `zsh tools/run_slab_regression.sh`
+5. Treat the held-out suite as the source of truth for slab accuracy claims, not ad hoc manual tuning.
 
 ## Current validation priorities
 

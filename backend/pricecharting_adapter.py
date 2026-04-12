@@ -28,8 +28,8 @@ class PriceChartingProvider(PricingProvider):
             provider_label="PriceCharting",
             is_ready=self.is_ready(),
             requires_credentials=True,
-            supports_raw_pricing=True,
-            supports_psa_pricing=True,
+            supports_raw_pricing=False,
+            supports_psa_pricing=False,
         )
 
     def is_ready(self) -> bool:

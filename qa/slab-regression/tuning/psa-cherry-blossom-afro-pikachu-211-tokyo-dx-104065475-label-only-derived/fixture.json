@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_cherry_blossom_afro_pikachu_211_tokyo_dx_104065475_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-cherry-blossom-afro-pikachu-211-tokyo-dx-104065475-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "japanese",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "104065475",
+    "cardID": null,
+    "cardName": "Cherry Blossom Afro Pikachu",
+    "setName": "Pokemon Center Tokyo DX",
+    "cardNumber": "211",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0171.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

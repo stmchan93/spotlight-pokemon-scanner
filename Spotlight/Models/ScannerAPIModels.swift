@@ -48,7 +48,6 @@ struct ScanMatchRequestPayload: Codable, Hashable, Sendable {
     let slabParsedLabelText: [String]
     let slabClassifierReasons: [String]
     let slabRecommendedLookupPath: SlabRecommendedLookupPath?
-    let directLookupLikely: Bool
     let resolverModeHint: ResolverMode
     let cropConfidence: Double
     let warnings: [String]

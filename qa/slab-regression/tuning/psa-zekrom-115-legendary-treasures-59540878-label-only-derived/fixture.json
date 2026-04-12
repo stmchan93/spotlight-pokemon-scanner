@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_zekrom_115_legendary_treasures_59540878_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-zekrom-115-legendary-treasures-59540878-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "9",
+    "certNumber": "59540878",
+    "cardID": null,
+    "cardName": "Zekrom",
+    "setName": "Legendary Treasures",
+    "cardNumber": "115",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "9"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0174.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

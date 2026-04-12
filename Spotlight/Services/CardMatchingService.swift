@@ -32,16 +32,16 @@ enum MatcherError: LocalizedError {
 }
 
 final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable {
-    // Temporary local-only mode: keep OCR running, but stop the app from hitting backend match endpoints.
-    private static let isScanMatchRequestTemporarilyDisabled = true
-    private static let temporaryDisableReason = "Backend match is temporarily disabled in the app."
+    private static let slabMatchingFeatureFlagEnvKey = "SPOTLIGHT_ENABLE_SLAB_MATCHING"
+    private static let slabMatchingDisabledReason = "Slab backend matching is disabled by feature flag."
 
     private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
+    private let slabMatchRequestsEnabled: Bool
 
-    init(baseURL: URL, session: URLSession? = nil) {
+    init(baseURL: URL, session: URLSession? = nil, slabMatchRequestsEnabled: Bool? = nil) {
         self.baseURL = baseURL
 
         if let session {
@@ -58,14 +58,12 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
 
         decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
+        self.slabMatchRequestsEnabled = slabMatchRequestsEnabled
+            ?? Self.boolEnv(Self.slabMatchingFeatureFlagEnvKey)
+            ?? false
     }
 
     func primeLocalNetworkPermissionIfNeeded() async {
-        guard !Self.isScanMatchRequestTemporarilyDisabled else {
-            print("⚠️ [APP] Skipping local backend warmup because scan match is temporarily disabled")
-            return
-        }
-
         guard baseURL.requiresLocalNetworkPermissionPrompt else {
             return
         }
@@ -92,9 +90,9 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
 
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
         let payload = makePayload(analysis: analysis)
-        guard !Self.isScanMatchRequestTemporarilyDisabled else {
-            print("⚠️ [MATCH] Skipping POST /api/v1/scan/match because it is temporarily disabled")
-            return temporarilyDisabledMatchResponse(for: payload)
+        if payload.resolverModeHint == .psaSlab, !slabMatchRequestsEnabled {
+            print("⚠️ [MATCH] Skipping slab POST /api/v1/scan/match because slab matching is feature-flagged off")
+            return slabMatchingDisabledResponse(for: payload)
         }
 
         return try await performMatch(payload: payload)
@@ -276,7 +274,6 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             slabParsedLabelText: analysis.slabParsedLabelText,
             slabClassifierReasons: analysis.slabClassifierReasons,
             slabRecommendedLookupPath: analysis.slabRecommendedLookupPath,
-            directLookupLikely: analysis.directLookupLikely,
             resolverModeHint: analysis.resolverModeHint,
             cropConfidence: analysis.cropConfidence,
             warnings: analysis.warnings,
@@ -284,19 +281,27 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         )
     }
 
-    private func temporarilyDisabledMatchResponse(for payload: ScanMatchRequestPayload) -> ScanMatchResponse {
-        ScanMatchResponse(
+    private func slabMatchingDisabledResponse(for payload: ScanMatchRequestPayload) -> ScanMatchResponse {
+        let slabContext = payload.slabGrader.map {
+            SlabContext(
+                grader: $0,
+                grade: payload.slabGrade,
+                certNumber: payload.slabCertNumber,
+                variantName: nil
+            )
+        }
+        return ScanMatchResponse(
             scanID: payload.scanID,
             topCandidates: [],
             confidence: .low,
-            ambiguityFlags: ["backend_match_disabled"],
+            ambiguityFlags: ["slab_backend_match_disabled"],
             matcherSource: .remoteHybrid,
-            matcherVersion: "frontend_temp_backend_disabled",
+            matcherVersion: "frontend_slab_feature_flag_disabled",
             resolverMode: payload.resolverModeHint,
             resolverPath: nil,
-            slabContext: nil,
+            slabContext: slabContext,
             reviewDisposition: .unsupported,
-            reviewReason: Self.temporaryDisableReason
+            reviewReason: Self.slabMatchingDisabledReason
         )
     }
 
@@ -353,6 +358,9 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             if let grade = slabContext.grade {
                 items.append(URLQueryItem(name: "grade", value: grade))
             }
+            if let certNumber = slabContext.certNumber, !certNumber.isEmpty {
+                items.append(URLQueryItem(name: "cert", value: certNumber))
+            }
             if let variantName = slabContext.variantName, !variantName.isEmpty {
                 items.append(URLQueryItem(name: "variant", value: variantName))
             }
@@ -361,6 +369,21 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             items.append(URLQueryItem(name: "forceRefresh", value: "1"))
         }
         return items
+    }
+
+    private static func boolEnv(_ key: String, processInfo: ProcessInfo = .processInfo) -> Bool? {
+        guard let value = processInfo.environment[key] else {
+            return nil
+        }
+
+        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+        case "1", "true", "yes", "on":
+            return true
+        case "0", "false", "no", "off":
+            return false
+        default:
+            return nil
+        }
     }
 }
 

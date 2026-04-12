@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_charizard_v_079_champions_path_secret_52300610_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-charizard-v-079-champions-path-secret-52300610-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "52300610",
+    "cardID": null,
+    "cardName": "Charizard V",
+    "setName": "Champion's Path - Secret",
+    "cardNumber": "079",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0146.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

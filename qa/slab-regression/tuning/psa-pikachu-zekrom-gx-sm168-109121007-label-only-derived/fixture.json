@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_pikachu_zekrom_gx_sm168_109121007_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-pikachu-zekrom-gx-sm168-109121007-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "109121007",
+    "cardID": null,
+    "cardName": "Pikachu & Zekrom GX",
+    "setName": "Promo-Tag Team Tins-FA",
+    "cardNumber": "SM168",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0137.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

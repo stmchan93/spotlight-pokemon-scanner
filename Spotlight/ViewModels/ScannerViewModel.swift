@@ -474,7 +474,10 @@ final class ScannerViewModel: ObservableObject {
                     self.updateStackItem(id: itemID) { item in
                         item.detail = refreshedDetail
                         item.card = refreshedDetail.card
-                        item.slabContext = refreshedDetail.slabContext ?? item.slabContext
+                        item.slabContext = self.mergedSlabContext(
+                            existing: item.slabContext,
+                            refreshed: refreshedDetail.slabContext
+                        )
                         item.statusMessage = refreshedDetail.pricing?.freshnessLabel ?? "Price snapshot unavailable"
                         item.isRefreshingPrice = false
                         item.pricingContextNote = self.pricingContextNote(
@@ -537,10 +540,28 @@ final class ScannerViewModel: ObservableObject {
         case .high:
             return true
         case .medium:
-            return response.resolverPath == .directLookup || response.resolverPath == .psaLabel
+            return false
         case .low:
             return false
         }
+    }
+
+    private func mergedSlabContext(existing: SlabContext?, refreshed: SlabContext?) -> SlabContext? {
+        guard existing != nil || refreshed != nil else {
+            return nil
+        }
+
+        let grader = refreshed?.grader ?? existing?.grader
+        guard let grader else {
+            return refreshed ?? existing
+        }
+
+        return SlabContext(
+            grader: grader,
+            grade: refreshed?.grade ?? existing?.grade,
+            certNumber: refreshed?.certNumber ?? existing?.certNumber,
+            variantName: refreshed?.variantName ?? existing?.variantName
+        )
     }
 
     private func showBanner(_ message: String) {
@@ -862,7 +883,7 @@ final class ScannerViewModel: ObservableObject {
                     item.phase = (disposition == .unsupported) ? .unsupported : .needsReview
                     item.reviewDisposition = disposition
                     item.reviewReason = response.reviewReason
-                    item.statusMessage = response.reviewReason ?? "Could not verify the card strongly enough."
+                    item.statusMessage = response.reviewReason ?? "Could not identify the card strongly enough."
                     item.isRefreshingPrice = false
                 }
                 if let bestMatch = response.bestMatch {

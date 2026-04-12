@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_charizard_vstar_262_ultra_premium_collection_68621519_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-charizard-vstar-262-ultra-premium-collection-68621519-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "68621519",
+    "cardID": null,
+    "cardName": "Charizard VSTAR",
+    "setName": "Ultra-Premium Collection",
+    "cardNumber": "262",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0165.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

@@ -1,6 +1,6 @@
 import Foundation
 
-enum SlabVerificationMethod: String, Codable, Hashable, Sendable {
+enum SlabEvidenceSource: String, Codable, Hashable, Sendable {
     case barcode
     case certOCR = "cert_ocr"
     case labelOCR = "label_ocr"
@@ -50,7 +50,7 @@ struct SlabLabelAnalysis: Hashable, Sendable {
     let certConfidence: Float
     let cardNumberRaw: String?
     let barcodePayloads: [String]
-    let verificationMethod: SlabVerificationMethod
+    let evidenceSource: SlabEvidenceSource
     let visualSignals: SlabVisualSignals
     let reasons: [String]
     let recommendedLookupPath: SlabRecommendedLookupPath
@@ -122,15 +122,15 @@ enum SlabLabelParser {
         let isPSAConfident = explicitNonPSAGrader == nil
             && graderCandidate.normalizedValue == "PSA"
             && graderCandidate.confidence >= 0.62
-        let verificationMethod: SlabVerificationMethod
+        let evidenceSource: SlabEvidenceSource
         if certCandidate.source == .barcode {
-            verificationMethod = .barcode
+            evidenceSource = .barcode
         } else if certCandidate.source == .labelOCR {
-            verificationMethod = .certOCR
+            evidenceSource = .certOCR
         } else if !normalizedLabelText.isEmpty {
-            verificationMethod = .labelOCR
+            evidenceSource = .labelOCR
         } else {
-            verificationMethod = .none
+            evidenceSource = .none
         }
         let recommendedLookupPath = recommendedLookupPath(
             grader: graderCandidate.normalizedValue,
@@ -178,7 +178,7 @@ enum SlabLabelParser {
             certConfidence: explicitNonPSAGrader == nil ? certCandidate.confidence : 0,
             cardNumberRaw: cardNumberRaw,
             barcodePayloads: dedupedBarcodePayloads,
-            verificationMethod: verificationMethod,
+            evidenceSource: evidenceSource,
             visualSignals: visualSignals,
             reasons: reasons,
             recommendedLookupPath: recommendedLookupPath,
@@ -251,23 +251,24 @@ enum SlabLabelParser {
             if let explicit = firstCapturedField(
                 in: normalizedText,
                 patterns: [
-                    (#"\bGEM MT\s+(10|[1-9])\b"#, 0.97, "grade_from_psa_gem_mt"),
-                    (#"\bGEM MINT\s+(10|[1-9])\b"#, 0.97, "grade_from_psa_gem_mint"),
-                    (#"\bMINT\s+(10|[1-9])\b"#, 0.93, "grade_from_psa_mint"),
-                    (#"\bNM MT\s+(10|[1-9])\b"#, 0.92, "grade_from_psa_nm_mt"),
-                    (#"\bNM-MT\s+(10|[1-9])\b"#, 0.92, "grade_from_psa_nm_mt"),
-                    (#"\bEX MT\s+(10|[1-9])\b"#, 0.90, "grade_from_psa_ex_mt"),
-                    (#"\bEX-MT\s+(10|[1-9])\b"#, 0.90, "grade_from_psa_ex_mt"),
-                    (#"\bVG EX\s+(10|[1-9])\b"#, 0.88, "grade_from_psa_vg_ex"),
-                    (#"\bVG-EX\s+(10|[1-9])\b"#, 0.88, "grade_from_psa_vg_ex"),
-                    (#"\bGOOD\s+(10|[1-9])\b"#, 0.86, "grade_from_psa_good"),
-                    (#"\bFAIR\s+(10|[1-9](?:\.5)?)\b"#, 0.84, "grade_from_psa_fair"),
-                    (#"\bPR\s+(10|[1-9])\b"#, 0.84, "grade_from_psa_poor"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+PSA\b)"#, 0.96, "grade_before_psa_token"),
+                    (#"\b(10|[1-9](?:\.5)?)\b(?=\s+P(?:EA|A|S)\b(?:\s+\d{7,10}\b|$))"#, 0.95, "grade_before_partial_psa_token"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z0-9]{1,4}\s+){1,2}PSA\b)"#, 0.94, "grade_before_psa_with_noise"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z]{2,4}\s+)?\d{7,10}\b)"#, 0.91, "grade_before_cert_number"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z0-9]{1,4}\s+){1,2}(?:[A-Z]{2,4}\s+)?\d{7,10}\b)"#, 0.89, "grade_before_cert_number_with_noise"),
                     (#"\bNM\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+[A-Z0-9]{1,4}){0,2}(?:\s+(?:PSA|[A-Z]{2,4})\b|\s+\d{7,10}\b|$)(?:\s+\d{7,10}\b|$)"#, 0.94, "grade_from_nm_layout"),
+                    (#"\bGEM MT\s+(10|[1-9])\b"#, 0.92, "grade_from_psa_gem_mt"),
+                    (#"\bGEM MINT\s+(10|[1-9])\b"#, 0.92, "grade_from_psa_gem_mint"),
+                    (#"\bMINT\s+(10|[1-9])\b"#, 0.90, "grade_from_psa_mint"),
+                    (#"\bNM MT\s+(10|[1-9])\b"#, 0.89, "grade_from_psa_nm_mt"),
+                    (#"\bNM-MT\s+(10|[1-9])\b"#, 0.89, "grade_from_psa_nm_mt"),
+                    (#"\bEX MT\s+(10|[1-9])\b"#, 0.87, "grade_from_psa_ex_mt"),
+                    (#"\bEX-MT\s+(10|[1-9])\b"#, 0.87, "grade_from_psa_ex_mt"),
+                    (#"\bVG EX\s+(10|[1-9])\b"#, 0.85, "grade_from_psa_vg_ex"),
+                    (#"\bVG-EX\s+(10|[1-9])\b"#, 0.85, "grade_from_psa_vg_ex"),
+                    (#"\bGOOD\s+(10|[1-9])\b"#, 0.83, "grade_from_psa_good"),
+                    (#"\bFAIR\s+(10|[1-9](?:\.5)?)\b"#, 0.81, "grade_from_psa_fair"),
+                    (#"\bPR\s+(10|[1-9])\b"#, 0.81, "grade_from_psa_poor"),
                 ]
             ) {
                 return explicit
@@ -376,6 +377,15 @@ enum SlabLabelParser {
             )
         }
 
+        if normalizedText.containsMatch(of: #"\bP(?:EA|A|S)\b(?=\s+\d{7,10}\b)"#) {
+            return SlabFieldCandidate(
+                rawValue: "PSA",
+                normalizedValue: "PSA",
+                confidence: 0.84,
+                reasons: ["partial_grader_psa_token"]
+            )
+        }
+
         return nil
     }
 
@@ -409,6 +419,7 @@ enum SlabLabelParser {
         }
         if normalizedText.containsMatch(of: #"\bP[5S]A\b"#)
             || normalizedText.containsMatch(of: #"\bPSA?\b"#)
+            || normalizedText.containsMatch(of: #"\bP(?:EA|A|S)\b(?=\s+\d{7,10}\b)"#)
             || normalizedText.contains("FEA") {
             score += 0.12
             reasons.append("partial_psa_logo_token")
@@ -454,6 +465,7 @@ enum SlabLabelParser {
         }
         if normalizedText.containsMatch(of: #"\bP[5S]A\b"#)
             || normalizedText.containsMatch(of: #"\bPSA?\b"#)
+            || normalizedText.containsMatch(of: #"\bP(?:EA|A|S)\b(?=\s+\d{7,10}\b)"#)
             || normalizedText.contains("FEA") {
             score += 0.12
         }
@@ -517,7 +529,8 @@ enum SlabLabelParser {
         if normalizedText.contains("BGS") || normalizedText.contains("BECKETT") {
             return "BGS"
         }
-        if normalizedText.contains("TAG") {
+        if normalizedText.containsMatch(of: #"\bTAG\b"#)
+            && !normalizedText.contains("TAG TEAM") {
             return "TAG"
         }
         if normalizedText.contains("SGC") {
@@ -529,9 +542,9 @@ enum SlabLabelParser {
 
     private static func extractCardNumber(from normalizedText: String) -> String? {
         for pattern in [
-            #"#\s*([A-Z0-9-]{1,8})\b"#,
-            #"\bNO\.?\s*([A-Z0-9-]{1,8})\b"#,
-            #"\b([A-Z]{0,4}\d{1,4}/[A-Z]{0,4}\d{1,4})\b"#,
+            #"#\s*([A-Z]{0,4}\d{1,4}(?:[/-][A-Z]{0,4}\d{1,4})?)\b"#,
+            #"\bNO\.?\s*([A-Z]{0,4}\d{1,4}(?:[/-][A-Z]{0,4}\d{1,4})?)\b"#,
+            #"\b([A-Z]{0,4}\d{1,4}(?:[/-][A-Z]{0,4}\d{1,4})?)\b"#,
         ] {
             if let match = normalizedText.firstCapturedGroup(of: pattern) {
                 return match
@@ -581,14 +594,14 @@ private struct SlabFieldCandidate {
     let normalizedValue: String?
     let confidence: Float
     let reasons: [String]
-    let source: SlabVerificationMethod
+    let source: SlabEvidenceSource
 
     init(
         rawValue: String?,
         normalizedValue: String?,
         confidence: Float,
         reasons: [String],
-        source: SlabVerificationMethod = .labelOCR
+        source: SlabEvidenceSource = .labelOCR
     ) {
         self.rawValue = rawValue
         self.normalizedValue = normalizedValue
@@ -603,7 +616,7 @@ private extension Optional where Wrapped == SlabFieldCandidate {
     var normalizedValue: String? { self?.normalizedValue }
     var confidence: Float { self?.confidence ?? 0 }
     var reasons: [String] { self?.reasons ?? [] }
-    var source: SlabVerificationMethod { self?.source ?? .none }
+    var source: SlabEvidenceSource { self?.source ?? .none }
 }
 
 private extension String {

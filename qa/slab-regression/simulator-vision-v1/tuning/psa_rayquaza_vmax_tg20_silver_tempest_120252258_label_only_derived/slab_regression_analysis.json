@@ -1,0 +1,47 @@
+{
+  "captureKind" : "label_only",
+  "cardNumberExactMatch" : true,
+  "cardNumberRaw" : "TG20",
+  "certExactMatch" : true,
+  "certNumber" : "120252258",
+  "cropConfidence" : 0.7210622342742338,
+  "directLookupLikely" : true,
+  "expects" : {
+    "certReadRequired" : true,
+    "identityMustMatch" : true,
+    "pricingMayBeUnavailable" : true
+  },
+  "fixtureName" : "psa_rayquaza_vmax_tg20_silver_tempest_120252258_label_only_derived",
+  "grade" : "10",
+  "gradeExactMatch" : true,
+  "grader" : "PSA",
+  "graderExactMatch" : true,
+  "lookupPath" : "psa_cert",
+  "normalizedGeometryKind" : "slab_label",
+  "parsedLabelText" : [
+    "2022 POKEMON SWSH #TG20 FA\/RAYQUAZA VMAX GEM MT SILVER TEMPEST 10 PA 120252258 250",
+    "ON SWSH #TG20 A VMAX GEM MT EST 10 PA 120252258"
+  ],
+  "scanID" : "E3E1EC25-7D05-4D73-B33D-9D57ABA32ECC",
+  "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-rayquaza-vmax-tg20-silver-tempest-120252258-label-only-derived.jpg",
+  "split" : "tuning",
+  "truth" : {
+    "cardName" : "Rayquaza VMAX",
+    "cardNumber" : "TG20",
+    "certNumber" : "120252258",
+    "grade" : "10",
+    "grader" : "PSA",
+    "pricingLookup" : {
+      "grade" : "10",
+      "grader" : "PSA",
+      "mode" : "card_id_grade"
+    },
+    "pricingProvider" : "scrydex",
+    "setName" : "Silver Tempest"
+  },
+  "usedFallback" : true,
+  "warnings" : [
+    "Could not extract slab barcode payload",
+    "Used slab label-only OCR path"
+  ]
+}

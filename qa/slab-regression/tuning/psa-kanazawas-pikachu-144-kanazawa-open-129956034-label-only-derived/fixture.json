@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_kanazawas_pikachu_144_kanazawa_open_129956034_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-kanazawas-pikachu-144-kanazawa-open-129956034-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "japanese",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "9",
+    "certNumber": "129956034",
+    "cardID": null,
+    "cardName": "Kanazawa's Pikachu",
+    "setName": "P.M. CNTR Kanazawa Open.",
+    "cardNumber": "144",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "9"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0175.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

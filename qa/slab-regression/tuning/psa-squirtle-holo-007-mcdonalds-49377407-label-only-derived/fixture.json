@@ -1,0 +1,37 @@
+{
+  "fixtureName": "psa_squirtle_holo_007_mcdonalds_49377407_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-squirtle-holo-007-mcdonalds-49377407-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "japanese",
+    "download_2026_04_12",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "49377407",
+    "cardID": null,
+    "cardName": "Squirtle - Holo",
+    "setName": "McDonald's",
+    "cardNumber": "007",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0160.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}

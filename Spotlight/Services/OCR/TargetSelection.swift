@@ -39,6 +39,7 @@ enum OCRTargetGeometryKind: String, Codable {
     case rawCard = "raw_card"
     case rawHolder = "raw_holder"
     case slab = "slab"
+    case slabLabel = "slab_label"
     case fallback = "fallback"
 }
 

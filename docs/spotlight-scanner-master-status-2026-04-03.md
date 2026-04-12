@@ -18,6 +18,10 @@ This is the current product/source-of-truth status doc.
 - preserved thin provider shells:
   - Scrydex
   - PriceCharting
+- slab rebuild target:
+  - OCR cert-first slab identification
+  - Scrydex graded pricing
+  - no PSA API dependency
 
 Use this raw backend migration spec first:
 
@@ -34,6 +38,10 @@ Use this earlier landed backend reset spec next for the currently shipped OCR-pr
 Use this OCR planning spec next:
 
 - [ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md)
+
+Use this slab rebuild implementation spec when slab work resumes:
+
+- [slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md)
 
 ## Current Product State
 
@@ -106,7 +114,37 @@ Use this OCR planning spec next:
   - centralized OCR field-confidence outputs and still-photo retry decisions
   - per-fixture simulator outputs for review
 - the app now routes raw scanner OCR through the rewrite coordinator path directly
-- slab matching, slab pricing, and slab backend logic are deferred until the slab rebuild
+- the shipped app path still keeps slab matching feature-flagged off by default
+- slab rebuild groundwork is now landed:
+  - experimental resolver paths:
+    - `psa_cert_barcode`
+    - `psa_cert_ocr`
+  - repeat-scan slab cert cache resolution in `scan_events`
+  - slab identity can succeed without exact graded pricing
+  - slab detail refresh preserves `certNumber`
+  - first experimental label-only slab OCR fallback path
+  - `qa/slab-regression/` scaffold and `zsh tools/run_slab_regression.sh`
+  - current slab fixture scaffold status:
+    - tuning fixtures: `28`
+    - full slab fixtures: `14`
+    - label-only fixtures: `14` derived crops
+    - held-out fixtures: `0`
+    - current OCR-only tuning score on `qa/slab-regression/simulator-vision-v1/scorecard.json`:
+      - grader exact: `28/28`
+      - grade exact: `28/28`
+      - cert exact: `28/28`
+      - card number exact: `28/28`
+      - treat this as tuning-only because the `label_only` fixtures are derived crops, not independent captures
+    - current tuning import source:
+      - `~/Downloads/drive-download-20260412T181003Z-3-001`
+    - excluded from phase 1:
+      - `IMG_0162.JPG` because it is `CGC`
+- the slab rebuild implementation contract is now documented as:
+  - cert-first
+  - PSA-only for phase 1
+  - label-only scan support as a first-class path
+  - identity decoupled from graded pricing
+  - Scrydex-backed identification/pricing, not PSA verification
 
 ## Current Scope Order
 
@@ -117,8 +155,8 @@ Use this OCR planning spec next:
 5. mode sanity signals + rewrite entrypoint: done
 6. raw branch stage 1: done
 7. raw escalation and confidence: done
-8. slab branch stage 1: deferred until raw hybrid path settles
-9. slab/backend rebuild after raw hybrid direction settles
+8. slab branch stage 1: active groundwork
+9. slab/backend rebuild after raw hybrid direction settles using the cert-first slab rebuild spec and Scrydex pricing lane
 
 ## What To Treat As Deleted Legacy
 
@@ -164,4 +202,8 @@ python3 -m unittest -v \
 3. train and evaluate a lightweight visual adapter on top of frozen CLIP
 4. rebuild the full visual index only if the held-out suite improves
 5. only then resume app/backend raw-contract work and legacy raw-path cleanup
-6. only then proceed with slab/backend rebuild work
+6. in parallel with slab planning, keep the next slab execution slice focused on:
+   - `qa/slab-regression/`
+   - collecting at least `10` real PSA label-only held-out photos
+   - label-only slab OCR hardening on real photos
+   - cert-first slab routing into Scrydex-backed identity/pricing

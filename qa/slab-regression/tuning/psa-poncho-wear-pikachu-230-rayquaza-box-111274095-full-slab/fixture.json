@@ -1,0 +1,36 @@
+{
+  "fixtureName": "psa_poncho_wear_pikachu_230_rayquaza_box_111274095_full_slab",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "full_slab",
+  "sourceImage": "../../../incoming-slab-regression/psa-poncho-wear-pikachu-230-rayquaza-box-111274095-full-slab.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "japanese",
+    "download_2026_04_12",
+    "full_slab"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "111274095",
+    "cardID": null,
+    "cardName": "Poncho-Wear Pikachu",
+    "setName": "Rayquaza P.W. Pikachu Box",
+    "cardNumber": "230",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Japanese full-slab PSA promo photo. Source download file: IMG_0166.JPG."
+}

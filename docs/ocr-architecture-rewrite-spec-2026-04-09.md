@@ -121,17 +121,18 @@ OCR extracts:
 - slab-specific evidence:
   - grader
   - grade
-  - optional cert
+  - cert
 - field confidences
 
 Backend uses that evidence to:
 
-1. resolve the underlying card from name + set + card number + label text
-2. then apply grader + grade, plus optional cert, to choose slab pricing
+1. resolve the underlying card from cert when strong, otherwise from name + set + card number + label text
+2. then apply grader + grade and card identity to choose slab pricing
 
 Important:
 
-- cert is supportive verification, not the only usable slab key
+- cert is the primary slab key when barcode or OCR extraction is strong
+- cert is not an official verification lane in the app; it is an OCR-derived lookup key
 - the slab branch still needs the same core identity fields raw relies on
 
 ## Architecture Diagram
@@ -313,13 +314,12 @@ Escalate to Stage 3 only if:
 
 Stage 3:
 
-- optional cert-focused ROI
+- cert-focused ROI
 - optional selective preprocessing on weak slab ROIs
 
 Important:
 
-- cert is optional
-- cert should not be the only slab OCR success criterion
+- cert-first is correct for PSA slabs, but label-text fallback still matters when cert read quality is weak
 
 ## Dual Confidence Model
 

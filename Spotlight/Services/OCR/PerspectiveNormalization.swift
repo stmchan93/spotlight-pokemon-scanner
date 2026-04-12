@@ -58,10 +58,11 @@ func normalizeFallbackOCRInputImage(
     scanID: UUID? = nil
 ) -> OCRTargetNormalizationResult {
     guard mode == .rawCard else {
+        let normalizedSearch = searchImage.normalizedOrientation()
         return OCRTargetNormalizationResult(
-            image: fallbackImage,
-            geometryKind: .fallback,
-            reason: "exact_reticle_fallback",
+            image: normalizedSearch,
+            geometryKind: .slabLabel,
+            reason: "slab_label_search_fallback",
             normalizedContentRect: nil
         )
     }

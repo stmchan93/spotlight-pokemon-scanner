@@ -7,7 +7,6 @@ struct RawPipelineResult {
     let collectorNumberPartial: String?
     let setHintTokens: [String]
     let promoCodeHint: String?
-    let directLookupLikely: Bool
     let warnings: [String]
     let shouldRetryWithStillPhoto: Bool
     let stillPhotoRetryReason: String?
@@ -140,7 +139,6 @@ struct RawEvidenceSynthesizer {
             collectorNumberPartial: collectorNumberPartial,
             setHintTokens: setHintTokens,
             promoCodeHint: extractPromoHint(from: collectorNumber ?? collectorNumberPartial),
-            directLookupLikely: (collectorConfidence?.score ?? 0) >= 0.78 && targetSelection.selectionConfidence >= 0.55,
             warnings: warnings,
             shouldRetryWithStillPhoto: shouldRetryWithStillPhoto,
             stillPhotoRetryReason: stillPhotoRetryReason,

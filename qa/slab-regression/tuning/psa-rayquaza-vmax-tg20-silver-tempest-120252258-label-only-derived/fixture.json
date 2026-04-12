@@ -1,0 +1,38 @@
+{
+  "fixtureName": "psa_rayquaza_vmax_tg20_silver_tempest_120252258_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-rayquaza-vmax-tg20-silver-tempest-120252258-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_12",
+    "price_sticker_occlusion",
+    "label_only",
+    "derived_crop"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "120252258",
+    "cardID": null,
+    "cardName": "Rayquaza VMAX",
+    "setName": "Silver Tempest",
+    "cardNumber": "TG20",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived top-label crop from IMG_0176.JPG for tuning only. Replace with a real label-only capture before held-out scorekeeping."
+}
