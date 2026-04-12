@@ -1,0 +1,388 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "077\/184",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
+  },
+  "fixtureName" : "mimikyu-vmax-077-184",
+  "footerRouting" : {
+    "anchorIdentifier" : "077\/184",
+    "collectorAnchor" : {
+      "height" : 0.020969148215045252,
+      "width" : 0.1603720503925969,
+      "x" : 0.15519949284792944,
+      "y" : 0.8391820926145297
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
+      },
+      "text" : "Illun Studio Bara Ine. VWWAXルール s8b E ポケモンジMAXがきせつしたとき、相手はサイドを3枚とる 077\/184 RRR ©2021 Pokemon\/Nintendo\/Creatures\/GAMEFREAK.",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017416666025418602,
+            "width" : 0.19605818673333827,
+            "x" : 0.05534515922762107,
+            "y" : 0.8120833336474098
+          },
+          "text" : "Illun Studio Bara Ine."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019347182385900986,
+            "width" : 0.15633398037028648,
+            "x" : 0.3974859145764873,
+            "y" : 0.8038333331255993
+          },
+          "text" : "VWWAXルール"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016499999519063956,
+            "width" : 0.04228705816955253,
+            "x" : 0.06175228866035544,
+            "y" : 0.8368333336349125
+          },
+          "text" : "s8b"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021083332050837202,
+            "width" : 0.026909947330547995,
+            "x" : 0.1219793128787258,
+            "y" : 0.8340833339344773
+          },
+          "text" : "E"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.023783783133870216,
+            "width" : 0.5080854429280112,
+            "x" : 0.3625670435023293,
+            "y" : 0.8275675681154974
+          },
+          "text" : "ポケモンジMAXがきせつしたとき、相手はサイドを3枚とる"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020969148215045207,
+            "width" : 0.1603720503925969,
+            "x" : 0.15519949284792944,
+            "y" : 0.8391820926145297
+          },
+          "text" : "077\/184 RRR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012922636103151862,
+            "width" : 0.3921163734666765,
+            "x" : 0.29369040724992507,
+            "y" : 0.869828080217768
+          },
+          "text" : "©2021 Pokemon\/Nintendo\/Creatures\/GAMEFREAK."
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.00024383721113155034,
+        "y" : 0.7987666667220522
+      },
+      "text" : "IllussStud s8b",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015791469194312797,
+            "width" : 0.07779142848643411,
+            "x" : 0.05973140010081407,
+            "y" : 0.8122358609932919
+          },
+          "text" : "IllussStud"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015791469194312797,
+            "width" : 0.03987627846783597,
+            "x" : 0.06234623802467309,
+            "y" : 0.8368519748447221
+          },
+          "text" : "s8b"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2886696907066744,
+        "x" : 0.09105067269089068,
+        "y" : 0.8036666667220522
+      },
+      "text" : "1Studio Bora Ine. b E 077184 RRR ©2021 Poke",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01914720812182742,
+            "width" : 0.16176023670579023,
+            "x" : 0.09105067247568857,
+            "y" : 0.8106717428206678
+          },
+          "text" : "1Studio Bora Ine."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02709761930359196,
+            "width" : 0.2223685320329147,
+            "x" : 0.09099437423739355,
+            "y" : 0.832381816539261
+          },
+          "text" : "b E 077184 RRR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010741116751269037,
+            "width" : 0.08482548997986561,
+            "x" : 0.2942373110086184,
+            "y" : 0.8685803723343477
+          },
+          "text" : "©2021 Poke"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.043573837225948174,
+        "y" : 0.7915066667220523
+      },
+      "text" : "Illus.Studiol s8b",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0176986301369863,
+            "width" : 0.10736948809917096,
+            "x" : 0.06049266569993199,
+            "y" : 0.8110683105110934
+          },
+          "text" : "Illus.Studiol"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01630136986301369,
+            "width" : 0.039043450217880346,
+            "x" : 0.06374628658209013,
+            "y" : 0.8362189954150784
+          },
+          "text" : "s8b"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.2886696907066744,
+        "x" : 0.09105067269089068,
+        "y" : 0.7996666667220522
+      },
+      "text" : "1Studio Bora Ine. b Є 077\/184 RRR ©2021 Poke",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01869158878504673,
+            "width" : 0.16176023670579023,
+            "x" : 0.09105067246230963,
+            "y" : 0.8113489096682026
+          },
+          "text" : "1Studio Bora Ine."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.026168224299065426,
+            "width" : 0.22291349692383286,
+            "x" : 0.09105067275837729,
+            "y" : 0.8333115266040001
+          },
+          "text" : "b Є 077\/184 RRR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010666447487946984,
+            "width" : 0.084916454587537,
+            "x" : 0.2941918294616055,
+            "y" : 0.8690997978427412
+          },
+          "text" : "©2021 Poke"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.2705236418281973,
+        "y" : 0.7860666667220523
+      },
+      "text" : "ボ RRR ©2021 Poke",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0111504424778761,
+            "width" : 0.015763737249111735,
+            "x" : 0.36839017722057393,
+            "y" : 0.8367082595804594
+          },
+          "text" : "ボ"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012544247787610615,
+            "width" : 0.04269345504967763,
+            "x" : 0.2705236419300048,
+            "y" : 0.8427480825885346
+          },
+          "text" : "RRR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011922403120361599,
+            "width" : 0.08951395878688494,
+            "x" : 0.2953898358653347,
+            "y" : 0.8683798017512696
+          },
+          "text" : "©2021 Poke"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.2886696907066744,
+        "x" : 0.09105067269089068,
+        "y" : 0.7986666667220522
+      },
+      "text" : "1Studio Bora Ine. bJ E 077-184 RRR ©2021 Poke",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01863013698630137,
+            "width" : 0.16176023670579023,
+            "x" : 0.09105067252309901,
+            "y" : 0.8117077625803423
+          },
+          "text" : "1Studio Bora Ine."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.029857455318921228,
+            "width" : 0.22365136778729575,
+            "x" : 0.09068173733475547,
+            "y" : 0.8319434186083569
+          },
+          "text" : "bJ E 077-184 RRR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011179363642653374,
+            "width" : 0.08494056532570536,
+            "x" : 0.2941797741652249,
+            "y" : 0.8687619165646834
+          },
+          "text" : "©2021 Poke"
+        }
+      ]
+    }
+  ],
+  "scanID" : "5408C935-8E8F-4C86-BF77-1E847731DA73",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_footer_family_set_agreement"
+  ],
+  "setConfidenceScore" : 0.74,
+  "setHintTokens" : [
+    "s8b"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak"
+  ]
+}

@@ -6,7 +6,7 @@ import re
 import sys
 import traceback
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -39,6 +39,7 @@ from catalog_tools import (
     rank_raw_candidates,
     raw_debug_payload,
     raw_pricing_summary_for_card,
+    rank_visual_hybrid_candidates,
     resolver_mode_for_payload,
     score_raw_signals,
     search_cards,
@@ -101,6 +102,7 @@ class SpotlightScanService:
         self.repo_root = repo_root
         self.connection = connect(database_path)
         self.index = load_index(self.connection)
+        self._raw_visual_matcher: Any | None = None
 
         self.pricing_registry = PricingProviderRegistry()
         self.pricing_registry.register(PokemonTcgApiProvider())
@@ -109,6 +111,20 @@ class SpotlightScanService:
 
     def refresh_index(self) -> None:
         self.index = load_index(self.connection)
+
+    def _raw_visual_matcher_instance(self) -> Any:
+        if self._raw_visual_matcher is None:
+            from raw_visual_matcher import RawVisualMatcher
+
+            self._raw_visual_matcher = RawVisualMatcher(repo_root=self.repo_root)
+        return self._raw_visual_matcher
+
+    @staticmethod
+    def _raw_resolver_strategy(payload: dict[str, Any]) -> str:
+        hint = str(payload.get("rawResolverMode") or "").strip().lower()
+        if hint in {"visual", "visual_only", "hybrid"}:
+            return hint
+        return "ocr"
 
     def _display_pricing_summary_for_card(
         self,
@@ -1427,6 +1443,258 @@ class SpotlightScanService:
         }
         return response, scored_candidates
 
+    @staticmethod
+    def _visual_candidate_stub(match: dict[str, Any]) -> dict[str, Any]:
+        image_url = match.get("imageUrl")
+        return {
+            "id": str(match.get("providerCardId") or ""),
+            "name": str(match.get("name") or ""),
+            "setName": str(match.get("setName") or ""),
+            "number": str(match.get("collectorNumber") or ""),
+            "rarity": "Unknown",
+            "variant": "Raw",
+            "language": "English",
+            "imageSmallURL": image_url,
+            "imageURL": image_url,
+            "sourceProvider": "pokemontcg_api",
+            "sourceRecordID": str(match.get("providerCardId") or ""),
+            "setID": match.get("setId"),
+            "setSeries": match.get("setSeries"),
+            "setPtcgoCode": match.get("setPtcgoCode"),
+            "sourcePayload": {},
+        }
+
+    @staticmethod
+    def _visual_match_summary(match: Any) -> dict[str, Any]:
+        return {
+            "providerCardId": str(match.entry.get("providerCardId") or ""),
+            "name": str(match.entry.get("name") or ""),
+            "collectorNumber": str(match.entry.get("collectorNumber") or ""),
+            "setId": match.entry.get("setId"),
+            "setName": match.entry.get("setName"),
+            "setSeries": match.entry.get("setSeries"),
+            "setPtcgoCode": match.entry.get("setPtcgoCode"),
+            "imageUrl": match.entry.get("imageUrl"),
+            "similarity": round(match.similarity, 6),
+            "rowIndex": match.row_index,
+        }
+
+    @staticmethod
+    def _visual_confidence(matches: list[dict[str, Any]]) -> tuple[str, list[str]]:
+        if not matches:
+            return "low", ["No visual candidates were available."]
+        top1 = float(matches[0].get("similarity") or 0.0)
+        top2 = float(matches[1].get("similarity") or 0.0) if len(matches) > 1 else 0.0
+        margin = top1 - top2
+        if top1 >= 0.85 and margin >= 0.05:
+            return "high", []
+        if top1 >= 0.72 and margin >= 0.02:
+            return "medium", []
+        flags = ["Visual match is ambiguous; review recommended."]
+        if margin < 0.02:
+            flags.append("Top visual candidates are very close.")
+        return "low", flags
+
+    def _resolve_raw_candidates_visual_only(
+        self,
+        payload: dict[str, Any],
+        *,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=10)
+        except Exception as exc:
+            response = {
+                "scanID": payload["scanID"],
+                "topCandidates": [],
+                "confidence": "low",
+                "ambiguityFlags": [f"Visual-only resolver unavailable: {exc}"],
+                "matcherSource": "visualIndex",
+                "matcherVersion": MATCHER_VERSION,
+                "resolverMode": "raw_card",
+                "resolverPath": "visual_only_unavailable",
+                "slabContext": None,
+                "reviewDisposition": "unsupported",
+                "reviewReason": "Visual-only resolver could not run.",
+                "rawDecisionDebug": {"visualOnly": {"error": str(exc)}},
+            }
+            self._emit_structured_log(self._scan_log_payload(payload, response, []))
+            self._log_scan(payload, response, [])
+            return response
+
+        ranked_matches = [self._visual_match_summary(match) for match in matches]
+        confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
+        review_disposition = "ready" if confidence != "low" else "needs_review"
+
+        encoded_candidates: list[dict[str, Any]] = []
+        scored_candidates: list[dict[str, Any]] = []
+        for index, match in enumerate(ranked_matches[:5]):
+            candidate_payload = self._raw_candidate_payload(
+                self._visual_candidate_stub(match),
+                ensure_cached=index == 0,
+                api_key=api_key,
+                refresh_pricing_if_missing=index == 0,
+            )
+            scored_candidates.append(
+                {
+                    "candidate": candidate_payload,
+                    "visualScore": match["similarity"],
+                    "reasons": ["visual_similarity"],
+                }
+            )
+            encoded_candidates.append(
+                {
+                    "rank": index + 1,
+                    "candidate": candidate_payload,
+                    "imageScore": match["similarity"],
+                    "collectorNumberScore": 0.0,
+                    "nameScore": 0.0,
+                    "finalScore": match["similarity"],
+                }
+            )
+
+        response = {
+            "scanID": payload["scanID"],
+            "topCandidates": encoded_candidates,
+            "confidence": confidence,
+            "ambiguityFlags": ambiguity_flags,
+            "matcherSource": "visualIndex",
+            "matcherVersion": MATCHER_VERSION,
+            "resolverMode": "raw_card",
+            "resolverPath": "visual_only_index",
+            "slabContext": None,
+            "reviewDisposition": review_disposition,
+            "reviewReason": None if confidence != "low" else "Visual-only candidates are ambiguous.",
+            "rawDecisionDebug": {
+                "visualOnly": {
+                    **debug,
+                    "candidateCount": len(ranked_matches),
+                    "topCandidates": ranked_matches[:5],
+                }
+            },
+        }
+        self._emit_structured_log(self._scan_log_payload(payload, response, scored_candidates))
+        self._log_scan(payload, response, scored_candidates)
+        return response
+
+    def _resolve_raw_candidates_visual_hybrid(
+        self,
+        payload: dict[str, Any],
+        *,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+
+        try:
+            matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=10)
+        except Exception as exc:
+            response = {
+                "scanID": payload["scanID"],
+                "topCandidates": [],
+                "confidence": "low",
+                "ambiguityFlags": [f"Visual+OCR resolver unavailable: {exc}"],
+                "matcherSource": "visualIndex",
+                "matcherVersion": MATCHER_VERSION,
+                "resolverMode": "raw_card",
+                "resolverPath": "visual_hybrid_unavailable",
+                "slabContext": None,
+                "reviewDisposition": "unsupported",
+                "reviewReason": "Visual+OCR resolver could not run.",
+                "rawDecisionDebug": {"visualHybrid": {"error": str(exc)}},
+            }
+            self._emit_structured_log(self._scan_log_payload(payload, response, []))
+            self._log_scan(payload, response, [])
+            return response
+
+        visual_matches = [self._visual_match_summary(match) for match in matches]
+        visual_candidates = [
+            {
+                **self._visual_candidate_stub(match),
+                "_visualSimilarity": float(match.get("similarity") or 0.0),
+            }
+            for match in visual_matches
+        ]
+
+        ranked_matches, weights = rank_visual_hybrid_candidates(visual_candidates, evidence, signals)
+        decision = finalize_raw_decision(ranked_matches, evidence, signals)
+        top_matches_debug = [
+            {
+                "id": match.card.get("id"),
+                "name": match.card.get("name"),
+                "number": match.card.get("number"),
+                "visualScore": round(match.retrieval_score, 4),
+                "ocrScore": round(match.resolution_score, 4),
+                "finalScore": round(match.final_total, 4),
+                "reasons": list(match.reasons),
+                "breakdown": {
+                    "titleOverlap": match.breakdown.title_overlap_score,
+                    "setOverlap": match.breakdown.set_overlap_score,
+                    "collectorExact": match.breakdown.collector_exact_score,
+                    "collectorPartial": match.breakdown.collector_partial_score,
+                    "collectorDenominator": match.breakdown.collector_denominator_score,
+                    "footerSupport": match.breakdown.footer_text_support_score,
+                    "promoSupport": match.breakdown.promo_support_score,
+                    "contradictionPenalty": match.breakdown.contradiction_penalty,
+                },
+            }
+            for match in ranked_matches[:5]
+        ]
+        debug_payload = {
+            "evidence": {
+                "titleTextPrimary": evidence.title_text_primary,
+                "titleTextSecondary": evidence.title_text_secondary,
+                "footerBandText": evidence.footer_band_text,
+                "collectorNumberExact": evidence.collector_number_exact,
+                "collectorNumberPartial": evidence.collector_number_partial,
+                "setHintTokens": list(evidence.set_hint_tokens),
+                "trustedSetHintTokens": list(evidence.trusted_set_hint_tokens),
+                "promoCodeHint": evidence.promo_code_hint,
+                "cropConfidence": evidence.crop_confidence,
+            },
+            "signals": {
+                "title": signals.title_signal,
+                "collector": signals.collector_signal,
+                "set": signals.set_signal,
+                "footer": signals.footer_signal,
+                "overall": signals.overall_signal,
+            },
+            "visualHybrid": {
+                **debug,
+                "candidateCount": len(visual_matches),
+                "visualWeight": weights["visualWeight"],
+                "ocrWeight": weights["ocrWeight"],
+                "topVisualCandidates": visual_matches[:10],
+            },
+            "topMatches": top_matches_debug,
+            "ambiguity": None,
+            "decision": {
+                "confidence": decision.confidence,
+                "confidencePercent": decision.confidence_percent,
+                "ambiguityFlags": list(decision.ambiguity_flags),
+                "reviewDisposition": decision.review_disposition,
+                "fallbackReason": decision.fallback_reason,
+                "selectedCardID": decision.selected_card_id,
+            },
+        }
+        decision = RawDecisionResult(
+            matches=decision.matches,
+            top_candidates=decision.top_candidates,
+            confidence=decision.confidence,
+            confidence_percent=decision.confidence_percent,
+            ambiguity_flags=decision.ambiguity_flags,
+            resolver_path="visual_hybrid_index",
+            review_disposition=decision.review_disposition,
+            review_reason=decision.review_reason,
+            fallback_reason=decision.fallback_reason,
+            selected_card_id=decision.selected_card_id,
+            debug_payload=debug_payload,
+        )
+        response, top_candidates = self._build_raw_match_response(payload, decision, api_key=api_key)
+        self._emit_structured_log(self._scan_log_payload(payload, response, top_candidates))
+        self._log_scan(payload, response, top_candidates)
+        return response
+
     def _slab_resolution_log_payload(
         self,
         payload: dict[str, Any],
@@ -1881,6 +2149,11 @@ class SpotlightScanService:
         self._emit_structured_log(self._scan_request_log_payload(payload))
         resolver_mode = resolver_mode_for_payload(payload)
         if resolver_mode == "raw_card":
+            raw_resolver_strategy = self._raw_resolver_strategy(payload)
+            if raw_resolver_strategy == "visual":
+                return self._resolve_raw_candidates_visual_only(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))
+            if raw_resolver_strategy == "hybrid":
+                return self._resolve_raw_candidates_visual_hybrid(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))
             return self._resolve_raw_candidates(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))
         if resolver_mode == "psa_slab":
             return self._resolve_slab_candidates(payload)

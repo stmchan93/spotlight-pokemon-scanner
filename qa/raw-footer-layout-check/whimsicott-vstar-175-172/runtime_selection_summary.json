@@ -1,0 +1,399 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "175\/172",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
+  },
+  "fixtureName" : "whimsicott-vstar-175-172",
+  "footerRouting" : {
+    "anchorIdentifier" : "175\/172",
+    "collectorAnchor" : {
+      "height" : 0.013011698244635883,
+      "width" : 0.08334609368897991,
+      "x" : 0.20268245501889623,
+      "y" : 0.8853274841662975
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
+      },
+      "text" : "weakness x2 resistance retreat ilus, Sban Graphics VSTAR rule When your Pokémon VSTAR 175\/172 is Knocked Out, your opponent takes 2 Prize cards. 02022 Pokemon \/Nintendu \/Creatures I GAME FREAX",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013607100675304169,
+            "width" : 0.08735341220634263,
+            "x" : 0.10777540591312312,
+            "y" : 0.8080297829032078
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020166666746822666,
+            "width" : 0.046131339241593725,
+            "x" : 0.23730765763732775,
+            "y" : 0.8065833334052924
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013241560424979558,
+            "width" : 0.0936519632894791,
+            "x" : 0.3397678118994191,
+            "y" : 0.8091292196970843
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010044844662904055,
+            "width" : 0.0668595145475928,
+            "x" : 0.6254670739341248,
+            "y" : 0.8134775776556598
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014819006605612844,
+            "width" : 0.16402252906520862,
+            "x" : 0.11557218431035421,
+            "y" : 0.8550143266475645
+          },
+          "text" : "ilus, Sban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0186871018723977,
+            "width" : 0.13376378790054994,
+            "x" : 0.43183668037183104,
+            "y" : 0.849489782521282
+          },
+          "text" : "VSTAR rule"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015583333012709288,
+            "width" : 0.24603380032239303,
+            "x" : 0.6473639969379967,
+            "y" : 0.8542500003161454
+          },
+          "text" : "When your Pokémon VSTAR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01301169824463592,
+            "width" : 0.08334609368897991,
+            "x" : 0.20268245501889623,
+            "y" : 0.8853274841662975
+          },
+          "text" : "175\/172"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016528891751964325,
+            "width" : 0.45618766190461524,
+            "x" : 0.4333658556687332,
+            "y" : 0.8744166669333252
+          },
+          "text" : "is Knocked Out, your opponent takes 2 Prize cards."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014813753581661886,
+            "width" : 0.3793020942604323,
+            "x" : 0.3231632096610927,
+            "y" : 0.9092263609262067
+          },
+          "text" : "02022 Pokemon \/Nintendu \/Creatures I GAME FREAX"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.007611012427043387,
+        "y" : 0.8409333332886154
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.10692255709644732,
+        "y" : 0.8458333332886154
+      },
+      "text" : "Illus. Sban Graphics 175\/172 D2022",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015878172588832482,
+            "width" : 0.1630783268047887,
+            "x" : 0.11678616486236362,
+            "y" : 0.854239424579783
+          },
+          "text" : "Illus. Sban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012432825466097912,
+            "width" : 0.08228090065925767,
+            "x" : 0.2022286902753002,
+            "y" : 0.8853834180376297
+          },
+          "text" : "175\/172"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009023590784992656,
+            "width" : 0.0467440061992139,
+            "x" : 0.3245513881520229,
+            "y" : 0.9116058018295232
+          },
+          "text" : "D2022"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.10442377628250302,
+        "y" : 0.8336733332886155
+      },
+      "text" : "illus: 5ban Gr F 17",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01164383561643835,
+            "width" : 0.111273833120959,
+            "x" : 0.11743826019425327,
+            "y" : 0.855097990820745
+          },
+          "text" : "illus: 5ban Gr"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017698630136986287,
+            "width" : 0.020172449279238187,
+            "x" : 0.16689329672280453,
+            "y" : 0.8769884017648297
+          },
+          "text" : "F"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012575342465753418,
+            "width" : 0.026028966811920223,
+            "x" : 0.20268312607070837,
+            "y" : 0.8853719635041977
+          },
+          "text" : "17"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18490978023188134,
+        "x" : 0.1519006117474455,
+        "y" : 0.8418333332886154
+      },
+      "text" : "Sban Graphics 175\/172",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013551401869158887,
+            "width" : 0.12022402672320201,
+            "x" : 0.15843452684439183,
+            "y" : 0.8563193145806715
+          },
+          "text" : "Sban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012266146579635474,
+            "width" : 0.08118118575085598,
+            "x" : 0.2034382127562788,
+            "y" : 0.8854666151732968
+          },
+          "text" : "175\/172"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.23011245122390345,
+        "y" : 0.8282333332886155
+      },
+      "text" : "aphics 5\/172",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013721622407963843,
+            "width" : 0.049851813035187716,
+            "x" : 0.23004800995502725,
+            "y" : 0.8555207520766851
+          },
+          "text" : "aphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012042451326825975,
+            "width" : 0.05570447574688728,
+            "x" : 0.2300275644070367,
+            "y" : 0.8856302491929668
+          },
+          "text" : "5\/172"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.18990734185977,
+        "x" : 0.14940183093350118,
+        "y" : 0.8408333332886154
+      },
+      "text" : "Sban Graphics F) 175\/172 D.",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014438356164383565,
+            "width" : 0.12396729260290543,
+            "x" : 0.15599583529569996,
+            "y" : 0.8557374428882418
+          },
+          "text" : "Sban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01863013698630137,
+            "width" : 0.021760216254765312,
+            "x" : 0.1691838456623736,
+            "y" : 0.8771621003402488
+          },
+          "text" : "F)"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012291368510625135,
+            "width" : 0.08194554834209833,
+            "x" : 0.20338272820283132,
+            "y" : 0.8856876489972326
+          },
+          "text" : "175\/172"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.006986301369863018,
+            "width" : 0.013847410343941557,
+            "x" : 0.3248023618702147,
+            "y" : 0.9134908675613894
+          },
+          "text" : "D."
+        }
+      ]
+    }
+  ],
+  "scanID" : "A8DDB791-C989-4961-B5F9-9C1F7CD14C69",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

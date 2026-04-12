@@ -1,0 +1,378 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "SWSH286",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
+  },
+  "fixtureName" : "pikachu-vmax-swsh286-slight-angle",
+  "footerRouting" : {
+    "anchorIdentifier" : "SWSH286",
+    "collectorAnchor" : {
+      "height" : 0.020894610342118702,
+      "width" : 0.10998546408872142,
+      "x" : 0.16314253015589567,
+      "y" : 0.8937583315138485
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
+      },
+      "text" : "retreat 【* weakness (5 X2 resistance When your Pokémen VMAX is Knocked Out, your opponent takes 3 Prize cards. VMAX rule illus. AKIRA EGAWA ★国 SWSH286 GAME ERE",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017483528159067757,
+            "width" : 0.07445689810965349,
+            "x" : 0.570574154225695,
+            "y" : 0.793925784515222
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.021999998557191872,
+            "width" : 0.04100563226630224,
+            "x" : 0.6934953358814444,
+            "y" : 0.783666667330779
+          },
+          "text" : "【*"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02906504043535379,
+            "width" : 0.16815026463901073,
+            "x" : 0.08719220005706838,
+            "y" : 0.8197073172059414
+          },
+          "text" : "weakness (5 X2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019249999038127914,
+            "width" : 0.09995123390268974,
+            "x" : 0.29112755118787914,
+            "y" : 0.8139166673401027
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03720873529385019,
+            "width" : 0.2764807893832914,
+            "x" : 0.6023015245899872,
+            "y" : 0.8201633430808879
+          },
+          "text" : "When your Pokémen VMAX"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.04914837900068835,
+            "width" : 0.4577095150836463,
+            "x" : 0.3524146237227902,
+            "y" : 0.8465786923394476
+          },
+          "text" : "is Knocked Out, your opponent takes 3 Prize cards."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.025015229495685232,
+            "width" : 0.1356831444603956,
+            "x" : 0.38203645385913465,
+            "y" : 0.8430266488435404
+          },
+          "text" : "VMAX rule"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.024994085142468998,
+            "width" : 0.15280291679167432,
+            "x" : 0.09499071420548377,
+            "y" : 0.8647193976036132
+          },
+          "text" : "illus. AKIRA EGAWA"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.025666666987290688,
+            "width" : 0.07175985730660128,
+            "x" : 0.09250651479979641,
+            "y" : 0.8936666664554288
+          },
+          "text" : "★国"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020894610342118664,
+            "width" : 0.10998546408872144,
+            "x" : 0.16314253015589567,
+            "y" : 0.8937583315138485
+          },
+          "text" : "SWSH286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012008596108772696,
+            "width" : 0.07432270911310196,
+            "x" : 0.5576641745107177,
+            "y" : 0.900999999757188
+          },
+          "text" : "GAME ERE"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.00024383721113155034,
+        "y" : 0.8533056366849078
+      },
+      "text" : "illus",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013933649289099528,
+            "width" : 0.025494669840091855,
+            "x" : 0.09633913118367146,
+            "y" : 0.8765283854684063
+          },
+          "text" : "illus"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.08070231743331752,
+        "y" : 0.8582056366849078
+      },
+      "text" : "illus. AKIRA EGAWA A f SWSH286",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.023630247706689207,
+            "width" : 0.15181257721704638,
+            "x" : 0.09584567617426262,
+            "y" : 0.8659823656695529
+          },
+          "text" : "illus. AKIRA EGAWA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03204479043253788,
+            "width" : 0.1899201275729599,
+            "x" : 0.09200995929864941,
+            "y" : 0.886762678931111
+          },
+          "text" : "A f SWSH286"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.07167150905546457,
+        "y" : 0.8460456366849078
+      },
+      "text" : "illus. AKIRA E A fSU",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01583561643835615,
+            "width" : 0.09929365865936729,
+            "x" : 0.09665931761246742,
+            "y" : 0.8711963215372366
+          },
+          "text" : "illus. AKIRA E"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.026547945205479456,
+            "width" : 0.10389667594821213,
+            "x" : 0.09205629990606315,
+            "y" : 0.8916894722314832
+          },
+          "text" : "A fSU"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.19797383535969856,
+        "x" : 0.11914834452040708,
+        "y" : 0.8542056366849078
+      },
+      "text" : "1. AKIRA EGAWA : f SWSH286",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02268683620702441,
+            "width" : 0.13058711968733006,
+            "x" : 0.11741394306251343,
+            "y" : 0.8666130642126832
+          },
+          "text" : "1. AKIRA EGAWA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.025233644859813078,
+            "width" : 0.1544195915805649,
+            "x" : 0.11914834503513903,
+            "y" : 0.8920561039310138
+          },
+          "text" : ": f SWSH286"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.2079254583107379,
+        "y" : 0.8406056366849078
+      },
+      "text" : "AWA SH286",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01207964601769911,
+            "width" : 0.03874514071059767,
+            "x" : 0.2079254582031125,
+            "y" : 0.8675525394068843
+          },
+          "text" : "AWA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016894799291560084,
+            "width" : 0.06646605741124557,
+            "x" : 0.20638435950011247,
+            "y" : 0.8937477271454933
+          },
+          "text" : "SH286"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.19797383535969856,
+        "x" : 0.11914834452040708,
+        "y" : 0.8532056366849078
+      },
+      "text" : "1. AKIRA EGAWA : f SWSH286",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.023557706911269925,
+            "width" : 0.13078287018371842,
+            "x" : 0.11729465283493729,
+            "y" : 0.866210098805637
+          },
+          "text" : "1. AKIRA EGAWA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.025616438356164374,
+            "width" : 0.15837906828775883,
+            "x" : 0.1191483441244594,
+            "y" : 0.8918631708399959
+          },
+          "text" : ": f SWSH286"
+        }
+      ]
+    }
+  ],
+  "scanID" : "4B3E697F-BD3F-4C85-8EC2-5C71757A7AC4",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_family_set_hints"
+  ],
+  "setConfidenceScore" : 0.62,
+  "setHintTokens" : [
+    "sh286",
+    "swsh286"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak"
+  ]
+}

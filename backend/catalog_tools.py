@@ -4,7 +4,7 @@ import json
 import re
 import sqlite3
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -59,6 +59,11 @@ class RawEvidence:
     promo_code_hint: str | None
     recognized_tokens: tuple[str, ...]
     crop_confidence: float
+    title_confidence_score: float
+    collector_confidence_score: float
+    set_confidence_score: float
+    used_fallback_normalization: bool
+    target_quality_score: float
 
 
 @dataclass(frozen=True)
@@ -214,7 +219,7 @@ def _raw_looks_like_japanese_provider_gap(evidence: RawEvidence) -> bool:
 
 
 def utc_now() -> str:
-    return datetime.now(UTC).isoformat()
+    return datetime.now(timezone.utc).isoformat()
 
 
 def connect(database_path: Path | str) -> sqlite3.Connection:
@@ -422,6 +427,24 @@ def _payload_raw_evidence(payload: dict[str, Any]) -> dict[str, Any]:
     return raw_evidence if isinstance(raw_evidence, dict) else {}
 
 
+def _payload_normalized_target(payload: dict[str, Any]) -> dict[str, Any]:
+    ocr_analysis = payload.get("ocrAnalysis") or {}
+    if not isinstance(ocr_analysis, dict):
+        return {}
+    normalized_target = ocr_analysis.get("normalizedTarget") or {}
+    return normalized_target if isinstance(normalized_target, dict) else {}
+
+
+def _ocr_confidence_score(value: Any) -> float:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, dict):
+        score = value.get("score")
+        if isinstance(score, (int, float)):
+            return float(score)
+    return 0.0
+
+
 def _recognized_token_texts(payload: dict[str, Any]) -> tuple[str, ...]:
     normalized: list[str] = []
     for token in payload.get("recognizedTokens") or []:
@@ -438,6 +461,7 @@ def _recognized_token_texts(payload: dict[str, Any]) -> tuple[str, ...]:
 
 def build_raw_evidence(payload: dict[str, Any]) -> RawEvidence:
     raw_evidence = _payload_raw_evidence(payload)
+    normalized_target = _payload_normalized_target(payload)
     title_primary = str(raw_evidence.get("titleTextPrimary") or "").strip()
     title_secondary = str(raw_evidence.get("titleTextSecondary") or "").strip()
     whole_card_text = str(raw_evidence.get("wholeCardText") or "").strip()
@@ -460,6 +484,14 @@ def build_raw_evidence(payload: dict[str, Any]) -> RawEvidence:
     promo_code_hint = str(payload.get("promoCodeHint") or "").strip() or None
     recognized_tokens = _recognized_token_texts(payload)
     recognized_text = " ".join(part for part in [whole_card_text, footer_band_text] if part).strip()
+    target_quality_payload = normalized_target.get("targetQuality") or {}
+    target_quality_score = 0.0
+    if isinstance(target_quality_payload, dict):
+        overall_score = target_quality_payload.get("overallScore")
+        if isinstance(overall_score, (int, float)):
+            target_quality_score = float(overall_score)
+    if target_quality_score <= 0.0:
+        target_quality_score = float(payload.get("cropConfidence") or 0.0)
     return RawEvidence(
         title_text_primary=title_primary,
         title_text_secondary=title_secondary,
@@ -476,6 +508,11 @@ def build_raw_evidence(payload: dict[str, Any]) -> RawEvidence:
         promo_code_hint=promo_code_hint,
         recognized_tokens=recognized_tokens,
         crop_confidence=float(payload.get("cropConfidence") or 0.0),
+        title_confidence_score=_ocr_confidence_score(raw_evidence.get("titleConfidence")),
+        collector_confidence_score=_ocr_confidence_score(raw_evidence.get("collectorConfidence")),
+        set_confidence_score=_ocr_confidence_score(raw_evidence.get("setConfidence")),
+        used_fallback_normalization=bool(normalized_target.get("usedFallback") or False),
+        target_quality_score=target_quality_score,
     )
 
 
@@ -831,7 +868,7 @@ def fx_rate_snapshot_for_pair(
     if updated_at:
         try:
             refreshed = datetime.fromisoformat(str(updated_at))
-            is_fresh = datetime.now(UTC) - refreshed <= timedelta(hours=24)
+            is_fresh = datetime.now(timezone.utc) - refreshed <= timedelta(hours=24)
         except ValueError:
             is_fresh = False
     return {
@@ -881,7 +918,7 @@ def price_snapshot_for_card(
     if updated_at:
         try:
             refreshed = datetime.fromisoformat(str(updated_at))
-            is_fresh = datetime.now(UTC) - refreshed <= timedelta(hours=24)
+            is_fresh = datetime.now(timezone.utc) - refreshed <= timedelta(hours=24)
         except ValueError:
             is_fresh = False
     payload = _json_load(row["source_payload_json"], {})
@@ -1506,6 +1543,222 @@ def rank_raw_candidates(
     return ranked
 
 
+def visual_hybrid_weights(signals: RawSignalScores) -> tuple[float, float]:
+    ocr_weight = 0.12
+    if signals.collector_signal >= 95:
+        ocr_weight += 0.08
+    elif signals.collector_signal >= 60:
+        ocr_weight += 0.05
+    if signals.set_signal >= 75:
+        ocr_weight += 0.05
+    elif signals.set_signal >= 65:
+        ocr_weight += 0.03
+    if signals.title_signal >= 80:
+        ocr_weight += 0.05
+    elif signals.title_signal >= 35:
+        ocr_weight += 0.02
+
+    ocr_weight = min(0.30, max(0.12, ocr_weight))
+    visual_weight = round(1.0 - ocr_weight, 4)
+    return visual_weight, round(ocr_weight, 4)
+
+
+def _hybrid_visual_leader_state(candidates: list[dict[str, Any]]) -> tuple[str | None, float, float, bool]:
+    if not candidates:
+        return None, 0.0, 0.0, False
+    ranked = sorted(
+        candidates,
+        key=lambda candidate: -float(candidate.get("_visualSimilarity") or 0.0),
+    )
+    leader = ranked[0]
+    leader_id = str(leader.get("id") or "")
+    leader_similarity = float(leader.get("_visualSimilarity") or 0.0)
+    runner_up_similarity = float(ranked[1].get("_visualSimilarity") or 0.0) if len(ranked) > 1 else 0.0
+    leader_margin = max(0.0, leader_similarity - runner_up_similarity)
+    is_protected = leader_similarity >= 0.80 and leader_margin >= 0.01
+    return leader_id or None, leader_similarity, leader_margin, is_protected
+
+
+def _has_strong_hybrid_corroboration(breakdown: RawCandidateScoreBreakdown) -> bool:
+    if breakdown.collector_exact_score > 0.0:
+        return True
+    if breakdown.title_overlap_score > 0.0 and (
+        breakdown.collector_partial_score > 0.0
+        or breakdown.footer_text_support_score > 0.0
+    ):
+        return True
+    return False
+
+
+def _cap_hybrid_resolution_breakdown(
+    breakdown: RawCandidateScoreBreakdown,
+    retrieval_total: float,
+    resolution_total: float,
+    final_total: float,
+    cap: float,
+) -> RawCandidateScoreBreakdown:
+    if resolution_total <= cap or resolution_total <= 0.0:
+        return RawCandidateScoreBreakdown(
+            title_overlap_score=breakdown.title_overlap_score,
+            set_overlap_score=breakdown.set_overlap_score,
+            collector_exact_score=breakdown.collector_exact_score,
+            collector_partial_score=breakdown.collector_partial_score,
+            collector_denominator_score=breakdown.collector_denominator_score,
+            footer_text_support_score=breakdown.footer_text_support_score,
+            promo_support_score=breakdown.promo_support_score,
+            cache_presence_score=breakdown.cache_presence_score,
+            contradiction_penalty=breakdown.contradiction_penalty,
+            retrieval_total=round(retrieval_total, 4),
+            resolution_total=round(resolution_total, 4),
+            final_total=round(final_total, 4),
+        )
+
+    factor = cap / max(resolution_total, 0.0001)
+    return RawCandidateScoreBreakdown(
+        title_overlap_score=round(breakdown.title_overlap_score * factor, 4),
+        set_overlap_score=round(breakdown.set_overlap_score * factor, 4),
+        collector_exact_score=round(breakdown.collector_exact_score * factor, 4),
+        collector_partial_score=round(breakdown.collector_partial_score * factor, 4),
+        collector_denominator_score=round(breakdown.collector_denominator_score * factor, 4),
+        footer_text_support_score=round(breakdown.footer_text_support_score * factor, 4),
+        promo_support_score=round(breakdown.promo_support_score * factor, 4),
+        cache_presence_score=round(breakdown.cache_presence_score * factor, 4),
+        contradiction_penalty=round(breakdown.contradiction_penalty * factor, 4),
+        retrieval_total=round(retrieval_total, 4),
+        resolution_total=round(cap, 4),
+        final_total=round(final_total, 4),
+    )
+
+
+def _hybrid_set_confidence_multiplier(evidence: RawEvidence, breakdown: RawCandidateScoreBreakdown) -> float:
+    if breakdown.set_overlap_score <= 0.0:
+        return 1.0
+    if evidence.set_confidence_score <= 0.30:
+        return 0.25
+    if evidence.set_confidence_score < 0.48:
+        return 0.60
+    return 1.0
+
+
+def _apply_hybrid_set_confidence(
+    breakdown: RawCandidateScoreBreakdown,
+    resolution_total: float,
+    evidence: RawEvidence,
+) -> tuple[RawCandidateScoreBreakdown, float, float]:
+    multiplier = _hybrid_set_confidence_multiplier(evidence, breakdown)
+    if abs(multiplier - 1.0) < 0.0001:
+        return breakdown, resolution_total, 1.0
+
+    adjusted_set_overlap = round(breakdown.set_overlap_score * multiplier, 4)
+    adjusted_resolution_total = round(
+        resolution_total - breakdown.set_overlap_score + adjusted_set_overlap,
+        4,
+    )
+    return (
+        RawCandidateScoreBreakdown(
+            title_overlap_score=breakdown.title_overlap_score,
+            set_overlap_score=adjusted_set_overlap,
+            collector_exact_score=breakdown.collector_exact_score,
+            collector_partial_score=breakdown.collector_partial_score,
+            collector_denominator_score=breakdown.collector_denominator_score,
+            footer_text_support_score=breakdown.footer_text_support_score,
+            promo_support_score=breakdown.promo_support_score,
+            cache_presence_score=breakdown.cache_presence_score,
+            contradiction_penalty=breakdown.contradiction_penalty,
+            retrieval_total=breakdown.retrieval_total,
+            resolution_total=adjusted_resolution_total,
+            final_total=breakdown.final_total,
+        ),
+        adjusted_resolution_total,
+        multiplier,
+    )
+
+
+def rank_visual_hybrid_candidates(
+    candidates: list[dict[str, Any]],
+    evidence: RawEvidence,
+    signals: RawSignalScores,
+) -> tuple[list[RawCandidateMatch], dict[str, float]]:
+    visual_weight, ocr_weight = visual_hybrid_weights(signals)
+    visual_leader_id, visual_leader_similarity, visual_leader_margin, leader_protection_active = _hybrid_visual_leader_state(candidates)
+    ranked: list[RawCandidateMatch] = []
+    protected_candidate_cap = 12.0
+
+    for candidate in candidates:
+        visual_similarity = float(candidate.get("_visualSimilarity") or 0.0)
+        visual_score = max(0.0, min(100.0, round(visual_similarity * 100.0, 4)))
+        resolution_score, breakdown, reasons = score_raw_candidate_resolution(candidate, evidence)
+        breakdown, resolution_score, set_confidence_multiplier = _apply_hybrid_set_confidence(
+            breakdown,
+            resolution_score,
+            evidence,
+        )
+        protection_applied = False
+        if (
+            leader_protection_active
+            and str(candidate.get("id") or "") != visual_leader_id
+            and not _has_strong_hybrid_corroboration(breakdown)
+            and resolution_score > protected_candidate_cap
+        ):
+            resolution_score = protected_candidate_cap
+            protection_applied = True
+        final_total = max(
+            0.0,
+            min(
+                100.0,
+                round((visual_score * visual_weight) + (resolution_score * ocr_weight), 4),
+            ),
+        )
+        adjusted_breakdown = _cap_hybrid_resolution_breakdown(
+            breakdown,
+            retrieval_total=visual_score,
+            resolution_total=resolution_score,
+            final_total=final_total,
+            cap=protected_candidate_cap if protection_applied else resolution_score,
+        )
+        reason_tokens = ["visual_similarity", *reasons]
+        if set_confidence_multiplier < 1.0:
+            reason_tokens.append("set_confidence_dampened")
+        if protection_applied:
+            reason_tokens.append("visual_leader_protected")
+        ranked.append(
+            RawCandidateMatch(
+                card=candidate,
+                retrieval_score=visual_score,
+                resolution_score=round(resolution_score, 4),
+                final_total=final_total,
+                breakdown=adjusted_breakdown,
+                reasons=tuple(dict.fromkeys(reason_tokens)),
+            )
+        )
+
+    ranked.sort(key=lambda match: (-match.final_total, match.card["name"], match.card["number"]))
+    return ranked, {
+        "visualWeight": visual_weight,
+        "ocrWeight": ocr_weight,
+        "visualLeaderProtectionActive": 1.0 if leader_protection_active else 0.0,
+        "visualLeaderSimilarity": round(visual_leader_similarity, 6),
+        "visualLeaderMargin": round(visual_leader_margin, 6),
+        "setConfidenceMultiplier": _hybrid_set_confidence_multiplier(
+            evidence,
+            RawCandidateScoreBreakdown(
+                title_overlap_score=0.0,
+                set_overlap_score=1.0,
+                collector_exact_score=0.0,
+                collector_partial_score=0.0,
+                collector_denominator_score=0.0,
+                footer_text_support_score=0.0,
+                promo_support_score=0.0,
+                cache_presence_score=0.0,
+                contradiction_penalty=0.0,
+                retrieval_total=0.0,
+                resolution_total=0.0,
+                final_total=0.0,
+            ),
+        ),
+    }
+
+
 def compute_raw_confidence(matches: list[RawCandidateMatch], signals: RawSignalScores) -> tuple[str, float, tuple[str, ...], str | None]:
     if not matches:
         return "low", 0.0, ("No candidates were available.",), "no_candidates"
@@ -1646,6 +1899,11 @@ def raw_debug_payload(
             "trustedSetHintTokens": list(evidence.trusted_set_hint_tokens),
             "promoCodeHint": evidence.promo_code_hint,
             "cropConfidence": evidence.crop_confidence,
+            "titleConfidenceScore": evidence.title_confidence_score,
+            "collectorConfidenceScore": evidence.collector_confidence_score,
+            "setConfidenceScore": evidence.set_confidence_score,
+            "usedFallbackNormalization": evidence.used_fallback_normalization,
+            "targetQualityScore": evidence.target_quality_score,
         },
         "signals": {
             "title": signals.title_signal,

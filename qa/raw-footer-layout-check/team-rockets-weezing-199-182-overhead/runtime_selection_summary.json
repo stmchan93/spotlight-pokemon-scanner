@@ -1,0 +1,295 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_partial_collector_hint"
+  ],
+  "collectorConfidenceScore" : 0.42,
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9996031746031746,
+    "x" : 0.0001984126984126984,
+    "y" : 0
+  },
+  "fixtureName" : "team-rockets-weezing-199-182-overhead",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "normalization:holder_inner_card_inset_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.8727646147863436,
+  "ocrUsedFallback" : false,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.8996428571428572,
+        "x" : 0.050178571428571433,
+        "y" : 0.76
+      },
+      "text" : "Explode Together Now n40 3 attackidoes 40 damage for each Pokemon in play that \"Koffing\"lor\"Weezing\" in its name (both yours and your bonentis)5",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.042633228840125395,
+            "width" : 0.5549744744601154,
+            "x" : 0.23594898889201618,
+            "y" : 0.7600000004366653
+          },
+          "text" : "Explode Together Now"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.038333333173889345,
+            "width" : 0.09931122640677127,
+            "x" : 0.8411632641274425,
+            "y" : 0.7600000002271579
+          },
+          "text" : "n40"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.052025008724774696,
+            "width" : 0.8939097435829644,
+            "x" : 0.04945017404156778,
+            "y" : 0.7974877801672976
+          },
+          "text" : "3 attackidoes 40 damage for each Pokemon in play that"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.046846551207539444,
+            "width" : 0.889844482937533,
+            "x" : 0.04978036597278522,
+            "y" : 0.8301993003540421
+          },
+          "text" : "\"Koffing\"lor\"Weezing\" in its name (both yours and your"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.030128457478968685,
+            "width" : 0.14874926003076697,
+            "x" : 0.0499952669981421,
+            "y" : 0.8695191047960534
+          },
+          "text" : "bonentis)5"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13794523809523812,
+        "x" : 0.07081038095238094,
+        "y" : 0.8451
+      },
+      "text" : "Nouting nents)g",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021100478468899512,
+            "width" : 0.12683116677950804,
+            "x" : 0.07081038140534938,
+            "y" : 0.8450999999648325
+          },
+          "text" : "Nouting"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.025320574162679427,
+            "width" : 0.12683116677950804,
+            "x" : 0.07081038112839563,
+            "y" : 0.8713583731083547
+          },
+          "text" : "nents)g"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.27489087301587306,
+        "x" : 0.17013095238095238,
+        "y" : 0.85
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12495039682539683,
+        "x" : 0.6724315476190476,
+        "y" : 0.84184
+      },
+      "text" : "oth your",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02934246575342466,
+            "width" : 0.122998046875,
+            "x" : 0.6724315480034164,
+            "y" : 0.8441687671043665
+          },
+          "text" : "oth your"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.1849265873015873,
+        "x" : 0.7199126984126983,
+        "y" : 0.85
+      },
+      "text" : "Apup sinok",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02748817335372853,
+            "width" : 0.17643172640080768,
+            "x" : 0.7199126989027864,
+            "y" : 0.8499999890893284
+          },
+          "text" : "Apup sinok"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11495436507936509,
+        "x" : 0.7856366071428572,
+        "y" : 0.8294
+      },
+      "text" : "Sar",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01393805309734513,
+            "width" : 0.05618556046013912,
+            "x" : 0.7856366074044107,
+            "y" : 0.851236283255531
+          },
+          "text" : "Sar"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.1899246031746032,
+        "x" : 0.7049186507936508,
+        "y" : 0.842
+      },
+      "text" : "byours and y",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03306849315068492,
+            "width" : 0.18926514274691358,
+            "x" : 0.7049186520795986,
+            "y" : 0.8457260271610567
+          },
+          "text" : "byours and y"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.7996825396825398,
+        "x" : 0.10015873015873017,
+        "y" : 0.02
+      },
+      "text" : "1 Rocke 1500",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021141311853818918,
+            "width" : 0.09270646419574807,
+            "x" : 0.24031324890659295,
+            "y" : 0.025360210303261722
+          },
+          "text" : "1 Rocke"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01703353504272043,
+            "width" : 0.056948107969874026,
+            "x" : 0.4180251450609178,
+            "y" : 0.03289363526177792
+          },
+          "text" : "1500"
+        }
+      ]
+    }
+  ],
+  "scanID" : "42A25CCD-3161-41C6-81A9-C66BB9E78660",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_family_set_hints"
+  ],
+  "setConfidenceScore" : 0.56,
+  "setHintTokens" : [
+    "lor",
+    "n40",
+    "par"
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Raw scene looks holder-like",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

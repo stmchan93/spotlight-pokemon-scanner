@@ -49,17 +49,17 @@
         "x" : 0.07064000000000001,
         "y" : 0.8450387251420455
       },
-      "text" : "9T",
+      "text" : "J7",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013167622058030903,
             "width" : 0.031388235294117654,
             "x" : 0.07713411758521009,
             "y" : 0.9286918534636852
           },
-          "text" : "9T"
+          "text" : "J7"
         }
       ]
     },
@@ -158,7 +158,7 @@
       ]
     }
   ],
-  "scanID" : "9B618D98-7DCF-43F6-B9C4-E81695892DDF",
+  "scanID" : "E2B7B66A-B6A4-4152-B4DB-8BE25F537934",
   "setConfidenceReasons" : [
 
   ],

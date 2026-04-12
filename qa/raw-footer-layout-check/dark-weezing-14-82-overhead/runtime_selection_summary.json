@@ -1,0 +1,169 @@
+{
+  "collectorConfidenceReasons" : [
+
+  ],
+  "contentRectNormalized" : {
+    "height" : 0.5887667660208644,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.20561661698956782
+  },
+  "fixtureName" : "dark-weezing-14-82-overhead",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "normalization:relaxed_rectangle_detector_promoted"
+  ],
+  "ocrTargetQualityScore" : 0.8176582189482808,
+  "ocrUsedFallback" : false,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.12952868852459018,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.6648546944858421
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.057699143070044714,
+        "width" : 0.138,
+        "x" : 0.07064000000000001,
+        "y" : 0.7031834109538003
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.05416654247391953,
+        "width" : 0.275,
+        "x" : 0.17,
+        "y" : 0.7060683681073026
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.060054210134128164,
+        "width" : 0.125,
+        "x" : 0.6725,
+        "y" : 0.7012640312965723
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.058876676602086446,
+        "width" : 0.185,
+        "x" : 0.72,
+        "y" : 0.7060683681073026
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.061820510432190764,
+        "width" : 0.115,
+        "x" : 0.7857500000000001,
+        "y" : 0.6939397727272728
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.060054210134128164,
+        "width" : 0.19,
+        "x" : 0.705,
+        "y" : 0.7013582339791357
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.11775335320417289,
+        "width" : 0.92,
+        "x" : 0.04,
+        "y" : 0.20561661698956782
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    }
+  ],
+  "scanID" : "E8B3DBF4-A421-4589-B0CF-D34307C64547",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Rewrite raw escalation used focused ROIs",
+    "Could not read strong raw-card clues",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

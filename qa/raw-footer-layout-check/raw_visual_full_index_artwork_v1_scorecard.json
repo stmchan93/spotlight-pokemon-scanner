@@ -1,0 +1,3594 @@
+{
+  "generatedAt": "2026-04-12T00:02:04Z",
+  "modelId": "openai/clip-vit-base-patch32",
+  "embeddingDimension": 512,
+  "topK": 5,
+  "cropPreset": "artwork_v1",
+  "cropBoxNormalized": [
+    0.047619047619047616,
+    0.09090909090909091,
+    0.9047619047619048,
+    0.5
+  ],
+  "referenceMode": "prebuilt_full_index",
+  "indexNpzPath": "/Users/stephenchan/Code/spotlight/backend/data/visual-index/visual_index_v001_artwork_v1_clip-vit-base-patch32.npz",
+  "indexManifestPath": "/Users/stephenchan/Code/spotlight/backend/data/visual-index/visual_index_v001_artwork_v1_manifest.json",
+  "providerSupportedFixtureCount": 47,
+  "providerUnsupportedFixtureCount": 20,
+  "top1PassCount": 15,
+  "topKContainsTruthCount": 26,
+  "top1PassRate": 0.3191489361702128,
+  "topKContainsTruthRate": 0.5531914893617021,
+  "entries": [
+    {
+      "fixtureName": "blastoise-ex-200-165",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Blastoise ex",
+        "collectorNumber": "200/165",
+        "setCode": "MEW",
+        "providerCardId": "sv3pt5-200"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh7-176",
+          "providerName": "Arctovish V",
+          "providerCollectorNumber": "176/203",
+          "providerSetId": "swsh7",
+          "providerSetPtcgoCode": "EVS",
+          "providerSetName": "Evolving Skies",
+          "similarity": 0.815222,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "rsv10pt5-158",
+          "providerName": "Reshiram ex",
+          "providerCollectorNumber": "158/86",
+          "providerSetId": "rsv10pt5",
+          "providerSetPtcgoCode": "WHT",
+          "providerSetName": "White Flare",
+          "similarity": 0.812324,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "xy6-101",
+          "providerName": "Latios-EX",
+          "providerCollectorNumber": "101/108",
+          "providerSetId": "xy6",
+          "providerSetPtcgoCode": "ROS",
+          "providerSetName": "Roaring Skies",
+          "similarity": 0.8041,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swsh2-187",
+          "providerName": "Copperajah V",
+          "providerCollectorNumber": "187/192",
+          "providerSetId": "swsh2",
+          "providerSetPtcgoCode": "RCL",
+          "providerSetName": "Rebel Clash",
+          "similarity": 0.802817,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swshp-SWSH050",
+          "providerName": "Charizard V",
+          "providerCollectorNumber": "SWSH050",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.79297,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "clive-227-091",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Clive",
+        "collectorNumber": "227/091",
+        "setCode": "PAF"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "counter-gain-249-191",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Counter Gain",
+        "collectorNumber": "249/191",
+        "setCode": "SSP",
+        "providerCardId": "sv8-249"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex16-105",
+          "providerName": "Water Energy",
+          "providerCollectorNumber": "105/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.840699,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "g1-81",
+          "providerName": "Darkness Energy",
+          "providerCollectorNumber": "81/83",
+          "providerSetId": "g1",
+          "providerSetPtcgoCode": "GEN",
+          "providerSetName": "Generations",
+          "similarity": 0.831177,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "ex16-103",
+          "providerName": "Grass Energy",
+          "providerCollectorNumber": "103/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.815655,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex16-107",
+          "providerName": "Psychic Energy",
+          "providerCollectorNumber": "107/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.808794,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "xy1-138",
+          "providerName": "Darkness Energy",
+          "providerCollectorNumber": "138/146",
+          "providerSetId": "xy1",
+          "providerSetPtcgoCode": "XY",
+          "providerSetName": "XY",
+          "similarity": 0.806804,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "dark-weezing-14-82",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Dark Weezing",
+        "collectorNumber": "14/82",
+        "setCode": "TR",
+        "providerCardId": "base5-14"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "base5-36",
+          "providerName": "Dark Gloom",
+          "providerCollectorNumber": "36/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.737006,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base2-37",
+          "providerName": "Gloom",
+          "providerCollectorNumber": "37/64",
+          "providerSetId": "base2",
+          "providerSetPtcgoCode": "JU",
+          "providerSetName": "Jungle",
+          "similarity": 0.724289,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "gym2-50",
+          "providerName": "Koga's Weezing",
+          "providerCollectorNumber": "50/132",
+          "providerSetId": "gym2",
+          "providerSetPtcgoCode": "G2",
+          "providerSetName": "Gym Challenge",
+          "similarity": 0.719501,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.718722,
+          "isTruth": true
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base4-55",
+          "providerName": "Parasect",
+          "providerCollectorNumber": "55/130",
+          "providerSetId": "base4",
+          "providerSetPtcgoCode": "B2",
+          "providerSetName": "Base Set 2",
+          "similarity": 0.710022,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "dark-weezing-14-82-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Dark Weezing",
+        "collectorNumber": "14/82",
+        "setCode": "TR",
+        "providerCardId": "base5-14"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-234",
+          "providerName": "Oinkologne ex",
+          "providerCollectorNumber": "234/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.865735,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh12-135",
+          "providerName": "Regidrago V",
+          "providerCollectorNumber": "135/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.833706,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "rsv10pt5-158",
+          "providerName": "Reshiram ex",
+          "providerCollectorNumber": "158/86",
+          "providerSetId": "rsv10pt5",
+          "providerSetPtcgoCode": "WHT",
+          "providerSetName": "White Flare",
+          "similarity": 0.831804,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swsh45-51",
+          "providerName": "Ditto VMAX",
+          "providerCollectorNumber": "51/72",
+          "providerSetId": "swsh45",
+          "providerSetPtcgoCode": "SHF",
+          "providerSetName": "Shining Fates",
+          "similarity": 0.83049,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh1-141",
+          "providerName": "Snorlax V",
+          "providerCollectorNumber": "141/202",
+          "providerSetId": "swsh1",
+          "providerSetPtcgoCode": "SSH",
+          "providerSetName": "Sword & Shield",
+          "similarity": 0.824155,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "dark-weezing-14-82-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Dark Weezing",
+        "collectorNumber": "14/82",
+        "setCode": "TR",
+        "providerCardId": "base5-14"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex1-96",
+          "providerName": "Chansey ex",
+          "providerCollectorNumber": "96/109",
+          "providerSetId": "ex1",
+          "providerSetPtcgoCode": "RS",
+          "providerSetName": "Ruby & Sapphire",
+          "similarity": 0.818353,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.816098,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base5-21",
+          "providerName": "Dark Charizard",
+          "providerCollectorNumber": "21/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.814643,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-31",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "31/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.811008,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-36",
+          "providerName": "Dark Gloom",
+          "providerCollectorNumber": "36/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.808961,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "dark-weezing-14-82-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Dark Weezing",
+        "collectorNumber": "14/82",
+        "setCode": "TR",
+        "providerCardId": "base5-14"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "base5-36",
+          "providerName": "Dark Gloom",
+          "providerCollectorNumber": "36/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.7752,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "ex15-14",
+          "providerName": "Cloyster \u03b4",
+          "providerCollectorNumber": "14/101",
+          "providerSetId": "ex15",
+          "providerSetPtcgoCode": "DF",
+          "providerSetName": "Dragon Frontiers",
+          "similarity": 0.757123,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base4-55",
+          "providerName": "Parasect",
+          "providerCollectorNumber": "55/130",
+          "providerSetId": "base4",
+          "providerSetPtcgoCode": "B2",
+          "providerSetName": "Base Set 2",
+          "similarity": 0.750391,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.743772,
+          "isTruth": true
+        },
+        {
+          "rank": 5,
+          "providerCardId": "dpp-DP24",
+          "providerName": "Darkrai",
+          "providerCollectorNumber": "DP24",
+          "providerSetId": "dpp",
+          "providerSetPtcgoCode": "PR-DPP",
+          "providerSetName": "DP Black Star Promos",
+          "similarity": 0.741521,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "eevee-and-snorlax-gx-066-095-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Eevee & Snorlax GX",
+        "collectorNumber": "066/095",
+        "setCode": "SM9"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "eevee-and-snorlax-gx-066-095-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Eevee & Snorlax GX",
+        "collectorNumber": "066/095",
+        "setCode": "SM9"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "eevee-and-snorlax-gx-066-095-steep-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Eevee & Snorlax GX",
+        "collectorNumber": "066/095",
+        "setCode": "SM9"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "ionos-bellibolt-ex-057-193",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iono's Bellibolt ex",
+        "collectorNumber": "057/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "ionos-bellibolt-ex-057-193-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iono's Bellibolt ex",
+        "collectorNumber": "057/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "ionos-bellibolt-ex-057-193-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iono's Bellibolt ex",
+        "collectorNumber": "057/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "ionos-bellibolt-ex-057-193-steep-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iono's Bellibolt ex",
+        "collectorNumber": "057/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "iron-leaves-ex-213-162",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iron Leaves ex",
+        "collectorNumber": "213/162",
+        "setCode": "TEF",
+        "providerCardId": "sv5-213"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv5-25",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "25/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.832437,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv5-213",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "213/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.830576,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "ex12-88",
+          "providerName": "Mew ex",
+          "providerCollectorNumber": "88/92",
+          "providerSetId": "ex12",
+          "providerSetPtcgoCode": "LM",
+          "providerSetName": "Legend Maker",
+          "similarity": 0.813659,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv5-186",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "186/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.806664,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "pl2-103",
+          "providerName": "Alakazam E4 LV.X",
+          "providerCollectorNumber": "103/111",
+          "providerSetId": "pl2",
+          "providerSetPtcgoCode": "RR",
+          "providerSetName": "Rising Rivals",
+          "similarity": 0.80433,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "lt-surges-bargain-185-132",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Lt. Surge's Bargain",
+        "collectorNumber": "185/132",
+        "setCode": "MEG",
+        "providerCardId": "me1-185"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex16-105",
+          "providerName": "Water Energy",
+          "providerCollectorNumber": "105/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.788439,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh2-187",
+          "providerName": "Copperajah V",
+          "providerCollectorNumber": "187/192",
+          "providerSetId": "swsh2",
+          "providerSetPtcgoCode": "RCL",
+          "providerSetName": "Rebel Clash",
+          "similarity": 0.78549,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh3-184",
+          "providerName": "Galarian Stunfisk V",
+          "providerCollectorNumber": "184/189",
+          "providerSetId": "swsh3",
+          "providerSetPtcgoCode": "DAA",
+          "providerSetName": "Darkness Ablaze",
+          "similarity": 0.768728,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swsh45sv-SV108",
+          "providerName": "Centiskorch V",
+          "providerCollectorNumber": "SV108/122",
+          "providerSetId": "swsh45sv",
+          "providerSetPtcgoCode": "SHF",
+          "providerSetName": "Shining Fates Shiny Vault",
+          "similarity": 0.76664,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh6-175",
+          "providerName": "Sandaconda V",
+          "providerCollectorNumber": "175/198",
+          "providerSetId": "swsh6",
+          "providerSetPtcgoCode": "CRE",
+          "providerSetName": "Chilling Reign",
+          "similarity": 0.762473,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "lt-surges-bargain-185-132-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Lt. Surge's Bargain",
+        "collectorNumber": "185/132",
+        "setCode": "MEG",
+        "providerCardId": "me1-185"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "me1-185",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "185/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "similarity": 0.819582,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "me1-120",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "120/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "similarity": 0.713234,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "me1-170",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "170/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "similarity": 0.686095,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "gym1-101",
+          "providerName": "Lt. Surge",
+          "providerCollectorNumber": "101/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.618791,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sm10-178",
+          "providerName": "Lt. Surge's Strategy",
+          "providerCollectorNumber": "178/214",
+          "providerSetId": "sm10",
+          "providerSetPtcgoCode": "UNB",
+          "providerSetName": "Unbroken Bonds",
+          "similarity": 0.609929,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "lt-surges-bargain-185-132-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Lt. Surge's Bargain",
+        "collectorNumber": "185/132",
+        "setCode": "MEG",
+        "providerCardId": "me1-185"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "me1-185",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "185/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "similarity": 0.726466,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh11-207",
+          "providerName": "Iscan",
+          "providerCollectorNumber": "207/196",
+          "providerSetId": "swsh11",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin",
+          "similarity": 0.588105,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "ex12-69",
+          "providerName": "Wailmer",
+          "providerCollectorNumber": "69/92",
+          "providerSetId": "ex12",
+          "providerSetPtcgoCode": "LM",
+          "providerSetName": "Legend Maker",
+          "similarity": 0.582692,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "me1-120",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "120/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "similarity": 0.582465,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "dp6-123",
+          "providerName": "Swinub",
+          "providerCollectorNumber": "123/146",
+          "providerSetId": "dp6",
+          "providerSetPtcgoCode": "LA",
+          "providerSetName": "Legends Awakened",
+          "similarity": 0.57504,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "lugia-legend-113-123",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Lugia LEGEND",
+        "collectorNumber": "113/123",
+        "setCode": "HS",
+        "providerCardId": "hgss1-113"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-114",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "114/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.840076,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "hgss2-93",
+          "providerName": "Raikou & Suicune LEGEND",
+          "providerCollectorNumber": "93/95",
+          "providerSetId": "hgss2",
+          "providerSetPtcgoCode": "UL",
+          "providerSetName": "HS\u2014Unleashed",
+          "similarity": 0.824351,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "hgss3-87",
+          "providerName": "Kyogre & Groudon LEGEND",
+          "providerCollectorNumber": "87/90",
+          "providerSetId": "hgss3",
+          "providerSetPtcgoCode": "UD",
+          "providerSetName": "HS\u2014Undaunted",
+          "similarity": 0.756326,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "hgss3-88",
+          "providerName": "Kyogre & Groudon LEGEND",
+          "providerCollectorNumber": "88/90",
+          "providerSetId": "hgss3",
+          "providerSetPtcgoCode": "UD",
+          "providerSetName": "HS\u2014Undaunted",
+          "similarity": 0.738988,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "hgss1-112",
+          "providerName": "Ho-Oh LEGEND",
+          "providerCollectorNumber": "112/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.734057,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "magby-186-182",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Magby",
+        "collectorNumber": "186/182",
+        "setCode": "PAR",
+        "providerCardId": "sv4-186"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.868914,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv4-20",
+          "providerName": "Pansear",
+          "providerCollectorNumber": "20/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.808582,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw3-17",
+          "providerName": "Simisear",
+          "providerCollectorNumber": "17/101",
+          "providerSetId": "bw3",
+          "providerSetPtcgoCode": "NVI",
+          "providerSetName": "Noble Victories",
+          "similarity": 0.806845,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv4pt5-11",
+          "providerName": "Numel",
+          "providerCollectorNumber": "11/91",
+          "providerSetId": "sv4pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paldean Fates",
+          "similarity": 0.803969,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "g1-16",
+          "providerName": "Magmar",
+          "providerCollectorNumber": "16/83",
+          "providerSetId": "g1",
+          "providerSetPtcgoCode": "GEN",
+          "providerSetName": "Generations",
+          "similarity": 0.802681,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "magby-186-182-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Magby",
+        "collectorNumber": "186/182",
+        "setCode": "PAR",
+        "providerCardId": "sv4-186"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex1-61",
+          "providerName": "Numel",
+          "providerCollectorNumber": "61/109",
+          "providerSetId": "ex1",
+          "providerSetPtcgoCode": "RS",
+          "providerSetName": "Ruby & Sapphire",
+          "similarity": 0.787488,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.780048,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "ex9-54",
+          "providerName": "Makuhita",
+          "providerCollectorNumber": "54/106",
+          "providerSetId": "ex9",
+          "providerSetPtcgoCode": "EM",
+          "providerSetName": "Emerald",
+          "similarity": 0.778087,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "dp6-104",
+          "providerName": "Ledyba",
+          "providerCollectorNumber": "104/146",
+          "providerSetId": "dp6",
+          "providerSetPtcgoCode": "LA",
+          "providerSetName": "Legends Awakened",
+          "similarity": 0.776299,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "ex11-83",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "83/113",
+          "providerSetId": "ex11",
+          "providerSetPtcgoCode": "DS",
+          "providerSetName": "Delta Species",
+          "similarity": 0.775098,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "magby-186-182-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Magby",
+        "collectorNumber": "186/182",
+        "setCode": "PAR",
+        "providerCardId": "sv4-186"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex16-105",
+          "providerName": "Water Energy",
+          "providerCollectorNumber": "105/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.796699,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh9-163",
+          "providerName": "Zamazenta V",
+          "providerCollectorNumber": "163/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "similarity": 0.777326,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "dp6-123",
+          "providerName": "Swinub",
+          "providerCollectorNumber": "123/146",
+          "providerSetId": "dp6",
+          "providerSetPtcgoCode": "LA",
+          "providerSetName": "Legends Awakened",
+          "similarity": 0.775721,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "hgss3-87",
+          "providerName": "Kyogre & Groudon LEGEND",
+          "providerCollectorNumber": "87/90",
+          "providerSetId": "hgss3",
+          "providerSetPtcgoCode": "UD",
+          "providerSetName": "HS\u2014Undaunted",
+          "similarity": 0.775053,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "mcd22-14",
+          "providerName": "Drampa",
+          "providerCollectorNumber": "14/15",
+          "providerSetId": "mcd22",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2022",
+          "similarity": 0.772715,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "magby-186-182-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Magby",
+        "collectorNumber": "186/182",
+        "setCode": "PAR",
+        "providerCardId": "sv4-186"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ecard1-112",
+          "providerName": "Hoppip",
+          "providerCollectorNumber": "112/165",
+          "providerSetId": "ecard1",
+          "providerSetPtcgoCode": "EX",
+          "providerSetName": "Expedition Base Set",
+          "similarity": 0.733466,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.726573,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base2-31",
+          "providerName": "Vileplume",
+          "providerCollectorNumber": "31/64",
+          "providerSetId": "base2",
+          "providerSetPtcgoCode": "JU",
+          "providerSetName": "Jungle",
+          "similarity": 0.724917,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "pl2-42",
+          "providerName": "Hippowdon E4",
+          "providerCollectorNumber": "42/111",
+          "providerSetId": "pl2",
+          "providerSetPtcgoCode": "RR",
+          "providerSetName": "Rising Rivals",
+          "similarity": 0.721023,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "dp2-86",
+          "providerName": "Kricketot",
+          "providerCollectorNumber": "86/123",
+          "providerSetId": "dp2",
+          "providerSetPtcgoCode": "MT",
+          "providerSetName": "Mysterious Treasures",
+          "similarity": 0.719176,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "mega-dragonite-ex-232-193",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mega Dragonite ex",
+        "collectorNumber": "232/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mega-dragonite-ex-232-193-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mega Dragonite ex",
+        "collectorNumber": "232/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mega-dragonite-ex-232-193-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mega Dragonite ex",
+        "collectorNumber": "232/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "metagross-178-162",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Metagross",
+        "collectorNumber": "178/162",
+        "setCode": "TEF",
+        "providerCardId": "sv5-178"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss4-2",
+          "providerName": "Altaria",
+          "providerCollectorNumber": "2/102",
+          "providerSetId": "hgss4",
+          "providerSetPtcgoCode": "TM",
+          "providerSetName": "HS\u2014Triumphant",
+          "similarity": 0.668079,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "hgss4-25",
+          "providerName": "Lunatone",
+          "providerCollectorNumber": "25/102",
+          "providerSetId": "hgss4",
+          "providerSetPtcgoCode": "TM",
+          "providerSetName": "HS\u2014Triumphant",
+          "similarity": 0.657577,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sm2-69",
+          "providerName": "Nosepass",
+          "providerCollectorNumber": "69/145",
+          "providerSetId": "sm2",
+          "providerSetPtcgoCode": "GRI",
+          "providerSetName": "Guardians Rising",
+          "similarity": 0.657292,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex3-28",
+          "providerName": "Forretress",
+          "providerCollectorNumber": "28/97",
+          "providerSetId": "ex3",
+          "providerSetPtcgoCode": "DR",
+          "providerSetName": "Dragon",
+          "similarity": 0.657227,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "ex3-51",
+          "providerName": "Barboach",
+          "providerCollectorNumber": "51/97",
+          "providerSetId": "ex3",
+          "providerSetPtcgoCode": "DR",
+          "providerSetName": "Dragon",
+          "similarity": 0.654359,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "mew-ex-46-124",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mew-EX",
+        "collectorNumber": "46/124",
+        "setCode": "DRX",
+        "providerCardId": "bw6-46"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.837898,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv3-33",
+          "providerName": "Victini ex",
+          "providerCollectorNumber": "33/197",
+          "providerSetId": "sv3",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Obsidian Flames",
+          "similarity": 0.81553,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "neo3-2",
+          "providerName": "Blissey",
+          "providerCollectorNumber": "2/64",
+          "providerSetId": "neo3",
+          "providerSetPtcgoCode": "N3",
+          "providerSetName": "Neo Revelation",
+          "similarity": 0.809908,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex12-88",
+          "providerName": "Mew ex",
+          "providerCollectorNumber": "88/92",
+          "providerSetId": "ex12",
+          "providerSetPtcgoCode": "LM",
+          "providerSetName": "Legend Maker",
+          "similarity": 0.804281,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "xyp-XY126",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "XY126",
+          "providerSetId": "xyp",
+          "providerSetPtcgoCode": "PR-XY",
+          "providerSetName": "XY Black Star Promos",
+          "similarity": 0.799655,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "mew-ex-rc24-rc25",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mew-EX",
+        "collectorNumber": "RC24/RC25",
+        "setCode": "LTR",
+        "providerCardId": "bw11-RC24"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "xyp-XY126",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "XY126",
+          "providerSetId": "xyp",
+          "providerSetPtcgoCode": "PR-XY",
+          "providerSetName": "XY Black Star Promos",
+          "similarity": 0.861695,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "xyp-XY149",
+          "providerName": "Xerneas-EX",
+          "providerCollectorNumber": "XY149",
+          "providerSetId": "xyp",
+          "providerSetPtcgoCode": "PR-XY",
+          "providerSetName": "XY Black Star Promos",
+          "similarity": 0.829051,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh12pt5-64",
+          "providerName": "Tapu Lele",
+          "providerCollectorNumber": "64/159",
+          "providerSetId": "swsh12pt5",
+          "providerSetPtcgoCode": "CRZ",
+          "providerSetName": "Crown Zenith",
+          "similarity": 0.825678,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swsh45sv-SV047",
+          "providerName": "Galarian Ponyta",
+          "providerCollectorNumber": "SV047/122",
+          "providerSetId": "swsh45sv",
+          "providerSetPtcgoCode": "SHF",
+          "providerSetName": "Shining Fates Shiny Vault",
+          "similarity": 0.822628,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "rsv10pt5-159",
+          "providerName": "Keldeo ex",
+          "providerCollectorNumber": "159/86",
+          "providerSetId": "rsv10pt5",
+          "providerSetPtcgoCode": "WHT",
+          "providerSetName": "White Flare",
+          "similarity": 0.821147,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "mimikyu-vmax-077-184",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mimikyu VMAX",
+        "collectorNumber": "077/184",
+        "setCode": "S8b"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mimikyu-vmax-077-184-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mimikyu VMAX",
+        "collectorNumber": "077/184",
+        "setCode": "S8b"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mimikyu-vmax-077-184-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mimikyu VMAX",
+        "collectorNumber": "077/184",
+        "setCode": "S8b"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mimikyu-vmax-077-184-steep-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mimikyu VMAX",
+        "collectorNumber": "077/184",
+        "setCode": "S8b"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "pikachu-25-25",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu",
+        "collectorNumber": "25/25",
+        "setCode": "MCD21",
+        "providerCardId": "mcd21-25"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "pop5-13",
+          "providerName": "Pikachu \u03b4",
+          "providerCollectorNumber": "13/17",
+          "providerSetId": "pop5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "POP Series 5",
+          "similarity": 0.844109,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh4-44",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "44/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "similarity": 0.839145,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh4-170",
+          "providerName": "Pikachu V",
+          "providerCollectorNumber": "170/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "similarity": 0.839013,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "pop4-13",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "13/17",
+          "providerSetId": "pop4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "POP Series 4",
+          "similarity": 0.835499,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh45-37",
+          "providerName": "Morpeko V",
+          "providerCollectorNumber": "37/72",
+          "providerSetId": "swsh45",
+          "providerSetPtcgoCode": "SHF",
+          "providerSetName": "Shining Fates",
+          "similarity": 0.832112,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-gg30-gg70",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu",
+        "collectorNumber": "GG30/GG70",
+        "setCode": "CRZ",
+        "providerCardId": "swsh12pt5gg-GG30"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh12pt5gg-GG30",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "GG30/70",
+          "providerSetId": "swsh12pt5gg",
+          "providerSetPtcgoCode": "CRZ",
+          "providerSetName": "Crown Zenith Galarian Gallery",
+          "similarity": 0.831921,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "dp7-70",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "70/100",
+          "providerSetId": "dp7",
+          "providerSetPtcgoCode": "SF",
+          "providerSetName": "Stormfront",
+          "similarity": 0.828004,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh45-37",
+          "providerName": "Morpeko V",
+          "providerCollectorNumber": "37/72",
+          "providerSetId": "swsh45",
+          "providerSetPtcgoCode": "SHF",
+          "providerSetName": "Shining Fates",
+          "similarity": 0.809456,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swsh1-79",
+          "providerName": "Morpeko V",
+          "providerCollectorNumber": "79/202",
+          "providerSetId": "swsh1",
+          "providerSetPtcgoCode": "SSH",
+          "providerSetName": "Sword & Shield",
+          "similarity": 0.800711,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swshp-SWSH063",
+          "providerName": "Pikachu V",
+          "providerCollectorNumber": "SWSH063",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.799401,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-swsh286",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "SWSH286",
+        "setCode": "SWSD",
+        "providerCardId": "swshp-SWSH286"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swshp-SWSH062",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH062",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.871144,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.866099,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh4-44",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "44/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "similarity": 0.854383,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "bwp-BW54",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "BW54",
+          "providerSetId": "bwp",
+          "providerSetPtcgoCode": "PR-BLW",
+          "providerSetName": "BW Black Star Promos",
+          "similarity": 0.853393,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "ex14-69",
+          "providerName": "Whismur",
+          "providerCollectorNumber": "69/100",
+          "providerSetId": "ex14",
+          "providerSetPtcgoCode": "CG",
+          "providerSetName": "Crystal Guardians",
+          "similarity": 0.852322,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-swsh286-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "SWSH286",
+        "setCode": "SWSD",
+        "providerCardId": "swshp-SWSH286"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex16-107",
+          "providerName": "Psychic Energy",
+          "providerCollectorNumber": "107/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.809747,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "ex16-105",
+          "providerName": "Water Energy",
+          "providerCollectorNumber": "105/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.797418,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "ex13-110",
+          "providerName": "Fighting Energy",
+          "providerCollectorNumber": "110/110",
+          "providerSetId": "ex13",
+          "providerSetPtcgoCode": "HP",
+          "providerSetName": "Holon Phantoms",
+          "similarity": 0.788449,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex13-107",
+          "providerName": "Water Energy",
+          "providerCollectorNumber": "107/110",
+          "providerSetId": "ex13",
+          "providerSetPtcgoCode": "HP",
+          "providerSetName": "Holon Phantoms",
+          "similarity": 0.782193,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "ex16-103",
+          "providerName": "Grass Energy",
+          "providerCollectorNumber": "103/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.776776,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-swsh286-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "SWSH286",
+        "setCode": "SWSD",
+        "providerCardId": "swshp-SWSH286"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex16-107",
+          "providerName": "Psychic Energy",
+          "providerCollectorNumber": "107/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.760007,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "ex16-105",
+          "providerName": "Water Energy",
+          "providerCollectorNumber": "105/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.744012,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "pop5-9",
+          "providerName": "\u03b4 Rainbow Energy",
+          "providerCollectorNumber": "9/17",
+          "providerSetId": "pop5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "POP Series 5",
+          "similarity": 0.743368,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex2-72",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "72/100",
+          "providerSetId": "ex2",
+          "providerSetPtcgoCode": "SS",
+          "providerSetName": "Sandstorm",
+          "similarity": 0.741582,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "pl3-149",
+          "providerName": "Moltres",
+          "providerCollectorNumber": "149/147",
+          "providerSetId": "pl3",
+          "providerSetPtcgoCode": "SV",
+          "providerSetName": "Supreme Victors",
+          "similarity": 0.737252,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-swsh286-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "SWSH286",
+        "setCode": "SWSD",
+        "providerCardId": "swshp-SWSH286"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss4-100",
+          "providerName": "Darkrai & Cresselia LEGEND",
+          "providerCollectorNumber": "100/102",
+          "providerSetId": "hgss4",
+          "providerSetPtcgoCode": "TM",
+          "providerSetName": "HS\u2014Triumphant",
+          "similarity": 0.788692,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "ecard1-114",
+          "providerName": "Koffing",
+          "providerCollectorNumber": "114/165",
+          "providerSetId": "ecard1",
+          "providerSetPtcgoCode": "EX",
+          "providerSetName": "Expedition Base Set",
+          "similarity": 0.782268,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "ex2-72",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "72/100",
+          "providerSetId": "ex2",
+          "providerSetPtcgoCode": "SS",
+          "providerSetName": "Sandstorm",
+          "similarity": 0.768805,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "pgo-69",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "69/78",
+          "providerSetId": "pgo",
+          "providerSetPtcgoCode": "PGO",
+          "providerSetName": "Pok\u00e9mon GO",
+          "similarity": 0.760514,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "ecard1-112",
+          "providerName": "Hoppip",
+          "providerCollectorNumber": "112/165",
+          "providerSetId": "ecard1",
+          "providerSetPtcgoCode": "EX",
+          "providerSetName": "Expedition Base Set",
+          "similarity": 0.755994,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-tg29-tg30",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "TG29/TG30",
+        "setCode": "SWSH11",
+        "providerCardId": "swsh11tg-TG29"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "me2pt5-252",
+          "providerName": "Stunfisk ex",
+          "providerCollectorNumber": "252/217",
+          "providerSetId": "me2pt5",
+          "providerSetPtcgoCode": "ASC",
+          "providerSetName": "Ascended Heroes",
+          "similarity": 0.763821,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.761893,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh12-174",
+          "providerName": "Omastar V",
+          "providerCollectorNumber": "174/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.75577,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "cel25-7",
+          "providerName": "Flying Pikachu VMAX",
+          "providerCollectorNumber": "7/25",
+          "providerSetId": "cel25",
+          "providerSetPtcgoCode": "CEL",
+          "providerSetName": "Celebrations",
+          "similarity": 0.753784,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv2-240",
+          "providerName": "Tinkaton ex",
+          "providerCollectorNumber": "240/193",
+          "providerSetId": "sv2",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paldea Evolved",
+          "similarity": 0.741943,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-tg29-tg30-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "TG29/TG30",
+        "setCode": "SWSH11",
+        "providerCardId": "swsh11tg-TG29"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.70576,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "xy9-18",
+          "providerName": "Golduck BREAK",
+          "providerCollectorNumber": "18/122",
+          "providerSetId": "xy9",
+          "providerSetPtcgoCode": "BKP",
+          "providerSetName": "BREAKpoint",
+          "similarity": 0.675505,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh4-188",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "188/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "similarity": 0.66583,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "pl3-149",
+          "providerName": "Moltres",
+          "providerCollectorNumber": "149/147",
+          "providerSetId": "pl3",
+          "providerSetPtcgoCode": "SV",
+          "providerSetName": "Supreme Victors",
+          "similarity": 0.65828,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "ecard1-114",
+          "providerName": "Koffing",
+          "providerCollectorNumber": "114/165",
+          "providerSetId": "ecard1",
+          "providerSetPtcgoCode": "EX",
+          "providerSetName": "Expedition Base Set",
+          "similarity": 0.658113,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-tg29-tg30-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "TG29/TG30",
+        "setCode": "SWSH11",
+        "providerCardId": "swsh11tg-TG29"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "pl3-149",
+          "providerName": "Moltres",
+          "providerCollectorNumber": "149/147",
+          "providerSetId": "pl3",
+          "providerSetPtcgoCode": "SV",
+          "providerSetName": "Supreme Victors",
+          "similarity": 0.73144,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.706243,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh12-174",
+          "providerName": "Omastar V",
+          "providerCollectorNumber": "174/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.7031,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "pl3-148",
+          "providerName": "Articuno",
+          "providerCollectorNumber": "148/147",
+          "providerSetId": "pl3",
+          "providerSetPtcgoCode": "SV",
+          "providerSetName": "Supreme Victors",
+          "similarity": 0.700586,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "xy11-87",
+          "providerName": "Hydreigon BREAK",
+          "providerCollectorNumber": "87/114",
+          "providerSetId": "xy11",
+          "providerSetPtcgoCode": "STS",
+          "providerSetName": "Steam Siege",
+          "similarity": 0.697797,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-tg29-tg30-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "TG29/TG30",
+        "setCode": "SWSH11",
+        "providerCardId": "swsh11tg-TG29"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex16-105",
+          "providerName": "Water Energy",
+          "providerCollectorNumber": "105/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.795305,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "ex16-107",
+          "providerName": "Psychic Energy",
+          "providerCollectorNumber": "107/108",
+          "providerSetId": "ex16",
+          "providerSetPtcgoCode": "PK",
+          "providerSetName": "Power Keepers",
+          "similarity": 0.778998,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "pl3-148",
+          "providerName": "Articuno",
+          "providerCollectorNumber": "148/147",
+          "providerSetId": "pl3",
+          "providerSetPtcgoCode": "SV",
+          "providerSetName": "Supreme Victors",
+          "similarity": 0.773838,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex13-107",
+          "providerName": "Water Energy",
+          "providerCollectorNumber": "107/110",
+          "providerSetId": "ex13",
+          "providerSetPtcgoCode": "HP",
+          "providerSetName": "Holon Phantoms",
+          "similarity": 0.773268,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "ex13-109",
+          "providerName": "Psychic Energy",
+          "providerCollectorNumber": "109/110",
+          "providerSetId": "ex13",
+          "providerSetPtcgoCode": "HP",
+          "providerSetName": "Holon Phantoms",
+          "similarity": 0.768985,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "rabsca-163-091",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Rabsca",
+        "collectorNumber": "163/091",
+        "setCode": "PAF"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "rare-candy-256-198",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Rare Candy",
+        "collectorNumber": "256/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-256"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.79807,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh12-174",
+          "providerName": "Omastar V",
+          "providerCollectorNumber": "174/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.788126,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "ex11-76",
+          "providerName": "Marill",
+          "providerCollectorNumber": "76/113",
+          "providerSetId": "ex11",
+          "providerSetPtcgoCode": "DS",
+          "providerSetName": "Delta Species",
+          "similarity": 0.78387,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex12-63",
+          "providerName": "Shuppet",
+          "providerCollectorNumber": "63/92",
+          "providerSetId": "ex12",
+          "providerSetPtcgoCode": "LM",
+          "providerSetName": "Legend Maker",
+          "similarity": 0.783619,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh4-171",
+          "providerName": "Ampharos V",
+          "providerCollectorNumber": "171/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "similarity": 0.780254,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "sabrinas-slowbro-60-132",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Sabrina's Slowbro",
+        "collectorNumber": "60/132",
+        "setCode": "G1",
+        "providerCardId": "gym1-60"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.816911,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "xy12-44",
+          "providerName": "Nidorino",
+          "providerCollectorNumber": "44/108",
+          "providerSetId": "xy12",
+          "providerSetPtcgoCode": "EVO",
+          "providerSetName": "Evolutions",
+          "similarity": 0.815375,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base6-10",
+          "providerName": "Flareon",
+          "providerCollectorNumber": "10/110",
+          "providerSetId": "base6",
+          "providerSetPtcgoCode": "LC",
+          "providerSetName": "Legendary Collection",
+          "similarity": 0.788218,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.784925,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base4-51",
+          "providerName": "Magmar",
+          "providerCollectorNumber": "51/130",
+          "providerSetId": "base4",
+          "providerSetPtcgoCode": "B2",
+          "providerSetName": "Base Set 2",
+          "similarity": 0.781783,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "sabrinas-slowbro-60-132-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Sabrina's Slowbro",
+        "collectorNumber": "60/132",
+        "setCode": "G1",
+        "providerCardId": "gym1-60"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.850052,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base6-8",
+          "providerName": "Dark Slowbro",
+          "providerCollectorNumber": "8/110",
+          "providerSetId": "base6",
+          "providerSetPtcgoCode": "LC",
+          "providerSetName": "Legendary Collection",
+          "similarity": 0.807758,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "ex10-13",
+          "providerName": "Slowbro",
+          "providerCollectorNumber": "13/115",
+          "providerSetId": "ex10",
+          "providerSetPtcgoCode": "UF",
+          "providerSetName": "Unseen Forces",
+          "similarity": 0.801533,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "gym1-37",
+          "providerName": "Blaine's Magmar",
+          "providerCollectorNumber": "37/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.795694,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-21",
+          "providerName": "Dark Charizard",
+          "providerCollectorNumber": "21/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.795316,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "sabrinas-slowbro-60-132-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Sabrina's Slowbro",
+        "collectorNumber": "60/132",
+        "setCode": "G1",
+        "providerCardId": "gym1-60"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.795804,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-30",
+          "providerName": "Dark Vileplume",
+          "providerCollectorNumber": "30/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.775941,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "neo4-39",
+          "providerName": "Dark Quilava",
+          "providerCollectorNumber": "39/105",
+          "providerSetId": "neo4",
+          "providerSetPtcgoCode": "N4",
+          "providerSetName": "Neo Destiny",
+          "similarity": 0.775719,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-21",
+          "providerName": "Dark Charizard",
+          "providerCollectorNumber": "21/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.774522,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-35",
+          "providerName": "Dark Flareon",
+          "providerCollectorNumber": "35/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.771751,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "sabrinas-slowbro-60-132-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Sabrina's Slowbro",
+        "collectorNumber": "60/132",
+        "setCode": "G1",
+        "providerCardId": "gym1-60"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-37",
+          "providerName": "Blaine's Magmar",
+          "providerCollectorNumber": "37/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.794568,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "neo1-40",
+          "providerName": "Magmar",
+          "providerCollectorNumber": "40/111",
+          "providerSetId": "neo1",
+          "providerSetPtcgoCode": "N1",
+          "providerSetName": "Neo Genesis",
+          "similarity": 0.791119,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base3-39",
+          "providerName": "Magmar",
+          "providerCollectorNumber": "39/62",
+          "providerSetId": "base3",
+          "providerSetPtcgoCode": "FO",
+          "providerSetName": "Fossil",
+          "similarity": 0.790955,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "basep-44",
+          "providerName": "Magmar",
+          "providerCollectorNumber": "44",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "similarity": 0.787848,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base6-3",
+          "providerName": "Charizard",
+          "providerCollectorNumber": "3/110",
+          "providerSetId": "base6",
+          "providerSetPtcgoCode": "LC",
+          "providerSetName": "Legendary Collection",
+          "similarity": 0.787066,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "slowpoke-204-198",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Slowpoke",
+        "collectorNumber": "204/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-204"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.810344,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv6pt5-68",
+          "providerName": "Duskull",
+          "providerCollectorNumber": "68/64",
+          "providerSetId": "sv6pt5",
+          "providerSetPtcgoCode": "SFA",
+          "providerSetName": "Shrouded Fable",
+          "similarity": 0.769174,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh7-190",
+          "providerName": "Garbodor V",
+          "providerCollectorNumber": "190/203",
+          "providerSetId": "swsh7",
+          "providerSetPtcgoCode": "EVS",
+          "providerSetName": "Evolving Skies",
+          "similarity": 0.76412,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-201",
+          "providerName": "Toedscool",
+          "providerCollectorNumber": "201/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.762875,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh11-161",
+          "providerName": "Lost City",
+          "providerCollectorNumber": "161/196",
+          "providerSetId": "swsh11",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin",
+          "similarity": 0.759074,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "slowpoke-204-198-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Slowpoke",
+        "collectorNumber": "204/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-204"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "ex1-86",
+          "providerName": "Pok\u00e9 Ball",
+          "providerCollectorNumber": "86/109",
+          "providerSetId": "ex1",
+          "providerSetPtcgoCode": "RS",
+          "providerSetName": "Ruby & Sapphire",
+          "similarity": 0.758393,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "bw4-90",
+          "providerName": "Pok\u00e9mon Center",
+          "providerCollectorNumber": "90/99",
+          "providerSetId": "bw4",
+          "providerSetPtcgoCode": "NXD",
+          "providerSetName": "Next Destinies",
+          "similarity": 0.756956,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "pl1-113",
+          "providerName": "Pok\u00e9 Ball",
+          "providerCollectorNumber": "113/127",
+          "providerSetId": "pl1",
+          "providerSetPtcgoCode": "PL",
+          "providerSetName": "Platinum",
+          "similarity": 0.746798,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sm9-152",
+          "providerName": "Pok\u00e9mon Communication",
+          "providerCollectorNumber": "152/181",
+          "providerSetId": "sm9",
+          "providerSetPtcgoCode": "TEU",
+          "providerSetName": "Team Up",
+          "similarity": 0.740834,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "ex10-87",
+          "providerName": "Pok\u00e9 Ball",
+          "providerCollectorNumber": "87/115",
+          "providerSetId": "ex10",
+          "providerSetPtcgoCode": "UF",
+          "providerSetName": "Unseen Forces",
+          "similarity": 0.739539,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "slowpoke-204-198-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Slowpoke",
+        "collectorNumber": "204/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-204"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.845385,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv1-201",
+          "providerName": "Toedscool",
+          "providerCollectorNumber": "201/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.792079,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv6pt5-68",
+          "providerName": "Duskull",
+          "providerCollectorNumber": "68/64",
+          "providerSetId": "sv6pt5",
+          "providerSetPtcgoCode": "SFA",
+          "providerSetName": "Shrouded Fable",
+          "similarity": 0.778581,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swsh7-190",
+          "providerName": "Garbodor V",
+          "providerCollectorNumber": "190/203",
+          "providerSetId": "swsh7",
+          "providerSetPtcgoCode": "EVS",
+          "providerSetName": "Evolving Skies",
+          "similarity": 0.767757,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh12-174",
+          "providerName": "Omastar V",
+          "providerCollectorNumber": "174/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.767146,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "slowpoke-204-198-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Slowpoke",
+        "collectorNumber": "204/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-204"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv4-183",
+          "providerName": "Crustle",
+          "providerCollectorNumber": "183/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.718875,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv7-145",
+          "providerName": "Lileep",
+          "providerCollectorNumber": "145/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "similarity": 0.710651,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv6-184",
+          "providerName": "Lairon",
+          "providerCollectorNumber": "184/167",
+          "providerSetId": "sv6",
+          "providerSetPtcgoCode": "TWM",
+          "providerSetName": "Twilight Masquerade",
+          "similarity": 0.700685,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv3pt5-92",
+          "providerName": "Gastly",
+          "providerCollectorNumber": "92/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.697585,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh10-167",
+          "providerName": "Origin Forme Palkia V",
+          "providerCollectorNumber": "167/189",
+          "providerSetId": "swsh10",
+          "providerSetPtcgoCode": "ASR",
+          "providerSetName": "Astral Radiance",
+          "similarity": 0.695221,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "snorlax-077-071-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Snorlax",
+        "collectorNumber": "077/071",
+        "setCode": "S10a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "snorlax-077-071-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Snorlax",
+        "collectorNumber": "077/071",
+        "setCode": "S10a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "snorlax-077-071-steep-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Snorlax",
+        "collectorNumber": "077/071",
+        "setCode": "S10a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "switch-206-165",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Switch",
+        "collectorNumber": "206/165",
+        "setCode": "MEW",
+        "providerCardId": "sv3pt5-206"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "xy8-155",
+          "providerName": "Glalie-EX",
+          "providerCollectorNumber": "155/162",
+          "providerSetId": "xy8",
+          "providerSetPtcgoCode": "BKT",
+          "providerSetName": "BREAKthrough",
+          "similarity": 0.661534,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "xy6-101",
+          "providerName": "Latios-EX",
+          "providerCollectorNumber": "101/108",
+          "providerSetId": "xy6",
+          "providerSetPtcgoCode": "ROS",
+          "providerSetName": "Roaring Skies",
+          "similarity": 0.661403,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv1-234",
+          "providerName": "Oinkologne ex",
+          "providerCollectorNumber": "234/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.651018,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv7-104",
+          "providerName": "Melmetal",
+          "providerCollectorNumber": "104/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "similarity": 0.648492,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "rsv10pt5-158",
+          "providerName": "Reshiram ex",
+          "providerCollectorNumber": "158/86",
+          "providerSetId": "rsv10pt5",
+          "providerSetPtcgoCode": "WHT",
+          "providerSetName": "White Flare",
+          "similarity": 0.64778,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "team-rockets-weezing-199-182",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Team Rocket's Weezing",
+        "collectorNumber": "199/182",
+        "setCode": "DRI",
+        "providerCardId": "sv10-199"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.824771,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh12-184",
+          "providerName": "Regidrago V",
+          "providerCollectorNumber": "184/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.732974,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv3pt5-178",
+          "providerName": "Tangela",
+          "providerCollectorNumber": "178/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.723796,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "pl1-41",
+          "providerName": "Bronzong G",
+          "providerCollectorNumber": "41/127",
+          "providerSetId": "pl1",
+          "providerSetPtcgoCode": "PL",
+          "providerSetName": "Platinum",
+          "similarity": 0.722632,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "pl3-27",
+          "providerName": "Empoleon FB",
+          "providerCollectorNumber": "27/147",
+          "providerSetId": "pl3",
+          "providerSetPtcgoCode": "SV",
+          "providerSetName": "Supreme Victors",
+          "similarity": 0.722395,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "team-rockets-weezing-199-182-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Team Rocket's Weezing",
+        "collectorNumber": "199/182",
+        "setCode": "DRI",
+        "providerCardId": "sv10-199"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh7-190",
+          "providerName": "Garbodor V",
+          "providerCollectorNumber": "190/203",
+          "providerSetId": "swsh7",
+          "providerSetPtcgoCode": "EVS",
+          "providerSetName": "Evolving Skies",
+          "similarity": 0.819235,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh7-100",
+          "providerName": "Garbodor V",
+          "providerCollectorNumber": "100/203",
+          "providerSetId": "swsh7",
+          "providerSetPtcgoCode": "EVS",
+          "providerSetName": "Evolving Skies",
+          "similarity": 0.793203,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh12-184",
+          "providerName": "Regidrago V",
+          "providerCollectorNumber": "184/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.790556,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.785814,
+          "isTruth": true
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv6pt5-68",
+          "providerName": "Duskull",
+          "providerCollectorNumber": "68/64",
+          "providerSetId": "sv6pt5",
+          "providerSetPtcgoCode": "SFA",
+          "providerSetName": "Shrouded Fable",
+          "similarity": 0.775936,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "team-rockets-weezing-199-182-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Team Rocket's Weezing",
+        "collectorNumber": "199/182",
+        "setCode": "DRI",
+        "providerCardId": "sv10-199"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.835628,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh10-167",
+          "providerName": "Origin Forme Palkia V",
+          "providerCollectorNumber": "167/189",
+          "providerSetId": "swsh10",
+          "providerSetPtcgoCode": "ASR",
+          "providerSetName": "Astral Radiance",
+          "similarity": 0.822918,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh7-190",
+          "providerName": "Garbodor V",
+          "providerCollectorNumber": "190/203",
+          "providerSetId": "swsh7",
+          "providerSetPtcgoCode": "EVS",
+          "providerSetName": "Evolving Skies",
+          "similarity": 0.801685,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-201",
+          "providerName": "Toedscool",
+          "providerCollectorNumber": "201/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.794064,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh12-184",
+          "providerName": "Regidrago V",
+          "providerCollectorNumber": "184/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.792708,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "team-rockets-weezing-199-182-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Team Rocket's Weezing",
+        "collectorNumber": "199/182",
+        "setCode": "DRI",
+        "providerCardId": "sv10-199"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh45-51",
+          "providerName": "Ditto VMAX",
+          "providerCollectorNumber": "51/72",
+          "providerSetId": "swsh45",
+          "providerSetPtcgoCode": "SHF",
+          "providerSetName": "Shining Fates",
+          "similarity": 0.820294,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh12-174",
+          "providerName": "Omastar V",
+          "providerCollectorNumber": "174/195",
+          "providerSetId": "swsh12",
+          "providerSetPtcgoCode": "SIT",
+          "providerSetName": "Silver Tempest",
+          "similarity": 0.816337,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh7-190",
+          "providerName": "Garbodor V",
+          "providerCollectorNumber": "190/203",
+          "providerSetId": "swsh7",
+          "providerSetPtcgoCode": "EVS",
+          "providerSetName": "Evolving Skies",
+          "similarity": 0.815887,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-234",
+          "providerName": "Oinkologne ex",
+          "providerCollectorNumber": "234/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.811439,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "rsv10pt5-118",
+          "providerName": "Stunfisk",
+          "providerCollectorNumber": "118/86",
+          "providerSetId": "rsv10pt5",
+          "providerSetPtcgoCode": "WHT",
+          "providerSetName": "White Flare",
+          "similarity": 0.807232,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "terapagos-ex-128-142",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Terapagos ex",
+        "collectorNumber": "128/142",
+        "setCode": "SCR",
+        "providerCardId": "sv7-128"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "me2pt5-179",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "179/217",
+          "providerSetId": "me2pt5",
+          "providerSetPtcgoCode": "ASC",
+          "providerSetName": "Ascended Heroes",
+          "similarity": 0.845369,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv8pt5-92",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "92/131",
+          "providerSetId": "sv8pt5",
+          "providerSetPtcgoCode": "PRE",
+          "providerSetName": "Prismatic Evolutions",
+          "similarity": 0.840015,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv7-128",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "128/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "similarity": 0.829637,
+          "isTruth": true
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv8pt5-169",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "169/131",
+          "providerSetId": "sv8pt5",
+          "providerSetPtcgoCode": "PRE",
+          "providerSetName": "Prismatic Evolutions",
+          "similarity": 0.797138,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv6-130",
+          "providerName": "Dragapult ex",
+          "providerCollectorNumber": "130/167",
+          "providerSetId": "sv6",
+          "providerSetPtcgoCode": "TWM",
+          "providerSetName": "Twilight Masquerade",
+          "similarity": 0.792064,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "umbreon-059-131",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Umbreon",
+        "collectorNumber": "059/131",
+        "setCode": "PRE"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "whimsicott-vstar-175-172",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Whimsicott VSTAR",
+        "collectorNumber": "175/172",
+        "setCode": "SWSH09",
+        "providerCardId": "swsh9-175"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "xy6-84",
+          "providerName": "Healing Scarf",
+          "providerCollectorNumber": "84/108",
+          "providerSetId": "xy6",
+          "providerSetPtcgoCode": "ROS",
+          "providerSetName": "Roaring Skies",
+          "similarity": 0.758437,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "ex9-96",
+          "providerName": "Milotic ex",
+          "providerCollectorNumber": "96/106",
+          "providerSetId": "ex9",
+          "providerSetPtcgoCode": "EM",
+          "providerSetName": "Emerald",
+          "similarity": 0.757586,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-115",
+          "providerName": "Rescue Scarf",
+          "providerCollectorNumber": "115/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.753122,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex7-27",
+          "providerName": "Qwilfish",
+          "providerCollectorNumber": "27/109",
+          "providerSetId": "ex7",
+          "providerSetPtcgoCode": "TRR",
+          "providerSetName": "Team Rocket Returns",
+          "similarity": 0.752634,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "neo4-78",
+          "providerName": "Porygon",
+          "providerCollectorNumber": "78/105",
+          "providerSetId": "neo4",
+          "providerSetPtcgoCode": "N4",
+          "providerSetName": "Neo Destiny",
+          "similarity": 0.749098,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "whimsicott-vstar-175-172-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Whimsicott VSTAR",
+        "collectorNumber": "175/172",
+        "setCode": "SWSH09",
+        "providerCardId": "swsh9-175"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh2-206",
+          "providerName": "Big Charm",
+          "providerCollectorNumber": "206/192",
+          "providerSetId": "swsh2",
+          "providerSetPtcgoCode": "RCL",
+          "providerSetName": "Rebel Clash",
+          "similarity": 0.724826,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "pl4-87",
+          "providerName": "Expert Belt",
+          "providerCollectorNumber": "87/99",
+          "providerSetId": "pl4",
+          "providerSetPtcgoCode": "AR",
+          "providerSetName": "Arceus",
+          "similarity": 0.721911,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "basep-23",
+          "providerName": "Zapdos",
+          "providerCollectorNumber": "23",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "similarity": 0.718762,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "ex11-39",
+          "providerName": "Ditto",
+          "providerCollectorNumber": "39/113",
+          "providerSetId": "ex11",
+          "providerSetPtcgoCode": "DS",
+          "providerSetName": "Delta Species",
+          "similarity": 0.716563,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh7-231",
+          "providerName": "Full Face Guard",
+          "providerCollectorNumber": "231/203",
+          "providerSetId": "swsh7",
+          "providerSetPtcgoCode": "EVS",
+          "providerSetName": "Evolving Skies",
+          "similarity": 0.715288,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "whimsicott-vstar-175-172-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Whimsicott VSTAR",
+        "collectorNumber": "175/172",
+        "setCode": "SWSH09",
+        "providerCardId": "swsh9-175"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh9-175",
+          "providerName": "Whimsicott VSTAR",
+          "providerCollectorNumber": "175/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "similarity": 0.854473,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh9-65",
+          "providerName": "Whimsicott VSTAR",
+          "providerCollectorNumber": "65/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "similarity": 0.791448,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sm9-188",
+          "providerName": "Incineroar-GX",
+          "providerCollectorNumber": "188/181",
+          "providerSetId": "sm9",
+          "providerSetPtcgoCode": "TEU",
+          "providerSetName": "Team Up",
+          "similarity": 0.76546,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "hgss4-100",
+          "providerName": "Darkrai & Cresselia LEGEND",
+          "providerCollectorNumber": "100/102",
+          "providerSetId": "hgss4",
+          "providerSetPtcgoCode": "TM",
+          "providerSetName": "HS\u2014Triumphant",
+          "similarity": 0.765383,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh3-177",
+          "providerName": "Butterfree V",
+          "providerCollectorNumber": "177/189",
+          "providerSetId": "swsh3",
+          "providerSetPtcgoCode": "DAA",
+          "providerSetName": "Darkness Ablaze",
+          "similarity": 0.756799,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "whimsicott-vstar-175-172-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Whimsicott VSTAR",
+        "collectorNumber": "175/172",
+        "setCode": "SWSH09",
+        "providerCardId": "swsh9-175"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss4-100",
+          "providerName": "Darkrai & Cresselia LEGEND",
+          "providerCollectorNumber": "100/102",
+          "providerSetId": "hgss4",
+          "providerSetPtcgoCode": "TM",
+          "providerSetName": "HS\u2014Triumphant",
+          "similarity": 0.79544,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "pop6-6",
+          "providerName": "Drifloon",
+          "providerCollectorNumber": "6/17",
+          "providerSetId": "pop6",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "POP Series 6",
+          "similarity": 0.77093,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "hgss3-90",
+          "providerName": "Rayquaza & Deoxys LEGEND",
+          "providerCollectorNumber": "90/90",
+          "providerSetId": "hgss3",
+          "providerSetPtcgoCode": "UD",
+          "providerSetName": "HS\u2014Undaunted",
+          "similarity": 0.766985,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sm10-105",
+          "providerName": "Crabominable",
+          "providerCollectorNumber": "105/214",
+          "providerSetId": "sm10",
+          "providerSetPtcgoCode": "UNB",
+          "providerSetName": "Unbroken Bonds",
+          "similarity": 0.761145,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "svp-143",
+          "providerName": "Miraidon ex",
+          "providerCollectorNumber": "143",
+          "providerSetId": "svp",
+          "providerSetPtcgoCode": "PR-SV",
+          "providerSetName": "Scarlet & Violet Black Star Promos",
+          "similarity": 0.75737,
+          "isTruth": false
+        }
+      ]
+    }
+  ]
+}

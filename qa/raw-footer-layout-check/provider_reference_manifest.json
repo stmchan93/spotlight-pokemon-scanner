@@ -1,0 +1,2607 @@
+{
+  "generatedAt": "2026-04-11T22:23:23Z",
+  "provider": "pokemontcg_api",
+  "entryCount": 29,
+  "supportedEntryCount": 21,
+  "unsupportedEntryCount": 8,
+  "entries": [
+    {
+      "truthKey": "Blastoise ex|200/165|MEW",
+      "cardName": "Blastoise ex",
+      "collectorNumber": "200/165",
+      "expectedSetCode": "MEW",
+      "fixtures": [
+        "blastoise-ex-200-165"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv3pt5-200",
+      "providerName": "Blastoise ex",
+      "providerCollectorNumber": "200/165",
+      "providerSetId": "sv3pt5",
+      "providerSetPtcgoCode": null,
+      "providerSetName": "151",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/200_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Blastoise ex\" number:\"200\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Blastoise ex\" number:\"200/165\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Blastoise ex\"",
+          "resultCount": 5
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv3pt5-200",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "200/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/200_hires.png",
+          "mappingScore": 210,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector"
+          ]
+        },
+        {
+          "providerCardId": "ex6-104",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "104/112",
+          "providerSetId": "ex6",
+          "providerSetPtcgoCode": "RG",
+          "providerSetName": "FireRed & LeafGreen",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex6/104_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv3pt5-184",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "184/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/184_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv7-30",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "30/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv7/30_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv3pt5-9",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "9/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/9_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Clive|227/091|PAF",
+      "cardName": "Clive",
+      "collectorNumber": "227/091",
+      "expectedSetCode": "PAF",
+      "fixtures": [
+        "clive-227-091"
+      ],
+      "providerSupported": false,
+      "providerCardId": "sv4pt5-227",
+      "providerName": "Clive",
+      "providerCollectorNumber": "227/91",
+      "providerSetId": "sv4pt5",
+      "providerSetPtcgoCode": null,
+      "providerSetName": "Paldean Fates",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/227_hires.png",
+      "mappingConfidence": "low",
+      "mappingReason": "Candidates were ambiguous or weak; manual review recommended.",
+      "attempts": [
+        {
+          "query": "name:\"Clive\" number:\"227\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Clive\" number:\"227/091\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Clive\"",
+          "resultCount": 3
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv4pt5-227",
+          "providerName": "Clive",
+          "providerCollectorNumber": "227/91",
+          "providerSetId": "sv4pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paldean Fates",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/227_hires.png",
+          "mappingScore": 150,
+          "mappingReasons": [
+            "exact_name",
+            "collector_prefix_match"
+          ]
+        },
+        {
+          "providerCardId": "sv4pt5-236",
+          "providerName": "Clive",
+          "providerCollectorNumber": "236/91",
+          "providerSetId": "sv4pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paldean Fates",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/236_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv4pt5-78",
+          "providerName": "Clive",
+          "providerCollectorNumber": "78/91",
+          "providerSetId": "sv4pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paldean Fates",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/78_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Counter Gain|249/191|SSP",
+      "cardName": "Counter Gain",
+      "collectorNumber": "249/191",
+      "expectedSetCode": "SSP",
+      "fixtures": [
+        "counter-gain-249-191"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv8-249",
+      "providerName": "Counter Gain",
+      "providerCollectorNumber": "249/191",
+      "providerSetId": "sv8",
+      "providerSetPtcgoCode": "SSP",
+      "providerSetName": "Surging Sparks",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv8/249_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Counter Gain\" number:\"249\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Counter Gain\" number:\"249/191\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Counter Gain\"",
+          "resultCount": 6
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv8-249",
+          "providerName": "Counter Gain",
+          "providerCollectorNumber": "249/191",
+          "providerSetId": "sv8",
+          "providerSetPtcgoCode": "SSP",
+          "providerSetName": "Surging Sparks",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv8/249_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "sv8-169",
+          "providerName": "Counter Gain",
+          "providerCollectorNumber": "169/191",
+          "providerSetId": "sv8",
+          "providerSetPtcgoCode": "SSP",
+          "providerSetName": "Surging Sparks",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv8/169_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "sm8-170",
+          "providerName": "Counter Gain",
+          "providerCollectorNumber": "170/214",
+          "providerSetId": "sm8",
+          "providerSetPtcgoCode": "LOT",
+          "providerSetName": "Lost Thunder",
+          "referenceImageUrl": "https://images.pokemontcg.io/sm8/170_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "me2pt5-186",
+          "providerName": "Counter Gain",
+          "providerCollectorNumber": "186/217",
+          "providerSetId": "me2pt5",
+          "providerSetPtcgoCode": "ASC",
+          "providerSetName": "Ascended Heroes",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-186/large",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sm8-230",
+          "providerName": "Counter Gain",
+          "providerCollectorNumber": "230/214",
+          "providerSetId": "sm8",
+          "providerSetPtcgoCode": "LOT",
+          "providerSetName": "Lost Thunder",
+          "referenceImageUrl": "https://images.pokemontcg.io/sm8/230_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Dark Weezing|14/82|TR",
+      "cardName": "Dark Weezing",
+      "collectorNumber": "14/82",
+      "expectedSetCode": "TR",
+      "fixtures": [
+        "dark-weezing-14-82",
+        "dark-weezing-14-82-overhead",
+        "dark-weezing-14-82-slight-angle",
+        "dark-weezing-14-82-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "base5-14",
+      "providerName": "Dark Weezing",
+      "providerCollectorNumber": "14/82",
+      "providerSetId": "base5",
+      "providerSetPtcgoCode": "TR",
+      "providerSetName": "Team Rocket",
+      "referenceImageUrl": "https://images.pokemontcg.io/base5/14_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Dark Weezing\" number:\"14\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Dark Weezing\" number:\"14/82\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Dark Weezing\"",
+          "resultCount": 3
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "referenceImageUrl": "https://images.pokemontcg.io/base5/14_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "base5-31",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "31/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "referenceImageUrl": "https://images.pokemontcg.io/base5/31_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "ex7-42",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "42/109",
+          "providerSetId": "ex7",
+          "providerSetPtcgoCode": "TRR",
+          "providerSetName": "Team Rocket Returns",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex7/42_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Eevee & Snorlax GX|066/095|SM9",
+      "cardName": "Eevee & Snorlax GX",
+      "collectorNumber": "066/095",
+      "expectedSetCode": "SM9",
+      "fixtures": [
+        "eevee-and-snorlax-gx-066-095-overhead",
+        "eevee-and-snorlax-gx-066-095-slight-angle",
+        "eevee-and-snorlax-gx-066-095-steep-angle"
+      ],
+      "providerSupported": false,
+      "providerCardId": null,
+      "providerName": null,
+      "providerCollectorNumber": null,
+      "providerSetId": null,
+      "providerSetPtcgoCode": null,
+      "providerSetName": null,
+      "referenceImageUrl": null,
+      "mappingConfidence": "unsupported",
+      "mappingReason": "No provider candidate was found.",
+      "attempts": [
+        {
+          "query": "name:\"Eevee & Snorlax GX\" number:\"066\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Eevee & Snorlax GX\" number:\"066/095\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Eevee & Snorlax GX\"",
+          "resultCount": 0
+        }
+      ],
+      "candidateSummaries": []
+    },
+    {
+      "truthKey": "Iono's Bellibolt ex|057/193|M2a",
+      "cardName": "Iono's Bellibolt ex",
+      "collectorNumber": "057/193",
+      "expectedSetCode": "M2a",
+      "fixtures": [
+        "ionos-bellibolt-ex-057-193",
+        "ionos-bellibolt-ex-057-193-overhead",
+        "ionos-bellibolt-ex-057-193-slight-angle",
+        "ionos-bellibolt-ex-057-193-steep-angle"
+      ],
+      "providerSupported": false,
+      "providerCardId": "sv9-172",
+      "providerName": "Iono's Bellibolt ex",
+      "providerCollectorNumber": "172/159",
+      "providerSetId": "sv9",
+      "providerSetPtcgoCode": "JTG",
+      "providerSetName": "Journey Together",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv9/172_hires.png",
+      "mappingConfidence": "low",
+      "mappingReason": "Candidates were ambiguous or weak; manual review recommended.",
+      "attempts": [
+        {
+          "query": "name:\"Iono's Bellibolt ex\" number:\"057\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Iono's Bellibolt ex\" number:\"057/193\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Iono's Bellibolt ex\"",
+          "resultCount": 7
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv9-172",
+          "providerName": "Iono's Bellibolt ex",
+          "providerCollectorNumber": "172/159",
+          "providerSetId": "sv9",
+          "providerSetPtcgoCode": "JTG",
+          "providerSetName": "Journey Together",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv9/172_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv9-183",
+          "providerName": "Iono's Bellibolt ex",
+          "providerCollectorNumber": "183/159",
+          "providerSetId": "sv9",
+          "providerSetPtcgoCode": "JTG",
+          "providerSetName": "Journey Together",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv9/183_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv9-188",
+          "providerName": "Iono's Bellibolt ex",
+          "providerCollectorNumber": "188/159",
+          "providerSetId": "sv9",
+          "providerSetPtcgoCode": "JTG",
+          "providerSetName": "Journey Together",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv9/188_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "svp-194",
+          "providerName": "Iono's Bellibolt ex",
+          "providerCollectorNumber": "194",
+          "providerSetId": "svp",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/svp/194_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "me2pt5-279",
+          "providerName": "Iono's Bellibolt ex",
+          "providerCollectorNumber": "279/217",
+          "providerSetId": "me2pt5",
+          "providerSetPtcgoCode": "ASC",
+          "providerSetName": "Ascended Heroes",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-279/large",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Iron Leaves ex|213/162|TEF",
+      "cardName": "Iron Leaves ex",
+      "collectorNumber": "213/162",
+      "expectedSetCode": "TEF",
+      "fixtures": [
+        "iron-leaves-ex-213-162"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv5-213",
+      "providerName": "Iron Leaves ex",
+      "providerCollectorNumber": "213/162",
+      "providerSetId": "sv5",
+      "providerSetPtcgoCode": "TEF",
+      "providerSetName": "Temporal Forces",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv5/213_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Iron Leaves ex\" number:\"213\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Iron Leaves ex\" number:\"213/162\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Iron Leaves ex\"",
+          "resultCount": 6
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv5-213",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "213/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv5/213_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "sv5-186",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "186/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv5/186_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "sv5-203",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "203/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv5/203_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "sv5-25",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "25/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv5/25_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "svp-128",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "128",
+          "providerSetId": "svp",
+          "providerSetPtcgoCode": "PR-SV",
+          "providerSetName": "Scarlet & Violet Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/svp/128_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Lt. Surge's Bargain|185/132|MEG",
+      "cardName": "Lt. Surge's Bargain",
+      "collectorNumber": "185/132",
+      "expectedSetCode": "MEG",
+      "fixtures": [
+        "lt-surges-bargain-185-132",
+        "lt-surges-bargain-185-132-overhead",
+        "lt-surges-bargain-185-132-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "me1-185",
+      "providerName": "Lt. Surge's Bargain",
+      "providerCollectorNumber": "185/132",
+      "providerSetId": "me1",
+      "providerSetPtcgoCode": "MEG",
+      "providerSetName": "Mega Evolution",
+      "referenceImageUrl": "https://images.pokemontcg.io/me1/185_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Lt. Surge's Bargain\" number:\"185\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Lt. Surge's Bargain\" number:\"185/132\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Lt. Surge's Bargain\"",
+          "resultCount": 3
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "me1-185",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "185/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "referenceImageUrl": "https://images.pokemontcg.io/me1/185_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "me1-120",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "120/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "referenceImageUrl": "https://images.pokemontcg.io/me1/120_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "me1-170",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "170/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "referenceImageUrl": "https://images.pokemontcg.io/me1/170_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Lugia LEGEND|113/123|HS",
+      "cardName": "Lugia LEGEND",
+      "collectorNumber": "113/123",
+      "expectedSetCode": "HS",
+      "fixtures": [
+        "lugia-legend-113-123"
+      ],
+      "providerSupported": true,
+      "providerCardId": "hgss1-113",
+      "providerName": "Lugia LEGEND",
+      "providerCollectorNumber": "113/123",
+      "providerSetId": "hgss1",
+      "providerSetPtcgoCode": "HS",
+      "providerSetName": "HeartGold & SoulSilver",
+      "referenceImageUrl": "https://images.pokemontcg.io/hgss1/113_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Lugia LEGEND\" number:\"113\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Lugia LEGEND\" number:\"113/123\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Lugia LEGEND\"",
+          "resultCount": 2
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "referenceImageUrl": "https://images.pokemontcg.io/hgss1/113_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "hgss1-114",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "114/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "referenceImageUrl": "https://images.pokemontcg.io/hgss1/114_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Magby|186/182|PAR",
+      "cardName": "Magby",
+      "collectorNumber": "186/182",
+      "expectedSetCode": "PAR",
+      "fixtures": [
+        "magby-186-182",
+        "magby-186-182-overhead",
+        "magby-186-182-slight-angle",
+        "magby-186-182-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv4-186",
+      "providerName": "Magby",
+      "providerCollectorNumber": "186/182",
+      "providerSetId": "sv4",
+      "providerSetPtcgoCode": null,
+      "providerSetName": "Paradox Rift",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv4/186_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Magby\" number:\"186\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Magby\" number:\"186/182\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Magby\"",
+          "resultCount": 10
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4/186_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:set.name"
+          ]
+        },
+        {
+          "providerCardId": "sv4-19",
+          "providerName": "Magby",
+          "providerCollectorNumber": "19/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4/19_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:set.name"
+          ]
+        },
+        {
+          "providerCardId": "ecard1-17",
+          "providerName": "Magby",
+          "providerCollectorNumber": "17/165",
+          "providerSetId": "ecard1",
+          "providerSetPtcgoCode": "EX",
+          "providerSetName": "Expedition Base Set",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/17_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "neo1-23",
+          "providerName": "Magby",
+          "providerCollectorNumber": "23/111",
+          "providerSetId": "neo1",
+          "providerSetPtcgoCode": "N1",
+          "providerSetName": "Neo Genesis",
+          "referenceImageUrl": "https://images.pokemontcg.io/neo1/23_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ex7-24",
+          "providerName": "Magby",
+          "providerCollectorNumber": "24/109",
+          "providerSetId": "ex7",
+          "providerSetPtcgoCode": "TRR",
+          "providerSetName": "Team Rocket Returns",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex7/24_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Mega Dragonite ex|232/193|M2a",
+      "cardName": "Mega Dragonite ex",
+      "collectorNumber": "232/193",
+      "expectedSetCode": "M2a",
+      "fixtures": [
+        "mega-dragonite-ex-232-193",
+        "mega-dragonite-ex-232-193-overhead",
+        "mega-dragonite-ex-232-193-slight-angle"
+      ],
+      "providerSupported": false,
+      "providerCardId": "me2pt5-152",
+      "providerName": "Mega Dragonite ex",
+      "providerCollectorNumber": "152/217",
+      "providerSetId": "me2pt5",
+      "providerSetPtcgoCode": "ASC",
+      "providerSetName": "Ascended Heroes",
+      "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-152/large",
+      "mappingConfidence": "low",
+      "mappingReason": "Candidates were ambiguous or weak; manual review recommended.",
+      "attempts": [
+        {
+          "query": "name:\"Mega Dragonite ex\" number:\"232\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Mega Dragonite ex\" number:\"232/193\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Mega Dragonite ex\"",
+          "resultCount": 4
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "me2pt5-152",
+          "providerName": "Mega Dragonite ex",
+          "providerCollectorNumber": "152/217",
+          "providerSetId": "me2pt5",
+          "providerSetPtcgoCode": "ASC",
+          "providerSetName": "Ascended Heroes",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-152/large",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "me2pt5-271",
+          "providerName": "Mega Dragonite ex",
+          "providerCollectorNumber": "271/217",
+          "providerSetId": "me2pt5",
+          "providerSetPtcgoCode": "ASC",
+          "providerSetName": "Ascended Heroes",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-271/large",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "me2pt5-290",
+          "providerName": "Mega Dragonite ex",
+          "providerCollectorNumber": "290/217",
+          "providerSetId": "me2pt5",
+          "providerSetPtcgoCode": "ASC",
+          "providerSetName": "Ascended Heroes",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-290/large",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "me2pt5-295",
+          "providerName": "Mega Dragonite ex",
+          "providerCollectorNumber": "295/217",
+          "providerSetId": "me2pt5",
+          "providerSetPtcgoCode": "ASC",
+          "providerSetName": "Ascended Heroes",
+          "referenceImageUrl": "https://images.scrydex.com/pokemon/me2pt5-295/large",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Metagross|178/162|TEF",
+      "cardName": "Metagross",
+      "collectorNumber": "178/162",
+      "expectedSetCode": "TEF",
+      "fixtures": [
+        "metagross-178-162"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv5-178",
+      "providerName": "Metagross",
+      "providerCollectorNumber": "178/162",
+      "providerSetId": "sv5",
+      "providerSetPtcgoCode": "TEF",
+      "providerSetName": "Temporal Forces",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv5/178_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Metagross\" number:\"178\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Metagross\" number:\"178/162\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Metagross\"",
+          "resultCount": 12
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv5-178",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "178/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv5/178_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "dp6-10",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "10/146",
+          "providerSetId": "dp6",
+          "providerSetPtcgoCode": "LA",
+          "providerSetName": "Legends Awakened",
+          "referenceImageUrl": "https://images.pokemontcg.io/dp6/10_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ex5-11",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "11/101",
+          "providerSetId": "ex5",
+          "providerSetPtcgoCode": "HL",
+          "providerSetName": "Hidden Legends",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex5/11_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ex8-11",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "11/107",
+          "providerSetId": "ex8",
+          "providerSetPtcgoCode": "DX",
+          "providerSetName": "Deoxys",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex8/11_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "hgss3-18",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "18/90",
+          "providerSetId": "hgss3",
+          "providerSetPtcgoCode": "UD",
+          "providerSetName": "HS\u2014Undaunted",
+          "referenceImageUrl": "https://images.pokemontcg.io/hgss3/18_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Mew-EX|46/124|DRX",
+      "cardName": "Mew-EX",
+      "collectorNumber": "46/124",
+      "expectedSetCode": "DRX",
+      "fixtures": [
+        "mew-ex-46-124"
+      ],
+      "providerSupported": true,
+      "providerCardId": "bw6-46",
+      "providerName": "Mew-EX",
+      "providerCollectorNumber": "46/124",
+      "providerSetId": "bw6",
+      "providerSetPtcgoCode": "DRX",
+      "providerSetName": "Dragons Exalted",
+      "referenceImageUrl": "https://images.pokemontcg.io/bw6/46_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Mew-EX\" number:\"46\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Mew-EX\" number:\"46/124\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Mew-EX\"",
+          "resultCount": 4
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw6/46_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "bw6-120",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "120/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw6/120_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "bw11-RC24",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "RC24/113",
+          "providerSetId": "bw11",
+          "providerSetPtcgoCode": "LTR",
+          "providerSetName": "Legendary Treasures",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw11/RC24_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "xyp-XY126",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "XY126",
+          "providerSetId": "xyp",
+          "providerSetPtcgoCode": "PR-XY",
+          "providerSetName": "XY Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/xyp/XY126_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Mew-EX|RC24/RC25|LTR",
+      "cardName": "Mew-EX",
+      "collectorNumber": "RC24/RC25",
+      "expectedSetCode": "LTR",
+      "fixtures": [
+        "mew-ex-rc24-rc25"
+      ],
+      "providerSupported": true,
+      "providerCardId": "bw11-RC24",
+      "providerName": "Mew-EX",
+      "providerCollectorNumber": "RC24/113",
+      "providerSetId": "bw11",
+      "providerSetPtcgoCode": "LTR",
+      "providerSetName": "Legendary Treasures",
+      "referenceImageUrl": "https://images.pokemontcg.io/bw11/RC24_hires.png",
+      "mappingConfidence": "medium",
+      "mappingReason": "Strong best candidate with clear margin.",
+      "attempts": [
+        {
+          "query": "name:\"Mew-EX\" number:\"RC24\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Mew-EX\" number:\"RC24/RC25\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Mew-EX\"",
+          "resultCount": 4
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "bw11-RC24",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "RC24/113",
+          "providerSetId": "bw11",
+          "providerSetPtcgoCode": "LTR",
+          "providerSetName": "Legendary Treasures",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw11/RC24_hires.png",
+          "mappingScore": 175,
+          "mappingReasons": [
+            "exact_name",
+            "collector_prefix_match",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "bw6-120",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "120/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw6/120_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw6/46_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "xyp-XY126",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "XY126",
+          "providerSetId": "xyp",
+          "providerSetPtcgoCode": "PR-XY",
+          "providerSetName": "XY Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/xyp/XY126_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Mimikyu VMAX|077/184|S8b",
+      "cardName": "Mimikyu VMAX",
+      "collectorNumber": "077/184",
+      "expectedSetCode": "S8b",
+      "fixtures": [
+        "mimikyu-vmax-077-184",
+        "mimikyu-vmax-077-184-overhead",
+        "mimikyu-vmax-077-184-slight-angle",
+        "mimikyu-vmax-077-184-steep-angle"
+      ],
+      "providerSupported": false,
+      "providerCardId": "swsh9-69",
+      "providerName": "Mimikyu VMAX",
+      "providerCollectorNumber": "69/172",
+      "providerSetId": "swsh9",
+      "providerSetPtcgoCode": "BRS",
+      "providerSetName": "Brilliant Stars",
+      "referenceImageUrl": "https://images.pokemontcg.io/swsh9/69_hires.png",
+      "mappingConfidence": "low",
+      "mappingReason": "Candidates were ambiguous or weak; manual review recommended.",
+      "attempts": [
+        {
+          "query": "name:\"Mimikyu VMAX\" number:\"077\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Mimikyu VMAX\" number:\"077/184\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Mimikyu VMAX\"",
+          "resultCount": 2
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "swsh9-69",
+          "providerName": "Mimikyu VMAX",
+          "providerCollectorNumber": "69/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh9/69_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "swsh9tg-TG17",
+          "providerName": "Mimikyu VMAX",
+          "providerCollectorNumber": "TG17/30",
+          "providerSetId": "swsh9tg",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars Trainer Gallery",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh9tg/TG17_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Pikachu|25/25|MCD21",
+      "cardName": "Pikachu",
+      "collectorNumber": "25/25",
+      "expectedSetCode": "MCD21",
+      "fixtures": [
+        "pikachu-25-25"
+      ],
+      "providerSupported": true,
+      "providerCardId": "mcd21-25",
+      "providerName": "Pikachu",
+      "providerCollectorNumber": "25/25",
+      "providerSetId": "mcd21",
+      "providerSetPtcgoCode": null,
+      "providerSetName": "McDonald's Collection 2021",
+      "referenceImageUrl": "https://images.pokemontcg.io/mcd21/25_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Pikachu\" number:\"25\"",
+          "resultCount": 3
+        },
+        {
+          "query": "name:\"Pikachu\" number:\"25/25\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Pikachu\"",
+          "resultCount": 12
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "referenceImageUrl": "https://images.pokemontcg.io/mcd21/25_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:set.id"
+          ]
+        },
+        {
+          "providerCardId": "sv3pt5-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/25_hires.png",
+          "mappingScore": 150,
+          "mappingReasons": [
+            "exact_name",
+            "collector_prefix_match"
+          ]
+        },
+        {
+          "providerCardId": "basep-25",
+          "providerName": "Flying Pikachu",
+          "providerCollectorNumber": "25",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/25_hires.png",
+          "mappingScore": 100,
+          "mappingReasons": [
+            "partial_name_match",
+            "collector_prefix_match"
+          ]
+        },
+        {
+          "providerCardId": "basep-1",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "1",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/1_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "basep-26",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "26",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/26_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Pikachu|GG30/GG70|CRZ",
+      "cardName": "Pikachu",
+      "collectorNumber": "GG30/GG70",
+      "expectedSetCode": "CRZ",
+      "fixtures": [
+        "pikachu-gg30-gg70"
+      ],
+      "providerSupported": true,
+      "providerCardId": "swsh12pt5gg-GG30",
+      "providerName": "Pikachu",
+      "providerCollectorNumber": "GG30/70",
+      "providerSetId": "swsh12pt5gg",
+      "providerSetPtcgoCode": "CRZ",
+      "providerSetName": "Crown Zenith Galarian Gallery",
+      "referenceImageUrl": "https://images.pokemontcg.io/swsh12pt5gg/GG30_hires.png",
+      "mappingConfidence": "medium",
+      "mappingReason": "Strong best candidate with clear margin.",
+      "attempts": [
+        {
+          "query": "name:\"Pikachu\" number:\"GG30\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Pikachu\" number:\"GG30/GG70\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Pikachu\"",
+          "resultCount": 12
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "swsh12pt5gg-GG30",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "GG30/70",
+          "providerSetId": "swsh12pt5gg",
+          "providerSetPtcgoCode": "CRZ",
+          "providerSetName": "Crown Zenith Galarian Gallery",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh12pt5gg/GG30_hires.png",
+          "mappingScore": 175,
+          "mappingReasons": [
+            "exact_name",
+            "collector_prefix_match",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "basep-1",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "1",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/1_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "basep-26",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "26",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/26_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "basep-27",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "27",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/27_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "basep-4",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "4",
+          "providerSetId": "basep",
+          "providerSetPtcgoCode": "PR",
+          "providerSetName": "Wizards Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/basep/4_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Pikachu VMAX|SWSH286|SWSD",
+      "cardName": "Pikachu VMAX",
+      "collectorNumber": "SWSH286",
+      "expectedSetCode": "SWSD",
+      "fixtures": [
+        "pikachu-vmax-swsh286",
+        "pikachu-vmax-swsh286-overhead",
+        "pikachu-vmax-swsh286-slight-angle",
+        "pikachu-vmax-swsh286-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "swshp-SWSH286",
+      "providerName": "Pikachu VMAX",
+      "providerCollectorNumber": "SWSH286",
+      "providerSetId": "swshp",
+      "providerSetPtcgoCode": "PR-SW",
+      "providerSetName": "SWSH Black Star Promos",
+      "referenceImageUrl": "https://images.pokemontcg.io/swshp/SWSH286_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Pikachu VMAX\" number:\"SWSH286\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Pikachu VMAX\"",
+          "resultCount": 8
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/swshp/SWSH286_hires.png",
+          "mappingScore": 210,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector"
+          ]
+        },
+        {
+          "providerCardId": "swsh4-188",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "188/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh4/188_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "swsh4-44",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "44/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh4/44_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "swshp-SWSH062",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH062",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/swshp/SWSH062_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "swsh11tg-TG17",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG17/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh11tg/TG17_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Pikachu VMAX|TG29/TG30|SWSH11",
+      "cardName": "Pikachu VMAX",
+      "collectorNumber": "TG29/TG30",
+      "expectedSetCode": "SWSH11",
+      "fixtures": [
+        "pikachu-vmax-tg29-tg30",
+        "pikachu-vmax-tg29-tg30-overhead",
+        "pikachu-vmax-tg29-tg30-slight-angle",
+        "pikachu-vmax-tg29-tg30-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "swsh11tg-TG29",
+      "providerName": "Pikachu VMAX",
+      "providerCollectorNumber": "TG29/30",
+      "providerSetId": "swsh11tg",
+      "providerSetPtcgoCode": "LOR",
+      "providerSetName": "Lost Origin Trainer Gallery",
+      "referenceImageUrl": "https://images.pokemontcg.io/swsh11tg/TG29_hires.png",
+      "mappingConfidence": "medium",
+      "mappingReason": "Strong best candidate with clear margin.",
+      "attempts": [
+        {
+          "query": "name:\"Pikachu VMAX\" number:\"TG29\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Pikachu VMAX\" number:\"TG29/TG30\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Pikachu VMAX\"",
+          "resultCount": 8
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh11tg/TG29_hires.png",
+          "mappingScore": 175,
+          "mappingReasons": [
+            "exact_name",
+            "collector_prefix_match",
+            "set_match:set.id"
+          ]
+        },
+        {
+          "providerCardId": "swsh11tg-TG17",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG17/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh11tg/TG17_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:set.id"
+          ]
+        },
+        {
+          "providerCardId": "swsh4-188",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "188/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh4/188_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "swsh4-44",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "44/185",
+          "providerSetId": "swsh4",
+          "providerSetPtcgoCode": "VIV",
+          "providerSetName": "Vivid Voltage",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh4/44_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "swshp-SWSH062",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH062",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/swshp/SWSH062_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Rabsca|163/091|PAF",
+      "cardName": "Rabsca",
+      "collectorNumber": "163/091",
+      "expectedSetCode": "PAF",
+      "fixtures": [
+        "rabsca-163-091"
+      ],
+      "providerSupported": false,
+      "providerCardId": "sv4pt5-163",
+      "providerName": "Rabsca",
+      "providerCollectorNumber": "163/91",
+      "providerSetId": "sv4pt5",
+      "providerSetPtcgoCode": null,
+      "providerSetName": "Paldean Fates",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/163_hires.png",
+      "mappingConfidence": "low",
+      "mappingReason": "Candidates were ambiguous or weak; manual review recommended.",
+      "attempts": [
+        {
+          "query": "name:\"Rabsca\" number:\"163\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Rabsca\" number:\"163/091\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Rabsca\"",
+          "resultCount": 6
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv4pt5-163",
+          "providerName": "Rabsca",
+          "providerCollectorNumber": "163/91",
+          "providerSetId": "sv4pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paldean Fates",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv4pt5/163_hires.png",
+          "mappingScore": 150,
+          "mappingReasons": [
+            "exact_name",
+            "collector_prefix_match"
+          ]
+        },
+        {
+          "providerCardId": "sv8-14",
+          "providerName": "Rabsca",
+          "providerCollectorNumber": "14/191",
+          "providerSetId": "sv8",
+          "providerSetPtcgoCode": "SSP",
+          "providerSetName": "Surging Sparks",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv8/14_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv2-215",
+          "providerName": "Rabsca",
+          "providerCollectorNumber": "215/193",
+          "providerSetId": "sv2",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paldea Evolved",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv2/215_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv5-24",
+          "providerName": "Rabsca",
+          "providerCollectorNumber": "24/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv5/24_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv2-99",
+          "providerName": "Rabsca",
+          "providerCollectorNumber": "99/193",
+          "providerSetId": "sv2",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paldea Evolved",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv2/99_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Rare Candy|256/198|SVI",
+      "cardName": "Rare Candy",
+      "collectorNumber": "256/198",
+      "expectedSetCode": "SVI",
+      "fixtures": [
+        "rare-candy-256-198"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv1-256",
+      "providerName": "Rare Candy",
+      "providerCollectorNumber": "256/198",
+      "providerSetId": "sv1",
+      "providerSetPtcgoCode": null,
+      "providerSetName": "Scarlet & Violet",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv1/256_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Rare Candy\" number:\"256\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Rare Candy\" number:\"256/198\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Rare Candy\"",
+          "resultCount": 12
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv1/256_hires.png",
+          "mappingScore": 210,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector"
+          ]
+        },
+        {
+          "providerCardId": "pop8-10",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "10/17",
+          "providerSetId": "pop8",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "POP Series 8",
+          "referenceImageUrl": "https://images.pokemontcg.io/pop8/10_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "bw5-100",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "100/108",
+          "providerSetId": "bw5",
+          "providerSetPtcgoCode": "DEX",
+          "providerSetName": "Dark Explorers",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw5/100_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "dp4-102",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "102/106",
+          "providerSetId": "dp4",
+          "providerSetPtcgoCode": "GE",
+          "providerSetName": "Great Encounters",
+          "referenceImageUrl": "https://images.pokemontcg.io/dp4/102_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "bw10-105",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "105/101",
+          "providerSetId": "bw10",
+          "providerSetPtcgoCode": "PLB",
+          "providerSetName": "Plasma Blast",
+          "referenceImageUrl": "https://images.pokemontcg.io/bw10/105_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Sabrina's Slowbro|60/132|G1",
+      "cardName": "Sabrina's Slowbro",
+      "collectorNumber": "60/132",
+      "expectedSetCode": "G1",
+      "fixtures": [
+        "sabrinas-slowbro-60-132",
+        "sabrinas-slowbro-60-132-overhead",
+        "sabrinas-slowbro-60-132-slight-angle",
+        "sabrinas-slowbro-60-132-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "gym1-60",
+      "providerName": "Sabrina's Slowbro",
+      "providerCollectorNumber": "60/132",
+      "providerSetId": "gym1",
+      "providerSetPtcgoCode": "G1",
+      "providerSetName": "Gym Heroes",
+      "referenceImageUrl": "https://images.pokemontcg.io/gym1/60_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Sabrina's Slowbro\" number:\"60\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Sabrina's Slowbro\" number:\"60/132\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Sabrina's Slowbro\"",
+          "resultCount": 1
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "referenceImageUrl": "https://images.pokemontcg.io/gym1/60_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Slowpoke|204/198|SVI",
+      "cardName": "Slowpoke",
+      "collectorNumber": "204/198",
+      "expectedSetCode": "SVI",
+      "fixtures": [
+        "slowpoke-204-198",
+        "slowpoke-204-198-overhead",
+        "slowpoke-204-198-slight-angle",
+        "slowpoke-204-198-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv1-204",
+      "providerName": "Slowpoke",
+      "providerCollectorNumber": "204/198",
+      "providerSetId": "sv1",
+      "providerSetPtcgoCode": null,
+      "providerSetName": "Scarlet & Violet",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv1/204_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Slowpoke\" number:\"204\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Slowpoke\" number:\"204/198\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Slowpoke\"",
+          "resultCount": 12
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv1/204_hires.png",
+          "mappingScore": 210,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector"
+          ]
+        },
+        {
+          "providerCardId": "ecard2-108",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "108/147",
+          "providerSetId": "ecard2",
+          "providerSetPtcgoCode": "AQ",
+          "providerSetName": "Aquapolis",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard2/108_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ex4-45",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "45/95",
+          "providerSetId": "ex4",
+          "providerSetPtcgoCode": "MA",
+          "providerSetName": "Team Magma vs Team Aqua",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex4/45_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "base3-55",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "55/62",
+          "providerSetId": "base3",
+          "providerSetPtcgoCode": "FO",
+          "providerSetName": "Fossil",
+          "referenceImageUrl": "https://images.pokemontcg.io/base3/55_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "base5-67",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "67/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "referenceImageUrl": "https://images.pokemontcg.io/base5/67_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Snorlax|077/071|S10a",
+      "cardName": "Snorlax",
+      "collectorNumber": "077/071",
+      "expectedSetCode": "S10a",
+      "fixtures": [
+        "snorlax-077-071-overhead",
+        "snorlax-077-071-slight-angle",
+        "snorlax-077-071-steep-angle"
+      ],
+      "providerSupported": false,
+      "providerCardId": "ecard3-100",
+      "providerName": "Snorlax",
+      "providerCollectorNumber": "100/144",
+      "providerSetId": "ecard3",
+      "providerSetPtcgoCode": "SK",
+      "providerSetName": "Skyridge",
+      "referenceImageUrl": "https://images.pokemontcg.io/ecard3/100_hires.png",
+      "mappingConfidence": "low",
+      "mappingReason": "Candidates were ambiguous or weak; manual review recommended.",
+      "attempts": [
+        {
+          "query": "name:\"Snorlax\" number:\"077\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Snorlax\" number:\"077/071\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Snorlax\"",
+          "resultCount": 12
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "ecard3-100",
+          "providerName": "Snorlax",
+          "providerCollectorNumber": "100/144",
+          "providerSetId": "ecard3",
+          "providerSetPtcgoCode": "SK",
+          "providerSetName": "Skyridge",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/100_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "base2-11",
+          "providerName": "Snorlax",
+          "providerCollectorNumber": "11/64",
+          "providerSetId": "base2",
+          "providerSetPtcgoCode": "JU",
+          "providerSetName": "Jungle",
+          "referenceImageUrl": "https://images.pokemontcg.io/base2/11_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ex6-15",
+          "providerName": "Snorlax",
+          "providerCollectorNumber": "15/112",
+          "providerSetId": "ex6",
+          "providerSetPtcgoCode": "RG",
+          "providerSetName": "FireRed & LeafGreen",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex6/15_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "base2-27",
+          "providerName": "Snorlax",
+          "providerCollectorNumber": "27/64",
+          "providerSetId": "base2",
+          "providerSetPtcgoCode": "JU",
+          "providerSetName": "Jungle",
+          "referenceImageUrl": "https://images.pokemontcg.io/base2/27_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "base4-30",
+          "providerName": "Snorlax",
+          "providerCollectorNumber": "30/130",
+          "providerSetId": "base4",
+          "providerSetPtcgoCode": "B2",
+          "providerSetName": "Base Set 2",
+          "referenceImageUrl": "https://images.pokemontcg.io/base4/30_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Switch|206/165|MEW",
+      "cardName": "Switch",
+      "collectorNumber": "206/165",
+      "expectedSetCode": "MEW",
+      "fixtures": [
+        "switch-206-165"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv3pt5-206",
+      "providerName": "Switch",
+      "providerCollectorNumber": "206/165",
+      "providerSetId": "sv3pt5",
+      "providerSetPtcgoCode": null,
+      "providerSetName": "151",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/206_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Switch\" number:\"206\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Switch\" number:\"206/165\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Switch\"",
+          "resultCount": 12
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv3pt5-206",
+          "providerName": "Switch",
+          "providerCollectorNumber": "206/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv3pt5/206_hires.png",
+          "mappingScore": 210,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector"
+          ]
+        },
+        {
+          "providerCardId": "ex6-102",
+          "providerName": "Switch",
+          "providerCollectorNumber": "102/112",
+          "providerSetId": "ex6",
+          "providerSetPtcgoCode": "RG",
+          "providerSetName": "FireRed & LeafGreen",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex6/102_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ex11-102",
+          "providerName": "Switch",
+          "providerCollectorNumber": "102/113",
+          "providerSetId": "ex11",
+          "providerSetPtcgoCode": "DS",
+          "providerSetName": "Delta Species",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex11/102_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "base4-123",
+          "providerName": "Switch",
+          "providerCollectorNumber": "123/130",
+          "providerSetId": "base4",
+          "providerSetPtcgoCode": "B2",
+          "providerSetName": "Base Set 2",
+          "referenceImageUrl": "https://images.pokemontcg.io/base4/123_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ecard1-157",
+          "providerName": "Switch",
+          "providerCollectorNumber": "157/165",
+          "providerSetId": "ecard1",
+          "providerSetPtcgoCode": "EX",
+          "providerSetName": "Expedition Base Set",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard1/157_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Team Rocket's Weezing|199/182|DRI",
+      "cardName": "Team Rocket's Weezing",
+      "collectorNumber": "199/182",
+      "expectedSetCode": "DRI",
+      "fixtures": [
+        "team-rockets-weezing-199-182",
+        "team-rockets-weezing-199-182-overhead",
+        "team-rockets-weezing-199-182-slight-angle",
+        "team-rockets-weezing-199-182-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv10-199",
+      "providerName": "Team Rocket's Weezing",
+      "providerCollectorNumber": "199/182",
+      "providerSetId": "sv10",
+      "providerSetPtcgoCode": "DRI",
+      "providerSetName": "Destined Rivals",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv10/199_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Team Rocket's Weezing\" number:\"199\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Team Rocket's Weezing\" number:\"199/182\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Team Rocket's Weezing\"",
+          "resultCount": 2
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv10/199_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "sv10-126",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "126/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv10/126_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Terapagos ex|128/142|SCR",
+      "cardName": "Terapagos ex",
+      "collectorNumber": "128/142",
+      "expectedSetCode": "SCR",
+      "fixtures": [
+        "terapagos-ex-128-142"
+      ],
+      "providerSupported": true,
+      "providerCardId": "sv7-128",
+      "providerName": "Terapagos ex",
+      "providerCollectorNumber": "128/142",
+      "providerSetId": "sv7",
+      "providerSetPtcgoCode": "SCR",
+      "providerSetName": "Stellar Crown",
+      "referenceImageUrl": "https://images.pokemontcg.io/sv7/128_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Terapagos ex\" number:\"128\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Terapagos ex\" number:\"128/142\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Terapagos ex\"",
+          "resultCount": 8
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "sv7-128",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "128/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv7/128_hires.png",
+          "mappingScore": 235,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "sv7-170",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "170/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv7/170_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "sv7-173",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "173/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv7/173_hires.png",
+          "mappingScore": 115,
+          "mappingReasons": [
+            "exact_name",
+            "set_match:ptcgoCode"
+          ]
+        },
+        {
+          "providerCardId": "svp-165",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "165",
+          "providerSetId": "svp",
+          "providerSetPtcgoCode": "PR-SV",
+          "providerSetName": "Scarlet & Violet Black Star Promos",
+          "referenceImageUrl": "https://images.pokemontcg.io/svp/165_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "sv8pt5-169",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "169/131",
+          "providerSetId": "sv8pt5",
+          "providerSetPtcgoCode": "PRE",
+          "providerSetName": "Prismatic Evolutions",
+          "referenceImageUrl": "https://images.pokemontcg.io/sv8pt5/169_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Umbreon|059/131|PRE",
+      "cardName": "Umbreon",
+      "collectorNumber": "059/131",
+      "expectedSetCode": "PRE",
+      "fixtures": [
+        "umbreon-059-131"
+      ],
+      "providerSupported": false,
+      "providerCardId": "hgss3-10",
+      "providerName": "Umbreon",
+      "providerCollectorNumber": "10/90",
+      "providerSetId": "hgss3",
+      "providerSetPtcgoCode": "UD",
+      "providerSetName": "HS\u2014Undaunted",
+      "referenceImageUrl": "https://images.pokemontcg.io/hgss3/10_hires.png",
+      "mappingConfidence": "low",
+      "mappingReason": "Candidates were ambiguous or weak; manual review recommended.",
+      "attempts": [
+        {
+          "query": "name:\"Umbreon\" number:\"059\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Umbreon\" number:\"059/131\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Umbreon\"",
+          "resultCount": 12
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "hgss3-10",
+          "providerName": "Umbreon",
+          "providerCollectorNumber": "10/90",
+          "providerSetId": "hgss3",
+          "providerSetPtcgoCode": "UD",
+          "providerSetName": "HS\u2014Undaunted",
+          "referenceImageUrl": "https://images.pokemontcg.io/hgss3/10_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "neo2-13",
+          "providerName": "Umbreon",
+          "providerCollectorNumber": "13/75",
+          "providerSetId": "neo2",
+          "providerSetPtcgoCode": "N2",
+          "providerSetName": "Neo Discovery",
+          "referenceImageUrl": "https://images.pokemontcg.io/neo2/13_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ex2-24",
+          "providerName": "Umbreon",
+          "providerCollectorNumber": "24/100",
+          "providerSetId": "ex2",
+          "providerSetPtcgoCode": "SS",
+          "providerSetName": "Sandstorm",
+          "referenceImageUrl": "https://images.pokemontcg.io/ex2/24_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "dp5-32",
+          "providerName": "Umbreon",
+          "providerCollectorNumber": "32/100",
+          "providerSetId": "dp5",
+          "providerSetPtcgoCode": "MD",
+          "providerSetName": "Majestic Dawn",
+          "referenceImageUrl": "https://images.pokemontcg.io/dp5/32_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        },
+        {
+          "providerCardId": "ecard3-32",
+          "providerName": "Umbreon",
+          "providerCollectorNumber": "32/144",
+          "providerSetId": "ecard3",
+          "providerSetPtcgoCode": "SK",
+          "providerSetName": "Skyridge",
+          "referenceImageUrl": "https://images.pokemontcg.io/ecard3/32_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    },
+    {
+      "truthKey": "Whimsicott VSTAR|175/172|SWSH09",
+      "cardName": "Whimsicott VSTAR",
+      "collectorNumber": "175/172",
+      "expectedSetCode": "SWSH09",
+      "fixtures": [
+        "whimsicott-vstar-175-172",
+        "whimsicott-vstar-175-172-overhead",
+        "whimsicott-vstar-175-172-slight-angle",
+        "whimsicott-vstar-175-172-steep-angle"
+      ],
+      "providerSupported": true,
+      "providerCardId": "swsh9-175",
+      "providerName": "Whimsicott VSTAR",
+      "providerCollectorNumber": "175/172",
+      "providerSetId": "swsh9",
+      "providerSetPtcgoCode": "BRS",
+      "providerSetName": "Brilliant Stars",
+      "referenceImageUrl": "https://images.pokemontcg.io/swsh9/175_hires.png",
+      "mappingConfidence": "high",
+      "mappingReason": "Exact or near-exact card name and collector number match.",
+      "attempts": [
+        {
+          "query": "name:\"Whimsicott VSTAR\" number:\"175\"",
+          "resultCount": 1
+        },
+        {
+          "query": "name:\"Whimsicott VSTAR\" number:\"175/172\"",
+          "resultCount": 0
+        },
+        {
+          "query": "name:\"Whimsicott VSTAR\"",
+          "resultCount": 2
+        }
+      ],
+      "candidateSummaries": [
+        {
+          "providerCardId": "swsh9-175",
+          "providerName": "Whimsicott VSTAR",
+          "providerCollectorNumber": "175/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh9/175_hires.png",
+          "mappingScore": 210,
+          "mappingReasons": [
+            "exact_name",
+            "exact_collector"
+          ]
+        },
+        {
+          "providerCardId": "swsh9-65",
+          "providerName": "Whimsicott VSTAR",
+          "providerCollectorNumber": "65/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "referenceImageUrl": "https://images.pokemontcg.io/swsh9/65_hires.png",
+          "mappingScore": 90,
+          "mappingReasons": [
+            "exact_name"
+          ]
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,3594 @@
+{
+  "generatedAt": "2026-04-12T00:03:26Z",
+  "modelId": "openai/clip-vit-base-patch32",
+  "embeddingDimension": 512,
+  "topK": 5,
+  "cropPreset": "artwork_v1",
+  "cropBoxNormalized": [
+    0.047619047619047616,
+    0.09090909090909091,
+    0.9047619047619048,
+    0.5
+  ],
+  "referenceMode": "seed_reference_subset",
+  "indexNpzPath": null,
+  "indexManifestPath": null,
+  "providerSupportedFixtureCount": 47,
+  "providerUnsupportedFixtureCount": 20,
+  "top1PassCount": 33,
+  "topKContainsTruthCount": 43,
+  "top1PassRate": 0.7021276595744681,
+  "topKContainsTruthRate": 0.9148936170212766,
+  "entries": [
+    {
+      "fixtureName": "blastoise-ex-200-165",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Blastoise ex",
+        "collectorNumber": "200/165",
+        "setCode": "MEW",
+        "providerCardId": "sv3pt5-200"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.73247,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.717969,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.716992,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv3pt5-200",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "200/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.684212,
+          "isTruth": true
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.683318,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "clive-227-091",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Clive",
+        "collectorNumber": "227/091",
+        "setCode": "PAF"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "counter-gain-249-191",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Counter Gain",
+        "collectorNumber": "249/191",
+        "setCode": "SSP",
+        "providerCardId": "sv8-249"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.784827,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.671157,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.651563,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.649669,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.644084,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "dark-weezing-14-82",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Dark Weezing",
+        "collectorNumber": "14/82",
+        "setCode": "TR",
+        "providerCardId": "base5-14"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.718723,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.660853,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv3pt5-200",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "200/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.602369,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.590807,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.588893,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "dark-weezing-14-82-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Dark Weezing",
+        "collectorNumber": "14/82",
+        "setCode": "TR",
+        "providerCardId": "base5-14"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.737588,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.708759,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.708748,
+          "isTruth": true
+        },
+        {
+          "rank": 4,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.703832,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.694724,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "dark-weezing-14-82-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Dark Weezing",
+        "collectorNumber": "14/82",
+        "setCode": "TR",
+        "providerCardId": "base5-14"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.816098,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.804017,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.717694,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.689937,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh12pt5gg-GG30",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "GG30/70",
+          "providerSetId": "swsh12pt5gg",
+          "providerSetPtcgoCode": "CRZ",
+          "providerSetName": "Crown Zenith Galarian Gallery",
+          "similarity": 0.682667,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "dark-weezing-14-82-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Dark Weezing",
+        "collectorNumber": "14/82",
+        "setCode": "TR",
+        "providerCardId": "base5-14"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.743772,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.68524,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.609962,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.59724,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.587982,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "eevee-and-snorlax-gx-066-095-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Eevee & Snorlax GX",
+        "collectorNumber": "066/095",
+        "setCode": "SM9"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "eevee-and-snorlax-gx-066-095-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Eevee & Snorlax GX",
+        "collectorNumber": "066/095",
+        "setCode": "SM9"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "eevee-and-snorlax-gx-066-095-steep-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Eevee & Snorlax GX",
+        "collectorNumber": "066/095",
+        "setCode": "SM9"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "ionos-bellibolt-ex-057-193",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iono's Bellibolt ex",
+        "collectorNumber": "057/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "ionos-bellibolt-ex-057-193-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iono's Bellibolt ex",
+        "collectorNumber": "057/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "ionos-bellibolt-ex-057-193-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iono's Bellibolt ex",
+        "collectorNumber": "057/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "ionos-bellibolt-ex-057-193-steep-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iono's Bellibolt ex",
+        "collectorNumber": "057/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "iron-leaves-ex-213-162",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Iron Leaves ex",
+        "collectorNumber": "213/162",
+        "setCode": "TEF",
+        "providerCardId": "sv5-213"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv5-213",
+          "providerName": "Iron Leaves ex",
+          "providerCollectorNumber": "213/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.830576,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.753006,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.741344,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.738059,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.734773,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "lt-surges-bargain-185-132",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Lt. Surge's Bargain",
+        "collectorNumber": "185/132",
+        "setCode": "MEG",
+        "providerCardId": "me1-185"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.684404,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.678896,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.675554,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "me1-185",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "185/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "similarity": 0.643097,
+          "isTruth": true
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv5-178",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "178/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.624683,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "lt-surges-bargain-185-132-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Lt. Surge's Bargain",
+        "collectorNumber": "185/132",
+        "setCode": "MEG",
+        "providerCardId": "me1-185"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "me1-185",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "185/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "similarity": 0.819582,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.515312,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv3pt5-200",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "200/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.50198,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv5-178",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "178/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.495982,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.495275,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "lt-surges-bargain-185-132-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Lt. Surge's Bargain",
+        "collectorNumber": "185/132",
+        "setCode": "MEG",
+        "providerCardId": "me1-185"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "me1-185",
+          "providerName": "Lt. Surge's Bargain",
+          "providerCollectorNumber": "185/132",
+          "providerSetId": "me1",
+          "providerSetPtcgoCode": "MEG",
+          "providerSetName": "Mega Evolution",
+          "similarity": 0.726466,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.533956,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv5-178",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "178/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.513998,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.498059,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.458952,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "lugia-legend-113-123",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Lugia LEGEND",
+        "collectorNumber": "113/123",
+        "setCode": "HS",
+        "providerCardId": "hgss1-113"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.7182,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv3pt5-200",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "200/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.616812,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.60872,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv5-178",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "178/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.599928,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.594306,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "magby-186-182",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Magby",
+        "collectorNumber": "186/182",
+        "setCode": "PAR",
+        "providerCardId": "sv4-186"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.868915,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.765861,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.737048,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.719576,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.708738,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "magby-186-182-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Magby",
+        "collectorNumber": "186/182",
+        "setCode": "PAR",
+        "providerCardId": "sv4-186"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.780048,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.728521,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.714764,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.706977,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.699212,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "magby-186-182-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Magby",
+        "collectorNumber": "186/182",
+        "setCode": "PAR",
+        "providerCardId": "sv4-186"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.746581,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.714057,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.643613,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv5-178",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "178/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.628317,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv3pt5-200",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "200/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.616475,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "magby-186-182-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Magby",
+        "collectorNumber": "186/182",
+        "setCode": "PAR",
+        "providerCardId": "sv4-186"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.726573,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.646153,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.63471,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.622192,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.621808,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "mega-dragonite-ex-232-193",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mega Dragonite ex",
+        "collectorNumber": "232/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mega-dragonite-ex-232-193-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mega Dragonite ex",
+        "collectorNumber": "232/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mega-dragonite-ex-232-193-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mega Dragonite ex",
+        "collectorNumber": "232/193",
+        "setCode": "M2a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "metagross-178-162",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Metagross",
+        "collectorNumber": "178/162",
+        "setCode": "TEF",
+        "providerCardId": "sv5-178"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv5-178",
+          "providerName": "Metagross",
+          "providerCollectorNumber": "178/162",
+          "providerSetId": "sv5",
+          "providerSetPtcgoCode": "TEF",
+          "providerSetName": "Temporal Forces",
+          "similarity": 0.628996,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.587947,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.581616,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv7-128",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "128/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "similarity": 0.558807,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.556944,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "mew-ex-46-124",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mew-EX",
+        "collectorNumber": "46/124",
+        "setCode": "DRX",
+        "providerCardId": "bw6-46"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.837898,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.75384,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.752879,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.751965,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.74474,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "mew-ex-rc24-rc25",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mew-EX",
+        "collectorNumber": "RC24/RC25",
+        "setCode": "LTR",
+        "providerCardId": "bw11-RC24"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "bw11-RC24",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "RC24/113",
+          "providerSetId": "bw11",
+          "providerSetPtcgoCode": "LTR",
+          "providerSetName": "Legendary Treasures",
+          "similarity": 0.812221,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.799807,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.755723,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.743626,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.74211,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "mimikyu-vmax-077-184",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mimikyu VMAX",
+        "collectorNumber": "077/184",
+        "setCode": "S8b"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mimikyu-vmax-077-184-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mimikyu VMAX",
+        "collectorNumber": "077/184",
+        "setCode": "S8b"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mimikyu-vmax-077-184-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mimikyu VMAX",
+        "collectorNumber": "077/184",
+        "setCode": "S8b"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "mimikyu-vmax-077-184-steep-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Mimikyu VMAX",
+        "collectorNumber": "077/184",
+        "setCode": "S8b"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "pikachu-25-25",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu",
+        "collectorNumber": "25/25",
+        "setCode": "MCD21",
+        "providerCardId": "mcd21-25"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.759467,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.758103,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.746031,
+          "isTruth": true
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.736771,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.725697,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-gg30-gg70",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu",
+        "collectorNumber": "GG30/GG70",
+        "setCode": "CRZ",
+        "providerCardId": "swsh12pt5gg-GG30"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh12pt5gg-GG30",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "GG30/70",
+          "providerSetId": "swsh12pt5gg",
+          "providerSetPtcgoCode": "CRZ",
+          "providerSetName": "Crown Zenith Galarian Gallery",
+          "similarity": 0.831921,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.741818,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.714793,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.706791,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.702557,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-swsh286",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "SWSH286",
+        "setCode": "SWSD",
+        "providerCardId": "swshp-SWSH286"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.866099,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.837349,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.797765,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.785317,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.777139,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-swsh286-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "SWSH286",
+        "setCode": "SWSD",
+        "providerCardId": "swshp-SWSH286"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.721061,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.651141,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.650775,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.640342,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.633432,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-swsh286-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "SWSH286",
+        "setCode": "SWSD",
+        "providerCardId": "swshp-SWSH286"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.701689,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.656355,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.647349,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.631154,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.603597,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-swsh286-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "SWSH286",
+        "setCode": "SWSD",
+        "providerCardId": "swshp-SWSH286"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.716192,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.695924,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.683411,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.667492,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.663848,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-tg29-tg30",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "TG29/TG30",
+        "setCode": "SWSH11",
+        "providerCardId": "swsh11tg-TG29"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.761893,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.731648,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.703532,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.699074,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.675827,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-tg29-tg30-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "TG29/TG30",
+        "setCode": "SWSH11",
+        "providerCardId": "swsh11tg-TG29"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.70576,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.609454,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.6083,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.583024,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.575372,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-tg29-tg30-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "TG29/TG30",
+        "setCode": "SWSH11",
+        "providerCardId": "swsh11tg-TG29"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.706243,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.662907,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.656233,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.643722,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh12pt5gg-GG30",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "GG30/70",
+          "providerSetId": "swsh12pt5gg",
+          "providerSetPtcgoCode": "CRZ",
+          "providerSetName": "Crown Zenith Galarian Gallery",
+          "similarity": 0.616964,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "pikachu-vmax-tg29-tg30-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Pikachu VMAX",
+        "collectorNumber": "TG29/TG30",
+        "setCode": "SWSH11",
+        "providerCardId": "swsh11tg-TG29"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.736561,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.670689,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.652193,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.641746,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.633386,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "rabsca-163-091",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Rabsca",
+        "collectorNumber": "163/091",
+        "setCode": "PAF"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "rare-candy-256-198",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Rare Candy",
+        "collectorNumber": "256/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-256"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.798071,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.731724,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.731376,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv3pt5-206",
+          "providerName": "Switch",
+          "providerCollectorNumber": "206/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.711021,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.698609,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "sabrinas-slowbro-60-132",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Sabrina's Slowbro",
+        "collectorNumber": "60/132",
+        "setCode": "G1",
+        "providerCardId": "gym1-60"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.816911,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.784925,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.717389,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.691573,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh12pt5gg-GG30",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "GG30/70",
+          "providerSetId": "swsh12pt5gg",
+          "providerSetPtcgoCode": "CRZ",
+          "providerSetName": "Crown Zenith Galarian Gallery",
+          "similarity": 0.675569,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "sabrinas-slowbro-60-132-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Sabrina's Slowbro",
+        "collectorNumber": "60/132",
+        "setCode": "G1",
+        "providerCardId": "gym1-60"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.850052,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.785636,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.731422,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.717118,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.683806,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "sabrinas-slowbro-60-132-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Sabrina's Slowbro",
+        "collectorNumber": "60/132",
+        "setCode": "G1",
+        "providerCardId": "gym1-60"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.795804,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.747107,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.718,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.705896,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.672686,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "sabrinas-slowbro-60-132-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Sabrina's Slowbro",
+        "collectorNumber": "60/132",
+        "setCode": "G1",
+        "providerCardId": "gym1-60"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.769157,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.75912,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.694693,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.677879,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.640468,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "slowpoke-204-198",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Slowpoke",
+        "collectorNumber": "204/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-204"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.810343,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.698451,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.696864,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.686408,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.675807,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "slowpoke-204-198-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Slowpoke",
+        "collectorNumber": "204/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-204"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.680627,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv3pt5-206",
+          "providerName": "Switch",
+          "providerCollectorNumber": "206/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.649581,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.646621,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.640372,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.619288,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "slowpoke-204-198-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Slowpoke",
+        "collectorNumber": "204/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-204"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.845384,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.735748,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.685365,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.679527,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.677716,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "slowpoke-204-198-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Slowpoke",
+        "collectorNumber": "204/198",
+        "setCode": "SVI",
+        "providerCardId": "sv1-204"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.694548,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "hgss1-113",
+          "providerName": "Lugia LEGEND",
+          "providerCollectorNumber": "113/123",
+          "providerSetId": "hgss1",
+          "providerSetPtcgoCode": "HS",
+          "providerSetName": "HeartGold & SoulSilver",
+          "similarity": 0.62254,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.608184,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "mcd21-25",
+          "providerName": "Pikachu",
+          "providerCollectorNumber": "25/25",
+          "providerSetId": "mcd21",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "McDonald's Collection 2021",
+          "similarity": 0.599126,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.589021,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "snorlax-077-071-overhead",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Snorlax",
+        "collectorNumber": "077/071",
+        "setCode": "S10a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "snorlax-077-071-slight-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Snorlax",
+        "collectorNumber": "077/071",
+        "setCode": "S10a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "snorlax-077-071-steep-angle",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Snorlax",
+        "collectorNumber": "077/071",
+        "setCode": "S10a"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "switch-206-165",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Switch",
+        "collectorNumber": "206/165",
+        "setCode": "MEW",
+        "providerCardId": "sv3pt5-206"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.577071,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv3pt5-206",
+          "providerName": "Switch",
+          "providerCollectorNumber": "206/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.548519,
+          "isTruth": true
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.542555,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.537932,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.533312,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "team-rockets-weezing-199-182",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Team Rocket's Weezing",
+        "collectorNumber": "199/182",
+        "setCode": "DRI",
+        "providerCardId": "sv10-199"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.824771,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.665113,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.655493,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv3pt5-200",
+          "providerName": "Blastoise ex",
+          "providerCollectorNumber": "200/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.639745,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.639275,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "team-rockets-weezing-199-182-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Team Rocket's Weezing",
+        "collectorNumber": "199/182",
+        "setCode": "DRI",
+        "providerCardId": "sv10-199"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.785814,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.748349,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.717955,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.705283,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.703728,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "team-rockets-weezing-199-182-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Team Rocket's Weezing",
+        "collectorNumber": "199/182",
+        "setCode": "DRI",
+        "providerCardId": "sv10-199"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv10-199",
+          "providerName": "Team Rocket's Weezing",
+          "providerCollectorNumber": "199/182",
+          "providerSetId": "sv10",
+          "providerSetPtcgoCode": "DRI",
+          "providerSetName": "Destined Rivals",
+          "similarity": 0.835628,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.747236,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv1-204",
+          "providerName": "Slowpoke",
+          "providerCollectorNumber": "204/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.743096,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.689906,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.673187,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "team-rockets-weezing-199-182-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Team Rocket's Weezing",
+        "collectorNumber": "199/182",
+        "setCode": "DRI",
+        "providerCardId": "sv10-199"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.754157,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.72346,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.696363,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swsh11tg-TG29",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "TG29/30",
+          "providerSetId": "swsh11tg",
+          "providerSetPtcgoCode": "LOR",
+          "providerSetName": "Lost Origin Trainer Gallery",
+          "similarity": 0.693035,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv4-186",
+          "providerName": "Magby",
+          "providerCollectorNumber": "186/182",
+          "providerSetId": "sv4",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Paradox Rift",
+          "similarity": 0.686235,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "terapagos-ex-128-142",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Terapagos ex",
+        "collectorNumber": "128/142",
+        "setCode": "SCR",
+        "providerCardId": "sv7-128"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "sv7-128",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "128/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "similarity": 0.829637,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.713157,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.703266,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.699503,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.681374,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "umbreon-059-131",
+      "providerSupported": false,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Umbreon",
+        "collectorNumber": "059/131",
+        "setCode": "PRE"
+      },
+      "reason": "No provider-supported mapping was available for this truth key.",
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": []
+    },
+    {
+      "fixtureName": "whimsicott-vstar-175-172",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Whimsicott VSTAR",
+        "collectorNumber": "175/172",
+        "setCode": "SWSH09",
+        "providerCardId": "swsh9-175"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh9-175",
+          "providerName": "Whimsicott VSTAR",
+          "providerCollectorNumber": "175/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "similarity": 0.701078,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.686431,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "sv7-128",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "128/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "similarity": 0.68424,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.683867,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.68208,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "whimsicott-vstar-175-172-overhead",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Whimsicott VSTAR",
+        "collectorNumber": "175/172",
+        "setCode": "SWSH09",
+        "providerCardId": "swsh9-175"
+      },
+      "top1Pass": false,
+      "topKContainsTruth": false,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "gym1-60",
+          "providerName": "Sabrina's Slowbro",
+          "providerCollectorNumber": "60/132",
+          "providerSetId": "gym1",
+          "providerSetPtcgoCode": "G1",
+          "providerSetName": "Gym Heroes",
+          "similarity": 0.651695,
+          "isTruth": false
+        },
+        {
+          "rank": 2,
+          "providerCardId": "base5-14",
+          "providerName": "Dark Weezing",
+          "providerCollectorNumber": "14/82",
+          "providerSetId": "base5",
+          "providerSetPtcgoCode": "TR",
+          "providerSetName": "Team Rocket",
+          "similarity": 0.648212,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.647756,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.640874,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "sv3pt5-206",
+          "providerName": "Switch",
+          "providerCollectorNumber": "206/165",
+          "providerSetId": "sv3pt5",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "151",
+          "similarity": 0.629208,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "whimsicott-vstar-175-172-slight-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Whimsicott VSTAR",
+        "collectorNumber": "175/172",
+        "setCode": "SWSH09",
+        "providerCardId": "swsh9-175"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh9-175",
+          "providerName": "Whimsicott VSTAR",
+          "providerCollectorNumber": "175/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "similarity": 0.854472,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.722219,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.696689,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv7-128",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "128/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "similarity": 0.671547,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.66686,
+          "isTruth": false
+        }
+      ]
+    },
+    {
+      "fixtureName": "whimsicott-vstar-175-172-steep-angle",
+      "providerSupported": true,
+      "queryImage": "runtime_normalized.jpg",
+      "truth": {
+        "cardName": "Whimsicott VSTAR",
+        "collectorNumber": "175/172",
+        "setCode": "SWSH09",
+        "providerCardId": "swsh9-175"
+      },
+      "top1Pass": true,
+      "topKContainsTruth": true,
+      "candidateSummaries": [
+        {
+          "rank": 1,
+          "providerCardId": "swsh9-175",
+          "providerName": "Whimsicott VSTAR",
+          "providerCollectorNumber": "175/172",
+          "providerSetId": "swsh9",
+          "providerSetPtcgoCode": "BRS",
+          "providerSetName": "Brilliant Stars",
+          "similarity": 0.736103,
+          "isTruth": true
+        },
+        {
+          "rank": 2,
+          "providerCardId": "sv1-256",
+          "providerName": "Rare Candy",
+          "providerCollectorNumber": "256/198",
+          "providerSetId": "sv1",
+          "providerSetPtcgoCode": null,
+          "providerSetName": "Scarlet & Violet",
+          "similarity": 0.732742,
+          "isTruth": false
+        },
+        {
+          "rank": 3,
+          "providerCardId": "bw6-46",
+          "providerName": "Mew-EX",
+          "providerCollectorNumber": "46/124",
+          "providerSetId": "bw6",
+          "providerSetPtcgoCode": "DRX",
+          "providerSetName": "Dragons Exalted",
+          "similarity": 0.694389,
+          "isTruth": false
+        },
+        {
+          "rank": 4,
+          "providerCardId": "sv7-128",
+          "providerName": "Terapagos ex",
+          "providerCollectorNumber": "128/142",
+          "providerSetId": "sv7",
+          "providerSetPtcgoCode": "SCR",
+          "providerSetName": "Stellar Crown",
+          "similarity": 0.688527,
+          "isTruth": false
+        },
+        {
+          "rank": 5,
+          "providerCardId": "swshp-SWSH286",
+          "providerName": "Pikachu VMAX",
+          "providerCollectorNumber": "SWSH286",
+          "providerSetId": "swshp",
+          "providerSetPtcgoCode": "PR-SW",
+          "providerSetName": "SWSH Black Star Promos",
+          "similarity": 0.682554,
+          "isTruth": false
+        }
+      ]
+    }
+  ]
+}

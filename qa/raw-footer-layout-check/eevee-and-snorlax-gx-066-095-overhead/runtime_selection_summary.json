@@ -1,0 +1,342 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "066\/095",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9995779429305439,
+    "x" : 0.0002110285347280224,
+    "y" : 0
+  },
+  "fixtureName" : "eevee-and-snorlax-gx-066-095-overhead",
+  "footerRouting" : {
+    "anchorIdentifier" : "066\/095",
+    "collectorAnchor" : {
+      "height" : 0.01964026421052334,
+      "width" : 0.10750876421288841,
+      "x" : 0.28365242569691546,
+      "y" : 0.8400643565543321
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7859667378453189,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9995779429305439,
+        "x" : 0.0002110285347280224,
+        "y" : 0.78
+      },
+      "text" : "x2 TAG TEAMがきぜつしたとき、宿手はサイドを3段とる。 TAG TEAMルール Ilus.Mitsuhira Arito 066\/095 RR SOCOTNOCASIALL",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017416666025418602,
+            "width" : 0.03588228414795226,
+            "x" : 0.31674404433556747,
+            "y" : 0.7827500002117699
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.046265326120108814,
+            "width" : 0.40435346367547725,
+            "x" : 0.4415751019220739,
+            "y" : 0.7949968633476465
+          },
+          "text" : "TAG TEAMがきぜつしたとき、宿手はサイドを3段とる。"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.023525272795669003,
+            "width" : 0.17522162132177926,
+            "x" : 0.4579931007453776,
+            "y" : 0.7911051909834231
+          },
+          "text" : "TAG TEAMルール"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020208259298330054,
+            "width" : 0.1364960955552964,
+            "x" : 0.21454654784188792,
+            "y" : 0.8222233848025289
+          },
+          "text" : "Ilus.Mitsuhira Arito"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019640264210523384,
+            "width" : 0.1075087642128884,
+            "x" : 0.28365242569691546,
+            "y" : 0.8400643565543321
+          },
+          "text" : "066\/095 RR"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02046617327583552,
+            "width" : 0.15045811464412495,
+            "x" : 0.5247921793732697,
+            "y" : 0.840345708862923
+          },
+          "text" : "SOCOTNOCASIALL"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13794175612441506,
+        "x" : 0.100646776240831,
+        "y" : 0.7989844886595937
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2748839343058996,
+        "x" : 0.19996484065040984,
+        "y" : 0.8038844886595937
+      },
+      "text" : "us.Mihuhiro Arifa TAC 066\/095 RR",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01812392429409898,
+            "width" : 0.1233543392876055,
+            "x" : 0.2285481096935402,
+            "y" : 0.8221830488867437
+          },
+          "text" : "us.Mihuhiro Arifa"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01120812182741117,
+            "width" : 0.03076082121994592,
+            "x" : 0.44343346815511786,
+            "y" : 0.8263007322343581
+          },
+          "text" : "TAC"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01709162259949041,
+            "width" : 0.1012575123170806,
+            "x" : 0.2881648127680817,
+            "y" : 0.8405482139133542
+          },
+          "text" : "066\/095 RR"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12494724286631799,
+        "x" : 0.19316896772255926,
+        "y" : 0.7917244886595938
+      },
+      "text" : "Ilus.Minsuhiro\/ 066",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01738359843214897,
+            "width" : 0.10211023636563098,
+            "x" : 0.21623666012355822,
+            "y" : 0.8242888184410199
+          },
+          "text" : "Ilus.Minsuhiro\/"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01071232876712328,
+            "width" : 0.029935276936722023,
+            "x" : 0.28753016657513103,
+            "y" : 0.8462176393707239
+          },
+          "text" : "066"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.19351577558319913,
+        "x" : 0.24064892001176008,
+        "y" : 0.7998844886595937
+      },
+      "text" : "1.Minsuhiro Arifa ) 066\/095RR",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01799490563223295,
+            "width" : 0.11183265612405421,
+            "x" : 0.2393510993779946,
+            "y" : 0.8223917531738919
+          },
+          "text" : "1.Minsuhiro Arifa"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016801081862405077,
+            "width" : 0.10942640103501018,
+            "x" : 0.27977163898701585,
+            "y" : 0.8415491785902284
+          },
+          "text" : ") 066\/095RR"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11495146343701255,
+        "x" : 0.32496080532979726,
+        "y" : 0.7862844886595938
+      },
+      "text" : "irifa \/095 RR",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.007898230088495576,
+            "width" : 0.025831789536407315,
+            "x" : 0.32496080551431006,
+            "y" : 0.8248464355323814
+          },
+          "text" : "irifa"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0153272574770767,
+            "width" : 0.06619076304921699,
+            "x" : 0.32375873039681935,
+            "y" : 0.8403484947971586
+          },
+          "text" : "\/095 RR"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.19351577558319913,
+        "x" : 0.24064892001176008,
+        "y" : 0.7988844886595937
+      },
+      "text" : "huhira Arilo #8S60\/990",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010861111111111113,
+            "width" : 0.08527813839259622,
+            "x" : 0.26426440395672146,
+            "y" : 0.82438448871567
+          },
+          "text" : "huhira Arilo"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01804162194993761,
+            "width" : 0.10969173411002134,
+            "x" : 0.27955438393910675,
+            "y" : 0.8402168810076037
+          },
+          "text" : "#8S60\/990"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.8796285897788787,
+        "x" : 0.06018570511056066,
+        "y" : 0
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    }
+  ],
+  "scanID" : "940AA6C4-82CB-40D6-ABC9-2FECBFFA8C95",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

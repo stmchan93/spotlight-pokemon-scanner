@@ -1,0 +1,417 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "204\/198",
+  "contentRectNormalized" : {
+    "height" : 0.999922273349086,
+    "width" : 1,
+    "x" : 0,
+    "y" : 3.886332545700487e-05
+  },
+  "fixtureName" : "slowpoke-204-198",
+  "footerRouting" : {
+    "anchorIdentifier" : "204\/198",
+    "collectorAnchor" : {
+      "height" : 0.021320762466583765,
+      "width" : 0.10427387513391137,
+      "x" : 0.17799126733548218,
+      "y" : 0.8802259006435164
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.8247934002504715,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.21998290013679891,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7799782365377441
+      },
+      "text" : "weakness G x2O resistance) F retreat * Gltisalways yacantly lostin thought but- Illus. Toshinoo Aoki no one knows what it is thinkingabout SVIEN 204\/198 lsgoodartishingwithtistall_ ©2023 Pokémon \/ Nintendo \/ Creatures\/ GAME FREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02899403804541546,
+            "width" : 0.42336037718219527,
+            "x" : 0.07421724746467667,
+            "y" : 0.7934373769928562
+          },
+          "text" : "weakness G x2O resistance) F"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017920759624220146,
+            "width" : 0.07586592551471905,
+            "x" : 0.6165542159730829,
+            "y" : 0.8026403985978643
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021081693314046784,
+            "width" : 0.03205128153375425,
+            "x" : 0.7192307696898536,
+            "y" : 0.7983101454721171
+          },
+          "text" : "*"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02472079536511374,
+            "width" : 0.44511521219996963,
+            "x" : 0.5011831948329328,
+            "y" : 0.8347797154491149
+          },
+          "text" : "Gltisalways yacantly lostin thought but-"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016175823031930096,
+            "width" : 0.17985388000595925,
+            "x" : 0.07803226283308108,
+            "y" : 0.8485449830040672
+          },
+          "text" : "Illus. Toshinoo Aoki"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021008505346463667,
+            "width" : 0.40392686954881785,
+            "x" : 0.5217545151975247,
+            "y" : 0.8583837391898124
+          },
+          "text" : "no one knows what it is thinkingabout"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021081693314046808,
+            "width" : 0.05641025630675087,
+            "x" : 0.1102564100998297,
+            "y" : 0.8707211833536113
+          },
+          "text" : "SVIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021320762466583723,
+            "width" : 0.10427387513391137,
+            "x" : 0.17799126733548218,
+            "y" : 0.8802259006435164
+          },
+          "text" : "204\/198"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.026839856089447146,
+            "width" : 0.35833333871562223,
+            "x" : 0.5833333342255221,
+            "y" : 0.8751059769943353
+          },
+          "text" : "lsgoodartishingwithtistall_"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010135076687873217,
+            "width" : 0.3948717874193948,
+            "x" : 0.30641025684585815,
+            "y" : 0.9082490679261124
+          },
+          "text" : "©2023 Pokémon \/ Nintendo \/ Creatures\/ GAME FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09799238278821043,
+        "width" : 0.138,
+        "x" : 0,
+        "y" : 0.8399902381633397
+      },
+      "text" : "illus. T",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015105545172886193,
+            "width" : 0.059454545454545454,
+            "x" : 0.07800000016515152,
+            "y" : 0.8477366715778014
+          },
+          "text" : "illus. T"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09199284914811591,
+        "width" : 0.275,
+        "x" : 0.09262820490243784,
+        "y" : 0.8448898573027502
+      },
+      "text" : "lus. Toshinao Aoki- MSVIEN 204\/1982 ©2023 P",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016343907209056124,
+            "width" : 0.1690789473684211,
+            "x" : 0.0926282056709785,
+            "y" : 0.8481586387254582
+          },
+          "text" : "lus. Toshinao Aoki-"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01774481354126094,
+            "width" : 0.06644736842105263,
+            "x" : 0.10118083675824924,
+            "y" : 0.873374952704791
+          },
+          "text" : "MSVIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.030625149285431256,
+            "width" : 0.15630240189401728,
+            "x" : 0.17741449791750769,
+            "y" : 0.8734918355947319
+          },
+          "text" : "204\/1982"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00950133138360948,
+            "width" : 0.058603482497365876,
+            "x" : 0.30773435871571597,
+            "y" : 0.9078496645248149
+          },
+          "text" : "©2023 P"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10199207188160676,
+        "width" : 0.125,
+        "x" : 0.08878171728191762,
+        "y" : 0.8327308024588254
+      },
+      "text" : "Ilus. Toshinoo h SVIEN 20",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013505799472906836,
+            "width" : 0.1171875,
+            "x" : 0.08878171691082387,
+            "y" : 0.8504280568730364
+          },
+          "text" : "Ilus. Toshinoo"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010245778910481056,
+            "width" : 0.009114583333333334,
+            "x" : 0.08878171735787248,
+            "y" : 0.8769739386243656
+          },
+          "text" : "h"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016765820035332606,
+            "width" : 0.05403645833333334,
+            "x" : 0.11221921716058714,
+            "y" : 0.8737139181769578
+          },
+          "text" : "SVIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013040082249703159,
+            "width" : 0.03255208333333333,
+            "x" : 0.18057859217341068,
+            "y" : 0.8816311109169457
+          },
+          "text" : "20"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.0999922273349086,
+        "width" : 0.18769297524104048,
+        "x" : 0.13628171728191762,
+        "y" : 0.8408901682093539
+      },
+      "text" : "oshinoo Aoki 204\/198",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013829095703124707,
+            "width" : 0.12673604198568014,
+            "x" : 0.13609359187203704,
+            "y" : 0.8495673654156808
+          },
+          "text" : "oshinoo Aoki"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.015240848203460645,
+            "width" : 0.11748509874051251,
+            "x" : 0.18116133191259054,
+            "y" : 0.8802287106799042
+          },
+          "text" : "204\/198"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10499183870165403,
+        "width" : 0.115,
+        "x" : 0.21587820490243786,
+        "y" : 0.8272912252918063
+      },
+      "text" : "Aoki 1\/198-",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015066093445977256,
+            "width" : 0.04271428571428571,
+            "x" : 0.21587820488474554,
+            "y" : 0.8470654729975979
+          },
+          "text" : "Aoki"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015234576126306788,
+            "width" : 0.08367045157296317,
+            "x" : 0.2157715510080347,
+            "y" : 0.8801737187112526
+          },
+          "text" : "1\/198-"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10199207188160676,
+        "width" : 0.19,
+        "x" : 0.13512820490243785,
+        "y" : 0.8398902459360048
+      },
+      "text" : "oshinco Aoki- ALEN 204\/198",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013693380021141652,
+            "width" : 0.12666666666666665,
+            "x" : 0.13512820580719975,
+            "y" : 0.8488617707673242
+          },
+          "text" : "oshinco Aoki-"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01322119450317125,
+            "width" : 0.030347222222222227,
+            "x" : 0.13512820479248414,
+            "y" : 0.875776345246667
+          },
+          "text" : "ALEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015044076760651953,
+            "width" : 0.11620976342095268,
+            "x" : 0.18059971266138286,
+            "y" : 0.8798228521160976
+          },
+          "text" : "204\/198"
+        }
+      ]
+    }
+  ],
+  "scanID" : "B5E6616F-1E5C-4A1B-B6EC-B23B416EB897",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_footer_family_set_agreement"
+  ],
+  "setConfidenceScore" : 0.74,
+  "setHintTokens" : [
+    "svi",
+    "x2o"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop"
+  ]
+}

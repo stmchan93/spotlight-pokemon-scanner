@@ -1,0 +1,438 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "SWSH286",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
+  },
+  "fixtureName" : "pikachu-vmax-swsh286",
+  "footerRouting" : {
+    "anchorIdentifier" : "SWSH286",
+    "collectorAnchor" : {
+      "height" : 0.01466666650635462,
+      "width" : 0.12301690016119654,
+      "x" : 0.17323635494507944,
+      "y" : 0.9065000001194418
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
+      },
+      "text" : "OPHIAA THIUIIUCT 200 weakness (15) X 28NL cresistance x2 retreat ** Illus. AKIRA EGAWA VMAX rule When your Pokémon VHAX SWSH286 is Knocked Out, your opponent takes 3 Prize cards. 02023 Pokemon\/ Nintendo: Creatures \/ GAMEFREAK",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014864864458668895,
+            "width" : 0.31234760174304277,
+            "x" : 0.3417438765777318,
+            "y" : 0.7799999999520625
+          },
+          "text" : "OPHIAA THIUIIUCT"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016499999519063956,
+            "width" : 0.08201126453260425,
+            "x" : 0.8459850377364143,
+            "y" : 0.7800000003321347
+          },
+          "text" : "200"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02111747851002866,
+            "width" : 0.35815856181336597,
+            "x" : 0.07104263172957329,
+            "y" : 0.8244412607945353
+          },
+          "text" : "weakness (15) X 28NL cresistance"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.021999998557191872,
+            "width" : 0.05381989466109599,
+            "x" : 0.21680484119108454,
+            "y" : 0.8230833341922374
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01212690457232019,
+            "width" : 0.07182757382853926,
+            "x" : 0.6319530270990128,
+            "y" : 0.8312282143382053
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020211318652745985,
+            "width" : 0.06278987934613871,
+            "x" : 0.7332195410009076,
+            "y" : 0.8285386814217071
+          },
+          "text" : "**"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01375,
+            "width" : 0.17811821736325284,
+            "x" : 0.08866223889474809,
+            "y" : 0.8744166666208334
+          },
+          "text" : "Illus. AKIRA EGAWA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021605770471786016,
+            "width" : 0.14750845311565822,
+            "x" : 0.4217607830562284,
+            "y" : 0.8686554480792589
+          },
+          "text" : "VMAX rule"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017837837350402643,
+            "width" : 0.2915244282935068,
+            "x" : 0.6582561230752152,
+            "y" : 0.8751351352797536
+          },
+          "text" : "When your Pokémon VHAX"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014666666506354644,
+            "width" : 0.12301690016119651,
+            "x" : 0.17323635494507944,
+            "y" : 0.9065000001194418
+          },
+          "text" : "SWSH286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017837837350402667,
+            "width" : 0.48309760251058315,
+            "x" : 0.3958841515632741,
+            "y" : 0.8959459461896636
+          },
+          "text" : "is Knocked Out, your opponent takes 3 Prize cards."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017151860234389,
+            "width" : 0.40150092851691094,
+            "x" : 0.31399598747956275,
+            "y" : 0.9336244465994818
+          },
+          "text" : "02023 Pokemon\/ Nintendo: Creatures \/ GAMEFREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.00024383721113155034,
+        "y" : 0.862933333372619
+      },
+      "text" : "Illus",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012007905138339929,
+            "width" : 0.03461840337059832,
+            "x" : 0.0894944083719779,
+            "y" : 0.8745538867108601
+          },
+          "text" : "Illus"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.09731186025873886,
+        "y" : 0.867833333372619
+      },
+      "text" : "Ius. AKIRA EGAWA A F SWSH286 ©2023 ₽",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013076142131979693,
+            "width" : 0.16768134409363353,
+            "x" : 0.09731185974254336,
+            "y" : 0.8757724197324159
+          },
+          "text" : "Ius. AKIRA EGAWA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.026917201395567296,
+            "width" : 0.19998068847541034,
+            "x" : 0.09727274833530891,
+            "y" : 0.8947706716949444
+          },
+          "text" : "A F SWSH286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011366003975650383,
+            "width" : 0.05726985428207149,
+            "x" : 0.31428078395260073,
+            "y" : 0.9340691131364359
+          },
+          "text" : "©2023 ₽"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.07655275941565831,
+        "y" : 0.8556733333726191
+      },
+      "text" : "Illus. AKIRA FSi",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012800803197573317,
+            "width" : 0.10263614202360737,
+            "x" : 0.08901935711909126,
+            "y" : 0.8751222468229601
+          },
+          "text" : "Illus. AKIRA"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.024684931506849306,
+            "width" : 0.0657573898406406,
+            "x" : 0.13507683620078265,
+            "y" : 0.8966596347633184
+          },
+          "text" : "FSi"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.22143042029015378,
+        "x" : 0.12402959488060082,
+        "y" : 0.863833333372619
+      },
+      "text" : ". AKIRA EGAWA © SWSH286 $20",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014018691588785048,
+            "width" : 0.143007146437391,
+            "x" : 0.1240295953572913,
+            "y" : 0.8741137071857031
+          },
+          "text" : ". AKIRA EGAWA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.028982120585218776,
+            "width" : 0.17323031620364393,
+            "x" : 0.12374593956153422,
+            "y" : 0.8932675062034955
+          },
+          "text" : "© SWSH286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010747663551401877,
+            "width" : 0.030314878968294854,
+            "x" : 0.3144861171237431,
+            "y" : 0.9343940810958796
+          },
+          "text" : "$20"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.23626329360138681,
+        "y" : 0.8502333333726191
+      },
+      "text" : "WA H286 0202",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01130044843049327,
+            "width" : 0.029704607878124883,
+            "x" : 0.2362632937074747,
+            "y" : 0.8756593423143231
+          },
+          "text" : "WA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01341915857631529,
+            "width" : 0.05950663631039957,
+            "x" : 0.23621458359641279,
+            "y" : 0.906147072544435
+          },
+          "text" : "H286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011771300448430493,
+            "width" : 0.036807883675067786,
+            "x" : 0.3137535751719124,
+            "y" : 0.9331032884559991
+          },
+          "text" : "0202"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.22143042029015378,
+        "x" : 0.12402959488060082,
+        "y" : 0.862833333372619
+      },
+      "text" : ".AKIRA EGAWA © SWSH286 $20.",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012109589041095877,
+            "width" : 0.14168910822137815,
+            "x" : 0.12402959558904633,
+            "y" : 0.8754086758150847
+          },
+          "text" : ".AKIRA EGAWA"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.026547945205479442,
+            "width" : 0.04876741399247434,
+            "x" : 0.12402959503299898,
+            "y" : 0.8949703196550677
+          },
+          "text" : "©"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01596120128892873,
+            "width" : 0.12110964372984255,
+            "x" : 0.1755739239584363,
+            "y" : 0.9045533696326838
+          },
+          "text" : "SWSH286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01071232876712328,
+            "width" : 0.030314878968294854,
+            "x" : 0.314486117153765,
+            "y" : 0.9340936072916601
+          },
+          "text" : "$20."
+        }
+      ]
+    }
+  ],
+  "scanID" : "22CF0BEC-19CE-4AFA-9E35-BDCC329D244E",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_family_set_hints"
+  ],
+  "setConfidenceScore" : 0.62,
+  "setHintTokens" : [
+    "h286",
+    "swsh286"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak"
+  ]
+}

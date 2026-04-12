@@ -1,0 +1,395 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "199\/182",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9715821812596006,
+    "x" : 0.014208909370199672,
+    "y" : 0
+  },
+  "fixtureName" : "team-rockets-weezing-199-182-slight-angle",
+  "footerRouting" : {
+    "anchorIdentifier" : "199\/182",
+    "collectorAnchor" : {
+      "height" : 0.02016666674682266,
+      "width" : 0.10355020651362692,
+      "x" : 0.17656540480189173,
+      "y" : 0.9404166666765887
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card"
+  ],
+  "ocrTargetQualityScore" : 0.8518428798536338,
+  "ocrUsedFallback" : false,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9715821812596006,
+        "x" : 0.014208909370199672,
+        "y" : 0.78
+      },
+      "text" : "eakness x2 resistance Ilbes Tolihto Toda Tep-gradepen DRIEN 199\/182 puisanigase 07175F monu\/N wtendo FOmetue\/(",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010999999278595936,
+            "width" : 0.07542545492460442,
+            "x" : 0.09602635761621348,
+            "y" : 0.8661666670666545
+          },
+          "text" : "eakness"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.024899713467048733,
+            "width" : 0.052414302766402236,
+            "x" : 0.21108214044692863,
+            "y" : 0.8578510029131415
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017732576080584594,
+            "width" : 0.1003254776567861,
+            "x" : 0.31816230790889394,
+            "y" : 0.8623420454283721
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01930253108114772,
+            "width" : 0.17258367975878508,
+            "x" : 0.07940718686968777,
+            "y" : 0.9082808023469566
+          },
+          "text" : "Ilbes Tolihto Toda"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02565607437090067,
+            "width" : 0.15776966126072448,
+            "x" : 0.45293789897144354,
+            "y" : 0.9074972171710676
+          },
+          "text" : "Tep-gradepen"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016499999519063956,
+            "width" : 0.04857910906298003,
+            "x" : 0.11648071826474785,
+            "y" : 0.9358333337113014
+          },
+          "text" : "DRIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020166666746822666,
+            "width" : 0.10355020651362695,
+            "x" : 0.17656540480189173,
+            "y" : 0.9404166666765887
+          },
+          "text" : "199\/182"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014666666506354644,
+            "width" : 0.13039655237525136,
+            "x" : 0.4053985801571678,
+            "y" : 0.933083333340156
+          },
+          "text" : "puisanigase"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010083333373411345,
+            "width" : 0.0677550742259807,
+            "x" : 0.29801317842389874,
+            "y" : 0.970666666589336
+          },
+          "text" : "07175F"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008249999759531978,
+            "width" : 0.05752788878078126,
+            "x" : 0.38750101307541346,
+            "y" : 0.9715833333962757
+          },
+          "text" : "monu\/N"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010106972281775716,
+            "width" : 0.1649132856437201,
+            "x" : 0.4424721121622231,
+            "y" : 0.9706666666007944
+          },
+          "text" : "wtendo FOmetue\/("
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1340783410138249,
+        "x" : 0.014208909370199672,
+        "y" : 0.8996000000500001
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.26718509984639016,
+        "x" : 0.09474795813551012,
+        "y" : 0.9045000000500001
+      },
+      "text" : "Ius ToRihiro Toda DRI EN 199\/182 07175 F",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017746192893401017,
+            "width" : 0.15454824402879433,
+            "x" : 0.0947479585133171,
+            "y" : 0.910104060895451
+          },
+          "text" : "Ius ToRihiro Toda"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0157528007236229,
+            "width" : 0.04867177271906868,
+            "x" : 0.11625265285197078,
+            "y" : 0.9360855286015387
+          },
+          "text" : "DRI EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017987842153171604,
+            "width" : 0.09831511170414359,
+            "x" : 0.17918295237888837,
+            "y" : 0.9412725763542543
+          },
+          "text" : "199\/182"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009483558112594681,
+            "width" : 0.05650133977241247,
+            "x" : 0.30159398189907916,
+            "y" : 0.9705094900169267
+          },
+          "text" : "07175 F"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12144777265745008,
+        "x" : 0.08899516858660995,
+        "y" : 0.8918400000000001
+      },
+      "text" : "lus Yokihito 1 IDRIEN 19",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013041095890410968,
+            "width" : 0.12079129821065306,
+            "x" : 0.08899516850455065,
+            "y" : 0.9127989040552512
+          },
+          "text" : "lus Yokihito 1"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019561643835616437,
+            "width" : 0.0741816124880641,
+            "x" : 0.08899516824013734,
+            "y" : 0.9342235617525115
+          },
+          "text" : "IDRIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014438356164383555,
+            "width" : 0.02888487565906921,
+            "x" : 0.17827569326894638,
+            "y" : 0.9426071232275115
+          },
+          "text" : "19"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18639037172452846,
+        "x" : 0.135145322196441,
+        "y" : 0.9
+      },
+      "text" : "olihito Toda 199\/182",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017535545023696687,
+            "width" : 0.11525906378725258,
+            "x" : 0.13514532184448919,
+            "y" : 0.9094786729309834
+          },
+          "text" : "olihito Toda"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017220376905106815,
+            "width" : 0.0991306738946008,
+            "x" : 0.17844585964181342,
+            "y" : 0.9416267784408249
+          },
+          "text" : "199\/182"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11173195084485407,
+        "x" : 0.2153903406183581,
+        "y" : 0.8854000000000001
+      },
+      "text" : "ada \/182",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013654708520179365,
+            "width" : 0.03293832076929224,
+            "x" : 0.21539034072129035,
+            "y" : 0.9117677129882988
+          },
+          "text" : "ada"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01647982062780269,
+            "width" : 0.06264739440434014,
+            "x" : 0.2153903408793889,
+            "y" : 0.9419022421151907
+          },
+          "text" : "\/182"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.18639037172452846,
+        "x" : 0.135145322196441,
+        "y" : 0.898
+      },
+      "text" : "ukihito Toda 199\/182",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018416666666666658,
+            "width" : 0.11525906378725259,
+            "x" : 0.13514532222800002,
+            "y" : 0.9093333333717014
+          },
+          "text" : "ukihito Toda"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0173559374279446,
+            "width" : 0.0990565968717932,
+            "x" : 0.1784828983418167,
+            "y" : 0.9415025868112943
+          },
+          "text" : "199\/182"
+        }
+      ]
+    }
+  ],
+  "scanID" : "2104DA50-39CD-4CE8-B0D7-310DB6B2CF10",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints"
+  ],
+  "setConfidenceScore" : 0.48,
+  "setHintTokens" : [
+    "dri"
+  ],
+  "stage1AssessmentReasons" : [
+    "set_signal_weak",
+    "footer_signal_sufficient_for_early_exit"
+  ],
+  "warnings" : [
+
+  ]
+}

@@ -6,11 +6,23 @@ Repo-specific workflow notes for future coding agents.
 
 - This repo is a local iOS + Python backend prototype for a Pokemon card scanner.
 - The active product/status doc is [docs/spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md).
-- The active backend reset / raw-matcher redesign plan is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
+- The active raw visual-match migration plan is [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md).
+- The active next-step implementation plan for improving raw visual retrieval is [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md).
+- The earlier landed backend reset / OCR-primary raw-matcher baseline is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
 - The active OCR rewrite / rollout plan is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
-- For backend work, treat that reset spec as the source of truth over older raw-matcher, `direct_lookup`, `slab_sales`, or fragmented SQLite planning notes elsewhere in the repo.
+- For raw identity backend work, treat the hybrid migration spec as the source of truth over older OCR-primary raw-matcher planning, `direct_lookup`, `slab_sales`, or fragmented SQLite planning notes elsewhere in the repo.
+- Treat the older raw-backend-reset spec as the source of truth for the currently landed OCR-primary baseline only.
+- The revised implementation order in the hybrid migration spec is authoritative:
+  - prove visual matching on live normalized images first
+  - do not front-load large harness or cleanup work before the proof-of-concept
+- After the first hybrid baseline, treat the visual-model-improvement spec as the implementation source of truth for the next raw-card workstream:
+  - keep runtime `top-K = 10`
+  - keep the held-out regression suite frozen
+  - improve the visual model before more OCR tuning
 - For OCR work, treat the OCR rewrite spec as the source of truth over older raw-only OCR heuristics or legacy `CardRectangleAnalyzer.swift` structure.
 - For raw OCR runtime behavior, treat the normalized-target rewrite path in `Spotlight/Services/OCR/Raw/*`, `TargetSelection.swift`, and `PerspectiveNormalization.swift` as the live source of truth.
+- The canonical seed raw regression corpus is [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check).
+- The live normalized image produced by the rewrite raw path is the query image source of truth for visual matching experiments, not raw `source_scan.jpg`.
 - The old `RawCardScanner` raw path has been deleted from app runtime. Do not recreate it.
 
 ## Subagent workflow
@@ -100,20 +112,74 @@ Repo-specific workflow notes for future coding agents.
     - `cards`
     - `card_price_snapshots`
     - `scan_events`
-- Raw redesign target:
+- Current landed raw matcher baseline:
   - title/header and broader text retrieve candidates first
   - footer OCR confirms, reranks, and breaks ties later
   - backend always returns a best candidate, even at low confidence
+- Next raw redesign target:
+  - visual matching retrieves candidates first
+  - OCR confirms, reranks, and breaks ties later
+  - backend returns a best candidate plus alternatives
+- Phase ordering for raw migration:
+  - Phase 0: local proof-of-concept on live normalized images and provider-supported mappings
+  - Phase 1: full reference index buildout
+  - Phase 2: visual-only backend retrieval
+  - Phase 3: lightweight OCR-vs-visual scorecard
+  - Phase 4: hybrid resolver
+  - Phase 5: app contract update
+  - Phase 6: expanded harness and tuning
+  - Phase 7: deletion and cleanup
 - Current compatibility note:
   - raw responses still surface `resolverPath = visual_fallback` to avoid breaking the current Swift enum/client contract
   - the underlying raw matcher is no longer the old visual/direct-lookup path
+- Do not add new OCR-primary raw matcher branches as if they are the long-term destination.
+- Do not do a large standalone backend refactor before Phase 0 proves the visual approach.
+- Extract cleaner module seams while implementing the visual matcher, not as a prerequisite phase.
+- Prefer extracting raw identity logic into cleaner module seams instead of growing `backend/catalog_tools.py` indefinitely.
+- Current local visual tooling:
+  - `zsh tools/run_raw_visual_poc.sh`
+  - `zsh tools/run_build_raw_visual_index.sh`
+- Current local Phase 0 proof:
+  - provider-supported fixtures: `47`
+  - visual top-1: `39/47`
+  - visual top-5 contains-truth: `41/47`
+- Current local Phase 1 full-index baseline:
+  - retained catalog cards: `20,237`
+  - embedded entries: `20,182`
+  - skipped entries: `55`
+  - full-index visual top-1: `22/47`
+  - full-index visual top-5 contains-truth: `28/47`
+- Current local visual shortlist ceiling:
+  - full-index visual top-10 contains-truth: `32/47`
+- Current local larger-K ceiling sweep:
+  - top-20 contains-truth: `35/47`
+  - top-30 contains-truth: `35/47`
+  - top-50 contains-truth: `35/47`
+  - runtime decision: do not widen beyond `top-K = 10`
+- Current local artwork-only crop result:
+  - top-1: `15/47`
+  - top-5 contains-truth: `26/47`
+- Current local hybrid reranker result:
+  - honest post-harness-fix hybrid baseline: `28/47`
+  - current hybrid top-1 after leader protection + fuzzy-set dampening: `30/47`
+  - current hybrid top-5 contains-truth: `31/47`
+- The next implementation phase is:
+  - build a separate raw visual training corpus
+  - train a lightweight adapter on top of frozen CLIP
+  - rebuild the visual index only if the held-out suite improves
+- The first landed tool in that phase is:
+  - `python3 tools/build_raw_visual_training_manifest.py ...`
+- Treat that Phase 0 result as the current go/no-go evidence for continuing the hybrid migration.
+- Treat the Phase 1 full-index result as the first real production-shaped visual-only baseline.
+- Treat the current hybrid reranker result as the first material evidence that OCR should be used as a reranker over the visual shortlist, not as the raw-primary identifier.
+- Treat the visual-model-improvement spec as the next raw implementation contract and do not improvise new OCR-heavy follow-up phases on top of this baseline.
 - Provider target after reset:
   - raw identity/pricing => Pokemon TCG API lane
   - slab identity/pricing => deferred until the slab rebuild lands
 - Keep the app/backend split:
-  - app = capture, normalize, OCR, structured hints
-  - backend = candidate retrieval, identity resolution, pricing refresh, scan logging
-- The full phase-by-phase checklist, strict helper names, route-opening logic, and confidence math live in [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
+  - app = capture, normalize, OCR, structured hints, normalized image upload
+  - backend = visual retrieval, OCR rerank, identity resolution, pricing refresh, scan logging
+- The full migration plan for that direction lives in [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md).
 
 ## OCR Rewrite Direction
 
@@ -164,6 +230,9 @@ Repo-specific workflow notes for future coding agents.
     - footer left metadata strip
     - footer right metadata strip
   - raw stage 2 header fallback only when stage 1 is weak
+- Raw OCR should now be treated as backend evidence and hybrid-rerank support, not the long-term sole raw identity engine.
+- Before suggesting OCR parameter, ROI, parser, or preprocessing changes, ask:
+  - `Do we have regression suite results for this change?`
 - Primary implementation files:
   - [Spotlight/Services/OCR/TargetSelection.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/TargetSelection.swift)
   - [Spotlight/Services/OCR/PerspectiveNormalization.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/PerspectiveNormalization.swift)
@@ -208,19 +277,23 @@ Repo-specific workflow notes for future coding agents.
   - do not make Cloud Run correctness depend on a preseeded lightweight JSON catalog file or bundled local identifier asset
 - Preferred raw runtime flow:
   - app OCR extracts collector number/text locally
-  - app sends the OCR payload directly to the backend
-  - the backend live-resolves from OCR number/hints and hydrates SQLite on demand
+  - app sends the normalized image plus OCR payload to the backend
+  - the backend visually retrieves candidates, reranks with OCR evidence, and hydrates SQLite on demand
   - backend SQLite is a runtime cache for imported card metadata/pricing, not a required preseeded catalog
   - Cloud Run should not depend on a seeded local JSON catalog file to recognize standard raw cards
 - Canonical raw scan flow:
-  - 1. OCR reads card text and collector number
-  - 2. app sends the scan payload directly to the backend
-  - 3. backend checks SQLite for that card's existing metadata/pricing snapshot
-  - 4. if SQLite has no card record, or no fresh pricing snapshot, backend fetches live data from Pokemon TCG API
-  - 5. backend writes the hydrated card metadata/pricing snapshot into SQLite
-  - 6. backend returns the normalized card detail/pricing payload to the user
-  - 7. later scans of the same card should reuse SQLite until the stored snapshot is older than the `24 hour` freshness window
-  - 8. once the stored snapshot is older than `24 hours`, backend should re-fetch live provider data, update SQLite, and then return the refreshed result
+  - 1. app normalizes the card image and runs OCR
+  - 2. app sends the normalized image plus OCR evidence to the backend
+  - 3. backend visually retrieves top raw candidates
+  - 4. backend reranks and confirms with OCR evidence
+  - 5. backend checks SQLite for the selected card's metadata/pricing snapshot
+  - 6. if SQLite has no card record, or no fresh pricing snapshot, backend fetches live data from Pokemon TCG API
+  - 7. backend writes the hydrated card metadata/pricing snapshot into SQLite
+  - 8. backend returns the normalized card detail/pricing payload plus alternatives to the user
+  - 9. later scans of the same card should reuse SQLite until the stored snapshot is older than the `24 hour` freshness window
+  - 10. once the stored snapshot is older than `24 hours`, backend should re-fetch live provider data, update SQLite, and then return the refreshed result
+- Required raw migration cleanup rule:
+  - after the hybrid path is proven and cut over, schedule an explicit cleanup pass to remove dead OCR-primary resolver code, misleading compatibility names, obsolete tests, and stale docs before starting major new raw feature work
 - Canonical slab scan flow:
   - deferred in the current raw-only backend contraction
   - do not rebuild slab behavior on top of deleted legacy slab modules

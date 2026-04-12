@@ -1,0 +1,474 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "204\/198",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9745966019257946,
+    "x" : 0.012701699037102712,
+    "y" : 0
+  },
+  "fixtureName" : "slowpoke-204-198-slight-angle",
+  "footerRouting" : {
+    "anchorIdentifier" : "204\/198",
+    "collectorAnchor" : {
+      "height" : 0.016824228565467503,
+      "width" : 0.10677836892324108,
+      "x" : 0.1638495646281575,
+      "y" : 0.9498795524957624
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card"
+  ],
+  "ocrTargetQualityScore" : 0.8692713181285383,
+  "ocrUsedFallback" : false,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9745966019257946,
+        "x" : 0.012701699037102712,
+        "y" : 0.78
+      },
+      "text" : "weakness x2 Fresistance retreat Iris always vacantly fosti Illus. Toshinao Aoki nth ought sno oneknows what it is thin CINE Dut SVIB 204\/198 Stis good atfishin EWIE itstail 02033 P émon \/ Mintendo \/ Creatures\/G",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012833333493645356,
+            "width" : 0.09874201883008696,
+            "x" : 0.058866804877205366,
+            "y" : 0.868916666549844
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021083332050837202,
+            "width" : 0.051294557464854965,
+            "x" : 0.19864447167217517,
+            "y" : 0.8634166673668433
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010999999278595912,
+            "width" : 0.11028330039992237,
+            "x" : 0.30251595025804373,
+            "y" : 0.8698333337673687
+          },
+          "text" : "Fresistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01184979403258054,
+            "width" : 0.0733359002459505,
+            "x" : 0.6191392702456374,
+            "y" : 0.8684917695877721
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020305874286203472,
+            "width" : 0.2628846040634295,
+            "x" : 0.5192354610238624,
+            "y" : 0.9054441259219301
+          },
+          "text" : "Iris always vacantly fosti"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013868194842406874,
+            "width" : 0.182095680177816,
+            "x" : 0.06143153049919475,
+            "y" : 0.9174212034129324
+          },
+          "text" : "Illus. Toshinao Aoki"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012833333493645356,
+            "width" : 0.04103564462607727,
+            "x" : 0.7821200702058824,
+            "y" : 0.9064999998587329
+          },
+          "text" : "nth"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01375,
+            "width" : 0.06540055967422216,
+            "x" : 0.8218733528558965,
+            "y" : 0.9064999999465277
+          },
+          "text" : "ought"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014813753581661886,
+            "width" : 0.3039202419604734,
+            "x" : 0.5089765537600502,
+            "y" : 0.926561604342071
+          },
+          "text" : "sno oneknows what it is thin"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008249999759531978,
+            "width" : 0.03590618988894688,
+            "x" : 0.8193086234310202,
+            "y" : 0.931250000154609
+          },
+          "text" : "CINE"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.010999999278595936,
+            "width" : 0.038470917257512026,
+            "x" : 0.8898386415397064,
+            "y" : 0.9285000002690353
+          },
+          "text" : "Dut"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016499999519063956,
+            "width" : 0.048729830096289714,
+            "x" : 0.09862008349736606,
+            "y" : 0.9431666670249919
+          },
+          "text" : "SVIB"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016824228565467475,
+            "width" : 0.1067783689232411,
+            "x" : 0.1638495646281575,
+            "y" : 0.9498795524957624
+          },
+          "text" : "204\/198"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019263132800345438,
+            "width" : 0.18850749355245397,
+            "x" : 0.60771857550743,
+            "y" : 0.949570200790722
+          },
+          "text" : "Stis good atfishin"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014286092195264924,
+            "width" : 0.060506392321421375,
+            "x" : 0.7948260657439608,
+            "y" : 0.9511486204735804
+          },
+          "text" : "EWIE"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010999999278595936,
+            "width" : 0.06411819430768127,
+            "x" : 0.8616266354448116,
+            "y" : 0.9505000002690354
+          },
+          "text" : "itstail"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009200811522737948,
+            "width" : 0.06283582894114022,
+            "x" : 0.2973864990029126,
+            "y" : 0.978882521564372
+          },
+          "text" : "02033 P"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010146370562578,
+            "width" : 0.2321078621825798,
+            "x" : 0.37689306777734055,
+            "y" : 0.9779369626647527
+          },
+          "text" : "émon \/ Mintendo \/ Creatures\/G"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13449433106575967,
+        "x" : 0.012701699037102712,
+        "y" : 0.902
+      },
+      "text" : "Mlus. To SVIB",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015004784688995219,
+            "width" : 0.06988430927926727,
+            "x" : 0.06017028615442077,
+            "y" : 0.9165358851930405
+          },
+          "text" : "Mlus. To"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01547368421052631,
+            "width" : 0.045490729625183406,
+            "x" : 0.0984088710014707,
+            "y" : 0.9432631578712919
+          },
+          "text" : "SVIB"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2680140655295935,
+        "x" : 0.08323171632498128,
+        "y" : 0.908
+      },
+      "text" : "5. Toshinoo Aski SVIER 204\/198 02012",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014625641025641024,
+            "width" : 0.1596260243227726,
+            "x" : 0.08323171633483473,
+            "y" : 0.9174358975090257
+          },
+          "text" : "5. Toshinoo Aski"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016984615384615386,
+            "width" : 0.04926729145764587,
+            "x" : 0.09899724938450533,
+            "y" : 0.9424410255561025
+          },
+          "text" : "SVIER"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014121891510792269,
+            "width" : 0.10258803849463694,
+            "x" : 0.16594473031484752,
+            "y" : 0.9502416184176082
+          },
+          "text" : "204\/198"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009907692307692314,
+            "width" : 0.04795349701877532,
+            "x" : 0.29606641551644036,
+            "y" : 0.9778256409637179
+          },
+          "text" : "02012"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12182457524072432,
+        "x" : 0.0748448784673858,
+        "y" : 0.8918400000000001
+      },
+      "text" : "lus. Toshinoo SVIEN 20",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013972602739726026,
+            "width" : 0.1165564855005849,
+            "x" : 0.07484487880761659,
+            "y" : 0.9179221918584476
+          },
+          "text" : "lus. Toshinoo"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01630136986301369,
+            "width" : 0.055973453488981445,
+            "x" : 0.09328319244263435,
+            "y" : 0.9430728767938357
+          },
+          "text" : "SVIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012575342465753429,
+            "width" : 0.02831598235324943,
+            "x" : 0.16637793778559068,
+            "y" : 0.9509906849054796
+          },
+          "text" : "20"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.19220106406183396,
+        "x" : 0.12113821705886105,
+        "y" : 0.9
+      },
+      "text" : "oshinao Aok 204\/198",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014677124565811517,
+            "width" : 0.11813665624937628,
+            "x" : 0.12073139646044342,
+            "y" : 0.9177648345295535
+          },
+          "text" : "oshinao Aok"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013922056767612835,
+            "width" : 0.10773048905095135,
+            "x" : 0.16042161049112016,
+            "y" : 0.9503849431923476
+          },
+          "text" : "204\/198"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11207860922146638,
+        "x" : 0.2068646023603019,
+        "y" : 0.8854000000000001
+      },
+      "text" : "\/ 198",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013183856502242155,
+            "width" : 0.06226589401192578,
+            "x" : 0.20686460260757794,
+            "y" : 0.9503775785352631
+          },
+          "text" : "\/ 198"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.19220106406183396,
+        "x" : 0.12113821705886105,
+        "y" : 0.898
+      },
+      "text" : "oshinao Aok 204\/198",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01180555555555555,
+            "width" : 0.11610781003052768,
+            "x" : 0.12113821766153929,
+            "y" : 0.918777777703993
+          },
+          "text" : "oshinao Aok"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014102615727318652,
+            "width" : 0.10374682616832044,
+            "x" : 0.16438137093786134,
+            "y" : 0.9502125810465716
+          },
+          "text" : "204\/198"
+        }
+      ]
+    }
+  ],
+  "scanID" : "40F695FB-8BC3-4211-87DC-B19AA797CE7D",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_footer_family_set_agreement"
+  ],
+  "setConfidenceScore" : 0.74,
+  "setHintTokens" : [
+    "svi"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit"
+  ],
+  "warnings" : [
+
+  ]
+}

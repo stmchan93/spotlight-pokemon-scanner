@@ -1,0 +1,390 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "60\/132",
+  "contentRectNormalized" : {
+    "height" : 0.9967774762550882,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.0016112618724558945
+  },
+  "fixtureName" : "sabrinas-slowbro-60-132-overhead",
+  "footerRouting" : {
+    "anchorIdentifier" : "60\/132",
+    "collectorAnchor" : {
+      "height" : 0.016217221056268438,
+      "width" : 0.08869333284031578,
+      "x" : 0.8498841034417456,
+      "y" : 0.9286045212055503
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.800822310918951,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.2192910447761194,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7790976933514246
+      },
+      "text" : "HICAu Cui！！. weakness resistance retreat cost LY. 29 #80 Illus. Ken Sugimori ©1995, 96,%8 Nintendo, Creasures, GAMEFREAK, ©1929-2000 Wiardi 60\/132",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011938480947697045,
+            "width" : 0.1875,
+            "x" : 0.19583333020833343,
+            "y" : 0.7790976936121592
+          },
+          "text" : "HICAu Cui！！."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019729703044593625,
+            "width" : 0.12580185340195105,
+            "x" : 0.053765739261594524,
+            "y" : 0.8254261719300435
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01736054040559447,
+            "width" : 0.1307692351164641,
+            "x" : 0.3346153820731782,
+            "y" : 0.8247833278908703
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016651383176135615,
+            "width" : 0.1593932029010968,
+            "x" : 0.05362851708978084,
+            "y" : 0.8694416231145179
+          },
+          "text" : "retreat cost"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019525148945746314,
+            "width" : 0.08092584223133337,
+            "x" : 0.05376784809461239,
+            "y" : 0.9105037290598657
+          },
+          "text" : "LY. 29"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01644682787882274,
+            "width" : 0.05256410292637201,
+            "x" : 0.16410256429688727,
+            "y" : 0.9097586077180101
+          },
+          "text" : "#80"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016462536765925163,
+            "width" : 0.1884615324582162,
+            "x" : 0.037179488610635525,
+            "y" : 0.938067992197159
+          },
+          "text" : "Illus. Ken Sugimori"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021378475236601097,
+            "width" : 0.5758896277695106,
+            "x" : 0.26909963272057535,
+            "y" : 0.930672636934213
+          },
+          "text" : "©1995, 96,%8 Nintendo, Creasures, GAMEFREAK, ©1929-2000 Wiardi"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01621722105626846,
+            "width" : 0.08869333284031578,
+            "x" : 0.8498841034417456,
+            "y" : 0.9286045212055503
+          },
+          "text" : "60\/132"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09768419267299865,
+        "width" : 0.138,
+        "x" : 0.62564,
+        "y" : 0.8859771581923006
+      },
+      "text" : "EAK ©1999-2",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01495643141404764,
+            "width" : 0.11118483412322276,
+            "x" : 0.6256400003970887,
+            "y" : 0.9322486178561411
+          },
+          "text" : "EAK ©1999-2"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09170352781546812,
+        "width" : 0.275,
+        "x" : 0.725,
+        "y" : 0.8908613678259505
+      },
+      "text" : "2000 Witurd 60\/132",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013499504094662818,
+            "width" : 0.12302631578947369,
+            "x" : 0.7250000003020335,
+            "y" : 0.9327563804721634
+          },
+          "text" : "2000 Witurd"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014099731565923345,
+            "width" : 0.0835973990590949,
+            "x" : 0.8532670895262997,
+            "y" : 0.9298960160439216
+          },
+          "text" : "60\/132"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10167130257801898,
+        "width" : 0.125,
+        "x" : 0.7542307698619034,
+        "y" : 0.8787405537146886
+      },
+      "text" : "© Wiard. 9",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012708912822252373,
+            "width" : 0.09342105263157895,
+            "x" : 0.7542307703290086,
+            "y" : 0.9333418087675814
+          },
+          "text" : "© Wiard."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011767513668035714,
+            "width" : 0.015789476193879784,
+            "x" : 0.8562044528587135,
+            "y" : 0.9305176051292516
+          },
+          "text" : "9"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09967774762550882,
+        "width" : 0.185,
+        "x" : 0.8017307698619034,
+        "y" : 0.8868742579209301
+      },
+      "text" : "wd 60\/132 •",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01863135469635679,
+            "width" : 0.158020829984726,
+            "x" : 0.8017307704845702,
+            "y" : 0.9287948057073636
+          },
+          "text" : "wd 60\/132 •"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10466163500678426,
+        "width" : 0.115,
+        "x" : 0.8799807698619034,
+        "y" : 0.8733180842438609
+      },
+      "text" : "11132・",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014080040583872315,
+            "width" : 0.07031428571428572,
+            "x" : 0.8799807702525383,
+            "y" : 0.9291689118619322
+          },
+          "text" : "11132・"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10167130257801898,
+        "width" : 0.19,
+        "x" : 0.7992307698619034,
+        "y" : 0.8858774804446751
+      },
+      "text" : "60\/132 •",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015046804966969736,
+            "width" : 0.10866970573503947,
+            "x" : 0.8513156699534603,
+            "y" : 0.9285276065805216
+          },
+          "text" : "60\/132 •"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.19935549525101764,
+        "width" : 0.88,
+        "x" : 0.06,
+        "y" : 0.0016112618724558945
+      },
+      "text" : "Evolves from Sabrina's Slowpoke Pur Sabrina: Slowbro on the Basic Pokémor STAGE I' Sabrina's Slowbro 70 HP",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018357382038341107,
+            "width" : 0.2852325464778916,
+            "x" : 0.20837210063678094,
+            "y" : 0.05732633443825076
+          },
+          "text" : "Evolves from Sabrina's Slowpoke"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02283389784168917,
+            "width" : 0.3602790767094571,
+            "x" : 0.5327964223540151,
+            "y" : 0.04788675996689291
+          },
+          "text" : "Pur Sabrina: Slowbro on the Basic Pokémor"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015753723875028148,
+            "width" : 0.09720930297345046,
+            "x" : 0.09069767478902227,
+            "y" : 0.07821948733716845
+          },
+          "text" : "STAGE I'"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.04066182247666647,
+            "width" : 0.37564846518953143,
+            "x" : 0.24877342522737436,
+            "y" : 0.07831861009487859
+          },
+          "text" : "Sabrina's Slowbro"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.034913767727068355,
+            "width" : 0.15220930297345056,
+            "x" : 0.6573255817056196,
+            "y" : 0.07734893855912547
+          },
+          "text" : "70 HP"
+        }
+      ]
+    }
+  ],
+  "scanID" : "92A3D79C-33A6-400F-ADF9-73A6D4FA3C98",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints"
+  ],
+  "setConfidenceScore" : 0.48,
+  "setHintTokens" : [
+    "par"
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

@@ -1,0 +1,490 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "60\/132",
+  "contentRectNormalized" : {
+    "height" : 0.9989703459637562,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.0005148270181218803
+  },
+  "fixtureName" : "sabrinas-slowbro-60-132-slight-angle",
+  "footerRouting" : {
+    "anchorIdentifier" : "60\/132",
+    "collectorAnchor" : {
+      "height" : 0.04025039011298892,
+      "width" : 0.6229020376054069,
+      "x" : 0.30722250984402005,
+      "y" : 0.9255882238097635
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:multiple_rectangles_too_close_to_call",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.8202929816360727,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.21977347611202638,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7797116968698518
+      },
+      "text" : "weakness resistance retreat cost LV. 29 #80 Illus. Ken Sugimori ©1995,96, 98 Nintendo, Greatures, GAMEFREAK, O1999-2000 Warde 60\/132 •",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02512451717920543,
+            "width" : 0.12606115862595763,
+            "x" : 0.08851378216761129,
+            "y" : 0.804958742117523
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021489900495117755,
+            "width" : 0.12363820017119986,
+            "x" : 0.36194027250416533,
+            "y" : 0.8192568355074661
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02279202491008563,
+            "width" : 0.16050514342292907,
+            "x" : 0.09031329889552589,
+            "y" : 0.849170850781879
+          },
+          "text" : "retreat cost"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02118232106363182,
+            "width" : 0.08076923107974744,
+            "x" : 0.094871794689064,
+            "y" : 0.8923456041682932
+          },
+          "text" : "LV. 29"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018314455541934106,
+            "width" : 0.05128205179957904,
+            "x" : 0.20512820514187716,
+            "y" : 0.8960084951606317
+          },
+          "text" : "#80"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02508795563073276,
+            "width" : 0.18799889781487683,
+            "x" : 0.08092821970194468,
+            "y" : 0.9195464901643071
+          },
+          "text" : "Illus. Ken Sugimori"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.040250390112988955,
+            "width" : 0.6229020376054069,
+            "x" : 0.30722250984402005,
+            "y" : 0.9255882238097635
+          },
+          "text" : "©1995,96, 98 Nintendo, Greatures, GAMEFREAK, O1999-2000 Warde 60\/132 •"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09789909390444812,
+        "width" : 0.138,
+        "x" : 0,
+        "y" : 0.8948658282567028
+      },
+      "text" : "LV. Illus.",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018736668689846518,
+            "width" : 0.042918660287081356,
+            "x" : 0.09442105259108965,
+            "y" : 0.8948658282390267
+          },
+          "text" : "LV."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017534190528526967,
+            "width" : 0.05278973352167596,
+            "x" : 0.08083420501661805,
+            "y" : 0.9213455188890148
+          },
+          "text" : "Illus."
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09190527182866558,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.8997607829519252
+      },
+      "text" : "LT. ZY #780 Ilfus. Ken Sugimori ©1995,96,98 Nincendo, Cresures, GAMEFREAK, O1999-2000 Wards 160\/132",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013957862869188804,
+            "width" : 0.08161539753908834,
+            "x" : 0.0943667191570057,
+            "y" : 0.8994194544685288
+          },
+          "text" : "LT. ZY"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01531754471156137,
+            "width" : 0.05232558174738805,
+            "x" : 0.20348837165537575,
+            "y" : 0.8997607832944859
+          },
+          "text" : "#780"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02052706578914358,
+            "width" : 0.18604649942387982,
+            "x" : 0.0813953554661124,
+            "y" : 0.9221539454818029
+          },
+          "text" : "Ilfus. Ken Sugimori"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.039434256201262785,
+            "width" : 0.5254588858791129,
+            "x" : 0.3067637657663459,
+            "y" : 0.9276693390353914
+          },
+          "text" : "©1995,96,98 Nincendo, Cresures, GAMEFREAK, O1999-2000 Wards"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014988551738750092,
+            "width" : 0.08598422499560798,
+            "x" : 0.8269206790567031,
+            "y" : 0.9463885004449893
+          },
+          "text" : "160\/132"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10189497528830313,
+        "width" : 0.125,
+        "x" : 0,
+        "y" : 0.8876133035450059
+      },
+      "text" : "7 A Di",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014623817697388335,
+            "width" : 0.015131581457037677,
+            "x" : 0.09473684081753381,
+            "y" : 0.8932741345494567
+          },
+          "text" : "7"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01368034570397813,
+            "width" : 0.01184210777282714,
+            "x" : 0.11118420930437589,
+            "y" : 0.8932741346912043
+          },
+          "text" : "A"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012971600357007352,
+            "width" : 0.03609823678669176,
+            "x" : 0.080026872762136,
+            "y" : 0.9220244564434431
+          },
+          "text" : "Di"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09989703459637563,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.8957649015680701
+      },
+      "text" : "LY. 29 #80 Illus. Ken Sugimori ©1995, 96,98 Nincendo, Crestures, GAMEFREAK, ©1999-2000 Wiards 60\/132 ÷",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017329076957544053,
+            "width" : 0.08284883650522382,
+            "x" : 0.09302325617406768,
+            "y" : 0.8957649019005625
+          },
+          "text" : "LY. 29"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017329076957544053,
+            "width" : 0.05232558174738808,
+            "x" : 0.20348837162630598,
+            "y" : 0.8967842593624653
+          },
+          "text" : "#80"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02585276743874129,
+            "width" : 0.18850354795102722,
+            "x" : 0.08009445606185125,
+            "y" : 0.919345051533197
+          },
+          "text" : "Illus. Ken Sugimori"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.036676697122463166,
+            "width" : 0.5137018678049561,
+            "x" : 0.30844928424868906,
+            "y" : 0.9278155658956013
+          },
+          "text" : "©1995, 96,98 Nincendo, Crestures, GAMEFREAK, ©1999-2000 Wiards"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01469564473106452,
+            "width" : 0.09215333726671016,
+            "x" : 0.8340345187675082,
+            "y" : 0.9461505481652533
+          },
+          "text" : "60\/132 ÷"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.1048918863261944,
+        "width" : 0.115,
+        "x" : 0.885,
+        "y" : 0.882178904862963
+      },
+      "text" : "126",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01081844567489897,
+            "width" : 0.037457142857142856,
+            "x" : 0.885000000267551,
+            "y" : 0.9489710476884253
+          },
+          "text" : "126"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10189497528830313,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.8947659312221063
+      },
+      "text" : "LY. 29 #80 Illus. Ken Sugimori ©1995. 96, 98 Nintendo, Greatures, GAMEFREAK, O1999-2000 W eurda 60\/132 ÷",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01837831746067567,
+            "width" : 0.08284883650522383,
+            "x" : 0.09302325570572141,
+            "y" : 0.894765931659399
+          },
+          "text" : "LY. 29"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01834109469995268,
+            "width" : 0.05232558174738808,
+            "x" : 0.20348837189277882,
+            "y" : 0.8968038310010009
+          },
+          "text" : "#80"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02595047984990901,
+            "width" : 0.18844449078595196,
+            "x" : 0.08016807967567666,
+            "y" : 0.9192995397107447
+          },
+          "text" : "Illus. Ken Sugimori"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03444692996071724,
+            "width" : 0.5105286451874587,
+            "x" : 0.31135900356586915,
+            "y" : 0.9263052263139261
+          },
+          "text" : "©1995. 96, 98 Nintendo, Greatures, GAMEFREAK, O1999-2000 W eurda"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015244840608938012,
+            "width" : 0.09658130262263875,
+            "x" : 0.8296062487092964,
+            "y" : 0.9459026503935846
+          },
+          "text" : "60\/132 ÷"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.19979406919275125,
+        "width" : 0.88,
+        "x" : 0.06,
+        "y" : 0.0005148270181218803
+      },
+      "text" : "STAGE I Evolves from Sabrina's Slowpoke Sabrina's Slowbro 70 HP Par Sabrinah",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.030347738490047644,
+            "width" : 0.10056393360860781,
+            "x" : 0.08011252934989954,
+            "y" : 0.05907818234365682
+          },
+          "text" : "STAGE I"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.052637465808087786,
+            "width" : 0.267591475068616,
+            "x" : 0.19194289842490508,
+            "y" : 0.05928070282658949
+          },
+          "text" : "Evolves from Sabrina's Slowpoke"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.09856520712542147,
+            "width" : 0.5128379000799619,
+            "x" : 0.22767563738143368,
+            "y" : 0.08752557788813517
+          },
+          "text" : "Sabrina's Slowbro 70 HP"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.025979249679412977,
+            "width" : 0.10087149001420948,
+            "x" : 0.48979618162053656,
+            "y" : 0.09868844962024932
+          },
+          "text" : "Par Sabrinah"
+        }
+      ]
+    }
+  ],
+  "scanID" : "91457DA5-850F-4CD8-A5C1-5DC2825BACB7",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints"
+  ],
+  "setConfidenceScore" : 0.48,
+  "setHintTokens" : [
+    "par"
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

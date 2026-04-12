@@ -1,9 +1,9 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_band_metadata_agreement"
+    "rewrite_raw_footer_metadata_families_agree"
   ],
-  "collectorConfidenceScore" : 0.92,
-  "collectorNumber" : "059\/130",
+  "collectorConfidenceScore" : 0.94,
+  "collectorNumber" : "059\/131",
   "contentRectNormalized" : {
     "height" : 0.9996679863686478,
     "width" : 1,
@@ -43,7 +43,7 @@
         "x" : 0,
         "y" : 0.7799070361832214
       },
-      "text" : "weakness x2 resistance retreat Шuь mafazo 11 hen expicord to the moon's aura, the eingson its PRE EN 059\/130 tusti glum tainti and it gains a mysterious power. ©2025 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK",
+      "text" : "weakness )x2 resistance retreat Шиь matazo 11 heneaposdtothe muun's aura, the rings on its PRE EN 059\/130 ≤ tuati glun raintin and ir gains a mysterious power. C2025 Pokémon \/ Nintendo \/ Creatures\/GAME FREAK",
       "tokens" : [
         {
           "confidence" : 1,
@@ -56,14 +56,14 @@
           "text" : "weakness"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.0247417831434004,
             "width" : 0.060256406323199146,
             "x" : 0.21153846317030925,
             "y" : 0.8513832970241915
           },
-          "text" : "x2"
+          "text" : ")x2"
         },
         {
           "confidence" : 1,
@@ -86,27 +86,27 @@
           "text" : "retreat"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01864652860023532,
             "width" : 0.12232979264839616,
             "x" : 0.08691202656491293,
             "y" : 0.9025399458830752
           },
-          "text" : "Шuь mafazo"
+          "text" : "Шиь matazo"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.02529813635407761,
             "width" : 0.5288784558600639,
             "x" : 0.41634296713113267,
             "y" : 0.9023791572854007
           },
-          "text" : "11 hen expicord to the moon's aura, the eingson its"
+          "text" : "11 heneaposdtothe muun's aura, the rings on its"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01575408001440564,
             "width" : 0.053846154053164966,
@@ -116,34 +116,34 @@
           "text" : "PRE EN"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.021317285193247527,
             "width" : 0.1234381943152695,
             "x" : 0.18828090222770968,
             "y" : 0.9332772490590333
           },
-          "text" : "059\/130"
+          "text" : "059\/130 ≤"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.02086351042836727,
             "width" : 0.5208333333333333,
             "x" : 0.42083333984374977,
             "y" : 0.9254747358365134
           },
-          "text" : "tusti glum tainti and it gains a mysterious power."
+          "text" : "tuati glun raintin and ir gains a mysterious power."
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.015123916813829394,
             "width" : 0.3958333333333333,
             "x" : 0.3166666732638887,
             "y" : 0.9610789563480804
           },
-          "text" : "©2025 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK"
+          "text" : "C2025 Pokémon \/ Nintendo \/ Creatures\/GAME FREAK"
         }
       ]
     },
@@ -158,7 +158,7 @@
         "x" : 0.013139999385344436,
         "y" : 0.8930527911494929
       },
-      "text" : "U5. 0 PR",
+      "text" : "usь Д PR",
       "tokens" : [
         {
           "confidence" : 0.3,
@@ -168,7 +168,7 @@
             "x" : 0.10797412248620614,
             "y" : 0.9065175134534125
           },
-          "text" : "U5. 0"
+          "text" : "usь Д"
         },
         {
           "confidence" : 1,
@@ -193,20 +193,20 @@
         "x" : 0.11249999938534444,
         "y" : 0.8979511642826993
       },
-      "text" : "UE. mafazo PRE EN 059\/130 ©2025 Po",
+      "text" : "ь matazo PRE EN 059\/131 C2025 Po",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.014939200770910151,
             "width" : 0.09690476190476192,
             "x" : 0.11249999916876936,
             "y" : 0.9049539147015219
           },
-          "text" : "UE. mafazo"
+          "text" : "ь matazo"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01587290081909204,
             "width" : 0.048452380952380955,
@@ -223,17 +223,17 @@
             "x" : 0.19238095212641587,
             "y" : 0.9329649160630651
           },
-          "text" : "059\/130"
+          "text" : "059\/131"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009693507358373836,
             "width" : 0.06818962187994096,
             "x" : 0.31804804607454384,
             "y" : 0.9635987642320273
           },
-          "text" : "©2025 Po"
+          "text" : "C2025 Po"
         }
       ]
     },
@@ -248,20 +248,20 @@
         "x" : 0.09140562450160188,
         "y" : 0.8857952015684565
       },
-      "text" : "lllus, matazo PREEN 05",
+      "text" : "Ilibs matazo PREEN 05",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
             "height" : 0.015830358797837764,
             "width" : 0.11653645833333333,
             "x" : 0.09140562486577831,
             "y" : 0.9034879555044311
           },
-          "text" : "lllus, matazo"
+          "text" : "Ilibs matazo"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.020951945467726447,
             "width" : 0.05013020833333332,
@@ -293,7 +293,7 @@
         "x" : 0.13890562450160188,
         "y" : 0.8939524923372246
       },
-      "text" : "motazo RE EN 059\/130 ©202",
+      "text" : "motazo REEN 059\/137 ©202",
       "tokens" : [
         {
           "confidence" : 1,
@@ -306,27 +306,27 @@
           "text" : "motazo"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01728397920357009,
             "width" : 0.03801459435549893,
             "x" : 0.13890562444334195,
             "y" : 0.9280533160752732
           },
-          "text" : "RE EN"
+          "text" : "REEN"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.019336283871762644,
             "width" : 0.11213904695726265,
             "x" : 0.1926196280697741,
             "y" : 0.9340341823591766
           },
-          "text" : "059\/130"
+          "text" : "059\/137"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009342691461389234,
             "width" : 0.03932544243672304,
@@ -383,10 +383,10 @@
         "x" : 0.13890562450160188,
         "y" : 0.892952824350856
       },
-      "text" : "motazo RE EN 059\/130 ©202",
+      "text" : "motazo REEN 059\/131 ©202",
       "tokens" : [
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012571167280635877,
             "width" : 0.07013037234548941,
@@ -396,27 +396,27 @@
           "text" : "motazo"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01629595758600946,
             "width" : 0.03801459435549892,
             "x" : 0.13890562438362555,
             "y" : 0.9283383323333849
           },
-          "text" : "RE EN"
+          "text" : "REEN"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.019157708859565147,
             "width" : 0.11028771606618143,
             "x" : 0.1919067334322225,
             "y" : 0.9341242378887152
           },
-          "text" : "059\/130"
+          "text" : "059\/131"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009777574551605684,
             "width" : 0.038670018396110985,
@@ -436,52 +436,62 @@
         "x" : 0.06,
         "y" : 0.00016600681567608563
       },
-      "text" : "STAGE 1 Umbreon н 110 Evolves from Eevee",
+      "text" : "STAGET Umbreon 110฿ HP Evolves from Eevee",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.020427997982315864,
-            "width" : 0.11568965421178033,
-            "x" : 0.0713793115363512,
-            "y" : 0.050149406278923864
+            "height" : 0.020779909660528516,
+            "width" : 0.11307444972121368,
+            "x" : 0.07253254322402829,
+            "y" : 0.05139942111877649
           },
-          "text" : "STAGE 1"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.039019255393523036,
-            "width" : 0.267741594538814,
-            "x" : 0.22104299559531163,
-            "y" : 0.05495602656635868
-          },
-          "text" : "Umbreon"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.05138129028065701,
-            "width" : 0.17448274773351052,
-            "x" : 0.7275862118660035,
-            "y" : 0.04744760093259373
-          },
-          "text" : "н 110"
+          "text" : "STAGET"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.017585228788175318,
-            "width" : 0.2010344859607322,
-            "x" : 0.22310344868515108,
-            "y" : 0.10688731932634649
+            "height" : 0.03827724798935552,
+            "width" : 0.2662778043417185,
+            "x" : 0.22232621474147166,
+            "y" : 0.05543189501816219
+          },
+          "text" : "Umbreon"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.04655987695474393,
+            "width" : 0.1304651115280299,
+            "x" : 0.7686046535894733,
+            "y" : 0.047638825247995946
+          },
+          "text" : "110฿"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.015519960090256916,
+            "width" : 0.03453488382890841,
+            "x" : 0.7327906979082202,
+            "y" : 0.07776580454877102
+          },
+          "text" : "HP"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014797547088009396,
+            "width" : 0.19697674720943545,
+            "x" : 0.22499999826903638,
+            "y" : 0.10880572445486403
           },
           "text" : "Evolves from Eevee"
         }
       ]
     }
   ],
-  "scanID" : "45689DA8-EFDC-4062-88EC-22C09979D1EE",
+  "scanID" : "B9BEBB39-D676-4132-B38B-8A79B6CA7457",
   "setConfidenceReasons" : [
 
   ],

@@ -1,0 +1,340 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_wide"
+  ],
+  "collectorConfidenceScore" : 0.66,
+  "collectorNumber" : "192\/023",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
+  },
+  "fixtureName" : "pikachu-vmax-swsh286-steep-angle",
+  "footerRouting" : {
+    "anchorIdentifier" : "192\/023",
+    "collectorAnchor" : {
+      "height" : 0.008249999759532,
+      "width" : 0.05125704285459526,
+      "x" : 0.2847204214120485,
+      "y" : 0.7845833334994007
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
+      },
+      "text" : "192023",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.008249999759531978,
+            "width" : 0.051257042854595244,
+            "x" : 0.2847204214120485,
+            "y" : 0.7845833334994007
+          },
+          "text" : "192023"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.07360445340300333,
+        "y" : 0.7378083333791666
+      },
+      "text" : "uร. AKIRA EGAI ISWSI",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0161861469688598,
+            "width" : 0.1380550320622424,
+            "x" : 0.07314384407226807,
+            "y" : 0.7374354044592895
+          },
+          "text" : "uร. AKIRA EGAI"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01172248803827752,
+            "width" : 0.07386917158795843,
+            "x" : 0.13701427291849583,
+            "y" : 0.7612533093971092
+          },
+          "text" : "ISWSI"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.17291599807240726,
+        "y" : 0.7427083333791666
+      },
+      "text" : "CLAWA VMA is Knock WSH286 02023 Pokemon \/N",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0070050761421319805,
+            "width" : 0.06478981681869975,
+            "x" : 0.17291599847909658,
+            "y" : 0.742708333429203
+          },
+          "text" : "CLAWA"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.00840609137055838,
+            "width" : 0.049737637153749306,
+            "x" : 0.39738980810055113,
+            "y" : 0.7427083334211971
+          },
+          "text" : "VMA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009616233167309451,
+            "width" : 0.07607894657441182,
+            "x" : 0.3711303016869729,
+            "y" : 0.7582149375905903
+          },
+          "text" : "is Knock"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010274111675126903,
+            "width" : 0.09685750393098547,
+            "x" : 0.17291599844325806,
+            "y" : 0.7632565567722293
+          },
+          "text" : "WSH286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009340101522842637,
+            "width" : 0.14659514108473476,
+            "x" : 0.289406778780133,
+            "y" : 0.7838047800996888
+          },
+          "text" : "02023 Pokemon \/N"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.17041721725846296,
+        "y" : 0.7305483333791667
+      },
+      "text" : "EGAWA WSH286",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010341702082385757,
+            "width" : 0.06717995768117828,
+            "x" : 0.170339533467122,
+            "y" : 0.7405144686156583
+          },
+          "text" : "EGAWA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0117255997331175,
+            "width" : 0.09801089969990495,
+            "x" : 0.17018214662660597,
+            "y" : 0.7625200951554174
+          },
+          "text" : "WSH286"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18490978023188134,
+        "x" : 0.21789405272340545,
+        "y" : 0.7387083333791666
+      },
+      "text" : "VA 1286 22021 Pokem",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00841121495327103,
+            "width" : 0.020399299598534953,
+            "x" : 0.21789405282540195,
+            "y" : 0.7405774922343068
+          },
+          "text" : "VA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00981308411214954,
+            "width" : 0.05132726995760406,
+            "x" : 0.2178940530900288,
+            "y" : 0.7625401090567367
+          },
+          "text" : "1286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00841121495327103,
+            "width" : 0.09804824645747444,
+            "x" : 0.28962062282425693,
+            "y" : 0.7835681464528945
+          },
+          "text" : "22021 Pokem"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.2961058921998634,
+        "y" : 0.7251083333791667
+      },
+      "text" : "1202 1 Poi",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0075336322869955135,
+            "width" : 0.06568223853796556,
+            "x" : 0.29610589285668576,
+            "y" : 0.7839648356119021
+          },
+          "text" : "1202 1 Poi"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.18990734185977,
+        "x" : 0.21539527190946112,
+        "y" : 0.7377083333791666
+      },
+      "text" : "VA 1286 02021 Pokem",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.008500000000000004,
+            "width" : 0.02349369177646639,
+            "x" : 0.2153952720162506,
+            "y" : 0.7410138889089646
+          },
+          "text" : "VA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009916666666666676,
+            "width" : 0.054818614145088256,
+            "x" : 0.2153952721868172,
+            "y" : 0.7632083334411458
+          },
+          "text" : "1286"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00802777777777778,
+            "width" : 0.051555601398356805,
+            "x" : 0.28979196282135805,
+            "y" : 0.7839861111333333
+          },
+          "text" : "02021"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00708333333333333,
+            "width" : 0.046334781003586505,
+            "x" : 0.3406949609206007,
+            "y" : 0.7849305556061111
+          },
+          "text" : "Pokem"
+        }
+      ]
+    }
+  ],
+  "scanID" : "BC687DC3-122A-4357-A61A-FD4C5E83DD66",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_family_set_hints"
+  ],
+  "setConfidenceScore" : 0.56,
+  "setHintTokens" : [
+    "wsh286"
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

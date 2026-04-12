@@ -133,7 +133,7 @@
   "fixtureName" : "whimsicott-vstar-175-172-slight-angle",
   "ocr" : {
     "cropConfidence" : 0.8387303246866198,
-    "setConfidenceScore" : 0.48,
+    "setConfidenceScore" : 0.3,
     "setHintTokens" : [
       "lor"
     ],

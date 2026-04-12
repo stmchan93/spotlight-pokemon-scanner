@@ -32,12 +32,17 @@ backend/__pycache__/
 backend/*.pyc
 backend/venv/
 backend/.env
+.venv-raw-visual-poc/
 
 # Backend databases
 backend/data/*.sqlite
 backend/data/*.db
 backend/data/*.sqlite-*
 backend/data/*.sqlite.bak.*
+backend/data/visual-index/
+
+# Generated QA caches
+qa/raw-footer-layout-check/.visual_reference_cache/
 
 # Logs
 *.log

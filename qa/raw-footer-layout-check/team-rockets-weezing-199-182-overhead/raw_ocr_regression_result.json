@@ -135,7 +135,7 @@
     "collectorConfidenceScore" : 0.42,
     "collectorNumberPartial" : "40",
     "cropConfidence" : 0.8727646147863436,
-    "setConfidenceScore" : 0.56,
+    "setConfidenceScore" : 0.4,
     "setHintTokens" : [
       "lor",
       "n40",

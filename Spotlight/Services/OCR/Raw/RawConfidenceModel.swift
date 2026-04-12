@@ -39,6 +39,16 @@ struct RawEvidenceConfidenceSummary: Codable, Hashable, Sendable {
 }
 
 struct RawConfidenceModel {
+    private enum SetHintMatchKind: String, Codable, Hashable, Sendable {
+        case exact
+        case fuzzy
+    }
+
+    private struct SetHintCandidate: Codable, Hashable, Sendable {
+        let token: String
+        let matchKind: SetHintMatchKind
+    }
+
     private let tuning: OCRTuning.Raw
     private let parser = CardIdentifierParser()
 
@@ -348,26 +358,42 @@ struct RawConfidenceModel {
             return $0.kind == .footerLeft || $0.kind == .footerRight
         }
 
-        let broadHints = extractSetHintTokens(from: [footerBandText, headerText])
-        let familyHints = extractSetHintTokens(from: setBadgePasses.map(\.text))
-        let mergedHints = Array(Set(broadHints + familyHints)).sorted()
+        let broadHints = extractSetHintCandidates(from: [footerBandText, headerText])
+        let familyHints = extractSetHintCandidates(from: setBadgePasses.map(\.text))
+        let mergedHints = Array(Set((broadHints + familyHints).map(\.token))).sorted()
 
         guard !mergedHints.isEmpty else {
             return RawResolvedSetEvidence(hints: [], confidence: nil)
         }
 
-        let agreement = Set(broadHints).intersection(Set(familyHints))
+        let broadHintLookup = Dictionary(uniqueKeysWithValues: broadHints.map { ($0.token, $0.matchKind) })
+        let familyHintLookup = Dictionary(uniqueKeysWithValues: familyHints.map { ($0.token, $0.matchKind) })
+        let agreement = Set(broadHintLookup.keys).intersection(Set(familyHintLookup.keys))
+        let broadHasOnlyFuzzy = !broadHints.isEmpty && broadHints.allSatisfy { $0.matchKind == .fuzzy }
+        let familyHasOnlyFuzzy = !familyHints.isEmpty && familyHints.allSatisfy { $0.matchKind == .fuzzy }
+        let agreementIncludesOnlyFuzzy = !agreement.isEmpty && agreement.allSatisfy { token in
+            broadHintLookup[token] == .fuzzy && familyHintLookup[token] == .fuzzy
+        }
         let score: Double
         let reasons: [String]
         if !agreement.isEmpty {
-            score = 0.74
-            reasons = ["rewrite_raw_footer_band_set_hints", "rewrite_raw_footer_family_set_agreement"]
+            score = agreementIncludesOnlyFuzzy ? 0.62 : 0.74
+            reasons = agreementIncludesOnlyFuzzy
+                ? ["rewrite_raw_footer_band_set_hints", "rewrite_raw_footer_family_set_agreement", "rewrite_raw_fuzzy_set_hints"]
+                : ["rewrite_raw_footer_band_set_hints", "rewrite_raw_footer_family_set_agreement"]
         } else if !familyHints.isEmpty {
-            score = metadataCollectorFamilies.isEmpty ? 0.56 : 0.62
-            reasons = ["rewrite_raw_footer_family_set_hints"]
+            if familyHasOnlyFuzzy {
+                score = metadataCollectorFamilies.isEmpty ? 0.40 : 0.46
+                reasons = ["rewrite_raw_footer_family_set_hints", "rewrite_raw_fuzzy_set_hints"]
+            } else {
+                score = metadataCollectorFamilies.isEmpty ? 0.56 : 0.62
+                reasons = ["rewrite_raw_footer_family_set_hints"]
+            }
         } else {
-            score = 0.48
-            reasons = ["rewrite_raw_footer_band_set_hints"]
+            score = broadHasOnlyFuzzy ? 0.30 : 0.48
+            reasons = broadHasOnlyFuzzy
+                ? ["rewrite_raw_footer_band_set_hints", "rewrite_raw_fuzzy_set_hints"]
+                : ["rewrite_raw_footer_band_set_hints"]
         }
 
         return RawResolvedSetEvidence(
@@ -417,8 +443,8 @@ struct RawConfidenceModel {
         ) != nil
     }
 
-    private func extractSetHintTokens(from texts: [String]) -> [String] {
-        var hints = Set<String>()
+    private func extractSetHintCandidates(from texts: [String]) -> [SetHintCandidate] {
+        var hints: [String: SetHintCandidate] = [:]
         let alphanumericPattern = #"\b([A-Z]{1,4}\d{1,3}[A-Z]{0,2})\b"#
         let spacedLanguagePattern = #"\b([A-Z]{2,5})\s+(?:EN|JP|DE|FR|IT|ES|PT)\b"#
         let alphaOnlyPattern = #"\b([A-Z]{3,5})\b"#
@@ -427,25 +453,27 @@ struct RawConfidenceModel {
             let normalizedText = normalizedSetHintText(text)
 
             for match in captureGroups(in: normalizedText, pattern: alphanumericPattern) {
-                if let hint = normalizedSetHintToken(match) {
-                    hints.insert(hint)
+                if let hint = normalizedSetHintCandidate(match) {
+                    mergeSetHintCandidate(hint, into: &hints)
                 }
             }
 
             for match in captureGroups(in: normalizedText, pattern: spacedLanguagePattern) {
-                if let hint = normalizedSetHintToken(match) {
-                    hints.insert(hint)
+                if let hint = normalizedSetHintCandidate(match) {
+                    mergeSetHintCandidate(hint, into: &hints)
                 }
             }
 
             for match in captureGroups(in: normalizedText, pattern: alphaOnlyPattern) {
-                if let hint = normalizedSetHintToken(match) {
-                    hints.insert(hint)
+                if let hint = normalizedSetHintCandidate(match) {
+                    mergeSetHintCandidate(hint, into: &hints)
                 }
             }
         }
 
-        return hints.sorted()
+        return hints.values.sorted { lhs, rhs in
+            lhs.token < rhs.token
+        }
     }
 
     private func bestParsedIdentifier(candidates: [ParsedCardIdentifier?]) -> ParsedCardIdentifier? {
@@ -500,7 +528,20 @@ struct RawConfidenceModel {
             .replacingOccurrences(of: #"[§$](?=\d{1,3}[A-Z]{0,2}\b)"#, with: "S", options: .regularExpression)
     }
 
-    private func normalizedSetHintToken(_ token: String) -> String? {
+    private func mergeSetHintCandidate(
+        _ candidate: SetHintCandidate,
+        into candidates: inout [String: SetHintCandidate]
+    ) {
+        guard let existing = candidates[candidate.token] else {
+            candidates[candidate.token] = candidate
+            return
+        }
+        if existing.matchKind == .fuzzy && candidate.matchKind == .exact {
+            candidates[candidate.token] = candidate
+        }
+    }
+
+    private func normalizedSetHintCandidate(_ token: String) -> SetHintCandidate? {
         let knownAlphaOnlyHints = Set([
             "dri", "obf", "pal", "mew", "gg", "crz", "svp", "prsv", "pr-sv",
             "par", "svi", "brs", "lor", "ssp", "meg",
@@ -526,19 +567,22 @@ struct RawConfidenceModel {
         if normalized.allSatisfy(\.isLetter) {
             let lowercased = normalized.lowercased()
             if knownAlphaOnlyHints.contains(lowercased) {
-                return lowercased
+                return SetHintCandidate(token: lowercased, matchKind: .exact)
             }
-            return nearestKnownAlphaOnlyHint(
+            guard let fuzzyHint = nearestKnownAlphaOnlyHint(
                 to: lowercased,
                 knownHints: knownAlphaOnlyHints
-            )
+            ) else {
+                return nil
+            }
+            return SetHintCandidate(token: fuzzyHint, matchKind: .fuzzy)
         }
 
         guard normalized.range(of: #"^[A-Z]{1,4}\d{1,3}[A-Z]{0,2}$"#, options: .regularExpression) != nil else {
             return nil
         }
 
-        return normalized.lowercased()
+        return SetHintCandidate(token: normalized.lowercased(), matchKind: .exact)
     }
 
     private func nearestKnownAlphaOnlyHint(

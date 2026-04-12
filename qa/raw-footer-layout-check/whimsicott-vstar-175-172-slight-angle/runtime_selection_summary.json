@@ -1,0 +1,239 @@
+{
+  "collectorConfidenceReasons" : [
+
+  ],
+  "contentRectNormalized" : {
+    "height" : 0.9992897727272727,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.0003551136363636364
+  },
+  "fixtureName" : "whimsicott-vstar-175-172-slight-angle",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "normalization:holder_inner_card_inset_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.8387303246866198,
+  "ocrUsedFallback" : false,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.19985795454545455,
+        "width" : 0.9,
+        "x" : 0.05,
+        "y" : 0.7598153409090909
+      },
+      "text" : "rokemoп Tor eaen energy attacned to cnis apply Weakness and Resistance for Be (You can't use more than 1 VSTAR Power in weakness 5 ×2 resistance ret",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0216512790464139,
+            "width" : 0.8462337370841734,
+            "x" : 0.10025975060336795,
+            "y" : 0.7598153405654471
+          },
+          "text" : "rokemoп Tor eaen energy attacned to cnis"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0324769161796597,
+            "width" : 0.8462337370841734,
+            "x" : 0.10142858353084044,
+            "y" : 0.7847975860691723
+          },
+          "text" : "apply Weakness and Resistance for Be"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03909126976746444,
+            "width" : 0.8467967461281157,
+            "x" : 0.10108987912071296,
+            "y" : 0.8150258476668386
+          },
+          "text" : "(You can't use more than 1 VSTAR Power in"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021456014444156044,
+            "width" : 0.2774999892606763,
+            "x" : 0.0650000019009119,
+            "y" : 0.9355525078775178
+          },
+          "text" : "weakness 5 ×2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01582208743085885,
+            "width" : 0.1554545427697146,
+            "x" : 0.43922078008731347,
+            "y" : 0.9430184661147374
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010825639523206938,
+            "width" : 0.0420779219820353,
+            "x" : 0.9067532469681662,
+            "y" : 0.9480149145360705
+          },
+          "text" : "ret"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09793039772727273,
+        "width" : 0.138,
+        "x" : 0.07064000000000001,
+        "y" : 0.8448549005681818
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09193465909090909,
+        "width" : 0.275,
+        "x" : 0.17,
+        "y" : 0.8497514204545454
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10192755681818182,
+        "width" : 0.125,
+        "x" : 0.6725,
+        "y" : 0.8415972159090909
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09992897727272727,
+        "width" : 0.185,
+        "x" : 0.72,
+        "y" : 0.8497514204545454
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10492542613636363,
+        "width" : 0.115,
+        "x" : 0.7857500000000001,
+        "y" : 0.8291660511363637
+      },
+      "text" : "rower",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01717805649135156,
+            "width" : 0.11434285714285715,
+            "x" : 0.785750000272245,
+            "y" : 0.8291660511109392
+          },
+          "text" : "rower"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10192755681818182,
+        "width" : 0.19,
+        "x" : 0.705,
+        "y" : 0.8417571022727273
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.21984375,
+        "width" : 0.8,
+        "x" : 0.1,
+        "y" : 0.02034090909090909
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    }
+  ],
+  "scanID" : "7C14831C-208A-412B-938A-FB7E3283932B",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints"
+  ],
+  "setConfidenceScore" : 0.48,
+  "setHintTokens" : [
+    "lor"
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Raw scene looks holder-like",
+    "Rewrite raw escalation used focused ROIs",
+    "Could not read strong raw-card clues",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

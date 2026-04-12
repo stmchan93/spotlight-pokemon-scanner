@@ -1,0 +1,179 @@
+{
+  "collectorConfidenceReasons" : [
+
+  ],
+  "contentRectNormalized" : {
+    "height" : 0.9994652406417114,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.00026737967914433565
+  },
+  "fixtureName" : "snorlax-077-071-slight-angle",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "normalization:holder_inner_card_inset_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.751534091763084,
+  "ocrUsedFallback" : false,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.1998930481283423,
+        "width" : 0.9,
+        "x" : 0.05,
+        "y" : 0.759860962566845
+      },
+      "text" : "maC",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.04679053458344469,
+            "width" : 0.17766233651169586,
+            "x" : 0.07805194921947675,
+            "y" : 0.9121305886466365
+          },
+          "text" : "maC"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09794759358288772,
+        "width" : 0.138,
+        "x" : 0.07064000000000001,
+        "y" : 0.8449154545454546
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09195080213903745,
+        "width" : 0.275,
+        "x" : 0.17,
+        "y" : 0.849812834224599
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10194545454545456,
+        "width" : 0.125,
+        "x" : 0.6725,
+        "y" : 0.8416571978609626
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09994652406417115,
+        "width" : 0.185,
+        "x" : 0.72,
+        "y" : 0.849812834224599
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10494385026737969,
+        "width" : 0.115,
+        "x" : 0.7857500000000001,
+        "y" : 0.8292238502673798
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10194545454545456,
+        "width" : 0.19,
+        "x" : 0.705,
+        "y" : 0.8418171122994653
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2198823529411765,
+        "width" : 0.8,
+        "x" : 0.1,
+        "y" : 0.020256684491978563
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    }
+  ],
+  "scanID" : "3458B42A-FE9C-4394-B64C-AF6E2C22FE58",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Raw scene looks holder-like",
+    "Rewrite raw escalation used focused ROIs",
+    "Could not read strong raw-card clues",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

@@ -1,14 +1,27 @@
 # PLAN
 
-Date: 2026-04-04
+Date: 2026-04-11
 
 ## Current planning override
 
+- The current raw visual-match-primary migration source of truth is [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md).
+- The current next-step implementation source of truth for improving raw visual retrieval is [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md).
 - The current backend reset / raw-matcher redesign source of truth is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
 - The current backend latency / network-call refactor pre-implementation source of truth is [docs/backend-latency-refactor-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/backend-latency-refactor-spec-2026-04-10.md).
 - The current OCR rewrite / rollout source of truth is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 - The current OCR simplification / performance implementation source of truth for the next OCR pass is [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
 - The raw backend reset has now landed.
+- The next raw identity direction is now:
+  - visual matching first
+  - OCR confirmation second
+- The revised implementation order is now:
+  - Phase 0 proof-of-concept on live normalized images
+  - then full reference index buildout
+  - then visual-only backend retrieval
+  - then hybrid reranking
+  - then app contract changes
+  - then expanded harness and tuning
+  - then deletion/cleanup
 - Treat the current backend runtime as:
   - raw-only
   - 3-table SQLite (`cards`, `card_price_snapshots`, `scan_events`)
@@ -22,6 +35,12 @@ Date: 2026-04-04
   - a shared front half
   - a raw branch
   - a slab branch
+- Raw OCR is no longer the long-term primary raw identity engine.
+- Raw OCR should be treated as:
+  - backend evidence generation
+  - visual-match tiebreaker
+  - ambiguity reduction
+- Do not keep expanding raw OCR ROI tuning as the primary raw-identification strategy.
 - The next OCR implementation pass should apply the concrete scope in [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md):
   - raw = footer-first
   - slab = PSA-only for now
@@ -105,6 +124,49 @@ Status: `done`
   - `scan_events`
 - raw backend now returns a best candidate even at low confidence
 
+### Milestone 1b: Raw visual hybrid migration
+
+Status: `active`
+
+- user-provided raw photos under [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check) are now the canonical seed raw regression suite
+- the new source-of-truth migration plan is [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md)
+- local Phase 0 proof-of-concept is now complete:
+  - provider-supported fixtures: `47`
+  - provider-unsupported fixtures: `20`
+  - visual top-1: `39/47`
+  - visual top-5 contains-truth: `41/47`
+- full Phase 1 reference index build is now complete:
+  - retained catalog cards: `20,237`
+  - embedded entries: `20,182`
+  - skipped entries: `55`
+  - full-index visual top-1: `22/47`
+  - full-index visual top-5 contains-truth: `28/47`
+  - full-index visual top-10 contains-truth: `32/47`
+- fixed artwork-only crop experiment is now complete:
+  - top-1: `15/47`
+  - top-5 contains-truth: `26/47`
+- first hybrid visual + OCR reranker is now landed and locally scored:
+  - honest post-harness-fix hybrid baseline: `28/47`
+  - current hybrid top-1 after leader protection + fuzzy-set dampening: `30/47`
+  - current hybrid top-5 contains-truth: `31/47`
+- visual ceiling sweep is now complete:
+  - top-20 contains-truth: `35/47`
+  - top-30 contains-truth: `35/47`
+  - top-50 contains-truth: `35/47`
+  - runtime decision: keep `top-K = 10`
+- current local visual tooling:
+  - `zsh tools/run_raw_visual_poc.sh`
+  - `zsh tools/run_build_raw_visual_index.sh`
+  - `python tools/run_raw_visual_hybrid_regression.py`
+- next work is:
+  - build the separate visual training corpus and manifest tooling
+  - train and evaluate a lightweight visual adapter on top of frozen CLIP
+  - rebuild the visual index only if the held-out suite improves
+  - keep OCR and runtime `top-K = 10` stable during that phase
+  - only after a visual-model win, resume app contract work and cleanup
+- first landed tool in that phase:
+  - `python3 tools/build_raw_visual_training_manifest.py ...`
+
 ### Milestone 2: OCR architecture rewrite
 
 Status: `active`
@@ -162,11 +224,15 @@ Status: `planned`
 
 ## Remaining tasks
 
-1. Freeze the OCR rewrite contracts and keep [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md) as the source of truth.
-2. Build the new slab OCR branch with card-identity evidence plus grader / grade / optional cert.
-3. Run side-by-side old-vs-new OCR comparisons on fixtures and captured debug sessions.
-4. Do human tap-through verification for launch speed, permission flow, and raw/scanner behavior on device.
-5. Only then remove the old OCR path and proceed to slab backend/pricing rebuild on top of the new OCR payloads.
+1. Keep [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md) as the raw identity architecture source of truth.
+2. Treat [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md) as the next raw implementation source of truth.
+3. Build the separate visual training corpus and manifest tooling without contaminating the held-out regression suite.
+4. Train and evaluate the lightweight visual adapter against the frozen held-out baseline.
+5. Rebuild the full visual index only if the new model is net-positive on the held-out suite.
+6. Keep runtime `top-K = 10` and current OCR extraction stable until the visual model improves.
+7. Do human tap-through verification only after the improved visual model is integrated.
+8. Run an explicit deletion/cleanup pass after the improved hybrid path is proven better.
+9. Only then proceed to slab backend/pricing rebuild on top of the settled raw contract.
 
 ## Slab parser reset execution plan
 

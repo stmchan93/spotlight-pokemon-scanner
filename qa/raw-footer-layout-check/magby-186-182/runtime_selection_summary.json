@@ -1,0 +1,426 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "186\/182",
+  "contentRectNormalized" : {
+    "height" : 0.9988967343336274,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.0005516328331862946
+  },
+  "fixtureName" : "magby-186-182",
+  "footerRouting" : {
+    "anchorIdentifier" : "186\/182",
+    "collectorAnchor" : {
+      "height" : 0.02016151638658703,
+      "width" : 0.10928992619590153,
+      "x" : 0.16266272917499977,
+      "y" : 0.9156573539591978
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.827330268767994,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.21975728155339802,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7796910856134156
+      },
+      "text" : "weakness x2 resistance retreat This Pokémon makes its home near volcanoes. Шus. Ming Nakai Aethe endof the day, Magby soaks in magniee PAR EN 186\/182 rodngand recoveringtrom the day'sfedgue. ©2023 Pokémon \/ Nintendo \/ Creatures\/GAME FREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015185285828974236,
+            "width" : 0.10655219130204888,
+            "x" : 0.04864698113437074,
+            "y" : 0.8361943163625534
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.022891384295821382,
+            "width" : 0.053846154053164924,
+            "x" : 0.19487179438367394,
+            "y" : 0.8309677843010674
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014932653816743758,
+            "width" : 0.10414388612885112,
+            "x" : 0.3113895949966185,
+            "y" : 0.8340314940091977
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012748348742701065,
+            "width" : 0.07461536414198566,
+            "x" : 0.6229487285718811,
+            "y" : 0.8323766805789041
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020821886514958764,
+            "width" : 0.508333290275022,
+            "x" : 0.4375000266680442,
+            "y" : 0.8628084529564851
+          },
+          "text" : "This Pokémon makes its home near volcanoes."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017630956686232494,
+            "width" : 0.17179487117383846,
+            "x" : 0.05256410430624314,
+            "y" : 0.8848471487424686
+          },
+          "text" : "Шus. Ming Nakai"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02298321139455309,
+            "width" : 0.4961538163442459,
+            "x" : 0.45384616964256225,
+            "y" : 0.8876806956929434
+          },
+          "text" : "Aethe endof the day, Magby soaks in magniee"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01739745081577008,
+            "width" : 0.05641025630675085,
+            "x" : 0.09358974389790663,
+            "y" : 0.9115454548282661
+          },
+          "text" : "PAR EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02016151638658706,
+            "width" : 0.10928992619590153,
+            "x" : 0.16266272917499977,
+            "y" : 0.9156573539591978
+          },
+          "text" : "186\/182"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03266662144046116,
+            "width" : 0.49583330103959994,
+            "x" : 0.45000002110520004,
+            "y" : 0.9073878848926011
+          },
+          "text" : "rodngand recoveringtrom the day'sfedgue."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019707555460074938,
+            "width" : 0.4172729546010389,
+            "x" : 0.29554167568472695,
+            "y" : 0.936679935245858
+          },
+          "text" : "©2023 Pokémon \/ Nintendo \/ Creatures\/GAME FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09789187996469549,
+        "width" : 0.138,
+        "x" : 0,
+        "y" : 0.8748942683749096
+      },
+      "text" : "lus. Mir PARI",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012990391654082818,
+            "width" : 0.06602870813397131,
+            "x" : 0.07131100445454545,
+            "y" : 0.8883486026066245
+          },
+          "text" : "lus. Mir"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016701932126677903,
+            "width" : 0.042918660287081335,
+            "x" : 0.09442105254629188,
+            "y" : 0.9115457306113774
+          },
+          "text" : "PARI"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09189849955869371,
+        "width" : 0.275,
+        "x" : 0.07980769227295054,
+        "y" : 0.8797888623731444
+      },
+      "text" : "1s Mina Nakai PAR EN 186\/182 ©2023",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017260124282597298,
+            "width" : 0.14342105263157898,
+            "x" : 0.07980769166110845,
+            "y" : 0.8853867406051522
+          },
+          "text" : "1s Mina Nakai"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017260124282597298,
+            "width" : 0.05592105263157896,
+            "x" : 0.094939271067807,
+            "y" : 0.9110436820984649
+          },
+          "text" : "PAR EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020234134070354678,
+            "width" : 0.11190430490594161,
+            "x" : 0.16398711887887762,
+            "y" : 0.9142215754804168
+          },
+          "text" : "186\/182"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010262776600463257,
+            "width" : 0.049342105263157895,
+            "x" : 0.2995445345961414,
+            "y" : 0.9446309508301107
+          },
+          "text" : "©2023"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10188746690202999,
+        "width" : 0.125,
+        "x" : 0.07144675869663918,
+        "y" : 0.8676422780836475
+      },
+      "text" : "lus. Mina Na PAR EN 18",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018144343420909453,
+            "width" : 0.12434210526315788,
+            "x" : 0.07144675919604108,
+            "y" : 0.8848561422722924
+          },
+          "text" : "lus. Mina Na"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017679103846014323,
+            "width" : 0.05657894736842105,
+            "x" : 0.09447307430190234,
+            "y" : 0.9109095586372886
+          },
+          "text" : "PAR EN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017679103846014347,
+            "width" : 0.03223684210526316,
+            "x" : 0.1635520217710319,
+            "y" : 0.916957672954533
+          },
+          "text" : "18"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09988967343336275,
+        "width" : 0.19672186715262274,
+        "x" : 0.11894675869663918,
+        "y" : 0.8757932754358099
+      },
+      "text" : "ina Nakai REN 186\/182",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01680387029720121,
+            "width" : 0.10557406870524089,
+            "x" : 0.11894675902655814,
+            "y" : 0.8851287589050816
+          },
+          "text" : "ina Nakai"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01680387029720121,
+            "width" : 0.03344271741594587,
+            "x" : 0.1189467585932341,
+            "y" : 0.9117348868401933
+          },
+          "text" : "REN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019594787917086923,
+            "width" : 0.12210747862412105,
+            "x" : 0.1595326503539725,
+            "y" : 0.9161741053698726
+          },
+          "text" : "186\/182"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10488415710503086,
+        "width" : 0.115,
+        "x" : 0.2064186258492619,
+        "y" : 0.8622082798488725
+      },
+      "text" : "\/\/182",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01949174601066946,
+            "width" : 0.07294285714285716,
+            "x" : 0.20641862518554763,
+            "y" : 0.9160426261684961
+          },
+          "text" : "\/\/182"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10188746690202999,
+        "width" : 0.19672186715262274,
+        "x" : 0.11894675869663918,
+        "y" : 0.8747943787014762
+      },
+      "text" : "lina Nakaf REN 186\/182",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017679103846014323,
+            "width" : 0.10622980826241629,
+            "x" : 0.11894675872690408,
+            "y" : 0.8845644098422702
+          },
+          "text" : "lina Nakaf"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016748624696224106,
+            "width" : 0.03344271741594587,
+            "x" : 0.11894675857532735,
+            "y" : 0.9115483050344472
+          },
+          "text" : "REN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01944515926386589,
+            "width" : 0.11946110684311548,
+            "x" : 0.16347879481093885,
+            "y" : 0.916015532447022
+          },
+          "text" : "186\/182"
+        }
+      ]
+    }
+  ],
+  "scanID" : "EA50DEF6-C813-4B98-B2A9-FFC56B624170",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_footer_family_set_agreement"
+  ],
+  "setConfidenceScore" : 0.74,
+  "setHintTokens" : [
+    "par"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop"
+  ]
+}

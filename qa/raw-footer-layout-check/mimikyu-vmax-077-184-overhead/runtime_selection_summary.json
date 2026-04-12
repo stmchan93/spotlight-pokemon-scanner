@@ -1,0 +1,382 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "077\/184",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9998110355253212,
+    "x" : 9.448223733935872e-05,
+    "y" : 0
+  },
+  "fixtureName" : "mimikyu-vmax-077-184-overhead",
+  "footerRouting" : {
+    "anchorIdentifier" : "077\/184",
+    "collectorAnchor" : {
+      "height" : 0.016704871060171933,
+      "width" : 0.14228080079542865,
+      "x" : 0.19749307175524716,
+      "y" : 0.8275931232319811
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7853114046748491,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9998110355253212,
+        "x" : 9.448223733935872e-05,
+        "y" : 0.78
+      },
+      "text" : "BlorStrudho Baxe Bars VHAXルール s8 077\/184 RRR ボケモンVMAXびきせうしたとさ、前事はサイドを3版とる 0\/021 Pokemen\/Nastendo\/Ciestures\/GAM\/FREAK",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020541728328497166,
+            "width" : 0.1717215103801981,
+            "x" : 0.1110453732886697,
+            "y" : 0.7994341459964246
+          },
+          "text" : "BlorStrudho Baxe Bars"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01858002025964951,
+            "width" : 0.14127109930512022,
+            "x" : 0.4139827431153401,
+            "y" : 0.7977516565088825
+          },
+          "text" : "VHAXルール"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.015583333012709312,
+            "width" : 0.04229969589757857,
+            "x" : 0.11673910380923268,
+            "y" : 0.8230833333823359
+          },
+          "text" : "s8"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016704871060171912,
+            "width" : 0.14228080079542862,
+            "x" : 0.19749307175524716,
+            "y" : 0.8275931232319811
+          },
+          "text" : "077\/184 RRR"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019323543778121656,
+            "width" : 0.44991495522385083,
+            "x" : 0.38591900542176144,
+            "y" : 0.8230833331615368
+          },
+          "text" : "ボケモンVMAXびきせうしたとさ、前事はサイドを3版とる"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01375,
+            "width" : 0.3460884270952699,
+            "x" : 0.3205467435158964,
+            "y" : 0.8542499999828125
+          },
+          "text" : "0\/021 Pokemen\/Nastendo\/Ciestures\/GAM\/FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13797392290249436,
+        "x" : 0.03181823027843389,
+        "y" : 0.7850455587620669
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2749480347694634,
+        "x" : 0.13115945476822982,
+        "y" : 0.789945558762067
+      },
+      "text" : "bnStodho Boe Ina 8b 11 077\/184 RRR OJ01 R",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020213663517521113,
+            "width" : 0.15720712992799463,
+            "x" : 0.13042006873090006,
+            "y" : 0.7997919838179878
+          },
+          "text" : "bnStodho Boe Ina"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01401015228426395,
+            "width" : 0.04735947010383103,
+            "x" : 0.13115945500502718,
+            "y" : 0.8226359140639959
+          },
+          "text" : "8b 11"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017097344722844625,
+            "width" : 0.13861963553450846,
+            "x" : 0.20333331409246802,
+            "y" : 0.8265827270831667
+          },
+          "text" : "077\/184 RRR"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.007939086294416236,
+            "width" : 0.05591048553924495,
+            "x" : 0.3225706469038009,
+            "y" : 0.8539252541740805
+          },
+          "text" : "OJ01 R"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12497637944066516,
+        "x" : 0.09308972724962294,
+        "y" : 0.777785558762067
+      },
+      "text" : "do F 0 37 495",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0121095890410959,
+            "width" : 0.03775328128936759,
+            "x" : 0.17966190648833408,
+            "y" : 0.8034019971514995
+          },
+          "text" : "do F"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020639041534841876,
+            "width" : 0.10289247265861329,
+            "x" : 0.11441267777192146,
+            "y" : 0.8201297536454212
+          },
+          "text" : "0 37 495"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.2561054414317716,
+        "x" : 0.1405807514370757,
+        "y" : 0.785945558762067
+      },
+      "text" : "i-Studho Boxe Dne Б Е 077\/184 RRR 07021 Pel",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.015887850467289723,
+            "width" : 0.14286601745679803,
+            "x" : 0.14058075215140578,
+            "y" : 0.8023006989256184
+          },
+          "text" : "i-Studho Boxe Dne"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02779093145210052,
+            "width" : 0.20195865069017271,
+            "x" : 0.13913552848080132,
+            "y" : 0.8202371931388653
+          },
+          "text" : "Б Е 077\/184 RRR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010280373831775692,
+            "width" : 0.06715361189213549,
+            "x" : 0.3222905251280339,
+            "y" : 0.8532352783695436
+          },
+          "text" : "07021 Pel"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11497826908541195,
+        "x" : 0.287456837237706,
+        "y" : 0.772345558762067
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.2561054414317716,
+        "x" : 0.1405807514370757,
+        "y" : 0.784945558762067
+      },
+      "text" : "nStodho Boxee dhaa 6 0 0720130 RRA",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01863013698630137,
+            "width" : 0.14089091122467642,
+            "x" : 0.14058075177253027,
+            "y" : 0.8012469286073377
+          },
+          "text" : "nStodho Boxee dhaa"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.023422221353609256,
+            "width" : 0.20061593447937295,
+            "x" : 0.14058074954782487,
+            "y" : 0.8212122259801512
+          },
+          "text" : "6 0 0720130 RRA"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.8798337112622827,
+        "x" : 0.06008314436885863,
+        "y" : 0
+      },
+      "text" : "Vi企 ミミッキュ VIax ¥300 ミミッキュレが",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01773583191451027,
+            "width" : 0.07595299173696726,
+            "x" : 0.14807121272681203,
+            "y" : 0.10581098315586282
+          },
+          "text" : "Vi企"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.044882663576884044,
+            "width" : 0.32248719587605895,
+            "x" : 0.2581902336876511,
+            "y" : 0.10049444731117739
+          },
+          "text" : "ミミッキュ VIax"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03676535427310059,
+            "width" : 0.14706522509304332,
+            "x" : 0.6828724158396334,
+            "y" : 0.10733944945720233
+          },
+          "text" : "¥300"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013100436681222695,
+            "width" : 0.12020983608227571,
+            "x" : 0.2493497007250292,
+            "y" : 0.14672489102834485
+          },
+          "text" : "ミミッキュレが"
+        }
+      ]
+    }
+  ],
+  "scanID" : "384FAB08-59FA-4006-BEF9-53DBDEE14991",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints"
+  ],
+  "setConfidenceScore" : 0.48,
+  "setHintTokens" : [
+    "brs"
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

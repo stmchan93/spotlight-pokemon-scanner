@@ -1,0 +1,531 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "TG29\/TG30",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9999676720654318,
+    "x" : 1.61639672841021e-05,
+    "y" : 0
+  },
+  "fixtureName" : "pikachu-vmax-tg29-tg30",
+  "footerRouting" : {
+    "anchorIdentifier" : "TG29\/TG30",
+    "collectorAnchor" : {
+      "height" : 0.025508441433182427,
+      "width" : 0.1926940302985736,
+      "x" : 0.13699494033963114,
+      "y" : 0.8992457792452426
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.8227355763889574,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9999676720654318,
+        "x" : 1.61639672841021e-05,
+        "y" : 0.78
+      },
+      "text" : "this attack does 150 more damage. weakness x2 resistance retreac * lluss aky CG Works VMAX rule When your Pokemon YMAX D TG29\/TG30 * is Knocked Out, your opponent takes 3 Prize cards",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0201719203719437,
+            "width" : 0.48459970640869254,
+            "x" : 0.09616691049075529,
+            "y" : 0.779999999959922
+          },
+          "text" : "this attack does 150 more damage."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013169502979704846,
+            "width" : 0.09623746892788343,
+            "x" : 0.07432936964111882,
+            "y" : 0.8302485818004509
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021083332050837202,
+            "width" : 0.04999838427603594,
+            "x" : 0.2064197468667636,
+            "y" : 0.82583333403351
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012993725664636122,
+            "width" : 0.09875532992631984,
+            "x" : 0.3102422570095071,
+            "y" : 0.8294198039060775
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01010941273161882,
+            "width" : 0.06690568942237951,
+            "x" : 0.6024401985708688,
+            "y" : 0.8317786269219802
+          },
+          "text" : "retreac"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01925000024046802,
+            "width" : 0.032050245382022,
+            "x" : 0.6935834856922494,
+            "y" : 0.8267499998396619
+          },
+          "text" : "*"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015759312320916898,
+            "width" : 0.16794328499447816,
+            "x" : 0.08462881480085961,
+            "y" : 0.8761318054292146
+          },
+          "text" : "lluss aky CG Works"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017922496522395196,
+            "width" : 0.138775007412377,
+            "x" : 0.4036902903681595,
+            "y" : 0.8700387517119462
+          },
+          "text" : "VMAX rule"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014666666506354668,
+            "width" : 0.2679400602741937,
+            "x" : 0.6294829884776645,
+            "y" : 0.8735000000984894
+          },
+          "text" : "When your Pokemon YMAX"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02550844143318241,
+            "width" : 0.1926940302985736,
+            "x" : 0.13699494033963114,
+            "y" : 0.8992457792452426
+          },
+          "text" : "D TG29\/TG30 *"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01797413402437138,
+            "width" : 0.4541519521036941,
+            "x" : 0.37917059667430464,
+            "y" : 0.8928366763445237
+          },
+          "text" : "is Knocked Out, your opponent takes 3 Prize cards"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1379955387450296,
+        "x" : 1.61639672841021e-05,
+        "y" : 0.8610999999618337
+      },
+      "text" : "K目",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.06579501255993597,
+            "width" : 0.05197998322128106,
+            "x" : 0.07939791003640448,
+            "y" : 0.859114842415764
+          },
+          "text" : "K目"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.3468492545374325,
+        "x" : 0.05991732822020171,
+        "y" : 0.8659999999618337
+      },
+      "text" : "Illussaky CG Works D TG29\/TG30 * isl 02022201 mg",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014944162436548227,
+            "width" : 0.16816933553330057,
+            "x" : 0.08619378747655639,
+            "y" : 0.8758071064928905
+          },
+          "text" : "Illussaky CG Works"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.029494028352843933,
+            "width" : 0.19585458142703402,
+            "x" : 0.13469206094342773,
+            "y" : 0.896230763161631
+          },
+          "text" : "D TG29\/TG30 *"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011208121827411181,
+            "width" : 0.02561954721015126,
+            "x" : 0.3804901240575641,
+            "y" : 0.8963553299671129
+          },
+          "text" : "isl"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010501691673007714,
+            "width" : 0.07454760852596144,
+            "x" : 0.3021079486618444,
+            "y" : 0.9321157454865018
+          },
+          "text" : "02022201"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.007472081218274103,
+            "width" : 0.021021166941662554,
+            "x" : 0.385088504502324,
+            "y" : 0.9341827411408523
+          },
+          "text" : "mg"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12499595900817898,
+        "x" : 0.012418863797093699,
+        "y" : 0.8538399999618338
+      },
+      "text" : "K目",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0649962187466556,
+            "width" : 0.05124815524611633,
+            "x" : 0.08136908481470416,
+            "y" : 0.8567140000126382
+          },
+          "text" : "K目"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.3468492545374325,
+        "x" : 0.05991732822020171,
+        "y" : 0.8619999999618337
+      },
+      "text" : "lluss aky CG Works TG29\/TGBO * is l P2022:209",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01882957921963987,
+            "width" : 0.1662689572968624,
+            "x" : 0.08847861423615874,
+            "y" : 0.8749993109979753
+          },
+          "text" : "lluss aky CG Works"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02803738317757011,
+            "width" : 0.162257132330958,
+            "x" : 0.16830772016023324,
+            "y" : 0.8975140185599646
+          },
+          "text" : "TG29\/TGBO *"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01121495327102804,
+            "width" : 0.02561954721015126,
+            "x" : 0.38049012444185726,
+            "y" : 0.8965794390272543
+          },
+          "text" : "is l"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010747663551401877,
+            "width" : 0.07554481869659987,
+            "x" : 0.30231765993594173,
+            "y" : 0.9325607475916364
+          },
+          "text" : "P2022:209"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11499628228752466,
+        "x" : 0.2975201145844858,
+        "y" : 0.8483999999618338
+      },
+      "text" : "is ★ 02",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009887892376681608,
+            "width" : 0.013799553874502959,
+            "x" : 0.3816316810298454,
+            "y" : 0.8978394618072115
+          },
+          "text" : "is"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0169506726457399,
+            "width" : 0.02759910774900592,
+            "x" : 0.29752011456805777,
+            "y" : 0.9049022420436723
+          },
+          "text" : "★"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.008475336322869944,
+            "width" : 0.026284864522862782,
+            "x" : 0.29752011453848726,
+            "y" : 0.9345659192019683
+          },
+          "text" : "02"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.3468492545374325,
+        "x" : 0.05991732822020171,
+        "y" : 0.8609999999618337
+      },
+      "text" : "Illuss aky CG Works TG29\/TG3O * isl D 020229ce",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01816438356164384,
+            "width" : 0.16882624700022758,
+            "x" : 0.08553687603330384,
+            "y" : 0.8754383561045931
+          },
+          "text" : "Illuss aky CG Works"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.028755674074773915,
+            "width" : 0.1625310191858517,
+            "x" : 0.16685695357673966,
+            "y" : 0.8969235326860283
+          },
+          "text" : "TG29\/TG3O *"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011178082191780821,
+            "width" : 0.02561954721015126,
+            "x" : 0.3804901240436047,
+            "y" : 0.8968630137303268
+          },
+          "text" : "isl"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01164383561643835,
+            "width" : 0.015108963739319971,
+            "x" : 0.14334508454045353,
+            "y" : 0.9033835616784434
+          },
+          "text" : "D"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012842626022965943,
+            "width" : 0.08494389705963395,
+            "x" : 0.30221650120915955,
+            "y" : 0.9323595088334826
+          },
+          "text" : "020229ce"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.87997155141758,
+        "x" : 0.060014224291210005,
+        "y" : 0
+      },
+      "text" : "93101 VMAX Pikachu y MAX Evolves from Pikachu V Cigantamax",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.07614678795160684,
+            "width" : 0.25324763060319466,
+            "x" : 0.5792997594799545,
+            "y" : 0.06972477090798863
+          },
+          "text" : "93101"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.019511853347178622,
+            "width" : 0.09218941086483817,
+            "x" : 0.08682413823319651,
+            "y" : 0.10079453218079187
+          },
+          "text" : "VMAX"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.025820279017286007,
+            "width" : 0.24685248419541658,
+            "x" : 0.20070734950927413,
+            "y" : 0.10262008764945561
+          },
+          "text" : "Pikachu y"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02110091796608471,
+            "width" : 0.08057878902306473,
+            "x" : 0.441164693878635,
+            "y" : 0.11192660521165694
+          },
+          "text" : "MAX"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013973799126637565,
+            "width" : 0.2212719171359506,
+            "x" : 0.19814929436013665,
+            "y" : 0.14759825320439446
+          },
+          "text" : "Evolves from Pikachu V"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.023730176400930093,
+            "width" : 0.20899323603301673,
+            "x" : 0.1883434151996852,
+            "y" : 0.16578947419924456
+          },
+          "text" : "Cigantamax"
+        }
+      ]
+    }
+  ],
+  "scanID" : "1CF6B4A2-E532-482A-ACCB-EB6EC80A1B4A",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints"
+  ],
+  "setConfidenceScore" : 0.48,
+  "setHintTokens" : [
+    "tg29",
+    "tg30"
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

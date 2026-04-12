@@ -1,0 +1,190 @@
+{
+  "collectorConfidenceReasons" : [
+
+  ],
+  "contentRectNormalized" : {
+    "height" : 0.9973354231974922,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.0013322884012538984
+  },
+  "fixtureName" : "whimsicott-vstar-175-172-steep-angle",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7242750687997932,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.2194137931034483,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7792539184952979
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09773887147335425,
+        "width" : 0.138,
+        "x" : 0.07064000000000001,
+        "y" : 0.8441804545454545
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09175485893416928,
+        "width" : 0.275,
+        "x" : 0.17,
+        "y" : 0.8490673981191222
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10172821316614421,
+        "width" : 0.125,
+        "x" : 0.6725,
+        "y" : 0.8409291410658307
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.09973354231974924,
+        "width" : 0.185,
+        "x" : 0.72,
+        "y" : 0.8490673981191222
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10472021943573669,
+        "width" : 0.115,
+        "x" : 0.7857500000000001,
+        "y" : 0.8285222884012539
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10172821316614421,
+        "width" : 0.19,
+        "x" : 0.705,
+        "y" : 0.8410887147335423
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.19946708463949847,
+        "width" : 0.88,
+        "x" : 0.06,
+        "y" : 0.0013322884012538984
+      },
+      "text" : "Whimsicott VSTAR .250",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0512303754930253,
+            "width" : 0.4325076213746974,
+            "x" : 0.23213471542156472,
+            "y" : 0.05506087631028341
+          },
+          "text" : "Whimsicott VSTAR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03202453282156482,
+            "width" : 0.16372092936873273,
+            "x" : 0.6956976740319127,
+            "y" : 0.07819116469624429
+          },
+          "text" : ".250"
+        }
+      ]
+    }
+  ],
+  "scanID" : "428D2C7F-5BD0-4114-8EC3-353BCAA15801",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs",
+    "Rewrite raw is relying on broader title evidence",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

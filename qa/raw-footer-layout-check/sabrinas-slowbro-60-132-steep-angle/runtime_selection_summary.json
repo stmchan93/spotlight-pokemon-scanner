@@ -1,0 +1,273 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_partial_collector_hint"
+  ],
+  "collectorConfidenceScore" : 0.42,
+  "contentRectNormalized" : {
+    "height" : 1.0000000000000002,
+    "width" : 0.9991181657848325,
+    "x" : 0.00044091710758376425,
+    "y" : -6.45947941600091e-17
+  },
+  "fixtureName" : "sabrinas-slowbro-60-132-steep-angle",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7339674535688053,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22000000000000006,
+        "width" : 0.9991181657848325,
+        "x" : 0.00044091710758376425,
+        "y" : 0.7800000000000001
+      },
+      "text" : "resistance 95.95 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wizards. b",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015583333012709318,
+            "width" : 0.17548614165014254,
+            "x" : 0.28480531701176864,
+            "y" : 0.780000000030451
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.024703037076146704,
+            "width" : 0.6638822661295188,
+            "x" : 0.29104923348846123,
+            "y" : 0.8920618822209294
+          },
+          "text" : "95.95 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wizards."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013750000000000004,
+            "width" : 0.020494730804382025,
+            "x" : 0.9713788274083084,
+            "y" : 0.8918333334315478
+          },
+          "text" : "b"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09800000000000003,
+        "width" : 0.1378783068783069,
+        "x" : 0.07101862433862433,
+        "y" : 0.8451000000000001
+      },
+      "text" : "G8H",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01626878356933594,
+            "width" : 0.061639713663243084,
+            "x" : 0.07480351881710268,
+            "y" : 0.8675663987485337
+          },
+          "text" : "G8H"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09200000000000001,
+        "width" : 0.27475749559082896,
+        "x" : 0.1702910052910053,
+        "y" : 0.8500000000000001
+      },
+      "text" : "11995. .96.95 Nintend",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013210256410256416,
+            "width" : 0.05652905411677342,
+            "x" : 0.229449317945376,
+            "y" : 0.8971794870851283
+          },
+          "text" : "11995."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01580512820512821,
+            "width" : 0.16256485088925218,
+            "x" : 0.28133882513431097,
+            "y" : 0.8967076924144781
+          },
+          "text" : ".96.95 Nintend"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10200000000000002,
+        "width" : 0.12488977072310406,
+        "x" : 0.6723478835978836,
+        "y" : 0.84184
+      },
+      "text" : "EAK ©1999",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014904109589041098,
+            "width" : 0.12163743294385657,
+            "x" : 0.6723478834552811,
+            "y" : 0.8940043836189674
+          },
+          "text" : "EAK ©1999"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.10000000000000003,
+        "width" : 0.184836860670194,
+        "x" : 0.7198059964726631,
+        "y" : 0.8500000000000001
+      },
+      "text" : "01999-2000 VViz",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012616822429906553,
+            "width" : 0.17299677706854458,
+            "x" : 0.72835716700165,
+            "y" : 0.8939252336630323
+          },
+          "text" : "01999-2000 VViz"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10500000000000002,
+        "width" : 0.11489858906525574,
+        "x" : 0.7854980158730158,
+        "y" : 0.8294
+      },
+      "text" : "9-2000 VV",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012877457648251968,
+            "width" : 0.10400176244860863,
+            "x" : 0.7854596968620281,
+            "y" : 0.8942776430549432
+          },
+          "text" : "9-2000 VV"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10200000000000002,
+        "width" : 0.18983245149911818,
+        "x" : 0.7048192239858906,
+        "y" : 0.8420000000000001
+      },
+      "text" : "< ©1999-2000 WI",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015369863013698627,
+            "width" : 0.18917331104252402,
+            "x" : 0.7048192232635825,
+            "y" : 0.8936986302010275
+          },
+          "text" : "< ©1999-2000 WI"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.20000000000000007,
+        "width" : 0.8792239858906525,
+        "x" : 0.06038800705467371,
+        "y" : -6.45947941600091e-17
+      },
+      "text" : "Sabrina's Slowbro",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.029321448979939966,
+            "width" : 0.424276695199137,
+            "x" : 0.18690424969553057,
+            "y" : 0.0785388135422213
+          },
+          "text" : "Sabrina's Slowbro"
+        }
+      ]
+    }
+  ],
+  "scanID" : "71B1E93F-5C86-4D1A-B24F-63A106386F22",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_family_set_hints"
+  ],
+  "setConfidenceScore" : 0.56,
+  "setHintTokens" : [
+    "g8h"
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

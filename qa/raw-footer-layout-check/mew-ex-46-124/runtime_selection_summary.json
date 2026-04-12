@@ -43,17 +43,17 @@
         "x" : 8.851124092760955e-05,
         "y" : 0.78
       },
-      "text" : "• ELCee jees Louriad Dal L,1тu cak Ls Elo toclanoo 46\/124",
+      "text" : "• El tec sees Lauked ful ae t mia arl i Eko Tosaock 46\/124 *",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
             "height" : 0.01104465118451923,
             "width" : 0.19099182560651765,
             "x" : 0.6153641914165758,
             "y" : 0.8285386817697787
           },
-          "text" : "• ELCee jees Louriad Dal"
+          "text" : "• El tec sees Lauked ful"
         },
         {
           "confidence" : 0.3,
@@ -63,7 +63,7 @@
             "x" : 0.6102368903287284,
             "y" : 0.8449283670599373
           },
-          "text" : "L,1тu cak"
+          "text" : "ae t mia arl"
         },
         {
           "confidence" : 0.3,
@@ -73,17 +73,17 @@
             "x" : 0.5717821652979197,
             "y" : 0.8852722065632379
           },
-          "text" : "Ls Elo toclanoo"
+          "text" : "i Eko Tosaock"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01448551473098362,
             "width" : 0.09122144352596354,
             "x" : 0.7485679626575316,
             "y" : 0.8832155759272711
           },
-          "text" : "46\/124"
+          "text" : "46\/124 *"
         }
       ]
     },
@@ -98,18 +98,8 @@
         "x" : 0.5573606139655655,
         "y" : 0.8395583332927629
       },
-      "text" : "Pra la. Eia kains",
+      "text" : "La. Eit Katu",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.01268235294117648,
-            "width" : 0.028136194849687077,
-            "x" : 0.6612481026954412,
-            "y" : 0.8414799018714355
-          },
-          "text" : "Pra"
-        },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
@@ -118,7 +108,7 @@
             "x" : 0.5741341144518622,
             "y" : 0.8849073529227041
           },
-          "text" : "la. Eia kains"
+          "text" : "La. Eit Katu"
         }
       ]
     },
@@ -136,7 +126,7 @@
       "text" : "46\/124",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
             "height" : 0.013105071634205465,
             "width" : 0.07790287433408215,
@@ -158,7 +148,7 @@
         "x" : 0.654203467567973,
         "y" : 0.8322983332927629
       },
-      "text" : "MOM41",
+      "text" : "M22 841",
       "tokens" : [
         {
           "confidence" : 0.3,
@@ -168,7 +158,7 @@
             "x" : 0.6542034680796182,
             "y" : 0.8435028735791382
           },
-          "text" : "MOM41"
+          "text" : "M22 841"
         }
       ]
     },
@@ -248,14 +238,13 @@
       ]
     }
   ],
-  "scanID" : "8C25AC28-AD7F-48E6-B5B8-0C4C289ECE23",
+  "scanID" : "E1908284-11F5-4DB3-91AB-3A8E7F56F5CE",
   "setConfidenceReasons" : [
     "rewrite_raw_footer_family_set_hints"
   ],
   "setConfidenceScore" : 0.62,
   "setHintTokens" : [
-    "mom41",
-    "pal"
+    "m22"
   ],
   "stage1AssessmentReasons" : [
     "footer_signal_sufficient_for_early_exit",

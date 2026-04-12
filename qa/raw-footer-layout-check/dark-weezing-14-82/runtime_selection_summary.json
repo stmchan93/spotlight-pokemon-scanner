@@ -1,9 +1,9 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_metadata_families_agree"
+    "rewrite_raw_footer_band_metadata_agreement"
   ],
-  "collectorConfidenceScore" : 0.94,
-  "collectorNumber" : "110\/14",
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "14\/82",
   "contentRectNormalized" : {
     "height" : 1,
     "width" : 0.9995577995577997,
@@ -43,7 +43,7 @@
         "x" : 0.00022110022110016162,
         "y" : 0.78
       },
-      "text" : "weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110 #110 Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK 01999-2000 Wiards 14\/82 *",
+      "text" : "weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #|I0 #110 Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK, ©1999-2000 Wzards 14\/82 *",
       "tokens" : [
         {
           "confidence" : 1,
@@ -86,14 +86,14 @@
           "text" : "Researchers have observed these Pokémon reproducing in"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.028438656104669856,
             "width" : 0.4468491506476688,
             "x" : 0.13698541468367884,
             "y" : 0.8754605881673968
           },
-          "text" : "industrial waste sites. LV. 24 #110"
+          "text" : "industrial waste sites. LV. 24 #|I0"
         },
         {
           "confidence" : 1,
@@ -106,14 +106,14 @@
           "text" : "#110"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.033375035370660035,
             "width" : 0.8340183805169649,
             "x" : 0.08302091966954019,
             "y" : 0.8995282100862018
           },
-          "text" : "Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK 01999-2000 Wiards 14\/82 *"
+          "text" : "Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK, ©1999-2000 Wzards 14\/82 *"
         }
       ]
     },
@@ -128,17 +128,17 @@
         "x" : 0.00022110022110016162,
         "y" : 0.8653157277715317
       },
-      "text" : "Ilus",
+      "text" : "Ius",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.010784688995215324,
             "width" : 0.037916875012609624,
             "x" : 0.08324598188657756,
             "y" : 0.9183013736853638
           },
-          "text" : "Ilus"
+          "text" : "Ius"
         }
       ]
     },
@@ -153,57 +153,47 @@
         "x" : 0.00022110022110016162,
         "y" : 0.8702157277715317
       },
-      "text" : "Kesedrcners nove ouserree industrial waste sites. LV. 24 #110 14\/82 * Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wiards",
+      "text" : "Kesedrchers nove oosciro industrial waste sites. LV. 24 #I10 14\/82 * Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wzands",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.012142131979695428,
-            "width" : 0.3382124492830641,
-            "x" : 0.14239957582777804,
-            "y" : 0.8702157279018791
+            "height" : 0.011244444484032955,
+            "width" : 0.3370601938531162,
+            "x" : 0.14405281378379797,
+            "y" : 0.8702157277914905
           },
-          "text" : "Kesedrcners nove ouserree"
+          "text" : "Kesedrchers nove oosciro"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.021845501933606133,
-            "width" : 0.2699277476009906,
-            "x" : 0.1398230608634036,
-            "y" : 0.8818437232686533
+            "height" : 0.02665714407209214,
+            "width" : 0.4425979466661821,
+            "x" : 0.14066408728735807,
+            "y" : 0.8787980532747661
           },
-          "text" : "industrial waste sites."
+          "text" : "industrial waste sites. LV. 24 #I10"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.02000622407554975,
-            "width" : 0.1745824742198479,
-            "x" : 0.40732321614535316,
-            "y" : 0.8805732708863564
-          },
-          "text" : "LV. 24 #110"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.0196792872085184,
-            "width" : 0.08616876956284744,
-            "x" : 0.836058229202985,
-            "y" : 0.8988714658095406
+            "height" : 0.02236626325888077,
+            "width" : 0.08760992609859879,
+            "x" : 0.8353877481582623,
+            "y" : 0.8983881513281828
           },
           "text" : "14\/82 *"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.028678034322515963,
-            "width" : 0.7223445995527159,
-            "x" : 0.08821437476952385,
-            "y" : 0.9053403216972282
+            "height" : 0.029542909573782517,
+            "width" : 0.7228962554072611,
+            "x" : 0.08263102846998623,
+            "y" : 0.9050120371250172
           },
-          "text" : "Illus. Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wiards"
+          "text" : "Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wzands"
         }
       ]
     },
@@ -234,57 +224,37 @@
         "x" : 0.00022110022110016162,
         "y" : 0.8662157277715317
       },
-      "text" : "Researchers have observed these. industrial waste sites. LV. 24 #110 14\/82 * Illus. Shin-ichl Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wiards",
+      "text" : "industrial waste sites. LV. 24 #||0 14\/82 * Illus. Shin-ichi Yoshida ©1995,96, 98 Nintendo, Creatures, GAMEFREAK O1999-2000 Wizards",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.015186915887850472,
-            "width" : 0.42007277935903625,
-            "x" : 0.14239957909651565,
-            "y" : 0.8662157274961771
+            "height" : 0.022969067653762967,
+            "width" : 0.4421056850054556,
+            "x" : 0.14094491689522573,
+            "y" : 0.8783501771665326
           },
-          "text" : "Researchers have observed these."
+          "text" : "industrial waste sites. LV. 24 #||0"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.02307518486664674,
-            "width" : 0.37092961183033585,
-            "x" : 0.1400240214233472,
-            "y" : 0.8796514387689794
-          },
-          "text" : "industrial waste sites. LV. 24"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01969697007509036,
-            "width" : 0.07539767588932376,
-            "x" : 0.5064626591265567,
-            "y" : 0.8768217882859345
-          },
-          "text" : "#110"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.018602209893342492,
-            "width" : 0.08634618550729119,
-            "x" : 0.833815300757075,
-            "y" : 0.8993388649009615
+            "height" : 0.02253957641458957,
+            "width" : 0.08862358162653063,
+            "x" : 0.8356073443900577,
+            "y" : 0.8977577841845452
           },
           "text" : "14\/82 *"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.028064753630450957,
-            "width" : 0.7224117408152937,
-            "x" : 0.08170541991872025,
-            "y" : 0.9051295000920282
+            "height" : 0.02786493034006279,
+            "width" : 0.7256293567065206,
+            "x" : 0.08127791537761506,
+            "y" : 0.9050031351367656
           },
-          "text" : "Illus. Shin-ichl Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wiards"
+          "text" : "Illus. Shin-ichi Yoshida ©1995,96, 98 Nintendo, Creatures, GAMEFREAK O1999-2000 Wizards"
         }
       ]
     },
@@ -315,47 +285,37 @@
         "x" : 0.00022110022110016162,
         "y" : 0.8652157277715317
       },
-      "text" : "Researchers have observed these Fokemon reproesens industrial waste sites. LV. 24 #110 14\/82 * Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1 999-2000 Wiards",
+      "text" : "industrial waste sites. LV. 24 #|I0 14\/82 * Illus. Shin-ichi Yoshida ©1995, 96,98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wiznds",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.016767123287671232,
-            "width" : 0.7001213258312714,
-            "x" : 0.14239956531020617,
-            "y" : 0.8652157280332773
+            "height" : 0.026001374649674936,
+            "width" : 0.4411237440402558,
+            "x" : 0.14212268197376243,
+            "y" : 0.8780643286839036
           },
-          "text" : "Researchers have observed these Fokemon reproesens"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.025184986062245823,
-            "width" : 0.44035040904111783,
-            "x" : 0.13979752851148544,
-            "y" : 0.8783836794874103
-          },
-          "text" : "industrial waste sites. LV. 24 #110"
+          "text" : "industrial waste sites. LV. 24 #|I0"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.020363024567904536,
-            "width" : 0.08643165544686773,
-            "x" : 0.8337725671144796,
-            "y" : 0.8984222753580478
+            "height" : 0.02450328706715205,
+            "width" : 0.09152927712691797,
+            "x" : 0.8341544954983425,
+            "y" : 0.8968357284080783
           },
           "text" : "14\/82 *"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.027601238302988534,
-            "width" : 0.7222617220567215,
-            "x" : 0.08178461372015511,
-            "y" : 0.9055957932770429
+            "height" : 0.026734753647895706,
+            "width" : 0.7241104470379645,
+            "x" : 0.08273588814971598,
+            "y" : 0.9053560330943179
           },
-          "text" : "Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1 999-2000 Wiards"
+          "text" : "Illus. Shin-ichi Yoshida ©1995, 96,98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wiznds"
         }
       ]
     },
@@ -383,27 +343,27 @@
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.018315302753032038,
-            "width" : 0.07044412322757759,
-            "x" : 0.11881030351300821,
-            "y" : 0.08267908349370795
+            "height" : 0.016065547559979687,
+            "width" : 0.07051708452243942,
+            "x" : 0.11890608141690509,
+            "y" : 0.08416906111959453
           },
           "text" : "STAGE"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.051991261977816255,
-            "width" : 0.5230097294840552,
-            "x" : 0.2715059576712709,
-            "y" : 0.09480182404126142
+            "height" : 0.0526289594225488,
+            "width" : 0.524686061759616,
+            "x" : 0.27144200712706557,
+            "y" : 0.09423568481801753
           },
           "text" : "Dark Weezing 60 HP"
         }
       ]
     }
   ],
-  "scanID" : "EE4CF92D-57BE-40C2-913F-CD2BE1A98ACA",
+  "scanID" : "9FBFA290-36CE-4BC7-AE95-CA2E02B35447",
   "setConfidenceReasons" : [
 
   ],

@@ -1,0 +1,402 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_metadata_collector"
+  ],
+  "collectorConfidenceScore" : 0.9151999988555908,
+  "collectorNumber" : "TG29\/TG30",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
+  },
+  "fixtureName" : "pikachu-vmax-tg29-tg30-slight-angle",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
+      },
+      "text" : "ess x2 resistance retreat ** Illussaky CG Works VMAX rule When your Pokémon VMAX K DJG29hG30★ is Knocked Out, your opponent takes 3 Prize cards IGAME FREAX",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010999999278595912,
+            "width" : 0.03331707684679989,
+            "x" : 0.2847204228526564,
+            "y" : 0.8175833336390355
+          },
+          "text" : "ess"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020166666746822666,
+            "width" : 0.04613133587930362,
+            "x" : 0.3513545784620572,
+            "y" : 0.8120833331492078
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011767572003995778,
+            "width" : 0.08987768509662107,
+            "x" : 0.4460911746879899,
+            "y" : 0.8162828805301973
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010568767973891635,
+            "width" : 0.05910432526355387,
+            "x" : 0.7062302316295753,
+            "y" : 0.8173406160705737
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.018375357925721085,
+            "width" : 0.052538468757845534,
+            "x" : 0.7883208626744974,
+            "y" : 0.8130000004415208
+          },
+          "text" : "**"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012972540431856108,
+            "width" : 0.1537711218392056,
+            "x" : 0.24627764205557426,
+            "y" : 0.8615833332875523
+          },
+          "text" : "Illussaky CG Works"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020861921119143402,
+            "width" : 0.12493904069721712,
+            "x" : 0.5374817111680065,
+            "y" : 0.8543243250331205
+          },
+          "text" : "VMAX rule"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014813753581661886,
+            "width" : 0.22681242186050762,
+            "x" : 0.7357823892513412,
+            "y" : 0.8559598856518934
+          },
+          "text" : "When your Pokémon VMAX"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0359066562597936,
+            "width" : 0.23820929406634442,
+            "x" : 0.23721545854081044,
+            "y" : 0.8765061312724869
+          },
+          "text" : "K DJG29hG30★"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017837837350402643,
+            "width" : 0.39564029554118735,
+            "x" : 0.5124938974757169,
+            "y" : 0.8751351355770509
+          },
+          "text" : "is Knocked Out, your opponent takes 3 Prize cards"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011036771648592793,
+            "width" : 0.09482552356510804,
+            "x" : 0.6947767640301379,
+            "y" : 0.9101666669173687
+          },
+          "text" : "IGAME FREAX"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.0708493878899429,
+        "y" : 0.8451
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.17016093255934683,
+        "y" : 0.85
+      },
+      "text" : "Iuss aky CG Works D TG29\/TG30",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01567875483586238,
+            "width" : 0.15575733874036823,
+            "x" : 0.2446037779460033,
+            "y" : 0.8589641021322355
+          },
+          "text" : "Iuss aky CG Works"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016512820512820506,
+            "width" : 0.017096921358566552,
+            "x" : 0.2997029905059544,
+            "y" : 0.8825538460712821
+          },
+          "text" : "D"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01452429504394531,
+            "width" : 0.11995198042495088,
+            "x" : 0.32463871677295564,
+            "y" : 0.8905677397859442
+          },
+          "text" : "TG29\/TG30"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.6724158761621596,
+        "y" : 0.84184
+      },
+      "text" : "When y ir opponent take HICAME FREAX",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013614109196075017,
+            "width" : 0.061360947938921336,
+            "x" : 0.7361016518930494,
+            "y" : 0.857038751416127
+          },
+          "text" : "When y"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015434014620846257,
+            "width" : 0.12515145741741954,
+            "x" : 0.6719480868382267,
+            "y" : 0.8777733158197218
+          },
+          "text" : "ir opponent take"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009780821917808224,
+            "width" : 0.10021152222589289,
+            "x" : 0.6860810830226212,
+            "y" : 0.9112372603039139
+          },
+          "text" : "HICAME FREAX"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18490978023188134,
+        "x" : 0.7198927116271021,
+        "y" : 0.85
+      },
+      "text" : "When your Pokémon onent takes 3 Prize card: ANE FREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013744075829383896,
+            "width" : 0.16204107949648963,
+            "x" : 0.737534281666061,
+            "y" : 0.8561611374117957
+          },
+          "text" : "When your Pokémon"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011374407582938395,
+            "width" : 0.18425638878229872,
+            "x" : 0.7198927104136609,
+            "y" : 0.8774881517400135
+          },
+          "text" : "onent takes 3 Prize card:"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009838252948923699,
+            "width" : 0.06815322165347781,
+            "x" : 0.7197924565553211,
+            "y" : 0.9111946177884953
+          },
+          "text" : "ANE FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.7856106470338382,
+        "y" : 0.8294
+      },
+      "text" : "your Pokémon kes 3 Prize card",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01426108012157203,
+            "width" : 0.11308275820500957,
+            "x" : 0.7855725975737766,
+            "y" : 0.8566499912229211
+          },
+          "text" : "your Pokémon"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01207964601769911,
+            "width" : 0.11236090806073323,
+            "x" : 0.7856106469046877,
+            "y" : 0.8763247786855642
+          },
+          "text" : "kes 3 Prize card"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.18990734185977,
+        "x" : 0.704900026743436,
+        "y" : 0.842
+      },
+      "text" : "When your Pokémo ponent takes 3 Prize can GAME FREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015251640842385492,
+            "width" : 0.15998452909621175,
+            "x" : 0.7343885649705872,
+            "y" : 0.8563794054305144
+          },
+          "text" : "When your Pokémo"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016971865823824116,
+            "width" : 0.1901126398280679,
+            "x" : 0.704441416416523,
+            "y" : 0.8756051325165564
+          },
+          "text" : "ponent takes 3 Prize can"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.008849315068493156,
+            "width" : 0.08308446206364939,
+            "x" : 0.7049000273368964,
+            "y" : 0.9118630136620351
+          },
+          "text" : "GAME FREAK"
+        }
+      ]
+    }
+  ],
+  "scanID" : "BDE16182-CFB2-446D-A860-A8AF2B1FD2C7",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "title_signal_weak",
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

@@ -1,7 +1,8 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_partial_collector_hint"
   ],
+  "collectorConfidenceScore" : 0.42,
   "contentRectNormalized" : {
     "height" : 0.9995860927152318,
     "width" : 1,
@@ -34,7 +35,7 @@
         "x" : 0,
         "y" : 0.7798841059602649
       },
-      "text" : "weakness resistance Piheian EXrule x2 Whea a Posemon EX has been Knorked Out reud Offonant takes 2 Prize cards. retreat ©2013 Polemo ilos:\/MAHOU R€Z4\/RC25",
+      "text" : "weakness resistance Piheian EXrule x2 when a Potémon EX has been Knorked Out rout Cogosene takes 2 Priza cards. retreat ©2013 Pokemor [Illus MAHOU IR€24\/RC25",
       "tokens" : [
         {
           "confidence" : 1,
@@ -67,7 +68,7 @@
           "text" : "Piheian EXrule"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.0210746055061142,
             "width" : 0.0435897416748908,
@@ -77,24 +78,24 @@
           "text" : "x2"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012828021683424453,
             "width" : 0.3115384540860615,
             "x" : 0.5128205148159435,
             "y" : 0.8522707988118416
           },
-          "text" : "Whea a Posemon EX has been Knorked Out"
+          "text" : "when a Potémon EX has been Knorked Out"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013862454695535018,
             "width" : 0.25384615674430944,
             "x" : 0.5025641029282115,
             "y" : 0.8687298382273454
           },
-          "text" : "reud Offonant takes 2 Prize cards."
+          "text" : "rout Cogosene takes 2 Priza cards."
         },
         {
           "confidence" : 1,
@@ -107,34 +108,34 @@
           "text" : "retreat"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.014807622061139676,
             "width" : 0.1115384581227782,
             "x" : 0.08461538562611091,
             "y" : 0.9191387643381922
           },
-          "text" : "©2013 Polemo"
+          "text" : "©2013 Pokemor"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.0146605958662444,
             "width" : 0.1192307648835359,
             "x" : 0.5794871825124445,
             "y" : 0.9118294702264391
           },
-          "text" : "ilos:\/MAHOU"
+          "text" : "[Illus MAHOU"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01557688295765436,
             "width" : 0.1307692351164641,
             "x" : 0.7076923045846252,
             "y" : 0.9109131831530799
           },
-          "text" : "R€Z4\/RC25"
+          "text" : "IR€24\/RC25"
         }
       ]
     },
@@ -149,10 +150,10 @@
         "x" : 0.07064000000000001,
         "y" : 0.8449571605960264
       },
-      "text" : "x2 retreat 02013 Pokémor",
+      "text" : "x2 retreat ©2013 Pokemor",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.02015433394594252,
             "width" : 0.05101421800947868,
@@ -172,14 +173,14 @@
           "text" : "retreat"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.011717636015082859,
             "width" : 0.10922274881516587,
             "x" : 0.08764473994328595,
             "y" : 0.9194813256441416
           },
-          "text" : "02013 Pokémor"
+          "text" : "©2013 Pokemor"
         }
       ]
     },
@@ -194,20 +195,10 @@
         "x" : 0.17,
         "y" : 0.8498551324503311
       },
-      "text" : "79 it",
+      "text" : "it",
       "tokens" : [
         {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.014471168721003111,
-            "width" : 0.028947373440391146,
-            "x" : 0.16999999745743602,
-            "y" : 0.849855130653141
-          },
-          "text" : "79"
-        },
-        {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009803047366120953,
             "width" : 0.013157894736842106,
@@ -229,20 +220,20 @@
         "x" : 0.6725,
         "y" : 0.8416985099337748
       },
-      "text" : "Las been Knocked Priza cards. R€Z4\/R",
+      "text" : "las been Kaocked Priza cards. DU R€24\/R",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.010707894856209736,
             "width" : 0.12369791666666666,
             "x" : 0.6725000008835565,
             "y" : 0.853803086704473
           },
-          "text" : "Las been Knocked"
+          "text" : "las been Kaocked"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.0128875521964974,
             "width" : 0.08407615621884663,
@@ -254,12 +245,22 @@
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
+            "height" : 0.011639016148054073,
+            "width" : 0.01953125,
+            "x" : 0.6724999999940814,
+            "y" : 0.9124637280610389
+          },
+          "text" : "DU"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
             "height" : 0.013966819377664882,
             "width" : 0.078125,
             "x" : 0.7180729171549479,
             "y" : 0.9106014855244354
           },
-          "text" : "R€Z4\/R"
+          "text" : "R€24\/R"
         }
       ]
     },
@@ -274,17 +275,17 @@
         "x" : 0.72,
         "y" : 0.8498551324503311
       },
-      "text" : "n Knocked Qut. ards. REZ4\/RC25 *",
+      "text" : "n Koorked Out ards. RE24\/RC25 *",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.014140729287875246,
             "width" : 0.10408856422235604,
             "x" : 0.7199256820692849,
             "y" : 0.8532944347415389
           },
-          "text" : "n Knocked Qut."
+          "text" : "n Koorked Out"
         },
         {
           "confidence" : 1,
@@ -297,14 +298,14 @@
           "text" : "ards."
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.020881264986817454,
+            "height" : 0.02088126587773296,
             "width" : 0.14218666696716953,
             "x" : 0.7198342289992101,
-            "y" : 0.9085447530697566
+            "y" : 0.9085447521788411
           },
-          "text" : "REZ4\/RC25 *"
+          "text" : "RE24\/RC25 *"
         }
       ]
     },
@@ -319,20 +320,20 @@
         "x" : 0.7857500000000001,
         "y" : 0.8292636589403973
       },
-      "text" : "d Out RC25",
+      "text" : "d Qut RC25",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.010217008292797272,
             "width" : 0.03811428571428572,
             "x" : 0.7857499999408571,
             "y" : 0.8538773606855966
           },
-          "text" : "d Out"
+          "text" : "d Qut"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012726073521774234,
             "width" : 0.05594063938685827,
@@ -354,10 +355,10 @@
         "x" : 0.705,
         "y" : 0.8418584437086093
       },
-      "text" : "een Knorked Qut cards. REZ4\/RC25 *",
+      "text" : "een Knorked Qut cards. RE24\/RC25 *",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.011173455502131904,
             "width" : 0.12006944444444444,
@@ -377,14 +378,14 @@
           "text" : "cards."
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.024484257121641134,
             "width" : 0.1511644310421414,
             "x" : 0.714851812561082,
             "y" : 0.9068993822991097
           },
-          "text" : "REZ4\/RC25 *"
+          "text" : "RE24\/RC25 *"
         }
       ]
     },
@@ -397,42 +398,42 @@
         "x" : 0.06,
         "y" : 0.00020695364238411623
       },
-      "text" : "BASIC Mew EX иР 120",
+      "text" : "BASIC Mew HP 120",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.023479698904302734,
-            "width" : 0.11210323265149552,
-            "x" : 0.07886217739232489,
-            "y" : 0.08099635717304637
+            "height" : 0.020881604200956846,
+            "width" : 0.11283264835510678,
+            "x" : 0.07904879261381337,
+            "y" : 0.08196541666857053
           },
           "text" : "BASIC"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.044576135850110596,
-            "width" : 0.24844828034502503,
-            "x" : 0.25534482637992995,
-            "y" : 0.0826052669870803
+            "height" : 0.03468883274406787,
+            "width" : 0.12151162639528225,
+            "x" : 0.25697674540924614,
+            "y" : 0.08784189857765168
           },
-          "text" : "Mew EX"
+          "text" : "Mew"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.03533201959748935,
-            "width" : 0.11568965421178039,
-            "x" : 0.7237931046516528,
-            "y" : 0.0810430464355365
+            "height" : 0.035663215450893154,
+            "width" : 0.11895348513274773,
+            "x" : 0.7251162803115332,
+            "y" : 0.08145185076955352
           },
-          "text" : "иР 120"
+          "text" : "HP 120"
         }
       ]
     }
   ],
-  "scanID" : "EC83C9A7-AC60-46CB-9051-F85B380AFC34",
+  "scanID" : "77F98EBD-4D1D-4316-84E9-A49DC16A42C1",
   "setConfidenceReasons" : [
     "rewrite_raw_footer_band_set_hints",
     "rewrite_raw_footer_family_set_agreement"
@@ -448,7 +449,6 @@
   ],
   "warnings" : [
     "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs",
-    "Rewrite raw is relying on broader title evidence"
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

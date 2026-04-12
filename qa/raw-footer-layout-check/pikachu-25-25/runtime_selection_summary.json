@@ -49,9 +49,18 @@
         "x" : 0.0708875268073331,
         "y" : 0.8451
       },
-      "text" : "",
+      "text" : "n2s= pat,",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.06537376916455657,
+            "width" : 0.03540188535201223,
+            "x" : 0.13323547375296133,
+            "y" : 0.8613390766508362
+          },
+          "text" : "n2s= pat,"
+        }
       ]
     },
     {
@@ -149,12 +158,13 @@
       ]
     }
   ],
-  "scanID" : "D0BC07DC-3AFA-4A8D-9190-EBCA9A8B5759",
+  "scanID" : "5359F0A2-57EA-49FD-A199-171E75F92DCD",
   "setConfidenceReasons" : [
-
+    "rewrite_raw_footer_family_set_hints"
   ],
+  "setConfidenceScore" : 0.56,
   "setHintTokens" : [
-
+    "n2s"
   ],
   "stage1AssessmentReasons" : [
     "collector_signal_weak",

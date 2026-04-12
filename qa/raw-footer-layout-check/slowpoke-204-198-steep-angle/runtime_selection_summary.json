@@ -1,0 +1,376 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "204\/198",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9992537463947884,
+    "x" : 0.00037312680260583877,
+    "y" : 0
+  },
+  "fixtureName" : "slowpoke-204-198-steep-angle",
+  "footerRouting" : {
+    "anchorIdentifier" : "204\/198",
+    "collectorAnchor" : {
+      "height" : 0.016561502822832308,
+      "width" : 0.13486235758795417,
+      "x" : 0.10011212559549901,
+      "y" : 0.8060453034357897
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7294490998126257,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9992537463947884,
+        "x" : 0.00037312680260583877,
+        "y" : 0.78
+      },
+      "text" : "Toshindo доки nigogdartshngwit SVIEN 204\/198 ©2:23 Pokemon \/ Nintendo \/ Creatures \/ GAME FREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010085959584801785,
+            "width" : 0.16654229106579804,
+            "x" : 0.03624377304150665,
+            "y" : 0.7800000000639888
+          },
+          "text" : "Toshindo доки"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.03962234048925362,
+            "width" : 0.34162522485406044,
+            "x" : 0.6206363926719599,
+            "y" : 0.7795131537508355
+          },
+          "text" : "nigogdartshngwit"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015583333012709312,
+            "width" : 0.061492537515681074,
+            "x" : 0.01958954564401625,
+            "y" : 0.8029166667894787
+          },
+          "text" : "SVIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01656150282283226,
+            "width" : 0.13486235758795417,
+            "x" : 0.10011212559549901,
+            "y" : 0.8060453034357897
+          },
+          "text" : "204\/198"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.029057915367847874,
+            "width" : 0.5049938511838721,
+            "x" : 0.26206127297710446,
+            "y" : 0.817223171261515
+          },
+          "text" : "©2:23 Pokemon \/ Nintendo \/ Creatures \/ GAME FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1378970170024808,
+        "x" : 0.00037312680260583877,
+        "y" : 0.7634260548472058
+      },
+      "text" : "Toshinao SVIEN 20",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012083362886690987,
+            "width" : 0.09949361258020063,
+            "x" : 0.03228300937375864,
+            "y" : 0.7767246556487117
+          },
+          "text" : "Toshinao"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01439810426540284,
+            "width" : 0.05751155211477873,
+            "x" : 0.021286418241075734,
+            "y" : 0.8024402728818425
+          },
+          "text" : "SVIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013004739336492896,
+            "width" : 0.03463763934185536,
+            "x" : 0.10036480275398675,
+            "y" : 0.808013732544457
+          },
+          "text" : "20"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2747947802585668,
+        "x" : 0.030145914260192697,
+        "y" : 0.7683260548472058
+      },
+      "text" : "Toshinao Aoki VIEN 204\/198 D2",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018698953154123378,
+            "width" : 0.17745613465215368,
+            "x" : 0.02966042231671535,
+            "y" : 0.7708941778967944
+          },
+          "text" : "Toshinao Aoki"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016065600632410974,
+            "width" : 0.05414760366554342,
+            "x" : 0.029979101711438035,
+            "y" : 0.8014082987454401
+          },
+          "text" : "VIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017097344722844625,
+            "width" : 0.1580069986486759,
+            "x" : 0.10113456627066819,
+            "y" : 0.8041490637948543
+          },
+          "text" : "204\/198"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.008873096446700503,
+            "width" : 0.026170931453196836,
+            "x" : 0.2624129310942499,
+            "y" : 0.8323057502553277
+          },
+          "text" : "D2"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12490671829934855,
+        "x" : 0.00037312680260583877,
+        "y" : 0.7561660548472059
+      },
+      "text" : "Toshina SVIEN 2",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012206965093743303,
+            "width" : 0.09293004710075385,
+            "x" : 0.029838240674804825,
+            "y" : 0.7770762709141241
+          },
+          "text" : "Toshina"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015835616438356164,
+            "width" : 0.06245335914967427,
+            "x" : 0.020752644206993194,
+            "y" : 0.8018098904356991
+          },
+          "text" : "SVIEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013041095890410958,
+            "width" : 0.017092498293595076,
+            "x" : 0.10161330910995856,
+            "y" : 0.8078646849492607
+          },
+          "text" : "2"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.24275224365831752,
+        "x" : 0.046167182560317335,
+        "y" : 0.7643260548472058
+      },
+      "text" : "oshinaa Aoki- |204\/198",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020892189596300927,
+            "width" : 0.16080377972112583,
+            "x" : 0.04550060844412251,
+            "y" : 0.7688777363768388
+          },
+          "text" : "oshinaa Aoki-"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015887850467289723,
+            "width" : 0.15352439193526027,
+            "x" : 0.08750067199889543,
+            "y" : 0.805447550191301
+          },
+          "text" : "|204\/198"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11491418083540067,
+        "x" : 0.17975095442500422,
+        "y" : 0.7507260548472059
+      },
+      "text" : "1985 D2",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01393805309734513,
+            "width" : 0.06763520357740725,
+            "x" : 0.17975095473243696,
+            "y" : 0.8050844619057337
+          },
+          "text" : "1985"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010221238938053089,
+            "width" : 0.023639488628996713,
+            "x" : 0.2631458171458664,
+            "y" : 0.8311021609780134
+          },
+          "text" : "D2"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.24275224365831752,
+        "x" : 0.046167182560317335,
+        "y" : 0.7633260548472058
+      },
+      "text" : "oshinad Aoki LEN 204\/198",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.024638225398651546,
+            "width" : 0.16254812298644356,
+            "x" : 0.04527557134624678,
+            "y" : 0.7664127438683696
+          },
+          "text" : "oshinad Aoki"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019095890410958896,
+            "width" : 0.03674088012125887,
+            "x" : 0.046167182585551456,
+            "y" : 0.8001205754685968
+          },
+          "text" : "LEN"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017412013328238704,
+            "width" : 0.14578975959933443,
+            "x" : 0.0969503622202349,
+            "y" : 0.8045656065660504
+          },
+          "text" : "204\/198"
+        }
+      ]
+    }
+  ],
+  "scanID" : "F135DD63-9C50-46E3-B68F-D2FD3E6CBDE0",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_footer_family_set_agreement"
+  ],
+  "setConfidenceScore" : 0.74,
+  "setHintTokens" : [
+    "svi"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop"
+  ]
+}

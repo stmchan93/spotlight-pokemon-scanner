@@ -34,25 +34,15 @@
         "x" : 0.12217017954722871,
         "y" : 0.78
       },
-      "text" : "WeuNenLOCNK Flip a coin. If tails, this attack does n",
+      "text" : "Flip a coin. If tails, this attack does n",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.022448978806635024,
-            "width" : 0.3715326407082433,
-            "x" : 0.5031485852281059,
-            "y" : 0.7800000003364784
-          },
-          "text" : "WeuNenLOCNK"
-        },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.048397724403009726,
-            "width" : 0.6894926362823636,
-            "x" : 0.18772296951342352,
-            "y" : 0.8063307238206059
+            "height" : 0.05106407231109532,
+            "width" : 0.6904411598455855,
+            "x" : 0.1870605760981685,
+            "y" : 0.8050277518055854
           },
           "text" : "Flip a coin. If tails, this attack does n"
         }
@@ -133,17 +123,17 @@
         "x" : 0.7159297423887587,
         "y" : 0.8294
       },
-      "text" : "NUO",
+      "text" : "KUO",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
             "height" : 0.012544247787610615,
             "width" : 0.08360915951079886,
             "x" : 0.7159297426191776,
             "y" : 0.8294000000418141
           },
-          "text" : "NUO"
+          "text" : "KUO"
         }
       ]
     },
@@ -172,32 +162,32 @@
         "x" : 0.16750975800156126,
         "y" : 0
       },
-      "text" : "45IC Pikachu",
+      "text" : "ASIC Pikachu",
       "tokens" : [
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.020512819914838644,
-            "width" : 0.08455571193937064,
-            "x" : 0.16750975626800613,
-            "y" : 0.023589743795494434
+            "height" : 0.018340611353711813,
+            "width" : 0.08281808225602136,
+            "x" : 0.16750975760573955,
+            "y" : 0.02445414858624453
           },
-          "text" : "45IC"
+          "text" : "ASIC"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.04079943327924569,
-            "width" : 0.240186521404583,
-            "x" : 0.2774366851790844,
-            "y" : 0.016010539808927107
+            "height" : 0.0387971103451658,
+            "width" : 0.24151712701010816,
+            "x" : 0.2781546590365521,
+            "y" : 0.017719348598039253
           },
           "text" : "Pikachu"
         }
       ]
     }
   ],
-  "scanID" : "528040C5-8C15-4EEE-8F41-58B0CC614F19",
+  "scanID" : "54CE8EC2-26EE-467B-918C-F02396AC06F1",
   "setConfidenceReasons" : [
 
   ],

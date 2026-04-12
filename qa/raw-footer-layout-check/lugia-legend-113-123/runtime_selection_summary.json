@@ -43,47 +43,47 @@
         "x" : 0.00018015967836757025,
         "y" : 0.78
       },
-      "text" : "Elem Discard a d ! to Lugia NO, 249 Diving Po main tid to ho chc f 02010 Pokémon\/Nintendo 114\/123",
+      "text" : "Eleme Discard a d E to Lugia \/ NO.249 Diving Po nta mch t tn hc fi 02010 Pokémon\/Nintendo 114\/123",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.0958415121608614,
             "width" : 0.08438194575080216,
             "x" : 0.6284273520495025,
             "y" : 0.7709012012736507
           },
-          "text" : "Elem"
+          "text" : "Eleme"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.11289714911605706,
-            "width" : 0.06776404675257094,
-            "x" : 0.682786669461521,
+            "width" : 0.06776404338985245,
+            "x" : 0.6827866728242395,
             "y" : 0.7752925916768076
           },
-          "text" : "Discard a d !"
+          "text" : "Discard a d E"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.07602210889231506,
-            "width" : 0.05018100719794781,
-            "x" : 0.754913801544563,
+            "width" : 0.050181008879307105,
+            "x" : 0.7549137998632037,
             "y" : 0.7779182875608717
           },
-          "text" : "to Lugia"
+          "text" : "to Lugia \/"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.11366666602541863,
             "width" : 0.02050544199552343,
             "x" : 0.8383395778233181,
             "y" : 0.7799999998039574
           },
-          "text" : "NO, 249 Diving Po"
+          "text" : "NO.249 Diving Po"
         },
         {
           "confidence" : 0.3,
@@ -93,10 +93,10 @@
             "x" : 0.8698235638389635,
             "y" : 0.7795896004913317
           },
-          "text" : "main tid to ho chc f"
+          "text" : "nta mch t tn hc fi"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01375,
             "width" : 0.22940449329752596,
@@ -128,17 +128,17 @@
         "x" : 0.5970793664257508,
         "y" : 0.8826416667079166
       },
-      "text" : "opt",
+      "text" : "do",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.013944666986880102,
-            "width" : 0.026508096364654263,
-            "x" : 0.5970793643222921,
-            "y" : 0.9279618232920399
+            "height" : 0.009377990430622015,
+            "width" : 0.027459296630371385,
+            "x" : 0.5970793663416917,
+            "y" : 0.9281249202294477
           },
-          "text" : "opt"
+          "text" : "do"
         }
       ]
     },
@@ -213,18 +213,8 @@
         "x" : 0.7413873507234124,
         "y" : 0.8835416667079166
       },
-      "text" : "2 114\/123",
+      "text" : "114\/123",
       "tokens" : [
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.008878504672897204,
-            "width" : 0.013820641136295667,
-            "x" : 0.8414224674892932,
-            "y" : 0.8844762461101752
-          },
-          "text" : "2"
-        },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
@@ -251,7 +241,7 @@
       "text" : "NO. 4\/123",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.023542600896860985,
             "width" : 0.01510884225047744,
@@ -286,7 +276,7 @@
       "text" : "2 114\/123",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.011178082191780821,
             "width" : 0.015664456851317145,
@@ -316,72 +306,72 @@
         "x" : 0.060158540516963455,
         "y" : 0
       },
-      "text" : "Lugia LEGEND Put this card from your hand onto our bench only with the other half of Lugia LEGEND LEGEND 1D into",
+      "text" : "Lugia LEGEND Put this card from your hand onto rour Bench only with the other half of Lugia LEGEND. LEGEND D into",
       "tokens" : [
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.04152996946109955,
-            "width" : 0.2660051709097508,
-            "x" : 0.10157584297010713,
-            "y" : 0.05610576338084714
+            "height" : 0.036262272330871335,
+            "width" : 0.26119257066984325,
+            "x" : 0.11112471929411291,
+            "y" : 0.06168537756903958
           },
           "text" : "Lugia LEGEND"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.017687073753390247,
-            "width" : 0.32419349977582,
-            "x" : 0.47914544341788556,
-            "y" : 0.05578231368452938
+            "height" : 0.015720524017467243,
+            "width" : 0.3247666555828365,
+            "x" : 0.4795422614552832,
+            "y" : 0.05589519642055288
           },
           "text" : "Put this card from your hand onto"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.01724727997092699,
-            "width" : 0.3305204551876218,
-            "x" : 0.4712335377429116,
-            "y" : 0.06865385175152228
+            "height" : 0.020033034278836317,
+            "width" : 0.3344759951568922,
+            "x" : 0.4702036801050579,
+            "y" : 0.06677367352719464
           },
-          "text" : "our bench only with the other half"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.01373020780138572,
-            "width" : 0.1611488112266488,
-            "x" : 0.4544991606552161,
-            "y" : 0.0855895197911159
-          },
-          "text" : "of Lugia LEGEND"
+          "text" : "rour Bench only with the other half"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.022493833850044356,
-            "width" : 0.13293808871758672,
-            "x" : 0.12260854536523877,
-            "y" : 0.11800478369881505
+            "height" : 0.015720524017467263,
+            "width" : 0.16877637657821928,
+            "x" : 0.4514128617934317,
+            "y" : 0.08427947569404648
+          },
+          "text" : "of Lugia LEGEND."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.022018347661047533,
+            "width" : 0.13425393169504837,
+            "x" : 0.12025316021736501,
+            "y" : 0.11743119310025188
           },
           "text" : "LEGEND"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.05614693987317481,
-            "width" : 0.01852468154590203,
-            "x" : 0.5179485637991844,
-            "y" : 0.13726526926911645
+            "height" : 0.050458716513288086,
+            "width" : 0.020457747995333224,
+            "x" : 0.5179005209908769,
+            "y" : 0.1376146781252367
           },
-          "text" : "1D into"
+          "text" : "D into"
         }
       ]
     }
   ],
-  "scanID" : "57BE6A6B-4470-4C52-9267-8A6F3985F74A",
+  "scanID" : "3A278591-DEC1-4BEB-A76E-CF0C13F3D0A9",
   "setConfidenceReasons" : [
 
   ],

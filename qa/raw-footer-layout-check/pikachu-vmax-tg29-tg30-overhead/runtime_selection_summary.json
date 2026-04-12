@@ -1,0 +1,332 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_wide"
+  ],
+  "collectorConfidenceScore" : 0.66,
+  "collectorNumber" : "629\/163",
+  "contentRectNormalized" : {
+    "height" : 0.999977227181636,
+    "width" : 1,
+    "x" : 0,
+    "y" : 1.1386409182020688e-05
+  },
+  "fixtureName" : "pikachu-vmax-tg29-tg30-overhead",
+  "footerRouting" : {
+    "anchorIdentifier" : "629\/163",
+    "collectorAnchor" : {
+      "height" : 0.024181387371199903,
+      "width" : 0.1808585784212412,
+      "x" : 0.20764763382188045,
+      "y" : 0.8632340921306573
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7801704915757273,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.21999498997995992,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.779993623610858
+      },
+      "text" : "retreat weakness i x2 resistance When yoor Poicemon VMLLX Knockrd Dut, your sppeneit tlkes 7 Pote malds Bisyaky CO Warks 0 7629\/1630 *",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013749686873747495,
+            "width" : 0.07179486982826622,
+            "x" : 0.6320512824961233,
+            "y" : 0.7836602069146875
+          },
+          "text" : "retreat"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013114802028834223,
+            "width" : 0.09515210644488192,
+            "x" : 0.14601369155613367,
+            "y" : 0.8078104396697939
+          },
+          "text" : "weakness i"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018332915030121494,
+            "width" : 0.052564102926372036,
+            "x" : 0.2589743583551901,
+            "y" : 0.7992431857112625
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01349863916611725,
+            "width" : 0.08992529167700075,
+            "x" : 0.36272966095775117,
+            "y" : 0.7970770947072843
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02818285727533634,
+            "width" : 0.25066745764784504,
+            "x" : 0.6606939553880663,
+            "y" : 0.8103644787396003
+          },
+          "text" : "When yoor Poicemon VMLLX"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.03742611251613454,
+            "width" : 0.40682649696525025,
+            "x" : 0.4517036426517675,
+            "y" : 0.8322154711533569
+          },
+          "text" : "Knockrd Dut, your sppeneit tlkes 7 Pote malds"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.021528133253382556,
+            "width" : 0.15694668347663138,
+            "x" : 0.15801923685185143,
+            "y" : 0.84337298424888
+          },
+          "text" : "Bisyaky CO Warks"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.024181387371199882,
+            "width" : 0.1808585784212412,
+            "x" : 0.20764763382188045,
+            "y" : 0.8632340921306573
+          },
+          "text" : "0 7629\/1630 *"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.09799776826380033,
+        "width" : 0.138,
+        "x" : 0.03594420245338395,
+        "y" : 0.8244259449527119
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.09199790490071051,
+        "width" : 0.3255454411582342,
+        "x" : 0.13530420245338395,
+        "y" : 0.8293258333659019
+      },
+      "text" : "Chsyoly CGWel",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.025215920159524136,
+            "width" : 0.140984221280406,
+            "x" : 0.157888572181777,
+            "y" : 0.841879728362019
+          },
+          "text" : "Chsyoly CGWel"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.10199767717252686,
+        "width" : 0.125,
+        "x" : 0.08780420245338395,
+        "y" : 0.8171661102833732
+      },
+      "text" : "KCP",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.0441599138716304,
+            "width" : 0.03825431856615791,
+            "x" : 0.15730850868329274,
+            "y" : 0.8472573789115482
+          },
+          "text" : "KCP"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.0999977227181636,
+        "width" : 0.3255454411582342,
+        "x" : 0.13530420245338395,
+        "y" : 0.8253259244571753
+      },
+      "text" : "•معوت",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.05093344090566498,
+            "width" : 0.19269659446335885,
+            "x" : 0.20633229928028396,
+            "y" : 0.8384097277535315
+          },
+          "text" : "•معوت"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.10499760885407178,
+        "width" : 0.115,
+        "x" : 0.35159964361161816,
+        "y" : 0.8117262341675051
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.10199767717252686,
+        "width" : 0.3255454411582342,
+        "x" : 0.13530420245338395,
+        "y" : 0.8243259472299937
+      },
+      "text" : "Thayaky CG Warh",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02245153581647908,
+            "width" : 0.1435031895834761,
+            "x" : 0.16080072297121226,
+            "y" : 0.843463465947107
+          },
+          "text" : "Thayaky CG Warh"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.1999954454363272,
+        "width" : 0.88,
+        "x" : 0.06,
+        "y" : 1.1386409182020688e-05
+      },
+      "text" : "•PikachuVMAX VMAX EvoM nikacher",
+      "tokens" : [
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.04027529009917437,
+            "width" : 0.3119889322916667,
+            "x" : 0.173505534446718,
+            "y" : 0.12662364591386147
+          },
+          "text" : "•PikachuVMAX"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01587735216217238,
+            "width" : 0.08501572225103736,
+            "x" : 0.0750482387760569,
+            "y" : 0.14774045653403478
+          },
+          "text" : "VMAX"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.011871875249091297,
+            "width" : 0.053720929368732726,
+            "x" : 0.18406976832144759,
+            "y" : 0.1844820714260727
+          },
+          "text" : "EvoM"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.013786784789094387,
+            "width" : 0.0834303766991917,
+            "x" : 0.28624992710035974,
+            "y" : 0.17850190015969777
+          },
+          "text" : "nikacher"
+        }
+      ]
+    }
+  ],
+  "scanID" : "B1367299-99CA-4085-A115-359FDDA0BB29",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

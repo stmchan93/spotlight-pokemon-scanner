@@ -134,7 +134,7 @@
     "collectorConfidenceScore" : 0.92,
     "collectorNumberExact" : "077\/184",
     "cropConfidence" : 0.7853114046748491,
-    "setConfidenceScore" : 0.48,
+    "setConfidenceScore" : 0.3,
     "setHintTokens" : [
       "brs"
     ],

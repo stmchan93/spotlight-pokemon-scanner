@@ -1,0 +1,228 @@
+{
+  "collectorConfidenceReasons" : [
+
+  ],
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9991352135464613,
+    "x" : 0.00043239322676933106,
+    "y" : 0
+  },
+  "fixtureName" : "lt-surges-bargain-185-132-steep-angle",
+  "footerRouting" : {
+    "reasons" : [
+      "footer_band_anchor_unavailable"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:fallback_search_partial_card_salvaged"
+  ],
+  "ocrTargetQualityScore" : 0.7216040987538954,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9991352135464613,
+        "x" : 0.00043239322676933106,
+        "y" : 0.78
+      },
+      "text" : "You may play only | Supporter card your turn.",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.044165826267362665,
+            "width" : 0.7050192140783974,
+            "x" : 0.28275058884072884,
+            "y" : 0.9289574439926926
+          },
+          "text" : "You may play only | Supporter card"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02260183711448167,
+            "width" : 0.20251506938723607,
+            "x" : 0.28345763466039153,
+            "y" : 0.9767824147252426
+          },
+          "text" : "your turn."
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.13788065946941166,
+        "x" : 0.07101130471169137,
+        "y" : 0.8451
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2747621837252769,
+        "x" : 0.17028537952966777,
+        "y" : 0.85
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12489190169330766,
+        "x" : 0.6723508243367646,
+        "y" : 0.84184
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.18484001450609533,
+        "x" : 0.7198097469802215,
+        "y" : 0.85
+      },
+      "text" : "DDorter",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012859399623780455,
+            "width" : 0.14787201361230318,
+            "x" : 0.7421445801384612,
+            "y" : 0.9366666667496273
+          },
+          "text" : "DDorter"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11490054955784305,
+        "x" : 0.7855028872709012,
+        "y" : 0.8294
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.18983569057382765,
+        "x" : 0.7048227187770245,
+        "y" : 0.842
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.879238987920886,
+        "x" : 0.060380506039557004,
+        "y" : 0
+      },
+      "text" : "TRAINGI ter rge's Bargain",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.029223742755739957,
+            "width" : 0.3565518587535922,
+            "x" : 0.5638981828806504,
+            "y" : 0.09863013766322593
+          },
+          "text" : "TRAINGI"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.015525113234873955,
+            "width" : 0.09456930476392585,
+            "x" : 0.06038050911545832,
+            "y" : 0.11963470376742931
+          },
+          "text" : "ter"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.051735877157819334,
+            "width" : 0.46102107851220087,
+            "x" : 0.0591434951691329,
+            "y" : 0.14219585534539111
+          },
+          "text" : "rge's Bargain"
+        }
+      ]
+    }
+  ],
+  "scanID" : "5E9322CE-0B68-450D-891E-0E19647502D2",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs",
+    "Rewrite raw is relying on broader title evidence",
+    "Low-confidence rewrite raw evidence"
+  ]
+}

@@ -43,7 +43,7 @@
         "x" : 9.531434671547658e-05,
         "y" : 0.78
       },
-      "text" : "weakness x 2 esistanice retreat Pokémon eX rule llios: Sban Grophics When your Pokémon eX is Asecked Qus, gour opponent takes 2 Prize cards. 213\/162 Gaxes rosemoo\/suotendo\/ Creutures \/ GAIVE PREAK",
+      "text" : "weakness x 2 esistance vetreat Pokémon eX rule Ius, Sban Grophic When your Pokémon eX i Loocked Out, jour opponent takes 2 Prize cards. 213\/162 G.kos Fosémoo\/ssotendo \/ Creutures\/ GAMME FREAK",
       "tokens" : [
         {
           "confidence" : 1,
@@ -56,7 +56,7 @@
           "text" : "weakness"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.02212870064984079,
             "width" : 0.04999046923798635,
@@ -66,14 +66,14 @@
           "text" : "x 2"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.011916666987290688,
             "width" : 0.09100828799525118,
             "x" : 0.3333651061580076,
             "y" : 0.8194166664605214
           },
-          "text" : "esistanice"
+          "text" : "esistance"
         },
         {
           "confidence" : 1,
@@ -83,7 +83,7 @@
             "x" : 0.6281174426994414,
             "y" : 0.8210450321594824
           },
-          "text" : "retreat"
+          "text" : "vetreat"
         },
         {
           "confidence" : 1,
@@ -96,17 +96,17 @@
           "text" : "Pokémon eX rule"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01859598853868196,
             "width" : 0.1807347726227299,
             "x" : 0.0770037277003393,
             "y" : 0.8651002867625714
           },
-          "text" : "llios: Sban Grophics"
+          "text" : "Ius, Sban Grophic"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.016499999519063956,
             "width" : 0.2345706486007442,
@@ -116,14 +116,14 @@
           "text" : "When your Pokémon eX"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.025297813087616413,
             "width" : 0.4967794096033629,
             "x" : 0.38941558573771823,
             "y" : 0.879169281453231
           },
-          "text" : "is Asecked Qus, gour opponent takes 2 Prize cards."
+          "text" : "i Loocked Out, jour opponent takes 2 Prize cards."
         },
         {
           "confidence" : 1,
@@ -136,14 +136,14 @@
           "text" : "213\/162"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012922636103151862,
             "width" : 0.4050509673749802,
             "x" : 0.30772897477825845,
             "y" : 0.9284527220725598
           },
-          "text" : "Gaxes rosemoo\/suotendo\/ Creutures \/ GAIVE PREAK"
+          "text" : "G.kos Fosémoo\/ssotendo \/ Creutures\/ GAMME FREAK"
         }
       ]
     },
@@ -158,7 +158,7 @@
         "x" : 9.531434671547658e-05,
         "y" : 0.854683333435702
       },
-      "text" : "HliDs H",
+      "text" : "iias H",
       "tokens" : [
         {
           "confidence" : 0.3,
@@ -168,7 +168,7 @@
             "x" : 0.08080719834245556,
             "y" : 0.8670785903483942
           },
-          "text" : "HliDs"
+          "text" : "iias"
         },
         {
           "confidence" : 1,
@@ -193,27 +193,27 @@
         "x" : 0.09142405525985847,
         "y" : 0.859583333435702
       },
-      "text" : "lus: 5ban Grephics LEF EN 213\/162 62124",
+      "text" : "Ius. Sban Grophics TEF EN 213\/162",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.017746192893401007,
             "width" : 0.16838894674636953,
             "x" : 0.09142405582115495,
             "y" : 0.8642533841815565
           },
-          "text" : "lus: 5ban Grephics"
+          "text" : "Ius. Sban Grophics"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01541116751269036,
             "width" : 0.044728313979504414,
             "x" : 0.11970813631840671,
             "y" : 0.890872673522214
           },
-          "text" : "LEF EN"
+          "text" : "TEF EN"
         },
         {
           "confidence" : 1,
@@ -224,16 +224,6 @@
             "y" : 0.8964767345209812
           },
           "text" : "213\/162"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.008873096446700514,
-            "width" : 0.046043852625960446,
-            "x" : 0.30783016277453684,
-            "y" : 0.9277660746079102
-          },
-          "text" : "62124"
         }
       ]
     },
@@ -248,17 +238,17 @@
         "x" : 0.08892453183159205,
         "y" : 0.8474233334357021
       },
-      "text" : "Tus: Sbon Gro 日號 21",
+      "text" : "Tus. Sban Gra 日號 21",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.018230422921376683,
             "width" : 0.12523378501835183,
             "x" : 0.08845574999291247,
             "y" : 0.8637729944231058
           },
-          "text" : "Tus: Sbon Gro"
+          "text" : "Tus. Sban Gra"
         },
         {
           "confidence" : 0.3,
@@ -271,7 +261,7 @@
           "text" : "日號"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013972602739726026,
             "width" : 0.02959961954526026,
@@ -293,17 +283,17 @@
         "x" : 0.13641547696865408,
         "y" : 0.855583333435702
       },
-      "text" : "5bon Grophics 213\/162",
+      "text" : "iban Grophics 213\/162",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01728971962616822,
             "width" : 0.12287409870686383,
             "x" : 0.13641547740749013,
             "y" : 0.8649291278132054
           },
-          "text" : "5bon Grophics"
+          "text" : "iban Grophics"
         },
         {
           "confidence" : 1,
@@ -331,7 +321,7 @@
       "text" : "phic 3\/162",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.016261061946902657,
             "width" : 0.04204912555895056,
@@ -363,17 +353,17 @@
         "x" : 0.13391595354038766,
         "y" : 0.854583333435702
       },
-      "text" : "Shan Grophics Ta 213\/162",
+      "text" : "Sban Graphics Ta 213\/162",
       "tokens" : [
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.018416666666666668,
             "width" : 0.12533692737204,
             "x" : 0.13391595398801953,
             "y" : 0.8640277778615949
           },
-          "text" : "Shan Grophics"
+          "text" : "Sban Graphics"
         },
         {
           "confidence" : 0.3,
@@ -386,7 +376,7 @@
           "text" : "Ta"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01747222222222223,
             "width" : 0.12207294488839313,
@@ -406,57 +396,58 @@
         "x" : 0.06008387662510961,
         "y" : 0
       },
-      "text" : "BASIC Iron LeaveseX พ. 220 Future",
+      "text" : "BASIC Iron Leaves EX HP220 Futore",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.01847676939318794,
-            "width" : 0.10454509391294649,
-            "x" : 0.09788036337763406,
-            "y" : 0.06491127531605345
+            "height" : 0.017191437966958923,
+            "width" : 0.10251446661243735,
+            "x" : 0.09834445971690786,
+            "y" : 0.0657162074804591
           },
           "text" : "BASIC"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.03973799126637554,
-            "width" : 0.40009612688751406,
-            "x" : 0.23074099723277686,
-            "y" : 0.06375545894867651
+            "height" : 0.04147569414830106,
+            "width" : 0.399911776771249,
+            "x" : 0.22973078241010444,
+            "y" : 0.0635309332737971
           },
-          "text" : "Iron LeaveseX"
+          "text" : "Iron Leaves EX"
         },
         {
           "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.046300091805937,
-            "width" : 0.16307234711442017,
-            "x" : 0.6972037847413797,
-            "y" : 0.05850340216053556
+            "height" : 0.044036695322095046,
+            "width" : 0.1700838534804001,
+            "x" : 0.6994968455268734,
+            "y" : 0.05779816603488957
           },
-          "text" : "พ. 220"
+          "text" : "HP220"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.029931973786333256,
+            "height" : 0.031192659602935647,
             "width" : 0.21995806168744517,
-            "x" : 0.7009961611925756,
-            "y" : 0.123809523225881
+            "x" : 0.6994968456469431,
+            "y" : 0.12385321153297756
           },
-          "text" : "Future"
+          "text" : "Futore"
         }
       ]
     }
   ],
-  "scanID" : "59FDA626-B1E5-40BD-9341-52B33C527382",
+  "scanID" : "25DD869E-8017-4E6C-B46B-377A77B0C27B",
   "setConfidenceReasons" : [
-
+    "rewrite_raw_footer_band_set_hints"
   ],
+  "setConfidenceScore" : 0.48,
   "setHintTokens" : [
-
+    "hp220"
   ],
   "stage1AssessmentReasons" : [
     "title_signal_weak",

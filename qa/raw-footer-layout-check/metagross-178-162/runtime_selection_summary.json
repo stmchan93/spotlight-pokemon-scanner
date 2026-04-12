@@ -43,17 +43,17 @@
         "x" : 0,
         "y" : 0.7797901175341808
       },
-      "text" : "Discard\/2.Enargy from this Pokémon. weak 1¢55 7x\/2 atesistance @ -30 Doomuse.thomapnetic powersofth Illes. Kofsunori Sato gutetrongayinfreezingcomperaturosotwog H TEF IM 178\/162★ Dstogomswwymounkansaxetalladoo.om 02024 Pokémon\/ Ninte AK",
+      "text" : "Discard 2 Energy from this Pokémon. weak 1¢55 1x2 maresistance •-30 Doomuse.thomapnetic powersofth Illus. Katuneri Sato gatatmangorin freezinstomporturos, Muny H TEF IM 178\/162★ \"Toingonsnouy apaminsare hallaaf saans 02034 Pokemton \/ Ninke Ak",
       "tokens" : [
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.026563407152276286,
             "width" : 0.4525641116725915,
             "x" : 0.2551282002774863,
             "y" : 0.7797901176201062
           },
-          "text" : "Discard\/2.Enargy from this Pokémon."
+          "text" : "Discard 2 Energy from this Pokémon."
         },
         {
           "confidence" : 1,
@@ -83,27 +83,27 @@
             "x" : 0.3423076923879659,
             "y" : 0.8558164201310533
           },
-          "text" : "7x\/2"
+          "text" : "1x2"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012826178031614411,
             "width" : 0.1040448789243345,
             "x" : 0.42169550999623456,
             "y" : 0.8608530756034308
           },
-          "text" : "atesistance"
+          "text" : "maresistance"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.018582049353221806,
+            "height" : 0.018319591429503373,
             "width" : 0.07820512882616149,
             "x" : 0.5371794865431159,
-            "y" : 0.8547482147058729
+            "y" : 0.8549004406140037
           },
-          "text" : "@ -30"
+          "text" : "•-30"
         },
         {
           "confidence" : 0.3,
@@ -116,24 +116,24 @@
           "text" : "Doomuse.thomapnetic powersofth"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012915574093737971,
             "width" : 0.15256410090801367,
             "x" : 0.2410256424818906,
             "y" : 0.8997834385659533
           },
-          "text" : "Illes. Kofsunori Sato"
+          "text" : "Illus. Katuneri Sato"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.023765955280117913,
+            "height" : 0.02393619916686197,
             "width" : 0.40833332256875554,
             "x" : 0.5208333455211774,
-            "y" : 0.8986198974075907
+            "y" : 0.8985262632698816
           },
-          "text" : "gutetrongayinfreezingcomperaturosotwog"
+          "text" : "gatatmangorin freezinstomporturos, Muny"
         },
         {
           "confidence" : 0.3,
@@ -146,7 +146,7 @@
           "text" : "H"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.014810523114351942,
             "width" : 0.037179486040926024,
@@ -168,32 +168,32 @@
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.02079521026938372,
+            "height" : 0.02089735660143017,
             "width" : 0.39583333333333337,
             "x" : 0.5500000065972219,
-            "y" : 0.9194151090562002
+            "y" : 0.9193129627241537
           },
-          "text" : "Dstogomswwymounkansaxetalladoo.om"
+          "text" : "\"Toingonsnouy apaminsare hallaaf saans"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009201788706215684,
             "width" : 0.14230769189367015,
             "x" : 0.43333333455682793,
             "y" : 0.9482883615699994
           },
-          "text" : "02024 Pokémon\/ Ninte"
+          "text" : "02034 Pokemton \/ Ninke"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.008243815722772914,
             "width" : 0.016666666330273694,
             "x" : 0.7461538463701196,
             "y" : 0.9474143754668443
           },
-          "text" : "AK"
+          "text" : "Ak"
         }
       ]
     },
@@ -224,30 +224,20 @@
         "x" : 0.24583333262848156,
         "y" : 0.8872511728351922
       },
-      "text" : "Ko i Sato TEF IN 178\/163 0202",
+      "text" : "wi Sato TEF IN 178\/163 V 0203",
       "tokens" : [
         {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.008866445348980201,
-            "width" : 0.02160714285714286,
-            "x" : 0.280535713760922,
-            "y" : 0.9026507884374269
-          },
-          "text" : "Ko"
-        },
-        {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009799755385714972,
             "width" : 0.05499999999999999,
             "x" : 0.33880952330110065,
             "y" : 0.9017174783345827
           },
-          "text" : "i Sato"
+          "text" : "wi Sato"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013066340514286626,
             "width" : 0.03732142857142858,
@@ -257,24 +247,24 @@
           "text" : "TEF IN"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.016799580661225652,
             "width" : 0.10345238095238095,
             "x" : 0.32767857109319243,
             "y" : 0.92458357427125
           },
-          "text" : "178\/163"
+          "text" : "178\/163 V"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.008399790330612831,
             "width" : 0.032083333333333346,
             "x" : 0.43309523756862706,
             "y" : 0.948849635233761
           },
-          "text" : "0202"
+          "text" : "0203"
         }
       ]
     },
@@ -289,10 +279,20 @@
         "x" : 0.23419105095995485,
         "y" : 0.8751002877308505
       },
-      "text" : "TEF IN 178",
+      "text" : "A TEF IN 178",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.007549892060446138,
+            "width" : 0.009765625,
+            "x" : 0.28171709252896526,
+            "y" : 0.9024686464782798
+          },
+          "text" : "A"
+        },
+        {
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01368417935955865,
             "width" : 0.037760416666666664,
@@ -324,30 +324,30 @@
         "x" : 0.28169105095995484,
         "y" : 0.8832541711561324
       },
-      "text" : "Ket neri Sato EF IN 178\/162★ 0202",
+      "text" : "Kat nori Sato EF IN 178\/162★ 0207",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009338788969765716,
             "width" : 0.02754177954889112,
             "x" : 0.2816910511894697,
             "y" : 0.9019317490800991
           },
-          "text" : "Ket"
+          "text" : "Kat"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012660059314294762,
             "width" : 0.06772344474727929,
             "x" : 0.32553649216966657,
             "y" : 0.89980417438708
           },
-          "text" : "neri Sato"
+          "text" : "nori Sato"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013074304557672002,
             "width" : 0.031476319484447,
@@ -374,7 +374,7 @@
             "x" : 0.43317083871773876,
             "y" : 0.9486256939211454
           },
-          "text" : "0202"
+          "text" : "0207"
         }
       ]
     },
@@ -389,10 +389,10 @@
         "x" : 0.37572561429700835,
         "y" : 0.8696643654473293
       },
-      "text" : "163 0202",
+      "text" : "163 0203",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.016937966756553548,
             "width" : 0.04780898876404494,
@@ -402,14 +402,14 @@
           "text" : "163"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.008468983378276774,
             "width" : 0.03165730337078652,
             "x" : 0.4332256140991502,
             "y" : 0.948708210340652
           },
-          "text" : "0202"
+          "text" : "0203"
         }
       ]
     },
@@ -424,20 +424,20 @@
         "x" : 0.28169105095995484,
         "y" : 0.8822549207363675
       },
-      "text" : "Koh ori Sato EF IN 178\/162",
+      "text" : "Kat ori Sato EF IN 178\/162Y",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009773490407015912,
             "width" : 0.02950904951666906,
             "x" : 0.2816910512058636,
             "y" : 0.9018019015310075
           },
-          "text" : "Koh"
+          "text" : "Kat"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012612005012312221,
             "width" : 0.06134088404605395,
@@ -447,7 +447,7 @@
           "text" : "ori Sato"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013496724847783864,
             "width" : 0.031476319484447,
@@ -457,19 +457,19 @@
           "text" : "EF IN"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01723344504867417,
             "width" : 0.10062674738930254,
             "x" : 0.3281017844320669,
             "y" : 0.9236691609884582
           },
-          "text" : "178\/162"
+          "text" : "178\/162Y"
         }
       ]
     }
   ],
-  "scanID" : "DA76D40D-07D6-4F9E-AE2B-4CA0F0B9C7CA",
+  "scanID" : "6A165F2D-5952-4372-8C37-DDBF52EFBC2D",
   "setConfidenceReasons" : [
 
   ],

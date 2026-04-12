@@ -1,0 +1,408 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_metadata_agreement"
+  ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "057\/193",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
+  },
+  "fixtureName" : "ionos-bellibolt-ex-057-193",
+  "footerRouting" : {
+    "anchorIdentifier" : "057\/193",
+    "collectorAnchor" : {
+      "height" : 0.015759312320916874,
+      "width" : 0.13839401100020104,
+      "x" : 0.16170352205277427,
+      "y" : 0.8770773637136979
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
+      },
+      "text" : "x2 抵抗力 にげ る * eXルール Illus. Sbon Graphies м2a 057\/193 RR ポケモンをくがきぜつしたなき、相手はサイドを2枚とる Ida\/Creature\/GAM: FREAK",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0238333339745814,
+            "width" : 0.05381989466109599,
+            "x" : 0.19117631988408887,
+            "y" : 0.7937499995710426
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.012922636103151862,
+            "width" : 0.06535273115263945,
+            "x" : 0.3270074806168126,
+            "y" : 0.7992263607567279
+          },
+          "text" : "抵抗力"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011065663280323108,
+            "width" : 0.04100563226630224,
+            "x" : 0.6114840682271611,
+            "y" : 0.8010833336482021
+          },
+          "text" : "にげ"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010999999278595912,
+            "width" : 0.015377112520149571,
+            "x" : 0.658896831400286,
+            "y" : 0.8020000004523687
+          },
+          "text" : "る"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.021999998557191872,
+            "width" : 0.02819137323379845,
+            "x" : 0.7447523772666552,
+            "y" : 0.7983333341922374
+          },
+          "text" : "*"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01834909220479622,
+            "width" : 0.11917261908915523,
+            "x" : 0.3910787865436819,
+            "y" : 0.829484240778683
+          },
+          "text" : "eXルール"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016704871060171936,
+            "width" : 0.1858067795073352,
+            "x" : 0.057908007465273234,
+            "y" : 0.8449283669625677
+          },
+          "text" : "Illus. Sbon Graphies"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017416666025418626,
+            "width" : 0.04228705816955253,
+            "x" : 0.09891364423744826,
+            "y" : 0.868916667040763
+          },
+          "text" : "м2a"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015759312320916898,
+            "width" : 0.13839401100020104,
+            "x" : 0.16170352205277427,
+            "y" : 0.8770773637136979
+          },
+          "text" : "057\/193 RR"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.019284145497319348,
+            "width" : 0.47284622218290057,
+            "x" : 0.3718573947865229,
+            "y" : 0.8688825212972202
+          },
+          "text" : "ポケモンをくがきぜつしたなき、相手はサイドを2枚とる"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.011081422953346059,
+            "width" : 0.20246531288730002,
+            "x" : 0.4705272002977814,
+            "y" : 0.907335243398452
+          },
+          "text" : "Ida\/Creature\/GAM: FREAK"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "14_raw_footer_modern_left_set",
+      "normalizedRect" : {
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.00024383721113155034,
+        "y" : 0.8340570198741563
+      },
+      "text" : "Illus. 5bc M20",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013179857398661392,
+            "width" : 0.07864275900648186,
+            "x" : 0.05897888019996087,
+            "y" : 0.8453486080533992
+          },
+          "text" : "Illus. 5bc"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01718483412322274,
+            "width" : 0.041837406917073806,
+            "x" : 0.09568542168127803,
+            "y" : 0.8684266881987146
+          },
+          "text" : "M20"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "modern_left",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "15_raw_footer_modern_left_collector",
+      "normalizedRect" : {
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.09346758278593595,
+        "y" : 0.8389570198741563
+      },
+      "text" : "5 5ban Graphics M2a 057\/193 RR",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014944162436548227,
+            "width" : 0.14986735405537616,
+            "x" : 0.09346758385641703,
+            "y" : 0.8454950909268031
+          },
+          "text" : "5 5ban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01681218274111675,
+            "width" : 0.04188432602420994,
+            "x" : 0.10132089406421226,
+            "y" : 0.8683783397475296
+          },
+          "text" : "M2a"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014745788516126911,
+            "width" : 0.13628767022721436,
+            "x" : 0.16218405441225164,
+            "y" : 0.8763174261633064
+          },
+          "text" : "057\/193 RR"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.05886908218775135,
+        "y" : 0.8267970198741563
+      },
+      "text" : "Illus. 5bon Gr M2a",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013972602739726026,
+            "width" : 0.1242814667988107,
+            "x" : 0.058869081972213244,
+            "y" : 0.8444956500887681
+          },
+          "text" : "Illus. 5bon Gr"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017698630136986287,
+            "width" : 0.04734532068526123,
+            "x" : 0.09503564680468221,
+            "y" : 0.867783321342345
+          },
+          "text" : "M2a"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "normalizedRect" : {
+        "height" : 0.1,
+        "width" : 0.24910921980036188,
+        "x" : 0.10634591765269386,
+        "y" : 0.8349570198741563
+      },
+      "text" : "Sban Graphies M2a 057\/193 RR",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016393773800858834,
+            "width" : 0.13682880932929917,
+            "x" : 0.10628866068339497,
+            "y" : 0.8454517218370681
+          },
+          "text" : "Sban Graphies"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016822429906542046,
+            "width" : 0.03615041448290213,
+            "x" : 0.10634591761161384,
+            "y" : 0.8690691693367731
+          },
+          "text" : "M2a"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014485981308411222,
+            "width" : 0.1340851737184006,
+            "x" : 0.16484386030814246,
+            "y" : 0.877013094549974
+          },
+          "text" : "057\/193 RR"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.24625841588368796,
+        "y" : 0.8213570198741563
+      },
+      "text" : "3 RR",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01207964601769911,
+            "width" : 0.05188896844499281,
+            "x" : 0.2462584156767889,
+            "y" : 0.8775738339730501
+          },
+          "text" : "3 RR"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.24910921980036188,
+        "x" : 0.10634591765269386,
+        "y" : 0.8339570198741563
+      },
+      "text" : "Sban Graphics M2a 057\/193 RR",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016550711331302176,
+            "width" : 0.13687562610586781,
+            "x" : 0.10626525142967273,
+            "y" : 0.8452433079590533
+          },
+          "text" : "Sban Graphics"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016767123287671232,
+            "width" : 0.03615041448290213,
+            "x" : 0.10634591761161384,
+            "y" : 0.8688885266536083
+          },
+          "text" : "M2a"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014438356164383565,
+            "width" : 0.13408517371840056,
+            "x" : 0.1648438616981408,
+            "y" : 0.8772720883440193
+          },
+          "text" : "057\/193 RR"
+        }
+      ]
+    }
+  ],
+  "scanID" : "200D7834-E2CD-4DBF-8F61-E8B225D9DBC0",
+  "setConfidenceReasons" : [
+    "rewrite_raw_footer_family_set_hints"
+  ],
+  "setConfidenceScore" : 0.62,
+  "setHintTokens" : [
+    "m20",
+    "m2a"
+  ],
+  "stage1AssessmentReasons" : [
+    "footer_signal_sufficient_for_early_exit",
+    "target_quality_too_low_for_escalation"
+  ],
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak"
+  ]
+}

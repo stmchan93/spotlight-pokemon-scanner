@@ -43,7 +43,7 @@
         "x" : 6.185898625484957e-06,
         "y" : 0.78
       },
-      "text" : "weakness resistance retreat Pokémon eX rule Mius Sbon Gros When your Pokémon eX SCR EM 128\/142 ** in fascied Out, your epponent takes 2 Prize cards. 62824 Pustmon \/ Juintacdo \/Creatures \/ GAMAE FREAK",
+      "text" : "weakness x2 resistance retreat Pokémon EX rule Illus. 5ban Grop When your Pokémon eX SCE EN 128\/142 ** • Koocked Out, your opponent takes 2 Prize cards. C2024 Puitrcon \/ Mintendo \/Creatures \/ GAME FREAK",
       "tokens" : [
         {
           "confidence" : 1,
@@ -58,6 +58,16 @@
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
+            "height" : 0.021083332050837227,
+            "width" : 0.052563452613947896,
+            "x" : 0.25769530545307123,
+            "y" : 0.801083333798887
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
             "height" : 0.010999999278595912,
             "width" : 0.0974346869070199,
             "x" : 0.3666683178011413,
@@ -66,7 +76,7 @@
           "text" : "resistance"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012597541371867442,
             "width" : 0.0707311339713654,
@@ -83,17 +93,17 @@
             "x" : 0.451282659995742,
             "y" : 0.8340833337188356
           },
-          "text" : "Pokémon eX rule"
+          "text" : "Pokémon EX rule"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.012833333493645332,
             "width" : 0.14102389939013132,
             "x" : 0.1346199045345142,
             "y" : 0.852416666547225
           },
-          "text" : "Mius Sbon Gros"
+          "text" : "Illus. 5ban Grop"
         },
         {
           "confidence" : 1,
@@ -106,17 +116,17 @@
           "text" : "When your Pokémon eX"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013868194842406874,
             "width" : 0.04358920239144457,
             "x" : 0.17179893355094067,
             "y" : 0.8761318051379503
           },
-          "text" : "SCR EM"
+          "text" : "SCE EN"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.027318465880473236,
             "width" : 0.15355005304537736,
@@ -126,24 +136,24 @@
           "text" : "128\/142 **"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.01954154727793697,
             "width" : 0.46794294928291075,
             "x" : 0.4333341506940324,
             "y" : 0.8651002862982125
           },
-          "text" : "in fascied Out, your epponent takes 2 Prize cards."
+          "text" : "• Koocked Out, your opponent takes 2 Prize cards."
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.011036771648592793,
             "width" : 0.38589266537875316,
             "x" : 0.35384795733553076,
             "y" : 0.9101666669173687
           },
-          "text" : "62824 Pustmon \/ Juintacdo \/Creatures \/ GAMAE FREAK"
+          "text" : "C2024 Puitrcon \/ Mintendo \/Creatures \/ GAME FREAK"
         }
       ]
     },
@@ -158,7 +168,7 @@
         "x" : 0.06965727301845805,
         "y" : 0.8342762267983839
       },
-      "text" : "Mus. 56 H SCR =",
+      "text" : "Mhis. 56 H SCRE",
       "tokens" : [
         {
           "confidence" : 0.3,
@@ -168,10 +178,10 @@
             "x" : 0.1345976459340128,
             "y" : 0.84938294610787
           },
-          "text" : "Mus. 56"
+          "text" : "Mhis. 56"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.023241106719367587,
             "width" : 0.022729130561031895,
@@ -181,14 +191,14 @@
           "text" : "H"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
             "height" : 0.01471936758893281,
             "width" : 0.035717205167335835,
             "x" : 0.17139719066321277,
             "y" : 0.8749481635082126
           },
-          "text" : "SCR ="
+          "text" : "SCRE"
         }
       ]
     },
@@ -203,47 +213,47 @@
         "x" : 0.1690160437566832,
         "y" : 0.8391762267983839
       },
-      "text" : "- Sbon Gios SCR EN 128\/142 ** €2924 Puкa",
+      "text" : "- 5bon Grop SCE EN 728\/142 ** C2924 Pou",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.014477157360406093,
             "width" : 0.10792375156903666,
             "x" : 0.16901604429630193,
             "y" : 0.8522523689093483
           },
-          "text" : "- Sbon Gios"
+          "text" : "- 5bon Grop"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013543147208121838,
             "width" : 0.04738115922543074,
             "x" : 0.16901604401991185,
             "y" : 0.87653663288716
           },
-          "text" : "SCR EN"
+          "text" : "SCE EN"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.02321091956898645,
             "width" : 0.15350949257822294,
             "x" : 0.23218378439961262,
             "y" : 0.8751990851323012
           },
-          "text" : "128\/142 **"
+          "text" : "728\/142 **"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.009340101522842648,
             "width" : 0.0816008853326863,
             "x" : 0.3545922512329591,
             "y" : 0.9092269882138662
           },
-          "text" : "€2924 Puкa"
+          "text" : "C2924 Pou"
         }
       ]
     },
@@ -258,17 +268,27 @@
         "x" : 0.12151663141705261,
         "y" : 0.8270162267983839
       },
-      "text" : "ilbs. Sbo",
+      "text" : "lllus. Sbo H",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.013041095890410958,
             "width" : 0.08268126873811793,
             "x" : 0.13518833778814499,
             "y" : 0.8521669117240689
           },
-          "text" : "ilbs. Sbo"
+          "text" : "lllus. Sbo"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.017232878489037092,
+            "width" : 0.01757791249399373,
+            "x" : 0.13714143565270714,
+            "y" : 0.8726600616341736
+          },
+          "text" : "H"
         }
       ]
     },
@@ -283,37 +303,37 @@
         "x" : 0.1690160437566832,
         "y" : 0.8351762267983839
       },
-      "text" : "- Sbon Gios 128\/142 ** €2924 Puie",
+      "text" : "-5ban Grep 728\/142 ** C2024 Poie",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.016360940665842216,
             "width" : 0.10763718072266247,
             "x" : 0.16883029376487413,
             "y" : 0.8517621115931041
           },
-          "text" : "- Sbon Gios"
+          "text" : "-5ban Grep"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.022779423722596937,
             "width" : 0.15201455251492363,
             "x" : 0.2312038160845863,
             "y" : 0.875013625322751
           },
-          "text" : "128\/142 **"
+          "text" : "728\/142 **"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.00981308411214954,
             "width" : 0.08423317195632132,
             "x" : 0.3539341787526328,
             "y" : 0.9094752921644275
           },
-          "text" : "€2924 Puie"
+          "text" : "C2024 Poie"
         }
       ]
     },
@@ -328,17 +348,17 @@
         "x" : 0.33615749085721214,
         "y" : 0.8215762267983839
       },
-      "text" : "$2924 P",
+      "text" : "C2124 8",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.008362831858407081,
             "width" : 0.05620716977622755,
             "x" : 0.3574774522752088,
             "y" : 0.9098505630583397
           },
-          "text" : "$2924 P"
+          "text" : "C2124 8"
         }
       ]
     },
@@ -353,27 +373,27 @@
         "x" : 0.1690160437566832,
         "y" : 0.8341762267983839
       },
-      "text" : "- Sbon Giopta 128\/142 ** C2124 Poio",
+      "text" : "-5ban Grepes 128\/142 *1 C2124 Poio",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.015583333333333334,
             "width" : 0.1316143311817521,
             "x" : 0.16901604430507622,
             "y" : 0.8516484490068329
           },
-          "text" : "- Sbon Giopta"
+          "text" : "-5ban Grepes"
         },
         {
-          "confidence" : 0.3,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
             "height" : 0.016999999999999994,
             "width" : 0.14016926270856592,
             "x" : 0.23219092218481163,
             "y" : 0.8795095601644095
           },
-          "text" : "128\/142 **"
+          "text" : "128\/142 *1"
         },
         {
           "confidence" : 0.3,
@@ -396,72 +416,72 @@
         "x" : 0.06000544359079042,
         "y" : 0
       },
-      "text" : "BASIG Terapagos@* \" 230 Tera As long as this Pokémon is on your Bench, prevent all damage done to this Pokémon by attacks (both yours and your opponent's).",
+      "text" : "BASIG Terapagos @X HP 230 Tera As long as this Pokémon is on your Bench, prevent all damage done to this Pokémon by attacks (both yours and your opponent's).",
       "tokens" : [
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.0169245507519318,
-            "width" : 0.09880849744968427,
-            "x" : 0.1433581722718678,
-            "y" : 0.08813636415282958
+            "height" : 0.015596329801467836,
+            "width" : 0.09848715512652793,
+            "x" : 0.1431439485860535,
+            "y" : 0.0889908259810194
           },
           "text" : "BASIG"
         },
         {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.0408163245588411,
-            "width" : 0.34706467805451163,
-            "x" : 0.27241660578885124,
-            "y" : 0.08979591955731414
-          },
-          "text" : "Terapagos@*"
-        },
-        {
           "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.041048034934497823,
-            "width" : 0.14792920719185754,
-            "x" : 0.718100749242934,
-            "y" : 0.0829694321058522
+            "height" : 0.043119265627132246,
+            "width" : 0.34534457498928434,
+            "x" : 0.2723283927258041,
+            "y" : 0.08807339486336703
           },
-          "text" : "\" 230"
+          "text" : "Terapagos @X"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.01699123465858694,
-            "width" : 0.09504450677584547,
-            "x" : 0.716095175754858,
-            "y" : 0.13027989279981425
+            "height" : 0.04148471615720524,
+            "width" : 0.1534864746776791,
+            "x" : 0.7174391700742883,
+            "y" : 0.08253275127200495
+          },
+          "text" : "HP 230"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.016383593363532855,
+            "width" : 0.09362041380266423,
+            "x" : 0.7160353789148929,
+            "y" : 0.13079902896481824
           },
           "text" : "Tera"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.023556880034734086,
-            "width" : 0.5582577430511492,
-            "x" : 0.29864590410219716,
-            "y" : 0.15070223263062552
+            "height" : 0.02197886637725164,
+            "width" : 0.5569460386384988,
+            "x" : 0.3002145711603996,
+            "y" : 0.1517730964804104
           },
           "text" : "As long as this Pokémon is on your Bench, prevent all damage done to this"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.02021635796825958,
-            "width" : 0.41393894523902036,
-            "x" : 0.2835350118491814,
-            "y" : 0.16969495918576546
+            "height" : 0.021023526254179182,
+            "width" : 0.41369695185825306,
+            "x" : 0.2848126042261619,
+            "y" : 0.16932345875941723
           },
           "text" : "Pokémon by attacks (both yours and your opponent's)."
         }
       ]
     }
   ],
-  "scanID" : "353FBC3C-88D5-4E9E-A67D-8997B78E03F3",
+  "scanID" : "98216318-6C02-49F1-9317-58D9586C6475",
   "setConfidenceReasons" : [
 
   ],
