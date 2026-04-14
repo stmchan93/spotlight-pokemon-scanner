@@ -7,8 +7,11 @@ from unittest.mock import patch
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 TOOLS_ROOT = REPO_ROOT / "tools"
+BACKEND_ROOT = REPO_ROOT / "backend"
 if str(TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLS_ROOT))
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
 from build_raw_visual_seed_manifest import (  # noqa: E402
     TruthKey,
@@ -17,6 +20,7 @@ from build_raw_visual_seed_manifest import (  # noqa: E402
     printed_number_query_value,
     stripped_number_variants,
 )
+from catalog_tools import derive_card_title_aliases  # noqa: E402
 from scrydex_expansion_resolver import resolve_expansion_token, write_expansion_snapshot  # noqa: E402
 
 
@@ -111,6 +115,25 @@ class RawVisualSeedManifestToolTests(unittest.TestCase):
         self.assertTrue(result["providerSupported"])
         self.assertEqual(result["selected"]["providerCardId"], "svp-44")
         self.assertIn('global:name:"Charmander" number:"44" expansion.id:svp', observed_queries)
+
+    def test_derive_card_title_aliases_keeps_multilingual_titles(self) -> None:
+        aliases = derive_card_title_aliases(
+            name="Snorlax",
+            language="Japanese",
+            source_payload={
+                "id": "swsh10a_ja-77",
+                "name": "カビゴン",
+                "translation": {
+                    "en": {
+                        "name": "Snorlax",
+                    }
+                },
+            },
+        )
+
+        alias_texts = {str(alias["alias"]) for alias in aliases}
+        self.assertIn("Snorlax", alias_texts)
+        self.assertIn("カビゴン", alias_texts)
 
 
 if __name__ == "__main__":

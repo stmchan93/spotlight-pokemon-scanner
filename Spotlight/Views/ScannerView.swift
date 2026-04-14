@@ -193,6 +193,9 @@ struct ScannerView: View {
                                 .offset(x: -1, y: 1)
                         }
                         .overlay {
+                            slabReticleGuides(layout: layout)
+                        }
+                        .overlay {
                             reticleOverlayLabel
                         }
                         .contentShape(Rectangle())
@@ -269,6 +272,23 @@ struct ScannerView: View {
                     }
                 }
             )
+    }
+
+    @ViewBuilder
+    private func slabReticleGuides(layout: ScannerReticleLayout) -> some View {
+        if viewModel.scannerPresentationMode == .slab {
+            VStack(spacing: 0) {
+                Spacer()
+                    .frame(height: layout.height * PSASlabGuidance.labelDividerRatio)
+
+                Rectangle()
+                    .fill(Color.white.opacity(0.38))
+                    .frame(height: 1.5)
+                    .padding(.horizontal, 18)
+
+                Spacer(minLength: 0)
+            }
+        }
     }
 
     private var zoomControls: some View {
@@ -823,7 +843,7 @@ struct ScannerView: View {
     private func tertiaryLine(for item: LiveScanStackItem) -> String? {
         switch item.phase {
         case .pending:
-            return viewModel.isCapturingPhoto ? "Hold steady for a moment" : "Checking crop and OCR"
+            return viewModel.isCapturingPhoto ? "Hold steady for a moment" : nil
         case .failed:
             return nil
         case .unsupported:

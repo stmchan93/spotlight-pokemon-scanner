@@ -121,6 +121,123 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         XCTAssertFalse(shouldFastRejectWeakRawTargetSelection(targetSelection))
     }
 
+    func testDetectSlabLabelFallbackRectFindsTopLabelInNoisySlabCrop() {
+        let image = makeImage(size: CGSize(width: 420, height: 720)) { context in
+            UIColor(red: 0.96, green: 0.94, blue: 0.88, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 420, height: 720))
+
+            UIColor(white: 0.85, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 420, height: 220))
+
+            UIColor(white: 0.28, alpha: 1).setFill()
+            context.fill(CGRect(x: 58, y: 210, width: 304, height: 450))
+
+            UIColor(red: 0.89, green: 0.12, blue: 0.12, alpha: 1).setFill()
+            context.fill(CGRect(x: 82, y: 248, width: 256, height: 78))
+
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 96, y: 260, width: 228, height: 54))
+
+            UIColor(white: 0.12, alpha: 1).setFill()
+            context.fill(CGRect(x: 102, y: 292, width: 72, height: 10))
+            context.fill(CGRect(x: 248, y: 266, width: 56, height: 30))
+
+            UIColor(red: 0.18, green: 0.42, blue: 0.27, alpha: 1).setFill()
+            context.fill(CGRect(x: 88, y: 340, width: 244, height: 282))
+
+            UIColor(red: 0.78, green: 0.18, blue: 0.20, alpha: 1).setFill()
+            context.fill(CGRect(x: 220, y: 390, width: 76, height: 120))
+        }
+
+        let rect = detectSlabLabelFallbackRect(in: image)
+
+        XCTAssertNotNil(rect)
+        XCTAssertLessThan(rect?.y ?? 1, 0.42)
+        XCTAssertGreaterThan(rect?.width ?? 0, 0.40)
+        XCTAssertLessThan(rect?.height ?? 1, 0.22)
+    }
+
+    func testDetectSlabLabelFallbackRectRejectsPlainDarkCrop() {
+        let image = makeImage(size: CGSize(width: 420, height: 720)) { context in
+            UIColor(white: 0.18, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 420, height: 720))
+        }
+
+        XCTAssertNil(detectSlabLabelFallbackRect(in: image))
+    }
+
+    func testDetectSlabLabelFallbackRectIgnoresRedCardArtBelowGuideBand() {
+        let image = makeImage(size: CGSize(width: 420, height: 720)) { context in
+            UIColor(red: 0.96, green: 0.94, blue: 0.88, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 420, height: 720))
+
+            UIColor(white: 0.78, alpha: 1).setFill()
+            context.fill(CGRect(x: 52, y: 86, width: 316, height: 568))
+
+            UIColor(red: 0.89, green: 0.13, blue: 0.13, alpha: 1).setFill()
+            context.fill(CGRect(x: 80, y: 112, width: 260, height: 76))
+
+            UIColor.white.setFill()
+            context.fill(CGRect(x: 96, y: 126, width: 228, height: 46))
+
+            UIColor(white: 0.15, alpha: 1).setFill()
+            context.fill(CGRect(x: 102, y: 140, width: 118, height: 10))
+            context.fill(CGRect(x: 266, y: 126, width: 44, height: 30))
+
+            UIColor(red: 0.86, green: 0.31, blue: 0.15, alpha: 1).setFill()
+            context.fill(CGRect(x: 86, y: 250, width: 248, height: 220))
+
+            UIColor(red: 0.80, green: 0.08, blue: 0.10, alpha: 1).setFill()
+            context.fill(CGRect(x: 132, y: 300, width: 168, height: 180))
+        }
+
+        let rect = detectSlabLabelFallbackRect(in: image)
+
+        XCTAssertNotNil(rect)
+        XCTAssertLessThan((rect?.y ?? 1) + (rect?.height ?? 1), PSASlabGuidance.labelDividerRatio + 0.11)
+        XCTAssertLessThan(rect?.height ?? 1, 0.22)
+    }
+
+    func testSelectOCRInputRejectsBroadSlabFallbackWhenNoPSASlabOrLabelIsFound() {
+        let image = makeImage(size: CGSize(width: 420, height: 720)) { context in
+            UIColor(white: 0.18, alpha: 1).setFill()
+            context.fill(CGRect(x: 0, y: 0, width: 420, height: 720))
+        }
+        let capture = ScanCaptureInput(
+            originalImage: image,
+            searchImage: image,
+            fallbackImage: image,
+            captureSource: .importedPhoto
+        )
+
+        XCTAssertThrowsError(
+            try selectOCRInput(
+                scanID: UUID(),
+                capture: capture,
+                mode: .psaSlab
+            )
+        ) { error in
+            XCTAssertEqual(
+                error.localizedDescription,
+                "Could not isolate the PSA slab or label. Fit the full slab inside the reticle and keep the label above the guide."
+            )
+        }
+    }
+
+    func testPSASlabGuideBandMatchesTopLabelOCRRegion() {
+        XCTAssertEqual(PSASlabGuidance.labelDividerRatio, 0.28, accuracy: 0.001)
+        XCTAssertEqual(
+            SlabScanConfiguration.default.labelOCR.topLabelWideRegion.height,
+            PSASlabGuidance.labelDividerRatio,
+            accuracy: 0.001
+        )
+        XCTAssertEqual(SlabScanConfiguration.default.labelOCR.topLabelWideRegion.minY, 0, accuracy: 0.001)
+        XCTAssertGreaterThan(
+            SlabScanConfiguration.default.labelOCR.topLabelExpandedRegion.height,
+            SlabScanConfiguration.default.labelOCR.topLabelWideRegion.height
+        )
+    }
+
     func testLowConfidenceResponsesStayInTrayUntilTapped() {
         let response = makeMatchResponse(confidence: .low, reviewDisposition: .ready)
 
@@ -140,6 +257,16 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
 
         XCTAssertEqual(matchedStackPhase(for: response), .resolved)
         XCTAssertFalse(shouldPresentAlternativesImmediately(for: response))
+    }
+
+    func testSlabResponsesDoNotAutoAcceptEvenWhenHighConfidence() {
+        let response = makeMatchResponse(
+            confidence: .high,
+            reviewDisposition: .ready,
+            resolverMode: .psaSlab
+        )
+
+        XCTAssertFalse(shouldAutoAccept(response))
     }
 
     func testUnsupportedResponsesDoNotAutoOpenAlternatives() {
@@ -307,9 +434,39 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         )
     }
 
+    private func shouldShortCircuitBackendMatch(_ analysis: AnalyzedCapture) -> Bool {
+        guard analysis.resolverModeHint == .rawCard else {
+            return false
+        }
+
+        let rawEvidence = analysis.ocrAnalysis?.rawEvidence
+        let hasExactCollector = normalizedNonEmpty(analysis.collectorNumber) != nil
+            || normalizedNonEmpty(rawEvidence?.collectorNumberExact) != nil
+        let hasTrustedTitle = normalizedNonEmpty(rawEvidence?.titleTextPrimary) != nil
+            || normalizedNonEmpty(rawEvidence?.titleTextSecondary) != nil
+        let hasSetHints = !(rawEvidence?.setHints ?? analysis.setHintTokens).isEmpty
+            || analysis.setBadgeHint != nil
+            || rawEvidence?.setBadgeHint != nil
+
+        guard analysis.cropConfidence <= 0.40 else {
+            return false
+        }
+
+        return !hasExactCollector && !hasTrustedTitle && !hasSetHints
+    }
+
+    private func normalizedNonEmpty(_ value: String?) -> String? {
+        guard let value else {
+            return nil
+        }
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
     private func makeMatchResponse(
         confidence: MatchConfidence,
-        reviewDisposition: ReviewDisposition
+        reviewDisposition: ReviewDisposition,
+        resolverMode: ResolverMode = .rawCard
     ) -> ScanMatchResponse {
         let candidate = makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro")
 
@@ -329,7 +486,7 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
             ambiguityFlags: [],
             matcherSource: .remoteHybrid,
             matcherVersion: "test",
-            resolverMode: .rawCard,
+            resolverMode: resolverMode,
             resolverPath: .visualHybridIndex,
             slabContext: nil,
             reviewDisposition: reviewDisposition,

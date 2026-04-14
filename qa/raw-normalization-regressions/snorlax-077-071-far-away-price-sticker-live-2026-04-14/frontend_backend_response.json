@@ -1,0 +1,46 @@
+{
+  "payload" : {
+    "ambiguityFlags" : [
+      "Top matches are close together",
+      "Set hints are weak",
+      "Best guess is arbitrary among same-number matches"
+    ],
+    "confidence" : "low",
+    "matchMs" : 601.9679307937622,
+    "networkOverheadMs" : 139.67393079376222,
+    "resolverMode" : "raw_card",
+    "resolverPath" : "visual_hybrid_index",
+    "reviewDisposition" : "needs_review",
+    "reviewReason" : "Review the best guess before relying on the card result.",
+    "scanID" : "B890C51E-603E-4895-A100-9272600ECB21",
+    "scrydexRequestCount" : 0,
+    "scrydexRequestTypes" : [
+
+    ],
+    "serverProcessingMs" : 462.294,
+    "topCandidates" : [
+      {
+        "finalScore" : 0.67,
+        "id" : "sv2p_ja-77",
+        "name" : "Baxcalibur",
+        "number" : "077\/071",
+        "setName" : "スノーハザード"
+      },
+      {
+        "finalScore" : 0.67,
+        "id" : "sv5m_ja-77",
+        "name" : "Iron Thorns",
+        "number" : "077\/071",
+        "setName" : "サイバージャッジ"
+      },
+      {
+        "finalScore" : 0.67,
+        "id" : "swsh10b_ja-77",
+        "name" : "Melmetal V",
+        "number" : "077\/071",
+        "setName" : "Pokémon GO"
+      }
+    ]
+  },
+  "stage" : "frontend_backend_response"
+}

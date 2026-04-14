@@ -84,7 +84,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         assert row is not None
         self.assertEqual(json.loads(row["request_json"])["collectorNumber"], "223/197")
         self.assertEqual(json.loads(row["response_json"])["resolverMode"], "raw_card")
-        self.assertEqual(row["selected_card_id"], "obf-223")
+        self.assertIsNone(row["selected_card_id"])
         self.assertEqual(row["confidence"], "medium")
         self.assertEqual(row["review_disposition"], "ready")
         self.assertEqual(legacy_tables, set())

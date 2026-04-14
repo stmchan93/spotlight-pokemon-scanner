@@ -51,8 +51,8 @@ Primary runtime entrypoints:
 
 - [backend/server.py](/Users/stephenchan/Code/spotlight/backend/server.py)
 - [backend/catalog_tools.py](/Users/stephenchan/Code/spotlight/backend/catalog_tools.py)
-- [backend/pokemontcg_api_client.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_api_client.py)
-- [backend/pokemontcg_pricing_adapter.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_pricing_adapter.py)
+- deleted legacy raw API client
+- deleted legacy raw pricing adapter
 - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py)
 - [backend/fx_rates.py](/Users/stephenchan/Code/spotlight/backend/fx_rates.py)
 
@@ -90,24 +90,23 @@ Primary DB schema:
 
 ### 3. Remote search fans out too much
 
-- Pokemon remote search currently:
+- Legacy raw-provider remote search currently:
   - builds many queries
   - executes them sequentially
   - does not early-exit after a good hit
 - Sources:
-  - [backend/pokemontcg_api_client.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_api_client.py#L231)
-  - [backend/pokemontcg_api_client.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_api_client.py#L307)
+  - deleted legacy raw API client search helpers
 
 Observed representative strong-query example:
 
-- A strong exact English scan like `Charizard ex`, `223/197`, `OBF` currently generates 17 Pokemon TCG API search queries before any early stopping because there is no early stopping.
+- A strong exact English scan like `Charizard ex`, `223/197`, `OBF` currently generates 17 legacy-provider search queries before any early stopping because there is no early stopping.
 
 ### 4. Search payloads are too heavy
 
-- Pokemon identity search requests `tcgplayer` and `cardmarket` fields even during candidate search.
+- Legacy raw-provider identity search requests `tcgplayer` and `cardmarket` fields even during candidate search.
 - Scrydex search uses `include_prices=True` during identity search.
 - Sources:
-  - [backend/pokemontcg_api_client.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_api_client.py#L27)
+  - deleted legacy raw API client request builder
   - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py#L248)
   - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py#L262)
 
@@ -325,7 +324,7 @@ Suggested `pricingStatus` values:
 - local route search helpers
 - pricing snapshot helper reads for returned candidates
 
-### [backend/pokemontcg_api_client.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_api_client.py)
+### deleted legacy raw API client
 
 - split search fields from detail fields
 - staged remote query groups
@@ -337,7 +336,7 @@ Suggested `pricingStatus` values:
 - preserve Scrydex retrieval branch
 - keep detail fetch-by-id for explicit pricing refresh flows
 
-### [backend/pokemontcg_pricing_adapter.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_pricing_adapter.py)
+### deleted legacy raw pricing adapter
 
 - preserve as explicit refresh seam
 - remove scan-path dependence on it
@@ -355,7 +354,7 @@ Representative target comparison:
 
 - Before:
   - multiple local full-table passes
-  - many sequential Pokemon queries possible
+  - many sequential legacy-provider queries possible
   - possible live pricing fetch for top candidate
 - After:
   - local stages only in the common case
@@ -365,7 +364,7 @@ Representative target comparison:
 ### Cold English raw identity miss
 
 - Before:
-  - multiple sequential Pokemon search queries
+  - multiple sequential legacy-provider search queries
   - possible live price fetch on top
 - After:
   - one staged remote identity group first
@@ -395,7 +394,7 @@ Representative target comparison:
 
 Future scheduled job plugs into existing provider refresh logic:
 
-- [backend/pokemontcg_pricing_adapter.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_pricing_adapter.py)
+- [backend/pricing_provider.py](/Users/stephenchan/Code/spotlight/backend/pricing_provider.py)
 - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py)
 
 Expected job behavior:

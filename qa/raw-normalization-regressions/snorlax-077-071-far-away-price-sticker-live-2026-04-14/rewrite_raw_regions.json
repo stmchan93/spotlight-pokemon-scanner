@@ -1,0 +1,321 @@
+{
+  "payload" : {
+    "collectorNumber" : "077\/071",
+    "didEscalate" : true,
+    "overallEvidenceScore" : 0.5493333269755045,
+    "plans" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "minimumTextHeight" : 0.0035,
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 3.6,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "minimumTextHeight" : 0.008,
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8795708465084086,
+          "x" : 0.06021457674579577,
+          "y" : 0
+        },
+        "preprocessing" : "none",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 2.6,
+        "usesLanguageCorrection" : true
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide_lowered",
+        "minimumTextHeight" : 0.008,
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.8795708465084086,
+          "x" : 0.06021457674579577,
+          "y" : 0.05
+        },
+        "preprocessing" : "none",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 2.6,
+        "usesLanguageCorrection" : true
+      }
+    ],
+    "regions" : [
+      {
+        "averageConfidence" : 0.39999996532093396,
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "text" : "× 2 批抗力 にげる ★ Mon Kouki Saiteu 出し抜けに特に買れたちまち米蔵を望にする大なが $10a 077\/071 CHR 吉より 現危のひとっと飲えられし行めなり。 02022 Pokémon\/Nintendo\/Creatures\/GAME FREAK",
+        "tokens" : [
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.018367477788624596,
+              "width" : 0.04484990997605327,
+              "x" : 0.2654990324908122,
+              "y" : 0.7827500005026319
+            },
+            "text" : "× 2"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.011084049465321537,
+              "width" : 0.05381989466109599,
+              "x" : 0.3757016718921699,
+              "y" : 0.7872492835531432
+            },
+            "text" : "批抗力"
+          },
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.00925071615202721,
+              "width" : 0.05381989466109599,
+              "x" : 0.6114840675184146,
+              "y" : 0.7872492835925828
+            },
+            "text" : "にげる"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.016499999519063956,
+              "width" : 0.024347095524047305,
+              "x" : 0.7806323063870235,
+              "y" : 0.7827500002863014
+            },
+            "text" : "★"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.012922636103151862,
+              "width" : 0.13839401100020102,
+              "x" : 0.15529639078352192,
+              "y" : 0.8285386820095352
+            },
+            "text" : "Mon Kouki Saiteu"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.023954154727793674,
+              "width" : 0.4581098158897961,
+              "x" : 0.3958841384786917,
+              "y" : 0.8244412603363717
+            },
+            "text" : "出し抜けに特に買れたちまち米蔵を望にする大なが"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.015583333012709288,
+              "width" : 0.0486941910480945,
+              "x" : 0.15273353765473083,
+              "y" : 0.8496666669243745
+            },
+            "text" : "$10a"
+          },
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.016700287138493475,
+              "width" : 0.12947368061485945,
+              "x" : 0.24112711200056516,
+              "y" : 0.8513998559929166
+            },
+            "text" : "077\/071 CHR"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.01859598853868196,
+              "width" : 0.05125704285459519,
+              "x" : 0.5192213905446329,
+              "y" : 0.8458739252903243
+            },
+            "text" : "吉より"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.022718033667621786,
+              "width" : 0.29145691350897257,
+              "x" : 0.5728233181384965,
+              "y" : 0.8435791844718203
+            },
+            "text" : "現危のひとっと飲えられし行めなり。"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.010230420148133548,
+              "width" : 0.3101050887603318,
+              "x" : 0.35391744024390154,
+              "y" : 0.8751862464796436
+            },
+            "text" : "02022 Pokémon\/Nintendo\/Creatures\/GAME FREAK"
+          }
+        ]
+      },
+      {
+        "averageConfidence" : 0.4333333174387614,
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8795708465084086,
+          "x" : 0.06021457674579577,
+          "y" : 0
+        },
+        "text" : "たね カビゴン HP 150",
+        "tokens" : [
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.01574456160766069,
+              "width" : 0.07798520284583678,
+              "x" : 0.15481958265335743,
+              "y" : 0.14495412863137616
+            },
+            "text" : "たね"
+          },
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.03971920763040733,
+              "width" : 0.18839749471597309,
+              "x" : 0.2517485096739842,
+              "y" : 0.13977342355807584
+            },
+            "text" : "カビゴン"
+          },
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.026789791823474608,
+              "width" : 0.11378169639725957,
+              "x" : 0.6840962216815647,
+              "y" : 0.1513761469705342
+            },
+            "text" : "HP 150"
+          }
+        ]
+      },
+      {
+        "averageConfidence" : 0.4333333174387614,
+        "label" : "12_raw_header_wide_lowered",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.8795708465084086,
+          "x" : 0.06021457674579577,
+          "y" : 0.05
+        },
+        "text" : "たね カビゴン HD 150",
+        "tokens" : [
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.016630952547466948,
+              "width" : 0.0676592941003401,
+              "x" : 0.15468227426322434,
+              "y" : 0.14428571391339945
+            },
+            "text" : "たね"
+          },
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.03758333266727506,
+              "width" : 0.17999926646227146,
+              "x" : 0.25936268959630054,
+              "y" : 0.1416666671171437
+            },
+            "text" : "カビゴン"
+          },
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.027500000000000024,
+              "width" : 0.1072335962703968,
+              "x" : 0.6882970988210817,
+              "y" : 0.15083333344537037
+            },
+            "text" : "HD 150"
+          }
+        ]
+      }
+    ],
+    "routing" : {
+      "anchorIdentifier" : "077\/071",
+      "collectorAnchor" : {
+        "height" : 0.016700287138493475,
+        "width" : 0.12947368061485945,
+        "x" : 0.24112711200056516,
+        "y" : 0.8513998559929166
+      },
+      "reasons" : [
+        "footer_band_collector_anchor"
+      ]
+    },
+    "sceneTraits" : {
+      "holderLikely" : false,
+      "normalizationReason" : "exact_reticle_fallback",
+      "normalizedContentRect" : {
+        "height" : 1,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0
+      },
+      "targetQualityScore" : 0.4,
+      "usedFallback" : true,
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak"
+      ]
+    },
+    "setHintTokens" : [
+
+    ],
+    "stage1Assessment" : {
+      "collectorNumberExact" : "077\/071",
+      "reasons" : [
+        "collector_signal_weak",
+        "title_signal_weak",
+        "set_signal_weak",
+        "target_quality_too_low_for_escalation",
+        "fallback_exact_collector_allows_header_rescue"
+      ],
+      "setHintTokens" : [
+
+      ],
+      "shouldEscalate" : true,
+      "titleConfidenceScore" : 0
+    }
+  },
+  "stage" : "rewrite_raw_regions"
+}

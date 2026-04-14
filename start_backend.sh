@@ -10,7 +10,7 @@ echo ""
 if [ ! -f backend/.env ]; then
     echo "⚠️  No backend/.env file found!"
     echo "   Create one with:"
-    echo "   printf 'POKEMONTCG_API_KEY=your_key\\nSCRYDEX_API_KEY=your_key\\nSCRYDEX_TEAM_ID=spotlight\\n' > backend/.env"
+    echo "   printf 'SCRYDEX_API_KEY=your_key\\nSCRYDEX_TEAM_ID=spotlight\\n' > backend/.env"
     echo ""
 fi
 

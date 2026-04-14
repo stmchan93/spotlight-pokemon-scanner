@@ -2,7 +2,7 @@
 Shared pricing utilities for normalizing price data from various sources.
 
 This module provides reusable functions for parsing and normalizing pricing data
-from different APIs (Pokemon TCG API, PriceCharting, etc.) into a consistent format.
+from different providers into a consistent format.
 """
 
 from __future__ import annotations
@@ -94,7 +94,7 @@ def normalize_tcgplayer_prices(
     Normalize tcgplayer price block to our schema.
 
     Args:
-        tcgplayer: Raw tcgplayer data from Pokemon TCG API
+        tcgplayer: Raw tcgplayer pricing payload
 
     Returns:
         Normalized price dict with keys: source, currencyCode, variant, low,
@@ -149,7 +149,7 @@ def normalize_cardmarket_prices(
     Normalize cardmarket price block to our schema.
 
     Args:
-        cardmarket: Raw cardmarket data from Pokemon TCG API
+        cardmarket: Raw cardmarket pricing payload
 
     Returns:
         Normalized price dict with keys: source, currencyCode, variant, low,
@@ -202,13 +202,13 @@ def normalize_price_summary(
     tcgplayer: dict[str, Any] | None, cardmarket: dict[str, Any] | None
 ) -> dict[str, Any] | None:
     """
-    Normalize price summary from Pokemon TCG API response.
+    Normalize a combined raw price summary payload.
 
     Prefers tcgplayer prices, falls back to cardmarket if tcgplayer unavailable.
 
     Args:
-        tcgplayer: Raw tcgplayer data from Pokemon TCG API
-        cardmarket: Raw cardmarket data from Pokemon TCG API
+        tcgplayer: Raw tcgplayer pricing payload
+        cardmarket: Raw cardmarket pricing payload
 
     Returns:
         Normalized price summary dict, or None if no prices available

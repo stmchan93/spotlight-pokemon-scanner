@@ -13,7 +13,7 @@ Repo-specific workflow notes for future coding agents.
 - The active OCR rewrite / rollout plan is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 - The active slab rebuild / rollout plan is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
 - For raw identity backend work, treat the hybrid migration spec as the source of truth over older OCR-primary raw-matcher planning, `direct_lookup`, `slab_sales`, or fragmented SQLite planning notes elsewhere in the repo.
-- For raw set evidence and raw provider migration work, treat the set-badge + Scrydex-first spec as the source of truth over older generic `setHints` assumptions or Pokemon TCG API raw-provider assumptions.
+- For raw set evidence and raw provider migration work, treat the set-badge + Scrydex-first spec as the source of truth over older generic `setHints` assumptions or legacy raw-provider assumptions.
 - Treat the older raw-backend-reset spec as the source of truth for the currently landed OCR-primary baseline only.
 - The revised implementation order in the hybrid migration spec is authoritative:
   - prove visual matching on live normalized images first
@@ -37,7 +37,7 @@ Repo-specific workflow notes for future coding agents.
     - `heldout_blocked`
     - `manual_review`
   - broken or zero-byte images must stay out of accepted training fixtures and remain in `manual_review`
-- For OCR work, treat the OCR rewrite spec as the source of truth over older raw-only OCR heuristics or legacy `CardRectangleAnalyzer.swift` structure.
+- For OCR work, treat the OCR rewrite spec as the source of truth over older raw-only OCR heuristics or legacy slab scanner structure.
 - For slab OCR/backend work, treat the slab cert-first rebuild spec as the source of truth over older slab parser-reset ideas, generic multi-grader heuristics, or backend slab title-repair notes elsewhere in the repo.
 - For raw OCR runtime behavior, treat the normalized-target rewrite path in `Spotlight/Services/OCR/Raw/*`, `TargetSelection.swift`, and `PerspectiveNormalization.swift` as the live source of truth.
 - The canonical seed raw regression corpus is [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check).
@@ -47,49 +47,25 @@ Repo-specific workflow notes for future coding agents.
   - broad footer/header OCR text should not be promoted into trusted raw set evidence by default
 - The old `RawCardScanner` raw path has been deleted from app runtime. Do not recreate it.
 
-## Current scan reliability remediation slice
+## Current raw scan reliability state
 
-- This slice is the active pre-implementation planning bundle for repeat-scan reduction on raw scans.
-- Do not start coding this slice until the concrete todo list in [PLAN.md](/Users/stephenchan/Code/spotlight/PLAN.md) has been reviewed in-thread.
-- Primary goals for this slice:
-  - reduce bad raw normalizations that produce unusable `06_ocr_input_normalized.jpg`
-  - stop live Scrydex pricing fetches for weak/unconfirmed guesses
-  - route weak matches into candidate selection instead of blind rescans
-- Implement in this order unless the user explicitly reprioritizes:
-  1. Scrydex hot-path gating
-  2. frontend no-signal retry gate
-  3. target-selection ambiguity fix
-  4. honest target confidence / fallback reporting
-  5. holder-preserve rejection hardening
-  6. top-candidate contract expansion to `top 5`
-  7. alternatives UX upgrade on top of the existing scanner flow
-  8. standalone result-screen decision only after the above works
-- UX rules for this slice:
-  - if frontend evidence is effectively unreadable, fail fast and ask the user to rescan instead of sending a weak backend guess
-  - if backend confidence is low but plausible candidates exist, route directly to candidate picking
-  - if confidence is medium/high, preserve the normal resolved flow and expose similar matches as an affordance
-- Architecture rules for this slice:
-  - prefer extending the existing alternatives sheet and `/api/v1/scan/feedback` path before adding a new confirm endpoint
-  - do not block reliability fixes on building a brand-new card-detail navigation stack
-  - treat image-3-style standalone detail UI as a follow-up decision, not a prerequisite
-- Validation rule for this slice:
-  - before each change, state the expected improvement
-  - run the relevant regression commands before the change
-  - run the same validation after the change
-  - keep the change only if it is net-positive or neutral
-- Files most likely to move in this slice:
+- The recent raw reliability hardening work is mostly landed.
+- Active raw front-half rule:
+  - accepted rectangle => perspective-correct + canonicalize
+  - weak or ambiguous rectangle => exact reticle fallback
+- Do not reintroduce holder salvage, remnant recovery, or inner-card reconstruction as default raw runtime behavior without fresh regression evidence.
+- Exact-reticle fallback scans may still use:
+  - lowered header rescue on the frontend
+  - wider local-only candidate recall / alternate local visual query variants on the backend
+- Preferred product behavior remains:
+  - centered or slightly zoomed-out raw scans should work
+  - weak/ambiguous scans should prefer `needs_review`, alternatives, or explicit retake behavior over fake cleanup heuristics
+- If you revisit this area, start from the current runtime code in:
   - `Spotlight/Services/OCR/TargetSelection.swift`
   - `Spotlight/Services/OCR/PerspectiveNormalization.swift`
   - `Spotlight/Services/OCR/Raw/RawPipeline.swift`
-  - `Spotlight/ViewModels/ScannerViewModel.swift`
-  - `Spotlight/Views/AlternateMatchesView.swift`
-  - `Spotlight/Views/ScannerRootView.swift`
-  - `Spotlight/Views/ScannerView.swift`
   - `backend/server.py`
   - `backend/catalog_tools.py`
-  - `backend/tests/test_raw_decision_phase5.py`
-  - `backend/tests/test_pricing_phase6.py`
-  - `backend/tests/test_scan_logging_phase7.py`
 
 ## Subagent workflow
 
@@ -153,7 +129,7 @@ Repo-specific workflow notes for future coding agents.
     - resolve as `raw_card`
     - send OCR payloads directly to the backend matcher
     - treat Scrydex as the active raw identity/reference/pricing provider lane
-    - if runtime/code still depends on Pokemon TCG API for raw, treat that as transitional deletion debt rather than the desired architecture
+    - if runtime/code still depends on older raw-provider assumptions, treat that as transitional deletion debt rather than the desired architecture
   - **Slab mode**:
     - send OCR payloads directly to the backend matcher
     - use the cert-first slab spec instead of reviving the old heuristic slab matcher
@@ -170,21 +146,40 @@ Repo-specific workflow notes for future coding agents.
   - persisted SQLite snapshot timestamps are the source of truth for the `24 hour` freshness window
   - runtime refresh should read existing snapshots first and only hit the live provider when the snapshot is stale or the caller explicitly requests `forceRefresh`
   - the in-memory provider cache may exist as an optimization, but it is not the correctness layer for scanner runtime behavior
+- Shared pricing/response layer rule:
+  - keep raw/slab evidence extraction, candidate scoring, confidence math, and resolver routing separate
+  - after identity resolution, raw and slab should share the same pricing/context plumbing
+  - the shared backend layer now centers on:
+    - `PricingContext`
+    - `PricingLoadPolicy`
+    - one shared candidate payload builder
+    - one shared top-candidate encoder
+    - one shared context-based refresh/detail path
+  - do not reintroduce separate `_raw_candidate_payload` / `_slab_candidate_payload` style forks unless there is a real behavior divergence that the shared layer cannot express cleanly
+- Shared top-candidate pricing policy:
+  - raw and slab both return top `5` candidates
+  - rank `1` ensures SQLite hydration
+  - rank `1` only auto-refreshes missing pricing when `reviewDisposition == ready` and confidence is `high` or `medium`
+  - ranks `2-5` return cached pricing only
+  - lazy refresh for user-selected alternate candidates is still future work
 - Current Scrydex mirror rule:
-  - for the current prototype stage, run the backend and the nightly Scrydex sync on the same machine against the same SQLite file
-  - nightly full-catalog sync runs at `3:00 AM America/Los_Angeles`
-  - sync command:
-    - `python3 backend/sync_scrydex_catalog.py --database-path backend/data/spotlight_scanner.sqlite`
-  - sync should persist:
-    - card metadata
-    - raw price snapshots
-    - graded price snapshots returned by the same `include=prices` payload
-  - when the latest successful full sync is fresh, normal scan hot paths should prefer SQLite-only identity/pricing reads and avoid live Scrydex calls
-  - live Scrydex fallback remains allowed when:
-    - the full sync is missing
-    - the full sync is stale
-    - a card is unexpectedly missing locally
-    - the caller explicitly forces refresh
+  - the current live beta deployment is still Cloud Run plus live Scrydex fallback
+  - the same-machine nightly mirror remains implemented in-repo but is not the live hosted path right now
+  - when that mirror path is resumed:
+    - run the backend and the nightly Scrydex sync on the same machine against the same SQLite file
+    - nightly full-catalog sync runs at `3:00 AM America/Los_Angeles`
+    - sync command:
+      - `python3 backend/sync_scrydex_catalog.py --database-path backend/data/spotlight_scanner.sqlite`
+    - sync should persist:
+      - card metadata
+      - raw price snapshots
+      - graded price snapshots returned by the same `include=prices` payload
+    - when the latest successful full sync is fresh, normal scan hot paths should prefer SQLite-only identity/pricing reads and avoid live Scrydex calls
+    - live Scrydex fallback remains allowed when:
+      - the full sync is missing
+      - the full sync is stale
+      - a card is unexpectedly missing locally
+      - the caller explicitly forces refresh
 - Scrydex request-budget rule:
   - cached raw scans/details should stay fully local and issue `0` live Scrydex requests
   - once the nightly full sync is fresh, first-seen raw and slab responses should also stay local unless an explicit fallback condition is hit
@@ -370,7 +365,8 @@ Repo-specific workflow notes for future coding agents.
     - card number
     as fallback identity evidence
   - grader + grade remain explicit for display context and pricing selection
-  - label-only slab scans are a first-class path, not a degraded fallback
+  - live slab capture is standard PSA full-slab only, with a guided top label band inside the reticle
+  - do not broaden slab OCR back into full-search salvage as a normal runtime path
   - phase 1 slab runtime target is PSA Pokemon only
 - Do not add raw-style visual matching for slabs.
 - OCR and backend confidence are separate:
@@ -379,8 +375,8 @@ Repo-specific workflow notes for future coding agents.
 - Do not collapse OCR confidence and backend match confidence into one score.
 - The reticle is a target-selection hint, not the exact OCR crop.
 - Raw runtime now goes through the rewrite path directly.
-- Do not add new raw OCR behavior back into `CardRectangleAnalyzer.swift`.
-- Do not keep new slab runtime logic in `CardRectangleAnalyzer.swift` once the dedicated slab pipeline exists.
+- Do not add new raw OCR behavior into [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift).
+- Keep slab runtime logic isolated from the raw OCR path.
 - The full OCR architecture, fixture set, replay/debug requirements, and phase-by-phase rollout live in [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 
 ### Current raw OCR source of truth
@@ -389,8 +385,8 @@ Repo-specific workflow notes for future coding agents.
   - preview-frame-first capture
   - reticle-expanded search crop
   - target selection from rectangle candidates
-  - remnant-aware fallback normalization for partial/off-center cards
-  - fallback salvage re-canonicalizes into a card-filling OCR target before footer reads
+  - accepted rectangle => perspective-correct + canonicalize
+  - weak or ambiguous rectangle => exact reticle fallback
   - deterministic normalized target crop
   - raw stage 1 footer ROIs:
     - footer band
@@ -446,7 +442,7 @@ Repo-specific workflow notes for future coding agents.
   - if you want the nightly Scrydex mirror to be authoritative, the backend process and the cron job must run on the same host with the same SQLite database path
   - do not assume Cloud Run instances share the same local SQLite file as a cron job running elsewhere
   - for internet-reachable tester builds, point the app at the host that is actually running that shared backend + cron pair
-  - current preferred hosted path for this prototype stage is one Linux VM via `backend/deploy.sh vm ...`, not Cloud Run
+  - current live hosted beta path is still Cloud Run, with the same-host mirror path deferred until it is worth the cutover
 - Preferred raw runtime flow:
   - app OCR extracts collector number/text locally
   - app sends the normalized image plus OCR payload to the backend
@@ -459,7 +455,7 @@ Repo-specific workflow notes for future coding agents.
   - 3. backend visually retrieves top raw candidates
   - 4. backend reranks and confirms with OCR evidence
   - 5. backend checks SQLite for the selected card's metadata/pricing snapshot
-  - 6. if SQLite has no card record, or no fresh pricing snapshot, backend fetches live data from Scrydex first; Pokemon TCG API remains transitional only where the migration is not finished yet
+  - 6. if SQLite has no card record, or no fresh pricing snapshot, backend fetches live data from Scrydex first
   - 7. backend writes the hydrated card metadata/pricing snapshot into SQLite
   - 8. backend returns the normalized card detail/pricing payload plus alternatives to the user
   - 9. later scans of the same card should reuse SQLite until the stored snapshot is older than the `24 hour` freshness window
@@ -516,7 +512,9 @@ Repo-specific workflow notes for future coding agents.
   - the scan tray should show a pending row immediately on tap; do not reintroduce UX that waits for image capture to finish before the tray updates
   - treat raw-vs-slab reticle sizing as a UI/layout concern first, not a reason to casually retune raw OCR
   - raw mode should use a standard card-style reticle
-  - slab mode should keep the same reticle width as raw and grow primarily by height based on PSA slab proportions
+  - slab mode should use the full standard-PSA slab reticle with an internal divider showing label vs card regions
+  - slab mode should assume a standard PSA slab is fully inside the reticle and the label sits above the guide
+  - if the scanner cannot isolate the PSA slab or its label region, fail fast with guidance instead of OCRing the whole crop
   - keep comfortable spacing above the reticle, between the reticle and controls, and between the controls and tray
   - the raw/slab toggle is a real routing signal, not presentation-only:
     - raw => raw OCR branch + raw backend flow

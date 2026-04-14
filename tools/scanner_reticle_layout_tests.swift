@@ -12,7 +12,7 @@ func requireNear(_ lhs: CGFloat, _ rhs: CGFloat, tolerance: CGFloat, _ message: 
     require(abs(lhs - rhs) <= tolerance, message + " (\(lhs) vs \(rhs))")
 }
 
-func testSlabReticleKeepsSameWidthAndGrowsTallerThanRaw() {
+func testSlabReticleUsesFullPSABox() {
     let container = CGSize(width: 390, height: 844)
     let raw = ScannerReticleLayout.make(
         containerSize: container,
@@ -28,10 +28,10 @@ func testSlabReticleKeepsSameWidthAndGrowsTallerThanRaw() {
     )
 
     requireNear(slab.width, raw.width, tolerance: 0.01, "slab reticle should keep the same width as raw")
-    require(slab.height > raw.height, "slab reticle should be taller than raw reticle")
+    require(slab.height > raw.height, "slab reticle should be taller than raw")
 }
 
-func testSlabModePushesControlsLowerWhileKeepingTopAnchorStable() {
+func testSlabModeKeepsTopAnchorStableAndPushesControlsLower() {
     let container = CGSize(width: 390, height: 844)
     let raw = ScannerReticleLayout.make(
         containerSize: container,
@@ -49,10 +49,10 @@ func testSlabModePushesControlsLowerWhileKeepingTopAnchorStable() {
     requireNear(slab.topSpacing, raw.topSpacing, tolerance: 0.01, "top anchor should stay stable across modes")
     let rawControlsTop = raw.topSpacing + raw.height + raw.controlsTopSpacing
     let slabControlsTop = slab.topSpacing + slab.height + slab.controlsTopSpacing
-    require(slabControlsTop > rawControlsTop, "slab mode should push the controls lower than raw mode")
+    require(slabControlsTop > rawControlsTop, "slab mode should push the controls lower than raw")
 }
 
-func testRawAndSlabAspectRatiosMatchPhysicalTargets() {
+func testRawAndSlabAspectRatiosMatchTargets() {
     let container = CGSize(width: 390, height: 844)
     let raw = ScannerReticleLayout.make(
         containerSize: container,
@@ -100,9 +100,9 @@ func testReticleLayoutPreservesBottomControlAndTraySpacing() {
 @main
 struct ScannerReticleLayoutTestRunner {
     static func main() {
-        testSlabReticleKeepsSameWidthAndGrowsTallerThanRaw()
-        testSlabModePushesControlsLowerWhileKeepingTopAnchorStable()
-        testRawAndSlabAspectRatiosMatchPhysicalTargets()
+        testSlabReticleUsesFullPSABox()
+        testSlabModeKeepsTopAnchorStableAndPushesControlsLower()
+        testRawAndSlabAspectRatiosMatchTargets()
         testReticleLayoutPreservesBottomControlAndTraySpacing()
         print("scanner_reticle_layout_tests: PASS")
     }

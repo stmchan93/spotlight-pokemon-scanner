@@ -27,6 +27,17 @@ CREATE TABLE IF NOT EXISTS cards (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS card_name_aliases (
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    alias TEXT NOT NULL,
+    normalized_alias TEXT NOT NULL,
+    alias_language TEXT,
+    alias_kind TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (card_id, normalized_alias, alias_kind)
+);
+
 CREATE TABLE IF NOT EXISTS card_price_snapshots (
     id TEXT PRIMARY KEY,
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
@@ -111,6 +122,12 @@ CREATE INDEX IF NOT EXISTS idx_cards_set_id
 
 CREATE INDEX IF NOT EXISTS idx_cards_set_ptcgo_code
     ON cards(set_ptcgo_code);
+
+CREATE INDEX IF NOT EXISTS idx_card_name_aliases_normalized_alias
+    ON card_name_aliases(normalized_alias);
+
+CREATE INDEX IF NOT EXISTS idx_card_name_aliases_card_id
+    ON card_name_aliases(card_id);
 
 CREATE INDEX IF NOT EXISTS idx_card_price_snapshots_lookup
     ON card_price_snapshots(card_id, pricing_mode, grader, grade, updated_at DESC);

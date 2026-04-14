@@ -79,7 +79,6 @@ PY
 }
 
 REQUIRED_ENV_KEYS=(
-  POKEMONTCG_API_KEY
   SCRYDEX_API_KEY
   SCRYDEX_TEAM_ID
 )
@@ -107,7 +106,6 @@ secrets_file = Path(sys.argv[2])
 output_file = Path(sys.argv[3])
 
 allowed_secret_keys = {
-    "POKEMONTCG_API_KEY",
     "SCRYDEX_API_KEY",
     "SCRYDEX_TEAM_ID",
     "PRICECHARTING_API_KEY",

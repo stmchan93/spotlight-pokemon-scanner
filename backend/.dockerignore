@@ -6,4 +6,3 @@ __pycache__/
 data/*.sqlite
 data/*.db
 tests/
-catalog/pokemontcg/images/

@@ -4,7 +4,12 @@ Date: 2026-04-08
 
 ## Status
 
-- This document is the planning source of truth for the upcoming backend reset.
+- This document records the earlier OCR-primary backend reset baseline.
+- It is no longer the active source of truth for raw runtime/provider behavior.
+- Where this document conflicts with:
+  - [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md)
+  - [docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md)
+  those newer documents win.
 - Implementation status:
   - Phase 0 / 1 foundation: landed
   - Phase 2 provider import cutover onto `cards`: landed
@@ -27,6 +32,9 @@ Date: 2026-04-08
   - bundled `backend/catalog/` artifacts were deleted
   - thin `scrydex_adapter.py` and `pricecharting_adapter.py` shells remain only for env/config structure and later rebuild work
 - Remaining legacy backend debt is mostly slab-side rebuild work and older docs that still describe the deleted backend surfaces.
+- Historical note:
+  - this document still describes the earlier raw-provider baseline in several sections because that was the landed behavior at the time
+  - the active runtime has since moved to Scrydex-first raw identity/reference/pricing and visual-first hybrid matching
 
 ## Core Decisions
 
@@ -42,8 +50,9 @@ Date: 2026-04-08
   2. rerank/confirm with footer collector OCR
 - The backend must always return a best candidate for a valid raw scan.
 - Low confidence affects review state and future candidate switching, not whether the UI shows a card.
-- Raw identity and raw pricing stay on the Pokemon TCG API lane.
-- Slab identity and slab pricing stay on the Scrydex lane.
+- Historical baseline at the time of this spec:
+  - raw identity and raw pricing stayed on the earlier raw-provider lane
+  - slab identity and slab pricing stayed on the Scrydex lane
 - The current local DB may be reset. We are not preserving the old schema.
 
 ## Target Runtime SQLite
@@ -198,7 +207,7 @@ Deleted in Phase 10:
 - `direct_lookup_has_exact_candidate`
 - `direct_lookup_score`
 
-#### `backend/pokemontcg_api_client.py`
+#### `deleted legacy raw API client`
 
 Add these helpers:
 
@@ -225,7 +234,7 @@ Replace in `match_scan(...)`:
 - slab branch can remain intact for now
 - response building should continue to use `topCandidates` so the app contract does not change
 
-#### `backend/pokemontcg_pricing_adapter.py`
+#### `deleted legacy raw pricing adapter`
 
 Rewrite persistence to:
 
@@ -246,7 +255,7 @@ For raw mode, the target backend flow is:
    - title/name overlap
    - set overlap
    - broader footer-band support
-3. query live Pokemon TCG API candidates when local evidence is weak or sparse
+3. query live provider candidates when local evidence is weak or sparse
 4. merge local and live candidates into one ranked pool
 5. rerank with footer-specific signals:
    - exact collector number
@@ -282,7 +291,7 @@ Signal thresholds:
 Retrieval order:
 
 1. local routes first
-2. remote Pokemon TCG API routes second when:
+2. remote provider routes second when:
    - local candidate count is too low
    - or local top score is weak
    - or the top two local candidates are too close
@@ -396,7 +405,7 @@ After the backend chooses a winner:
 
 1. use the resolved `card_id`
 2. check `card_price_snapshots` freshness
-3. if stale or missing, refresh from Pokemon TCG API
+3. if stale or missing, refresh from the active raw provider
 4. return the chosen card plus pricing
 
 ### Final response rules
@@ -458,13 +467,13 @@ Do:
 ### Phase 2: Rebuild card import around `cards`
 
 Files:
-- `backend/pokemontcg_api_client.py`
+- `deleted legacy raw API client`
 - `backend/scrydex_adapter.py`
 - `backend/server.py`
 - `backend/catalog_tools.py`
 
 Do:
-- make Pokemon TCG API and Scrydex imports write the simplified `cards` row shape
+- make legacy raw-provider and Scrydex imports write the simplified `cards` row shape
 
 ### Phase 3: Build raw evidence extraction
 
@@ -483,12 +492,12 @@ Do:
 
 Files:
 - `backend/catalog_tools.py`
-- `backend/pokemontcg_api_client.py`
+- `deleted legacy raw API client`
 - `backend/server.py`
 
 Do:
 - retrieve local candidates by broad evidence
-- query live Pokemon TCG API when needed
+- query live provider data when needed
 - merge both sources
 - implement:
   - `search_cards_local_title_set`
@@ -520,7 +529,7 @@ Do:
 ### Phase 6: Rewrite pricing onto `card_price_snapshots`
 
 Files:
-- `backend/pokemontcg_pricing_adapter.py`
+- `deleted legacy raw pricing adapter`
 - `backend/scrydex_adapter.py`
 - `backend/pricing_provider.py`
 - `backend/catalog_tools.py`

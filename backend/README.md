@@ -17,7 +17,7 @@ What is intentionally removed right now:
 - slab sync/import pipelines
 - old catalog sync/cache layers
 - old collector-number-first raw matcher
-- legacy Pokemon TCG importer CLI / catalog JSON / image download path
+- legacy raw importer CLI / catalog JSON / image download path
 
 ## Runtime tables
 

@@ -37,7 +37,7 @@ from scrydex_adapter import (  # noqa: E402
     map_scrydex_catalog_card,
     search_remote_scrydex_slab_candidates,
 )
-from server import SpotlightScanService  # noqa: E402
+from server import PricingLoadPolicy, SpotlightScanService  # noqa: E402
 
 
 def sample_catalog_card() -> dict[str, object]:
@@ -355,6 +355,98 @@ def sample_noisy_charizard_slab_scan_payload() -> dict[str, object]:
         "slabParsedLabelText": [
             "wrwenvery + $4.99 d 2022 POKEMON GO #010 CHARIZARD-HOLO NM 7",
             "wetwenvery + $4.99 de 2022 POKEMON GO #010 CHARIZARD-HOLO NM 7 PSA 103377816",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
+def sample_mega_charizard_x_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-mega-charizard-x",
+        "capturedAt": "2026-04-14T01:29:27Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.58,
+        "setHintTokens": [],
+        "warnings": ["Used slab label-only OCR path"],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": (
+                    "A 9 #125 Special Illustration Rare #125 $200.00 Mega Charizard X ex PSA 9 PSA 9 "
+                    "Mir + $18.00 delivery + $9.26 de $1,499.0 MEGA CHARIZARD X ex 2025 POKEMON PFL EN "
+                    "SPECIAL ILLUSTRATION RARE #125 PSA 149178450 MINT 9 STAGE2 Mega Charizard X CX Evolves "
+                    "from Ch. 360 Evolved form af Pokémon, and chis attack does 90 damage for each-card "
+                    "Discard any amount of Energy from among your Inferno X"
+                ),
+                "titleTextSecondary": None,
+                "cardNumber": "125",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "9",
+                "cert": "149178450",
+                "labelWideText": (
+                    "A 9 #125 Special Illustration Rare #125 $200.00 Mega Charizard X ex PSA 9 PSA 9 "
+                    "Mir + $18.00 delivery + $9.26 de $1,499.0 MEGA CHARIZARD X ex 2025 POKEMON PFL EN "
+                    "SPECIAL ILLUSTRATION RARE #125 PSA 149178450 MINT 9 STAGE2 Mega Charizard X CX Evolves "
+                    "from Ch. 360 Evolved form af Pokémon, and chis attack does 90 damage for each-card "
+                    "Discard any amount of Energy from among your Inferno X"
+                ),
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "9",
+        "slabCertNumber": "149178450",
+        "slabCardNumberRaw": "125",
+        "slabParsedLabelText": [
+            (
+                "ON PFL EN ISTRATION RARE IZARD X ex #125 PSA 149178450 MINT 9 "
+                "larizard X. Charmeleon The Mega-Evalved form"
+            ),
+            (
+                "A 9 #125 Special Illustration Rare #125 $200.00 Mega Charizard X ex PSA 9"
+            ),
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
+def sample_prize_pack_toxicroak_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-toxicroak-prize-pack",
+        "capturedAt": "2026-04-14T02:16:58Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.58,
+        "setHintTokens": [],
+        "warnings": ["Could not extract slab barcode payload", "Used slab label-only OCR path"],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": (
+                    "Find similar items from VerityCardVault Extra 15% off em also viewed 2023 "
+                    "Toxicroak ex 131 Pokemon Play! Prize Pack Poke $200.00 Stamp PSA 10 Gem Mint "
+                    "Serie Toxic + $5.39 delivery Free $200 2023 POKEMON PLAY! TOXICROAK EX "
+                    "POKEMON PRIZE PACK: SER 3 GEM MT #131 85109777 10 STAGEL"
+                ),
+                "titleTextSecondary": None,
+                "cardNumber": "131",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "10",
+                "cert": "85109777",
+                "labelWideText": (
+                    "Find similar items from VerityCardVault Extra 15% off em also viewed 2023 "
+                    "Toxicroak ex 131 Pokemon Play! Prize Pack Poke $200.00 Stamp PSA 10 Gem Mint "
+                    "Serie Toxic + $5.39 delivery Free $200 2023 POKEMON PLAY! TOXICROAK EX "
+                    "POKEMON PRIZE PACK: SER 3 GEM MT #131 85109777 10 STAGEL "
+                    "Toxicroak ex volvesfrom C 250 Nasty Plot APR"
+                ),
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "10",
+        "slabCertNumber": "85109777",
+        "slabCardNumberRaw": "131",
+        "slabParsedLabelText": [
+            "2023 POKEMON PLAY! TOXICROAK EX POKEMON PRIZE PACK: SER 3 GEM MT #131 85109777 10",
+            "Toxicroak ex 131 10 Gem Mint Prize Pack Ser 3",
         ],
         "slabRecommendedLookupPath": "psa_cert",
     }
@@ -872,7 +964,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             selected_card_id="gym1-60",
             debug_payload={},
         )
-        service.refresh_card_pricing = Mock(return_value={  # type: ignore[method-assign]
+        service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
             "card": {
                 "pricing": {
                     "source": "tcgplayer",
@@ -889,7 +981,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         top_candidate = response["topCandidates"][0]["candidate"]
         service.connection.close()
 
-        service.refresh_card_pricing.assert_not_called()
+        service._refresh_card_pricing_for_context.assert_not_called()
         self.assertEqual(top_candidate["id"], "gym1-60")
         self.assertNotIn("pricing", top_candidate)
 
@@ -953,7 +1045,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             selected_card_id="gym1-60",
             debug_payload={},
         )
-        service.refresh_card_pricing = Mock(return_value={  # type: ignore[method-assign]
+        service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
             "card": {
                 "pricing": {
                     "source": "tcgplayer",
@@ -970,7 +1062,11 @@ class BackendResetPhase1Tests(unittest.TestCase):
         top_candidate = response["topCandidates"][0]["candidate"]
         service.connection.close()
 
-        service.refresh_card_pricing.assert_called_once_with("gym1-60", api_key="test-key")
+        service._refresh_card_pricing_for_context.assert_called_once()
+        refresh_args, refresh_kwargs = service._refresh_card_pricing_for_context.call_args
+        self.assertEqual(refresh_args[0], "gym1-60")
+        self.assertEqual(refresh_kwargs["api_key"], "test-key")
+        self.assertEqual(refresh_kwargs["pricing_context"].mode, "raw")
         self.assertEqual(top_candidate["id"], "gym1-60")
         self.assertIn("pricing", top_candidate)
         self.assertEqual(top_candidate["pricing"]["market"], 3.25)
@@ -1038,6 +1134,39 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(detail["source"], "scrydex")
         self.assertEqual(detail["card"]["setName"], "Tag Team GX All Stars")
 
+    def test_scrydex_import_persists_multilingual_card_name_aliases(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        mapped = map_scrydex_catalog_card(sample_scrydex_card())
+
+        service._persist_mapped_catalog_card(
+            mapped_card=mapped,
+            sync_mode="raw_catalog_miss",
+            trigger_source="test",
+            query_text="m2a_ja-232",
+            refresh_embeddings=False,
+        )
+
+        rows = service.connection.execute(
+            """
+            SELECT alias, alias_language, alias_kind
+            FROM card_name_aliases
+            WHERE card_id = ?
+            ORDER BY alias
+            """,
+            ("m2a_ja-232",),
+        ).fetchall()
+        card = card_by_id(service.connection, "m2a_ja-232")
+        service.connection.close()
+
+        self.assertTrue(rows)
+        aliases = {str(row["alias"]) for row in rows}
+        self.assertIn("メガカイリューex", aliases)
+        self.assertIn("Mega Dragonite ex", aliases)
+        self.assertIsNotNone(card)
+        assert card is not None
+        self.assertIn("メガカイリューex", card["titleAliases"])
+        self.assertIn("Mega Dragonite ex", card["titleAliases"])
+
     def test_ensure_raw_card_cached_persists_scrydex_search_result_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         scrydex_payload = sample_scrydex_card()
@@ -1087,7 +1216,10 @@ class BackendResetPhase1Tests(unittest.TestCase):
         )
         scrydex_provider = service.pricing_registry.get_provider("scrydex")
         assert scrydex_provider is not None
-        self.assertIsNone(service.pricing_registry.get_provider("pokemontcg_api"))
+        self.assertEqual(
+            sorted(metadata.provider_id for metadata in service.pricing_registry.list_providers()),
+            ["pricecharting", "scrydex"],
+        )
         scrydex_provider.refresh_raw_pricing = Mock(return_value=RawPricingResult(  # type: ignore[method-assign]
             success=True,
             provider_id="scrydex",
@@ -1234,6 +1366,16 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(evidence.title_text_secondary, "Charizard")
         self.assertEqual(evidence.set_hint_tokens, ("pokemon go", "pgo"))
 
+    def test_build_slab_evidence_prefers_mega_charizard_title_over_generic_rarity_phrase(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_mega_charizard_x_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "125")
+        self.assertEqual(evidence.title_text_primary, "Mega Charizard X Ex")
+        self.assertEqual(evidence.title_text_secondary, "Mega Charizard X Ex")
+
     def test_build_slab_evidence_infers_japanese_xy_promo_scope_and_expands_title_abbreviations(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
 
@@ -1266,6 +1408,37 @@ class BackendResetPhase1Tests(unittest.TestCase):
                 "jumbo": False,
             },
         )
+
+    def test_build_slab_evidence_maps_prize_pack_series_alias_and_cleans_title(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_prize_pack_toxicroak_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "131")
+        self.assertEqual(evidence.title_text_primary, "Toxicroak Ex")
+        self.assertEqual(evidence.title_text_secondary, "Toxicroak Ex")
+        self.assertIn("pokemon prize pack: ser 3", evidence.set_hint_tokens)
+        self.assertEqual(evidence.matched_set_alias, "POKEMON PRIZE PACK: SER 3")
+        self.assertEqual(evidence.set_hint_source, "psa_alias_map")
+
+    def test_build_slab_evidence_does_not_apply_psa_alias_map_for_non_psa_grader(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        payload = sample_prize_pack_toxicroak_slab_scan_payload()
+        ocr_analysis = dict(payload["ocrAnalysis"])
+        slab_evidence = dict(ocr_analysis["slabEvidence"])
+        slab_evidence["grader"] = "CGC"
+        ocr_analysis["slabEvidence"] = slab_evidence
+        payload["ocrAnalysis"] = ocr_analysis
+        payload["slabGrader"] = "CGC"
+
+        evidence = service._build_slab_evidence(payload)
+        service.connection.close()
+
+        self.assertEqual(evidence.grader, "CGC")
+        self.assertNotEqual(evidence.set_hint_source, "psa_alias_map")
+        self.assertIsNone(evidence.matched_set_alias)
+        self.assertNotIn("pokemon prize pack: ser 3", evidence.set_hint_tokens)
 
     def test_best_scrydex_graded_price_prefers_yellow_cheeks_shadowless_variant(self) -> None:
         selected = _best_scrydex_graded_price(
@@ -1355,6 +1528,76 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual([card["id"] for card in result.cards], ["base1-58"])
         self.assertEqual(result.attempts[0]["query"], 'name:"Pikachu" number:"58" expansion.name:"Base"')
 
+    def test_search_remote_scrydex_slab_candidates_caps_noisy_fallback_tree(self) -> None:
+        noisy_set_hints = [
+            "pokemon pfl",
+            "pokemon pfl en",
+            "pokemon pfl en special",
+            "ion pfl",
+            "ion pfl en",
+            "ion pfl en izard",
+        ]
+
+        with patch("scrydex_adapter._scrydex_run_cards_query") as run_cards:
+            run_cards.side_effect = lambda query, include_prices, page_size, request_type: (
+                [{
+                    "id": "me2-125",
+                    "name": "Mega Charizard X ex",
+                    "number": "125/094",
+                    "expansion": {"id": "me2", "name": "Phantasmal Flames"},
+                }]
+                if query == 'name:"Mega Charizard X Ex Stage2" number:"125"'
+                else []
+            )
+
+            result = search_remote_scrydex_slab_candidates(
+                title_text="Mega Charizard X Ex Stage2",
+                label_text="MEGA CHARIZARD X ex #125 PSA 147387041",
+                parsed_label_text=[],
+                card_number="125",
+                set_hint_tokens=noisy_set_hints,
+            )
+
+        self.assertEqual([card["id"] for card in result.cards], ["me2-125"])
+        self.assertEqual(
+            [attempt["query"] for attempt in result.attempts],
+            [
+                'name:"Mega Charizard X Ex Stage2" number:"125" expansion.name:"pokemon pfl"',
+                'name:"Mega Charizard X Ex Stage2" number:"125"',
+            ],
+        )
+        self.assertEqual(run_cards.call_count, 2)
+
+    def test_search_remote_scrydex_slab_candidates_uses_title_number_fallback_before_bare_number(self) -> None:
+        with patch("scrydex_adapter._scrydex_run_cards_query") as run_cards:
+            run_cards.side_effect = lambda query, include_prices, page_size, request_type: (
+                [{
+                    "id": "sv1-131",
+                    "name": "Toxicroak ex",
+                    "number": "131",
+                    "expansion": {"id": "sv1", "name": "Scarlet & Violet"},
+                }]
+                if query == 'name:"Toxicroak Ex" number:"131"'
+                else []
+            )
+
+            result = search_remote_scrydex_slab_candidates(
+                title_text="Toxicroak Ex",
+                label_text="2023 POKEMON PLAY! TOXICROAK EX POKEMON PRIZE PACK: SER 3 GEM MT #131",
+                parsed_label_text=[],
+                card_number="131",
+                set_hint_tokens=["Pokemon Prize Pack: Ser 3"],
+            )
+
+        self.assertEqual([card["id"] for card in result.cards], ["sv1-131"])
+        self.assertEqual(
+            [attempt["query"] for attempt in result.attempts],
+            [
+                'name:"Toxicroak Ex" number:"131" expansion.name:"Pokemon Prize Pack: Ser 3"',
+                'name:"Toxicroak Ex" number:"131"',
+            ],
+        )
+
     def test_refresh_card_pricing_passes_preferred_slab_variant_to_provider(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
 
@@ -1425,7 +1668,161 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(top_candidate["pricing"]["provider"], "scrydex")
         self.assertIsNotNone(top_candidate["pricing"]["market"])
 
-    def test_match_scan_uses_cached_psa_cert_resolution_from_prior_scan(self) -> None:
+    def test_build_slab_match_response_returns_top_five_candidates(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        evidence = service._build_slab_evidence(sample_slab_scan_payload())
+        ranked_candidates = [
+            {
+                "id": f"slab-{index}",
+                "name": f"Candidate {index}",
+                "setName": "Test Set",
+                "number": str(index),
+                "rarity": "Rare",
+                "variant": "Raw",
+                "language": "English",
+                "_retrievalScoreHint": 95.0 - index,
+                "_reasons": ["test_rank"],
+            }
+            for index in range(6)
+        ]
+
+        with patch.object(
+            service,
+            "_candidate_payload",
+            side_effect=lambda candidate, **kwargs: {  # noqa: ARG005
+                "id": candidate["id"],
+                "name": candidate["name"],
+            },
+        ):
+            response, scored_candidates = service._build_slab_match_response(
+                {"scanID": "scan-slab-top-five"},
+                evidence,
+                ranked_candidates,
+                resolver_path="psa_label",
+            )
+
+        service.connection.close()
+
+        self.assertEqual(len(response["topCandidates"]), 5)
+        self.assertEqual(len(scored_candidates), 5)
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "slab-0")
+        self.assertEqual(response["topCandidates"][4]["candidate"]["id"], "slab-4")
+        self.assertEqual(response["topCandidates"][4]["rank"], 5)
+
+    def test_low_confidence_slab_top_candidate_still_refreshes_missing_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        evidence = service._build_slab_evidence(sample_slab_scan_payload())
+        ranked_candidates = [
+            {
+                "id": "slab-low-1",
+                "name": "Candidate Low",
+                "setName": "Test Set",
+                "number": "1",
+                "rarity": "Rare",
+                "variant": "Raw",
+                "language": "English",
+                "_retrievalScoreHint": 40.0,
+                "_reasons": ["test_rank"],
+            }
+        ]
+        service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
+            "card": {
+                "pricing": {
+                    "pricingMode": "psa_grade_estimate",
+                    "grader": "PSA",
+                    "grade": "9",
+                    "market": 99.0,
+                    "currencyCode": "USD",
+                    "isFresh": True,
+                }
+            }
+        })
+
+        response, _ = service._build_slab_match_response(
+            {"scanID": "scan-slab-low-refresh"},
+            evidence,
+            ranked_candidates,
+            resolver_path="psa_label",
+        )
+        service.connection.close()
+
+        service._refresh_card_pricing_for_context.assert_called_once()
+        refresh_args, refresh_kwargs = service._refresh_card_pricing_for_context.call_args
+        self.assertEqual(refresh_args[0], "slab-low-1")
+        self.assertEqual(refresh_kwargs["pricing_context"].mode, "graded")
+        self.assertEqual(refresh_kwargs["pricing_context"].grader, "PSA")
+        self.assertEqual(refresh_kwargs["pricing_context"].grade, "9")
+        self.assertEqual(response["confidence"], "low")
+        self.assertEqual(response["reviewDisposition"], "needs_review")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["pricing"]["market"], 99.0)
+
+    def test_ready_slab_top_candidate_refreshes_missing_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        evidence = service._build_slab_evidence(sample_slab_scan_payload())
+        ranked_candidates = [
+            {
+                "id": "slab-high-1",
+                "name": "Candidate High",
+                "setName": "Test Set",
+                "number": "1",
+                "rarity": "Rare",
+                "variant": "Raw",
+                "language": "English",
+                "_retrievalScoreHint": 95.0,
+                "_reasons": ["test_rank"],
+            }
+        ]
+        service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
+            "card": {
+                "pricing": {
+                    "pricingMode": "psa_grade_estimate",
+                    "grader": "PSA",
+                    "grade": "9",
+                    "market": 123.0,
+                    "currencyCode": "USD",
+                    "isFresh": True,
+                }
+            }
+        })
+
+        response, _ = service._build_slab_match_response(
+            {"scanID": "scan-slab-high-refresh"},
+            evidence,
+            ranked_candidates,
+            resolver_path="psa_label",
+        )
+        service.connection.close()
+
+        service._refresh_card_pricing_for_context.assert_called_once()
+        refresh_args, refresh_kwargs = service._refresh_card_pricing_for_context.call_args
+        self.assertEqual(refresh_args[0], "slab-high-1")
+        self.assertEqual(refresh_kwargs["pricing_context"].mode, "graded")
+        self.assertEqual(refresh_kwargs["pricing_context"].grader, "PSA")
+        self.assertEqual(refresh_kwargs["pricing_context"].grade, "9")
+        self.assertEqual(response["confidence"], "high")
+        self.assertEqual(response["reviewDisposition"], "ready")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["pricing"]["market"], 123.0)
+
+    def test_shared_top_five_policy_matches_raw_and_slab_usage(self) -> None:
+        raw_policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
+        slab_policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
+
+        self.assertEqual(
+            [(raw_policy.rule_for_rank(index).ensure_cached, raw_policy.rule_for_rank(index).refresh_missing) for index in range(1, 6)],
+            [(slab_policy.rule_for_rank(index).ensure_cached, slab_policy.rule_for_rank(index).refresh_missing) for index in range(1, 6)],
+        )
+        self.assertEqual(
+            [(raw_policy.rule_for_rank(index).ensure_cached, raw_policy.rule_for_rank(index).refresh_missing) for index in range(1, 6)],
+            [
+                (True, True),
+                (False, False),
+                (False, False),
+                (False, False),
+                (False, False),
+            ],
+        )
+
+    def test_match_scan_does_not_bypass_to_ocr_cert_cache_without_barcode(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         scrydex_provider = service.pricing_registry.get_provider("scrydex")
         assert scrydex_provider is not None
@@ -1471,19 +1868,24 @@ class BackendResetPhase1Tests(unittest.TestCase):
             selected_card_id="m2a_ja-232",
             confidence="high",
             review_disposition="ready",
+            correction_type="acceptedTop",
             resolver_mode="psa_slab",
             resolver_path="psa_label",
             completed_at="2026-04-10T00:00:02+00:00",
         )
         service.connection.commit()
 
-        with patch("server.search_remote_scrydex_slab_candidates", side_effect=AssertionError("remote slab lookup should be bypassed")):
+        with patch.object(
+            service,
+            "_retrieve_remote_slab_candidates",
+            return_value=([], {"queries": [], "attempts": [], "resultCount": 0, "reason": "test"}),
+        ):
             response = service.match_scan(sample_slab_scan_payload())
 
         service.connection.close()
 
         self.assertEqual(response["resolverMode"], "psa_slab")
-        self.assertEqual(response["resolverPath"], "psa_cert_ocr")
+        self.assertEqual(response["resolverPath"], "psa_label")
         self.assertEqual(response["reviewDisposition"], "ready")
         self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "m2a_ja-232")
 
@@ -1533,6 +1935,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             selected_card_id="m2a_ja-232",
             confidence="high",
             review_disposition="ready",
+            correction_type="acceptedTop",
             resolver_mode="psa_slab",
             resolver_path="psa_label",
             completed_at="2026-04-10T00:10:02+00:00",
@@ -1549,6 +1952,65 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
         self.assertEqual(response["resolverPath"], "psa_cert_barcode")
         self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "m2a_ja-232")
+
+    def test_logged_prediction_does_not_poison_barcode_cert_cache_without_feedback(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        payload = sample_mega_charizard_x_slab_scan_payload()
+        response_payload = {
+            "scanID": payload["scanID"],
+            "topCandidates": [
+                {
+                    "rank": 1,
+                    "candidate": {
+                        "id": "sv9_ja-125",
+                        "name": "Iono's Bellibolt ex",
+                        "number": "125/100",
+                        "setName": "バトルパートナーズ",
+                    },
+                    "finalScore": 1.0,
+                }
+            ],
+            "confidence": "high",
+            "ambiguityFlags": [],
+            "matcherSource": "remoteHybrid",
+            "matcherVersion": "phase7-test",
+            "resolverMode": "psa_slab",
+            "resolverPath": "psa_cert_barcode",
+            "slabContext": {
+                "grader": "PSA",
+                "grade": "9",
+                "certNumber": "149178450",
+            },
+            "reviewDisposition": "ready",
+            "reviewReason": None,
+        }
+        top_candidates = [
+            {
+                "candidate": {"id": "sv9_ja-125"},
+                "finalScore": 1.0,
+                "reasons": ["psa_cert_cache_hit", "cert_number_exact"],
+            }
+        ]
+        service._log_scan(payload, response_payload, top_candidates)  # noqa: SLF001
+
+        live_payload = dict(payload)
+        live_payload["scanID"] = "scan-slab-mega-charizard-x-repeat"
+        live_payload["slabBarcodePayloads"] = ["149178450"]
+
+        with patch.object(service, "_retrieve_local_slab_candidates", return_value=[]), patch.object(
+            service,
+            "_retrieve_remote_slab_candidates",
+            return_value=([], {"queries": [], "attempts": [], "resultCount": 0, "reason": "test"}),
+        ):
+            response = service.match_scan(live_payload)
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertEqual(response["topCandidates"], [])
 
     def test_match_scan_returns_slab_identity_even_without_exact_grade_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)

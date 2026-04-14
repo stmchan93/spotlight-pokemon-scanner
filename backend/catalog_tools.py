@@ -241,6 +241,180 @@ def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
     return {str(row["name"]) for row in rows}
 
 
+def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _normalized_alias_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    tokens = tokenize(text)
+    if tokens:
+        return " ".join(tokens)
+    return text.lower()
+
+
+def _normalized_alias_language(value: object) -> str | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    lowered = text.lower()
+    if lowered in {"ja", "japanese"}:
+        return "Japanese"
+    if lowered in {"en", "english"}:
+        return "English"
+    return text
+
+
+def derive_card_title_aliases(
+    *,
+    name: object,
+    language: object,
+    source_payload: object,
+    extra_aliases: Iterable[object] = (),
+) -> tuple[dict[str, str | None], ...]:
+    aliases: list[dict[str, str | None]] = []
+    seen: set[tuple[str, str]] = set()
+
+    def add(value: object, *, alias_language: object, alias_kind: str) -> None:
+        alias = str(value or "").strip()
+        normalized_alias = _normalized_alias_text(alias)
+        if not alias or not normalized_alias:
+            return
+        dedupe_key = (normalized_alias, alias_kind)
+        if dedupe_key in seen:
+            return
+        seen.add(dedupe_key)
+        aliases.append(
+            {
+                "alias": alias,
+                "normalized_alias": normalized_alias,
+                "alias_language": _normalized_alias_language(alias_language),
+                "alias_kind": alias_kind,
+            }
+        )
+
+    add(name, alias_language=language, alias_kind="canonical")
+
+    if isinstance(source_payload, dict):
+        add(source_payload.get("name"), alias_language=language, alias_kind="source_payload")
+        translation = source_payload.get("translation")
+        if isinstance(translation, dict):
+            for translation_language, translation_payload in translation.items():
+                if not isinstance(translation_payload, dict):
+                    continue
+                add(
+                    translation_payload.get("name"),
+                    alias_language=translation_language,
+                    alias_kind=f"translation:{str(translation_language or '').lower()}",
+                )
+
+    for extra_alias in extra_aliases:
+        add(extra_alias, alias_language=language, alias_kind="extra")
+
+    return tuple(aliases)
+
+
+def _replace_card_title_aliases(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    name: object,
+    language: object,
+    source_payload: object,
+    extra_aliases: Iterable[object] = (),
+) -> None:
+    if not _table_exists(connection, "card_name_aliases"):
+        return
+
+    aliases = derive_card_title_aliases(
+        name=name,
+        language=language,
+        source_payload=source_payload,
+        extra_aliases=extra_aliases,
+    )
+    connection.execute("DELETE FROM card_name_aliases WHERE card_id = ?", (card_id,))
+    now = utc_now()
+    for alias in aliases:
+        connection.execute(
+            """
+            INSERT INTO card_name_aliases (
+                card_id, alias, normalized_alias, alias_language, alias_kind, created_at, updated_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                card_id,
+                alias["alias"],
+                alias["normalized_alias"],
+                alias["alias_language"],
+                alias["alias_kind"],
+                now,
+                now,
+            ),
+        )
+
+
+def _backfill_missing_card_title_aliases(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "card_name_aliases"):
+        return
+
+    rows = connection.execute(
+        """
+        SELECT c.id, c.name, c.language, c.source_payload_json
+        FROM cards c
+        LEFT JOIN (
+            SELECT DISTINCT card_id
+            FROM card_name_aliases
+        ) aliases
+          ON aliases.card_id = c.id
+        WHERE aliases.card_id IS NULL
+        """
+    ).fetchall()
+
+    for row in rows:
+        _replace_card_title_aliases(
+            connection,
+            card_id=str(row["id"]),
+            name=row["name"],
+            language=row["language"],
+            source_payload=_json_load(row["source_payload_json"], {}),
+        )
+
+
+def _card_title_aliases_by_card_ids(
+    connection: sqlite3.Connection,
+    card_ids: Iterable[str],
+) -> dict[str, tuple[str, ...]]:
+    if not _table_exists(connection, "card_name_aliases"):
+        return {}
+
+    normalized_ids = [str(card_id or "").strip() for card_id in card_ids if str(card_id or "").strip()]
+    if not normalized_ids:
+        return {}
+
+    placeholders = ", ".join("?" for _ in normalized_ids)
+    rows = connection.execute(
+        f"""
+        SELECT card_id, alias
+        FROM card_name_aliases
+        WHERE card_id IN ({placeholders})
+        ORDER BY card_id, alias
+        """,
+        normalized_ids,
+    ).fetchall()
+
+    grouped: dict[str, list[str]] = {}
+    for row in rows:
+        grouped.setdefault(str(row["card_id"]), []).append(str(row["alias"]))
+    return {card_id: tuple(aliases) for card_id, aliases in grouped.items()}
+
+
 def _runtime_schema_is_compatible(connection: sqlite3.Connection) -> bool:
     required_cards_columns = {
         "id",
@@ -372,6 +546,7 @@ def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
     if not _runtime_schema_is_compatible(connection):
         _reset_runtime_schema(connection)
     connection.executescript(schema_path.read_text())
+    _backfill_missing_card_title_aliases(connection)
     connection.commit()
 
 
@@ -801,7 +976,11 @@ def build_raw_retrieval_plan(evidence: RawEvidence, signals: RawSignalScores) ->
     return RawRetrievalPlan(routes=tuple(routes), should_query_remote=should_query_remote)
 
 
-def _card_row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+def _card_row_to_dict(
+    row: sqlite3.Row | None,
+    *,
+    title_aliases: Iterable[str] = (),
+) -> dict[str, Any] | None:
     if row is None:
         return None
     return {
@@ -827,6 +1006,7 @@ def _card_row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
         "imageURL": row["image_url"],
         "imageSmallURL": row["image_small_url"],
         "sourcePayload": _json_load(row["source_payload_json"], {}),
+        "titleAliases": list(title_aliases),
     }
 
 
@@ -918,26 +1098,39 @@ def upsert_card(
             now,
         ),
     )
+    _replace_card_title_aliases(
+        connection,
+        card_id=card_id,
+        name=name,
+        language=language,
+        source_payload=source_payload or {},
+    )
 
 
 def card_by_id(connection: sqlite3.Connection, card_id: str) -> dict[str, Any] | None:
     row = connection.execute("SELECT * FROM cards WHERE id = ? LIMIT 1", (card_id,)).fetchone()
-    return _card_row_to_dict(row)
+    alias_map = _card_title_aliases_by_card_ids(connection, [card_id])
+    return _card_row_to_dict(row, title_aliases=alias_map.get(card_id, ()))
 
 
 def search_cards(connection: sqlite3.Connection, query: str, limit: int = 25) -> list[dict[str, Any]]:
     tokens = tokenize(query)
-    rows = connection.execute("SELECT * FROM cards").fetchall()
     scored: list[tuple[float, dict[str, Any]]] = []
-    for row in rows:
-        card = _card_row_to_dict(row)
-        if card is None:
-            continue
+    for card in _candidate_rows(connection):
         haystack_tokens = set(
-            tokenize(" ".join([card["name"], card["setName"], card["number"], card.get("setID") or ""]))
+            tokenize(
+                " ".join(
+                    [
+                        *(_candidate_title_values(card)),
+                        card["setName"],
+                        card["number"],
+                        card.get("setID") or "",
+                    ]
+                )
+            )
         )
         score = float(len(set(tokens) & haystack_tokens))
-        if query and query.lower() in card["name"].lower():
+        if query and any(query.lower() in value.lower() for value in _candidate_title_values(card)):
             score += 2.0
         if score <= 0:
             continue
@@ -1457,14 +1650,16 @@ def _candidate_title_values(card: dict[str, Any]) -> tuple[str, ...]:
         values.append(text)
 
     add(card.get("name"))
+    for alias in card.get("titleAliases") or []:
+        add(alias)
     source_payload = card.get("sourcePayload") or {}
     if isinstance(source_payload, dict):
         add(source_payload.get("name"))
         translation = source_payload.get("translation")
         if isinstance(translation, dict):
-            translation_en = translation.get("en")
-            if isinstance(translation_en, dict):
-                add(translation_en.get("name"))
+            for translation_payload in translation.values():
+                if isinstance(translation_payload, dict):
+                    add(translation_payload.get("name"))
 
     return tuple(values)
 
@@ -1559,7 +1754,15 @@ def _collector_match(card_number: str, evidence: RawEvidence) -> tuple[float, fl
 
 def _candidate_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]:
     rows = connection.execute("SELECT * FROM cards").fetchall()
-    return [card for card in (_card_row_to_dict(row) for row in rows) if card is not None]
+    alias_map = _card_title_aliases_by_card_ids(connection, [str(row["id"]) for row in rows])
+    return [
+        card
+        for card in (
+            _card_row_to_dict(row, title_aliases=alias_map.get(str(row["id"]), ()))
+            for row in rows
+        )
+        if card is not None
+    ]
 
 
 def search_cards_local_title_set(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:

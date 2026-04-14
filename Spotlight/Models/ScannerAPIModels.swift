@@ -67,6 +67,20 @@ struct SearchResultsPayload: Codable, Hashable, Sendable {
 
 typealias CardDetailPayload = CardDetail
 
+struct CandidatePricingHydrationRequestPayload: Codable, Hashable, Sendable {
+    let cardIDs: [String]
+    let maxRefreshCount: Int
+    let forceRefresh: Bool
+    let slabContext: SlabContext?
+}
+
+struct CandidatePricingHydrationResponsePayload: Codable, Hashable, Sendable {
+    let cards: [CardDetail]
+    let requestedCount: Int
+    let returnedCount: Int
+    let refreshedCount: Int
+}
+
 struct ScanFeedbackRequestPayload: Codable, Hashable, Sendable {
     let scanID: UUID
     let selectedCardID: String?

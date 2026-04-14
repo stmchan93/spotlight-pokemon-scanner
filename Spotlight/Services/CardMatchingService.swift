@@ -6,6 +6,7 @@ protocol CardMatchingService: Sendable {
     func search(query: String) async -> [CardCandidate]
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail?
     func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail?
+    func hydrateCandidatePricing(cardIDs: [String], maxRefreshCount: Int, slabContext: SlabContext?) async -> [CardDetail]
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -134,6 +135,40 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         }
 
         return await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext)
+    }
+
+    func hydrateCandidatePricing(cardIDs: [String], maxRefreshCount: Int, slabContext: SlabContext?) async -> [CardDetail] {
+        let normalizedCardIDs = Array(
+            NSOrderedSet(array: cardIDs.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) })
+        )
+            .compactMap { $0 as? String }
+            .filter { !$0.isEmpty }
+        guard !normalizedCardIDs.isEmpty else { return [] }
+
+        let endpoint = baseURL.appending(path: "api/v1/cards/hydrate-pricing")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        do {
+            request.httpBody = try encoder.encode(
+                CandidatePricingHydrationRequestPayload(
+                    cardIDs: normalizedCardIDs,
+                    maxRefreshCount: max(0, maxRefreshCount),
+                    forceRefresh: false,
+                    slabContext: slabContext
+                )
+            )
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return []
+            }
+
+            return try decoder.decode(CandidatePricingHydrationResponsePayload.self, from: data).cards
+        } catch {
+            return []
+        }
     }
 
     private func fetchCardDetailFromServer(cardID: String, slabContext: SlabContext?) async -> CardDetail? {

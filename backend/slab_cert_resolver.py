@@ -70,10 +70,11 @@ def resolve_psa_cert_from_scan_cache(
 
     rows = connection.execute(
         """
-        SELECT scan_id, request_json, response_json, selected_card_id
+        SELECT scan_id, request_json, response_json, selected_card_id, correction_type
         FROM scan_events
         WHERE resolver_mode = 'psa_slab'
           AND selected_card_id IS NOT NULL
+          AND correction_type IS NOT NULL
         ORDER BY created_at DESC
         LIMIT ?
         """,
@@ -84,6 +85,8 @@ def resolve_psa_cert_from_scan_cache(
         request_payload = _json_load_dict(row["request_json"])
         response_payload = _json_load_dict(row["response_json"])
         if str(response_payload.get("reviewDisposition") or "").strip().lower() == "unsupported":
+            continue
+        if str(row["correction_type"] or "").strip().lower() == "abandoned":
             continue
 
         request_cert = normalize_cert_number(request_payload.get("slabCertNumber"))

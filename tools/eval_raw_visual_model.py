@@ -119,6 +119,7 @@ def visual_candidate_stub(entry: dict[str, Any], similarity: float) -> dict[str,
     return {
         "id": str(entry.get("providerCardId") or ""),
         "name": str(entry.get("name") or ""),
+        "titleAliases": list(entry.get("titleAliases") or []),
         "setName": str(entry.get("setName") or ""),
         "number": str(entry.get("collectorNumber") or ""),
         "rarity": "Unknown",
@@ -131,7 +132,7 @@ def visual_candidate_stub(entry: dict[str, Any], similarity: float) -> dict[str,
         "setID": entry.get("setId"),
         "setSeries": entry.get("setSeries"),
         "setPtcgoCode": entry.get("setPtcgoCode"),
-        "sourcePayload": {},
+        "sourcePayload": entry.get("sourcePayload") or {},
         "_visualSimilarity": float(similarity),
     }
 

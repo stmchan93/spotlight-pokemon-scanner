@@ -169,7 +169,7 @@ Do not create a new checked-in local card catalog.
 
 Continue using:
 
-- raw metadata/pricing: Pokemon TCG API + SQLite cache
+- raw metadata/pricing: Scrydex + SQLite cache
 - slab identity/pricing: Scrydex + SQLite cache
 
 ### 2. Move all large QA/training assets to an external dataset root

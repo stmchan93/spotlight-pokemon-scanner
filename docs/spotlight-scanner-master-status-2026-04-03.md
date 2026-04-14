@@ -20,7 +20,7 @@ This is the current product/source-of-truth status doc.
 - active/thin provider status:
   - Scrydex is the active raw identity/reference/pricing lane
   - PriceCharting remains a thin non-active shell
-  - Pokemon TCG API raw helper files/tests are deleted from the active repo surfaces; historical docs may still reference them
+  - legacy raw helper files/tests are deleted from the active repo surfaces
 - slab rebuild target:
   - OCR cert-first slab identification
   - Scrydex graded pricing
@@ -64,6 +64,10 @@ Use this slab rebuild implementation spec when slab work resumes:
   - frame source selection
   - target selection
   - perspective normalization
+- current raw front-half normalization rule:
+  - accepted rectangle => perspective-correct + canonicalize
+  - weak or ambiguous rectangle => exact reticle fallback
+  - old holder/salvage/remnant-recovery code is no longer part of the active raw runtime path
 - the user-provided raw photo corpus under:
   - [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check)
   is now the canonical seed raw regression suite
@@ -94,6 +98,10 @@ Use this slab rebuild implementation spec when slab work resumes:
     - first-seen visual-hybrid top-1 hydration should issue `1` Scrydex fetch-by-id request
     - non-visual remote raw fallback is capped at `2` Scrydex search queries max
     - `GET /api/v1/ops/provider-status` includes `scrydexRequestStats`
+  - weak fallback scan behavior:
+    - frontend may use lowered header rescue on exact-reticle fallback scans
+    - backend may widen the local-only visual pool and alternate local query variants before giving up
+    - those weak-scan rescue paths should not add normal hot-path Scrydex requests
   - promoted Scrydex visual candidates:
     - `v004-scrydex` base: hybrid top-1 `29/67`
     - `v004-scrydex-b8` adapter: hybrid top-1 `33/67` before matcher shortlist improvements

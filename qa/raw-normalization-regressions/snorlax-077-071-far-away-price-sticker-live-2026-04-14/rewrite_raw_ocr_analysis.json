@@ -1,0 +1,73 @@
+{
+  "payload" : {
+    "modeSanitySignals" : {
+      "looksLikeRawScore" : 0.48000000000000004,
+      "looksLikeSlabScore" : 0.27999999999999997,
+      "selectedMode" : "raw",
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak"
+      ]
+    },
+    "normalizedTarget" : {
+      "contentRectNormalized" : {
+        "height" : 1,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0
+      },
+      "geometryKind" : "fallback",
+      "normalizedHeight" : 880,
+      "normalizedWidth" : 630,
+      "targetQuality" : {
+        "overallScore" : 0.4,
+        "reasons" : [
+          "fallback",
+          "fallback:no_rectangle_detected",
+          "normalization:exact_reticle_fallback"
+        ]
+      },
+      "usedFallback" : true
+    },
+    "pipelineVersion" : "rewrite_v1",
+    "rawEvidence" : {
+      "collectorConfidence" : {
+        "reasons" : [
+          "rewrite_raw_footer_band_wide"
+        ],
+        "score" : 0.66
+      },
+      "collectorNumberExact" : "077\/071",
+      "footerBandText" : "× 2 批抗力 にげる ★ Mon Kouki Saiteu 出し抜けに特に買れたちまち米蔵を望にする大なが $10a 077\/071 CHR 吉より 現危のひとっと飲えられし行めなり。 02022 Pokémon\/Nintendo\/Creatures\/GAME FREAK",
+      "setBadgeHint" : {
+        "canonicalTokens" : [
+
+        ],
+        "kind" : "unknown",
+        "source" : "none"
+      },
+      "setHints" : [
+
+      ],
+      "titleConfidence" : {
+        "agreementScore" : 0.5,
+        "reasons" : [
+          "rewrite_raw_header_wide",
+          "rewrite_raw_title_region_agreement"
+        ],
+        "score" : 0.7133333174387614,
+        "tokenConfidenceAverage" : 0.4333333174387614
+      },
+      "titleTextPrimary" : "たね カビゴン HP",
+      "titleTextSecondary" : "たね カビゴン HD",
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak",
+        "Rewrite raw escalation used focused ROIs"
+      ],
+      "wholeCardText" : "× 2 批抗力 にげる ★ Mon Kouki Saiteu 出し抜けに特に買れたちまち米蔵を望にする大なが $10a 077\/071 CHR 吉より 現危のひとっと飲えられし行めなり。 02022 Pokémon\/Nintendo\/Creatures\/GAME FREAK たね カビゴン HP 150 HD 150"
+    },
+    "selectedMode" : "raw"
+  },
+  "stage" : "rewrite_raw_ocr_analysis"
+}

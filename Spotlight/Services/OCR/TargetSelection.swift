@@ -8,8 +8,8 @@ enum OCRTargetMode: String, Codable {
     var expectedAspectRatio: CGFloat {
         switch self {
         case .rawCard:
-            // Use width/height aspect so scoring matches the downstream
-            // fallback-recovery logic in PerspectiveNormalization.
+            // Use width/height aspect so selection scoring matches the
+            // downstream raw-card perspective-correction path.
             return 63.0 / 88.0
         case .psaSlab:
             return 3.25 / 5.375
@@ -78,6 +78,11 @@ private struct OCRTargetSelectionCandidate {
 private struct OCRRelaxedDetectionResult {
     let observation: VNRectangleObservation
     let sourceLabel: String
+}
+
+private struct OCRFallbackNormalizationSelection {
+    let result: OCRTargetNormalizationResult
+    let chosenCandidateIndex: Int?
 }
 
 private let fallbackSelectionConfidenceCap = 0.58
@@ -159,12 +164,29 @@ func selectOCRInput(
     }
 
     let chosenFallbackReason = selectionFailureReason
-    let normalizationResult = normalizeFallbackOCRInputImage(
-        searchImage: searchImage,
-        fallbackImage: fallbackImage,
-        mode: mode,
-        scanID: scanID
-    )
+    let fallbackSelection: OCRFallbackNormalizationSelection
+    if mode == .psaSlab {
+        guard let slabFallbackSelection = selectSlabFallbackNormalization(
+            searchImage: searchImage,
+            fallbackImage: fallbackImage,
+            chosenCandidate: chosenCandidate?.summary,
+            scanID: scanID
+        ) else {
+            throw AnalysisError.unsupportedPSASlabTarget
+        }
+        fallbackSelection = slabFallbackSelection
+    } else {
+        fallbackSelection = OCRFallbackNormalizationSelection(
+            result: normalizeFallbackOCRInputImage(
+                searchImage: searchImage,
+                fallbackImage: fallbackImage,
+                mode: mode,
+                scanID: scanID
+            ),
+            chosenCandidateIndex: nil
+        )
+    }
+    let normalizationResult = fallbackSelection.result
     print(
         "  ⚠️ [TARGET] mode=\(mode.rawValue) fallback=\(chosenFallbackReason) " +
         "normalized=\(normalizationResult.geometryKind.rawValue) " +
@@ -195,7 +217,7 @@ func selectOCRInput(
         ),
         usedFallback: true,
         fallbackReason: chosenFallbackReason,
-        chosenCandidateIndex: nil,
+        chosenCandidateIndex: fallbackSelection.chosenCandidateIndex,
         candidates: candidates.map(\.summary),
         normalizedGeometryKind: normalizationResult.geometryKind,
         normalizationReason: normalizationResult.reason
@@ -590,4 +612,289 @@ private func slabPerspectiveLooksValid(_ image: UIImage) -> Bool {
     guard image.size.width > 0, image.size.height > 0 else { return false }
     let heightWidthRatio = image.size.height / image.size.width
     return heightWidthRatio >= 1.25
+}
+
+private func selectSlabFallbackNormalization(
+    searchImage: UIImage,
+    fallbackImage: UIImage,
+    chosenCandidate: OCRTargetCandidateSummary?,
+    scanID: UUID?
+) -> OCRFallbackNormalizationSelection? {
+    if let chosenCandidate,
+       let slabCrop = normalizeSlabBoundingBoxFallbackImage(
+           searchImage: searchImage,
+           chosenCandidate: chosenCandidate
+       ) {
+        return OCRFallbackNormalizationSelection(
+            result: slabCrop,
+            chosenCandidateIndex: chosenCandidate.rank
+        )
+    }
+
+    if let labelCrop = normalizeDetectedSlabLabelFallbackImage(
+        searchImage: searchImage,
+        fallbackImage: fallbackImage,
+        scanID: scanID
+    ) {
+        return OCRFallbackNormalizationSelection(
+            result: labelCrop,
+            chosenCandidateIndex: nil
+        )
+    }
+
+    return nil
+}
+
+private func normalizeSlabBoundingBoxFallbackImage(
+    searchImage: UIImage,
+    chosenCandidate: OCRTargetCandidateSummary
+) -> OCRTargetNormalizationResult? {
+    let normalizedRect = expandedSlabBoundingBoxCropRect(for: chosenCandidate)
+    guard let cropped = cropImage(searchImage, normalizedRect: normalizedRect) else {
+        return nil
+    }
+    return OCRTargetNormalizationResult(
+        image: cropped.normalizedOrientation(),
+        geometryKind: .slab,
+        reason: "slab_bounding_box_fallback",
+        normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1)
+    )
+}
+
+private func normalizeDetectedSlabLabelFallbackImage(
+    searchImage: UIImage,
+    fallbackImage: UIImage,
+    scanID: UUID?
+) -> OCRTargetNormalizationResult? {
+    _ = scanID
+    let candidateImages = [
+        fallbackImage.normalizedOrientation(),
+        searchImage.normalizedOrientation(),
+    ]
+    for candidateImage in candidateImages {
+        guard let labelRect = detectSlabLabelFallbackRect(in: candidateImage),
+              let cropped = cropImage(candidateImage, normalizedRect: CGRect(
+                  x: labelRect.x,
+                  y: labelRect.y,
+                  width: labelRect.width,
+                  height: labelRect.height
+              )) else {
+            continue
+        }
+        return OCRTargetNormalizationResult(
+            image: cropped.normalizedOrientation(),
+            geometryKind: .slabLabel,
+            reason: "slab_label_region_fallback",
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1)
+        )
+    }
+    return nil
+}
+
+func detectSlabLabelFallbackRect(in image: UIImage) -> OCRNormalizedRect? {
+    let normalized = image.normalizedOrientation()
+    guard let cgImage = normalized.cgImage else { return nil }
+
+    return withRenderedRGBA(cgImage) { pixels, width, height, bytesPerRow in
+        let labelSearchBottom = min(0.40, PSASlabGuidance.labelDividerRatio + 0.06)
+        let x0 = max(0, Int((CGFloat(width) * 0.04).rounded(.down)))
+        let x1 = max(x0 + 1, min(width, Int((CGFloat(width) * 0.96).rounded(.up))))
+        let y1 = max(1, min(height, Int((CGFloat(height) * labelSearchBottom).rounded(.up))))
+        let xStep = max(1, (x1 - x0) / 180)
+        let yStep = max(1, y1 / 120)
+
+        var minX = width
+        var minY = height
+        var maxX = 0
+        var maxY = 0
+        var redSamples = 0
+
+        for y in stride(from: 0, to: y1, by: yStep) {
+            for x in stride(from: x0, to: x1, by: xStep) {
+                let offset = (y * bytesPerRow) + (x * 4)
+                let red = CGFloat(pixels[offset]) / 255.0
+                let green = CGFloat(pixels[offset + 1]) / 255.0
+                let blue = CGFloat(pixels[offset + 2]) / 255.0
+                let maxOther = max(green, blue)
+                let minOther = min(green, blue)
+                let isRedDominant = red >= 0.42 && red > (maxOther * 1.22) && (red - minOther) >= 0.14
+                guard isRedDominant else { continue }
+                minX = min(minX, x)
+                minY = min(minY, y)
+                maxX = max(maxX, x)
+                maxY = max(maxY, y)
+                redSamples += 1
+            }
+        }
+
+        guard redSamples >= 16, maxX > minX, maxY > minY else {
+            return nil
+        }
+
+        let rawRect = CGRect(
+            x: CGFloat(minX) / CGFloat(width),
+            y: CGFloat(minY) / CGFloat(height),
+            width: CGFloat(maxX - minX) / CGFloat(width),
+            height: CGFloat(maxY - minY) / CGFloat(height)
+        )
+        let expandedRect = clampNormalizedRect(
+            CGRect(
+                x: rawRect.minX - max(0.02, rawRect.width * 0.05),
+                y: rawRect.minY - max(0.015, rawRect.height * 0.16),
+                width: rawRect.width + max(0.04, rawRect.width * 0.10),
+                height: rawRect.height + max(0.03, rawRect.height * 0.32)
+            )
+        )
+
+        let aspectRatio = expandedRect.width / max(0.0001, expandedRect.height)
+        guard expandedRect.width >= 0.34,
+              expandedRect.height >= 0.06,
+              expandedRect.height <= 0.24,
+              expandedRect.minY <= 0.36,
+              expandedRect.maxY <= min(0.42, PSASlabGuidance.labelDividerRatio + 0.10),
+              aspectRatio >= 2.2,
+              aspectRatio <= 6.8 else {
+            return nil
+        }
+
+        let interiorRect = clampNormalizedRect(
+            expandedRect.insetBy(
+                dx: max(0.01, expandedRect.width * 0.06),
+                dy: max(0.01, expandedRect.height * 0.18)
+            )
+        )
+        let brightRatio = brightSampleRatio(
+            pixels: pixels,
+            width: width,
+            height: height,
+            bytesPerRow: bytesPerRow,
+            rect: interiorRect
+        )
+        guard brightRatio >= 0.34 else {
+            return nil
+        }
+
+        return OCRNormalizedRect(
+            x: expandedRect.minX,
+            y: expandedRect.minY,
+            width: expandedRect.width,
+            height: expandedRect.height
+        )
+    }
+}
+
+private func expandedSlabBoundingBoxCropRect(for candidate: OCRTargetCandidateSummary) -> CGRect {
+    let visionRect = CGRect(
+        x: candidate.boundingBox.x,
+        y: candidate.boundingBox.y,
+        width: candidate.boundingBox.width,
+        height: candidate.boundingBox.height
+    )
+    let imageRect = CGRect(
+        x: visionRect.minX,
+        y: 1.0 - visionRect.maxY,
+        width: visionRect.width,
+        height: visionRect.height
+    )
+    return clampNormalizedRect(
+        CGRect(
+            x: imageRect.minX - max(0.02, imageRect.width * 0.04),
+            y: imageRect.minY - max(0.02, imageRect.height * 0.04),
+            width: imageRect.width + max(0.04, imageRect.width * 0.08),
+            height: imageRect.height + max(0.04, imageRect.height * 0.08)
+        )
+    )
+}
+
+private func cropImage(_ image: UIImage, normalizedRect: CGRect) -> UIImage? {
+    let normalized = image.normalizedOrientation()
+    guard let cgImage = normalized.cgImage else { return nil }
+    let cropRect = CGRect(
+        x: normalizedRect.minX * CGFloat(cgImage.width),
+        y: normalizedRect.minY * CGFloat(cgImage.height),
+        width: normalizedRect.width * CGFloat(cgImage.width),
+        height: normalizedRect.height * CGFloat(cgImage.height)
+    ).integral
+    guard cropRect.width > 0,
+          cropRect.height > 0,
+          let cropped = cgImage.cropping(to: cropRect) else {
+        return nil
+    }
+    return UIImage(cgImage: cropped)
+}
+
+private func clampNormalizedRect(_ rect: CGRect) -> CGRect {
+    let minX = max(0, min(1, rect.minX))
+    let minY = max(0, min(1, rect.minY))
+    let maxX = max(minX, min(1, rect.maxX))
+    let maxY = max(minY, min(1, rect.maxY))
+    return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+}
+
+private func brightSampleRatio(
+    pixels: UnsafeBufferPointer<UInt8>,
+    width: Int,
+    height: Int,
+    bytesPerRow: Int,
+    rect: CGRect
+) -> CGFloat {
+    let x0 = max(0, min(width - 1, Int((rect.minX * CGFloat(width)).rounded(.down))))
+    let x1 = max(x0 + 1, min(width, Int((rect.maxX * CGFloat(width)).rounded(.up))))
+    let y0 = max(0, min(height - 1, Int((rect.minY * CGFloat(height)).rounded(.down))))
+    let y1 = max(y0 + 1, min(height, Int((rect.maxY * CGFloat(height)).rounded(.up))))
+    let xStep = max(1, (x1 - x0) / 80)
+    let yStep = max(1, (y1 - y0) / 40)
+
+    var totalSamples = 0
+    var brightSamples = 0
+    for y in stride(from: y0, to: y1, by: yStep) {
+        for x in stride(from: x0, to: x1, by: xStep) {
+            let offset = (y * bytesPerRow) + (x * 4)
+            let red = CGFloat(pixels[offset]) / 255.0
+            let green = CGFloat(pixels[offset + 1]) / 255.0
+            let blue = CGFloat(pixels[offset + 2]) / 255.0
+            let luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
+            if luminance >= 0.62 {
+                brightSamples += 1
+            }
+            totalSamples += 1
+        }
+    }
+
+    guard totalSamples > 0 else { return 0 }
+    return CGFloat(brightSamples) / CGFloat(totalSamples)
+}
+
+private func withRenderedRGBA<T>(
+    _ cgImage: CGImage,
+    _ body: (_ pixels: UnsafeBufferPointer<UInt8>, _ width: Int, _ height: Int, _ bytesPerRow: Int) -> T?
+) -> T? {
+    let width = cgImage.width
+    let height = cgImage.height
+    let bytesPerRow = width * 4
+    var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+    let pixelCount = pixels.count
+
+    return pixels.withUnsafeMutableBytes { rawBuffer in
+        guard let baseAddress = rawBuffer.baseAddress,
+              let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: bytesPerRow,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue | CGBitmapInfo.byteOrder32Big.rawValue
+              ) else {
+            return nil
+        }
+
+        context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let buffer = UnsafeBufferPointer(
+            start: rawBuffer.bindMemory(to: UInt8.self).baseAddress,
+            count: pixelCount
+        )
+        return body(buffer, width, height, bytesPerRow)
+    }
 }

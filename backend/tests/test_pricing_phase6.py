@@ -29,7 +29,7 @@ from catalog_tools import (  # noqa: E402
     utc_now,
 )
 from scrydex_adapter import persist_scrydex_all_graded_snapshots, reset_scrydex_request_stats  # noqa: E402
-from server import SpotlightScanService, _load_backend_env_file  # noqa: E402
+from server import PricingLoadPolicy, SpotlightScanService, _load_backend_env_file  # noqa: E402
 from sync_scrydex_catalog import sync_scrydex_catalog  # noqa: E402
 
 
@@ -362,15 +362,217 @@ class PricingPhase6Tests(unittest.TestCase):
         }
 
         try:
-            with patch.object(service, "refresh_card_pricing", side_effect=AssertionError("live refresh should not run")):
-                payload = service._raw_candidate_payload(
+            with patch.object(service, "_refresh_card_pricing_for_context", side_effect=AssertionError("live refresh should not run")):
+                payload = service._candidate_payload(
                     candidate,
+                    pricing_context=service._raw_pricing_context(),
+                    trigger_source="scan_match_raw",
                     ensure_cached=False,
                     refresh_pricing_if_missing=True,
                 )
             self.assertNotIn("pricing", payload)
         finally:
             service.connection.close()
+
+    def test_hydrate_raw_candidate_pricing_refreshes_only_missing_or_stale_candidates_up_to_budget(self) -> None:
+        upsert_card(
+            self.connection,
+            card_id="base1-25",
+            name="Pikachu",
+            set_name="Base Set",
+            number="25/102",
+            rarity="Common",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base1-25",
+            set_id="base1",
+            set_series="Base",
+            supertype="Pokemon",
+        )
+        upsert_card(
+            self.connection,
+            card_id="base1-39",
+            name="Jigglypuff",
+            set_name="Base Set",
+            number="39/102",
+            rarity="Common",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base1-39",
+            set_id="base1",
+            set_series="Base",
+            supertype="Pokemon",
+        )
+        upsert_price_snapshot(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            currency_code="USD",
+            variant="holofoil",
+            market_price=150.0,
+            source_url="https://prices.example/base1-4",
+            payload={"provider": "scrydex"},
+        )
+        upsert_price_snapshot(
+            self.connection,
+            card_id="base1-25",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            currency_code="USD",
+            variant="normal",
+            market_price=12.0,
+            source_url="https://prices.example/base1-25",
+            payload={"provider": "scrydex"},
+        )
+        self.connection.execute(
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ?",
+            ("2026-04-10T00:00:00+00:00", "base1-25"),
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        refreshed_cards: list[str] = []
+
+        def fake_refresh(card_id: str, *, pricing_context, **_: object) -> dict[str, object] | None:
+            refreshed_cards.append(card_id)
+            upsert_price_snapshot(
+                service.connection,
+                card_id=card_id,
+                pricing_mode=RAW_PRICING_MODE,
+                provider="scrydex",
+                currency_code="USD",
+                variant="normal",
+                market_price=33.0 if card_id == "base1-25" else 7.0,
+                source_url=f"https://prices.example/{card_id}",
+                payload={"provider": "scrydex"},
+            )
+            service.connection.commit()
+            return service._card_detail_for_context(card_id, pricing_context=pricing_context)
+
+        try:
+            with patch.object(service, "_refresh_card_pricing_for_context", side_effect=fake_refresh):
+                payload = service.hydrate_raw_candidate_pricing(
+                    ["base1-4", "base1-25", "base1-39"],
+                    max_refresh_count=1,
+                )
+        finally:
+            service.connection.close()
+
+        details_by_id = {entry["card"]["id"]: entry for entry in payload["cards"]}
+
+        self.assertEqual(payload["requestedCount"], 3)
+        self.assertEqual(payload["returnedCount"], 3)
+        self.assertEqual(payload["refreshedCount"], 1)
+        self.assertEqual(refreshed_cards, ["base1-25"])
+        self.assertIsNotNone(details_by_id["base1-4"]["card"]["pricing"])
+        self.assertIsNotNone(details_by_id["base1-25"]["card"]["pricing"])
+        self.assertIsNone(details_by_id["base1-39"]["card"]["pricing"])
+
+    def test_hydrate_raw_candidate_pricing_uses_slab_context_for_exact_grade_refresh(self) -> None:
+        upsert_card(
+            self.connection,
+            card_id="base1-25",
+            name="Pikachu",
+            set_name="Base Set",
+            number="25/102",
+            rarity="Common",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base1-25",
+            set_id="base1",
+            set_series="Base",
+            supertype="Pokemon",
+        )
+        upsert_slab_price_snapshot(
+            self.connection,
+            card_id="base1-4",
+            grader="PSA",
+            grade="9",
+            pricing_tier="scrydex_exact_grade",
+            currency_code="USD",
+            low_price=900.0,
+            market_price=1000.0,
+            mid_price=980.0,
+            high_price=1100.0,
+            last_sale_price=None,
+            last_sale_date=None,
+            comp_count=0,
+            recent_comp_count=0,
+            confidence_level=4,
+            confidence_label="High",
+            bucket_key=None,
+            source_url="https://scrydex.example/base1-4",
+            source="scrydex",
+            summary="Scrydex exact PSA 9 market snapshot.",
+            payload={"provider": "scrydex"},
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        refresh_calls: list[tuple[str, dict[str, object]]] = []
+
+        def fake_refresh(card_id: str, *, pricing_context, **kwargs: object) -> dict[str, object] | None:
+            refresh_calls.append((card_id, {"pricing_context": pricing_context, **kwargs}))
+            upsert_slab_price_snapshot(
+                service.connection,
+                card_id=card_id,
+                grader=str(pricing_context.grader or ""),
+                grade=str(pricing_context.grade or ""),
+                pricing_tier="scrydex_exact_grade",
+                currency_code="USD",
+                low_price=120.0,
+                market_price=140.0,
+                mid_price=130.0,
+                high_price=150.0,
+                last_sale_price=None,
+                last_sale_date=None,
+                comp_count=0,
+                recent_comp_count=0,
+                confidence_level=4,
+                confidence_label="High",
+                bucket_key=None,
+                source_url=f"https://scrydex.example/{card_id}",
+                source="scrydex",
+                summary="Scrydex exact PSA 9 market snapshot.",
+                payload={"provider": "scrydex"},
+            )
+            service.connection.commit()
+            return service._card_detail_for_context(
+                card_id,
+                pricing_context=pricing_context,
+            )
+
+        try:
+            with patch.object(service, "_refresh_card_pricing_for_context", side_effect=fake_refresh):
+                payload = service.hydrate_raw_candidate_pricing(
+                    ["base1-4", "base1-25"],
+                    max_refresh_count=1,
+                    grader="PSA",
+                    grade="9",
+                    cert_number="12345678",
+                )
+        finally:
+            service.connection.close()
+
+        details_by_id = {entry["card"]["id"]: entry for entry in payload["cards"]}
+
+        self.assertEqual(payload["requestedCount"], 2)
+        self.assertEqual(payload["returnedCount"], 2)
+        self.assertEqual(payload["refreshedCount"], 1)
+        self.assertEqual(len(refresh_calls), 1)
+        self.assertEqual(refresh_calls[0][0], "base1-25")
+        pricing_context = refresh_calls[0][1]["pricing_context"]
+        self.assertEqual(pricing_context.grader, "PSA")
+        self.assertEqual(pricing_context.grade, "9")
+        self.assertEqual(pricing_context.cert_number, "12345678")
+        self.assertIsNone(pricing_context.preferred_variant)
+        self.assertEqual(details_by_id["base1-25"]["slabContext"]["grader"], "PSA")
+        self.assertEqual(details_by_id["base1-25"]["slabContext"]["grade"], "9")
+        self.assertIsNotNone(details_by_id["base1-25"]["card"]["pricing"])
 
     def test_sync_scrydex_catalog_persists_one_page_of_raw_and_graded_prices(self) -> None:
         sync_payload = [
@@ -572,13 +774,17 @@ class PricingPhase6Tests(unittest.TestCase):
                 {"SCRYDEX_API_KEY": "scrydex-key", "SCRYDEX_TEAM_ID": "team-id"},
                 clear=False,
             ), patch("scrydex_adapter.fetch_scrydex_card_by_id", return_value=scrydex_payload) as fetch_card:
-                first_payload = service._raw_candidate_payload(
+                first_payload = service._candidate_payload(
                     candidate,
+                    pricing_context=service._raw_pricing_context(),
+                    trigger_source="scan_match_raw",
                     ensure_cached=True,
                     refresh_pricing_if_missing=True,
                 )
-                second_payload = service._raw_candidate_payload(
+                second_payload = service._candidate_payload(
                     candidate,
+                    pricing_context=service._raw_pricing_context(),
+                    trigger_source="scan_match_raw",
                     ensure_cached=True,
                     refresh_pricing_if_missing=True,
                 )
@@ -588,6 +794,21 @@ class PricingPhase6Tests(unittest.TestCase):
             self.assertIsNotNone(second_payload.get("pricing"))
         finally:
             service.connection.close()
+
+    def test_shared_top_five_pricing_policy_has_explicit_rank_rules(self) -> None:
+        policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
+
+        self.assertEqual(policy.limit, 5)
+        self.assertEqual(
+            [(policy.rule_for_rank(index).ensure_cached, policy.rule_for_rank(index).refresh_missing) for index in range(1, 6)],
+            [
+                (True, True),
+                (False, False),
+                (False, False),
+                (False, False),
+                (False, False),
+            ],
+        )
 
     @staticmethod
     def _import_without_dotenv(name, globals=None, locals=None, fromlist=(), level=0):

@@ -22,9 +22,13 @@ Date: 2026-04-09
   - Phase 6 mode sanity signals + rewrite entrypoint: landed
   - Phase 7 raw branch stage 1: landed
   - Phase 8 raw escalation and confidence: landed
-  - Phase 8a remnant-aware fallback normalization: landed
+  - Phase 8a remnant-aware fallback normalization: landed as an intermediate step, then later simplified out of the active raw runtime path
   - Phase 8b deterministic footer metadata strips: landed
   - Phase 9 slab branch stage 1: landed as PSA-only
+- Current raw runtime note:
+  - accepted rectangle => perspective-correct + canonicalize
+  - weak or ambiguous rectangle => exact reticle fallback
+  - older references in this document to remnant-aware fallback/salvage should be read as historical implementation context, not the current raw runtime behavior
 
 ## Current Fixture Outputs
 
@@ -506,7 +510,7 @@ Only remove the old path once the new path proves better on named fixtures and o
 
 ## Specific Files To Keep Temporarily
 
-- `Spotlight/Services/CardRectangleAnalyzer.swift`
+- `Spotlight/Services/SlabScanner.swift`
 - `Spotlight/Services/CardIdentifierParsing.swift`
 - `Spotlight/Services/SlabLabelParsing.swift`
 - `Spotlight/ViewModels/ScannerViewModel.swift`
@@ -757,7 +761,7 @@ Goal:
 Files:
 
 - `Spotlight/ViewModels/ScannerViewModel.swift`
-- `Spotlight/Services/CardRectangleAnalyzer.swift`
+- `Spotlight/Services/SlabScanner.swift`
 
 Do:
 
@@ -772,7 +776,7 @@ Goal:
 
 Files:
 
-- `Spotlight/Services/CardRectangleAnalyzer.swift`
+- `Spotlight/Services/SlabScanner.swift`
 - any duplicate legacy OCR helpers no longer used
 
 ## Deletion Criteria For The Old OCR Path

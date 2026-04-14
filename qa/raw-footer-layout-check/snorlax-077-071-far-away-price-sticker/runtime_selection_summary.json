@@ -1,0 +1,288 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_wide"
+  ],
+  "collectorConfidenceScore" : 0.66,
+  "collectorNumber" : "077\/070",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.9997278911564625,
+    "x" : 0.00013605442176871263,
+    "y" : 0
+  },
+  "fixtureName" : "snorlax-077-071-far-away-price-sticker",
+  "footerRouting" : {
+    "anchorIdentifier" : "077\/070",
+    "collectorAnchor" : {
+      "height" : 0.017076737422997756,
+      "width" : 0.12703281483276452,
+      "x" : 0.24102397299286793,
+      "y" : 0.8512116308693536
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "fallback",
+  "ocrTargetQualityReasons" : [
+    "fallback",
+    "fallback:best_rectangle_score_too_low",
+    "normalization:exact_reticle_fallback"
+  ],
+  "ocrTargetQualityScore" : 0.40394126927195634,
+  "ocrUsedFallback" : true,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.9997278911564625,
+        "x" : 0.00013605442176871263,
+        "y" : 0.78
+      },
+      "text" : "x2 請力 にげる 車 車 本 Mlan Kouki Saitou 出し安けに特に取れたちまち米蔵を、愛にする大にが s10g 077\/070 CHR 吉より 製危のひとつと飲えられし行あなり。 ©7022 Pokimon\/Nintendo\/Creatures\/GAMEFREAK",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01925000024046802,
+            "width" : 0.044859582790037024,
+            "x" : 0.2654484573804263,
+            "y" : 0.7818333330927869
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011084049465321537,
+            "width" : 0.038451071443319614,
+            "x" : 0.3923369973041556,
+            "y" : 0.7872492834614765
+          },
+          "text" : "請力"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01180396443451716,
+            "width" : 0.0566913227381124,
+            "x" : 0.6113599033760923,
+            "y" : 0.7860146843815912
+          },
+          "text" : "にげる"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01375,
+            "width" : 0.019225535721659723,
+            "x" : 0.6922553641274616,
+            "y" : 0.7845833332817709
+          },
+          "text" : "車"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012833333493645332,
+            "width" : 0.019225535721659835,
+            "x" : 0.7242979247815039,
+            "y" : 0.7845833332073441
+          },
+          "text" : "車"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.015583333012709312,
+            "width" : 0.02819745328857175,
+            "x" : 0.776847723495757,
+            "y" : 0.7836666668651732
+          },
+          "text" : "本"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012922636103151862,
+            "width" : 0.139705557447485,
+            "x" : 0.1565037547970029,
+            "y" : 0.8285386819178685
+          },
+          "text" : "Mlan Kouki Saitou"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.0239541547277937,
+            "width" : 0.4582086167800453,
+            "x" : 0.3958616774491308,
+            "y" : 0.8244412608814167
+          },
+          "text" : "出し安けに特に取れたちまち米蔵を、愛にする大にが"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015583333012709312,
+            "width" : 0.04357788052069354,
+            "x" : 0.15778545379784267,
+            "y" : 0.8496666667894787
+          },
+          "text" : "s10g"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01707673742299775,
+            "width" : 0.12703281483276455,
+            "x" : 0.24102397299286793,
+            "y" : 0.8512116308693536
+          },
+          "text" : "077\/070 CHR"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.018595988538681937,
+            "width" : 0.049986395230426146,
+            "x" : 0.5192255358291559,
+            "y" : 0.8458739255740545
+          },
+          "text" : "吉より"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.022738997669821123,
+            "width" : 0.29152238194160895,
+            "x" : 0.5728195868182919,
+            "y" : 0.8435718092619119
+          },
+          "text" : "製危のひとつと飲えられし行あなり。"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010230420148133548,
+            "width" : 0.31017196935921354,
+            "x" : 0.3538859297075437,
+            "y" : 0.8751862466073221
+          },
+          "text" : "©7022 Pokimon\/Nintendo\/Creatures\/GAMEFREAK"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.879760544217687,
+        "x" : 0.060119727891156466,
+        "y" : 0
+      },
+      "text" : "たね カビゴン HD 150",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01574456160766069,
+            "width" : 0.08055946714315262,
+            "x" : 0.15602385820777187,
+            "y" : 0.14495412861827003
+          },
+          "text" : "たね"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.03973799126637554,
+            "width" : 0.21226780054539965,
+            "x" : 0.22763227525767782,
+            "y" : 0.14017467229651712
+          },
+          "text" : "カビゴン"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.027663154268889458,
+            "width" : 0.10997006802721088,
+            "x" : 0.6879720924123109,
+            "y" : 0.15137614687819734
+          },
+          "text" : "HD 150"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide_lowered",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.879760544217687,
+        "x" : 0.060119727891156466,
+        "y" : 0.05
+      },
+      "text" : "たね カビゴン HD 150",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.015757936674451054,
+            "width" : 0.06256642276930709,
+            "x" : 0.1558846652112577,
+            "y" : 0.14515873009980163
+          },
+          "text" : "たね"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.037583332667275086,
+            "width" : 0.18003808704011945,
+            "x" : 0.2593107912069153,
+            "y" : 0.14166666696150135
+          },
+          "text" : "カビゴン"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.030250001332116513,
+            "width" : 0.11491791861435205,
+            "x" : 0.687060844100077,
+            "y" : 0.14991666594331676
+          },
+          "text" : "HD 150"
+        }
+      ]
+    }
+  ],
+  "scanID" : "DB00DDD4-8B31-4E3F-938E-016385421829",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation",
+    "fallback_exact_collector_allows_header_rescue"
+  ],
+  "titleConfidenceScore" : 0.5733333174387614,
+  "titleTextPrimary" : "たね カビゴン HD",
+  "warnings" : [
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

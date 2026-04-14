@@ -8,7 +8,7 @@ Date: 2026-04-12
 - It is additive to:
   - [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md)
   - [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md)
-- Where this document conflicts with older Pokemon TCG API raw-provider assumptions, this document wins.
+- Where this document conflicts with older raw-provider assumptions, this document wins.
 - Current landed state:
   - typed badge-first raw set evidence is in place
   - junk broad-OCR set hints such as `p270` are suppressed from trusted backend set evidence
@@ -18,7 +18,7 @@ Date: 2026-04-12
   - the winning Scrydex visual candidate is now promoted:
     - active alias publication: `v004-scrydex-b8`
     - active held-out/runtime-shaped result: hybrid top-1 `36/67`
-  - the legacy Pokemon TCG API raw helper files/tests have been deleted from active repo surfaces
+  - the legacy raw helper files/tests have been deleted from active repo surfaces
   - Scrydex request-budget guardrails are now landed:
     - cached raw scans/details should issue `0` live Scrydex requests
     - first-seen visual-hybrid top-1 hydration should issue `1` Scrydex fetch-by-id request
@@ -36,7 +36,7 @@ Date: 2026-04-12
   - a text badge like `DRI`
   - a symbol-only badge with no OCR-readable text
 - Japanese cards are not first-class in the current provider-backed visual/reference flow.
-- The current Pokemon TCG API-backed raw lane is materially incomplete for Japanese identity/reference coverage.
+- The earlier raw-provider lane was materially incomplete for Japanese identity/reference coverage.
 
 ## Core Decisions
 
@@ -66,8 +66,8 @@ Date: 2026-04-12
   - raw identity source = Scrydex
   - raw reference-image source = Scrydex
   - raw pricing source = Scrydex
-- Pokemon TCG API should be treated as legacy/deprecated for raw runtime.
-- Deletion of the Pokemon TCG API raw lane only happens after Scrydex parity is validated.
+- The earlier raw-provider lane should be treated as legacy/deprecated for raw runtime.
+- Deletion of the old raw lane only happens after Scrydex parity is validated.
 
 ## Current Problems To Solve
 
@@ -104,7 +104,7 @@ Meaning:
 
 Current bad behavior:
 
-- raw runtime still assumes Pokemon TCG API for the primary raw provider lane
+- raw runtime still assumes the older provider lane for the primary raw provider path
 - Scrydex is only partially used:
   - Japanese raw search fallback
   - slab identity/pricing
@@ -140,7 +140,7 @@ Current bad behavior:
   - remote raw retrieval
   - catalog hydration
   - raw pricing
-- Current Pokemon TCG API runtime assumptions are treated as transitional debt.
+- Current older-provider runtime assumptions are treated as transitional debt.
 
 ## New Data Contracts
 
@@ -224,7 +224,7 @@ Scope:
 Important dependency:
 
 - This phase is safe to land before a full visual-index rebuild as long as legacy visual candidates can still be hydrated and displayed.
-- Full deletion of Pokemon TCG API raw runtime should wait until the Scrydex-based visual/reference artifacts are ready.
+- Full deletion of the older raw runtime should wait until the Scrydex-based visual/reference artifacts are ready.
 
 ### Phase 4: Scrydex-backed visual/reference tooling
 
@@ -238,7 +238,7 @@ Scope:
 Expected outcome:
 
 - Japanese cards become first-class supported entries in the visual/reference lane
-- visual runtime no longer depends on Pokemon TCG API coverage gaps
+- visual runtime no longer depends on older-provider coverage gaps
 
 ### Phase 5: Badge icon matching
 
@@ -295,12 +295,12 @@ It should be:
 ### Raw pricing
 
 - Scrydex becomes the active raw pricing provider target.
-- Pokemon TCG API raw pricing becomes legacy/deprecated.
+- legacy raw pricing behavior becomes deprecated.
 
 ### Visual/reference artifacts
 
 - New reference manifests and indexes should use Scrydex card IDs and Scrydex reference images.
-- Do not silently mix old Pokemon TCG API reference IDs with new Scrydex IDs in the same runtime contract without explicit mapping.
+- Do not silently mix old legacy-provider reference IDs with new Scrydex IDs in the same runtime contract without explicit mapping.
 
 ## Validation Requirements
 
@@ -333,7 +333,7 @@ The first code slice should not yet try to land the full badge icon matcher.
 ## Explicit Non-Goals For The First Slice
 
 - full badge icon classifier/model training
-- full deletion of all Pokemon TCG API code on day one
+- full deletion of all legacy raw-provider code on day one
 - retuning every OCR ROI
 - changing visual-first architecture back to OCR-first
 - using broad footer/header OCR as if it were canonical set identity

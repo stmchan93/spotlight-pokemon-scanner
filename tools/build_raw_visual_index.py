@@ -22,6 +22,7 @@ BACKEND_ROOT = REPO_ROOT / "backend"
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
+from catalog_tools import derive_card_title_aliases  # noqa: E402
 from scrydex_adapter import map_scrydex_catalog_card, scrydex_api_request  # noqa: E402
 from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy, resolve_torch_device  # noqa: E402
 
@@ -346,12 +347,21 @@ def manifest_entry_for_row(
     artifact_version: str,
     model_id: str,
 ) -> dict[str, Any]:
+    title_aliases = [
+        alias["alias"]
+        for alias in derive_card_title_aliases(
+            name=card.get("name"),
+            language=card.get("language"),
+            source_payload=card.get("source_payload") or card.get("sourcePayload") or {},
+        )
+    ]
     return {
         "rowIndex": row_index,
         "providerCardId": card.get("id"),
         "sourceProvider": card.get("source") or "scrydex",
         "sourceRecordID": card.get("source_record_id") or card.get("id"),
         "name": card.get("name"),
+        "titleAliases": title_aliases,
         "collectorNumber": candidate_display_number(card),
         "supertype": card.get("supertype"),
         "language": card.get("language"),

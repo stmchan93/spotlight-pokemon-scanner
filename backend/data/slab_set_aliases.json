@@ -1,0 +1,93 @@
+[
+  {
+    "canonicalName": "Pokemon GO",
+    "scopes": ["Pokemon GO", "PGO"],
+    "aliases": ["POKEMON GO", "P.M. POKEMON GO"]
+  },
+  {
+    "canonicalName": "XY Promos",
+    "scopes": ["XY Promos", "xyp_ja"],
+    "aliases": ["JAPANESE XY", "JAPANESE XY PROMO", "XY PROMOS", "P.M. JAPANESE XY"]
+  },
+  {
+    "canonicalName": "Base",
+    "scopes": ["Base"],
+    "aliases": ["BASE SET", "BASE"]
+  },
+  {
+    "canonicalName": "Scarlet & Violet",
+    "scopes": ["Scarlet & Violet", "SVI"],
+    "aliases": ["SCARLET & VIOLET", "SCARLET VIOLET"]
+  },
+  {
+    "canonicalName": "Paldea Evolved",
+    "scopes": ["Paldea Evolved", "PAL"],
+    "aliases": ["PALDEA EVOLVED"]
+  },
+  {
+    "canonicalName": "Obsidian Flames",
+    "scopes": ["Obsidian Flames", "OBF"],
+    "aliases": ["OBSIDIAN FLAMES"]
+  },
+  {
+    "canonicalName": "Paradox Rift",
+    "scopes": ["Paradox Rift", "PAR"],
+    "aliases": ["PARADOX RIFT"]
+  },
+  {
+    "canonicalName": "Paldean Fates",
+    "scopes": ["Paldean Fates", "PAF"],
+    "aliases": ["PALDEAN FATES"]
+  },
+  {
+    "canonicalName": "Temporal Forces",
+    "scopes": ["Temporal Forces", "TEF"],
+    "aliases": ["TEMPORAL FORCES"]
+  },
+  {
+    "canonicalName": "Twilight Masquerade",
+    "scopes": ["Twilight Masquerade", "TWM"],
+    "aliases": ["TWILIGHT MASQUERADE"]
+  },
+  {
+    "canonicalName": "Shrouded Fable",
+    "scopes": ["Shrouded Fable", "SFA"],
+    "aliases": ["SHROUDED FABLE"]
+  },
+  {
+    "canonicalName": "Stellar Crown",
+    "scopes": ["Stellar Crown", "SCR"],
+    "aliases": ["STELLAR CROWN"]
+  },
+  {
+    "canonicalName": "Surging Sparks",
+    "scopes": ["Surging Sparks", "SSP"],
+    "aliases": ["SURGING SPARKS"]
+  },
+  {
+    "canonicalName": "Prismatic Evolutions",
+    "scopes": ["Prismatic Evolutions", "PRE"],
+    "aliases": ["PRISMATIC EVOLUTIONS"]
+  },
+  {
+    "canonicalName": "Journey Together",
+    "scopes": ["Journey Together", "JTG"],
+    "aliases": ["JOURNEY TOGETHER"]
+  },
+  {
+    "canonicalName": "Destined Rivals",
+    "scopes": ["Destined Rivals", "DRI"],
+    "aliases": ["DESTINED RIVALS"]
+  },
+  {
+    "canonicalName": "Pokemon Prize Pack: Ser 3",
+    "scopes": ["Pokemon Prize Pack: Ser 3"],
+    "aliases": [
+      "POKEMON PRIZE PACK: SER 3",
+      "POKEMON PRIZE PACK SER 3",
+      "PRIZE PACK: SER 3",
+      "PRIZE PACK SER 3",
+      "PRIZE PACK SERIES 3"
+    ]
+  }
+]

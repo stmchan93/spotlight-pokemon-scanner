@@ -2,8 +2,6 @@ import Foundation
 import SwiftUI
 import UIKit
 
-private let frontendRetryGateMessage = "Couldn't read this card clearly. Try again with the card centered and well-lit."
-
 private struct ScanAlternativesContext {
     let itemID: UUID
     let scanID: UUID
@@ -36,6 +34,7 @@ final class ScannerViewModel: ObservableObject {
     private var currentScanStartedAt: TimeInterval?
     private var currentReticleRect: CGRect?
     private var idlePricingRefreshTask: Task<Void, Never>?
+    private var alternativesPricingHydrationTask: Task<Void, Never>?
     private var hasShownPhotoSaveFailureBanner = false
     private var alternativesContexts: [UUID: ScanAlternativesContext] = [:]
     private var activeAlternativesItemID: UUID?
@@ -96,6 +95,7 @@ final class ScannerViewModel: ObservableObject {
     func stopScannerSession() {
         cameraController.stopSession()
         idlePricingRefreshTask?.cancel()
+        alternativesPricingHydrationTask?.cancel()
     }
 
     func capturePhoto(reticleRect: CGRect) {
@@ -192,7 +192,11 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func presentResultDetail(for itemID: UUID) {
-        guard scannedItems.contains(where: { $0.id == itemID }) else { return }
+        guard let item = scannedItems.first(where: { $0.id == itemID }) else { return }
+        if item.resolverMode == .psaSlab {
+            showAlternatives(for: itemID)
+            return
+        }
         activeResultItemID = itemID
         route = .resultDetail
     }
@@ -205,9 +209,11 @@ final class ScannerViewModel: ObservableObject {
         route = .alternatives
         searchQuery = ""
         searchResults = []
+        scheduleAlternativePricingHydration(for: itemID)
     }
 
     func dismissAlternatives() {
+        alternativesPricingHydrationTask?.cancel()
         activeAlternativesItemID = nil
         analyzedCapture = nil
         matchResponse = nil
@@ -310,6 +316,14 @@ final class ScannerViewModel: ObservableObject {
             response: context.response,
             preservePhase: true
         )
+
+        if ScanTrayCalculator.shouldRefreshOnUserCandidateBrowse(pricing: nextCandidate.pricing) {
+            scheduleIdlePricingRefresh(
+                for: itemID,
+                cardID: nextCandidate.id,
+                allowNeedsReview: true
+            )
+        }
     }
 
     func refreshPricing(for itemID: UUID) {
@@ -440,15 +454,6 @@ final class ScannerViewModel: ObservableObject {
                 isProcessing = true
             }
 
-            if shouldShortCircuitBackendMatch(analysis) {
-                print("⚠️ [SCAN] Skipping backend match because frontend evidence is too weak")
-                removeStackItem(effectivePendingItemID)
-                showBanner(frontendRetryGateMessage)
-                resetPendingScanState()
-                isProcessing = false
-                return
-            }
-
             print("🔍 [SCAN] Sending scan to backend matcher...")
 
             let performance = ScanPerformanceMetrics(
@@ -494,7 +499,6 @@ final class ScannerViewModel: ObservableObject {
         }
         resetPendingScanState()
         route = .resultDetail
-        showBanner("Added \(candidate.name)")
 
         Task {
             await matcher.submitFeedback(
@@ -531,7 +535,7 @@ final class ScannerViewModel: ObservableObject {
                 item.isExpanded = false
                 item.isRefreshingPrice = false
                 item.statusMessage = ScanTrayCalculator.initialStatusMessage(for: candidate.pricing)
-                item.slabContext = response?.slabContext
+                item.slabContext = resolvedSlabContext(for: candidate, response: response)
                 item.pricingContextNote = pricingContextNote(
                     for: response?.resolverMode ?? item.resolverMode,
                     matcherSource: response?.matcherSource ?? item.matcherSource,
@@ -541,8 +545,13 @@ final class ScannerViewModel: ObservableObject {
             }
         }
 
-        if !preservePhase {
-            scheduleIdlePricingRefresh(for: itemID, cardID: candidate.id)
+        let allowNeedsReviewAutoRefresh = response?.resolverMode == .psaSlab
+        if !preservePhase || allowNeedsReviewAutoRefresh {
+            scheduleIdlePricingRefresh(
+                for: itemID,
+                cardID: candidate.id,
+                allowNeedsReview: allowNeedsReviewAutoRefresh
+            )
         }
     }
 
@@ -697,10 +706,95 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
-    private func scheduleIdlePricingRefresh(for itemID: UUID, cardID: String) {
+    private func scheduleAlternativePricingHydration(for itemID: UUID) {
+        alternativesPricingHydrationTask?.cancel()
+
+        guard let context = alternativesContexts[itemID] else {
+            return
+        }
+        let slabContext = slabHydrationContext(for: context.response)
+        guard context.response.resolverMode == .rawCard || slabContext != nil else {
+            return
+        }
+
+        let candidatesToHydrate = Array(context.response.topCandidates.dropFirst())
+            .map(\.candidate)
+            .filter(shouldHydrateAlternativePricing)
+        let cardIDs = candidatesToHydrate.map(\.id)
+        guard !cardIDs.isEmpty else { return }
+
+        let matcher = self.matcher
+        let maxRefreshCount = ScanTrayCalculator.alternativeHydrationRefreshCount(
+            totalTopCandidates: context.response.topCandidates.count
+        )
+        alternativesPricingHydrationTask = Task { [weak self] in
+            let hydratedDetails = await matcher.hydrateCandidatePricing(
+                cardIDs: cardIDs,
+                maxRefreshCount: maxRefreshCount,
+                slabContext: slabContext
+            )
+            guard let self, !Task.isCancelled, !hydratedDetails.isEmpty else {
+                return
+            }
+
+            await MainActor.run {
+                self.applyHydratedAlternativeDetails(hydratedDetails, to: itemID)
+            }
+        }
+    }
+
+    private func shouldHydrateAlternativePricing(_ candidate: CardCandidate) -> Bool {
+        guard let pricing = candidate.pricing else {
+            return true
+        }
+        if let isFresh = pricing.isFresh {
+            return !isFresh
+        }
+        return pricing.freshnessTone == .stale
+    }
+
+    private func slabHydrationContext(for response: ScanMatchResponse) -> SlabContext? {
+        guard response.resolverMode == .psaSlab,
+              let slabContext = response.slabContext,
+              let grade = slabContext.grade else {
+            return nil
+        }
+
+        return SlabContext(
+            grader: slabContext.grader,
+            grade: grade,
+            certNumber: slabContext.certNumber,
+            variantName: nil
+        )
+    }
+
+    private func applyHydratedAlternativeDetails(_ details: [CardDetail], to itemID: UUID) {
+        guard let existingContext = alternativesContexts[itemID] else { return }
+
+        let updatedResponse = existingContext.response.mergingCandidateDetails(details)
+        alternativesContexts[itemID] = ScanAlternativesContext(
+            itemID: existingContext.itemID,
+            scanID: existingContext.scanID,
+            previewImage: existingContext.previewImage,
+            analysis: existingContext.analysis,
+            response: updatedResponse
+        )
+
+        if activeAlternativesItemID == itemID {
+            matchResponse = updatedResponse
+        }
+    }
+
+    private func scheduleIdlePricingRefresh(
+        for itemID: UUID,
+        cardID: String,
+        allowNeedsReview: Bool = false
+    ) {
         idlePricingRefreshTask?.cancel()
 
-        let shouldRefresh = scannedItems.first(where: { $0.id == itemID }).map(shouldAutoRefresh) ?? true
+        let shouldRefresh = scannedItems.first(where: { $0.id == itemID }).map {
+            shouldAutoRefresh($0, allowNeedsReview: allowNeedsReview)
+        } ?? true
         guard shouldRefresh else { return }
 
         idlePricingRefreshTask = Task { @MainActor [weak self] in
@@ -711,20 +805,31 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
-    private func shouldAutoRefresh(_ item: LiveScanStackItem) -> Bool {
-        guard item.phase == .resolved else { return false }
-        return ScanTrayCalculator.shouldAutoRefresh(pricing: item.pricing)
+    private func shouldAutoRefresh(_ item: LiveScanStackItem, allowNeedsReview: Bool = false) -> Bool {
+        ScanTrayCalculator.shouldAutoRefresh(
+            pricing: item.pricing,
+            phase: item.phase,
+            allowNeedsReview: allowNeedsReview
+        )
     }
 
-    private func shouldAutoAccept(_ response: ScanMatchResponse) -> Bool {
-        switch response.confidence {
-        case .high:
-            return true
-        case .medium:
-            return false
-        case .low:
-            return false
+    private func resolvedSlabContext(for candidate: CardCandidate, response: ScanMatchResponse?) -> SlabContext? {
+        guard response?.resolverMode == .psaSlab || response?.slabContext != nil else {
+            return response?.slabContext
         }
+
+        let existing = response?.slabContext
+        let grader = candidate.pricing?.grader ?? existing?.grader
+        guard let grader else {
+            return existing
+        }
+
+        return SlabContext(
+            grader: grader,
+            grade: candidate.pricing?.grade ?? existing?.grade,
+            certNumber: existing?.certNumber,
+            variantName: candidate.pricing?.variant ?? existing?.variantName
+        )
     }
 
     private func mergedSlabContext(existing: SlabContext?, refreshed: SlabContext?) -> SlabContext? {
@@ -1091,7 +1196,11 @@ final class ScannerViewModel: ObservableObject {
                     item.isRefreshingPrice = false
                 }
                 if let bestMatch = response.bestMatch {
-                    scheduleIdlePricingRefresh(for: pendingItemID, cardID: bestMatch.id)
+                    scheduleIdlePricingRefresh(
+                        for: pendingItemID,
+                        cardID: bestMatch.id,
+                        allowNeedsReview: response.resolverMode == .psaSlab
+                    )
                 }
                 resetPendingScanState()
             } else {
@@ -1164,33 +1273,17 @@ final class ScannerViewModel: ObservableObject {
     }
 }
 
-func shouldShortCircuitBackendMatch(_ analysis: AnalyzedCapture) -> Bool {
-    guard analysis.resolverModeHint == .rawCard else {
-        return false
-    }
-    guard analysis.cropConfidence < 0.50 else {
+func shouldAutoAccept(_ response: ScanMatchResponse) -> Bool {
+    guard response.resolverMode == .rawCard else {
         return false
     }
 
-    let rawEvidence = analysis.ocrAnalysis?.rawEvidence
-    let exactCollector = analysis.collectorNumber ?? rawEvidence?.collectorNumberExact
-    let titleText = rawEvidence?.titleTextPrimary ?? rawEvidence?.titleTextSecondary
-    let badgeTokens = analysis.setBadgeHint?.canonicalTokens ?? rawEvidence?.setBadgeHint?.canonicalTokens ?? []
-    let hasSetHints = !analysis.setHintTokens.isEmpty || !(rawEvidence?.setHints.isEmpty ?? true) || !badgeTokens.isEmpty
-
-    return normalizedNonEmpty(exactCollector) == nil &&
-        normalizedNonEmpty(titleText) == nil &&
-        !hasSetHints
-}
-
-func isValidReticleCaptureRect(_ rect: CGRect) -> Bool {
-    guard rect.minX.isFinite,
-          rect.minY.isFinite,
-          rect.width.isFinite,
-          rect.height.isFinite else {
+    switch response.confidence {
+    case .high:
+        return true
+    case .medium, .low:
         return false
     }
-    return !rect.isEmpty && rect.width > 1 && rect.height > 1
 }
 
 func matchedStackPhase(for response: ScanMatchResponse) -> LiveScanStackItemPhase {

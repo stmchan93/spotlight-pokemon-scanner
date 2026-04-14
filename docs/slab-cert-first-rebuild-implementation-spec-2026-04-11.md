@@ -395,7 +395,7 @@ Changes:
 
 Target:
 
-- remove slab orchestration pressure from `CardRectangleAnalyzer.swift`
+- remove slab orchestration pressure from `SlabScanner.swift`
 
 #### New file: [Spotlight/Services/OCR/Slab/SlabROIPlanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/OCR/Slab/SlabROIPlanner.swift)
 
@@ -452,7 +452,7 @@ Target:
 - cert extraction quality improves
 - fallback text matching stops depending on over-processed titles
 
-#### Transitional file: [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift)
+#### Transitional file: [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift)
 
 Changes:
 
@@ -623,7 +623,7 @@ Target:
 
 - provider-status output matches reality
 
-#### [backend/pokemontcg_pricing_adapter.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_pricing_adapter.py)
+#### [backend/pricing_provider.py](/Users/stephenchan/Code/spotlight/backend/pricing_provider.py)
 
 Changes:
 
@@ -707,7 +707,7 @@ Changes:
 After the held-out slab regression passes:
 
 1. remove the hard-disabled slab match behavior from the app
-2. delete obsolete slab logic from `CardRectangleAnalyzer.swift`
+2. delete obsolete slab logic from `SlabScanner.swift`
 3. remove slab title-repair heuristics that only exist to compensate for weak OCR
 4. remove transitional “legacy slab” naming where the rewrite path has replaced it
 5. align docs, health output, and provider-status output with actual runtime behavior

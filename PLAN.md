@@ -7,10 +7,10 @@ Date: 2026-04-13
 - The current raw visual-match-primary migration source of truth is [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md).
 - The current raw set-badge and Scrydex-first migration source of truth is [docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md).
 - The current next-step implementation source of truth for improving raw visual retrieval is [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md).
-- The current backend reset / raw-matcher redesign source of truth is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
+- The earlier OCR-primary backend-reset baseline reference is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
 - The current backend latency / network-call refactor pre-implementation source of truth is [docs/backend-latency-refactor-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/backend-latency-refactor-spec-2026-04-10.md).
 - The current OCR rewrite / rollout source of truth is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
-- The current OCR simplification / performance implementation source of truth for the next OCR pass is [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
+- The earlier OCR simplification / performance implementation record is [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
 - The current slab rebuild implementation source of truth is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
 - The raw backend reset has now landed.
 - The next raw identity direction is now:
@@ -33,15 +33,16 @@ Date: 2026-04-13
   - 3-table SQLite (`cards`, `card_price_snapshots`, `scan_events`)
   - Scrydex-first for raw identity/reference/pricing
   - PriceCharting preserved as a thin non-active shell
-  - Pokemon TCG API raw helper files/tests are deleted; only historical doc references remain
+  - legacy raw helper files/tests are deleted; only historical deletion notes remain
 - Current pricing-cache operating decision:
-  - move toward a same-machine SQLite mirror for Scrydex-backed metadata/pricing
-  - nightly full Scrydex sync runs at `3:00 AM America/Los_Angeles`
-  - sync persists card metadata plus raw and graded price snapshots from the same `include=prices` payload
+  - the current live beta remains Cloud Run plus on-demand Scrydex with per-instance SQLite caching
+  - the same-machine SQLite mirror and nightly full Scrydex sync remain implemented in-repo but are not the live deployment path yet
+  - when the mirror path is turned on, nightly full Scrydex sync runs at `3:00 AM America/Los_Angeles`
+  - that sync persists card metadata plus raw and graded price snapshots from the same `include=prices` payload
   - fresh successful syncs should suppress normal hot-path Scrydex calls
   - live provider fallback remains available for stale/missing/manual-refresh cases
 - Treat the old slab/sync/cache backend modules as deleted legacy state, not as code to revive.
-- Treat the current OCR implementation as temporary legacy structure while the new OCR pipeline is planned and evaluated side-by-side.
+- Treat the current raw OCR rewrite path as the live implementation. Refine it incrementally, but do not reintroduce the deleted salvage-style normalization branch.
 
 ## Current OCR planning override
 
@@ -59,6 +60,10 @@ Date: 2026-04-13
   - raw = footer-first
   - slab = PSA-only for now
   - local debug artifact export may remain on temporarily while OCR troubleshooting is active
+- Current raw front-half normalization rule:
+  - accepted rectangle => perspective-correct + canonicalize
+  - weak or ambiguous rectangle => exact reticle fallback
+  - no holder salvage or remnant recovery in the active runtime path
 - Top-level OCR routing follows the UI-selected mode:
   - `raw`
   - `slab`
@@ -80,12 +85,11 @@ Date: 2026-04-13
 - Phase 1 slab target is:
   - PSA
   - Pokemon
-- Label-only scans are Priority 1, not a polish phase.
 - Slab OCR is cert-first, not cert-only.
 - Certs are OCR-derived lookup keys and repeat-scan cache keys, not an official verification lane.
-- Treat slab runtime as two valid OCR entry paths:
-  - full slab
-  - label only
+- Treat live slab runtime as one supported capture path:
+  - standard PSA full slab in frame
+  - keep the PSA label aligned in the guided top band
 - Repeat-scan cert hits should resolve immediately from local scan history when possible.
 - First-seen slabs should identify the card from label OCR and then fetch graded pricing from Scrydex.
 - Do **not** add PSA API dependencies or “official verification” claims to phase 1.
@@ -94,9 +98,9 @@ Date: 2026-04-13
 - Cleanup/deletion after slab cutover is mandatory before any non-PSA expansion.
 - Non-PSA slabs should return explicit unsupported / needs-review OCR output instead of going through fake generic parsing.
 - The current slab rewrite should treat slab OCR as:
-  - label-only scans as a first-class path
   - barcode / cert-first extraction before fallback text identity
-  - full-slab and label-only OCR entry paths
+  - standard PSA full-slab capture as the supported live path
+  - use the in-reticle guide band to keep the PSA label isolated near the top
   - identity decoupled from graded pricing
   - PSA top-label-focused
   - cert / grade / card-number extraction when PSA evidence is strong
@@ -105,7 +109,7 @@ Date: 2026-04-13
 
 ### Hardcoded slab logic to remove or downrank
 
-- App OCR geometry in [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift):
+- App slab OCR geometry in [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift):
   - one shared `SlabScanConfiguration.LabelOCR` for all graders
   - one shared `SlabScanConfiguration.CardFooterOCR` for all graders
   - one shared `psaLogoRegion` reused even when the slab is not PSA
@@ -113,7 +117,7 @@ Date: 2026-04-13
   - PSA-weighted visual inference scores applied as the main fallback path
   - regex-heavy shared parsing instead of PSA-specific phase-1 parsing
   - shared slab-card-number extraction rules instead of cleaner cert-first PSA parsing
-- App slab footer set-hint extraction in [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift):
+- App slab footer set-hint extraction in [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift):
   - `knownAlphaOnlyHints` allowlist (`par`, `svi`, `pgo`, `xyp`, `smp`, `mp`, etc.)
   - slab-relative footer rescue rules should become fallback-only once the cert-first PSA path is live
 - Backend slab matcher in [backend/server.py](/Users/stephenchan/Code/spotlight/backend/server.py):
@@ -258,90 +262,35 @@ Status: `active`
 
 ### Milestone 1c: Raw scan reliability and candidate UX hardening
 
-Status: `planned`
+Status: `landed / current state`
 
-Purpose:
+Current outcome:
 
-- reduce repeat scans caused by bad raw normalization and weak frontend OCR evidence
-- stop wasting live Scrydex pricing fetches on low-confidence guesses
-- make weak matches recoverable through candidate selection instead of blind rescans
+- raw normalization is now simplified to:
+  - accepted rectangle => perspective-correct + canonicalize
+  - weak/ambiguous rectangle => exact reticle fallback
+- frontend fallback scans now support lowered header rescue when footer evidence is strong enough
+- backend weak fallback scans now use local-only recall expansion instead of shallow shortlist truncation
+- backend scan-match logs now expose Scrydex request and phase timing details for local debugging
+- low-signal and weak scans are now treated more honestly, with `needs_review` / alternatives preferred over fabricated cleanup heuristics
 
-Execution rules for this slice:
+What this milestone should no longer re-open by default:
 
-- do not start implementation until the todo list below is reviewed/approved
-- keep the held-out raw regression corpus frozen
-- for each code change:
-  - state the expected improvement first
-  - run the relevant regression commands before the change
-  - run the same regression commands after the change
-  - keep the change only if it is net-positive or neutral
-- prefer extending the existing alternatives flow and scan feedback path before adding new endpoints or a separate result-screen architecture
+- holder-preserve heuristics
+- remnant-aware fallback normalization
+- fallback salvage / reconstructed full-card crops
+- broad “be clever” normalization retries that can poison `06_ocr_input_normalized.jpg`
 
-Ordered todo list:
+Current design rule:
 
-1. Scrydex hot-path gating
-   - stop live raw pricing refresh during scan-match response building for `confidence = low` or `reviewDisposition = needs_review`
-   - stop idle auto-refresh for review-state tray rows
-   - allow live pricing only after:
-     - confident auto-accept
-     - explicit candidate selection
-     - explicit user refresh
-   - preserve cached pricing display when available
+- prefer a simple, honest front half plus backend local recall over aggressive frontend normalization heuristics
+- if a scan is weak, prefer:
+  - `needs_review`
+  - alternatives
+  - explicit retake behavior
+  over fake geometric recovery
 
-2. Frontend no-signal retry gate
-   - before sending a raw scan to the backend, short-circuit obviously unreadable scans when all of these are true:
-     - very low target quality
-     - no exact collector
-     - no meaningful title
-     - no set evidence
-   - show a retry/rescan message instead of surfacing a weak backend guess
-   - keep this gate aligned with the existing preview-frame-first capture flow
-
-3. Target-selection ambiguity fix
-   - in raw mode, when rectangle selection fails because candidates are too close or otherwise ambiguity-driven, evaluate an exact-reticle-direct path before relaxed holder heuristics
-   - use a conservative card-likeness check on the reticle crop
-   - keep this as an explicit fallback-style path, not as a fake clean primary selection
-
-4. Honest target confidence and fallback reporting
-   - make fallback and ambiguity paths report honest `selectionConfidence` / target-quality values
-   - fix the current branch where fallback normalization can inherit an unrealistically high confidence from the rejected rectangle candidate
-   - preserve clear normalization reasons in artifacts/logs so backend scoring and triage can distinguish:
-     - clean rectangle selection
-     - relaxed rectangle promotion
-     - exact-reticle fallback/direct path
-     - holder-preserve rejection
-
-5. Holder-preserve rejection hardening
-   - broaden the existing narrow-content rejection so `holder_like_selected_raw_card_preserved` does not survive when the normalized content is too narrow to be a reliable raw-card crop
-   - apply the rejection consistently across the relevant raw selection paths, not only the current relaxed branch
-   - prefer conservative canonicalization over half-card inner-crop guesses
-
-6. Candidate list contract upgrade
-   - return `topCandidates` as top `5` instead of top `3`
-   - keep candidate payloads rich enough for the scanner alternatives UX:
-     - id
-     - name
-     - set name
-     - number
-     - image URLs
-     - pricing snapshot if already cached/allowed
-     - visual/hybrid scores already exposed in the response
-
-7. Alternatives UX upgrade on top of the existing scanner flow
-   - evolve the current [AlternateMatchesView](/Users/stephenchan/Code/spotlight/Spotlight/Views/AlternateMatchesView.swift) instead of introducing a separate architecture first
-   - low-confidence / `needs_review` scans should route directly into candidate picking
-   - medium/high-confidence scans should keep the main resolved flow but expose a more obvious "similar cards" affordance
-   - selecting a candidate should:
-     - confirm the card
-     - log scan feedback with the selected card id
-     - trigger pricing refresh on demand for that chosen card
-
-8. Dedicated result screen decision
-   - treat the screenshot-style full card-detail screen as a second-phase UX decision
-   - do not block the reliability fixes on building a new standalone result-screen stack
-   - only add it after the functional candidate-selection flow is working and reviewed
-
-Primary files expected in this slice:
+Primary files that now define this landed behavior:
 
 - `Spotlight/Services/OCR/TargetSelection.swift`
 - `Spotlight/Services/OCR/PerspectiveNormalization.swift`
@@ -355,7 +304,7 @@ Primary files expected in this slice:
 - `backend/tests/test_raw_decision_phase5.py`
 - `backend/tests/test_scan_logging_phase7.py`
 
-Validation focus:
+Validation focus for future changes in this area:
 
 - backend/unit:
   - `python3 -m unittest -v backend.tests.test_raw_evidence_phase3 backend.tests.test_raw_retrieval_phase4 backend.tests.test_raw_decision_phase5 backend.tests.test_pricing_phase6 backend.tests.test_scan_logging_phase7`
@@ -366,6 +315,25 @@ Validation focus:
 - manual verification:
   - live-device raw scans that previously needed repeat attempts
   - request-budget audit through `GET /api/v1/ops/provider-status`
+
+### Milestone 1d: Shared pricing response layer
+
+Status: `done`
+
+- Raw, visual-only raw, and slab still keep separate evidence extraction, candidate scoring, confidence math, and resolver routing.
+- The shared post-match pricing/response layer is now landed in `backend/server.py`:
+  - `PricingContext`
+  - `PricingLoadPolicy`
+  - shared candidate payload builder
+  - shared top-candidate encoder
+  - shared context-based `card_detail` / refresh plumbing
+- Current shared top-candidate pricing policy:
+  - raw and slab both return top `5` candidates
+  - rank `1` ensures SQLite hydration
+  - rank `1` only auto-refreshes missing pricing when the match is `reviewDisposition=ready` and confidence is `high` or `medium`
+  - ranks `2-5` return cached pricing only
+- Current follow-up still not landed:
+  - lazy refresh when the user selects an alternate candidate from the returned top `5`
 
 ### Milestone 2: OCR architecture rewrite
 
@@ -384,8 +352,7 @@ Status: `active`
 - raw escalation and confidence is landed behind the rewrite path
 - raw preview-frame-first capture is restored
 - raw footer-first staging is landed
-- remnant-aware fallback normalization is landed for partial/off-center raw scans
-- fallback salvage now re-canonicalizes recovered raw cards into tighter card-filling OCR inputs
+- raw normalization is now simplified to accepted-rectangle perspective correction or exact-reticle fallback
 - deterministic footer band/corner extraction is the live raw path
 - debug artifact `04_selected_target_crop.jpg` is now the chosen/recovered target image, not a duplicate search image
 - raw runtime now routes directly through `RawPipeline`
@@ -417,14 +384,15 @@ Status: `active`
     - `psa_cert_ocr`
   - slab identity can now succeed without exact graded pricing
   - slab detail / refresh preserves `certNumber`
-  - first label-only slab OCR fallback is landed:
-    - slab fallback normalization now preserves the search crop as `slab_label`
-    - slab OCR can treat that crop as a label-only input instead of pretending it is a full slab
+  - slab fallback is now intentionally narrow:
+    - live slab scans support standard PSA full-slab framing only
+    - broad whole-search slab OCR fallback is removed
+    - slab fallback now requires either a standard slab crop or an isolated PSA label region
   - `qa/slab-regression/` scaffold is landed
   - current slab regression scaffold contents:
     - tuning fixtures: `28`
     - full slab fixtures: `14`
-    - label-only fixtures: `14` derived crops
+    - label-only fixtures: `14` derived crops retained for tuning/debug only
     - held-out fixtures: `0` so far
     - excluded from phase 1: `IMG_0162.JPG` because it is `CGC`
   - `zsh tools/run_slab_regression.sh` now validates the slab fixture corpus layout and replays the Apple Vision slab OCR path on simulator
@@ -433,11 +401,10 @@ Status: `active`
     - grade exact: `28/28`
     - cert exact: `28/28`
     - card number exact: `28/28`
-    - this is a tuning-only milestone because the `label_only` half is still derived from the same source photos
+    - this is a tuning-only milestone because the `label_only` half is still derived from the same source photos and is no longer the intended live capture path
 - next required sequence is:
   - keep the imported `2026-04-12` PSA photo set as the first tuning corpus
-  - collect at least `10` real PSA label-only photos for the held-out split
-  - tune and harden the experimental full-slab and label-only slab OCR entry paths
+  - tune and harden the standard PSA full-slab entry path
   - keep cert-first backend resolution centered on repeat-scan cert cache plus Scrydex-backed first-seen identity
   - keep identity decoupled from graded pricing
   - re-enable slab backend matching in user-facing runtime only when the rebuilt path is ready
@@ -449,7 +416,7 @@ Status: `active`
 Status: `planned`
 
 - remove any remaining transitional slab gating or compatibility branches once the rebuilt path is proven
-- delete obsolete slab logic from `CardRectangleAnalyzer.swift` once `SlabPipeline` is live
+- refactor or delete obsolete slab logic from `SlabScanner.swift` once `SlabPipeline` is live
 - remove backend slab title-repair heuristics that only compensate for weak OCR
 - align docs and ops/provider-status output with actual runtime behavior
 - do not begin non-PSA expansion until this cleanup phase is complete
@@ -598,49 +565,34 @@ Status: `planned`
 
 ## Pricing Freshness Decision
 
-- Run a same-machine nightly Scrydex full-catalog sync for the current prototype stage.
-- Current schedule target:
-  - `3:00 AM America/Los_Angeles`
-- Current host model:
-  - the backend server and the cron job run on the same machine
-  - both point at the same SQLite database path
+- Current live beta decision:
+  - keep Cloud Run as the active hosted backend for now
+  - keep live Scrydex search/refresh behavior active when SQLite is missing or stale
+  - keep the nightly same-machine mirror path dormant until it is worth the operational cutover
+- Mirror cutover decision, when resumed:
+  - run a same-machine nightly Scrydex full-catalog sync at `3:00 AM America/Los_Angeles`
+  - require the backend server and the cron job to point at the same SQLite database path
   - do not assume Cloud Run shares that SQLite file
-- Nightly sync scope:
-  - `cards` metadata mirror
-  - raw price snapshot mirror
-  - graded price snapshot mirror from the same Scrydex `include=prices` payload
-- Scan hot-path serving rule:
-  - if the latest successful full sync is still within the `24 hour` freshness window, serve identity and pricing from SQLite only
-  - do not perform normal live Scrydex search or pricing refresh in that case
-  - keep live fallback only for:
-    - stale or failed sync state
-    - missing local card data
-    - explicit user/admin force refresh
+  - nightly sync scope:
+    - `cards` metadata mirror
+    - raw price snapshot mirror
+    - graded price snapshot mirror from the same Scrydex `include=prices` payload
+  - once the latest successful full sync is still within the `24 hour` freshness window:
+    - serve identity and pricing from SQLite only
+    - do not perform normal live Scrydex search or pricing refresh
+    - keep live fallback only for stale/failed sync state, missing local data, or explicit force refresh
 - Keep the default freshness window at `24 hours`.
 - Keep explicit force refresh available even after the nightly sync lands.
 
 ## Pricing Freshness Follow-Up TODOs
 
-1. Land the dedicated sync runner and same-machine cron wiring:
-   - `backend/sync_scrydex_catalog.py`
-   - local `crontab` entry at `3:00 AM PT`
-   - repo-managed VM deploy path via `backend/deploy.sh vm ...`
-2. Persist full Scrydex graded rows, not only one requested grade, into `card_price_snapshots`.
-3. Expose latest sync status and freshness in ops/provider-status.
-4. Keep Scrydex search identity-only on the hot path.
-5. Keep live provider fallback only as a repair path:
-   - stale sync
-   - missing card
-   - force refresh
-6. Add explicit freshness metadata to API responses so the app can show:
+1. Decide when to cut over from the current Cloud Run live mode to the same-host SQLite mirror mode.
+2. Add explicit freshness metadata to API responses so the app can show:
    - snapshot age
-   - whether the latest response was served from a fresh nightly sync or a live fallback
-7. Add richer sync ops reporting:
-   - latest run status
-   - pages fetched
-   - raw/graded snapshots written
-   - estimated credits used
-8. Decide later whether to add:
+   - whether the latest response was served from cached SQLite or a live fallback
+3. Add lazy alternate-candidate pricing refresh for user-selected ranks `2-5` on both raw and slab response paths.
+4. If the mirror cutover resumes, wire the same-host cron/service setup on the machine that actually owns the SQLite file.
+5. Decide later whether to add:
    - inactive-card pruning
    - image self-hosting/CDN
    - a non-SQLite shared database for multi-host deployment

@@ -9,8 +9,6 @@ test_*.py
 run_all_tests.sh
 
 # Ignore cache directories
-catalog/pokemontcg/all_cards_cache.json
-catalog/pokemontcg/images/
 data/
 
 # Ignore documentation

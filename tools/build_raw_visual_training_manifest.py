@@ -401,10 +401,10 @@ def main() -> int:
     query_cache_path = args.query_cache.resolve()
     expansion_snapshot_path = args.expansion_snapshot.resolve()
     reference_image_root = args.reference_image_root.resolve()
-    api_key = os.environ.get("POKEMONTCG_API_KEY")
+    api_key = os.environ.get("SCRYDEX_API_KEY")
 
     if not api_key:
-        print("Warning: POKEMONTCG_API_KEY is not set; provider mapping may be slower or rate-limited.")
+        print("Warning: SCRYDEX_API_KEY is not set; provider mapping may be slower or rate-limited.")
 
     fixtures, discovery_skips = discover_fixtures(fixture_roots, limit=args.limit)
     if not fixtures:

@@ -15,14 +15,14 @@ Repo focus:
 - App parsing/network/helpers: `Spotlight/Services`, `Spotlight/Models`
 - Backend runtime/API: `backend/server.py`
 - Backend matching/persistence/routing: `backend/catalog_tools.py`
-- Provider adapters: `backend/pricing_provider.py`, `backend/pokemontcg_pricing_adapter.py`, `backend/scrydex_adapter.py`, `backend/pricecharting_adapter.py`
+- Provider adapters: `backend/pricing_provider.py`, `backend/scrydex_adapter.py`, `backend/pricecharting_adapter.py`
 - QA assets: `tools/`, `qa/`, `backend/tests/`, `Spotlight/Tests/`
 
 Design rules:
 - Keep the implementation boundary as small as possible.
 - Prefer existing seams over new abstractions. This repo is not large enough to justify framework-heavy plans.
 - Preserve repo-critical rules:
-  - raw mode refreshes/prices through Pokemon TCG API only
+  - raw mode refreshes/prices through Scrydex only
   - slab mode refreshes/prices through Scrydex only
   - no raw fallback for slab pricing
   - persisted SQLite snapshot timestamps decide pricing freshness

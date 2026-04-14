@@ -41,7 +41,7 @@ class PricingUtilsTests(unittest.TestCase):
         summary = normalize_price_summary(
             {
                 "updatedAt": "2026/04/06",
-                "url": "https://prices.pokemontcg.io/tcgplayer/base5-14",
+                "url": "https://prices.example.com/tcgplayer/base5-14",
                 "prices": {
                     "1stEditionHolofoil": {
                         "low": 28.99,

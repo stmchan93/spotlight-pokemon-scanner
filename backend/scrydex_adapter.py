@@ -759,97 +759,86 @@ def search_remote_scrydex_slab_candidates(
     title_clauses = _scrydex_slab_title_clauses(title_text.strip() or title_source)
     expansion_scopes = _scrydex_expansion_scopes(set_hint_tokens)
     number_queries = _scrydex_slab_number_queries(card_number)
-    query_groups: list[list[str]] = []
     combined_label_text = " ".join(
         part for part in [label_text.strip(), *[str(text).strip() for text in parsed_label_text if str(text).strip()]] if part
     ).upper()
     prefer_japanese = "JAPANESE" in combined_label_text or any(str(token or "").strip().lower().endswith("_ja") for token in set_hint_tokens)
-    japanese_query_groups: list[list[str]] = []
+    primary_title_clause = title_clauses[0] if title_clauses else None
+    primary_number_query = number_queries[0] if number_queries else None
+    primary_expansion_scope = expansion_scopes[0] if expansion_scopes else None
 
-    if title_clauses and number_queries and expansion_scopes:
-        query_groups.append([
-            f"{clause} {number_query} {expansion_scope}"
-            for clause in title_clauses
-            for number_query in number_queries
-            for expansion_scope in expansion_scopes
-        ])
-    if number_queries and expansion_scopes:
-        query_groups.append([
-            f"{number_query} {expansion_scope}"
-            for number_query in number_queries
-            for expansion_scope in expansion_scopes
-        ])
-    if title_clauses and number_queries:
-        query_groups.append([
-            f"{clause} {number_query}"
-            for clause in title_clauses
-            for number_query in number_queries
-        ])
-    if title_clauses and expansion_scopes:
-        query_groups.append([
-            f"{clause} {expansion_scope}"
-            for clause in title_clauses
-            for expansion_scope in expansion_scopes
-        ])
-    if title_clauses:
-        query_groups.append(title_clauses)
-    if number_queries:
-        query_groups.append(number_queries)
+    def bounded_query_attempts() -> list[str]:
+        attempts: list[str] = []
+        seen_queries: set[str] = set()
 
-    if prefer_japanese and number_queries and expansion_scopes:
-        japanese_query_groups.append([
-            f"{number_query} {expansion_scope}"
-            for number_query in number_queries
-            for expansion_scope in expansion_scopes
-        ])
-    if prefer_japanese and number_queries:
-        japanese_query_groups.append(number_queries)
+        def add(query: str | None) -> None:
+            cleaned = str(query or "").strip()
+            if not cleaned or cleaned in seen_queries:
+                return
+            seen_queries.add(cleaned)
+            attempts.append(cleaned)
+
+        if primary_number_query:
+            if prefer_japanese and primary_expansion_scope:
+                add(f"{primary_number_query} {primary_expansion_scope}")
+                add(primary_number_query)
+                return attempts[:2]
+
+            if primary_title_clause and primary_expansion_scope:
+                add(f"{primary_title_clause} {primary_number_query} {primary_expansion_scope}")
+                add(f"{primary_title_clause} {primary_number_query}")
+                return attempts[:2]
+
+            if primary_title_clause:
+                add(f"{primary_title_clause} {primary_number_query}")
+                add(primary_number_query)
+                return attempts[:2]
+
+            if primary_expansion_scope:
+                add(f"{primary_number_query} {primary_expansion_scope}")
+                add(primary_number_query)
+                return attempts[:2]
+
+        if primary_title_clause and primary_expansion_scope:
+            add(f"{primary_title_clause} {primary_expansion_scope}")
+        add(primary_title_clause)
+        return attempts[:2]
+
+    query_attempts = bounded_query_attempts()
 
     seen: set[str] = set()
     results: list[dict[str, Any]] = []
     attempts: list[dict[str, Any]] = []
 
-    query_plans: list[tuple[str, list[list[str]]]] = []
-    if japanese_query_groups:
-        query_plans.append(("ja", japanese_query_groups))
-    if query_groups:
-        query_plans.append(("default", query_groups))
+    query_runner = _scrydex_run_japanese_query if prefer_japanese else _scrydex_run_cards_query
+    request_type = "slab_search_japanese" if prefer_japanese else "slab_search"
 
-    for plan_name, groups in query_plans:
-        query_runner = _scrydex_run_japanese_query if plan_name == "ja" else _scrydex_run_cards_query
-        request_type = "slab_search_japanese" if plan_name == "ja" else "slab_search"
-        for group in groups:
-            group_hits = 0
-            for query in group:
-                try:
-                    cards = query_runner(
-                        query,
-                        include_prices=False,
-                        page_size=page_size,
-                        request_type=request_type,
-                    )
-                except Exception as exc:
-                    attempts.append({
-                        "query": query,
-                        "count": 0,
-                        "error": str(exc),
-                    })
-                    continue
-                attempts.append({
-                    "query": query,
-                    "count": len(cards),
-                    "error": None,
-                })
-                if cards:
-                    group_hits += len(cards)
-                for card in cards:
-                    card_id = str(card.get("id") or "").strip()
-                    if not card_id or card_id in seen:
-                        continue
-                    seen.add(card_id)
-                    results.append(card)
-            if group_hits > 0:
-                break
+    for query in query_attempts:
+        try:
+            cards = query_runner(
+                query,
+                include_prices=False,
+                page_size=page_size,
+                request_type=request_type,
+            )
+        except Exception as exc:
+            attempts.append({
+                "query": query,
+                "count": 0,
+                "error": str(exc),
+            })
+            continue
+        attempts.append({
+            "query": query,
+            "count": len(cards),
+            "error": None,
+        })
+        for card in cards:
+            card_id = str(card.get("id") or "").strip()
+            if not card_id or card_id in seen:
+                continue
+            seen.add(card_id)
+            results.append(card)
         if results:
             break
 

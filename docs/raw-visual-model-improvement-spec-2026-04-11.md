@@ -369,7 +369,7 @@ Each line should include:
   "fixtureName": "team-rockets-weezing-199-182-overhead",
   "providerCardId": "sv10-199",
   "normalizedImagePath": "/abs/path/runtime_normalized.jpg",
-  "referenceImageUrl": "https://images.pokemontcg.io/sv10/199_hires.png",
+  "referenceImageUrl": "https://api.scrydex.com/pokemon/v1/cards/sv10-199?include=images",
   "referenceImagePath": "/abs/path/reference_cache/sv10-199.png",
   "cardName": "Team Rocket's Weezing",
   "collectorNumber": "199/182",

@@ -110,6 +110,42 @@ struct ScanMatchResponse: Codable, Hashable, Sendable {
     }
 }
 
+extension ScanMatchResponse {
+    func mergingCandidateDetails(_ details: [CardDetail]) -> ScanMatchResponse {
+        guard !details.isEmpty else { return self }
+
+        let detailByID = Dictionary(uniqueKeysWithValues: details.map { ($0.card.id, $0.card) })
+        let mergedCandidates = topCandidates.map { scoredCandidate in
+            guard let updatedCard = detailByID[scoredCandidate.candidate.id] else {
+                return scoredCandidate
+            }
+            return ScoredCandidate(
+                rank: scoredCandidate.rank,
+                candidate: updatedCard,
+                imageScore: scoredCandidate.imageScore,
+                collectorNumberScore: scoredCandidate.collectorNumberScore,
+                nameScore: scoredCandidate.nameScore,
+                finalScore: scoredCandidate.finalScore
+            )
+        }
+
+        return ScanMatchResponse(
+            scanID: scanID,
+            topCandidates: mergedCandidates,
+            confidence: confidence,
+            ambiguityFlags: ambiguityFlags,
+            matcherSource: matcherSource,
+            matcherVersion: matcherVersion,
+            resolverMode: resolverMode,
+            resolverPath: resolverPath,
+            slabContext: slabContext,
+            reviewDisposition: reviewDisposition,
+            reviewReason: reviewReason,
+            performance: performance
+        )
+    }
+}
+
 struct ScanMatchPerformance: Codable, Hashable, Sendable {
     let serverProcessingMs: Double?
     let scrydexRequestCount: Int?

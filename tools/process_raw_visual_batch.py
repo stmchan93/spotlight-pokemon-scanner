@@ -89,11 +89,22 @@ def parse_xlsx_rows(path: Path) -> list[dict[str, str]]:
             item.attrib["Id"]: item.attrib["Target"]
             for item in relationships.findall("rel:Relationship", namespace)
         }
-        first_sheet = workbook.find("main:sheets/main:sheet", namespace)
-        if first_sheet is None:
+        sheets = workbook.findall("main:sheets/main:sheet", namespace)
+        if not sheets:
             raise SystemExit(f"Workbook has no sheets: {path}")
 
-        target = relationship_map[first_sheet.attrib["{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"]]
+        preferred_sheet_names = ("RAW", "Raw", "raw")
+        selected_sheet = None
+        for preferred_name in preferred_sheet_names:
+            selected_sheet = next((sheet for sheet in sheets if sheet.attrib.get("name") == preferred_name), None)
+            if selected_sheet is not None:
+                break
+        if selected_sheet is None:
+            selected_sheet = sheets[0]
+
+        target = relationship_map[
+            selected_sheet.attrib["{http://schemas.openxmlformats.org/officeDocument/2006/relationships}id"]
+        ]
         shared_strings: list[str] = []
         if "xl/sharedStrings.xml" in archive.namelist():
             shared = ET.fromstring(archive.read("xl/sharedStrings.xml"))
@@ -173,6 +184,33 @@ def parse_batch_rows(path: Path) -> list[dict[str, str]]:
     if missing_fields:
         raise SystemExit(f"Batch sheet has rows missing required values: {missing_fields[:10]}")
     return rows
+
+
+def apply_row_exclusions(
+    rows: list[dict[str, str]],
+    *,
+    exclude_file_names: set[str],
+    exclude_truth_keys: set[str],
+) -> tuple[list[dict[str, str]], list[dict[str, str]]]:
+    filtered_rows: list[dict[str, str]] = []
+    excluded_rows: list[dict[str, str]] = []
+
+    normalized_file_names = {name.strip().lower() for name in exclude_file_names if name.strip()}
+    normalized_truth_keys = {value.strip() for value in exclude_truth_keys if value.strip()}
+
+    for row in rows:
+        file_name = str(row.get("file_name") or "").strip()
+        normalized_truth = truth_key(
+            str(row.get("card_name") or ""),
+            str(row.get("number") or ""),
+            str(row.get("set") or ""),
+        )
+        should_exclude = file_name.lower() in normalized_file_names or normalized_truth in normalized_truth_keys
+        if should_exclude:
+            excluded_rows.append(row)
+        else:
+            filtered_rows.append(row)
+    return filtered_rows, excluded_rows
 
 
 @dataclass
@@ -316,6 +354,18 @@ def main() -> int:
     parser.add_argument("--heldout-root", default=str(HELDOUT_ROOT))
     parser.add_argument("--audit-root", default=str(default_raw_visual_batch_audit_root()))
     parser.add_argument("--registry-path", default=str(default_raw_visual_scan_registry_path()))
+    parser.add_argument(
+        "--exclude-file-name",
+        action="append",
+        default=[],
+        help="Exclude a spreadsheet row by file_name. Repeatable.",
+    )
+    parser.add_argument(
+        "--exclude-truth-key",
+        action="append",
+        default=[],
+        help="Exclude rows by normalized truth key: normalize_name(card)|NUMBER|SET. Repeatable.",
+    )
     parser.add_argument("--import-safe", action="store_true", help="Import safe_new + safe_training_augment rows into the training root.")
     parser.add_argument(
         "--run-training-pipeline",
@@ -334,7 +384,12 @@ def main() -> int:
     batch_id = args.batch_id or batch_id_from_path(photo_root)
     batch_audit_root = audit_root / batch_id
 
-    batch_rows = parse_batch_rows(spreadsheet_path)
+    parsed_batch_rows = parse_batch_rows(spreadsheet_path)
+    batch_rows, excluded_rows = apply_row_exclusions(
+        parsed_batch_rows,
+        exclude_file_names=set(args.exclude_file_name),
+        exclude_truth_keys=set(args.exclude_truth_key),
+    )
     images = sorted(path for path in photo_root.rglob("*") if path.is_file())
     if not images:
         raise SystemExit(f"No photos found in {photo_root}")
@@ -353,6 +408,8 @@ def main() -> int:
     resolved_files: set[str] = set()
     batch_hash_counts: Counter[str] = Counter()
     unresolved_rows: list[dict[str, Any]] = []
+
+    source_file_name_counts = Counter(str(row.get("file_name") or "").strip() for row in batch_rows if row.get("file_name"))
 
     for row in batch_rows:
         try:
@@ -427,12 +484,16 @@ def main() -> int:
     for truth_key_value, grouped in sorted(by_truth.items()):
         truth_roots = {root for entry in grouped for root in entry.overlap_roots}
         has_batch_hash_duplicate = any(batch_hash_counts[entry.file_hash] > 1 for entry in grouped)
+        has_duplicate_file_reference = any(source_file_name_counts[entry.source_file_name] > 1 for entry in grouped)
         has_registry_hash_overlap = any(entry.overlap_registry for entry in grouped)
         source_image_issues = sorted({entry.source_image_issue for entry in grouped if entry.source_image_issue})
 
         if source_image_issues:
             bucket = "manual_review"
             reason = source_image_issues[0]
+        elif has_duplicate_file_reference:
+            bucket = "manual_review"
+            reason = "duplicate_file_reference"
         elif "heldout" in truth_roots:
             bucket = "heldout_blocked"
             reason = "heldout_overlap"
@@ -528,6 +589,8 @@ def main() -> int:
         "heldoutRoot": str(heldout_root),
         "registryPath": str(registry_path),
         "sheetRowCount": len(batch_rows),
+        "sourceSheetRowCount": len(parsed_batch_rows),
+        "excludedRowCount": len(excluded_rows),
         "resolvedRowCount": len(entries),
         "unresolvedRowCount": len(unresolved_rows),
         "photoFileCount": len(images),
@@ -542,6 +605,7 @@ def main() -> int:
             for bucket, grouped in bucket_rows.items()
         },
         "unresolvedRows": unresolved_rows,
+        "excludedRows": excluded_rows,
         "unreferencedFiles": unreferenced_files,
         "invalidSourcePhotos": [
             {

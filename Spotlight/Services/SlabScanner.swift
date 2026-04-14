@@ -18,8 +18,13 @@ struct SlabScanConfiguration {
         let certUpscaleFactor: CGFloat
 
         static let `default` = LabelOCR(
-            topLabelWideRegion: CGRect(x: 0.03, y: 0.00, width: 0.94, height: 0.24),
-            topLabelExpandedRegion: CGRect(x: 0.02, y: 0.00, width: 0.96, height: 0.30),
+            topLabelWideRegion: CGRect(x: 0.03, y: 0.00, width: 0.94, height: PSASlabGuidance.labelDividerRatio),
+            topLabelExpandedRegion: CGRect(
+                x: 0.02,
+                y: 0.00,
+                width: 0.96,
+                height: min(0.34, PSASlabGuidance.labelDividerRatio + 0.06)
+            ),
             rightColumnRegion: CGRect(x: 0.66, y: 0.01, width: 0.28, height: 0.22),
             certRegion: CGRect(x: 0.54, y: 0.05, width: 0.38, height: 0.15),
             minimumTextHeight: 0.008,
@@ -231,6 +236,9 @@ actor SlabScanner {
             print("  🔍 [OCR] Slab cert focus: '\(certText)'")
         }
         print("  🔍 [OCR] Slab geometry path: \(targetSelection.normalizedGeometryKind.rawValue)")
+        if !labelOnlyPath {
+            print("  🔍 [OCR] Slab OCR guide split: top \(Int((PSASlabGuidance.labelDividerRatio * 100).rounded()))% label band")
+        }
         print("  🔍 [OCR] Slab combined text: '\(combinedText)'")
         if !barcodePayloads.isEmpty {
             print("  🔍 [OCR] Slab barcode payloads: \(barcodePayloads.joined(separator: " | "))")
@@ -671,11 +679,14 @@ private struct SlabRegionMetrics {
 
 enum AnalysisError: LocalizedError {
     case invalidImage
+    case unsupportedPSASlabTarget
 
     var errorDescription: String? {
         switch self {
         case .invalidImage:
             "The selected image could not be processed."
+        case .unsupportedPSASlabTarget:
+            "Could not isolate the PSA slab or label. Fit the full slab inside the reticle and keep the label above the guide."
         }
     }
 }

@@ -39,7 +39,6 @@ from catalog_tools import (
     provider_sync_run_is_fresh,
     rank_raw_candidates,
     raw_debug_payload,
-    raw_pricing_summary_for_card,
     rank_visual_hybrid_candidates,
     resolver_mode_for_payload,
     score_raw_candidate_resolution,
@@ -75,6 +74,7 @@ from scrydex_adapter import (
     search_remote_scrydex_japanese_raw_candidates,
 )
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
+from slab_set_aliases import resolve_slab_set_aliases
 
 
 @dataclass
@@ -91,11 +91,70 @@ class SlabMatchEvidence:
     parsed_label_text: tuple[str, ...]
     card_number: str | None
     set_hint_tokens: tuple[str, ...]
+    matched_set_alias: str | None
+    set_hint_source: str | None
     variant_hints: dict[str, Any]
     grader: str | None
     grade: str | None
     cert_number: str | None
     recommended_lookup_path: str | None
+
+
+@dataclass(frozen=True)
+class PricingContext:
+    mode: str
+    grader: str | None = None
+    grade: str | None = None
+    cert_number: str | None = None
+    preferred_variant: str | None = None
+    variant_hints: dict[str, Any] | None = None
+
+    @property
+    def is_graded(self) -> bool:
+        return self.mode == "graded"
+
+
+@dataclass(frozen=True)
+class CandidateRankPricingRule:
+    rank: int
+    ensure_cached: bool = False
+    refresh_missing: bool = False
+
+
+@dataclass(frozen=True)
+class PricingLoadPolicy:
+    limit: int
+    rank_rules: tuple[CandidateRankPricingRule, ...]
+
+    @classmethod
+    def top_five_refresh_top_one(cls, *, refresh_top_candidate: bool) -> "PricingLoadPolicy":
+        return cls(
+            limit=5,
+            rank_rules=(
+                CandidateRankPricingRule(rank=1, ensure_cached=True, refresh_missing=refresh_top_candidate),
+                CandidateRankPricingRule(rank=2),
+                CandidateRankPricingRule(rank=3),
+                CandidateRankPricingRule(rank=4),
+                CandidateRankPricingRule(rank=5),
+            ),
+        )
+
+    def rule_for_rank(self, rank: int) -> CandidateRankPricingRule:
+        for rule in self.rank_rules:
+            if rule.rank == rank:
+                return rule
+        return CandidateRankPricingRule(rank=rank)
+
+
+@dataclass(frozen=True)
+class CandidateEncodingItem:
+    card: dict[str, Any]
+    image_score: float
+    collector_number_score: float
+    name_score: float
+    final_score: float
+    reasons: tuple[str, ...]
+    scored_fields: dict[str, Any] | None = None
 
 
 class SpotlightScanService:
@@ -104,6 +163,7 @@ class SpotlightScanService:
         self.repo_root = repo_root
         self.connection = connect(database_path)
         self.index = load_index(self.connection)
+        self._card_lookup_cache: dict[str, dict[str, Any] | None] = {}
         self._raw_visual_matcher: Any | None = None
         self._raw_set_badge_matcher: RawSetBadgeMatcher | None = None
 
@@ -113,6 +173,7 @@ class SpotlightScanService:
 
     def refresh_index(self) -> None:
         self.index = load_index(self.connection)
+        self._card_lookup_cache.clear()
 
     def _raw_visual_matcher_instance(self) -> Any:
         if self._raw_visual_matcher is None:
@@ -230,14 +291,92 @@ class SpotlightScanService:
         grade: str | None = None,
         preferred_variant: str | None = None,
     ) -> dict[str, Any] | None:
+        pricing_context = (
+            self._slab_pricing_context(
+                grader=grader,
+                grade=grade,
+                preferred_variant=preferred_variant,
+            )
+            if grader or grade
+            else self._raw_pricing_context()
+        )
+        return self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
+
+    @staticmethod
+    def _raw_pricing_context() -> PricingContext:
+        return PricingContext(mode="raw")
+
+    @staticmethod
+    def _slab_pricing_context(
+        *,
+        grader: str | None,
+        grade: str | None,
+        cert_number: str | None = None,
+        preferred_variant: str | None = None,
+        variant_hints: dict[str, Any] | None = None,
+    ) -> PricingContext:
+        return PricingContext(
+            mode="graded",
+            grader=grader,
+            grade=grade,
+            cert_number=cert_number,
+            preferred_variant=preferred_variant,
+            variant_hints=dict(variant_hints) if isinstance(variant_hints, dict) else None,
+        )
+
+    @staticmethod
+    def _slab_pricing_context_from_payload(slab_context: dict[str, Any] | None) -> PricingContext:
+        slab_context = slab_context or {}
+        return SpotlightScanService._slab_pricing_context(
+            grader=str(slab_context.get("grader") or "").strip() or None,
+            grade=str(slab_context.get("grade") or "").strip() or None,
+            cert_number=str(slab_context.get("certNumber") or "").strip() or None,
+            preferred_variant=str(slab_context.get("variantName") or "").strip() or None,
+            variant_hints=slab_context.get("variantHints") if isinstance(slab_context.get("variantHints"), dict) else None,
+        )
+
+    @staticmethod
+    def _slab_context_payload_for_pricing_context(
+        pricing_context: PricingContext,
+        *,
+        include_variant_hints: bool = False,
+        resolved_variant: str | None = None,
+    ) -> dict[str, Any] | None:
+        if not pricing_context.is_graded or not pricing_context.grader:
+            return None
+        slab_context = {
+            "grader": pricing_context.grader,
+            "grade": pricing_context.grade,
+            "certNumber": pricing_context.cert_number,
+        }
+        variant_name = resolved_variant or pricing_context.preferred_variant
+        if variant_name:
+            slab_context["variantName"] = variant_name
+        if include_variant_hints and pricing_context.variant_hints:
+            slab_context["variantHints"] = dict(pricing_context.variant_hints)
+        return slab_context
+
+    def _display_pricing_summary_for_context(
+        self,
+        card_id: str,
+        *,
+        pricing_context: PricingContext,
+    ) -> dict[str, Any] | None:
         pricing = contextual_pricing_summary_for_card(
             self.connection,
             card_id,
-            grader=grader,
-            grade=grade,
-            variant=preferred_variant,
+            grader=pricing_context.grader,
+            grade=pricing_context.grade,
+            variant=pricing_context.preferred_variant,
         )
-        return decorate_pricing_summary_with_fx(self.connection, pricing)
+        pricing = decorate_pricing_summary_with_fx(self.connection, pricing)
+        if pricing_context.is_graded and pricing is not None and not self._slab_variant_matches(
+            pricing.get("variant"),
+            preferred_variant=pricing_context.preferred_variant,
+            variant_hints=pricing_context.variant_hints,
+        ):
+            return None
+        return pricing
 
     @staticmethod
     def _should_use_scrydex_japanese_raw(evidence: RawEvidence) -> bool:
@@ -260,6 +399,9 @@ class SpotlightScanService:
         ocr_analysis = payload.get("ocrAnalysis") or {}
         slab_evidence = (ocr_analysis.get("slabEvidence") or {}) if isinstance(ocr_analysis, dict) else {}
         recommended_lookup_path = payload.get("slabRecommendedLookupPath")
+        grader = str(slab_evidence.get("grader") or payload.get("slabGrader") or "").strip() or None
+        grade = str(slab_evidence.get("grade") or payload.get("slabGrade") or "").strip() or None
+        cert_number = str(slab_evidence.get("cert") or payload.get("slabCertNumber") or "").strip() or None
         parsed_label_text = tuple(
             str(text or "").strip()
             for text in (payload.get("slabParsedLabelText") or [])
@@ -267,6 +409,35 @@ class SpotlightScanService:
         )
         label_text = str(slab_evidence.get("labelWideText") or " ".join(parsed_label_text) or "")
         card_number = str(slab_evidence.get("cardNumber") or payload.get("slabCardNumberRaw") or "").strip() or None
+        alias_resolution = resolve_slab_set_aliases(
+            grader=grader,
+            label_text=label_text,
+            parsed_label_text=parsed_label_text,
+        )
+        provided_set_hints = tuple(
+            dict.fromkeys(
+                str(token or "").strip()
+                for token in (slab_evidence.get("setHints") or ())
+                if str(token or "").strip()
+            )
+        )
+        inferred_set_hints = tuple(
+            SpotlightScanService._heuristic_slab_set_hints(
+                label_text,
+                parsed_label_text=parsed_label_text,
+                card_number=card_number,
+            )
+        )
+        set_hints = provided_set_hints or alias_resolution.scopes or inferred_set_hints
+        set_hint_source = (
+            "frontend"
+            if provided_set_hints
+            else alias_resolution.source
+            if alias_resolution.scopes
+            else "legacy_heuristic"
+            if inferred_set_hints
+            else None
+        )
         raw_title_primary = str(slab_evidence.get("titleTextPrimary") or "").strip()
         raw_title_secondary = str(slab_evidence.get("titleTextSecondary") or "").strip()
         normalized_title_primary = SpotlightScanService._normalized_slab_title_text(
@@ -274,18 +445,33 @@ class SpotlightScanService:
             label_text=label_text,
             parsed_label_text=parsed_label_text,
             card_number=card_number,
+            set_hint_tokens=set_hints,
         )
-        normalized_title_secondary = SpotlightScanService._normalized_slab_title_text(
-            raw_title_secondary,
-            label_text=label_text,
-            parsed_label_text=parsed_label_text,
-            card_number=card_number,
+        normalized_title_secondary = (
+            SpotlightScanService._normalized_slab_title_text(
+                raw_title_secondary,
+                label_text=label_text,
+                parsed_label_text=parsed_label_text,
+                card_number=card_number,
+                set_hint_tokens=set_hints,
+            )
+            if raw_title_secondary
+            else normalized_title_primary
         )
-        set_hints = slab_evidence.get("setHints") or SpotlightScanService._inferred_slab_set_hints(
-            label_text,
-            parsed_label_text=parsed_label_text,
-            card_number=card_number,
+        primary_tokens = SpotlightScanService._normalize_slab_title_tokens(
+            SpotlightScanService._slab_query_tokens(normalized_title_primary)
         )
+        secondary_tokens = SpotlightScanService._normalize_slab_title_tokens(
+            SpotlightScanService._slab_query_tokens(normalized_title_secondary)
+        )
+        if (
+            normalized_title_secondary
+            and secondary_tokens
+            and primary_tokens
+            and len(primary_tokens) > len(secondary_tokens)
+            and set(secondary_tokens).issubset(set(primary_tokens))
+        ):
+            normalized_title_primary = normalized_title_secondary
         normalized_set_hints = tuple(
             dict.fromkeys(str(token or "").strip().lower() for token in set_hints if str(token or "").strip())
         )
@@ -297,10 +483,12 @@ class SpotlightScanService:
             parsed_label_text=parsed_label_text,
             card_number=SpotlightScanService._normalized_slab_card_number(card_number) or card_number,
             set_hint_tokens=normalized_set_hints,
+            matched_set_alias=alias_resolution.matched_alias,
+            set_hint_source=set_hint_source,
             variant_hints=variant_hints,
-            grader=str(slab_evidence.get("grader") or payload.get("slabGrader") or "").strip() or None,
-            grade=str(slab_evidence.get("grade") or payload.get("slabGrade") or "").strip() or None,
-            cert_number=str(slab_evidence.get("cert") or payload.get("slabCertNumber") or "").strip() or None,
+            grader=grader,
+            grade=grade,
+            cert_number=cert_number,
             recommended_lookup_path=str(recommended_lookup_path or "").strip() or None,
         )
 
@@ -351,6 +539,86 @@ class SpotlightScanService:
             normalized_tokens.append(abbreviation_map.get(current, current))
             index += 1
         return normalized_tokens
+
+    @staticmethod
+    def _clean_slab_title_candidate_tokens(
+        tokens: list[str],
+        *,
+        normalized_number: str | None,
+        stop_tokens: set[str],
+        drop_from_title: set[str],
+        rarity_tokens: set[str],
+        noise_tokens: set[str],
+    ) -> list[str]:
+        allowed_singletons = {"X", "V"}
+        allowed_short_suffixes = {"X", "Z", "EX", "GX", "V", "VMAX", "VSTAR", "LVX"}
+        cleaned: list[str] = []
+        for token in tokens:
+            normalized_token = str(token or "").lstrip("#").upper()
+            if (
+                not normalized_token
+                or normalized_token in stop_tokens
+                or normalized_token in {"POKEMON", "GO"}
+                or normalized_token in drop_from_title
+                or re.fullmatch(r"\d{7,10}", normalized_token)
+                or (normalized_number and (normalized_token == normalized_number or normalized_token.endswith(normalized_number)))
+            ):
+                continue
+            if len(normalized_token) == 1 and normalized_token not in allowed_singletons:
+                continue
+            if normalized_token in noise_tokens:
+                continue
+            cleaned.append(normalized_token)
+        while cleaned and cleaned[0] in rarity_tokens:
+            cleaned.pop(0)
+        while cleaned and cleaned[-1] in rarity_tokens:
+            cleaned.pop()
+        while len(cleaned) > 1 and len(cleaned[-1]) <= 3 and cleaned[-1] not in allowed_short_suffixes:
+            cleaned.pop()
+        return cleaned
+
+    @staticmethod
+    def _score_slab_title_candidate_tokens(
+        tokens: list[str],
+        *,
+        rarity_tokens: set[str],
+        noise_tokens: set[str],
+    ) -> int:
+        if not tokens:
+            return -10_000
+        rarity_count = sum(1 for token in tokens if token in rarity_tokens)
+        noise_count = sum(1 for token in tokens if token in noise_tokens)
+        duplicate_count = len(tokens) - len(set(tokens))
+        meaningful_count = len(tokens) - rarity_count - noise_count
+        score = 0
+
+        if 2 <= len(tokens) <= 5:
+            score += 8
+        elif len(tokens) == 1:
+            score += 3
+        else:
+            score -= max(1, len(tokens) - 5)
+
+        if meaningful_count <= 0:
+            score -= 20
+        else:
+            score += meaningful_count * 4
+
+        if any(token in {"EX", "GX", "V", "VMAX", "VSTAR", "BREAK", "LVX"} for token in tokens):
+            score += 8
+        if "MEGA" in tokens:
+            score += 6
+        if any(len(token) >= 6 and token not in rarity_tokens and token not in noise_tokens for token in tokens):
+            score += 4
+        if tokens and tokens[0] in rarity_tokens:
+            score -= 10
+        if all(token in rarity_tokens for token in tokens):
+            score -= 24
+
+        score -= rarity_count * 4
+        score -= noise_count * 6
+        score -= duplicate_count * 10
+        return score
 
     @staticmethod
     def _normalize_slab_variant_key(value: str | None) -> str:
@@ -411,7 +679,7 @@ class SpotlightScanService:
         }
 
     @staticmethod
-    def _inferred_slab_set_hints(
+    def _heuristic_slab_set_hints(
         label_text: str,
         *,
         parsed_label_text: tuple[str, ...],
@@ -446,28 +714,6 @@ class SpotlightScanService:
             add("Base")
             return hints
 
-        normalized_number = SpotlightScanService._normalized_slab_card_number(card_number)
-        generic_tokens = {"P", "M", "PM", "POKEMON", "GAME", "CARD", "CARDS", "JAPANESE"}
-        if normalized_number:
-            number_pattern = rf"#?0*{re.escape(normalized_number)}\b" if normalized_number.isdigit() else rf"#?{re.escape(normalized_number)}\b"
-            for text in texts:
-                normalized_text = re.sub(r"[^A-Z0-9#/&+\\-]+", " ", text.upper()).strip()
-                if not normalized_text:
-                    continue
-                match = re.search(rf"^(?:20\d{{2}}\s+)?(?P<pre>.*?)\s+{number_pattern}(?:\s+|$)", normalized_text)
-                if not match:
-                    continue
-                pre_tokens = [
-                    token
-                    for token in match.group("pre").split()
-                    if token and not token.isdigit()
-                ]
-                for prefix_length in range(2, min(4, len(pre_tokens)) + 1):
-                    prefix_tokens = pre_tokens[:prefix_length]
-                    if not any(token not in generic_tokens for token in prefix_tokens):
-                        continue
-                    add(" ".join(token.title() for token in prefix_tokens))
-
         return hints
 
     @staticmethod
@@ -477,6 +723,7 @@ class SpotlightScanService:
         label_text: str,
         parsed_label_text: tuple[str, ...],
         card_number: str | None,
+        set_hint_tokens: tuple[str, ...],
     ) -> str:
         texts = [title_text, label_text, *parsed_label_text]
         normalized_number = SpotlightScanService._normalized_slab_card_number(card_number)
@@ -499,8 +746,100 @@ class SpotlightScanService:
             "DELIVE",
             "SHIPPING",
             "SHIP",
+            "JAPANESE",
+            "GAME",
+            "PROMO",
+            "PROMOS",
+            "XY",
+            "PLAY",
+            "PRIZE",
+            "PACK",
+            "SER",
+            "SERIES",
         }
-        drop_from_title = {"HOLO", "HOLOFOIL", "REVERSE", "FOIL"}
+        drop_from_title = {
+            "HOLO",
+            "HOLOFOIL",
+            "REVERSE",
+            "FOIL",
+            "YEL",
+            "YELLOW",
+            "CHEEKS",
+            "SHADOWLESS",
+            "EDITION",
+            "FIRST",
+            "1ST",
+            "PLAY",
+            "PRIZE",
+            "PACK",
+            "SER",
+            "SERIES",
+        }
+        rarity_tokens = {
+            "SPECIAL",
+            "ILLUSTRATION",
+            "RARE",
+            "ULTRA",
+            "SECRET",
+            "FULL",
+            "ART",
+            "ALTERNATE",
+            "ALT",
+            "PROMO",
+            "PROMOS",
+            "STAR",
+        }
+        noise_tokens = {
+            "DELIVERY",
+            "SHIP",
+            "SHIPPING",
+            "SELL",
+            "SOMETHING",
+            "ELSE",
+            "APR",
+            "TV",
+            "MIR",
+            "VEV",
+            "DE",
+            "ON",
+            "EN",
+            "PFL",
+            "PFLM",
+            "PILM",
+            "WETWENVERY",
+            "WETWELVERY",
+            "WRWENVERY",
+            "EM",
+            "ALSO",
+            "VIEWED",
+            "ITEMS",
+            "SIMILAR",
+            "EXTRA",
+            "FROM",
+            "OFF",
+            "POKE",
+            "SERIE",
+            "FIND",
+            "STAMP",
+            "VERITYCARDVAULT",
+            "FREE",
+            "STAGE",
+            "STAGEL",
+            "TOXIC",
+        }
+        set_hint_drop_tokens = {
+            token
+            for hint in set_hint_tokens
+            for token in SpotlightScanService._slab_query_tokens(hint)
+            if len(token) > 1
+        }
+        drop_from_title.update(set_hint_drop_tokens)
+        stop_tokens.update(set_hint_drop_tokens)
+        noise_tokens.update({
+            token
+            for token in set_hint_drop_tokens
+            if len(token) >= 4
+        })
 
         direct_title_tokens = SpotlightScanService._normalize_slab_title_tokens([
             token.lstrip("#")
@@ -541,17 +880,19 @@ class SpotlightScanService:
                     for suffix_length in range(1, min(3, len(pre_tokens) - 1) + 1):
                         title_candidates.append(pre_tokens[-suffix_length:])
 
-        cleaned_direct_title = [
-            token
-            for token in direct_title_tokens
-            if token not in stop_tokens
-            and not re.fullmatch(r"\d{7,10}", token)
-            and (not normalized_number or token != normalized_number and not token.endswith(normalized_number))
-            and token not in {"POKEMON", "GO"}
-            and token not in drop_from_title
-        ]
-        if cleaned_direct_title and len(cleaned_direct_title) <= 4:
-            title_candidates.append(cleaned_direct_title)
+        cleaned_direct_title = SpotlightScanService._clean_slab_title_candidate_tokens(
+            direct_title_tokens,
+            normalized_number=normalized_number,
+            stop_tokens=stop_tokens,
+            drop_from_title=drop_from_title,
+            rarity_tokens=rarity_tokens,
+            noise_tokens=noise_tokens,
+        )
+        if cleaned_direct_title:
+            max_window = min(5, len(cleaned_direct_title))
+            for window_size in range(1, max_window + 1):
+                for start in range(0, len(cleaned_direct_title) - window_size + 1):
+                    title_candidates.append(cleaned_direct_title[start:start + window_size])
 
         if not title_candidates:
             tokens = SpotlightScanService._normalize_slab_title_tokens([
@@ -562,17 +903,28 @@ class SpotlightScanService:
             if tokens:
                 title_candidates.append(tokens)
 
+        best_tokens: list[str] | None = None
+        best_score = -10_000
         for tokens in title_candidates:
-            filtered = [
-                token
-                for token in tokens
-                if token not in stop_tokens
-                and not re.fullmatch(r"\d{7,10}", token)
-                and token not in {"POKEMON", "GO"}
-            ]
-            filtered = [token for token in filtered if token not in drop_from_title]
-            if filtered:
-                return " ".join(token.title() for token in filtered)
+            filtered = SpotlightScanService._clean_slab_title_candidate_tokens(
+                tokens,
+                normalized_number=normalized_number,
+                stop_tokens=stop_tokens,
+                drop_from_title=drop_from_title,
+                rarity_tokens=rarity_tokens,
+                noise_tokens=noise_tokens,
+            )
+            score = SpotlightScanService._score_slab_title_candidate_tokens(
+                filtered,
+                rarity_tokens=rarity_tokens,
+                noise_tokens=noise_tokens,
+            )
+            if score > best_score and filtered:
+                best_score = score
+                best_tokens = filtered
+
+        if best_tokens:
+            return " ".join(token.title() for token in best_tokens)
 
         return title_text
 
@@ -589,14 +941,16 @@ class SpotlightScanService:
             values.append(text)
 
         add(card.get("name"))
+        for alias in card.get("titleAliases") or []:
+            add(alias)
         source_payload = card.get("sourcePayload") or {}
         if isinstance(source_payload, dict):
             add(source_payload.get("name"))
             translation = source_payload.get("translation")
             if isinstance(translation, dict):
-                translation_en = translation.get("en")
-                if isinstance(translation_en, dict):
-                    add(translation_en.get("name"))
+                for translation_payload in translation.values():
+                    if isinstance(translation_payload, dict):
+                        add(translation_payload.get("name"))
         return tuple(values)
 
     @staticmethod
@@ -1126,6 +1480,41 @@ class SpotlightScanService:
         ).fetchone()
         return row is not None
 
+    def _cached_card_by_id(self, card_id: str) -> dict[str, Any] | None:
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            return None
+        if normalized_card_id not in self._card_lookup_cache:
+            self._card_lookup_cache[normalized_card_id] = card_by_id(self.connection, normalized_card_id)
+        return self._card_lookup_cache[normalized_card_id]
+
+    @staticmethod
+    def _entry_title_aliases(entry: dict[str, Any]) -> tuple[str, ...]:
+        values: list[str] = []
+        seen: set[str] = set()
+
+        def add(value: object) -> None:
+            text = str(value or "").strip()
+            if not text or text in seen:
+                return
+            seen.add(text)
+            values.append(text)
+
+        add(entry.get("name"))
+        for alias in entry.get("titleAliases") or []:
+            add(alias)
+
+        source_payload = entry.get("sourcePayload") or {}
+        if isinstance(source_payload, dict):
+            add(source_payload.get("name"))
+            translation = source_payload.get("translation")
+            if isinstance(translation, dict):
+                for translation_payload in translation.values():
+                    if isinstance(translation_payload, dict):
+                        add(translation_payload.get("name"))
+
+        return tuple(values)
+
     @staticmethod
     def _with_retrieval_route(candidates: list[dict[str, Any]], route: str) -> list[dict[str, Any]]:
         annotated: list[dict[str, Any]] = []
@@ -1246,7 +1635,10 @@ class SpotlightScanService:
             entry_number = canonicalize_collector_number(str(entry.get("collectorNumber") or ""))
             title_overlap = False
             if query_title_tokens:
-                title_overlap = bool(query_title_tokens & set(tokenize(str(entry.get("name") or ""))))
+                candidate_title_tokens: set[str] = set()
+                for value in self._entry_title_aliases(entry):
+                    candidate_title_tokens.update(tokenize(value))
+                title_overlap = bool(query_title_tokens & candidate_title_tokens)
             collector_match = False
             if collector_exact and entry_number == collector_exact:
                 collector_match = True
@@ -1586,35 +1978,46 @@ class SpotlightScanService:
             persist_scrydex_raw_snapshot(self.connection, card_id, source_payload)
         return card_by_id(self.connection, card_id) or card
 
-    def _raw_candidate_payload(
+    @staticmethod
+    def _candidate_base_payload(resolved_card: dict[str, Any], original_card: dict[str, Any]) -> dict[str, Any]:
+        card_id = str(resolved_card.get("id") or original_card.get("id") or "")
+        return {
+            "id": card_id,
+            "name": str(resolved_card.get("name") or original_card.get("name") or ""),
+            "setName": str(resolved_card.get("setName") or original_card.get("setName") or ""),
+            "number": str(resolved_card.get("number") or original_card.get("number") or ""),
+            "rarity": str(resolved_card.get("rarity") or original_card.get("rarity") or "Unknown"),
+            "variant": str(resolved_card.get("variant") or original_card.get("variant") or "Raw"),
+            "language": str(resolved_card.get("language") or original_card.get("language") or "English"),
+            "imageSmallURL": resolved_card.get("imageSmallURL") or original_card.get("imageSmallURL"),
+            "imageLargeURL": resolved_card.get("imageURL") or original_card.get("imageLargeURL") or original_card.get("imageURL"),
+        }
+
+    def _candidate_payload(
         self,
         card: dict[str, Any],
         *,
+        pricing_context: PricingContext,
+        trigger_source: str,
         ensure_cached: bool = False,
         api_key: str | None = None,
         refresh_pricing_if_missing: bool = False,
     ) -> dict[str, Any]:
-        resolved_card = self._ensure_raw_card_cached(card, "scan_match_raw") if ensure_cached else card
+        resolved_card = self._ensure_raw_card_cached(card, trigger_source) if ensure_cached else card
         card_id = str(resolved_card.get("id") or "").strip()
-        pricing = self._display_pricing_summary_for_card(card_id) if card_id else None
+        pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context) if card_id else None
 
         if card_id and refresh_pricing_if_missing and pricing is None and not self._scrydex_full_catalog_sync_is_fresh():
-            refreshed_detail = self.refresh_card_pricing(card_id, api_key=api_key)
+            refreshed_detail = self._refresh_card_pricing_for_context(
+                card_id,
+                pricing_context=pricing_context,
+                api_key=api_key,
+            )
             pricing = ((refreshed_detail or {}).get("card", {}) or {}).get("pricing") if isinstance(refreshed_detail, dict) else None
             if pricing is None:
-                pricing = self._display_pricing_summary_for_card(card_id)
+                pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
 
-        candidate = {
-            "id": card_id or str(card.get("id") or ""),
-            "name": str(resolved_card.get("name") or card.get("name") or ""),
-            "setName": str(resolved_card.get("setName") or card.get("setName") or ""),
-            "number": str(resolved_card.get("number") or card.get("number") or ""),
-            "rarity": str(resolved_card.get("rarity") or card.get("rarity") or "Unknown"),
-            "variant": str(resolved_card.get("variant") or card.get("variant") or "Raw"),
-            "language": str(resolved_card.get("language") or card.get("language") or "English"),
-            "imageSmallURL": resolved_card.get("imageSmallURL") or card.get("imageSmallURL"),
-            "imageLargeURL": resolved_card.get("imageURL") or card.get("imageLargeURL") or card.get("imageURL"),
-        }
+        candidate = self._candidate_base_payload(resolved_card, card)
         if pricing is not None:
             candidate["pricing"] = pricing
         return candidate
@@ -1623,70 +2026,77 @@ class SpotlightScanService:
     def _should_refresh_match_pricing(confidence: str, review_disposition: str | None) -> bool:
         return review_disposition == "ready" and confidence in {"high", "medium"}
 
-    def _slab_candidate_payload(
+    def _encode_top_candidates(
         self,
-        card: dict[str, Any],
+        items: list[CandidateEncodingItem],
         *,
-        slab_context: dict[str, Any],
-        ensure_cached: bool = False,
-        refresh_pricing_if_missing: bool = False,
-    ) -> dict[str, Any]:
-        resolved_card = self._ensure_raw_card_cached(card, "scan_match_slab") if ensure_cached else card
-        card_id = str(resolved_card.get("id") or "").strip()
-        grader = str(slab_context.get("grader") or "").strip() or None
-        grade = str(slab_context.get("grade") or "").strip() or None
-        preferred_variant = str(slab_context.get("variantName") or "").strip() or None
-        variant_hints = slab_context.get("variantHints")
-        pricing = (
-            self._display_pricing_summary_for_card(card_id, grader=grader, grade=grade, preferred_variant=preferred_variant)
-            if card_id and grader and grade
-            else None
-        )
-        if pricing is not None and not self._slab_variant_matches(
-            pricing.get("variant"),
-            preferred_variant=preferred_variant,
-            variant_hints=variant_hints if isinstance(variant_hints, dict) else None,
-        ):
-            pricing = None
+        pricing_context: PricingContext,
+        pricing_policy: PricingLoadPolicy,
+        trigger_source: str,
+        api_key: str | None = None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+        encoded_candidates: list[dict[str, Any]] = []
+        scored_candidates: list[dict[str, Any]] = []
 
-        if (
-            card_id
-            and grader
-            and grade
-            and refresh_pricing_if_missing
-            and pricing is None
-            and not self._scrydex_full_catalog_sync_is_fresh()
-        ):
-            refreshed_detail = self.refresh_card_pricing(
-                card_id,
-                grader=grader,
-                grade=grade,
-                preferred_variant=preferred_variant,
-                variant_hints=variant_hints if isinstance(variant_hints, dict) else None,
+        for index, item in enumerate(items[:pricing_policy.limit], start=1):
+            pricing_rule = pricing_policy.rule_for_rank(index)
+            candidate_payload = self._candidate_payload(
+                item.card,
+                pricing_context=pricing_context,
+                trigger_source=trigger_source,
+                ensure_cached=pricing_rule.ensure_cached,
+                api_key=api_key,
+                refresh_pricing_if_missing=pricing_rule.refresh_missing,
             )
-            pricing = ((refreshed_detail or {}).get("card", {}) or {}).get("pricing") if isinstance(refreshed_detail, dict) else None
-            if pricing is None:
-                pricing = self._display_pricing_summary_for_card(
-                    card_id,
-                    grader=grader,
-                    grade=grade,
-                    preferred_variant=preferred_variant,
-                )
+            scored_entry = {
+                "card": item.card,
+                "candidate": candidate_payload,
+                "finalScore": round(item.final_score, 4),
+                "reasons": list(item.reasons),
+            }
+            if item.scored_fields:
+                scored_entry.update(item.scored_fields)
+            scored_candidates.append(scored_entry)
+            encoded_candidates.append(
+                {
+                    "rank": index,
+                    "candidate": candidate_payload,
+                    "imageScore": round(item.image_score, 4),
+                    "collectorNumberScore": round(item.collector_number_score, 4),
+                    "nameScore": round(item.name_score, 4),
+                    "finalScore": round(item.final_score, 4),
+                }
+            )
 
-        candidate = {
-            "id": card_id or str(card.get("id") or ""),
-            "name": str(resolved_card.get("name") or card.get("name") or ""),
-            "setName": str(resolved_card.get("setName") or card.get("setName") or ""),
-            "number": str(resolved_card.get("number") or card.get("number") or ""),
-            "rarity": str(resolved_card.get("rarity") or card.get("rarity") or "Unknown"),
-            "variant": str(resolved_card.get("variant") or card.get("variant") or "Raw"),
-            "language": str(resolved_card.get("language") or card.get("language") or "English"),
-            "imageSmallURL": resolved_card.get("imageSmallURL") or card.get("imageSmallURL"),
-            "imageLargeURL": resolved_card.get("imageURL") or card.get("imageLargeURL") or card.get("imageURL"),
+        return encoded_candidates, scored_candidates
+
+    @staticmethod
+    def _unsupported_match_response(
+        payload: dict[str, Any],
+        *,
+        resolver_mode: str,
+        resolver_path: str,
+        review_reason: str,
+        ambiguity_flags: list[str],
+        slab_context: dict[str, Any] | None = None,
+        raw_decision_debug: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        response = {
+            "scanID": payload["scanID"],
+            "topCandidates": [],
+            "confidence": "low",
+            "ambiguityFlags": ambiguity_flags,
+            "matcherSource": "remoteHybrid",
+            "matcherVersion": MATCHER_VERSION,
+            "resolverMode": resolver_mode,
+            "resolverPath": resolver_path,
+            "slabContext": slab_context,
+            "reviewDisposition": "unsupported",
+            "reviewReason": review_reason,
         }
-        if pricing is not None:
-            candidate["pricing"] = pricing
-        return candidate
+        if raw_decision_debug is not None:
+            response["rawDecisionDebug"] = raw_decision_debug
+        return response
 
     def _build_raw_match_response(
         self,
@@ -1697,54 +2107,47 @@ class SpotlightScanService:
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
         top_matches = list(decision.top_candidates)
         if not top_matches:
-            return ({
-                "scanID": payload["scanID"],
-                "topCandidates": [],
-                "confidence": decision.confidence,
-                "ambiguityFlags": list(decision.ambiguity_flags),
-                "ambiguityDebug": decision.debug_payload.get("ambiguity"),
-                "matcherSource": "remoteHybrid",
-                "matcherVersion": MATCHER_VERSION,
-                "resolverMode": "raw_card",
-                "resolverPath": decision.resolver_path,
-                "slabContext": None,
-                "reviewDisposition": decision.review_disposition,
-                "reviewReason": decision.review_reason,
-                "rawDecisionDebug": decision.debug_payload,
-            }, [])
+            response = self._unsupported_match_response(
+                payload,
+                resolver_mode="raw_card",
+                resolver_path=decision.resolver_path,
+                review_reason=decision.review_reason or "Could not identify a raw card match.",
+                ambiguity_flags=list(decision.ambiguity_flags),
+                raw_decision_debug=decision.debug_payload,
+            )
+            response["confidence"] = decision.confidence
+            response["reviewDisposition"] = decision.review_disposition
+            response["ambiguityDebug"] = decision.debug_payload.get("ambiguity")
+            return response, []
 
-        scored_candidates: list[dict[str, Any]] = []
-        encoded_candidates: list[dict[str, Any]] = []
         should_refresh_top_candidate_pricing = self._should_refresh_match_pricing(
             decision.confidence,
             decision.review_disposition,
         )
-        for index, match in enumerate(top_matches):
-            candidate_payload = self._raw_candidate_payload(
-                match.card,
-                ensure_cached=index == 0,
-                api_key=api_key,
-                refresh_pricing_if_missing=should_refresh_top_candidate_pricing and index == 0,
-            )
-            scored_entry = {
-                "card": match.card,
-                "candidate": candidate_payload,
-                "finalScore": round(match.final_total / 100.0, 4),
-                "retrievalScore": round(match.retrieval_score / 100.0, 4),
-                "rerankScore": round(match.resolution_score / 100.0, 4),
-                "reasons": list(match.reasons),
-            }
-            scored_candidates.append(scored_entry)
-            encoded_candidates.append(
-                {
-                    "rank": index + 1,
-                    "candidate": candidate_payload,
-                    "imageScore": scored_entry["retrievalScore"],
-                    "collectorNumberScore": scored_entry["rerankScore"],
-                    "nameScore": round(match.breakdown.title_overlap_score / 35.0, 4) if match.breakdown.title_overlap_score else 0.0,
-                    "finalScore": scored_entry["finalScore"],
-                }
-            )
+        pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
+            refresh_top_candidate=should_refresh_top_candidate_pricing,
+        )
+        encoded_candidates, scored_candidates = self._encode_top_candidates(
+            [
+                CandidateEncodingItem(
+                    card=match.card,
+                    image_score=match.retrieval_score / 100.0,
+                    collector_number_score=match.resolution_score / 100.0,
+                    name_score=round(match.breakdown.title_overlap_score / 35.0, 4) if match.breakdown.title_overlap_score else 0.0,
+                    final_score=match.final_total / 100.0,
+                    reasons=match.reasons,
+                    scored_fields={
+                        "retrievalScore": round(match.retrieval_score / 100.0, 4),
+                        "rerankScore": round(match.resolution_score / 100.0, 4),
+                    },
+                )
+                for match in top_matches
+            ],
+            pricing_context=self._raw_pricing_context(),
+            pricing_policy=pricing_policy,
+            trigger_source="scan_match_raw",
+            api_key=api_key,
+        )
 
         response = {
             "scanID": payload["scanID"],
@@ -1763,11 +2166,44 @@ class SpotlightScanService:
         }
         return response, scored_candidates
 
-    @staticmethod
-    def _visual_candidate_stub(entry: dict[str, Any]) -> dict[str, Any]:
+    def _visual_candidate_stub(self, entry: dict[str, Any]) -> dict[str, Any]:
+        provider_card_id = str(entry.get("providerCardId") or "").strip()
+        cached_card = self._cached_card_by_id(provider_card_id)
         image_url = entry.get("imageUrl")
+        title_aliases = list(
+            dict.fromkeys(
+                [
+                    *self._entry_title_aliases(entry),
+                    *(((cached_card or {}).get("titleAliases")) or []),
+                ]
+            )
+        )
+        if cached_card is not None:
+            return {
+                "id": provider_card_id or str(cached_card.get("id") or ""),
+                "name": str(cached_card.get("name") or entry.get("name") or ""),
+                "setName": str(cached_card.get("setName") or entry.get("setName") or ""),
+                "number": str(cached_card.get("number") or entry.get("collectorNumber") or ""),
+                "rarity": str(cached_card.get("rarity") or "Unknown"),
+                "variant": str(cached_card.get("variant") or "Raw"),
+                "language": str(cached_card.get("language") or entry.get("language") or "Unknown"),
+                "imageSmallURL": cached_card.get("imageSmallURL") or image_url,
+                "imageURL": cached_card.get("imageURL") or image_url,
+                "sourceProvider": str(cached_card.get("sourceProvider") or entry.get("sourceProvider") or "scrydex"),
+                "sourceRecordID": str(
+                    cached_card.get("sourceRecordID")
+                    or entry.get("sourceRecordID")
+                    or provider_card_id
+                    or ""
+                ),
+                "setID": cached_card.get("setID") or entry.get("setId"),
+                "setSeries": cached_card.get("setSeries") or entry.get("setSeries"),
+                "setPtcgoCode": cached_card.get("setPtcgoCode") or entry.get("setPtcgoCode"),
+                "sourcePayload": cached_card.get("sourcePayload") or entry.get("sourcePayload") or {},
+                "titleAliases": title_aliases,
+            }
         return {
-            "id": str(entry.get("providerCardId") or ""),
+            "id": provider_card_id,
             "name": str(entry.get("name") or ""),
             "setName": str(entry.get("setName") or ""),
             "number": str(entry.get("collectorNumber") or ""),
@@ -1781,7 +2217,8 @@ class SpotlightScanService:
             "setID": entry.get("setId"),
             "setSeries": entry.get("setSeries"),
             "setPtcgoCode": entry.get("setPtcgoCode"),
-            "sourcePayload": {},
+            "sourcePayload": entry.get("sourcePayload") or {},
+            "titleAliases": title_aliases,
         }
 
     @staticmethod
@@ -1826,20 +2263,15 @@ class SpotlightScanService:
         try:
             matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=10)
         except Exception as exc:
-            response = {
-                "scanID": payload["scanID"],
-                "topCandidates": [],
-                "confidence": "low",
-                "ambiguityFlags": [f"Visual-only resolver unavailable: {exc}"],
-                "matcherSource": "visualIndex",
-                "matcherVersion": MATCHER_VERSION,
-                "resolverMode": "raw_card",
-                "resolverPath": "visual_only_unavailable",
-                "slabContext": None,
-                "reviewDisposition": "unsupported",
-                "reviewReason": "Visual-only resolver could not run.",
-                "rawDecisionDebug": {"visualOnly": {"error": str(exc)}},
-            }
+            response = self._unsupported_match_response(
+                payload,
+                resolver_mode="raw_card",
+                resolver_path="visual_only_unavailable",
+                review_reason="Visual-only resolver could not run.",
+                ambiguity_flags=[f"Visual-only resolver unavailable: {exc}"],
+                raw_decision_debug={"visualOnly": {"error": str(exc)}},
+            )
+            response["matcherSource"] = "visualIndex"
             self._emit_structured_log(self._scan_log_payload(payload, response, []))
             self._log_scan(payload, response, [])
             return response
@@ -1848,34 +2280,27 @@ class SpotlightScanService:
         confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
         review_disposition = "ready" if confidence != "low" else "needs_review"
         should_refresh_top_candidate_pricing = self._should_refresh_match_pricing(confidence, review_disposition)
-
-        encoded_candidates: list[dict[str, Any]] = []
-        scored_candidates: list[dict[str, Any]] = []
-        for index, match in enumerate(matches[:5]):
-            summary = ranked_matches[index]
-            candidate_payload = self._raw_candidate_payload(
-                self._visual_candidate_stub(match.entry),
-                ensure_cached=index == 0,
-                api_key=api_key,
-                refresh_pricing_if_missing=should_refresh_top_candidate_pricing and index == 0,
-            )
-            scored_candidates.append(
-                {
-                    "candidate": candidate_payload,
-                    "visualScore": summary["similarity"],
-                    "reasons": ["visual_similarity"],
-                }
-            )
-            encoded_candidates.append(
-                {
-                    "rank": index + 1,
-                    "candidate": candidate_payload,
-                    "imageScore": summary["similarity"],
-                    "collectorNumberScore": 0.0,
-                    "nameScore": 0.0,
-                    "finalScore": summary["similarity"],
-                }
-            )
+        pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
+            refresh_top_candidate=should_refresh_top_candidate_pricing,
+        )
+        encoded_candidates, scored_candidates = self._encode_top_candidates(
+            [
+                CandidateEncodingItem(
+                    card=self._visual_candidate_stub(match.entry),
+                    image_score=float(summary["similarity"]),
+                    collector_number_score=0.0,
+                    name_score=0.0,
+                    final_score=float(summary["similarity"]),
+                    reasons=("visual_similarity",),
+                    scored_fields={"visualScore": round(float(summary["similarity"]), 4)},
+                )
+                for match, summary in zip(matches[:5], ranked_matches[:5], strict=True)
+            ],
+            pricing_context=self._raw_pricing_context(),
+            pricing_policy=pricing_policy,
+            trigger_source="scan_match_raw",
+            api_key=api_key,
+        )
 
         response = {
             "scanID": payload["scanID"],
@@ -1917,20 +2342,15 @@ class SpotlightScanService:
         try:
             matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=requested_top_k)
         except Exception as exc:
-            response = {
-                "scanID": payload["scanID"],
-                "topCandidates": [],
-                "confidence": "low",
-                "ambiguityFlags": [f"Visual+OCR resolver unavailable: {exc}"],
-                "matcherSource": "visualIndex",
-                "matcherVersion": MATCHER_VERSION,
-                "resolverMode": "raw_card",
-                "resolverPath": "visual_hybrid_unavailable",
-                "slabContext": None,
-                "reviewDisposition": "unsupported",
-                "reviewReason": "Visual+OCR resolver could not run.",
-                "rawDecisionDebug": {"visualHybrid": {"error": str(exc)}},
-            }
+            response = self._unsupported_match_response(
+                payload,
+                resolver_mode="raw_card",
+                resolver_path="visual_hybrid_unavailable",
+                review_reason="Visual+OCR resolver could not run.",
+                ambiguity_flags=[f"Visual+OCR resolver unavailable: {exc}"],
+                raw_decision_debug={"visualHybrid": {"error": str(exc)}},
+            )
+            response["matcherSource"] = "visualIndex"
             self._emit_structured_log(self._scan_log_payload(payload, response, []))
             self._log_scan(payload, response, [])
             return response
@@ -2134,6 +2554,8 @@ class SpotlightScanService:
                 "labelText": evidence.label_text,
                 "cardNumber": evidence.card_number,
                 "setHintTokens": list(evidence.set_hint_tokens),
+                "setHintSource": evidence.set_hint_source,
+                "matchedSetAlias": evidence.matched_set_alias,
                 "variantHints": dict(evidence.variant_hints),
                 "grader": evidence.grader,
                 "grade": evidence.grade,
@@ -2150,7 +2572,7 @@ class SpotlightScanService:
                     "score": round(float(candidate.get("_retrievalScoreHint") or 0.0), 4),
                     "reasons": list(candidate.get("_reasons") or []),
                 }
-                for candidate in ranked_candidates[:3]
+                for candidate in ranked_candidates[:5]
             ],
             "decision": {
                 "confidence": confidence,
@@ -2169,43 +2591,37 @@ class SpotlightScanService:
         *,
         resolver_path: str = "psa_label",
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
-        slab_context = {
-            "grader": evidence.grader,
-            "grade": evidence.grade,
-            "certNumber": evidence.cert_number,
-            "variantHints": dict(evidence.variant_hints),
-        } if evidence.grader else None
+        pricing_context = self._slab_pricing_context(
+            grader=evidence.grader,
+            grade=evidence.grade,
+            cert_number=evidence.cert_number,
+            variant_hints=evidence.variant_hints,
+        )
+        slab_context = self._slab_context_payload_for_pricing_context(
+            pricing_context,
+            include_variant_hints=True,
+        )
 
         if not evidence.grader or not evidence.grade:
-            response = {
-                "scanID": payload["scanID"],
-                "topCandidates": [],
-                "confidence": "low",
-                "ambiguityFlags": ["Slab OCR is missing a confident grader or grade."],
-                "matcherSource": "remoteHybrid",
-                "matcherVersion": MATCHER_VERSION,
-                "resolverMode": "psa_slab",
-                "resolverPath": resolver_path,
-                "slabContext": slab_context,
-                "reviewDisposition": "unsupported",
-                "reviewReason": "Could not extract a confident slab grader and grade.",
-            }
+            response = self._unsupported_match_response(
+                payload,
+                resolver_mode="psa_slab",
+                resolver_path=resolver_path,
+                review_reason="Could not extract a confident slab grader and grade.",
+                ambiguity_flags=["Slab OCR is missing a confident grader or grade."],
+                slab_context=slab_context,
+            )
             return response, []
 
         if not ranked_candidates:
-            response = {
-                "scanID": payload["scanID"],
-                "topCandidates": [],
-                "confidence": "low",
-                "ambiguityFlags": ["No slab candidates were available."],
-                "matcherSource": "remoteHybrid",
-                "matcherVersion": MATCHER_VERSION,
-                "resolverMode": "psa_slab",
-                "resolverPath": resolver_path,
-                "slabContext": slab_context,
-                "reviewDisposition": "unsupported",
-                "reviewReason": "Could not identify the slabbed card from the label OCR.",
-            }
+            response = self._unsupported_match_response(
+                payload,
+                resolver_mode="psa_slab",
+                resolver_path=resolver_path,
+                review_reason="Could not identify the slabbed card from the label OCR.",
+                ambiguity_flags=["No slab candidates were available."],
+                slab_context=slab_context,
+            )
             return response, []
 
         top_score = float(ranked_candidates[0].get("_retrievalScoreHint") or 0.0)
@@ -2240,33 +2656,26 @@ class SpotlightScanService:
         else:
             confidence = "low"
 
-        scored_candidates: list[dict[str, Any]] = []
-        encoded_candidates: list[dict[str, Any]] = []
-        for index, candidate in enumerate(ranked_candidates[:3]):
-            candidate_payload = self._slab_candidate_payload(
-                candidate,
-                slab_context=slab_context or {},
-                ensure_cached=index == 0,
-                refresh_pricing_if_missing=index == 0,
-            )
-            score_hint = round(float(candidate.get("_retrievalScoreHint") or 0.0) / 100.0, 4)
-            scored_entry = {
-                "card": candidate,
-                "candidate": candidate_payload,
-                "finalScore": score_hint,
-                "reasons": list(candidate.get("_reasons") or []),
-            }
-            scored_candidates.append(scored_entry)
-            encoded_candidates.append(
-                {
-                    "rank": index + 1,
-                    "candidate": candidate_payload,
-                    "imageScore": score_hint,
-                    "collectorNumberScore": score_hint,
-                    "nameScore": score_hint,
-                    "finalScore": score_hint,
-                }
-            )
+        review_disposition = "ready" if confidence != "low" else "needs_review"
+        # Slab users need grade-specific pricing even when the OCR/match confidence is weak,
+        # because the pricing itself helps them compare the returned candidates.
+        pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
+        encoded_candidates, scored_candidates = self._encode_top_candidates(
+            [
+                CandidateEncodingItem(
+                    card=candidate,
+                    image_score=round(float(candidate.get("_retrievalScoreHint") or 0.0) / 100.0, 4),
+                    collector_number_score=round(float(candidate.get("_retrievalScoreHint") or 0.0) / 100.0, 4),
+                    name_score=round(float(candidate.get("_retrievalScoreHint") or 0.0) / 100.0, 4),
+                    final_score=round(float(candidate.get("_retrievalScoreHint") or 0.0) / 100.0, 4),
+                    reasons=tuple(str(reason) for reason in (candidate.get("_reasons") or [])),
+                )
+                for candidate in ranked_candidates
+            ],
+            pricing_context=pricing_context,
+            pricing_policy=pricing_policy,
+            trigger_source="scan_match_slab",
+        )
 
         if slab_context is not None and encoded_candidates:
             top_pricing = ((encoded_candidates[0].get("candidate") or {}).get("pricing") or {})
@@ -2277,7 +2686,6 @@ class SpotlightScanService:
 
         best_pricing = ((encoded_candidates[0].get("candidate") or {}).get("pricing") or {}) if encoded_candidates else {}
 
-        review_disposition = "ready" if confidence != "low" else "needs_review"
         review_reason = None if review_disposition == "ready" else "Review the slab match before relying on the result."
         if not best_pricing:
             ambiguity_flags.append("Exact graded pricing is unavailable for this slab.")
@@ -2314,6 +2722,14 @@ class SpotlightScanService:
         )
         if cached_resolution is None:
             return None, {"attempted": True, "reason": "no_scan_cache_hit"}
+        if str(cached_resolution.resolver_path or "").strip() != "psa_cert_barcode":
+            return None, {
+                "attempted": True,
+                "reason": "ocr_cert_scan_cache_hit_requires_barcode",
+                "matchedScanID": cached_resolution.matched_scan_id,
+                "cardID": cached_resolution.card_id,
+                "resolverPath": cached_resolution.resolver_path,
+            }
 
         cached_card = card_by_id(self.connection, cached_resolution.card_id)
         if cached_card is None:
@@ -2503,6 +2919,78 @@ class SpotlightScanService:
         self._log_raw_scan_event(payload, decision, response, top_candidates)
         return response
 
+    def _refresh_card_pricing_for_context(
+        self,
+        card_id: str,
+        *,
+        pricing_context: PricingContext,
+        api_key: str | None = None,
+        force_refresh: bool = False,
+    ) -> dict[str, Any] | None:
+        if pricing_context.is_graded:
+            if not pricing_context.grader or not pricing_context.grade:
+                return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
+            existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
+            if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
+                self._log_pricing_provenance(
+                    "refresh_slab_cached",
+                    card_id,
+                    grader=pricing_context.grader,
+                    grade=pricing_context.grade,
+                )
+                return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
+            existing_card = card_by_id(self.connection, card_id)
+            provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
+            psa_provider = self.pricing_registry.get_provider(provider_id) or self.pricing_registry.get_provider("scrydex")
+            if psa_provider is None or not psa_provider.is_ready() or not psa_provider.get_metadata().supports_psa_pricing:
+                return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
+            refresh_kwargs: dict[str, Any] = {}
+            if pricing_context.preferred_variant:
+                refresh_kwargs["preferred_variant"] = pricing_context.preferred_variant
+            if pricing_context.variant_hints:
+                refresh_kwargs["variant_hints"] = pricing_context.variant_hints
+            refresh_result = psa_provider.refresh_psa_pricing(
+                self.connection,
+                card_id,
+                pricing_context.grader,
+                pricing_context.grade,
+                **refresh_kwargs,
+            )
+            if refresh_result.success:
+                self._log_pricing_provenance(
+                    "refresh_slab",
+                    card_id,
+                    grader=pricing_context.grader,
+                    grade=pricing_context.grade,
+                )
+            return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
+        existing_card = card_by_id(self.connection, card_id)
+        if existing_card is None and api_key:
+            try:
+                self.import_catalog_card(card_id, api_key=api_key, trigger_source="refresh_pricing_auto_import")
+            except Exception:
+                return None
+            existing_card = card_by_id(self.connection, card_id)
+
+        existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
+        if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
+            self._log_pricing_provenance("refresh_raw_cached", card_id)
+            return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
+        provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
+        raw_provider = self.pricing_registry.get_provider(provider_id)
+        if raw_provider is None or not raw_provider.is_ready() or not raw_provider.get_metadata().supports_raw_pricing:
+            return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
+        provider_refresh_result = raw_provider.refresh_raw_pricing(self.connection, card_id)
+        if provider_refresh_result.success:
+            self._log_pricing_provenance("refresh_raw", card_id)
+        return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
     def refresh_card_pricing(
         self,
         card_id: str,
@@ -2514,115 +3002,97 @@ class SpotlightScanService:
         variant_hints: dict[str, Any] | None = None,
         force_refresh: bool = False,
     ) -> dict[str, Any] | None:
-        if grader or grade:
-            if not grader or not grade:
-                return self.card_detail(
-                    card_id,
-                    grader=grader,
-                    grade=grade,
-                    cert_number=cert_number,
-                    preferred_variant=preferred_variant,
-                )
-
-            existing_pricing = contextual_pricing_summary_for_card(
-                self.connection,
-                card_id,
+        pricing_context = (
+            self._slab_pricing_context(
                 grader=grader,
                 grade=grade,
-                variant=preferred_variant,
-            )
-            if existing_pricing is not None and not self._slab_variant_matches(
-                existing_pricing.get("variant"),
+                cert_number=cert_number,
                 preferred_variant=preferred_variant,
                 variant_hints=variant_hints,
-            ):
-                existing_pricing = None
-            if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
-                self._log_pricing_provenance("refresh_slab_cached", card_id, grader=grader, grade=grade)
-                return self.card_detail(
-                    card_id,
-                    grader=grader,
-                    grade=grade,
-                    cert_number=cert_number,
-                    preferred_variant=preferred_variant,
-                )
-
-            existing_card = card_by_id(self.connection, card_id)
-            provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
-            psa_provider = self.pricing_registry.get_provider(provider_id) or self.pricing_registry.get_provider("scrydex")
-            if psa_provider is None or not psa_provider.is_ready() or not psa_provider.get_metadata().supports_psa_pricing:
-                return self.card_detail(
-                    card_id,
-                    grader=grader,
-                    grade=grade,
-                    cert_number=cert_number,
-                    preferred_variant=preferred_variant,
-                )
-
-            refresh_kwargs: dict[str, Any] = {}
-            if preferred_variant:
-                refresh_kwargs["preferred_variant"] = preferred_variant
-            if variant_hints:
-                refresh_kwargs["variant_hints"] = variant_hints
-            refresh_result = psa_provider.refresh_psa_pricing(
-                self.connection,
-                card_id,
-                grader,
-                grade,
-                **refresh_kwargs,
             )
-            if refresh_result.success:
-                self._log_pricing_provenance("refresh_slab", card_id, grader=grader, grade=grade)
-            return self.card_detail(
-                card_id,
+            if grader or grade
+            else self._raw_pricing_context()
+        )
+        return self._refresh_card_pricing_for_context(
+            card_id,
+            pricing_context=pricing_context,
+            api_key=api_key,
+            force_refresh=force_refresh,
+        )
+
+    def hydrate_raw_candidate_pricing(
+        self,
+        card_ids: list[str],
+        *,
+        api_key: str | None = None,
+        max_refresh_count: int = 2,
+        force_refresh: bool = False,
+        grader: str | None = None,
+        grade: str | None = None,
+        cert_number: str | None = None,
+        preferred_variant: str | None = None,
+    ) -> dict[str, Any]:
+        pricing_context = (
+            self._slab_pricing_context(
                 grader=grader,
                 grade=grade,
                 cert_number=cert_number,
                 preferred_variant=preferred_variant,
             )
+            if grader or grade
+            else self._raw_pricing_context()
+        )
+        ordered_card_ids: list[str] = []
+        seen_card_ids: set[str] = set()
+        for raw_card_id in card_ids:
+            card_id = str(raw_card_id or "").strip()
+            if not card_id or card_id in seen_card_ids:
+                continue
+            seen_card_ids.add(card_id)
+            ordered_card_ids.append(card_id)
 
-        existing_card = card_by_id(self.connection, card_id)
-        if existing_card is None and api_key:
-            try:
-                self.import_catalog_card(card_id, api_key=api_key, trigger_source="refresh_pricing_auto_import")
-            except Exception:
-                return None
-            existing_card = card_by_id(self.connection, card_id)
+        refresh_budget = max(0, min(int(max_refresh_count), len(ordered_card_ids)))
+        refreshed_count = 0
+        hydrated_cards: list[dict[str, Any]] = []
 
-        existing_pricing = raw_pricing_summary_for_card(self.connection, card_id)
-        if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
-            self._log_pricing_provenance("refresh_raw_cached", card_id)
-            return self.card_detail(card_id)
+        for card_id in ordered_card_ids:
+            detail = self._card_detail_for_context(card_id, pricing_context=pricing_context)
+            pricing = ((detail or {}).get("card") or {}).get("pricing") if isinstance(detail, dict) else None
+            needs_refresh = force_refresh or pricing is None or pricing.get("isFresh") is not True
 
-        provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
-        raw_provider = self.pricing_registry.get_provider(provider_id)
-        if raw_provider is None or not raw_provider.is_ready() or not raw_provider.get_metadata().supports_raw_pricing:
-            return self.card_detail(card_id)
+            if needs_refresh and refreshed_count < refresh_budget:
+                refreshed_count += 1
+                try:
+                    detail = self._refresh_card_pricing_for_context(
+                        card_id,
+                        pricing_context=pricing_context,
+                        api_key=api_key,
+                        force_refresh=force_refresh,
+                    )
+                except Exception:
+                    detail = self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
-        provider_refresh_result = raw_provider.refresh_raw_pricing(self.connection, card_id)
-        if provider_refresh_result.success:
-            self._log_pricing_provenance("refresh_raw", card_id)
-        return self.card_detail(card_id)
+            if detail is not None:
+                hydrated_cards.append(detail)
 
-    def card_detail(
+        return {
+            "cards": hydrated_cards,
+            "requestedCount": len(ordered_card_ids),
+            "returnedCount": len(hydrated_cards),
+            "refreshedCount": refreshed_count,
+        }
+
+    def _card_detail_for_context(
         self,
         card_id: str,
         *,
-        grader: str | None = None,
-        grade: str | None = None,
-        cert_number: str | None = None,
-        preferred_variant: str | None = None,
+        pricing_context: PricingContext,
     ) -> dict[str, Any] | None:
         card = card_by_id(self.connection, card_id)
         if card is None:
             return None
-        pricing = self._display_pricing_summary_for_card(
-            card_id,
-            grader=grader,
-            grade=grade,
-            preferred_variant=preferred_variant,
-        )
-        resolved_variant = preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
+        pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
+        resolved_variant = pricing_context.preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
         return {
             "card": {
                 "id": card["id"],
@@ -2636,12 +3106,10 @@ class SpotlightScanService:
                 "imageLargeURL": card["imageURL"],
                 "pricing": pricing,
             },
-            "slabContext": {
-                "grader": grader,
-                "grade": grade,
-                "certNumber": cert_number,
-                "variantName": resolved_variant,
-            } if grader else None,
+            "slabContext": self._slab_context_payload_for_pricing_context(
+                pricing_context,
+                resolved_variant=resolved_variant,
+            ),
             "source": card["sourceProvider"],
             "sourceRecordID": card["sourceRecordID"],
             "setID": card["setID"],
@@ -2653,6 +3121,27 @@ class SpotlightScanService:
             "imageSmallURL": card["imageSmallURL"],
             "imageLargeURL": card["imageURL"],
         }
+
+    def card_detail(
+        self,
+        card_id: str,
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
+        cert_number: str | None = None,
+        preferred_variant: str | None = None,
+    ) -> dict[str, Any] | None:
+        pricing_context = (
+            self._slab_pricing_context(
+                grader=grader,
+                grade=grade,
+                cert_number=cert_number,
+                preferred_variant=preferred_variant,
+            )
+            if grader or grade
+            else self._raw_pricing_context()
+        )
+        return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
     def match_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._emit_structured_log(self._scan_request_log_payload(payload))
@@ -2698,19 +3187,13 @@ class SpotlightScanService:
             )
             return response
 
-        response = {
-            "scanID": payload["scanID"],
-            "topCandidates": [],
-            "confidence": "low",
-            "ambiguityFlags": ["Could not determine whether this scan is raw or slab."],
-            "matcherSource": "remoteHybrid",
-            "matcherVersion": MATCHER_VERSION,
-            "resolverMode": resolver_mode,
-            "resolverPath": "visual_fallback",
-            "slabContext": None,
-            "reviewDisposition": "unsupported",
-            "reviewReason": "This scan could not be routed to a supported matcher.",
-        }
+        response = self._unsupported_match_response(
+            payload,
+            resolver_mode=resolver_mode,
+            resolver_path="visual_fallback",
+            review_reason="This scan could not be routed to a supported matcher.",
+            ambiguity_flags=["Could not determine whether this scan is raw or slab."],
+        )
         self._emit_structured_log(self._scan_log_payload(payload, response, []))
         self._log_scan(payload, response, [])
         self._log_scrydex_match_usage(
@@ -2767,9 +3250,6 @@ class SpotlightScanService:
     def _log_scan(self, request_payload: dict[str, Any], response_payload: dict[str, Any], top_candidates: list[dict[str, Any]]) -> None:
         scan_id = request_payload["scanID"]
         now = utc_now()
-        selected_card_id = None
-        if top_candidates:
-            selected_card_id = ((top_candidates[0].get("candidate") or {}).get("id"))
         upsert_scan_event(
             self.connection,
             scan_id=scan_id,
@@ -2778,7 +3258,7 @@ class SpotlightScanService:
             matcher_source=response_payload["matcherSource"],
             matcher_version=response_payload["matcherVersion"],
             created_at=now,
-            selected_card_id=selected_card_id,
+            selected_card_id=None,
             confidence=response_payload.get("confidence"),
             review_disposition=response_payload.get("reviewDisposition"),
             resolver_mode=response_payload.get("resolverMode"),
@@ -2900,6 +3380,46 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         payload = self._read_json_body()
         if payload is None:
             self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON body"})
+            return
+
+        if parsed.path == "/api/v1/cards/hydrate-pricing":
+            raw_card_ids = payload.get("cardIDs")
+            if not isinstance(raw_card_ids, list):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "cardIDs must be a list"})
+                return
+
+            slab_context = payload.get("slabContext") or {}
+            if slab_context is not None and not isinstance(slab_context, dict):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "slabContext must be an object"})
+                return
+
+            try:
+                max_refresh_count = int(payload.get("maxRefreshCount", 2))
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "maxRefreshCount must be an integer"})
+                return
+
+            force_refresh = bool(payload.get("forceRefresh") is True)
+            grader = str(slab_context.get("grader") or "").strip() or None
+            grade = str(slab_context.get("grade") or "").strip() or None
+            cert_number = str(slab_context.get("certNumber") or "").strip() or None
+            preferred_variant = str(slab_context.get("variantName") or "").strip() or None
+            try:
+                hydration_payload = self.service.hydrate_raw_candidate_pricing(
+                    [str(card_id or "").strip() for card_id in raw_card_ids],
+                    api_key=os.environ.get("SCRYDEX_API_KEY"),
+                    max_refresh_count=max_refresh_count,
+                    force_refresh=force_refresh,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=preferred_variant,
+                )
+            except Exception as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Candidate pricing hydration failed: {error}"})
+                return
+
+            self._write_json(HTTPStatus.OK, hydration_payload)
             return
 
         if parsed.path == "/api/v1/catalog/import-card":

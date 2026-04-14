@@ -1,0 +1,32 @@
+{
+  "payload" : {
+    "collectorNumber" : "077\/071",
+    "cropConfidence" : 0.4,
+    "imageHeight" : 880,
+    "imageWidth" : 630,
+    "ocrAnalysisIncluded" : true,
+    "pipelineVersion" : "rewrite_v1",
+    "rawResolverMode" : "hybrid",
+    "recognizedTokenCount" : 15,
+    "resolverModeHint" : "raw_card",
+    "scanID" : "B890C51E-603E-4895-A100-9272600ECB21",
+    "setBadgeHint" : {
+      "canonicalTokens" : [
+
+      ],
+      "kind" : "unknown",
+      "source" : "none"
+    },
+    "setHintTokens" : [
+
+    ],
+    "titleTextPrimary" : "たね カビゴン HP",
+    "titleTextSecondary" : "たね カビゴン HD",
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Target selection confidence is weak",
+      "Rewrite raw escalation used focused ROIs"
+    ]
+  },
+  "stage" : "frontend_backend_request"
+}

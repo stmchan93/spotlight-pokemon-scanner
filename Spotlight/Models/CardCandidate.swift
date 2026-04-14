@@ -52,9 +52,6 @@ struct CardPricingSummary: Codable, Hashable, Sendable {
         if source == "pricecharting" {
             return "PriceCharting"
         }
-        if source == "pokemontcg_api" {
-            return "Pokemon TCG API"
-        }
         return source.capitalized
     }
 

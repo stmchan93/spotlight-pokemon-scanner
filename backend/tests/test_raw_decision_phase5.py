@@ -73,6 +73,8 @@ def catalog_card(
     number: str,
     set_id: str,
     market_price: float | None = None,
+    language: str = "English",
+    source_payload: dict[str, object] | None = None,
 ) -> dict[str, object]:
     tcgplayer = {}
     if market_price is not None:
@@ -96,7 +98,7 @@ def catalog_card(
         "number": number,
         "rarity": "Rare",
         "variant": "Raw",
-        "language": "English",
+        "language": language,
         "reference_image_path": None,
         "reference_image_url": f"https://images.example/{card_id}-large.png",
         "reference_image_small_url": f"https://images.example/{card_id}-small.png",
@@ -114,7 +116,7 @@ def catalog_card(
         "national_pokedex_numbers": [],
         "tcgplayer": tcgplayer,
         "cardmarket": {},
-        "source_payload": {"id": card_id, "name": name},
+        "source_payload": source_payload or {"id": card_id, "name": name},
     }
 
 
@@ -517,6 +519,150 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "gym1-60")
         self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["retrievalStrategy"], "fallback_local_rescue")
         self.assertGreaterEqual(response["rawDecisionDebug"]["visualHybrid"]["localOCRCandidateCount"], 1)
+
+    def test_visual_hybrid_weak_fallback_uses_japanese_title_aliases_to_break_same_number_tie(self) -> None:
+        upsert_catalog_card(
+            self.service.connection,
+            catalog_card(
+                card_id="sv2p_ja-77",
+                name="Baxcalibur",
+                set_name="スノーハザード",
+                number="077/071",
+                set_id="sv2p_ja",
+                language="Japanese",
+                source_payload={
+                    "id": "sv2p_ja-77",
+                    "name": "セグレイブ",
+                    "translation": {
+                        "en": {
+                            "name": "Baxcalibur",
+                        }
+                    },
+                },
+            ),
+            REPO_ROOT,
+            "2026-04-14T01:10:00Z",
+            refresh_embeddings=False,
+        )
+        upsert_catalog_card(
+            self.service.connection,
+            catalog_card(
+                card_id="swsh10a_ja-77",
+                name="Snorlax",
+                set_name="ダークファンタズマ",
+                number="077/071",
+                set_id="swsh10a_ja",
+                language="Japanese",
+                source_payload={
+                    "id": "swsh10a_ja-77",
+                    "name": "カビゴン",
+                    "translation": {
+                        "en": {
+                            "name": "Snorlax",
+                        }
+                    },
+                },
+            ),
+            REPO_ROOT,
+            "2026-04-14T01:10:00Z",
+            refresh_embeddings=False,
+        )
+        self.service.connection.commit()
+
+        class FakeIndex:
+            def __init__(self) -> None:
+                self.entries = [
+                    {
+                        "providerCardId": "sv2p_ja-77",
+                        "name": "Baxcalibur",
+                        "collectorNumber": "077/071",
+                        "setId": "sv2p_ja",
+                        "setName": "スノーハザード",
+                        "setSeries": "Scarlet & Violet",
+                        "setPtcgoCode": "SV2P",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "sv2p_ja-77",
+                        "imageUrl": "https://images.example/sv2p_ja-77-large.png",
+                        "language": "Japanese",
+                    },
+                    {
+                        "providerCardId": "swsh10a_ja-77",
+                        "name": "Snorlax",
+                        "collectorNumber": "077/071",
+                        "setId": "swsh10a_ja",
+                        "setName": "ダークファンタズマ",
+                        "setSeries": "Sword & Shield",
+                        "setPtcgoCode": "S10A",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "swsh10a_ja-77",
+                        "imageUrl": "https://images.example/swsh10a_ja-77-large.png",
+                        "language": "Japanese",
+                    },
+                ]
+
+            def load(self) -> None:
+                return None
+
+        class FakeVisualMatcher:
+            def __init__(self) -> None:
+                self.index = FakeIndex()
+
+            def match_payload(self, payload: dict[str, object], *, top_k: int = 10):  # noqa: ARG002
+                return (
+                    [
+                        SimpleNamespace(
+                            row_index=0,
+                            similarity=0.82,
+                            entry=self.index.entries[0],
+                        )
+                    ],
+                    {
+                        "source": "fake",
+                        "internalTopK": top_k * 8,
+                        "timings": {
+                            "imageDecodeMs": 4.0,
+                            "ensureRuntimeMs": 5.0,
+                            "embeddingMs": 6.0,
+                            "indexSearchMs": 7.0,
+                            "matchPayloadMs": 8.0,
+                        },
+                    },
+                )
+
+        class FakeBadgeMatcher:
+            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
+                return {
+                    str(entry.get("providerCardId")): {"score": 0.0, "family": "modern_left"}
+                    for entry in entries
+                }
+
+        self.service._raw_visual_matcher = FakeVisualMatcher()
+        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
+
+        payload = raw_payload(
+            title_text_primary="たね カビゴン HP",
+            whole_card_text="たね カビゴン HP 150",
+            footer_band_text="s10a 077/071 CHR",
+            collector_number_exact="077/071",
+            crop_confidence=0.40,
+        )
+        payload["ocrAnalysis"]["normalizedTarget"] = {
+            "usedFallback": True,
+            "targetQuality": {
+                "overallScore": 0.40,
+                "reasons": [
+                    "fallback",
+                    "normalization:exact_reticle_fallback",
+                ],
+            },
+        }
+
+        response = self.service._resolve_raw_candidates_visual_hybrid(payload)
+
+        self.assertEqual(response["resolverPath"], "visual_hybrid_index")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "swsh10a_ja-77")
+        self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["retrievalStrategy"], "fallback_local_rescue")
+        self.assertGreaterEqual(response["rawDecisionDebug"]["visualHybrid"]["localOCRCandidateCount"], 2)
 
     def test_visual_hybrid_weak_fallback_fails_closed_when_signal_is_too_weak(self) -> None:
         class FakeIndex:

@@ -1,0 +1,88 @@
+{
+  "candidates" : [
+    {
+      "areaCoverage" : 0.21563209106491232,
+      "areaScore" : 0.8208838435356436,
+      "aspectRatio" : 2.621177689356378,
+      "aspectScore" : 0,
+      "boundingBox" : {
+        "height" : 0.29002636671066284,
+        "width" : 0.7434913367033005,
+        "x" : 0.1280563622713089,
+        "y" : 0.584321916103363
+      },
+      "centerDistance" : 0.22933518490542074,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.6756710711774125,
+      "quadrilateral" : [
+        {
+          "x" : 0.1331070512533188,
+          "y" : 0.8743482828140259
+        },
+        {
+          "x" : 0.8646993041038513,
+          "y" : 0.8675608038902283
+        },
+        {
+          "x" : 0.8715476989746094,
+          "y" : 0.584321916103363
+        },
+        {
+          "x" : 0.1280563622713089,
+          "y" : 0.5949187278747559
+        }
+      ],
+      "rank" : 1,
+      "totalScore" : 0.5839412692719563
+    },
+    {
+      "areaCoverage" : 0.22209342505910135,
+      "areaScore" : 0.833091803650529,
+      "aspectRatio" : 2.9580863715647236,
+      "aspectScore" : 0,
+      "boundingBox" : {
+        "height" : 0.2862103581428528,
+        "width" : 0.7759796902537346,
+        "x" : 0.11171186715364456,
+        "y" : 0.601077675819397
+      },
+      "centerDistance" : 0.24418303708119551,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.6546730372583209,
+      "quadrilateral" : [
+        {
+          "x" : 0.11673543602228165,
+          "y" : 0.8872880339622498
+        },
+        {
+          "x" : 0.8777976632118225,
+          "y" : 0.8770437836647034
+        },
+        {
+          "x" : 0.8876915574073792,
+          "y" : 0.6434860825538635
+        },
+        {
+          "x" : 0.11171186715364456,
+          "y" : 0.601077675819397
+        }
+      ],
+      "rank" : 2,
+      "totalScore" : 0.576113367686407
+    }
+  ],
+  "fallbackReason" : "best_rectangle_score_too_low",
+  "mode" : "raw",
+  "normalizationReason" : "exact_reticle_fallback",
+  "normalizedContentRect" : {
+    "height" : 1,
+    "width" : 0.9997278911564625,
+    "x" : 0.00013605442176871263,
+    "y" : 0
+  },
+  "normalizedGeometryKind" : "fallback",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

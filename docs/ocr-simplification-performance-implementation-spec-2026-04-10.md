@@ -6,6 +6,12 @@ Date: 2026-04-10
 
 - This document is the concrete implementation spec for the next OCR refactor pass.
 - It refines the broader architecture in [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
+- Historical/runtime note:
+  - the remnant-aware fallback normalization and fallback salvage bullets below describe an earlier intermediate implementation state
+  - the active raw runtime has since been simplified to:
+    - accepted rectangle => perspective-correct + canonicalize
+    - weak or ambiguous rectangle => exact reticle fallback
+  - use the live code in `TargetSelection.swift` and `PerspectiveNormalization.swift` plus the master status doc for the current front-half behavior
 - Landed so far from this spec:
   - raw preview-frame-first capture
   - raw footer-first staging
@@ -105,13 +111,13 @@ This means raw cannot become truly footer-only unless the backend matcher also c
   - `expandedRegion`
   - `certRegion`
 
-See [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift#L59) and [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift#L1038).
+See [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift#L59) and [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift#L1038).
 
 - Slab also does:
   - barcode detection in top regions
   - PSA-style visual inference from the label image
 
-See [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift#L1286) and [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift#L1452).
+See [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift#L1286) and [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift#L1452).
 
 The active slab path is already functionally "top-only", but it is implemented as a broad shared heuristic parser instead of a clean PSA parser.
 
@@ -159,7 +165,6 @@ Do not remove:
 - source image selection
 - reticle-guided target selection
 - perspective correction
-- raw holder recovery
 - normalization
 
 That front half is what makes footer-only regions and slab-top-only regions reliable enough to use.
@@ -205,8 +210,7 @@ Keep the current front half structure:
 2. detect target rectangle candidates
 3. choose best target near reticle
 4. perspective-correct and normalize
-5. recover inner card for raw-holder cases when needed
-6. emit target quality / fallback metadata
+5. emit target quality / fallback metadata
 
 No redesign is needed here for this phase.
 
@@ -531,7 +535,7 @@ Keep summary logging, but reduce verbose per-region logging in the default runti
 - [Spotlight/Services/SlabLabelParsing.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabLabelParsing.swift)
   - retire as the active shared multi-grader parser
   - either narrow it to PSA or replace it with a new PSA parser
-- [Spotlight/Services/CardRectangleAnalyzer.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/CardRectangleAnalyzer.swift)
+- [Spotlight/Services/SlabScanner.swift](/Users/stephenchan/Code/spotlight/Spotlight/Services/SlabScanner.swift)
   - keep only as legacy path during migration
   - do not continue expanding the slab legacy heuristics
 
@@ -616,7 +620,7 @@ Run after implementation:
 
 ```bash
 zsh tools/run_ocr_simulator_fixture_tests.sh
-python3 -m py_compile backend/catalog_tools.py backend/pokemontcg_api_client.py backend/pokemontcg_pricing_adapter.py backend/pricecharting_adapter.py backend/pricing_provider.py backend/pricing_utils.py backend/scrydex_adapter.py backend/validate_scrydex.py backend/server.py
+python3 -m py_compile backend/catalog_tools.py backend/pricecharting_adapter.py backend/pricing_provider.py backend/pricing_utils.py backend/scrydex_adapter.py backend/validate_scrydex.py backend/server.py
 zsh tools/run_card_identifier_parser_tests.sh
 zsh tools/run_raw_card_decision_tests.sh
 zsh tools/run_scanner_reticle_layout_tests.sh

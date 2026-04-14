@@ -13,7 +13,7 @@
 		BA0000000000000000000003 /* CardCandidate.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000004 /* CardCandidate.swift */; };
 		BA0000000000000000000004 /* ScanModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000005 /* ScanModels.swift */; };
 		BA0000000000000000000005 /* CameraSessionController.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000006 /* CameraSessionController.swift */; };
-		BA0000000000000000000006 /* CardRectangleAnalyzer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000007 /* CardRectangleAnalyzer.swift */; };
+		BA0000000000000000000006 /* SlabScanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000007 /* SlabScanner.swift */; };
 		BA0000000000000000000007 /* CardMatchingService.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000008 /* CardMatchingService.swift */; };
 		BA0000000000000000000008 /* ScanEventStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000009 /* ScanEventStore.swift */; };
 		BA0000000000000000000009 /* ScannerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000A /* ScannerViewModel.swift */; };
@@ -71,7 +71,7 @@
 		FA0000000000000000000004 /* CardCandidate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardCandidate.swift; sourceTree = "<group>"; };
 		FA0000000000000000000005 /* ScanModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanModels.swift; sourceTree = "<group>"; };
 		FA0000000000000000000006 /* CameraSessionController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraSessionController.swift; sourceTree = "<group>"; };
-		FA0000000000000000000007 /* CardRectangleAnalyzer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardRectangleAnalyzer.swift; sourceTree = "<group>"; };
+		FA0000000000000000000007 /* SlabScanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlabScanner.swift; sourceTree = "<group>"; };
 		FA0000000000000000000008 /* CardMatchingService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardMatchingService.swift; sourceTree = "<group>"; };
 		FA0000000000000000000009 /* ScanEventStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanEventStore.swift; sourceTree = "<group>"; };
 		FA000000000000000000000A /* ScannerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerViewModel.swift; sourceTree = "<group>"; };
@@ -183,7 +183,7 @@
 			children = (
 				FA0000000000000000000006 /* CameraSessionController.swift */,
 				FFC123450000000000000001 /* CardIdentifierParsing.swift */,
-				FA0000000000000000000007 /* CardRectangleAnalyzer.swift */,
+				FA0000000000000000000007 /* SlabScanner.swift */,
 				FA0000000000000000000008 /* CardMatchingService.swift */,
 				GA000000000000000000000B /* OCR */,
 				FA0000000000000000000009 /* ScanEventStore.swift */,
@@ -380,7 +380,7 @@
 				BA0000000000000000000010 /* ScanTrayLogic.swift in Sources */,
 				BA0000000000000000000005 /* CameraSessionController.swift in Sources */,
 				BBC123450000000000000001 /* CardIdentifierParsing.swift in Sources */,
-				BA0000000000000000000006 /* CardRectangleAnalyzer.swift in Sources */,
+				BA0000000000000000000006 /* SlabScanner.swift in Sources */,
 				BA0000000000000000000007 /* CardMatchingService.swift in Sources */,
 				BBC123450000000000000005 /* FrameSourceSelection.swift in Sources */,
 				BBC123450000000000000008 /* ModeSanitySignals.swift in Sources */,

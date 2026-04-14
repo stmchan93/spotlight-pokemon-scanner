@@ -112,6 +112,7 @@ def visual_candidate_stub(match: Any) -> dict[str, Any]:
     return {
         "id": str(match.entry.get("providerCardId") or ""),
         "name": str(match.entry.get("name") or ""),
+        "titleAliases": list(match.entry.get("titleAliases") or []),
         "setName": str(match.entry.get("setName") or ""),
         "number": str(match.entry.get("collectorNumber") or ""),
         "rarity": "Unknown",
@@ -124,7 +125,7 @@ def visual_candidate_stub(match: Any) -> dict[str, Any]:
         "setID": match.entry.get("setId"),
         "setSeries": match.entry.get("setSeries"),
         "setPtcgoCode": match.entry.get("setPtcgoCode"),
-        "sourcePayload": {},
+        "sourcePayload": match.entry.get("sourcePayload") or {},
         "_visualSimilarity": float(match.similarity),
     }
 
