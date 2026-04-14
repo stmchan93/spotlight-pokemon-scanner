@@ -3,6 +3,65 @@ import UIKit
 @testable import Spotlight
 
 final class ScanReliabilityHeuristicsTests: XCTestCase {
+    @MainActor
+    func testPresentResultDetailShowsDetailFirstForSlabItem() {
+        let viewModel = makeScannerViewModel()
+        let slabItem = makeScanStackItem(
+            resolverMode: .psaSlab,
+            reviewDisposition: .ready
+        )
+        viewModel.scannedItems = [slabItem]
+
+        viewModel.presentResultDetail(for: slabItem.id)
+
+        XCTAssertEqual(viewModel.route, .resultDetail)
+        XCTAssertEqual(viewModel.activeResultItem?.id, slabItem.id)
+        XCTAssertNil(viewModel.activeAlternativesResponse)
+    }
+
+    func testScannerNavigationStateStartsAtScanner() {
+        let navigation = ScannerNavigationState()
+
+        XCTAssertEqual(navigation.currentRoute, .scanner)
+        XCTAssertEqual(navigation.stack, [.scanner])
+    }
+
+    func testScannerNavigationStateDetailBackReturnsToScanner() {
+        var navigation = ScannerNavigationState()
+
+        navigation.push(.resultDetail)
+        XCTAssertEqual(navigation.stack, [.scanner, .resultDetail])
+
+        navigation.pop()
+        XCTAssertEqual(navigation.currentRoute, .scanner)
+        XCTAssertEqual(navigation.stack, [.scanner])
+    }
+
+    func testScannerNavigationStateAlternativesThenDetailBackReturnsToAlternatives() {
+        var navigation = ScannerNavigationState()
+
+        navigation.push(.alternatives)
+        navigation.push(.resultDetail)
+        XCTAssertEqual(navigation.stack, [.scanner, .alternatives, .resultDetail])
+
+        navigation.pop()
+        XCTAssertEqual(navigation.currentRoute, .alternatives)
+        XCTAssertEqual(navigation.stack, [.scanner, .alternatives])
+
+        navigation.pop()
+        XCTAssertEqual(navigation.currentRoute, .scanner)
+        XCTAssertEqual(navigation.stack, [.scanner])
+    }
+
+    func testScannerNavigationStateIgnoresDuplicateTopRoute() {
+        var navigation = ScannerNavigationState()
+
+        navigation.push(.resultDetail)
+        navigation.push(.resultDetail)
+
+        XCTAssertEqual(navigation.stack, [.scanner, .resultDetail])
+    }
+
     func testReticleCropLooksLikeRawCardRejectsBlankDarkCrop() {
         let image = makeImage(size: CGSize(width: 320, height: 460)) { context in
             UIColor.black.setFill()
@@ -684,6 +743,50 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         )
     }
 
+    @MainActor
+    private func makeScannerViewModel() -> ScannerViewModel {
+        ScannerViewModel(
+            cameraController: CameraSessionController(),
+            ocrPipeline: OCRPipelineCoordinator(
+                rawRewritePipeline: RawPipeline(),
+                slabAnalyzer: SlabScanner(config: .default)
+            ),
+            matcher: StubCardMatchingService(),
+            logStore: ScanEventStore()
+        )
+    }
+
+    private func makeScanStackItem(
+        resolverMode: ResolverMode,
+        reviewDisposition: ReviewDisposition
+    ) -> LiveScanStackItem {
+        LiveScanStackItem(
+            id: UUID(),
+            scanID: UUID(),
+            phase: .resolved,
+            card: makeCardCandidate(id: "base1-26", name: "Raichu"),
+            detail: nil,
+            previewImage: nil,
+            confidence: .medium,
+            matcherSource: .remoteHybrid,
+            matcherVersion: "test",
+            resolverMode: resolverMode,
+            resolverPath: resolverMode == .psaSlab ? .psaLabel : .visualHybridIndex,
+            slabContext: resolverMode == .psaSlab
+                ? SlabContext(grader: "PSA", grade: "10", certNumber: "12345678", variantName: nil)
+                : nil,
+            reviewDisposition: reviewDisposition,
+            reviewReason: nil,
+            addedAt: Date(),
+            isExpanded: false,
+            isRefreshingPrice: false,
+            statusMessage: nil,
+            pricingContextNote: nil,
+            performance: nil,
+            cacheStatus: nil
+        )
+    }
+
     private func makeCardCandidate(id: String, name: String) -> CardCandidate {
         CardCandidate(
             id: id,
@@ -713,4 +816,41 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
             draw(context.cgContext)
         }
     }
+}
+
+private actor StubCardMatchingService: CardMatchingService {
+    func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
+        throw MatcherError.noCandidates
+    }
+
+    func search(query: String) async -> [CardCandidate] {
+        []
+    }
+
+    func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail? {
+        nil
+    }
+
+    func refreshCardDetail(
+        cardID: String,
+        slabContext: SlabContext?,
+        forceRefresh: Bool
+    ) async throws -> CardDetail? {
+        nil
+    }
+
+    func hydrateCandidatePricing(
+        cardIDs: [String],
+        maxRefreshCount: Int,
+        slabContext: SlabContext?
+    ) async -> [CardDetail] {
+        []
+    }
+
+    func submitFeedback(
+        scanID: UUID,
+        selectedCardID: String?,
+        wasTopPrediction: Bool,
+        correctionType: CorrectionType
+    ) async {}
 }

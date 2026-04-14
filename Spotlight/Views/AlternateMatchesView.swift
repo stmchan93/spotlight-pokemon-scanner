@@ -140,7 +140,7 @@ struct AlternateMatchesView: View {
                     .foregroundStyle(limeAccent)
 
                 Button {
-                    viewModel.acceptBestMatch()
+                    viewModel.presentCandidateDetail(bestMatch.candidate)
                 } label: {
                     candidateRow(
                         candidate: bestMatch.candidate,
@@ -163,7 +163,7 @@ struct AlternateMatchesView: View {
 
                 ForEach(similarMatches) { candidate in
                     Button {
-                        viewModel.selectCandidate(candidate.candidate, correctionType: .choseAlternative)
+                        viewModel.presentCandidateDetail(candidate.candidate)
                     } label: {
                         candidateRow(
                             candidate: candidate.candidate,
@@ -235,7 +235,7 @@ struct AlternateMatchesView: View {
 
             ForEach(viewModel.searchResults) { candidate in
                 Button {
-                    viewModel.selectCandidate(candidate, correctionType: .manualSearch)
+                    viewModel.presentCandidateDetail(candidate)
                 } label: {
                     candidateRow(
                         candidate: candidate,

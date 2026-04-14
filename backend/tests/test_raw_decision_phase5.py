@@ -250,7 +250,7 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         self.assertIn("pricing", candidate)
         self.assertEqual(candidate["pricing"]["market"], 7.5)
 
-    def test_finalize_raw_decision_keeps_top_five_candidates(self) -> None:
+    def test_finalize_raw_decision_keeps_top_ten_candidates(self) -> None:
         payload = raw_payload(
             title_text_primary="Charizard ex",
             whole_card_text="Charizard ex",
@@ -293,14 +293,14 @@ class RawDecisionPhase5Tests(unittest.TestCase):
                 ),
                 reasons=("title_overlap",),
             )
-            for index in range(6)
+            for index in range(12)
         ]
 
         decision = finalize_raw_decision(matches, evidence, signals)
 
-        self.assertEqual(len(decision.top_candidates), 5)
+        self.assertEqual(len(decision.top_candidates), 10)
         self.assertEqual(decision.top_candidates[0].card["id"], "candidate-0")
-        self.assertEqual(decision.top_candidates[-1].card["id"], "candidate-4")
+        self.assertEqual(decision.top_candidates[-1].card["id"], "candidate-9")
 
     def test_visual_hybrid_path_handles_visual_match_objects_without_crashing(self) -> None:
         class FakeVisualMatcher:

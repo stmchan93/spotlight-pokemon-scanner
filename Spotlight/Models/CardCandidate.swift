@@ -107,7 +107,18 @@ struct CardPricingSummary: Codable, Hashable, Sendable {
         if freshnessState == .unavailable {
             return "Price unavailable"
         }
-        guard let refreshedDate else { return "Snapshot timing unavailable" }
+        guard let refreshedDate else {
+            switch freshnessState {
+            case .cached:
+                return "Cached"
+            case .refreshedRecently:
+                return "Refreshed recently"
+            case .stale:
+                return "Stale snapshot"
+            case .unavailable:
+                return "Price unavailable"
+            }
+        }
         let formatter = RelativeDateTimeFormatter()
         formatter.unitsStyle = .full
         let relative = formatter.localizedString(for: refreshedDate, relativeTo: Date())

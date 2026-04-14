@@ -2421,7 +2421,7 @@ def finalize_raw_decision(
             ambiguity_flag_list.append("Best guess is arbitrary among same-number matches")
         elif kind == "arbitrary_best_guess_minimal_signal":
             ambiguity_flag_list.append("Best guess is arbitrary because OCR evidence is minimal")
-    top_candidates = tuple(matches[:5])
+    top_candidates = tuple(matches[:10])
     selected_card_id = top_candidates[0].card.get("id") if top_candidates else None
     review_disposition = "ready" if confidence != "low" else "needs_review"
     review_reason = None if review_disposition == "ready" else "Review the best guess before relying on the card result."
@@ -2508,7 +2508,7 @@ def raw_debug_payload(
                     "contradictionPenalty": match.breakdown.contradiction_penalty,
                 },
             }
-            for match in matches[:5]
+            for match in matches[:10]
         ],
         "decision": {
             "confidence": decision.confidence,

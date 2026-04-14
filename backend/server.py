@@ -79,8 +79,11 @@ from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from slab_set_aliases import resolve_slab_set_aliases
 
 MANUAL_SCRYDEX_MIRROR_ENV = "SPOTLIGHT_MANUAL_SCRYDEX_MIRROR"
+LIVE_PRICING_ENABLED_ENV = "SPOTLIGHT_LIVE_PRICING_ENABLED"
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
+LIVE_PRICING_SETTING_KEY = "live_pricing"
 DEFAULT_CARD_SHOW_MODE_HOURS = 8.0
+LIVE_PRICING_REFRESH_WINDOW_HOURS = 1.0
 
 
 def _env_flag(name: str, *, default: bool = False) -> bool:
@@ -143,40 +146,55 @@ class PricingLoadPolicy:
     rank_rules: tuple[CandidateRankPricingRule, ...]
 
     @classmethod
-    def top_five_cached_only(cls) -> "PricingLoadPolicy":
+    def top_ten_cached_only(cls) -> "PricingLoadPolicy":
         return cls(
-            limit=5,
+            limit=10,
             rank_rules=(
-                CandidateRankPricingRule(rank=1, ensure_cached=True),
+                CandidateRankPricingRule(rank=1),
                 CandidateRankPricingRule(rank=2),
                 CandidateRankPricingRule(rank=3),
                 CandidateRankPricingRule(rank=4),
                 CandidateRankPricingRule(rank=5),
+                CandidateRankPricingRule(rank=6),
+                CandidateRankPricingRule(rank=7),
+                CandidateRankPricingRule(rank=8),
+                CandidateRankPricingRule(rank=9),
+                CandidateRankPricingRule(rank=10),
             ),
         )
 
     @classmethod
-    def top_five_refresh_top_one(
+    def top_ten_refresh_top_one(
         cls,
         *,
         refresh_top_candidate_stale: bool,
         refresh_top_candidate_missing: bool,
         force_show_mode_top_candidate_refresh: bool = False,
     ) -> "PricingLoadPolicy":
+        return cls.top_ten_live_refresh(
+            refresh_stale=refresh_top_candidate_stale,
+            refresh_missing=refresh_top_candidate_missing,
+            force_show_mode_refresh=force_show_mode_top_candidate_refresh,
+        )
+
+    @classmethod
+    def top_ten_live_refresh(
+        cls,
+        *,
+        refresh_stale: bool,
+        refresh_missing: bool,
+        force_show_mode_refresh: bool = False,
+    ) -> "PricingLoadPolicy":
         return cls(
-            limit=5,
-            rank_rules=(
+            limit=10,
+            rank_rules=tuple(
                 CandidateRankPricingRule(
-                    rank=1,
-                    ensure_cached=True,
-                    refresh_stale=refresh_top_candidate_stale,
-                    refresh_missing=refresh_top_candidate_missing,
-                    force_show_mode_refresh=force_show_mode_top_candidate_refresh,
-                ),
-                CandidateRankPricingRule(rank=2),
-                CandidateRankPricingRule(rank=3),
-                CandidateRankPricingRule(rank=4),
-                CandidateRankPricingRule(rank=5),
+                    rank=index,
+                    refresh_stale=refresh_stale,
+                    refresh_missing=refresh_missing,
+                    force_show_mode_refresh=force_show_mode_refresh,
+                )
+                for index in range(1, 11)
             ),
         )
 
@@ -340,6 +358,95 @@ class SpotlightScanService:
         self.connection.commit()
         return self._card_show_mode_state()
 
+    def _live_pricing_record(self) -> dict[str, Any] | None:
+        return runtime_setting(self.connection, LIVE_PRICING_SETTING_KEY)
+
+    def _live_pricing_state(self) -> dict[str, Any]:
+        record = self._live_pricing_record()
+        payload = (record or {}).get("value") if isinstance(record, dict) else {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        if "enabled" in payload:
+            enabled = bool(payload.get("enabled") is True)
+            source = "runtime_setting"
+            set_at = str(payload.get("setAt") or (record or {}).get("updatedAt") or "").strip() or None
+            note = str(payload.get("note") or "").strip() or None
+        else:
+            enabled = _env_flag(LIVE_PRICING_ENABLED_ENV, default=False)
+            source = "env_default"
+            set_at = None
+            note = None
+
+        return {
+            "enabled": enabled,
+            "source": source,
+            "setAt": set_at,
+            "note": note,
+            "refreshWindowHours": LIVE_PRICING_REFRESH_WINDOW_HOURS,
+        }
+
+    def _live_pricing_enabled(self) -> bool:
+        return bool(self._live_pricing_state().get("enabled"))
+
+    def set_live_pricing_mode(
+        self,
+        *,
+        enabled: bool,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        upsert_runtime_setting(
+            self.connection,
+            key=LIVE_PRICING_SETTING_KEY,
+            value={
+                "enabled": bool(enabled),
+                "setAt": now.isoformat(),
+                "note": str(note or "").strip() or None,
+            },
+        )
+        self.connection.commit()
+        return self._live_pricing_state()
+
+    @staticmethod
+    def _pricing_refreshed_at(pricing: dict[str, Any] | None) -> datetime | None:
+        if not isinstance(pricing, dict):
+            return None
+        raw_value = str(pricing.get("refreshedAt") or "").strip()
+        if not raw_value:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw_value)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _pricing_snapshot_age_hours(self, pricing: dict[str, Any] | None) -> float | None:
+        refreshed_at = self._pricing_refreshed_at(pricing)
+        if refreshed_at is None:
+            return None
+        return max(0.0, (datetime.now(timezone.utc) - refreshed_at).total_seconds() / 3600.0)
+
+    def _pricing_within_live_refresh_window(self, pricing: dict[str, Any] | None) -> bool:
+        age_hours = self._pricing_snapshot_age_hours(pricing)
+        if age_hours is None:
+            return False
+        return age_hours <= LIVE_PRICING_REFRESH_WINDOW_HOURS
+
+    def _should_use_cached_pricing_snapshot(
+        self,
+        pricing: dict[str, Any] | None,
+        *,
+        force_refresh: bool,
+    ) -> bool:
+        if pricing is None or force_refresh:
+            return False
+        if self._live_pricing_enabled():
+            return self._pricing_within_live_refresh_window(pricing)
+        return pricing.get("isFresh") is True
+
     def _live_scrydex_searches_allowed(self) -> bool:
         if self._manual_scrydex_mirror_enabled():
             return False
@@ -351,9 +458,7 @@ class SpotlightScanService:
         return not self._scrydex_full_catalog_sync_is_fresh()
 
     def _live_scrydex_pricing_refresh_allowed(self) -> bool:
-        if self._manual_scrydex_mirror_enabled():
-            return False
-        return True
+        return self._live_pricing_enabled()
 
     def _live_scrydex_queries_blocked(self) -> bool:
         return not (
@@ -1619,6 +1724,7 @@ class SpotlightScanService:
                 "bulk_auto_detect_without_capture",
             ],
             "manualScrydexMirror": self._manual_scrydex_mirror_status(),
+            "livePricing": self._live_pricing_state(),
             "cardShowMode": self._card_show_mode_state(),
         }
         if prewarm_visual:
@@ -1676,6 +1782,7 @@ class SpotlightScanService:
             "runtimeMode": "raw_only",
             "experimentalResolverModes": ["psa_slab"],
             "manualScrydexMirror": self._manual_scrydex_mirror_status(),
+            "livePricing": self._live_pricing_state(),
             "cardShowMode": self._card_show_mode_state(),
             "scrydexRequestStats": scrydex_request_stats_snapshot(),
             "scrydexFullCatalogSync": scrydex_full_sync,
@@ -2434,7 +2541,7 @@ class SpotlightScanService:
         pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context) if card_id else None
         card_show_mode_active = self._card_show_mode_active()
         pricing_missing = pricing is None
-        pricing_stale = pricing is not None and pricing.get("isFresh") is not True
+        pricing_stale = pricing is not None and not self._pricing_within_live_refresh_window(pricing)
         should_force_show_mode_refresh = card_show_mode_active and force_show_mode_refresh
         should_refresh = (
             card_id
@@ -2470,11 +2577,14 @@ class SpotlightScanService:
         force_show_mode_top_candidate_refresh: bool = False,
     ) -> PricingLoadPolicy:
         if not self._live_scrydex_pricing_refresh_allowed():
-            return PricingLoadPolicy.top_five_cached_only()
-        return PricingLoadPolicy.top_five_refresh_top_one(
-            refresh_top_candidate_stale=refresh_top_candidate_stale,
-            refresh_top_candidate_missing=refresh_top_candidate_missing,
-            force_show_mode_top_candidate_refresh=force_show_mode_top_candidate_refresh,
+            # Scan candidate lists are intentionally SQLite-only when live
+            # pricing is disabled. Ranking/alternatives must not issue hidden
+            # provider requests in the default cron-backed mode.
+            return PricingLoadPolicy.top_ten_cached_only()
+        return PricingLoadPolicy.top_ten_live_refresh(
+            refresh_stale=refresh_top_candidate_stale,
+            refresh_missing=refresh_top_candidate_missing,
+            force_show_mode_refresh=force_show_mode_top_candidate_refresh,
         )
 
     def _encode_top_candidates(
@@ -2602,8 +2712,8 @@ class SpotlightScanService:
 
         pricing_policy = self._scan_candidate_pricing_policy(
             refresh_top_candidate_stale=True,
-            refresh_top_candidate_missing=decision.confidence != "low",
-            force_show_mode_top_candidate_refresh=decision.confidence != "low",
+            refresh_top_candidate_missing=True,
+            force_show_mode_top_candidate_refresh=True,
         )
         encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
             [
@@ -2765,8 +2875,8 @@ class SpotlightScanService:
         review_disposition = "ready" if confidence != "low" else "needs_review"
         pricing_policy = self._scan_candidate_pricing_policy(
             refresh_top_candidate_stale=True,
-            refresh_top_candidate_missing=confidence != "low",
-            force_show_mode_top_candidate_refresh=confidence != "low",
+            refresh_top_candidate_missing=True,
+            force_show_mode_top_candidate_refresh=True,
         )
         response_build_started_at = perf_counter()
         encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
@@ -2780,7 +2890,7 @@ class SpotlightScanService:
                     reasons=("visual_similarity",),
                     scored_fields={"visualScore": round(float(summary["similarity"]), 4)},
                 )
-                for match, summary in zip(matches[:5], ranked_matches[:5], strict=True)
+                for match, summary in zip(matches[:10], ranked_matches[:10], strict=True)
             ],
             pricing_context=self._raw_pricing_context(),
             pricing_policy=pricing_policy,
@@ -2804,7 +2914,7 @@ class SpotlightScanService:
                 "visualOnly": {
                     **debug,
                     "candidateCount": len(ranked_matches),
-                    "topCandidates": ranked_matches[:5],
+                    "topCandidates": ranked_matches[:10],
                 }
             },
         }
@@ -2919,7 +3029,7 @@ class SpotlightScanService:
                     "contradictionPenalty": match.breakdown.contradiction_penalty,
                 },
             }
-            for match in ranked_matches[:5]
+            for match in ranked_matches[:10]
         ]
         debug_payload = {
             "evidence": {
@@ -3049,7 +3159,7 @@ class SpotlightScanService:
                     "score": round(float(candidate.get("_retrievalScoreHint") or 0.0), 4),
                     "reasons": list(candidate.get("_reasons") or []),
                 }
-                for candidate in ranked_candidates[:5]
+                for candidate in ranked_candidates[:10]
             ],
             "decision": {
                 "confidence": confidence,
@@ -3145,8 +3255,8 @@ class SpotlightScanService:
         review_disposition = "ready" if confidence != "low" else "needs_review"
         pricing_policy = self._scan_candidate_pricing_policy(
             refresh_top_candidate_stale=True,
-            refresh_top_candidate_missing=confidence != "low",
-            force_show_mode_top_candidate_refresh=confidence != "low",
+            refresh_top_candidate_missing=True,
+            force_show_mode_top_candidate_refresh=True,
         )
         encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
             [
@@ -3425,7 +3535,7 @@ class SpotlightScanService:
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
             existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
-            if existing_pricing is not None and not effective_force_refresh and existing_pricing.get("isFresh") is True:
+            if self._should_use_cached_pricing_snapshot(existing_pricing, force_refresh=effective_force_refresh):
                 self._log_pricing_provenance(
                     "refresh_slab_cached",
                     card_id,
@@ -3479,7 +3589,7 @@ class SpotlightScanService:
             existing_card = card_by_id(self.connection, card_id)
 
         existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
-        if existing_pricing is not None and not effective_force_refresh and existing_pricing.get("isFresh") is True:
+        if self._should_use_cached_pricing_snapshot(existing_pricing, force_refresh=effective_force_refresh):
             self._log_pricing_provenance("refresh_raw_cached", card_id)
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
@@ -3560,15 +3670,15 @@ class SpotlightScanService:
         refresh_budget = max(0, min(int(max_refresh_count), len(ordered_card_ids)))
         refreshed_count = 0
         hydrated_cards: list[dict[str, Any]] = []
+        live_refresh_allowed = self._live_scrydex_pricing_refresh_allowed()
 
         for card_id in ordered_card_ids:
             detail = self._card_detail_for_context(card_id, pricing_context=pricing_context)
             pricing = ((detail or {}).get("card") or {}).get("pricing") if isinstance(detail, dict) else None
-            needs_refresh = (
-                force_refresh
-                or self._card_show_mode_active()
-                or pricing is None
-                or pricing.get("isFresh") is not True
+            effective_force_refresh = force_refresh or (self._card_show_mode_active() and live_refresh_allowed)
+            needs_refresh = live_refresh_allowed and not self._should_use_cached_pricing_snapshot(
+                pricing,
+                force_refresh=effective_force_refresh,
             )
 
             if needs_refresh and refreshed_count < refresh_budget:
@@ -3578,7 +3688,7 @@ class SpotlightScanService:
                         card_id,
                         pricing_context=pricing_context,
                         api_key=api_key,
-                        force_refresh=(force_refresh or self._card_show_mode_active()),
+                        force_refresh=effective_force_refresh,
                     )
                 except Exception:
                     detail = self._card_detail_for_context(card_id, pricing_context=pricing_context)
@@ -3954,6 +4064,16 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
+            self._write_json(HTTPStatus.OK, summary)
+            return
+
+        if parsed.path == "/api/v1/admin/live-pricing":
+            enabled = payload.get("enabled")
+            if not isinstance(enabled, bool):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "enabled must be a boolean"})
+                return
+            note = str(payload.get("note") or "").strip() or None
+            summary = self.service.set_live_pricing_mode(enabled=enabled, note=note)
             self._write_json(HTTPStatus.OK, summary)
             return
 

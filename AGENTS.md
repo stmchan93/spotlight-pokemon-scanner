@@ -143,8 +143,13 @@ Repo-specific workflow notes for future coding agents.
 - The tray shows one active/default provider result.
 - The architecture supports future side-by-side provider display in detail views.
 - Pricing freshness rule:
-  - persisted SQLite snapshot timestamps are the source of truth for the `24 hour` freshness window
-  - runtime refresh should read existing snapshots first and only hit the live provider when the snapshot is stale or the caller explicitly requests `forceRefresh`
+  - persisted SQLite snapshot timestamps are the source of truth for the normal cached freshness window and for `isFresh`
+  - live pricing is a separate explicit runtime gate, not the same thing as normal cached freshness
+  - when live pricing is `off`, scanner/runtime pricing reads must stay SQLite-only everywhere and must not issue hidden provider refreshes
+  - when live pricing is `on`, scanner/runtime metadata still comes from SQLite, but pricing may refresh live
+  - the live-pricing refresh window is `1 hour` and applies only when live pricing is enabled
+  - when live pricing is `on`, scan responses may reuse SQLite pricing that was refreshed within the last hour; otherwise they should refresh pricing live and persist it back to SQLite
+  - `forceRefresh` may bypass the normal freshness gate only when live pricing is enabled; it must not punch through the live-pricing-off SQLite-only rule
   - the in-memory provider cache may exist as an optimization, but it is not the correctness layer for scanner runtime behavior
 - Shared pricing/response layer rule:
   - keep raw/slab evidence extraction, candidate scoring, confidence math, and resolver routing separate
@@ -157,27 +162,23 @@ Repo-specific workflow notes for future coding agents.
     - one shared context-based refresh/detail path
   - do not reintroduce separate `_raw_candidate_payload` / `_slab_candidate_payload` style forks unless there is a real behavior divergence that the shared layer cannot express cleanly
 - Shared top-candidate pricing policy:
-  - raw and slab both return top `5` candidates
-  - rank `1` ensures SQLite hydration
-  - rank `1` only auto-refreshes missing pricing when `reviewDisposition == ready` and confidence is `high` or `medium`
-  - ranks `2-5` return cached pricing only
-  - lazy refresh for user-selected alternate candidates is still future work
+  - raw and slab both return top `10` candidates
+  - candidate metadata always comes from SQLite
+  - when live pricing is `off`, ranks `1-10` return SQLite pricing only with no live refreshes
+  - when live pricing is `on`, the matched card plus ranks `1-10` may refresh pricing live when the stored snapshot is missing or older than `1 hour`, then persist the refreshed pricing back to SQLite
+  - there is no rank-1 special case in the live-pricing path
 - Current Scrydex mirror rule:
-  - the current live beta deployment is still Cloud Run plus live Scrydex fallback
-  - the same-machine nightly mirror remains implemented in-repo but is not the live hosted path right now
-  - when that mirror path is resumed:
-    - run the backend and the nightly Scrydex sync on the same machine against the same SQLite file
-    - nightly full-catalog sync runs at `3:00 AM America/Los_Angeles`
-    - sync command:
-      - `python3 backend/sync_scrydex_catalog.py --database-path backend/data/spotlight_scanner.sqlite`
-    - sync should persist:
-      - card metadata
-      - raw price snapshots
-      - graded price snapshots returned by the same `include=prices` payload
-    - when the latest successful full sync is fresh, normal scan hot paths should prefer SQLite-only identity/pricing reads and avoid live Scrydex calls
-    - live Scrydex fallback remains allowed when:
-      - the full sync is missing
-      - the full sync is stale
+  - the current beta deployment is a same-host VM plus nightly Scrydex mirror against one shared SQLite file
+  - run the backend and the nightly Scrydex sync on the same machine against the same SQLite file
+  - nightly full-catalog sync runs at `3:00 AM America/Los_Angeles`
+  - sync command:
+    - `python3 backend/sync_scrydex_catalog.py --database-path backend/data/spotlight_scanner.sqlite`
+  - sync should persist:
+    - card metadata
+    - raw price snapshots
+    - graded price snapshots returned by the same `include=prices` payload
+  - when live pricing is `off`, treat that nightly mirror as authoritative and keep normal scan hot paths SQLite-only even if snapshots are older than the live-pricing `1 hour` window
+  - live pricing is an explicit opt-in runtime mode, not a silent fallback when the mirror is stale
       - a card is unexpectedly missing locally
       - the caller explicitly forces refresh
 - Scrydex request-budget rule:
@@ -442,7 +443,7 @@ Repo-specific workflow notes for future coding agents.
   - if you want the nightly Scrydex mirror to be authoritative, the backend process and the cron job must run on the same host with the same SQLite database path
   - do not assume Cloud Run instances share the same local SQLite file as a cron job running elsewhere
   - for internet-reachable tester builds, point the app at the host that is actually running that shared backend + cron pair
-  - current live hosted beta path is still Cloud Run, with the same-host mirror path deferred until it is worth the cutover
+  - current live hosted beta path is the same-host VM mirror setup, not Cloud Run
 - Preferred raw runtime flow:
   - app OCR extracts collector number/text locally
   - app sends the normalized image plus OCR payload to the backend
@@ -454,12 +455,12 @@ Repo-specific workflow notes for future coding agents.
   - 2. app sends the normalized image plus OCR evidence to the backend
   - 3. backend visually retrieves top raw candidates
   - 4. backend reranks and confirms with OCR evidence
-  - 5. backend checks SQLite for the selected card's metadata/pricing snapshot
-  - 6. if SQLite has no card record, or no fresh pricing snapshot, backend fetches live data from Scrydex first
-  - 7. backend writes the hydrated card metadata/pricing snapshot into SQLite
-  - 8. backend returns the normalized card detail/pricing payload plus alternatives to the user
-  - 9. later scans of the same card should reuse SQLite until the stored snapshot is older than the `24 hour` freshness window
-  - 10. once the stored snapshot is older than `24 hours`, backend should re-fetch live provider data, update SQLite, and then return the refreshed result
+  - 5. backend reads the matched card plus top candidates from SQLite for metadata and pricing
+  - 6. when live pricing is `off`, backend returns SQLite pricing as-is and must not issue live provider calls
+  - 7. when live pricing is `on`, backend may refresh pricing for the matched card plus top candidates if the stored pricing is missing or older than `1 hour`
+  - 8. backend persists any live-refreshed pricing back into SQLite before returning the response
+  - 9. `isFresh` remains the normal persisted-snapshot freshness concept used by the nightly mirror path; it is not the same as the live-pricing `1 hour` eligibility window
+  - 10. metadata remains SQLite-backed even when live pricing is enabled
 - Required raw migration cleanup rule:
   - after the hybrid path is proven and cut over, schedule an explicit cleanup pass to remove dead OCR-primary resolver code, misleading compatibility names, obsolete tests, and stale docs before starting major new raw feature work
 - Required slab rebuild cleanup rule:
@@ -489,10 +490,11 @@ Repo-specific workflow notes for future coding agents.
   - do not rebuild slab behavior on top of deleted legacy slab modules
   - rebuild slabs later using the preserved thin Scrydex adapter and the 3-table SQLite model
 - Freshness policy:
-  - `updated_at` / persisted snapshot timestamps in SQLite are the correctness layer for freshness
-  - the `24 hour` freshness window should be enforced against SQLite snapshot age
+  - `updated_at` / persisted snapshot timestamps in SQLite are the correctness layer for the normal cached freshness model
+  - `isFresh` should reflect that normal persisted-snapshot freshness model, not the live-pricing `1 hour` refresh window
+  - the live-pricing `1 hour` refresh window should only be consulted when live pricing is enabled
   - in-memory caches are allowed only as short-lived optimizations and must not decide correctness
-  - `forceRefresh` should bypass the normal freshness gate and re-query the live provider
+  - `forceRefresh` should bypass the normal freshness gate and re-query the live provider only when live pricing is enabled
 - Rich card metadata and pricing should come from runtime metadata/provider APIs:
   - raw/singles => Scrydex-first migration lane
   - slab/graded => Scrydex

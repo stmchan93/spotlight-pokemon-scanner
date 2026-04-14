@@ -37,10 +37,12 @@ final class ScannerViewModel: ObservableObject {
     private var alternativesContexts: [UUID: ScanAlternativesContext] = [:]
     private var activeAlternativesItemID: UUID?
     private var activeResultItemID: UUID?
+    private var activeResultPreviewItem: LiveScanStackItem?
 
     private var selectedResolverMode: ResolverMode {
         scannerPresentationMode == .slab ? .psaSlab : .rawCard
     }
+    private var navigationState = ScannerNavigationState()
 
     init(
         cameraController: CameraSessionController,
@@ -101,7 +103,7 @@ final class ScannerViewModel: ObservableObject {
             return
         }
         errorMessage = nil
-        route = .scanner
+        resetRouteToScanner()
         currentReticleRect = reticleRect
 
         let scanID = UUID()
@@ -173,6 +175,9 @@ final class ScannerViewModel: ObservableObject {
     }
 
     var activeResultItem: LiveScanStackItem? {
+        if let activeResultPreviewItem {
+            return activeResultPreviewItem
+        }
         guard let activeResultItemID else {
             return nil
         }
@@ -188,37 +193,52 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func presentResultDetail(for itemID: UUID) {
-        guard let item = scannedItems.first(where: { $0.id == itemID }) else { return }
-        if item.resolverMode == .psaSlab {
-            showAlternatives(for: itemID)
+        guard scannedItems.contains(where: { $0.id == itemID }) else { return }
+        activeResultPreviewItem = nil
+        activeResultItemID = itemID
+        pushRoute(.resultDetail)
+    }
+
+    func presentCandidateDetail(_ candidate: CardCandidate) {
+        guard let context = activeAlternativesContext,
+              let sourceItem = scannedItems.first(where: { $0.id == context.itemID }) else {
             return
         }
-        activeResultItemID = itemID
-        route = .resultDetail
+
+        var previewItem = sourceItem
+        previewItem.card = candidate
+        previewItem.detail = nil
+        previewItem.isExpanded = false
+        previewItem.isRefreshingPrice = false
+        previewItem.statusMessage = ScanTrayCalculator.initialStatusMessage(for: candidate.pricing)
+        previewItem.slabContext = resolvedSlabContext(for: candidate, response: context.response)
+        previewItem.pricingContextNote = pricingContextNote(
+            for: context.response.resolverMode,
+            matcherSource: context.response.matcherSource,
+            slabContext: previewItem.slabContext,
+            pricing: candidate.pricing
+        )
+
+        activeResultItemID = context.itemID
+        activeResultPreviewItem = previewItem
+        pushRoute(.resultDetail)
     }
 
     func showAlternatives(for itemID: UUID) {
         guard activateAlternativesContext(for: itemID) else {
             return
         }
+        activeResultPreviewItem = nil
         activeResultItemID = itemID
-        route = .alternatives
-        searchQuery = ""
-        searchResults = []
+        pushRoute(.alternatives)
     }
 
     func dismissAlternatives() {
-        activeAlternativesItemID = nil
-        analyzedCapture = nil
-        matchResponse = nil
-        route = activeResultItemID == nil ? .scanner : .resultDetail
-        searchQuery = ""
-        searchResults = []
+        popRoute()
     }
 
     func dismissResultDetail() {
-        activeResultItemID = nil
-        route = .scanner
+        popRoute()
     }
 
     func selectCandidate(_ candidate: CardCandidate, correctionType override: CorrectionType? = nil) {
@@ -245,22 +265,23 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func removeStackItem(_ itemID: UUID) {
+        let removedActiveAlternatives = activeAlternativesItemID == itemID
+        let removedActiveResult = activeResultItemID == itemID
         alternativesContexts.removeValue(forKey: itemID)
-        if activeAlternativesItemID == itemID {
+        if removedActiveAlternatives {
             activeAlternativesItemID = nil
-            searchQuery = ""
-            searchResults = []
         }
-        if activeResultItemID == itemID {
+        if removedActiveResult {
             activeResultItemID = nil
-        }
-        if activeAlternativesItemID == nil, activeResultItemID == nil {
-            route = .scanner
-        } else if activeAlternativesItemID == nil, route == .alternatives {
-            route = .resultDetail
+            activeResultPreviewItem = nil
         }
         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
             scannedItems.removeAll { $0.id == itemID }
+        }
+        if removedActiveAlternatives || removedActiveResult {
+            resetRouteToScanner()
+        } else {
+            syncNavigationStateForCurrentRoute()
         }
     }
 
@@ -268,7 +289,8 @@ final class ScannerViewModel: ObservableObject {
         alternativesContexts.removeAll()
         activeAlternativesItemID = nil
         activeResultItemID = nil
-        route = .scanner
+        activeResultPreviewItem = nil
+        resetRouteToScanner()
         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
             scannedItems.removeAll()
         }
@@ -360,7 +382,7 @@ final class ScannerViewModel: ObservableObject {
         print("🔍 [SCAN] Starting handleScannedCapture")
         isCapturingPhoto = false
         errorMessage = nil
-        route = .scanner
+        resetRouteToScanner()
         let resolverMode = selectedResolverMode
 
         // Balance OCR quality vs memory usage
@@ -490,7 +512,7 @@ final class ScannerViewModel: ObservableObject {
             activeAlternativesItemID = nil
         }
         resetPendingScanState()
-        route = .resultDetail
+        pushRoute(.resultDetail)
 
         Task {
             await matcher.submitFeedback(
@@ -542,7 +564,7 @@ final class ScannerViewModel: ObservableObject {
     private func abandonPendingScanIfNeeded() async {
         guard let scanID = currentScanID,
               let pendingItemID = currentPendingItemID else {
-            route = .scanner
+            resetRouteToScanner()
             return
         }
 
@@ -561,7 +583,7 @@ final class ScannerViewModel: ObservableObject {
 
         removeStackItem(pendingItemID)
         resetPendingScanState()
-        route = .scanner
+        resetRouteToScanner()
     }
 
     private var activeAlternativesContext: ScanAlternativesContext? {
@@ -569,6 +591,56 @@ final class ScannerViewModel: ObservableObject {
             return nil
         }
         return alternativesContexts[activeAlternativesItemID]
+    }
+
+    private func pushRoute(_ nextRoute: ScannerRoute) {
+        navigationState.push(nextRoute)
+        route = navigationState.currentRoute
+        syncNavigationStateForCurrentRoute()
+    }
+
+    private func popRoute() {
+        navigationState.pop()
+        route = navigationState.currentRoute
+        syncNavigationStateForCurrentRoute()
+    }
+
+    private func resetRouteToScanner() {
+        navigationState.resetToScanner()
+        route = navigationState.currentRoute
+        syncNavigationStateForCurrentRoute()
+    }
+
+    private func syncNavigationStateForCurrentRoute() {
+        switch navigationState.currentRoute {
+        case .scanner:
+            activeAlternativesItemID = nil
+            activeResultPreviewItem = nil
+            analyzedCapture = nil
+            matchResponse = nil
+            searchQuery = ""
+            searchResults = []
+        case .resultDetail:
+            activeAlternativesItemID = nil
+            analyzedCapture = nil
+            matchResponse = nil
+            searchQuery = ""
+            searchResults = []
+        case .alternatives:
+            activeResultPreviewItem = nil
+            searchQuery = ""
+            searchResults = []
+            guard let itemID = activeResultItemID ?? activeAlternativesItemID else {
+                navigationState.resetToScanner()
+                route = navigationState.currentRoute
+                activeAlternativesItemID = nil
+                activeResultPreviewItem = nil
+                analyzedCapture = nil
+                matchResponse = nil
+                return
+            }
+            _ = activateAlternativesContext(for: itemID)
+        }
     }
 
     @discardableResult
@@ -606,6 +678,7 @@ final class ScannerViewModel: ObservableObject {
             markPendingScanFailed(itemID: pendingItemID, message: "Could not capture card")
         }
         resetPendingScanState()
+        resetRouteToScanner()
         errorMessage = message
     }
 

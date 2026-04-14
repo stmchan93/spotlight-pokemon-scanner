@@ -188,8 +188,24 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(provider_status["runtimeMode"], "raw_only")
         self.assertEqual(provider_status["experimentalResolverModes"], ["psa_slab"])
         self.assertIn("scrydexRequestStats", provider_status)
+        self.assertIn("livePricing", provider_status)
+        self.assertFalse(provider_status["livePricing"]["enabled"])
         self.assertEqual(cache_status["rawSnapshots"]["count"], 1)
         self.assertEqual(cache_status["slabSnapshots"]["count"], 1)
+
+    def test_set_live_pricing_mode_persists_runtime_gate(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            state = service.set_live_pricing_mode(enabled=True, note="beta test")
+            provider_status = service.provider_status()
+        finally:
+            service.connection.close()
+
+        self.assertTrue(state["enabled"])
+        self.assertEqual(state["note"], "beta test")
+        self.assertEqual(state["source"], "runtime_setting")
+        self.assertEqual(state["refreshWindowHours"], 1.0)
+        self.assertTrue(provider_status["livePricing"]["enabled"])
 
     def test_provider_status_reports_latest_full_catalog_sync(self) -> None:
         run_id = start_provider_sync_run(
@@ -547,7 +563,7 @@ class PricingPhase6Tests(unittest.TestCase):
             service.connection.close()
 
         scrydex_provider.refresh_raw_pricing.assert_not_called()
-        self.assertEqual(payload["refreshedCount"], 1)
+        self.assertEqual(payload["refreshedCount"], 0)
         self.assertEqual(payload["returnedCount"], 1)
 
     def test_run_manual_scrydex_sync_reuses_current_database_path(self) -> None:
@@ -788,6 +804,7 @@ class PricingPhase6Tests(unittest.TestCase):
 
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         refreshed_cards: list[str] = []
+        service.set_live_pricing_mode(enabled=True)
 
         def fake_refresh(card_id: str, *, pricing_context, **_: object) -> dict[str, object] | None:
             refreshed_cards.append(card_id)
@@ -867,6 +884,7 @@ class PricingPhase6Tests(unittest.TestCase):
 
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         refresh_calls: list[tuple[str, dict[str, object]]] = []
+        service.set_live_pricing_mode(enabled=True)
 
         def fake_refresh(card_id: str, *, pricing_context, **kwargs: object) -> dict[str, object] | None:
             refresh_calls.append((card_id, {"pricing_context": pricing_context, **kwargs}))
@@ -1179,14 +1197,14 @@ class PricingPhase6Tests(unittest.TestCase):
         finally:
             service.connection.close()
 
-    def test_shared_top_five_pricing_policy_has_explicit_rank_rules(self) -> None:
-        policy = PricingLoadPolicy.top_five_refresh_top_one(
+    def test_shared_top_ten_live_pricing_policy_has_explicit_rank_rules(self) -> None:
+        policy = PricingLoadPolicy.top_ten_refresh_top_one(
             refresh_top_candidate_stale=True,
             refresh_top_candidate_missing=True,
             force_show_mode_top_candidate_refresh=True,
         )
 
-        self.assertEqual(policy.limit, 5)
+        self.assertEqual(policy.limit, 10)
         self.assertEqual(
             [
                 (
@@ -1195,21 +1213,26 @@ class PricingPhase6Tests(unittest.TestCase):
                     policy.rule_for_rank(index).refresh_missing,
                     policy.rule_for_rank(index).force_show_mode_refresh,
                 )
-                for index in range(1, 6)
+                for index in range(1, 11)
             ],
             [
-                (True, True, True, True),
-                (False, False, False, False),
-                (False, False, False, False),
-                (False, False, False, False),
-                (False, False, False, False),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
             ],
         )
 
-    def test_cached_only_top_five_pricing_policy_has_explicit_rank_rules(self) -> None:
-        policy = PricingLoadPolicy.top_five_cached_only()
+    def test_cached_only_top_ten_pricing_policy_has_explicit_rank_rules(self) -> None:
+        policy = PricingLoadPolicy.top_ten_cached_only()
 
-        self.assertEqual(policy.limit, 5)
+        self.assertEqual(policy.limit, 10)
         self.assertEqual(
             [
                 (
@@ -1218,10 +1241,15 @@ class PricingPhase6Tests(unittest.TestCase):
                     policy.rule_for_rank(index).refresh_missing,
                     policy.rule_for_rank(index).force_show_mode_refresh,
                 )
-                for index in range(1, 6)
+                for index in range(1, 11)
             ],
             [
-                (True, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
                 (False, False, False, False),
                 (False, False, False, False),
                 (False, False, False, False),
@@ -1248,10 +1276,15 @@ class PricingPhase6Tests(unittest.TestCase):
                     policy.rule_for_rank(index).refresh_missing,
                     policy.rule_for_rank(index).force_show_mode_refresh,
                 )
-                for index in range(1, 6)
+                for index in range(1, 11)
             ],
             [
-                (True, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
                 (False, False, False, False),
                 (False, False, False, False),
                 (False, False, False, False),
@@ -1259,21 +1292,17 @@ class PricingPhase6Tests(unittest.TestCase):
             ],
         )
 
-    def test_scan_candidate_pricing_policy_refreshes_top_candidate_when_live_pricing_enabled(self) -> None:
-        with patch.dict(
-            os.environ,
-            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
-            clear=False,
-        ):
-            service = SpotlightScanService(self.database_path, REPO_ROOT)
-            try:
-                policy = service._scan_candidate_pricing_policy(
-                    refresh_top_candidate_stale=True,
-                    refresh_top_candidate_missing=True,
-                    force_show_mode_top_candidate_refresh=True,
-                )
-            finally:
-                service.connection.close()
+    def test_scan_candidate_pricing_policy_uses_live_refresh_when_live_pricing_enabled(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            service.set_live_pricing_mode(enabled=True)
+            policy = service._scan_candidate_pricing_policy(
+                refresh_top_candidate_stale=True,
+                refresh_top_candidate_missing=True,
+                force_show_mode_top_candidate_refresh=True,
+            )
+        finally:
+            service.connection.close()
 
         self.assertEqual(
             [
@@ -1283,14 +1312,19 @@ class PricingPhase6Tests(unittest.TestCase):
                     policy.rule_for_rank(index).refresh_missing,
                     policy.rule_for_rank(index).force_show_mode_refresh,
                 )
-                for index in range(1, 6)
+                for index in range(1, 11)
             ],
             [
-                (True, True, True, True),
-                (False, False, False, False),
-                (False, False, False, False),
-                (False, False, False, False),
-                (False, False, False, False),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
+                (False, True, True, True),
             ],
         )
 
@@ -1315,21 +1349,17 @@ class PricingPhase6Tests(unittest.TestCase):
         )
         self.connection.commit()
 
-        with patch.dict(
-            os.environ,
-            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
-            clear=False,
-        ):
-            service = SpotlightScanService(self.database_path, REPO_ROOT)
-            try:
-                with patch.object(
-                    service,
-                    "_refresh_card_pricing_for_context",
-                    side_effect=AssertionError("live refresh should not run"),
-                ):
-                    payload = service.hydrate_raw_candidate_pricing(["base1-4"], max_refresh_count=0)
-            finally:
-                service.connection.close()
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            service.set_live_pricing_mode(enabled=True)
+            with patch.object(
+                service,
+                "_refresh_card_pricing_for_context",
+                side_effect=AssertionError("live refresh should not run"),
+            ):
+                payload = service.hydrate_raw_candidate_pricing(["base1-4"], max_refresh_count=0)
+        finally:
+            service.connection.close()
 
         self.assertEqual(payload["refreshedCount"], 0)
         self.assertEqual(payload["returnedCount"], 1)

@@ -971,7 +971,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(detail["source"], "scrydex")
         self.assertEqual(detail["card"]["name"], "Mega Dragonite ex")
 
-    def test_low_confidence_top_candidate_skips_live_pricing_refresh(self) -> None:
+    def test_low_confidence_top_candidate_skips_live_pricing_refresh_when_live_pricing_disabled(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         upsert_card(
             service.connection,
@@ -1052,7 +1052,94 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(top_candidate["id"], "gym1-60")
         self.assertNotIn("pricing", top_candidate)
 
-    def test_medium_confidence_ready_top_candidate_still_refreshes_missing_pricing(self) -> None:
+    def test_low_confidence_top_candidate_refreshes_missing_pricing_when_live_pricing_enabled(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        service.set_live_pricing_mode(enabled=True)
+        upsert_card(
+            service.connection,
+            card_id="gym1-60",
+            name="Sabrina's Slowbro",
+            set_name="Gym Heroes",
+            number="60/132",
+            rarity="Common",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="gym1-60",
+            set_id="gym1",
+        )
+        service.connection.commit()
+
+        match = RawCandidateMatch(
+            card={
+                "id": "gym1-60",
+                "name": "Sabrina's Slowbro",
+                "setName": "Gym Heroes",
+                "number": "60/132",
+                "rarity": "Common",
+                "variant": "Raw",
+                "language": "English",
+            },
+            retrieval_score=43.0,
+            resolution_score=45.0,
+            final_total=44.0,
+            breakdown=RawCandidateScoreBreakdown(
+                title_overlap_score=4.0,
+                set_overlap_score=0.0,
+                set_badge_image_score=0.0,
+                collector_exact_score=30.0,
+                collector_partial_score=0.0,
+                collector_denominator_score=8.0,
+                footer_text_support_score=7.0,
+                promo_support_score=0.0,
+                cache_presence_score=0.0,
+                contradiction_penalty=0.0,
+                retrieval_total=43.0,
+                resolution_total=45.0,
+                final_total=44.0,
+            ),
+            reasons=("collector_exact",),
+        )
+        decision = RawDecisionResult(
+            matches=(match,),
+            top_candidates=(match,),
+            confidence="low",
+            confidence_percent=44.0,
+            ambiguity_flags=("Set hints are weak",),
+            resolver_path="visual_fallback",
+            review_disposition="needs_review",
+            review_reason="Review the best guess before relying on the card result.",
+            fallback_reason="weak_set",
+            selected_card_id="gym1-60",
+            debug_payload={},
+        )
+        service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
+            "card": {
+                "pricing": {
+                    "source": "scrydex",
+                    "pricingMode": "raw",
+                    "market": 3.25,
+                    "currencyCode": "USD",
+                    "variant": "normal",
+                    "isFresh": True,
+                }
+            }
+        })
+
+        response, _ = service._build_raw_match_response({"scanID": "scan-low-live"}, decision, api_key="test-key")
+        top_candidate = response["topCandidates"][0]["candidate"]
+        service.connection.close()
+
+        service._refresh_card_pricing_for_context.assert_called_once()
+        refresh_args, refresh_kwargs = service._refresh_card_pricing_for_context.call_args
+        self.assertEqual(refresh_args[0], "gym1-60")
+        self.assertEqual(refresh_kwargs["api_key"], "test-key")
+        self.assertEqual(refresh_kwargs["pricing_context"].mode, "raw")
+        self.assertEqual(top_candidate["id"], "gym1-60")
+        self.assertEqual(top_candidate["pricing"]["market"], 3.25)
+        self.assertTrue(top_candidate["pricing"]["isFresh"])
+
+    def test_medium_confidence_ready_top_candidate_uses_sqlite_only_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         upsert_card(
             service.connection,
@@ -1155,14 +1242,11 @@ class BackendResetPhase1Tests(unittest.TestCase):
         top_candidate = response["topCandidates"][0]["candidate"]
         service.connection.close()
 
-        service._refresh_card_pricing_for_context.assert_called_once()
-        refresh_args, refresh_kwargs = service._refresh_card_pricing_for_context.call_args
-        self.assertEqual(refresh_args[0], "gym1-60")
-        self.assertEqual(refresh_kwargs["api_key"], "test-key")
-        self.assertEqual(refresh_kwargs["pricing_context"].mode, "raw")
+        service._refresh_card_pricing_for_context.assert_not_called()
         self.assertEqual(top_candidate["id"], "gym1-60")
         self.assertIn("pricing", top_candidate)
-        self.assertEqual(top_candidate["pricing"]["market"], 3.25)
+        self.assertEqual(top_candidate["pricing"]["market"], 2.5)
+        self.assertFalse(top_candidate["pricing"]["isFresh"])
 
     def test_scrydex_mapped_import_path_persists_primary_card_record(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -1313,6 +1397,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             sorted(metadata.provider_id for metadata in service.pricing_registry.list_providers()),
             ["pricecharting", "scrydex"],
         )
+        service.set_live_pricing_mode(enabled=True)
         scrydex_provider.refresh_raw_pricing = Mock(return_value=RawPricingResult(  # type: ignore[method-assign]
             success=True,
             provider_id="scrydex",
@@ -1396,6 +1481,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         )
         scrydex_provider = service.pricing_registry.get_provider("scrydex")
         assert scrydex_provider is not None
+        service.set_live_pricing_mode(enabled=True)
         scrydex_provider.refresh_psa_pricing = Mock(return_value=PsaPricingResult(  # type: ignore[method-assign]
             success=True,
             provider_id="scrydex",
@@ -1417,6 +1503,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
     def test_match_scan_resolves_psa_slab_and_returns_exact_grade_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
+        service.set_live_pricing_mode(enabled=True)
         mapped = map_scrydex_catalog_card(sample_scrydex_card())
         service._persist_mapped_catalog_card(
             mapped_card=mapped,
@@ -1902,6 +1989,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         )
         scrydex_provider = service.pricing_registry.get_provider("scrydex")
         assert scrydex_provider is not None
+        service.set_live_pricing_mode(enabled=True)
         scrydex_provider.refresh_psa_pricing = Mock(return_value=PsaPricingResult(  # type: ignore[method-assign]
             success=True,
             provider_id="scrydex",
@@ -2020,7 +2108,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(top_candidate["pricing"]["provider"], "scrydex")
         self.assertIsNotNone(top_candidate["pricing"]["market"])
 
-    def test_build_slab_match_response_returns_top_five_candidates(self) -> None:
+    def test_build_slab_match_response_returns_top_ten_candidates(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         evidence = service._build_slab_evidence(sample_slab_scan_payload())
         ranked_candidates = [
@@ -2035,7 +2123,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
                 "_retrievalScoreHint": 95.0 - index,
                 "_reasons": ["test_rank"],
             }
-            for index in range(6)
+            for index in range(12)
         ]
 
         with patch.object(
@@ -2047,7 +2135,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             },
         ):
             response, scored_candidates = service._build_slab_match_response(
-                {"scanID": "scan-slab-top-five"},
+                {"scanID": "scan-slab-top-ten"},
                 evidence,
                 ranked_candidates,
                 resolver_path="psa_label",
@@ -2055,11 +2143,11 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
         service.connection.close()
 
-        self.assertEqual(len(response["topCandidates"]), 5)
-        self.assertEqual(len(scored_candidates), 5)
+        self.assertEqual(len(response["topCandidates"]), 10)
+        self.assertEqual(len(scored_candidates), 10)
         self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "slab-0")
-        self.assertEqual(response["topCandidates"][4]["candidate"]["id"], "slab-4")
-        self.assertEqual(response["topCandidates"][4]["rank"], 5)
+        self.assertEqual(response["topCandidates"][9]["candidate"]["id"], "slab-9")
+        self.assertEqual(response["topCandidates"][9]["rank"], 10)
 
     def test_remote_slab_search_respects_manual_mirror_search_policy(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -2116,7 +2204,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["reviewDisposition"], "needs_review")
         self.assertNotIn("pricing", response["topCandidates"][0]["candidate"])
 
-    def test_low_confidence_slab_top_candidate_refreshes_stale_pricing(self) -> None:
+    def test_low_confidence_slab_top_candidate_uses_sqlite_only_stale_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         evidence = service._build_slab_evidence(sample_slab_scan_payload())
         ranked_candidates = [
@@ -2198,20 +2286,16 @@ class BackendResetPhase1Tests(unittest.TestCase):
                 evidence,
                 ranked_candidates,
                 resolver_path="psa_label",
-            )
+        )
         service.connection.close()
 
-        service._refresh_card_pricing_for_context.assert_called_once()
-        refresh_args, refresh_kwargs = service._refresh_card_pricing_for_context.call_args
-        self.assertEqual(refresh_args[0], "slab-low-1")
-        self.assertEqual(refresh_kwargs["pricing_context"].mode, "graded")
-        self.assertEqual(refresh_kwargs["pricing_context"].grader, "PSA")
-        self.assertEqual(refresh_kwargs["pricing_context"].grade, "9")
+        service._refresh_card_pricing_for_context.assert_not_called()
         self.assertEqual(response["confidence"], "low")
         self.assertEqual(response["reviewDisposition"], "needs_review")
-        self.assertEqual(response["topCandidates"][0]["candidate"]["pricing"]["market"], 99.0)
+        self.assertEqual(response["topCandidates"][0]["candidate"]["pricing"]["market"], 90.0)
+        self.assertFalse(response["topCandidates"][0]["candidate"]["pricing"]["isFresh"])
 
-    def test_ready_slab_top_candidate_refreshes_stale_pricing(self) -> None:
+    def test_ready_slab_top_candidate_uses_sqlite_only_stale_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         evidence = service._build_slab_evidence(sample_slab_scan_payload())
         ranked_candidates = [
@@ -2293,30 +2377,18 @@ class BackendResetPhase1Tests(unittest.TestCase):
                 evidence,
                 ranked_candidates,
                 resolver_path="psa_label",
-            )
+        )
         service.connection.close()
 
-        service._refresh_card_pricing_for_context.assert_called_once()
-        refresh_args, refresh_kwargs = service._refresh_card_pricing_for_context.call_args
-        self.assertEqual(refresh_args[0], "slab-high-1")
-        self.assertEqual(refresh_kwargs["pricing_context"].mode, "graded")
-        self.assertEqual(refresh_kwargs["pricing_context"].grader, "PSA")
-        self.assertEqual(refresh_kwargs["pricing_context"].grade, "9")
+        service._refresh_card_pricing_for_context.assert_not_called()
         self.assertEqual(response["confidence"], "high")
         self.assertEqual(response["reviewDisposition"], "ready")
-        self.assertEqual(response["topCandidates"][0]["candidate"]["pricing"]["market"], 123.0)
+        self.assertEqual(response["topCandidates"][0]["candidate"]["pricing"]["market"], 110.0)
+        self.assertFalse(response["topCandidates"][0]["candidate"]["pricing"]["isFresh"])
 
-    def test_shared_top_five_policy_matches_raw_and_slab_usage(self) -> None:
-        raw_policy = PricingLoadPolicy.top_five_refresh_top_one(
-            refresh_top_candidate_stale=True,
-            refresh_top_candidate_missing=True,
-            force_show_mode_top_candidate_refresh=True,
-        )
-        slab_policy = PricingLoadPolicy.top_five_refresh_top_one(
-            refresh_top_candidate_stale=True,
-            refresh_top_candidate_missing=True,
-            force_show_mode_top_candidate_refresh=True,
-        )
+    def test_shared_top_ten_policy_keeps_raw_and_slab_sqlite_only(self) -> None:
+        raw_policy = PricingLoadPolicy.top_ten_cached_only()
+        slab_policy = PricingLoadPolicy.top_ten_cached_only()
 
         self.assertEqual(
             [
@@ -2326,7 +2398,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
                     raw_policy.rule_for_rank(index).refresh_missing,
                     raw_policy.rule_for_rank(index).force_show_mode_refresh,
                 )
-                for index in range(1, 6)
+                for index in range(1, 11)
             ],
             [
                 (
@@ -2335,7 +2407,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
                     slab_policy.rule_for_rank(index).refresh_missing,
                     slab_policy.rule_for_rank(index).force_show_mode_refresh,
                 )
-                for index in range(1, 6)
+                for index in range(1, 11)
             ],
         )
         self.assertEqual(
@@ -2346,10 +2418,15 @@ class BackendResetPhase1Tests(unittest.TestCase):
                     raw_policy.rule_for_rank(index).refresh_missing,
                     raw_policy.rule_for_rank(index).force_show_mode_refresh,
                 )
-                for index in range(1, 6)
+                for index in range(1, 11)
             ],
             [
-                (True, True, True, True),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
                 (False, False, False, False),
                 (False, False, False, False),
                 (False, False, False, False),

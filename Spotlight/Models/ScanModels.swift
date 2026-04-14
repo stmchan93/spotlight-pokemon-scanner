@@ -7,6 +7,31 @@ enum ScannerRoute: Equatable {
     case alternatives
 }
 
+struct ScannerNavigationState: Equatable {
+    private(set) var stack: [ScannerRoute] = [.scanner]
+
+    var currentRoute: ScannerRoute {
+        stack.last ?? .scanner
+    }
+
+    mutating func resetToScanner() {
+        stack = [.scanner]
+    }
+
+    mutating func push(_ route: ScannerRoute) {
+        guard currentRoute != route else { return }
+        stack.append(route)
+    }
+
+    mutating func pop() {
+        guard stack.count > 1 else {
+            resetToScanner()
+            return
+        }
+        stack.removeLast()
+    }
+}
+
 enum ResolverPath: String, Codable, Hashable, Sendable {
     case psaLabel = "psa_label"
     case psaCertBarcode = "psa_cert_barcode"
