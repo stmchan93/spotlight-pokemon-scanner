@@ -179,40 +179,18 @@ final class ScanMatchResponseTests: XCTestCase {
 }
 
 final class ScanTrayPricingTests: XCTestCase {
-    func testNeedsReviewSlabCanAutoRefreshWhenOptedIn() {
+    func testInitialStatusMessageUsesCachedUnavailableForMissingPricing() {
+        XCTAssertEqual(
+            ScanTrayCalculator.initialStatusMessage(for: nil),
+            "Cached price unavailable"
+        )
+    }
+
+    func testInitialStatusMessageUsesPricingFreshnessLabelWhenAvailable() {
         XCTAssertTrue(
-            ScanTrayCalculator.shouldAutoRefresh(
-                pricing: nil,
-                phase: .needsReview,
-                allowNeedsReview: true
-            )
-        )
-    }
-
-    func testNeedsReviewDoesNotAutoRefreshByDefault() {
-        XCTAssertFalse(
-            ScanTrayCalculator.shouldAutoRefresh(
-                pricing: nil,
-                phase: .needsReview
-            )
-        )
-    }
-
-    func testAlternativeHydrationRefreshCountUsesAllAlternates() {
-        XCTAssertEqual(ScanTrayCalculator.alternativeHydrationRefreshCount(totalTopCandidates: 0), 0)
-        XCTAssertEqual(ScanTrayCalculator.alternativeHydrationRefreshCount(totalTopCandidates: 1), 0)
-        XCTAssertEqual(ScanTrayCalculator.alternativeHydrationRefreshCount(totalTopCandidates: 5), 4)
-    }
-
-    func testUserBrowsingCandidateRefreshesWhenPricingMissing() {
-        XCTAssertTrue(ScanTrayCalculator.shouldRefreshOnUserCandidateBrowse(pricing: nil))
-    }
-
-    func testUserBrowsingCandidateSkipsRefreshWhenPricingIsFresh() {
-        XCTAssertFalse(
-            ScanTrayCalculator.shouldRefreshOnUserCandidateBrowse(
-                pricing: makePricing(market: 20, isFresh: true)
-            )
+            ScanTrayCalculator
+                .initialStatusMessage(for: makePricing(market: 20, isFresh: true))
+                .hasPrefix("Cached from")
         )
     }
 

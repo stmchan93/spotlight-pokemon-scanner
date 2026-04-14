@@ -1,0 +1,39 @@
+{
+  "fixtureName": "psa_dracozolt_vmax_210_evolving_skies_secret_80533912_label_only_derived",
+  "split": "tuning",
+  "selectedMode": "slab",
+  "captureKind": "label_only",
+  "sourceImage": "../../../incoming-slab-regression/psa-dracozolt-vmax-210-evolving-skies-secret-80533912-label-only-derived.jpg",
+  "tags": [
+    "psa",
+    "pokemon",
+    "english",
+    "download_2026_04_13",
+    "label_only",
+    "derived_crop",
+    "evolving_skies",
+    "secret_rare"
+  ],
+  "truth": {
+    "grader": "PSA",
+    "grade": "10",
+    "certNumber": "80533912",
+    "cardID": null,
+    "cardName": "Dracozolt VMAX",
+    "setName": "Evolving Skies - Secret",
+    "cardNumber": "210",
+    "pricingProvider": "scrydex",
+    "pricingLookup": {
+      "mode": "card_id_grade",
+      "cardID": null,
+      "grader": "PSA",
+      "grade": "10"
+    }
+  },
+  "expects": {
+    "certReadRequired": true,
+    "identityMustMatch": true,
+    "pricingMayBeUnavailable": true
+  },
+  "notes": "Derived label-only crop from scanID 385FFA1C-F9C2-4D6C-BA6F-3CDCDE6C6698. Added after backend title-cleaning and Evolving Skies PSA alias fixes."
+}

@@ -1,16 +1,16 @@
 {
-  "fixtureCount": 28,
+  "fixtureCount": 29,
   "splitCounts": {
-    "tuning": 28
+    "tuning": 29
   },
   "captureKindCounts": {
     "full_slab": 14,
-    "label_only": 14
+    "label_only": 15
   },
   "splitCaptureKindCounts": {
     "tuning": {
       "full_slab": 14,
-      "label_only": 14
+      "label_only": 15
     }
   },
   "missingImageCount": 0,

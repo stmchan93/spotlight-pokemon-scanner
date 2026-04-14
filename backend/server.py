@@ -76,6 +76,15 @@ from scrydex_adapter import (
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from slab_set_aliases import resolve_slab_set_aliases
 
+MANUAL_SCRYDEX_MIRROR_ENV = "SPOTLIGHT_MANUAL_SCRYDEX_MIRROR"
+
+
+def _env_flag(name: str, *, default: bool = False) -> bool:
+    raw_value = os.environ.get(name)
+    if raw_value is None:
+        return default
+    return str(raw_value).strip().lower() in {"1", "true", "yes", "on"}
+
 
 @dataclass
 class ServerConfig:
@@ -118,7 +127,7 @@ class PricingContext:
 class CandidateRankPricingRule:
     rank: int
     ensure_cached: bool = False
-    refresh_missing: bool = False
+    refresh_stale: bool = False
 
 
 @dataclass(frozen=True)
@@ -131,7 +140,7 @@ class PricingLoadPolicy:
         return cls(
             limit=5,
             rank_rules=(
-                CandidateRankPricingRule(rank=1, ensure_cached=True, refresh_missing=refresh_top_candidate),
+                CandidateRankPricingRule(rank=1, ensure_cached=True, refresh_stale=refresh_top_candidate),
                 CandidateRankPricingRule(rank=2),
                 CandidateRankPricingRule(rank=3),
                 CandidateRankPricingRule(rank=4),
@@ -223,6 +232,46 @@ class SpotlightScanService:
             sync_scope=SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
             max_age_hours=24.0,
         )
+
+    @staticmethod
+    def _manual_scrydex_mirror_enabled() -> bool:
+        return _env_flag(MANUAL_SCRYDEX_MIRROR_ENV, default=True)
+
+    def _live_scrydex_queries_blocked(self) -> bool:
+        return self._manual_scrydex_mirror_enabled() and self._scrydex_full_catalog_sync_is_fresh()
+
+    def live_scrydex_queries_allowed(self) -> bool:
+        return not self._live_scrydex_queries_blocked()
+
+    def _manual_scrydex_mirror_status(self) -> dict[str, Any]:
+        return {
+            "enabled": self._manual_scrydex_mirror_enabled(),
+            "liveQueriesBlocked": self._live_scrydex_queries_blocked(),
+        }
+
+    def run_manual_scrydex_sync(
+        self,
+        *,
+        page_size: int = 100,
+        max_pages: int | None = None,
+        language: str | None = None,
+        scheduled_for: str | None = None,
+    ) -> dict[str, Any]:
+        from sync_scrydex_catalog import sync_scrydex_catalog
+
+        summary = sync_scrydex_catalog(
+            database_path=self.database_path,
+            repo_root=self.repo_root,
+            page_size=page_size,
+            language=language,
+            max_pages=max_pages,
+            scheduled_for=scheduled_for,
+        )
+        self.refresh_index()
+        return {
+            **summary,
+            "manualScrydexMirror": self._manual_scrydex_mirror_status(),
+        }
 
     @staticmethod
     def _raw_resolver_strategy(payload: dict[str, Any]) -> str:
@@ -509,7 +558,7 @@ class SpotlightScanService:
     @staticmethod
     def _slab_query_tokens(value: str) -> list[str]:
         normalized = re.sub(r"[^A-Z0-9#/&+\\-]+", " ", str(value or "").upper())
-        normalized = normalized.replace("-", " ")
+        normalized = normalized.replace("-", " ").replace("/", " ")
         return [token for token in normalized.split() if token]
 
     @staticmethod
@@ -560,6 +609,7 @@ class SpotlightScanService:
                 or normalized_token in stop_tokens
                 or normalized_token in {"POKEMON", "GO"}
                 or normalized_token in drop_from_title
+                or re.fullmatch(r"SWSH\d*", normalized_token)
                 or re.fullmatch(r"\d{7,10}", normalized_token)
                 or (normalized_number and (normalized_token == normalized_number or normalized_token.endswith(normalized_number)))
             ):
@@ -733,6 +783,7 @@ class SpotlightScanService:
             "CGC",
             "BGS",
             "BECKETT",
+            "SWSH",
             "NM",
             "MINT",
             "GEM",
@@ -758,10 +809,12 @@ class SpotlightScanService:
             "SERIES",
         }
         drop_from_title = {
+            "FA",
             "HOLO",
             "HOLOFOIL",
             "REVERSE",
             "FOIL",
+            "SWSH",
             "YEL",
             "YELLOW",
             "CHEEKS",
@@ -776,6 +829,7 @@ class SpotlightScanService:
             "SERIES",
         }
         rarity_tokens = {
+            "FA",
             "SPECIAL",
             "ILLUSTRATION",
             "RARE",
@@ -790,6 +844,7 @@ class SpotlightScanService:
             "STAR",
         }
         noise_tokens = {
+            "SWSH",
             "DELIVERY",
             "SHIP",
             "SHIPPING",
@@ -1310,6 +1365,7 @@ class SpotlightScanService:
                 "multi_card_photo",
                 "bulk_auto_detect_without_capture",
             ],
+            "manualScrydexMirror": self._manual_scrydex_mirror_status(),
         }
         if prewarm_visual:
             payload["visualRuntime"] = self._prewarm_raw_visual_runtime()
@@ -1365,6 +1421,7 @@ class SpotlightScanService:
             "activeRawProvider": active_raw_provider.get_metadata().provider_id if active_raw_provider else None,
             "runtimeMode": "raw_only",
             "experimentalResolverModes": ["psa_slab"],
+            "manualScrydexMirror": self._manual_scrydex_mirror_status(),
             "scrydexRequestStats": scrydex_request_stats_snapshot(),
             "scrydexFullCatalogSync": scrydex_full_sync,
             "scrydexFullCatalogSyncFresh": scrydex_full_sync_is_fresh,
@@ -1786,6 +1843,13 @@ class SpotlightScanService:
         api_key: str | None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         del api_key
+        if self._live_scrydex_queries_blocked():
+            return [], {
+                "queries": [],
+                "attempts": [],
+                "resultCount": 0,
+                "reason": "manual_mirror_fresh",
+            }
         if self._scrydex_full_catalog_sync_is_fresh():
             return [], {
                 "queries": [],
@@ -1846,6 +1910,13 @@ class SpotlightScanService:
         return candidates[:12]
 
     def _retrieve_remote_slab_candidates(self, evidence: SlabMatchEvidence) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        if self._live_scrydex_queries_blocked():
+            return [], {
+                "queries": [],
+                "attempts": [],
+                "resultCount": 0,
+                "reason": "manual_mirror_fresh",
+            }
         if self._scrydex_full_catalog_sync_is_fresh():
             return [], {
                 "queries": [],
@@ -2001,13 +2072,19 @@ class SpotlightScanService:
         trigger_source: str,
         ensure_cached: bool = False,
         api_key: str | None = None,
-        refresh_pricing_if_missing: bool = False,
+        refresh_pricing_if_stale: bool = False,
     ) -> dict[str, Any]:
         resolved_card = self._ensure_raw_card_cached(card, trigger_source) if ensure_cached else card
         card_id = str(resolved_card.get("id") or "").strip()
         pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context) if card_id else None
 
-        if card_id and refresh_pricing_if_missing and pricing is None and not self._scrydex_full_catalog_sync_is_fresh():
+        if (
+            card_id
+            and refresh_pricing_if_stale
+            and pricing is not None
+            and pricing.get("isFresh") is not True
+            and not self._scrydex_full_catalog_sync_is_fresh()
+        ):
             refreshed_detail = self._refresh_card_pricing_for_context(
                 card_id,
                 pricing_context=pricing_context,
@@ -2021,10 +2098,6 @@ class SpotlightScanService:
         if pricing is not None:
             candidate["pricing"] = pricing
         return candidate
-
-    @staticmethod
-    def _should_refresh_match_pricing(confidence: str, review_disposition: str | None) -> bool:
-        return review_disposition == "ready" and confidence in {"high", "medium"}
 
     def _encode_top_candidates(
         self,
@@ -2046,7 +2119,7 @@ class SpotlightScanService:
                 trigger_source=trigger_source,
                 ensure_cached=pricing_rule.ensure_cached,
                 api_key=api_key,
-                refresh_pricing_if_missing=pricing_rule.refresh_missing,
+                refresh_pricing_if_stale=pricing_rule.refresh_stale,
             )
             scored_entry = {
                 "card": item.card,
@@ -2120,12 +2193,8 @@ class SpotlightScanService:
             response["ambiguityDebug"] = decision.debug_payload.get("ambiguity")
             return response, []
 
-        should_refresh_top_candidate_pricing = self._should_refresh_match_pricing(
-            decision.confidence,
-            decision.review_disposition,
-        )
         pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
-            refresh_top_candidate=should_refresh_top_candidate_pricing,
+            refresh_top_candidate=True,
         )
         encoded_candidates, scored_candidates = self._encode_top_candidates(
             [
@@ -2279,9 +2348,8 @@ class SpotlightScanService:
         ranked_matches = [self._visual_match_summary(match) for match in matches]
         confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
         review_disposition = "ready" if confidence != "low" else "needs_review"
-        should_refresh_top_candidate_pricing = self._should_refresh_match_pricing(confidence, review_disposition)
         pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
-            refresh_top_candidate=should_refresh_top_candidate_pricing,
+            refresh_top_candidate=True,
         )
         encoded_candidates, scored_candidates = self._encode_top_candidates(
             [
@@ -2657,8 +2725,6 @@ class SpotlightScanService:
             confidence = "low"
 
         review_disposition = "ready" if confidence != "low" else "needs_review"
-        # Slab users need grade-specific pricing even when the OCR/match confidence is weak,
-        # because the pricing itself helps them compare the returned candidates.
         pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
         encoded_candidates, scored_candidates = self._encode_top_candidates(
             [
@@ -2941,6 +3007,15 @@ class SpotlightScanService:
                 )
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
+            if self._live_scrydex_queries_blocked():
+                self._log_pricing_provenance(
+                    "refresh_slab_manual_mirror_cached_only",
+                    card_id,
+                    grader=pricing_context.grader,
+                    grade=pricing_context.grade,
+                )
+                return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
             existing_card = card_by_id(self.connection, card_id)
             provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
             psa_provider = self.pricing_registry.get_provider(provider_id) or self.pricing_registry.get_provider("scrydex")
@@ -2969,7 +3044,7 @@ class SpotlightScanService:
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
         existing_card = card_by_id(self.connection, card_id)
-        if existing_card is None and api_key:
+        if existing_card is None and api_key and self.live_scrydex_queries_allowed():
             try:
                 self.import_catalog_card(card_id, api_key=api_key, trigger_source="refresh_pricing_auto_import")
             except Exception:
@@ -2979,6 +3054,10 @@ class SpotlightScanService:
         existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
         if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
             self._log_pricing_provenance("refresh_raw_cached", card_id)
+            return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+
+        if self._live_scrydex_queries_blocked():
+            self._log_pricing_provenance("refresh_raw_manual_mirror_cached_only", card_id)
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
         provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
@@ -3313,7 +3392,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 cert_number=cert_number,
                 preferred_variant=preferred_variant,
             )
-            if payload is None:
+            if payload is None and self.service.live_scrydex_queries_allowed():
                 api_key = os.environ.get("SCRYDEX_API_KEY")
                 try:
                     imported = self.service.import_catalog_card(
@@ -3380,6 +3459,33 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         payload = self._read_json_body()
         if payload is None:
             self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON body"})
+            return
+
+        if parsed.path == "/api/v1/admin/scrydex-sync":
+            try:
+                page_size = int(payload.get("pageSize", 100))
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "pageSize must be an integer"})
+                return
+            max_pages_value = payload.get("maxPages")
+            try:
+                max_pages = int(max_pages_value) if max_pages_value is not None else None
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "maxPages must be an integer or null"})
+                return
+            language = str(payload.get("language") or "").strip() or None
+            scheduled_for = str(payload.get("scheduledFor") or "").strip() or None
+            try:
+                summary = self.service.run_manual_scrydex_sync(
+                    page_size=page_size,
+                    max_pages=max_pages,
+                    language=language,
+                    scheduled_for=scheduled_for,
+                )
+            except Exception as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Manual Scrydex sync failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, summary)
             return
 
         if parsed.path == "/api/v1/cards/hydrate-pricing":

@@ -87,38 +87,6 @@ enum ScanTrayCalculator {
         )
     }
 
-    static func shouldAutoRefresh(pricing: CardPricingSummary?) -> Bool {
-        guard let pricing else { return true }
-        if let isFresh = pricing.isFresh {
-            return !isFresh
-        }
-        return pricing.freshnessTone == .stale
-    }
-
-    static func shouldAutoRefresh(
-        pricing: CardPricingSummary?,
-        phase: LiveScanStackItemPhase,
-        allowNeedsReview: Bool = false
-    ) -> Bool {
-        switch phase {
-        case .resolved:
-            break
-        case .needsReview where allowNeedsReview:
-            break
-        case .pending, .unsupported, .failed, .needsReview:
-            return false
-        }
-        return shouldAutoRefresh(pricing: pricing)
-    }
-
-    static func alternativeHydrationRefreshCount(totalTopCandidates: Int) -> Int {
-        max(0, totalTopCandidates - 1)
-    }
-
-    static func shouldRefreshOnUserCandidateBrowse(pricing: CardPricingSummary?) -> Bool {
-        shouldAutoRefresh(pricing: pricing)
-    }
-
     static func initialStatusMessage(for pricing: CardPricingSummary?) -> String {
         guard let pricing else {
             return "Cached price unavailable"

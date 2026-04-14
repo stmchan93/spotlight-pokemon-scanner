@@ -198,6 +198,46 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         XCTAssertLessThan(rect?.height ?? 1, 0.22)
     }
 
+    func testDetectSlabLabelFallbackRectFindsRealCharizardFullSlabFixture() {
+        let imageURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("qa/incoming-slab-regression/psa-charizard-v-079-champions-path-secret-52300610-full-slab.jpg")
+        guard let image = UIImage(contentsOfFile: imageURL.path) else {
+            XCTFail("unable to load Charizard full-slab fixture")
+            return
+        }
+
+        let rect = detectSlabLabelFallbackRect(in: image)
+
+        XCTAssertNotNil(rect)
+    }
+
+    func testSelectOCRInputAcceptsRealCharizardFullSlabFixture() throws {
+        let imageURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("qa/incoming-slab-regression/psa-charizard-v-079-champions-path-secret-52300610-full-slab.jpg")
+        guard let image = UIImage(contentsOfFile: imageURL.path) else {
+            XCTFail("unable to load Charizard full-slab fixture")
+            return
+        }
+        let capture = ScanCaptureInput(
+            originalImage: image,
+            searchImage: image,
+            fallbackImage: image,
+            captureSource: .importedPhoto
+        )
+
+        let selection = try selectOCRInput(
+            scanID: UUID(),
+            capture: capture,
+            mode: .psaSlab
+        )
+
+        XCTAssertTrue(selection.normalizedGeometryKind == .slab || selection.normalizedGeometryKind == .slabLabel)
+    }
+
     func testSelectOCRInputRejectsBroadSlabFallbackWhenNoPSASlabOrLabelIsFound() {
         let image = makeImage(size: CGSize(width: 420, height: 720)) { context in
             UIColor(white: 0.18, alpha: 1).setFill()

@@ -89,5 +89,14 @@
       "PRIZE PACK SER 3",
       "PRIZE PACK SERIES 3"
     ]
+  },
+  {
+    "canonicalName": "Evolving Skies",
+    "scopes": ["Evolving Skies"],
+    "aliases": [
+      "EVOLVING SKIES",
+      "EVOLVING SKIES SECRET",
+      "EVOLVING SKIES-SECRET"
+    ]
   }
 ]

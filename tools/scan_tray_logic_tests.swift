@@ -73,25 +73,6 @@ func testMixedCurrenciesFlag() {
     require(metrics.currencyCode != nil, "a display currency should still be chosen for the running total")
 }
 
-func testAutoRefreshHeuristic() {
-    let staleDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 60 * 30)))
-    let freshDate = ISO8601DateFormatter().string(from: Date(timeIntervalSinceNow: -(60 * 5)))
-
-    require(ScanTrayCalculator.shouldAutoRefresh(pricing: nil), "missing pricing should auto refresh")
-    require(
-        ScanTrayCalculator.shouldAutoRefresh(
-            pricing: makePricing(refreshedAt: staleDate, snapshotAgeHours: 30, isFresh: false)
-        ),
-        "stale pricing should auto refresh"
-    )
-    require(
-        !ScanTrayCalculator.shouldAutoRefresh(
-            pricing: makePricing(refreshedAt: freshDate, snapshotAgeHours: 0.1, isFresh: true)
-        ),
-        "fresh pricing should not auto refresh"
-    )
-}
-
 func testInitialStatusMessage() {
     require(
         ScanTrayCalculator.initialStatusMessage(for: nil) == "Cached price unavailable",
@@ -134,7 +115,6 @@ struct ScanTrayLogicTestRunner {
     static func main() {
         testTrayTotalsIncludePricedNeedsReviewRows()
         testMixedCurrenciesFlag()
-        testAutoRefreshHeuristic()
         testInitialStatusMessage()
         testFreshnessStateClassification()
         print("scan_tray_logic_tests: PASS")

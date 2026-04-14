@@ -791,8 +791,7 @@ def search_remote_scrydex_slab_candidates(
 
             if primary_title_clause:
                 add(f"{primary_title_clause} {primary_number_query}")
-                add(primary_number_query)
-                return attempts[:2]
+                return attempts[:1]
 
             if primary_expansion_scope:
                 add(f"{primary_number_query} {primary_expansion_scope}")

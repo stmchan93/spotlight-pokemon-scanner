@@ -1,5 +1,6 @@
 import XCTest
 import UIKit
+import Vision
 @testable import Spotlight
 
 private struct OCRFixtureManifest: Decodable {
@@ -349,19 +350,12 @@ final class SlabRegressionFixtureExecutionTests: XCTestCase {
                 XCTFail("unable to load source image for \(fixture.fixtureName)")
                 continue
             }
-
-            let capture = ScanCaptureInput(
-                originalImage: sourceImage,
-                searchImage: sourceImage,
-                fallbackImage: sourceImage,
-                captureSource: .importedPhoto
-            )
-
             let scanID = UUID()
-            let analyzed = try await scanner.analyze(
+            let analyzed = try await analyzeFixture(
+                fixture: fixture,
+                sourceImage: sourceImage,
                 scanID: scanID,
-                capture: capture,
-                resolverModeHint: .psaSlab
+                scanner: scanner
             )
 
             let certExactMatch = analyzed.slabCertNumber == fixture.truth.certNumber
@@ -433,6 +427,32 @@ final class SlabRegressionFixtureExecutionTests: XCTestCase {
         )
 
         try writeJSON(scorecard, to: outputRoot.appendingPathComponent("scorecard.json"))
+    }
+
+    func testDerivedLabelOnlyFixtureDirectOCRReadsDracozoltPSALabel() throws {
+        let manifestURL = fixturesRoot
+            .appendingPathComponent("tuning", isDirectory: true)
+            .appendingPathComponent("psa-dracozolt-vmax-210-evolving-skies-secret-80533912-label-only-derived", isDirectory: true)
+            .appendingPathComponent("fixture.json")
+        let fixture = try decodeFixtureManifest(at: manifestURL)
+        let sourceImageURL = manifestURL.deletingLastPathComponent().appendingPathComponent(fixture.sourceImage)
+        guard let sourceImage = UIImage(contentsOfFile: sourceImageURL.path) else {
+            XCTFail("unable to load source image for \(fixture.fixtureName)")
+            return
+        }
+
+        let analyzed = try analyzeLabelOnlyFixture(
+            scanID: UUID(),
+            sourceImage: sourceImage
+        )
+
+        XCTAssertEqual(normalizeComparison(analyzed.slabGrade), "10")
+        XCTAssertEqual(analyzed.slabCertNumber, "80533912")
+        XCTAssertEqual(analyzed.slabCardNumberRaw, "210")
+        XCTAssertTrue(
+            analyzed.slabParsedLabelText.joined(separator: " ").contains("DRACOZOLT VMAX"),
+            "expected parsed label text to retain Dracozolt VMAX"
+        )
     }
 
     private func fixtureManifestURLs() throws -> [URL] {
@@ -522,5 +542,197 @@ final class SlabRegressionFixtureExecutionTests: XCTestCase {
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .uppercased()
             .replacingOccurrences(of: " ", with: "")
+    }
+
+    private func analyzeFixture(
+        fixture: SlabRegressionManifest,
+        sourceImage: UIImage,
+        scanID: UUID,
+        scanner: SlabScanner
+    ) async throws -> AnalyzedCapture {
+        if fixture.captureKind == "label_only" {
+            return try analyzeLabelOnlyFixture(
+                scanID: scanID,
+                sourceImage: sourceImage
+            )
+        }
+
+        let capture = ScanCaptureInput(
+            originalImage: sourceImage,
+            searchImage: sourceImage,
+            fallbackImage: sourceImage,
+            captureSource: .importedPhoto
+        )
+        return try await scanner.analyze(
+            scanID: scanID,
+            capture: capture,
+            resolverModeHint: .psaSlab
+        )
+    }
+
+    private func analyzeLabelOnlyFixture(
+        scanID: UUID,
+        sourceImage: UIImage
+    ) throws -> AnalyzedCapture {
+        let normalizedImage = sourceImage.normalizedOrientation()
+        guard let cgImage = normalizedImage.cgImage else {
+            throw AnalysisError.invalidImage
+        }
+
+        let topLabelText = try recognizeSlabFixtureText(
+            in: cgImage,
+            region: CGRect(x: 0, y: 0, width: 1, height: 1),
+            minimumTextHeight: 0.006,
+            upscaleFactor: 3.5
+        )
+        let certText = try recognizeSlabFixtureText(
+            in: cgImage,
+            region: CGRect(x: 0.42, y: 0.10, width: 0.56, height: 0.82),
+            minimumTextHeight: 0.004,
+            upscaleFactor: 4.0
+        )
+        let rightColumnText = try recognizeSlabFixtureText(
+            in: cgImage,
+            region: CGRect(x: 0.58, y: 0.02, width: 0.40, height: 0.96),
+            minimumTextHeight: 0.006,
+            upscaleFactor: 3.5
+        )
+
+        var labelTexts = [topLabelText]
+        if !certText.isEmpty {
+            labelTexts.append(certText)
+        }
+        if !rightColumnText.isEmpty {
+            labelTexts.append(rightColumnText)
+        }
+
+        let slabLabelAnalysis = SlabLabelParser.analyze(labelTexts: labelTexts)
+        let combinedText = labelTexts
+            .filter { !$0.isEmpty }
+            .reduce(into: [String]()) { unique, text in
+                if !unique.contains(text) {
+                    unique.append(text)
+                }
+            }
+            .joined(separator: " ")
+
+        let targetSelection = OCRTargetSelectionResult(
+            normalizedImage: normalizedImage,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            selectionConfidence: 0.58,
+            usedFallback: true,
+            fallbackReason: "fixture_label_only_direct_ocr",
+            chosenCandidateIndex: nil,
+            candidates: [],
+            normalizedGeometryKind: .slabLabel,
+            normalizationReason: "fixture_label_only_direct_ocr"
+        )
+        let warnings = ["Used slab label-only OCR path"]
+        let ocrAnalysis = buildLegacySlabOCRAnalysisEnvelope(
+            targetSelection: targetSelection,
+            topLabelText: topLabelText,
+            combinedText: combinedText,
+            slabLabelAnalysis: slabLabelAnalysis,
+            warnings: warnings
+        )
+
+        return AnalyzedCapture(
+            scanID: scanID,
+            originalImage: sourceImage,
+            normalizedImage: normalizedImage,
+            recognizedTokens: [],
+            collectorNumber: nil,
+            setHintTokens: [],
+            setBadgeHint: nil,
+            promoCodeHint: nil,
+            slabGrader: slabLabelAnalysis.grader,
+            slabGrade: slabLabelAnalysis.grade,
+            slabCertNumber: slabLabelAnalysis.certNumber,
+            slabBarcodePayloads: slabLabelAnalysis.barcodePayloads,
+            slabGraderConfidence: Double(slabLabelAnalysis.graderConfidence),
+            slabGradeConfidence: Double(slabLabelAnalysis.gradeConfidence),
+            slabCertConfidence: Double(slabLabelAnalysis.certConfidence),
+            slabCardNumberRaw: slabLabelAnalysis.cardNumberRaw,
+            slabParsedLabelText: slabLabelAnalysis.parsedLabelText,
+            slabClassifierReasons: slabLabelAnalysis.reasons,
+            slabRecommendedLookupPath: slabLabelAnalysis.recommendedLookupPath,
+            resolverModeHint: .psaSlab,
+            cropConfidence: 0.58,
+            warnings: warnings,
+            shouldRetryWithStillPhoto: false,
+            stillPhotoRetryReason: nil,
+            ocrAnalysis: ocrAnalysis
+        )
+    }
+
+    private func recognizeSlabFixtureText(
+        in sourceImage: CGImage,
+        region: CGRect,
+        minimumTextHeight: Float,
+        upscaleFactor: CGFloat
+    ) throws -> String {
+        guard let cropped = cropFixtureImage(sourceImage, normalizedRect: region) else {
+            return ""
+        }
+        let upscaled = upscaleFixtureImage(cropped, factor: upscaleFactor) ?? cropped
+
+        let request = VNRecognizeTextRequest()
+        request.recognitionLevel = .accurate
+        request.usesLanguageCorrection = false
+        request.minimumTextHeight = minimumTextHeight
+        request.recognitionLanguages = ["en-US"]
+
+        let handler = VNImageRequestHandler(cgImage: upscaled, options: [:])
+        try handler.perform([request])
+
+        let observations = (request.results ?? []).sorted {
+            let lhsTop = $0.boundingBox.maxY
+            let rhsTop = $1.boundingBox.maxY
+            if abs(lhsTop - rhsTop) > 0.05 {
+                return lhsTop > rhsTop
+            }
+            return $0.boundingBox.minX < $1.boundingBox.minX
+        }
+
+        return observations.compactMap { observation in
+            observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        .joined(separator: " ")
+    }
+
+    private func cropFixtureImage(_ image: CGImage, normalizedRect: CGRect) -> CGImage? {
+        let cropRect = CGRect(
+            x: normalizedRect.minX * CGFloat(image.width),
+            y: normalizedRect.minY * CGFloat(image.height),
+            width: normalizedRect.width * CGFloat(image.width),
+            height: normalizedRect.height * CGFloat(image.height)
+        ).integral
+        guard cropRect.width > 0,
+              cropRect.height > 0 else {
+            return nil
+        }
+        return image.cropping(to: cropRect)
+    }
+
+    private func upscaleFixtureImage(_ image: CGImage, factor: CGFloat) -> CGImage? {
+        guard factor > 1 else { return image }
+        let width = Int((CGFloat(image.width) * factor).rounded())
+        let height = Int((CGFloat(image.height) * factor).rounded())
+        guard width > 0, height > 0,
+              let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB),
+              let context = CGContext(
+                data: nil,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: 0,
+                space: colorSpace,
+                bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+              ) else {
+            return nil
+        }
+        context.interpolationQuality = .high
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return context.makeImage()
     }
 }

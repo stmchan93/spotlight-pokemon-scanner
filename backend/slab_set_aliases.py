@@ -51,7 +51,6 @@ def resolve_slab_set_aliases(
                 continue
             if any(normalized_alias in text for text in normalized_texts):
                 matches.append((len(normalized_alias), entry, alias_text))
-                break
 
     if not matches:
         return SlabSetAliasResolution(scopes=(), matched_alias=None, source=None)

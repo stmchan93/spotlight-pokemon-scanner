@@ -452,6 +452,37 @@ def sample_prize_pack_toxicroak_slab_scan_payload() -> dict[str, object]:
     }
 
 
+def sample_dracozolt_vmax_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-dracozolt-vmax",
+        "capturedAt": "2026-04-14T05:46:16Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.54,
+        "setHintTokens": [],
+        "warnings": ["Could not extract slab barcode payload", "Used slab label-only OCR path"],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "2021 POKEMON SWSH #210 FA/DRACOZOLT VMAX GEM MT EVOLVING SKIES-SECRET 10 P:A 80533912",
+                "titleTextSecondary": None,
+                "cardNumber": "210",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "10",
+                "cert": "80533912",
+                "labelWideText": (
+                    "2021 POKEMON SWSH #210 FA/DRACOZOLT VMAX GEM MT EVOLVING SKIES-SECRET 10 P:A 80533912 "
+                    "SWSH #210 T VMAX GEM MT S-SECRET 10 P:A 80533912"
+                ),
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "10",
+        "slabCertNumber": "80533912",
+        "slabCardNumberRaw": "210",
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
 def sample_xy_promo_pikachu_scrydex_card() -> dict[str, object]:
     return {
         "id": "xyp_ja-150",
@@ -1045,6 +1076,27 @@ class BackendResetPhase1Tests(unittest.TestCase):
             selected_card_id="gym1-60",
             debug_payload={},
         )
+        upsert_card_price_summary(
+            self.connection,
+            card_id="gym1-60",
+            source="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=2.0,
+            market_price=2.5,
+            mid_price=2.25,
+            high_price=3.0,
+            direct_low_price=None,
+            trend_price=None,
+            source_updated_at="2026-04-10T00:00:00+00:00",
+            source_url="https://prices.example/gym1-60",
+            payload={"provider": "scrydex"},
+        )
+        self.connection.execute(
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ?",
+            ("2026-04-10T00:00:00+00:00", "gym1-60"),
+        )
+        self.connection.commit()
         service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
             "card": {
                 "pricing": {
@@ -1314,6 +1366,55 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
     def test_match_scan_resolves_psa_slab_and_returns_exact_grade_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
+        mapped = map_scrydex_catalog_card(sample_scrydex_card())
+        service._persist_mapped_catalog_card(
+            mapped_card=mapped,
+            sync_mode="raw_candidate_cache",
+            trigger_source="test",
+            query_text="m2a_ja-232",
+            refresh_embeddings=False,
+        )
+        upsert_slab_price_snapshot(
+            service.connection,
+            card_id="m2a_ja-232",
+            grader="PSA",
+            grade="9",
+            pricing_tier="scrydex_exact_grade",
+            currency_code="USD",
+            low_price=25.0,
+            market_price=30.0,
+            mid_price=30.5,
+            high_price=35.0,
+            last_sale_price=None,
+            last_sale_date=None,
+            comp_count=0,
+            recent_comp_count=0,
+            confidence_level=4,
+            confidence_label="High",
+            bucket_key=None,
+            source_url="https://scrydex.example/m2a_ja-232",
+            source="scrydex",
+            summary="stale slab snapshot",
+            payload={"provider": "scrydex"},
+        )
+        service.connection.execute(
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ? AND grader = ? AND grade = ?",
+            ("2026-04-10T00:00:00+00:00", "m2a_ja-232", "PSA", "9"),
+        )
+        service.connection.commit()
+        service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
+            "card": {
+                "pricing": {
+                    "pricingMode": "psa_grade_estimate",
+                    "grader": "PSA",
+                    "grade": "9",
+                    "market": 30.83,
+                    "currencyCode": "USD",
+                    "provider": "scrydex",
+                    "isFresh": True,
+                }
+            }
+        })
 
         with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
             search_scrydex.return_value = type("SlabSearchResult", (), {
@@ -1420,6 +1521,19 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(evidence.title_text_secondary, "Toxicroak Ex")
         self.assertIn("pokemon prize pack: ser 3", evidence.set_hint_tokens)
         self.assertEqual(evidence.matched_set_alias, "POKEMON PRIZE PACK: SER 3")
+        self.assertEqual(evidence.set_hint_source, "psa_alias_map")
+
+    def test_build_slab_evidence_maps_evolving_skies_alias_and_cleans_title(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_dracozolt_vmax_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "210")
+        self.assertEqual(evidence.title_text_primary, "Dracozolt Vmax")
+        self.assertEqual(evidence.title_text_secondary, "Dracozolt Vmax")
+        self.assertIn("evolving skies", evidence.set_hint_tokens)
+        self.assertIn(evidence.matched_set_alias, {"EVOLVING SKIES SECRET", "EVOLVING SKIES-SECRET"})
         self.assertEqual(evidence.set_hint_source, "psa_alias_map")
 
     def test_build_slab_evidence_does_not_apply_psa_alias_map_for_non_psa_grader(self) -> None:
@@ -1598,6 +1712,54 @@ class BackendResetPhase1Tests(unittest.TestCase):
             ],
         )
 
+    def test_search_remote_scrydex_slab_candidates_uses_evolving_skies_alias_for_dracozolt(self) -> None:
+        with patch("scrydex_adapter._scrydex_run_cards_query") as run_cards:
+            run_cards.side_effect = lambda query, include_prices, page_size, request_type: (
+                [{
+                    "id": "evs-210",
+                    "name": "Dracozolt VMAX",
+                    "number": "210/203",
+                    "expansion": {"id": "evs", "name": "Evolving Skies"},
+                }]
+                if query == 'name:"Dracozolt Vmax" number:"210" expansion.name:"Evolving Skies"'
+                else []
+            )
+
+            result = search_remote_scrydex_slab_candidates(
+                title_text="Dracozolt Vmax",
+                label_text=(
+                    "2021 POKEMON SWSH #210 FA/DRACOZOLT VMAX GEM MT EVOLVING SKIES-SECRET 10 P:A 80533912 "
+                    "SWSH #210 T VMAX GEM MT S-SECRET 10 P:A 80533912"
+                ),
+                parsed_label_text=[],
+                card_number="210",
+                set_hint_tokens=["Evolving Skies"],
+            )
+
+        self.assertEqual([card["id"] for card in result.cards], ["evs-210"])
+        self.assertEqual(
+            [attempt["query"] for attempt in result.attempts],
+            ['name:"Dracozolt Vmax" number:"210" expansion.name:"Evolving Skies"'],
+        )
+        self.assertEqual(run_cards.call_count, 1)
+
+    def test_search_remote_scrydex_slab_candidates_skips_bare_number_fallback_when_title_is_good(self) -> None:
+        with patch("scrydex_adapter._scrydex_run_cards_query", return_value=[]) as run_cards:
+            result = search_remote_scrydex_slab_candidates(
+                title_text="Dracozolt Vmax",
+                label_text="2021 POKEMON SWSH #210 FA/DRACOZOLT VMAX GEM MT 10 PSA 80533912",
+                parsed_label_text=[],
+                card_number="210",
+                set_hint_tokens=[],
+            )
+
+        self.assertEqual(result.cards, [])
+        self.assertEqual(
+            [attempt["query"] for attempt in result.attempts],
+            ['name:"Dracozolt Vmax" number:"210"'],
+        )
+        self.assertEqual(run_cards.call_count, 1)
+
     def test_refresh_card_pricing_passes_preferred_slab_variant_to_provider(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
 
@@ -1638,6 +1800,62 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
     def test_match_scan_resolves_psa_slab_with_cleaned_label_number(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="pgo-10",
+            name="Charizard",
+            set_name="Pokemon GO",
+            number="010/078",
+            rarity="Rare Holo",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="pgo-10",
+            set_id="pgo",
+            set_series="Pokemon GO",
+            supertype="Pokemon",
+        )
+        upsert_slab_price_snapshot(
+            service.connection,
+            card_id="pgo-10",
+            grader="PSA",
+            grade="7",
+            pricing_tier="scrydex_exact_grade",
+            currency_code="USD",
+            low_price=80.0,
+            market_price=95.0,
+            mid_price=90.0,
+            high_price=100.0,
+            last_sale_price=None,
+            last_sale_date=None,
+            comp_count=0,
+            recent_comp_count=0,
+            confidence_level=4,
+            confidence_label="High",
+            bucket_key=None,
+            source_url="https://scrydex.example/pgo-10",
+            source="scrydex",
+            summary="stale slab snapshot",
+            payload={"provider": "scrydex"},
+        )
+        service.connection.execute(
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ? AND grader = ? AND grade = ?",
+            ("2026-04-10T00:00:00+00:00", "pgo-10", "PSA", "7"),
+        )
+        service.connection.commit()
+        service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
+            "card": {
+                "pricing": {
+                    "pricingMode": "psa_grade_estimate",
+                    "grader": "PSA",
+                    "grade": "7",
+                    "market": 95.0,
+                    "currencyCode": "USD",
+                    "provider": "scrydex",
+                    "isFresh": True,
+                }
+            }
+        })
 
         with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
             search_scrydex.return_value = type("SlabSearchResult", (), {
@@ -1709,7 +1927,49 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["topCandidates"][4]["candidate"]["id"], "slab-4")
         self.assertEqual(response["topCandidates"][4]["rank"], 5)
 
-    def test_low_confidence_slab_top_candidate_still_refreshes_missing_pricing(self) -> None:
+    def test_low_confidence_slab_top_candidate_does_not_refresh_missing_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        evidence = service._build_slab_evidence(sample_slab_scan_payload())
+        ranked_candidates = [
+            {
+                "id": "slab-low-missing-1",
+                "name": "Candidate Low Missing",
+                "setName": "Test Set",
+                "number": "1",
+                "rarity": "Rare",
+                "variant": "Raw",
+                "language": "English",
+                "_retrievalScoreHint": 40.0,
+                "_reasons": ["test_rank"],
+            }
+        ]
+        service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
+            "card": {
+                "pricing": {
+                    "pricingMode": "psa_grade_estimate",
+                    "grader": "PSA",
+                    "grade": "9",
+                    "market": 99.0,
+                    "currencyCode": "USD",
+                    "isFresh": True,
+                }
+            }
+        })
+
+        response, _ = service._build_slab_match_response(
+            {"scanID": "scan-slab-low-missing"},
+            evidence,
+            ranked_candidates,
+            resolver_path="psa_label",
+        )
+        service.connection.close()
+
+        service._refresh_card_pricing_for_context.assert_not_called()
+        self.assertEqual(response["confidence"], "low")
+        self.assertEqual(response["reviewDisposition"], "needs_review")
+        self.assertNotIn("pricing", response["topCandidates"][0]["candidate"])
+
+    def test_low_confidence_slab_top_candidate_refreshes_stale_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         evidence = service._build_slab_evidence(sample_slab_scan_payload())
         ranked_candidates = [
@@ -1725,6 +1985,49 @@ class BackendResetPhase1Tests(unittest.TestCase):
                 "_reasons": ["test_rank"],
             }
         ]
+        upsert_card(
+            self.connection,
+            card_id="slab-low-1",
+            name="Candidate Low",
+            set_name="Test Set",
+            number="1",
+            rarity="Rare",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="slab-low-1",
+            set_id="test-set",
+            set_series="Test",
+            supertype="Pokemon",
+        )
+        upsert_slab_price_snapshot(
+            self.connection,
+            card_id="slab-low-1",
+            grader=str(evidence.grader or ""),
+            grade=str(evidence.grade or ""),
+            pricing_tier="scrydex_exact_grade",
+            currency_code="USD",
+            low_price=80.0,
+            market_price=90.0,
+            mid_price=85.0,
+            high_price=100.0,
+            last_sale_price=None,
+            last_sale_date=None,
+            comp_count=0,
+            recent_comp_count=0,
+            confidence_level=4,
+            confidence_label="High",
+            bucket_key=None,
+            source_url="https://scrydex.example/slab-low-1",
+            source="scrydex",
+            summary="stale slab snapshot",
+            payload={"provider": "scrydex"},
+        )
+        self.connection.execute(
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ? AND grader = ? AND grade = ?",
+            ("2026-04-10T00:00:00+00:00", "slab-low-1", str(evidence.grader or ""), str(evidence.grade or "")),
+        )
+        self.connection.commit()
         service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
             "card": {
                 "pricing": {
@@ -1756,7 +2059,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["reviewDisposition"], "needs_review")
         self.assertEqual(response["topCandidates"][0]["candidate"]["pricing"]["market"], 99.0)
 
-    def test_ready_slab_top_candidate_refreshes_missing_pricing(self) -> None:
+    def test_ready_slab_top_candidate_refreshes_stale_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         evidence = service._build_slab_evidence(sample_slab_scan_payload())
         ranked_candidates = [
@@ -1772,6 +2075,49 @@ class BackendResetPhase1Tests(unittest.TestCase):
                 "_reasons": ["test_rank"],
             }
         ]
+        upsert_card(
+            self.connection,
+            card_id="slab-high-1",
+            name="Candidate High",
+            set_name="Test Set",
+            number="1",
+            rarity="Rare",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="slab-high-1",
+            set_id="test-set",
+            set_series="Test",
+            supertype="Pokemon",
+        )
+        upsert_slab_price_snapshot(
+            self.connection,
+            card_id="slab-high-1",
+            grader=str(evidence.grader or ""),
+            grade=str(evidence.grade or ""),
+            pricing_tier="scrydex_exact_grade",
+            currency_code="USD",
+            low_price=100.0,
+            market_price=110.0,
+            mid_price=105.0,
+            high_price=120.0,
+            last_sale_price=None,
+            last_sale_date=None,
+            comp_count=0,
+            recent_comp_count=0,
+            confidence_level=4,
+            confidence_label="High",
+            bucket_key=None,
+            source_url="https://scrydex.example/slab-high-1",
+            source="scrydex",
+            summary="stale slab snapshot",
+            payload={"provider": "scrydex"},
+        )
+        self.connection.execute(
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ? AND grader = ? AND grade = ?",
+            ("2026-04-10T00:00:00+00:00", "slab-high-1", str(evidence.grader or ""), str(evidence.grade or "")),
+        )
+        self.connection.commit()
         service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
             "card": {
                 "pricing": {
@@ -1808,11 +2154,11 @@ class BackendResetPhase1Tests(unittest.TestCase):
         slab_policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
 
         self.assertEqual(
-            [(raw_policy.rule_for_rank(index).ensure_cached, raw_policy.rule_for_rank(index).refresh_missing) for index in range(1, 6)],
-            [(slab_policy.rule_for_rank(index).ensure_cached, slab_policy.rule_for_rank(index).refresh_missing) for index in range(1, 6)],
+            [(raw_policy.rule_for_rank(index).ensure_cached, raw_policy.rule_for_rank(index).refresh_stale) for index in range(1, 6)],
+            [(slab_policy.rule_for_rank(index).ensure_cached, slab_policy.rule_for_rank(index).refresh_stale) for index in range(1, 6)],
         )
         self.assertEqual(
-            [(raw_policy.rule_for_rank(index).ensure_cached, raw_policy.rule_for_rank(index).refresh_missing) for index in range(1, 6)],
+            [(raw_policy.rule_for_rank(index).ensure_cached, raw_policy.rule_for_rank(index).refresh_stale) for index in range(1, 6)],
             [
                 (True, True),
                 (False, False),
