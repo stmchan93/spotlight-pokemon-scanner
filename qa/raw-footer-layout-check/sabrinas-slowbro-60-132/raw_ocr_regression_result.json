@@ -134,9 +134,8 @@
     "collectorConfidenceScore" : 0.896,
     "collectorNumberExact" : "191\/995",
     "cropConfidence" : 0.836677093300405,
-    "setConfidenceScore" : 0.3,
     "setHintTokens" : [
-      "brs"
+
     ],
     "titleConfidenceScore" : 1,
     "titleTextPrimary" : "Sabrina's Slowpoke Put Sabrina",

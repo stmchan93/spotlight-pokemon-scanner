@@ -11,10 +11,10 @@
   },
   "debug" : {
     "contentRectNormalized" : {
-      "height" : 0.9982746311280343,
-      "width" : 1,
-      "x" : 0,
-      "y" : 0.0008626844359828826
+      "height" : 1,
+      "width" : 0.6735064506238355,
+      "x" : 0.16324677468808227,
+      "y" : 0
     },
     "footerRoutingReasons" : [
       "footer_band_anchor_unavailable"
@@ -24,10 +24,10 @@
         "kind" : "footer_band_wide",
         "label" : "13_raw_footer_band",
         "normalizedRect" : {
-          "height" : 0.19965492622560688,
-          "width" : 0.9,
-          "x" : 0.05,
-          "y" : 0.759551404093289
+          "height" : 0.22,
+          "width" : 0.6735064506238355,
+          "x" : 0.16324677468808227,
+          "y" : 0.78
         },
         "text" : ""
       },
@@ -37,10 +37,10 @@
         "kind" : "footer_metadata",
         "label" : "14_raw_footer_modern_left_set",
         "normalizedRect" : {
-          "height" : 0.09783091385054736,
-          "width" : 0.138,
-          "x" : 0.07064000000000001,
-          "y" : 0.8445045752022846
+          "height" : 0.098,
+          "width" : 0.09294389018608931,
+          "x" : 0.21082327036015003,
+          "y" : 0.8451
         },
         "text" : ""
       },
@@ -50,10 +50,10 @@
         "kind" : "footer_metadata",
         "label" : "15_raw_footer_modern_left_collector",
         "normalizedRect" : {
-          "height" : 0.09184126606377915,
-          "width" : 0.275,
-          "x" : 0.17,
-          "y" : 0.849396120894812
+          "height" : 0.092,
+          "width" : 0.1852142739215548,
+          "x" : 0.27774287129413433,
+          "y" : 0.85
         },
         "text" : ""
       },
@@ -63,10 +63,10 @@
         "kind" : "footer_metadata",
         "label" : "16_raw_footer_legacy_right_mid_set",
         "normalizedRect" : {
-          "height" : 0.10182401237505949,
-          "width" : 0.125,
-          "x" : 0.6725,
-          "y" : 0.8412501999048072
+          "height" : 0.102,
+          "width" : 0.08418830632797944,
+          "x" : 0.6161798627326117,
+          "y" : 0.84184
         },
         "text" : ""
       },
@@ -76,10 +76,10 @@
         "kind" : "footer_metadata",
         "label" : "17_raw_footer_legacy_right_mid_collector",
         "normalizedRect" : {
-          "height" : 0.09982746311280344,
-          "width" : 0.185,
-          "x" : 0.72,
-          "y" : 0.849396120894812
+          "height" : 0.1,
+          "width" : 0.12459869336540957,
+          "x" : 0.6481714191372439,
+          "y" : 0.85
         },
         "text" : ""
       },
@@ -89,10 +89,10 @@
         "kind" : "footer_metadata",
         "label" : "18_raw_footer_legacy_right_corner_set",
         "normalizedRect" : {
-          "height" : 0.1048188362684436,
-          "width" : 0.115,
-          "x" : 0.7857500000000001,
-          "y" : 0.8288316634935745
+          "height" : 0.105,
+          "width" : 0.07745324182174108,
+          "x" : 0.6924544682657611,
+          "y" : 0.8294
         },
         "text" : ""
       },
@@ -102,10 +102,10 @@
         "kind" : "footer_metadata",
         "label" : "19_raw_footer_legacy_right_corner_collector",
         "normalizedRect" : {
-          "height" : 0.10182401237505949,
-          "width" : 0.19,
-          "x" : 0.705,
-          "y" : 0.8414099238457877
+          "height" : 0.102,
+          "width" : 0.12796622561852875,
+          "x" : 0.6380688223778863,
+          "y" : 0.842
         },
         "text" : ""
       },
@@ -113,10 +113,10 @@
         "kind" : "header_wide",
         "label" : "12_raw_header_wide",
         "normalizedRect" : {
-          "height" : 0.21962041884816755,
-          "width" : 0.8,
-          "x" : 0.1,
-          "y" : 0.02082817705854357
+          "height" : 0.2,
+          "width" : 0.5926856765489753,
+          "x" : 0.2036571617255124,
+          "y" : 0
         },
         "text" : ""
       }
@@ -127,17 +127,18 @@
       "title_signal_weak",
       "set_signal_weak"
     ],
-    "targetQualityScore" : 0.7899543765264057,
-    "usedFallback" : false
+    "targetQualityScore" : 0.5699543765264057,
+    "usedFallback" : true
   },
   "fixtureName" : "clive-227-091",
   "ocr" : {
-    "cropConfidence" : 0.7899543765264057,
+    "cropConfidence" : 0.5699543765264057,
     "setHintTokens" : [
 
     ],
     "warnings" : [
-      "Raw scene looks holder-like",
+      "Target selection used fallback crop",
+      "Target selection confidence is weak",
       "Rewrite raw escalation used focused ROIs",
       "Could not read strong raw-card clues",
       "Low-confidence rewrite raw evidence"

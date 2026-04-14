@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "49377407",
   "cropConfidence" : 0.7115254486727247,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2002 POKEMON JAPANESE SQUIRTLE - HOLO MCDONALD S GEM MT #007 PSA 49377407 10 T X HP50 ARTE #DE TR05M. ##9KG ID: M-15 10 10 POK MON BIAAS ILLUS.ASUKA IWASI 007\/018",
     "ON JAPANESE OLO GEM MT #007 PSA 49377407 10 HP50 TATE #0DLKTE: R80.5M. #19KG ID: M-15 10 10 ON ILLUS.ASUKA IWASHITA 007\/018"
   ],
-  "scanID" : "95282656-C523-47A9-A7FB-AD674DBD30D9",
+  "scanID" : "2667602F-49B8-4379-8D1D-21AA02FBE19A",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-squirtle-holo-007-mcdonalds-49377407-full-slab.jpg",
   "split" : "tuning",
   "truth" : {

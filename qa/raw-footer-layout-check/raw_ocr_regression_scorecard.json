@@ -1,9 +1,9 @@
 {
-  "backendRecoverablePassCount" : 21,
-  "backendRecoverablePassRate" : 0.31343283582089554,
+  "backendRecoverablePassCount" : 23,
+  "backendRecoverablePassRate" : 0.34328358208955223,
   "collectorNearMissCount" : 1,
-  "exactCollectorPassCount" : 31,
-  "exactCollectorPassRate" : 0.4626865671641791,
+  "exactCollectorPassCount" : 34,
+  "exactCollectorPassRate" : 0.5074626865671642,
   "fixtures" : [
     {
       "actualSetHintTokens" : [
@@ -240,7 +240,7 @@
     {
       "actualCollectorExact" : "213\/162",
       "actualSetHintTokens" : [
-        "hp220"
+
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
@@ -273,18 +273,18 @@
     {
       "actualCollectorExact" : "185\/132",
       "actualSetHintTokens" : [
-        "meg"
+
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
-        "exact_collector_plus_set_hint"
+        "exact_collector_plus_title"
       ],
       "collectorNearMiss" : false,
       "exactCollectorPass" : true,
       "expectedCollector" : "185\/132",
       "expectedSetCode" : "MEG",
       "fixtureName" : "lt-surges-bargain-185-132-overhead",
-      "setHintPass" : true,
+      "setHintPass" : false,
       "titlePass" : true
     },
     {
@@ -340,36 +340,36 @@
     {
       "actualCollectorExact" : "186\/182",
       "actualSetHintTokens" : [
-        "m30",
-        "par"
+
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
-        "exact_collector_plus_set_hint"
+        "exact_collector_plus_title"
       ],
       "collectorNearMiss" : false,
       "exactCollectorPass" : true,
       "expectedCollector" : "186\/182",
       "expectedSetCode" : "PAR",
       "fixtureName" : "magby-186-182-overhead",
-      "setHintPass" : true,
+      "setHintPass" : false,
       "titlePass" : true
     },
     {
+      "actualCollectorExact" : "186\/182",
       "actualSetHintTokens" : [
 
       ],
-      "backendRecoverablePass" : false,
+      "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
-
+        "exact_collector_plus_title"
       ],
       "collectorNearMiss" : false,
-      "exactCollectorPass" : false,
+      "exactCollectorPass" : true,
       "expectedCollector" : "186\/182",
       "expectedSetCode" : "PAR",
       "fixtureName" : "magby-186-182-slight-angle",
       "setHintPass" : false,
-      "titlePass" : false
+      "titlePass" : true
     },
     {
       "actualCollectorExact" : "6\/182",
@@ -389,7 +389,6 @@
       "titlePass" : false
     },
     {
-      "actualCollectorPartial" : "32",
       "actualSetHintTokens" : [
 
       ],
@@ -423,7 +422,7 @@
       "titlePass" : true
     },
     {
-      "actualCollectorPartial" : "32",
+      "actualCollectorPartial" : "193",
       "actualSetHintTokens" : [
 
       ],
@@ -476,7 +475,6 @@
     {
       "actualCollectorPartial" : "24",
       "actualSetHintTokens" : [
-        "mew",
         "rc25"
       ],
       "backendRecoverablePass" : false,
@@ -511,7 +509,7 @@
     {
       "actualCollectorExact" : "077\/184",
       "actualSetHintTokens" : [
-        "brs"
+
       ],
       "backendRecoverablePass" : false,
       "backendRecoverableReasons" : [
@@ -558,8 +556,9 @@
       "titlePass" : false
     },
     {
+      "actualCollectorPartial" : "20",
       "actualSetHintTokens" : [
-        "n2s"
+
       ],
       "backendRecoverablePass" : false,
       "backendRecoverableReasons" : [
@@ -571,7 +570,7 @@
       "expectedSetCode" : "MCD21",
       "fixtureName" : "pikachu-25-25",
       "setHintPass" : false,
-      "titlePass" : false
+      "titlePass" : true
     },
     {
       "actualSetHintTokens" : [
@@ -592,8 +591,7 @@
     {
       "actualCollectorExact" : "SWSH286",
       "actualSetHintTokens" : [
-        "h286",
-        "swsh286"
+        "h286"
       ],
       "backendRecoverablePass" : false,
       "backendRecoverableReasons" : [
@@ -626,8 +624,7 @@
     {
       "actualCollectorExact" : "SWSH286",
       "actualSetHintTokens" : [
-        "sh286",
-        "swsh286"
+        "sh286"
       ],
       "backendRecoverablePass" : false,
       "backendRecoverableReasons" : [
@@ -661,8 +658,7 @@
     {
       "actualCollectorExact" : "TG29\/TG30",
       "actualSetHintTokens" : [
-        "tg29",
-        "tg30"
+
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
@@ -730,7 +726,7 @@
     {
       "actualCollectorExact" : "163\/091",
       "actualSetHintTokens" : [
-        "pal"
+
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
@@ -764,7 +760,7 @@
     {
       "actualCollectorExact" : "191\/995",
       "actualSetHintTokens" : [
-        "brs"
+
       ],
       "backendRecoverablePass" : false,
       "backendRecoverableReasons" : [
@@ -781,7 +777,7 @@
     {
       "actualCollectorExact" : "60\/132",
       "actualSetHintTokens" : [
-        "par"
+
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
@@ -798,7 +794,7 @@
     {
       "actualCollectorExact" : "60\/132",
       "actualSetHintTokens" : [
-        "par"
+
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
@@ -832,8 +828,7 @@
     {
       "actualCollectorExact" : "204\/198",
       "actualSetHintTokens" : [
-        "svi",
-        "x2o"
+        "svi"
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
@@ -959,14 +954,13 @@
       "expectedSetCode" : "MEW",
       "fixtureName" : "switch-206-165",
       "setHintPass" : false,
-      "titlePass" : false
+      "titlePass" : true
     },
     {
       "actualCollectorExact" : "199\/182",
       "actualSetHintTokens" : [
         "dri",
-        "ire1",
-        "lor"
+        "ire1"
       ],
       "backendRecoverablePass" : true,
       "backendRecoverableReasons" : [
@@ -981,18 +975,16 @@
       "titlePass" : false
     },
     {
-      "actualCollectorPartial" : "40",
+      "actualCollectorExact" : "199\/182",
       "actualSetHintTokens" : [
-        "lor",
-        "n40",
-        "par"
-      ],
-      "backendRecoverablePass" : false,
-      "backendRecoverableReasons" : [
 
       ],
+      "backendRecoverablePass" : true,
+      "backendRecoverableReasons" : [
+        "exact_collector_plus_title"
+      ],
       "collectorNearMiss" : false,
-      "exactCollectorPass" : false,
+      "exactCollectorPass" : true,
       "expectedCollector" : "199\/182",
       "expectedSetCode" : "DRI",
       "fixtureName" : "team-rockets-weezing-199-182-overhead",
@@ -1002,21 +994,22 @@
     {
       "actualCollectorExact" : "199\/182",
       "actualSetHintTokens" : [
-        "dri"
+
       ],
-      "backendRecoverablePass" : true,
+      "backendRecoverablePass" : false,
       "backendRecoverableReasons" : [
-        "exact_collector_plus_set_hint"
+
       ],
       "collectorNearMiss" : false,
       "exactCollectorPass" : true,
       "expectedCollector" : "199\/182",
       "expectedSetCode" : "DRI",
       "fixtureName" : "team-rockets-weezing-199-182-slight-angle",
-      "setHintPass" : true,
+      "setHintPass" : false,
       "titlePass" : false
     },
     {
+      "actualCollectorPartial" : "40",
       "actualSetHintTokens" : [
 
       ],
@@ -1100,20 +1093,21 @@
       "titlePass" : false
     },
     {
+      "actualCollectorExact" : "175\/172",
       "actualSetHintTokens" : [
-        "lor"
-      ],
-      "backendRecoverablePass" : false,
-      "backendRecoverableReasons" : [
 
       ],
+      "backendRecoverablePass" : true,
+      "backendRecoverableReasons" : [
+        "exact_collector_plus_title"
+      ],
       "collectorNearMiss" : false,
-      "exactCollectorPass" : false,
+      "exactCollectorPass" : true,
       "expectedCollector" : "175\/172",
       "expectedSetCode" : "SWSH09",
       "fixtureName" : "whimsicott-vstar-175-172-slight-angle",
       "setHintPass" : false,
-      "titlePass" : false
+      "titlePass" : true
     },
     {
       "actualSetHintTokens" : [
@@ -1132,10 +1126,10 @@
       "titlePass" : true
     }
   ],
-  "generatedAt" : "2026-04-12T01:02:17Z",
+  "generatedAt" : "2026-04-13T05:10:51Z",
   "processedFixtureCount" : 67,
   "setHintEligibleFixtureCount" : 67,
-  "setHintPassCount" : 11,
-  "setHintPassRate" : 0.16417910447761194,
-  "titlePassCount" : 20
+  "setHintPassCount" : 8,
+  "setHintPassRate" : 0.11940298507462686,
+  "titlePassCount" : 24
 }

@@ -6,6 +6,7 @@ struct RawPipelineResult {
     let collectorNumber: String?
     let collectorNumberPartial: String?
     let setHintTokens: [String]
+    let setBadgeHint: OCRSetBadgeHint?
     let promoCodeHint: String?
     let warnings: [String]
     let shouldRetryWithStillPhoto: Bool
@@ -55,6 +56,7 @@ struct RawEvidenceSynthesizer {
         let collectorNumberPartial = summary.collector.partial
         let collectorConfidence = summary.collector.confidence
         let setHintTokens = summary.set.hints
+        let setBadgeHint = summary.set.badgeHint
         let setConfidence = summary.set.confidence
         let recognizedTokens = mergedRecognizedTokens(
             prioritizedGroups: passResults.map(\.tokens)
@@ -92,6 +94,7 @@ struct RawEvidenceSynthesizer {
             collectorNumberExact: collectorNumber,
             collectorNumberPartial: collectorNumberPartial,
             collectorConfidence: collectorConfidence,
+            setBadgeHint: setBadgeHint,
             setHints: setHintTokens,
             setConfidence: setConfidence,
             footerBandText: footerBandText,
@@ -138,10 +141,74 @@ struct RawEvidenceSynthesizer {
             collectorNumber: collectorNumber,
             collectorNumberPartial: collectorNumberPartial,
             setHintTokens: setHintTokens,
+            setBadgeHint: setBadgeHint,
             promoCodeHint: extractPromoHint(from: collectorNumber ?? collectorNumberPartial),
             warnings: warnings,
             shouldRetryWithStillPhoto: shouldRetryWithStillPhoto,
             stillPhotoRetryReason: stillPhotoRetryReason,
+            ocrAnalysis: ocrAnalysis
+        )
+    }
+
+    func synthesizeFastReject(
+        scanID: UUID,
+        targetSelection: OCRTargetSelectionResult,
+        sceneTraits: RawSceneTraits,
+        reason: String
+    ) -> RawPipelineResult {
+        var warnings = sceneTraits.warnings
+        warnings.append("Skipped expensive OCR because target selection was too weak")
+        warnings.append("Could not read strong raw-card clues")
+        warnings.append("Low-confidence rewrite raw evidence")
+
+        let rawEvidence = OCRRawEvidence(
+            titleTextPrimary: nil,
+            titleTextSecondary: nil,
+            titleConfidence: nil,
+            collectorNumberExact: nil,
+            collectorNumberPartial: nil,
+            collectorConfidence: nil,
+            setBadgeHint: nil,
+            setHints: [],
+            setConfidence: nil,
+            footerBandText: "",
+            wholeCardText: "",
+            warnings: warnings
+        )
+
+        let ocrAnalysis = OCRAnalysisEnvelope(
+            pipelineVersion: .rewriteV1,
+            selectedMode: .raw,
+            normalizedTarget: buildLegacyNormalizedTarget(from: targetSelection),
+            modeSanitySignals: buildLegacyModeSanitySignals(
+                selectedMode: .raw,
+                targetSelection: targetSelection
+            ),
+            rawEvidence: rawEvidence,
+            slabEvidence: nil
+        )
+
+        ScanStageArtifactWriter.recordSynthesizedEvidenceArtifact(
+            scanID: scanID,
+            stage: "rewrite_raw_fast_reject",
+            payload: ["reason": reason]
+        )
+        ScanStageArtifactWriter.recordSynthesizedEvidenceArtifact(
+            scanID: scanID,
+            stage: "rewrite_raw_ocr_analysis",
+            payload: ocrAnalysis
+        )
+
+        return RawPipelineResult(
+            recognizedTokens: [],
+            collectorNumber: nil,
+            collectorNumberPartial: nil,
+            setHintTokens: [],
+            setBadgeHint: nil,
+            promoCodeHint: nil,
+            warnings: warnings,
+            shouldRetryWithStillPhoto: false,
+            stillPhotoRetryReason: nil,
             ocrAnalysis: ocrAnalysis
         )
     }

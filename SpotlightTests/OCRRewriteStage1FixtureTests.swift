@@ -56,8 +56,10 @@ private struct RawFooterLayoutRuntimeSummary: Codable {
     let contentRectNormalized: OCRNormalizedRect?
     let normalizedImageWidth: Double
     let normalizedImageHeight: Double
+    let titleTextPrimary: String?
     let collectorNumber: String?
     let setHintTokens: [String]
+    let titleConfidenceScore: Double?
     let collectorConfidenceScore: Double?
     let collectorConfidenceReasons: [String]
     let setConfidenceScore: Double?
@@ -135,6 +137,16 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
     }
 
     private var rawFooterLayoutCheckRoot: URL {
+        let overrideFileURL = repoRoot.appendingPathComponent("qa/.raw_layout_fixture_root_override.txt")
+        if let overridePath = try? String(contentsOf: overrideFileURL, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridePath.isEmpty {
+            return URL(fileURLWithPath: overridePath, isDirectory: true)
+        }
+        if let overridePath = ProcessInfo.processInfo.environment["SPOTLIGHT_RAW_LAYOUT_FIXTURE_ROOT"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !overridePath.isEmpty {
+            return URL(fileURLWithPath: overridePath, isDirectory: true)
+        }
         return repoRoot.appendingPathComponent("qa/raw-footer-layout-check", isDirectory: true)
     }
 
@@ -211,6 +223,98 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
         XCTAssertEqual(collector.normalizedRect.height, 0.092, accuracy: 0.001)
         XCTAssertLessThan(setBadge.normalizedRect.x, collector.normalizedRect.x)
         XCTAssertLessThanOrEqual(setBadge.normalizedRect.y, collector.normalizedRect.y + 0.01)
+    }
+
+    func testRawFallbackStage2PlanAddsLoweredHeaderPassForExactReticleFallback() {
+        let planner = RawROIPlanner()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: true,
+            targetQualityScore: 0.58,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: "exact_reticle_fallback",
+            warnings: ["Target selection used fallback crop"]
+        )
+
+        let plans = planner.stage2Plan(for: sceneTraits)
+
+        XCTAssertEqual(plans.count, 2)
+        XCTAssertEqual(plans[0].label, "12_raw_header_wide")
+        XCTAssertEqual(plans[1].label, "12_raw_header_wide_lowered")
+        XCTAssertGreaterThan(plans[1].normalizedRect.y, plans[0].normalizedRect.y)
+        XCTAssertGreaterThan(plans[1].normalizedRect.height, plans[0].normalizedRect.height)
+    }
+
+    func testRawNonFallbackStage2PlanKeepsSingleHeaderPass() {
+        let planner = RawROIPlanner()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: false,
+            targetQualityScore: 0.86,
+            normalizationReason: "basic_perspective_canonicalization",
+            warnings: []
+        )
+
+        let plans = planner.stage2Plan(for: sceneTraits)
+
+        XCTAssertEqual(plans.count, 1)
+        XCTAssertEqual(plans[0].label, "12_raw_header_wide")
+    }
+
+    func testRawCardNormalizationUsesBasicPerspectiveCanonicalization() {
+        let image = makeSolidImage(
+            size: CGSize(width: 360, height: 520),
+            fill: UIColor(red: 0.88, green: 0.80, blue: 0.92, alpha: 1)
+        )
+        let candidate = OCRTargetCandidateSummary(
+            rank: 1,
+            confidence: 1.0,
+            areaCoverage: 0.34,
+            aspectRatio: 63.0 / 88.0,
+            aspectScore: 1.0,
+            proximityScore: 0.94,
+            areaScore: 0.98,
+            totalScore: 0.87,
+            centerDistance: 0.04,
+            boundingBox: ScanDebugRect(CGRect(x: 0.15, y: 0.14, width: 0.58, height: 0.63)),
+            quadrilateral: [],
+            geometryKind: .rawCard
+        )
+
+        let result = normalizeOCRInputImage(
+            image,
+            chosenCandidate: candidate,
+            mode: .rawCard
+        )
+
+        XCTAssertEqual(result.geometryKind, .rawCard)
+        XCTAssertEqual(result.reason, "basic_perspective_canonicalization")
+        XCTAssertEqual(result.image.size.width, 630, accuracy: 0.01)
+        XCTAssertEqual(result.image.size.height, 880, accuracy: 0.01)
+        XCTAssertNotNil(result.normalizedContentRect)
+    }
+
+    func testFallbackNormalizationUsesExactReticleCropWithoutRecovery() {
+        let searchImage = makeSolidImage(
+            size: CGSize(width: 640, height: 900),
+            fill: UIColor(red: 0.25, green: 0.25, blue: 0.25, alpha: 1)
+        )
+        let fallbackImage = makeSolidImage(
+            size: CGSize(width: 360, height: 520),
+            fill: UIColor(red: 0.95, green: 0.82, blue: 0.78, alpha: 1)
+        )
+
+        let result = normalizeFallbackOCRInputImage(
+            searchImage: searchImage,
+            fallbackImage: fallbackImage,
+            mode: .rawCard
+        )
+
+        XCTAssertEqual(result.geometryKind, .fallback)
+        XCTAssertEqual(result.reason, "exact_reticle_fallback")
+        XCTAssertEqual(result.image.size.width, 630, accuracy: 0.01)
+        XCTAssertEqual(result.image.size.height, 880, accuracy: 0.01)
+        XCTAssertNotNil(result.normalizedContentRect)
     }
 
     func testRewriteRawStage2Fixtures() async throws {
@@ -328,6 +432,10 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
                     options: .atomic
                 )
             }
+            try copySelectionArtifacts(
+                scanID: debugSnapshot.analyzedCapture.scanID,
+                into: directory
+            )
         }
     }
 
@@ -461,6 +569,32 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
         try encoder.encode(value).write(to: url, options: .atomic)
     }
 
+    private func copySelectionArtifacts(scanID: UUID, into directory: URL) throws {
+        guard let artifactRootPath = ScanStageArtifactWriter.artifactRootPath() else {
+            XCTFail("missing scan artifact root while copying selection artifacts")
+            return
+        }
+
+        let scanArtifactDirectory = URL(fileURLWithPath: artifactRootPath, isDirectory: true)
+            .appendingPathComponent(scanID.uuidString, isDirectory: true)
+        let artifactFilenames = [
+            "04_selected_target_crop.jpg",
+            "05_rectangle_candidate_overlay.jpg",
+            "06_ocr_input_normalized.jpg",
+            "selection_manifest.json",
+        ]
+
+        for filename in artifactFilenames {
+            let sourceURL = scanArtifactDirectory.appendingPathComponent(filename)
+            guard fileManager.fileExists(atPath: sourceURL.path) else { continue }
+            let destinationURL = directory.appendingPathComponent(filename)
+            if fileManager.fileExists(atPath: destinationURL.path) {
+                try fileManager.removeItem(at: destinationURL)
+            }
+            try fileManager.copyItem(at: sourceURL, to: destinationURL)
+        }
+    }
+
     private func analyzeRawFooterLayoutFixture(sourceImage: UIImage) async throws -> RawPipelineDebugSnapshot {
         let capture = ScanCaptureInput(
             originalImage: sourceImage,
@@ -494,8 +628,10 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
             contentRectNormalized: normalizedTarget?.contentRectNormalized,
             normalizedImageWidth: analyzed.normalizedImage.size.width,
             normalizedImageHeight: analyzed.normalizedImage.size.height,
+            titleTextPrimary: rawEvidence?.titleTextPrimary,
             collectorNumber: analyzed.collectorNumber,
             setHintTokens: analyzed.setHintTokens,
+            titleConfidenceScore: rawEvidence?.titleConfidence?.score,
             collectorConfidenceScore: rawEvidence?.collectorConfidence?.score,
             collectorConfidenceReasons: rawEvidence?.collectorConfidence?.reasons ?? [],
             setConfidenceScore: rawEvidence?.setConfidence?.score,
@@ -578,5 +714,15 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
         text
             .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
             .lowercased()
+    }
+
+    private func makeSolidImage(size: CGSize, fill: UIColor) -> UIImage {
+        let format = UIGraphicsImageRendererFormat()
+        format.scale = 1
+        let renderer = UIGraphicsImageRenderer(size: size, format: format)
+        return renderer.image { context in
+            fill.setFill()
+            context.fill(CGRect(origin: .zero, size: size))
+        }
     }
 }

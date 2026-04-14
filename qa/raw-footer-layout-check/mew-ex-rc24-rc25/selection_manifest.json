@@ -1,0 +1,88 @@
+{
+  "candidates" : [
+    {
+      "areaCoverage" : 0.6542384192469042,
+      "areaScore" : 1,
+      "aspectRatio" : 1.007289769039263,
+      "aspectScore" : 0.3524873819329509,
+      "boundingBox" : {
+        "height" : 0.8058258146047592,
+        "width" : 0.8118856549263,
+        "x" : 0.1111791729927063,
+        "y" : 0.11148454248905182
+      },
+      "centerDistance" : 0.02237072775095019,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.9683630134144501,
+      "quadrilateral" : [
+        {
+          "x" : 0.11444216966629028,
+          "y" : 0.9000831246376038
+        },
+        {
+          "x" : 0.9081417918205261,
+          "y" : 0.917310357093811
+        },
+        {
+          "x" : 0.9230648279190063,
+          "y" : 0.11148454248905182
+        },
+        {
+          "x" : 0.1111791729927063,
+          "y" : 0.11190253496170044
+        }
+      ],
+      "rank" : 2,
+      "totalScore" : 0.8300439578345553
+    },
+    {
+      "areaCoverage" : 0.7126514677214828,
+      "areaScore" : 1,
+      "aspectRatio" : 1.0135214391321894,
+      "aspectScore" : 0.33863922617089237,
+      "boundingBox" : {
+        "height" : 0.8397109284996986,
+        "width" : 0.8486866652965546,
+        "x" : 0.0921085774898529,
+        "y" : 0.09513863176107407
+      },
+      "centerDistance" : 0.022259565637673603,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.9685202203826678,
+      "quadrilateral" : [
+        {
+          "x" : 0.09415878355503082,
+          "y" : 0.9172114133834839
+        },
+        {
+          "x" : 0.9259814620018005,
+          "y" : 0.9348495602607727
+        },
+        {
+          "x" : 0.9407952427864075,
+          "y" : 0.09513863176107407
+        },
+        {
+          "x" : 0.0921085774898529,
+          "y" : 0.09877381473779678
+        }
+      ],
+      "rank" : 1,
+      "totalScore" : 0.8267927156570415
+    }
+  ],
+  "fallbackReason" : "best_rectangle_aspect_mismatch",
+  "mode" : "raw",
+  "normalizationReason" : "fallback_search_partial_card_salvaged",
+  "normalizedContentRect" : {
+    "height" : 0.9995860927152318,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.00020695364238411623
+  },
+  "normalizedGeometryKind" : "raw_card",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

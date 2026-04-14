@@ -10,15 +10,14 @@ from datetime import datetime
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-try:
-    from dotenv import load_dotenv
+from env_loader import load_backend_env_file as _load_backend_env_file
 
-    load_dotenv(Path(__file__).resolve().parent / ".env")
-except ImportError:
-    pass
+
+_load_backend_env_file(Path(__file__).resolve().parent / ".env")
 
 from catalog_tools import (
     MATCHER_VERSION,
@@ -34,13 +33,17 @@ from catalog_tools import (
     connect,
     contextual_pricing_summary_for_card,
     finalize_raw_decision,
+    latest_provider_sync_run,
     load_index,
     merge_raw_candidate_pools,
+    provider_sync_run_is_fresh,
     rank_raw_candidates,
     raw_debug_payload,
     raw_pricing_summary_for_card,
     rank_visual_hybrid_candidates,
     resolver_mode_for_payload,
+    score_raw_candidate_resolution,
+    score_raw_candidate_retrieval,
     score_raw_signals,
     search_cards,
     search_cards_local,
@@ -54,21 +57,19 @@ from catalog_tools import (
     utc_now,
 )
 from fx_rates import decorate_pricing_summary_with_fx
-from pokemontcg_api_client import (
-    best_remote_raw_candidates,
-    build_raw_provider_queries,
-    fetch_card_by_id,
-    map_card,
-    search_remote_raw_candidates,
-)
-from pokemontcg_pricing_adapter import PokemonTcgApiProvider
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
+from raw_set_badge_matcher import RawSetBadgeMatcher
 from scrydex_adapter import (
+    SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
+    SCRYDEX_PROVIDER,
     ScrydexProvider,
     best_remote_scrydex_raw_candidates,
+    fetch_scrydex_card_by_id,
     map_scrydex_catalog_card,
     persist_scrydex_raw_snapshot,
+    scrydex_request_stats_snapshot,
+    search_remote_scrydex_raw_candidates,
     search_remote_scrydex_slab_candidates,
     raw_evidence_looks_japanese,
     search_remote_scrydex_japanese_raw_candidates,
@@ -104,9 +105,9 @@ class SpotlightScanService:
         self.connection = connect(database_path)
         self.index = load_index(self.connection)
         self._raw_visual_matcher: Any | None = None
+        self._raw_set_badge_matcher: RawSetBadgeMatcher | None = None
 
         self.pricing_registry = PricingProviderRegistry()
-        self.pricing_registry.register(PokemonTcgApiProvider())
         self.pricing_registry.register(ScrydexProvider())
         self.pricing_registry.register(PriceChartingProvider())
 
@@ -120,12 +121,106 @@ class SpotlightScanService:
             self._raw_visual_matcher = RawVisualMatcher(repo_root=self.repo_root)
         return self._raw_visual_matcher
 
+    def _prewarm_raw_visual_runtime(self) -> dict[str, Any]:
+        started_at = perf_counter()
+        try:
+            matcher = self._raw_visual_matcher_instance()
+            if hasattr(matcher, "prewarm"):
+                result = matcher.prewarm()
+            else:
+                result = {"available": True, "prewarmed": True}
+            return {
+                **result,
+                "requested": True,
+                "totalMs": round((perf_counter() - started_at) * 1000.0, 3),
+            }
+        except Exception as exc:
+            return {
+                "requested": True,
+                "available": False,
+                "prewarmed": False,
+                "error": str(exc),
+                "totalMs": round((perf_counter() - started_at) * 1000.0, 3),
+            }
+
+    def _raw_set_badge_matcher_instance(self) -> RawSetBadgeMatcher:
+        if self._raw_set_badge_matcher is None:
+            self._raw_set_badge_matcher = RawSetBadgeMatcher()
+        return self._raw_set_badge_matcher
+
+    def _scrydex_full_catalog_sync(self) -> dict[str, Any] | None:
+        return latest_provider_sync_run(
+            self.connection,
+            provider=SCRYDEX_PROVIDER,
+            sync_scope=SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
+        )
+
+    def _scrydex_full_catalog_sync_is_fresh(self) -> bool:
+        return provider_sync_run_is_fresh(
+            self.connection,
+            provider=SCRYDEX_PROVIDER,
+            sync_scope=SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
+            max_age_hours=24.0,
+        )
+
     @staticmethod
     def _raw_resolver_strategy(payload: dict[str, Any]) -> str:
         hint = str(payload.get("rawResolverMode") or "").strip().lower()
-        if hint in {"visual", "visual_only", "hybrid"}:
+        if hint in {"visual", "visual_only", "hybrid", "ocr"}:
             return hint
-        return "ocr"
+        return "hybrid"
+
+    @staticmethod
+    def _log_scrydex_match_usage(
+        scan_id: str,
+        *,
+        before_total: int,
+        started_at: float,
+        response: dict[str, Any],
+    ) -> None:
+        stats = scrydex_request_stats_snapshot()
+        after_total = int(stats.get("total") or 0)
+        delta = max(0, after_total - before_total)
+        recent = list(stats.get("recent") or [])
+        recent_entries = recent[-delta:] if delta > 0 else []
+        types = [str(entry.get("type") or "unknown") for entry in recent_entries]
+        details = [
+            {
+                "type": str(entry.get("type") or "unknown"),
+                "path": str(entry.get("path") or ""),
+                "query": str(entry.get("query") or "").strip() or None,
+            }
+            for entry in recent_entries
+        ]
+        server_processing_ms = max(0.0, (perf_counter() - started_at) * 1000.0)
+        response["performance"] = {
+            "serverProcessingMs": round(server_processing_ms, 3),
+            "scrydexRequestCount": delta,
+            "scrydexRequestTypes": types,
+        }
+        visual_hybrid_debug = ((response.get("rawDecisionDebug") or {}).get("visualHybrid") or {})
+        phase_timings = visual_hybrid_debug.get("phaseTimings") or {}
+        matcher_timings = visual_hybrid_debug.get("timings") or {}
+        if phase_timings or matcher_timings:
+            response["performance"]["phaseTimings"] = phase_timings
+            response["performance"]["matcherTimings"] = matcher_timings
+        print(
+            "[MATCH PERF] "
+            f"scan={scan_id} "
+            f"resolverPath={response.get('resolverPath') or 'unknown'} "
+            f"confidence={response.get('confidence') or 'unknown'} "
+            f"serverMs={server_processing_ms:.1f} "
+            f"requests={delta} "
+            f"types={types or ['none']} "
+            f"details={details or []}"
+        )
+        if phase_timings or matcher_timings:
+            print(
+                "[MATCH PERF DETAIL] "
+                f"scan={scan_id} "
+                f"phases={phase_timings or {}} "
+                f"matcher={matcher_timings or {}}"
+            )
 
     def _display_pricing_summary_for_card(
         self,
@@ -839,9 +934,9 @@ class SpotlightScanService:
             "decision": debug_payload.get("decision") or {},
         }
 
-    def health(self) -> dict[str, Any]:
+    def health(self, *, prewarm_visual: bool = False) -> dict[str, Any]:
         active_raw_provider = self.pricing_registry.get_active_provider(for_raw=True)
-        return {
+        payload = {
             "status": "ok",
             "catalogCount": len(self.index),
             "matcherVersion": MATCHER_VERSION,
@@ -862,9 +957,14 @@ class SpotlightScanService:
                 "bulk_auto_detect_without_capture",
             ],
         }
+        if prewarm_visual:
+            payload["visualRuntime"] = self._prewarm_raw_visual_runtime()
+        return payload
 
     def provider_status(self) -> dict[str, Any]:
         provider_details: list[dict[str, Any]] = []
+        scrydex_full_sync = self._scrydex_full_catalog_sync()
+        scrydex_full_sync_is_fresh = self._scrydex_full_catalog_sync_is_fresh()
         for metadata in self.pricing_registry.list_providers():
             raw_refresh_row = self.connection.execute(
                 """
@@ -897,6 +997,12 @@ class SpotlightScanService:
                     "lastRefreshAt": raw_refresh_row["updated_at"] if raw_refresh_row else None,
                     "lastRawRefreshAt": raw_refresh_row["updated_at"] if raw_refresh_row else None,
                     "lastPsaRefreshAt": graded_refresh_row["updated_at"] if graded_refresh_row else None,
+                    "fullCatalogSyncFresh": scrydex_full_sync_is_fresh if metadata.provider_id == SCRYDEX_PROVIDER else False,
+                    "lastFullCatalogSyncAt": (
+                        scrydex_full_sync.get("completedAt")
+                        if metadata.provider_id == SCRYDEX_PROVIDER and scrydex_full_sync is not None
+                        else None
+                    ),
                 }
             )
         active_raw_provider = self.pricing_registry.get_active_provider(for_raw=True)
@@ -905,6 +1011,9 @@ class SpotlightScanService:
             "activeRawProvider": active_raw_provider.get_metadata().provider_id if active_raw_provider else None,
             "runtimeMode": "raw_only",
             "experimentalResolverModes": ["psa_slab"],
+            "scrydexRequestStats": scrydex_request_stats_snapshot(),
+            "scrydexFullCatalogSync": scrydex_full_sync,
+            "scrydexFullCatalogSyncFresh": scrydex_full_sync_is_fresh,
         }
 
     def cache_status(self) -> dict[str, Any]:
@@ -996,29 +1105,15 @@ class SpotlightScanService:
         self.refresh_index()
         return mapped_card
 
-    def _persist_catalog_card(
-        self,
-        *,
-        raw_card: dict[str, Any],
-        sync_mode: str,
-        trigger_source: str,
-        query_text: str | None,
-        local_image_path: Path | None = None,
-        refresh_embeddings: bool = False,
-    ) -> dict[str, Any]:
-        mapped_card = map_card(raw_card, local_image_path)
+    def import_catalog_card(self, card_id: str, api_key: str | None = None, *, trigger_source: str = "manual") -> dict[str, Any] | None:
+        del api_key
+        scrydex_provider = self.pricing_registry.get_provider("scrydex")
+        if scrydex_provider is None or not scrydex_provider.is_ready():
+            return None
+        raw_card = fetch_scrydex_card_by_id(card_id, include_prices=True, request_type="card_import")
+        mapped_card = map_scrydex_catalog_card(raw_card)
         return self._persist_mapped_catalog_card(
             mapped_card=mapped_card,
-            sync_mode=sync_mode,
-            trigger_source=trigger_source,
-            query_text=query_text,
-            refresh_embeddings=refresh_embeddings,
-        )
-
-    def import_catalog_card(self, card_id: str, api_key: str | None = None, *, trigger_source: str = "manual") -> dict[str, Any] | None:
-        raw_card = fetch_card_by_id(card_id, api_key)
-        return self._persist_catalog_card(
-            raw_card=raw_card,
             sync_mode="exact_card_import",
             trigger_source=trigger_source,
             query_text=card_id,
@@ -1039,6 +1134,219 @@ class SpotlightScanService:
             updated["_retrievalRoutes"] = list(dict.fromkeys([route, *(candidate.get("_retrievalRoutes") or [])]))
             annotated.append(updated)
         return annotated
+
+    @staticmethod
+    def _normalized_target_quality_reasons(payload: dict[str, Any]) -> tuple[str, ...]:
+        ocr_analysis = payload.get("ocrAnalysis") or {}
+        normalized_target = ocr_analysis.get("normalizedTarget") or {}
+        target_quality = normalized_target.get("targetQuality") or {}
+        reasons = target_quality.get("reasons") or []
+        return tuple(
+            str(reason or "").strip().lower()
+            for reason in reasons
+            if str(reason or "").strip()
+        )
+
+    @classmethod
+    def _uses_exact_reticle_fallback(cls, payload: dict[str, Any]) -> bool:
+        return "normalization:exact_reticle_fallback" in cls._normalized_target_quality_reasons(payload)
+
+    @classmethod
+    def _should_expand_visual_hybrid_pool(
+        cls,
+        payload: dict[str, Any],
+        evidence: RawEvidence,
+    ) -> bool:
+        if cls._uses_exact_reticle_fallback(payload):
+            return True
+        if evidence.used_fallback_normalization and evidence.target_quality_score <= 0.62:
+            return True
+        if evidence.crop_confidence <= 0.58 and evidence.target_quality_score <= 0.62:
+            return True
+        return False
+
+    @classmethod
+    def _visual_hybrid_top_k(
+        cls,
+        payload: dict[str, Any],
+        evidence: RawEvidence,
+    ) -> int:
+        return 40 if cls._should_expand_visual_hybrid_pool(payload, evidence) else 10
+
+    @staticmethod
+    def _local_ocr_rescue_similarity(
+        retrieval_score: float,
+        *,
+        collector_exact: bool,
+        collector_partial: bool,
+        title_overlap: bool,
+        set_overlap: bool,
+        denominator_match: bool,
+    ) -> float:
+        if collector_exact and title_overlap:
+            base = 0.84
+        elif collector_exact and (set_overlap or denominator_match):
+            base = 0.80
+        elif collector_exact:
+            base = 0.76
+        elif title_overlap and collector_partial:
+            base = 0.72
+        elif title_overlap and set_overlap:
+            base = 0.70
+        elif title_overlap:
+            base = 0.64
+        elif collector_partial:
+            base = 0.60
+        else:
+            return 0.0
+
+        bonus = min(0.02, max(0.0, retrieval_score - 30.0) / 1000.0)
+        return round(min(0.86, base + bonus), 6)
+
+    def _search_local_visual_manifest_ocr_candidates(
+        self,
+        evidence: RawEvidence,
+        signals: RawSignalScores,
+        *,
+        limit: int = 24,
+    ) -> list[dict[str, Any]]:
+        matcher = self._raw_visual_matcher_instance()
+        index = getattr(matcher, "index", None)
+        if index is None:
+            return []
+
+        try:
+            index.load()
+            entries = list(index.entries)
+        except Exception:
+            return []
+
+        query_title_tokens = set(tokenize(" ".join(filter(None, [evidence.title_text_primary, evidence.title_text_secondary]))))
+        set_query_tokens = set(evidence.trusted_set_hint_tokens or evidence.set_hint_tokens)
+        collector_query_values = set(evidence.collector_number_query_values)
+        collector_exact = canonicalize_collector_number(evidence.collector_number_exact or "")
+        printed_total_fragment = (
+            f"/{evidence.collector_number_printed_total}"
+            if evidence.collector_number_printed_total is not None
+            else ""
+        )
+        prefer_japanese = raw_evidence_looks_japanese(evidence)
+
+        if not any([query_title_tokens, set_query_tokens, collector_query_values, printed_total_fragment]):
+            return []
+
+        scored: list[tuple[float, float, float, dict[str, Any]]] = []
+        for entry in entries:
+            candidate_language = str(entry.get("language") or "").strip().lower()
+            if prefer_japanese and candidate_language and candidate_language != "japanese":
+                continue
+            if not prefer_japanese and query_title_tokens and candidate_language == "japanese":
+                continue
+
+            entry_number = canonicalize_collector_number(str(entry.get("collectorNumber") or ""))
+            title_overlap = False
+            if query_title_tokens:
+                title_overlap = bool(query_title_tokens & set(tokenize(str(entry.get("name") or ""))))
+            collector_match = False
+            if collector_exact and entry_number == collector_exact:
+                collector_match = True
+            elif collector_query_values and any(query_value in entry_number for query_value in collector_query_values):
+                collector_match = True
+            elif printed_total_fragment and printed_total_fragment in entry_number:
+                collector_match = True
+
+            set_match = False
+            if set_query_tokens:
+                candidate_set_tokens = set(
+                    tokenize(
+                        " ".join(
+                            part
+                            for part in [
+                                entry.get("setName") or "",
+                                entry.get("setSeries") or "",
+                                entry.get("setId") or "",
+                                entry.get("setPtcgoCode") or "",
+                            ]
+                            if part
+                        )
+                    )
+                )
+                set_match = bool(set_query_tokens & candidate_set_tokens)
+
+            if not (title_overlap or collector_match or set_match):
+                continue
+
+            candidate = self._visual_candidate_stub(entry)
+            retrieval_score = score_raw_candidate_retrieval(candidate, evidence, signals)
+            if retrieval_score <= 0.0:
+                continue
+            resolution_score, breakdown, reasons = score_raw_candidate_resolution(candidate, evidence)
+            pseudo_similarity = self._local_ocr_rescue_similarity(
+                retrieval_score,
+                collector_exact=breakdown.collector_exact_score > 0.0,
+                collector_partial=breakdown.collector_partial_score > 0.0,
+                title_overlap=breakdown.title_overlap_score > 0.0,
+                set_overlap=breakdown.set_overlap_score > 0.0,
+                denominator_match=breakdown.collector_denominator_score > 0.0,
+            )
+            if pseudo_similarity <= 0.0:
+                continue
+
+            candidate["_visualSimilarity"] = pseudo_similarity
+            candidate["_visualSimilaritySource"] = "local_ocr_rescue"
+            candidate["_retrievalScoreHint"] = round(retrieval_score, 4)
+            candidate["_cachePresence"] = False
+            candidate["_retrievalRoutes"] = ["local_visual_manifest_ocr"]
+            candidate["_setBadgeImageScore"] = 0.0
+            candidate["_setBadgeImageFamily"] = None
+            candidate["_ocrRescueReasons"] = list(reasons)
+            candidate["_ocrRescueResolutionScore"] = round(resolution_score, 4)
+            scored.append((pseudo_similarity, retrieval_score, resolution_score, candidate))
+
+        scored.sort(
+            key=lambda item: (
+                -item[0],
+                -item[1],
+                -item[2],
+                str(item[3].get("name") or ""),
+                str(item[3].get("number") or ""),
+            )
+        )
+
+        deduped: dict[str, dict[str, Any]] = {}
+        for _, _, _, candidate in scored:
+            candidate_id = str(candidate.get("id") or "")
+            if not candidate_id or candidate_id in deduped:
+                continue
+            deduped[candidate_id] = candidate
+            if len(deduped) >= limit:
+                break
+        return list(deduped.values())
+
+    @classmethod
+    def _should_fail_closed_for_retake(
+        cls,
+        payload: dict[str, Any],
+        evidence: RawEvidence,
+        signals: RawSignalScores,
+        decision: RawDecisionResult,
+    ) -> bool:
+        if not (cls._uses_exact_reticle_fallback(payload) or evidence.used_fallback_normalization):
+            return False
+        if evidence.target_quality_score > 0.52 or evidence.crop_confidence > 0.52:
+            return False
+        if any([
+            signals.collector_signal >= 60,
+            signals.title_signal >= 35,
+            signals.set_signal >= 65,
+            bool(evidence.collector_number_exact),
+            bool(evidence.collector_number_partial),
+            bool(evidence.title_text_primary.strip()),
+            bool(evidence.title_text_secondary.strip()),
+            bool(evidence.trusted_set_hint_tokens),
+        ]):
+            return False
+        return True
 
     def _retrieve_local_raw_candidates(
         self,
@@ -1085,6 +1393,14 @@ class SpotlightScanService:
         plan: RawRetrievalPlan,
         api_key: str | None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        del api_key
+        if self._scrydex_full_catalog_sync_is_fresh():
+            return [], {
+                "queries": [],
+                "attempts": [],
+                "resultCount": 0,
+                "reason": "full_sync_fresh",
+            }
         if not plan.should_query_remote:
             return [], {
                 "queries": [],
@@ -1092,25 +1408,8 @@ class SpotlightScanService:
                 "resultCount": 0,
                 "reason": "plan_disabled",
             }
-        if self._should_use_scrydex_japanese_raw(evidence):
-            remote_search = search_remote_scrydex_japanese_raw_candidates(evidence, signals, page_size=10)
-            remote_candidates = best_remote_scrydex_raw_candidates(remote_search.cards, evidence, signals, limit=12)
-            queries = [attempt["query"] for attempt in remote_search.attempts]
-            if not queries:
-                return [], {
-                    "queries": [],
-                    "attempts": [],
-                    "resultCount": 0,
-                    "reason": "no_queries",
-                }
-            return remote_candidates, {
-                "queries": queries,
-                "attempts": remote_search.attempts,
-                "resultCount": len(remote_search.cards),
-                "reason": None,
-            }
-
-        queries = build_raw_provider_queries(evidence, signals)
+        remote_search = search_remote_scrydex_raw_candidates(evidence, signals, page_size=10)
+        queries = [attempt["query"] for attempt in remote_search.attempts]
         if not queries:
             return [], {
                 "queries": [],
@@ -1118,8 +1417,7 @@ class SpotlightScanService:
                 "resultCount": 0,
                 "reason": "no_queries",
             }
-        remote_search = search_remote_raw_candidates(queries, api_key, page_size=10)
-        remote_candidates = best_remote_raw_candidates(remote_search.cards, evidence, signals, limit=12)
+        remote_candidates = best_remote_scrydex_raw_candidates(remote_search.cards, evidence, signals, limit=12)
         return remote_candidates, {
             "queries": queries,
             "attempts": remote_search.attempts,
@@ -1156,6 +1454,13 @@ class SpotlightScanService:
         return candidates[:12]
 
     def _retrieve_remote_slab_candidates(self, evidence: SlabMatchEvidence) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        if self._scrydex_full_catalog_sync_is_fresh():
+            return [], {
+                "queries": [],
+                "attempts": [],
+                "resultCount": 0,
+                "reason": "full_sync_fresh",
+            }
         title_text = evidence.title_text_primary or evidence.title_text_secondary
         search_result = search_remote_scrydex_slab_candidates(
             title_text=title_text,
@@ -1219,8 +1524,6 @@ class SpotlightScanService:
             try:
                 if source_provider == "scrydex" or source_payload.get("printed_number") is not None or source_payload.get("expansion") is not None:
                     mapped_card = map_scrydex_catalog_card(source_payload)
-                elif source_payload.get("id") and source_payload.get("number") is not None:
-                    mapped_card = map_card(source_payload, None)
             except Exception:
                 mapped_card = None
 
@@ -1236,7 +1539,7 @@ class SpotlightScanService:
                 "reference_image_path": None,
                 "reference_image_url": card.get("imageURL"),
                 "reference_image_small_url": card.get("imageSmallURL"),
-                "source": str(card.get("sourceProvider") or "pokemontcg_api"),
+                "source": str(card.get("sourceProvider") or "scrydex"),
                 "source_record_id": str(card.get("sourceRecordID") or card_id),
                 "set_id": card.get("setID"),
                 "set_series": card.get("setSeries"),
@@ -1257,7 +1560,7 @@ class SpotlightScanService:
         cached = card_by_id(self.connection, card_id)
         if cached is not None:
             cached_pricing = contextual_pricing_summary_for_card(self.connection, card_id)
-            if cached_pricing is None and source_provider == "scrydex" and isinstance(source_payload, dict):
+            if cached_pricing is None and source_provider == "scrydex" and isinstance(source_payload, dict) and source_payload:
                 persisted = persist_scrydex_raw_snapshot(self.connection, card_id, source_payload)
                 if persisted is not None:
                     return card_by_id(self.connection, card_id) or cached
@@ -1279,7 +1582,7 @@ class SpotlightScanService:
             query_text=card_id,
             refresh_embeddings=False,
         )
-        if source_provider == "scrydex" and isinstance(source_payload, dict):
+        if source_provider == "scrydex" and isinstance(source_payload, dict) and source_payload:
             persist_scrydex_raw_snapshot(self.connection, card_id, source_payload)
         return card_by_id(self.connection, card_id) or card
 
@@ -1295,7 +1598,7 @@ class SpotlightScanService:
         card_id = str(resolved_card.get("id") or "").strip()
         pricing = self._display_pricing_summary_for_card(card_id) if card_id else None
 
-        if card_id and refresh_pricing_if_missing and pricing is None:
+        if card_id and refresh_pricing_if_missing and pricing is None and not self._scrydex_full_catalog_sync_is_fresh():
             refreshed_detail = self.refresh_card_pricing(card_id, api_key=api_key)
             pricing = ((refreshed_detail or {}).get("card", {}) or {}).get("pricing") if isinstance(refreshed_detail, dict) else None
             if pricing is None:
@@ -1315,6 +1618,10 @@ class SpotlightScanService:
         if pricing is not None:
             candidate["pricing"] = pricing
         return candidate
+
+    @staticmethod
+    def _should_refresh_match_pricing(confidence: str, review_disposition: str | None) -> bool:
+        return review_disposition == "ready" and confidence in {"high", "medium"}
 
     def _slab_candidate_payload(
         self,
@@ -1342,7 +1649,14 @@ class SpotlightScanService:
         ):
             pricing = None
 
-        if card_id and grader and grade and refresh_pricing_if_missing and pricing is None:
+        if (
+            card_id
+            and grader
+            and grade
+            and refresh_pricing_if_missing
+            and pricing is None
+            and not self._scrydex_full_catalog_sync_is_fresh()
+        ):
             refreshed_detail = self.refresh_card_pricing(
                 card_id,
                 grader=grader,
@@ -1401,12 +1715,16 @@ class SpotlightScanService:
 
         scored_candidates: list[dict[str, Any]] = []
         encoded_candidates: list[dict[str, Any]] = []
+        should_refresh_top_candidate_pricing = self._should_refresh_match_pricing(
+            decision.confidence,
+            decision.review_disposition,
+        )
         for index, match in enumerate(top_matches):
             candidate_payload = self._raw_candidate_payload(
                 match.card,
                 ensure_cached=index == 0,
                 api_key=api_key,
-                refresh_pricing_if_missing=index == 0,
+                refresh_pricing_if_missing=should_refresh_top_candidate_pricing and index == 0,
             )
             scored_entry = {
                 "card": match.card,
@@ -1446,23 +1764,23 @@ class SpotlightScanService:
         return response, scored_candidates
 
     @staticmethod
-    def _visual_candidate_stub(match: dict[str, Any]) -> dict[str, Any]:
-        image_url = match.get("imageUrl")
+    def _visual_candidate_stub(entry: dict[str, Any]) -> dict[str, Any]:
+        image_url = entry.get("imageUrl")
         return {
-            "id": str(match.get("providerCardId") or ""),
-            "name": str(match.get("name") or ""),
-            "setName": str(match.get("setName") or ""),
-            "number": str(match.get("collectorNumber") or ""),
+            "id": str(entry.get("providerCardId") or ""),
+            "name": str(entry.get("name") or ""),
+            "setName": str(entry.get("setName") or ""),
+            "number": str(entry.get("collectorNumber") or ""),
             "rarity": "Unknown",
             "variant": "Raw",
-            "language": "English",
+            "language": str(entry.get("language") or "Unknown"),
             "imageSmallURL": image_url,
             "imageURL": image_url,
-            "sourceProvider": "pokemontcg_api",
-            "sourceRecordID": str(match.get("providerCardId") or ""),
-            "setID": match.get("setId"),
-            "setSeries": match.get("setSeries"),
-            "setPtcgoCode": match.get("setPtcgoCode"),
+            "sourceProvider": str(entry.get("sourceProvider") or "scrydex"),
+            "sourceRecordID": str(entry.get("sourceRecordID") or entry.get("providerCardId") or ""),
+            "setID": entry.get("setId"),
+            "setSeries": entry.get("setSeries"),
+            "setPtcgoCode": entry.get("setPtcgoCode"),
             "sourcePayload": {},
         }
 
@@ -1470,12 +1788,14 @@ class SpotlightScanService:
     def _visual_match_summary(match: Any) -> dict[str, Any]:
         return {
             "providerCardId": str(match.entry.get("providerCardId") or ""),
+            "sourceProvider": str(match.entry.get("sourceProvider") or "scrydex"),
             "name": str(match.entry.get("name") or ""),
             "collectorNumber": str(match.entry.get("collectorNumber") or ""),
             "setId": match.entry.get("setId"),
             "setName": match.entry.get("setName"),
             "setSeries": match.entry.get("setSeries"),
             "setPtcgoCode": match.entry.get("setPtcgoCode"),
+            "language": match.entry.get("language"),
             "imageUrl": match.entry.get("imageUrl"),
             "similarity": round(match.similarity, 6),
             "rowIndex": match.row_index,
@@ -1527,20 +1847,22 @@ class SpotlightScanService:
         ranked_matches = [self._visual_match_summary(match) for match in matches]
         confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
         review_disposition = "ready" if confidence != "low" else "needs_review"
+        should_refresh_top_candidate_pricing = self._should_refresh_match_pricing(confidence, review_disposition)
 
         encoded_candidates: list[dict[str, Any]] = []
         scored_candidates: list[dict[str, Any]] = []
-        for index, match in enumerate(ranked_matches[:5]):
+        for index, match in enumerate(matches[:5]):
+            summary = ranked_matches[index]
             candidate_payload = self._raw_candidate_payload(
-                self._visual_candidate_stub(match),
+                self._visual_candidate_stub(match.entry),
                 ensure_cached=index == 0,
                 api_key=api_key,
-                refresh_pricing_if_missing=index == 0,
+                refresh_pricing_if_missing=should_refresh_top_candidate_pricing and index == 0,
             )
             scored_candidates.append(
                 {
                     "candidate": candidate_payload,
-                    "visualScore": match["similarity"],
+                    "visualScore": summary["similarity"],
                     "reasons": ["visual_similarity"],
                 }
             )
@@ -1548,10 +1870,10 @@ class SpotlightScanService:
                 {
                     "rank": index + 1,
                     "candidate": candidate_payload,
-                    "imageScore": match["similarity"],
+                    "imageScore": summary["similarity"],
                     "collectorNumberScore": 0.0,
                     "nameScore": 0.0,
-                    "finalScore": match["similarity"],
+                    "finalScore": summary["similarity"],
                 }
             )
 
@@ -1585,11 +1907,15 @@ class SpotlightScanService:
         *,
         api_key: str | None = None,
     ) -> dict[str, Any]:
+        evidence_started_at = perf_counter()
         evidence = build_raw_evidence(payload)
         signals = score_raw_signals(evidence)
+        evidence_ms = (perf_counter() - evidence_started_at) * 1000.0
 
+        requested_top_k = self._visual_hybrid_top_k(payload, evidence)
+        visual_match_started_at = perf_counter()
         try:
-            matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=10)
+            matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=requested_top_k)
         except Exception as exc:
             response = {
                 "scanID": payload["scanID"],
@@ -1608,18 +1934,73 @@ class SpotlightScanService:
             self._emit_structured_log(self._scan_log_payload(payload, response, []))
             self._log_scan(payload, response, [])
             return response
+        visual_match_ms = (perf_counter() - visual_match_started_at) * 1000.0
 
         visual_matches = [self._visual_match_summary(match) for match in matches]
+        badge_image_scores: dict[str, dict[str, Any]] = {}
+        badge_match_error: str | None = None
+        badge_match_started_at = perf_counter()
+        try:
+            badge_image_scores = self._raw_set_badge_matcher_instance().score_payload_against_entries(
+                payload,
+                [match.entry for match in matches],
+            )
+        except Exception as exc:
+            badge_match_error = str(exc)
+        badge_match_ms = (perf_counter() - badge_match_started_at) * 1000.0
         visual_candidates = [
             {
-                **self._visual_candidate_stub(match),
-                "_visualSimilarity": float(match.get("similarity") or 0.0),
+                **self._visual_candidate_stub(match.entry),
+                "_visualSimilarity": float(summary.get("similarity") or 0.0),
+                "_visualSimilaritySource": "visual_index",
+                "_retrievalScoreHint": round(float(summary.get("similarity") or 0.0) * 100.0, 4),
+                "_cachePresence": False,
+                "_retrievalRoutes": ["visual_index"],
+                "_setBadgeImageScore": float(
+                    (badge_image_scores.get(str(summary.get("providerCardId") or ""), {}) or {}).get("score") or 0.0
+                ),
+                "_setBadgeImageFamily": (
+                    badge_image_scores.get(str(summary.get("providerCardId") or ""), {}) or {}
+                ).get("family"),
             }
-            for match in visual_matches
+            for match, summary in zip(matches, visual_matches, strict=True)
         ]
+        used_local_ocr_rescue = self._should_expand_visual_hybrid_pool(payload, evidence)
+        local_ocr_candidates: list[dict[str, Any]] = []
+        if used_local_ocr_rescue:
+            local_ocr_candidates = self._search_local_visual_manifest_ocr_candidates(
+                evidence,
+                signals,
+                limit=24,
+            )
+            if local_ocr_candidates:
+                visual_candidates = merge_raw_candidate_pools([visual_candidates, local_ocr_candidates])
 
+        rerank_started_at = perf_counter()
         ranked_matches, weights = rank_visual_hybrid_candidates(visual_candidates, evidence, signals)
         decision = finalize_raw_decision(ranked_matches, evidence, signals)
+        if self._should_fail_closed_for_retake(payload, evidence, signals, decision):
+            decision = RawDecisionResult(
+                matches=tuple(),
+                top_candidates=tuple(),
+                confidence="low",
+                confidence_percent=decision.confidence_percent,
+                ambiguity_flags=tuple(
+                    dict.fromkeys(
+                        [
+                            *decision.ambiguity_flags,
+                            "Scan did not capture enough full-card detail",
+                        ]
+                    )
+                ),
+                resolver_path=decision.resolver_path,
+                review_disposition="unsupported",
+                review_reason="Try again with the card centered and filling more of the reticle.",
+                fallback_reason=decision.fallback_reason or "retake_low_quality_fallback",
+                selected_card_id=None,
+                debug_payload=decision.debug_payload,
+            )
+        rerank_decision_ms = (perf_counter() - rerank_started_at) * 1000.0
         top_matches_debug = [
             {
                 "id": match.card.get("id"),
@@ -1632,6 +2013,7 @@ class SpotlightScanService:
                 "breakdown": {
                     "titleOverlap": match.breakdown.title_overlap_score,
                     "setOverlap": match.breakdown.set_overlap_score,
+                    "setBadgeImage": match.breakdown.set_badge_image_score,
                     "collectorExact": match.breakdown.collector_exact_score,
                     "collectorPartial": match.breakdown.collector_partial_score,
                     "collectorDenominator": match.breakdown.collector_denominator_score,
@@ -1653,6 +2035,9 @@ class SpotlightScanService:
                 "trustedSetHintTokens": list(evidence.trusted_set_hint_tokens),
                 "promoCodeHint": evidence.promo_code_hint,
                 "cropConfidence": evidence.crop_confidence,
+                "setBadgeHintKind": evidence.set_badge_hint_kind,
+                "setBadgeHintSource": evidence.set_badge_hint_source,
+                "setBadgeHintRawValue": evidence.set_badge_hint_raw_value,
             },
             "signals": {
                 "title": signals.title_signal,
@@ -1664,9 +2049,30 @@ class SpotlightScanService:
             "visualHybrid": {
                 **debug,
                 "candidateCount": len(visual_matches),
+                "requestedTopK": requested_top_k,
+                "retrievalStrategy": "fallback_local_rescue" if used_local_ocr_rescue else "standard_visual_hybrid",
+                "localOCRCandidateCount": len(local_ocr_candidates),
+                "localOCRCandidates": [
+                    {
+                        "id": str(candidate.get("id") or ""),
+                        "name": str(candidate.get("name") or ""),
+                        "number": str(candidate.get("number") or ""),
+                        "pseudoSimilarity": round(float(candidate.get("_visualSimilarity") or 0.0), 4),
+                        "retrievalScoreHint": round(float(candidate.get("_retrievalScoreHint") or 0.0), 4),
+                    }
+                    for candidate in local_ocr_candidates[:10]
+                ],
                 "visualWeight": weights["visualWeight"],
                 "ocrWeight": weights["ocrWeight"],
+                "setBadgeImageError": badge_match_error,
+                "setBadgeImageScores": badge_image_scores,
                 "topVisualCandidates": visual_matches[:10],
+                "phaseTimings": {
+                    "buildRawEvidenceMs": round(evidence_ms, 3),
+                    "visualMatchMs": round(visual_match_ms, 3),
+                    "badgeMatchMs": round(badge_match_ms, 3),
+                    "rerankDecisionMs": round(rerank_decision_ms, 3),
+                },
             },
             "topMatches": top_matches_debug,
             "ambiguity": None,
@@ -2050,7 +2456,7 @@ class SpotlightScanService:
             else top_local_score
         )
         should_expand_remote = plan.should_query_remote and (
-            len(local_candidates) < 3 or top_local_score < 70.0 or local_delta < 8.0
+            not local_candidates or top_local_score < 70.0 or local_delta < 8.0
         )
         remote_candidates, remote_debug = (
             self._retrieve_remote_raw_candidates(evidence, signals, plan, api_key)
@@ -2188,7 +2594,7 @@ class SpotlightScanService:
             self._log_pricing_provenance("refresh_raw_cached", card_id)
             return self.card_detail(card_id)
 
-        provider_id = str((existing_card or {}).get("sourceProvider") or "pokemontcg_api")
+        provider_id = str((existing_card or {}).get("sourceProvider") or "scrydex")
         raw_provider = self.pricing_registry.get_provider(provider_id)
         if raw_provider is None or not raw_provider.is_ready() or not raw_provider.get_metadata().supports_raw_pricing:
             return self.card_detail(card_id)
@@ -2250,16 +2656,47 @@ class SpotlightScanService:
 
     def match_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._emit_structured_log(self._scan_request_log_payload(payload))
+        scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
+        scan_id = str(payload.get("scanID") or "")
+        match_started = perf_counter()
         resolver_mode = resolver_mode_for_payload(payload)
         if resolver_mode == "raw_card":
             raw_resolver_strategy = self._raw_resolver_strategy(payload)
             if raw_resolver_strategy == "visual":
-                return self._resolve_raw_candidates_visual_only(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))
+                response = self._resolve_raw_candidates_visual_only(payload, api_key=None)
+                self._log_scrydex_match_usage(
+                    scan_id,
+                    before_total=scrydex_before_total,
+                    started_at=match_started,
+                    response=response,
+                )
+                return response
             if raw_resolver_strategy == "hybrid":
-                return self._resolve_raw_candidates_visual_hybrid(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))
-            return self._resolve_raw_candidates(payload, api_key=os.environ.get("POKEMONTCG_API_KEY"))
+                response = self._resolve_raw_candidates_visual_hybrid(payload, api_key=None)
+                self._log_scrydex_match_usage(
+                    scan_id,
+                    before_total=scrydex_before_total,
+                    started_at=match_started,
+                    response=response,
+                )
+                return response
+            response = self._resolve_raw_candidates(payload, api_key=None)
+            self._log_scrydex_match_usage(
+                scan_id,
+                before_total=scrydex_before_total,
+                started_at=match_started,
+                response=response,
+            )
+            return response
         if resolver_mode == "psa_slab":
-            return self._resolve_slab_candidates(payload)
+            response = self._resolve_slab_candidates(payload)
+            self._log_scrydex_match_usage(
+                scan_id,
+                before_total=scrydex_before_total,
+                started_at=match_started,
+                response=response,
+            )
+            return response
 
         response = {
             "scanID": payload["scanID"],
@@ -2276,6 +2713,12 @@ class SpotlightScanService:
         }
         self._emit_structured_log(self._scan_log_payload(payload, response, []))
         self._log_scan(payload, response, [])
+        self._log_scrydex_match_usage(
+            scan_id,
+            before_total=scrydex_before_total,
+            started_at=match_started,
+            response=response,
+        )
         return response
 
     def log_feedback(self, payload: dict[str, Any]) -> None:
@@ -2350,9 +2793,11 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
+        query = parse_qs(parsed.query)
 
         if parsed.path == "/api/v1/health":
-            self._write_json(HTTPStatus.OK, self.service.health())
+            prewarm_visual = str(query.get("prewarm", [""])[0]).strip().lower() in {"1", "true", "visual", "all"}
+            self._write_json(HTTPStatus.OK, self.service.health(prewarm_visual=prewarm_visual))
             return
 
         if parsed.path == "/api/v1/ops/provider-status":
@@ -2360,7 +2805,6 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/ops/unmatched-scans":
-            query = parse_qs(parsed.query)
             limit = int(query.get("limit", ["25"])[0])
             self._write_json(HTTPStatus.OK, self.service.unmatched_scans(limit=limit))
             return
@@ -2390,7 +2834,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 preferred_variant=preferred_variant,
             )
             if payload is None:
-                api_key = os.environ.get("POKEMONTCG_API_KEY")
+                api_key = os.environ.get("SCRYDEX_API_KEY")
                 try:
                     imported = self.service.import_catalog_card(
                         card_id,
@@ -2435,7 +2879,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             try:
                 payload = self.service.refresh_card_pricing(
                     card_id,
-                    api_key=os.environ.get("POKEMONTCG_API_KEY"),
+                    api_key=os.environ.get("SCRYDEX_API_KEY"),
                     grader=grader,
                     grade=grade,
                     cert_number=cert_number,
@@ -2466,7 +2910,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             try:
                 imported = self.service.import_catalog_card(
                     card_id,
-                    api_key=os.environ.get("POKEMONTCG_API_KEY"),
+                    api_key=os.environ.get("SCRYDEX_API_KEY"),
                     trigger_source="manual_endpoint",
                 )
             except Exception as error:

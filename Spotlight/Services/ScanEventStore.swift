@@ -43,6 +43,7 @@ actor ScanEventStore {
                 recognizedTokens: analysis.recognizedTokens,
                 collectorNumber: analysis.collectorNumber,
                 setHintTokens: analysis.setHintTokens,
+                setBadgeHint: analysis.setBadgeHint,
                 promoCodeHint: analysis.promoCodeHint,
                 slabGrader: analysis.slabGrader,
                 slabGrade: analysis.slabGrade,
@@ -56,6 +57,7 @@ actor ScanEventStore {
                 slabClassifierReasons: analysis.slabClassifierReasons,
                 slabRecommendedLookupPath: analysis.slabRecommendedLookupPath,
                 resolverModeHint: analysis.resolverModeHint,
+                rawResolverMode: analysis.resolverModeHint.runtimeRawResolverMode,
                 cropConfidence: analysis.cropConfidence,
                 warnings: analysis.warnings,
                 ocrAnalysis: analysis.ocrAnalysis

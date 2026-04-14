@@ -201,7 +201,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
+      "label" : "14_raw_footer_modern_left_set_anchored",
       "normalizedRect" : {
         "height" : 0.0979265411369633,
         "width" : 0.138,
@@ -217,7 +217,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
+      "label" : "15_raw_footer_modern_left_collector_anchored",
       "normalizedRect" : {
         "height" : 0.0919310386183737,
         "width" : 0.275,
@@ -272,7 +272,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
+      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
       "normalizedRect" : {
         "height" : 0.10192354281602302,
         "width" : 0.125,
@@ -317,7 +317,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
       "normalizedRect" : {
         "height" : 0.09992504197649316,
         "width" : 0.20328456333705353,
@@ -382,7 +382,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
+      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
       "normalizedRect" : {
         "height" : 0.1049212940753178,
         "width" : 0.115,
@@ -417,7 +417,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
       "normalizedRect" : {
         "height" : 0.10192354281602302,
         "width" : 0.20328456333705353,
@@ -469,7 +469,7 @@
       ]
     }
   ],
-  "scanID" : "6A165F2D-5952-4372-8C37-DDBF52EFBC2D",
+  "scanID" : "28E8E6A5-9736-4D57-8726-A01F06EED398",
   "setConfidenceReasons" : [
 
   ],

@@ -1,18 +1,26 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_partial_collector_hint"
+    "rewrite_raw_footer_metadata_families_agree"
   ],
-  "collectorConfidenceScore" : 0.42,
+  "collectorConfidenceScore" : 0.94,
+  "collectorNumber" : "199\/182",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.9996031746031746,
-    "x" : 0.0001984126984126984,
+    "width" : 0.8161227037631532,
+    "x" : 0.09193864811842341,
     "y" : 0
   },
   "fixtureName" : "team-rockets-weezing-199-182-overhead",
   "footerRouting" : {
+    "anchorIdentifier" : "199\/182",
+    "collectorAnchor" : {
+      "height" : 0.017566778368337088,
+      "width" : 0.11209824943749638,
+      "x" : 0.23736981611065525,
+      "y" : 0.931786834041633
+    },
     "reasons" : [
-      "footer_band_anchor_unavailable"
+      "footer_band_collector_anchor"
     ]
   },
   "normalizedImageHeight" : 880,
@@ -20,7 +28,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:holder_like_selected_raw_card_preserved"
   ],
   "ocrTargetQualityScore" : 0.8727646147863436,
   "ocrUsedFallback" : false,
@@ -30,61 +38,91 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.2,
-        "width" : 0.8996428571428572,
-        "x" : 0.050178571428571433,
+        "width" : 0.7345104333868379,
+        "x" : 0.13274478330658107,
         "y" : 0.76
       },
-      "text" : "Explode Together Now n40 3 attackidoes 40 damage for each Pokemon in play that \"Koffing\"lor\"Weezing\" in its name (both yours and your bonentis)5",
+      "text" : "）x2 resntance cetrcal Hivo Sadla Thp-gaปsputo 199\/182合 mlsce gаялe Дyчilоn",
       "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020532319837229362,
+            "width" : 0.05338011893955117,
+            "x" : 0.24484303276750258,
+            "y" : 0.8664638780492772
+          },
+          "text" : "）x2"
+        },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.042633228840125395,
-            "width" : 0.5549744744601154,
-            "x" : 0.23594898889201618,
-            "y" : 0.7600000004366653
+            "height" : 0.015209125052425177,
+            "width" : 0.08754339358439524,
+            "x" : 0.3419948497253096,
+            "y" : 0.8702661598787305
           },
-          "text" : "Explode Together Now"
+          "text" : "resntance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.015217390628443983,
+            "width" : 0.06426966292134832,
+            "x" : 0.5856928846985019,
+            "y" : 0.8708695655281693
+          },
+          "text" : "cetrcal"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.015209125052425177,
+            "width" : 0.07152935890921308,
+            "x" : 0.22455858791562006,
+            "y" : 0.9075285172912779
+          },
+          "text" : "Hivo Sadla"
         },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.038333333173889345,
-            "width" : 0.09931122640677127,
-            "x" : 0.8411632641274425,
-            "y" : 0.7600000002271579
+            "height" : 0.021398857618947775,
+            "width" : 0.14839672937682016,
+            "x" : 0.4615663141983345,
+            "y" : 0.90514106557421
           },
-          "text" : "n40"
+          "text" : "Thp-gaปsputo"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.052025008724774696,
-            "width" : 0.8939097435829644,
-            "x" : 0.04945017404156778,
-            "y" : 0.7974877801672976
+            "height" : 0.017566778368337043,
+            "width" : 0.11209824943749638,
+            "x" : 0.23736981611065525,
+            "y" : 0.931786834041633
           },
-          "text" : "3 attackidoes 40 damage for each Pokemon in play that"
+          "text" : "199\/182合"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.046846551207539444,
-            "width" : 0.889844482937533,
-            "x" : 0.04978036597278522,
-            "y" : 0.8301993003540421
+            "height" : 0.013688212427599678,
+            "width" : 0.045906902086677366,
+            "x" : 0.43274105075905356,
+            "y" : 0.9273003804456244
           },
-          "text" : "\"Koffing\"lor\"Weezing\" in its name (both yours and your"
+          "text" : "mlsce"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.030128457478968685,
-            "width" : 0.14874926003076697,
-            "x" : 0.0499952669981421,
-            "y" : 0.8695191047960534
+            "height" : 0.020532319837229387,
+            "width" : 0.11423345808758677,
+            "x" : 0.48612116639365294,
+            "y" : 0.9257794674720697
           },
-          "text" : "bonentis)5"
+          "text" : "gаялe Дyчilоn"
         }
       ]
     },
@@ -92,47 +130,63 @@
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
+      "label" : "14_raw_footer_modern_left_set_anchored",
       "normalizedRect" : {
         "height" : 0.098,
-        "width" : 0.13794523809523812,
-        "x" : 0.07081038095238094,
-        "y" : 0.8451
+        "width" : 0.11262493311931515,
+        "x" : 0.10011211721606299,
+        "y" : 0.8896702232258015
       },
-      "text" : "Nouting nents)g",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.021100478468899512,
-            "width" : 0.12683116677950804,
-            "x" : 0.07081038140534938,
-            "y" : 0.8450999999648325
-          },
-          "text" : "Nouting"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.025320574162679427,
-            "width" : 0.12683116677950804,
-            "x" : 0.07081038112839563,
-            "y" : 0.8713583731083547
-          },
-          "text" : "nents)g"
-        }
+
       ]
     },
     {
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
+      "label" : "15_raw_footer_modern_left_collector_anchored",
       "normalizedRect" : {
         "height" : 0.092,
-        "width" : 0.27489087301587306,
-        "x" : 0.17013095238095238,
-        "y" : 0.85
+        "width" : 0.22443374353486714,
+        "x" : 0.1812020690619699,
+        "y" : 0.8945702232258015
+      },
+      "text" : "Aivo Bada 199\/182 €",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013076142131979693,
+            "width" : 0.07437247219777121,
+            "x" : 0.22135004104496678,
+            "y" : 0.9090473805561858
+          },
+          "text" : "Aivo Bada"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014944162436548216,
+            "width" : 0.10596431879505457,
+            "x" : 0.2358296371858013,
+            "y" : 0.9333316445989704
+          },
+          "text" : "199\/182 €"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.10201533797039415,
+        "x" : 0.15376468790690692,
+        "y" : 0.8824102232258015
       },
       "text" : "",
       "tokens" : [
@@ -141,51 +195,46 @@
     },
     {
       "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.12495039682539683,
-        "x" : 0.6724315476190476,
-        "y" : 0.84184
-      },
-      "text" : "oth your",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02934246575342466,
-            "width" : 0.122998046875,
-            "x" : 0.6724315480034164,
-            "y" : 0.8441687671043665
-          },
-          "text" : "oth your"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
       "normalizedRect" : {
         "height" : 0.1,
-        "width" : 0.1849265873015873,
-        "x" : 0.7199126984126983,
-        "y" : 0.85
+        "width" : 0.20177684898749348,
+        "x" : 0.1925305163356567,
+        "y" : 0.8905702232258015
       },
-      "text" : "Apup sinok",
+      "text" : "Tol Chito Saada 199\/182 ☆",
       "tokens" : [
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.02748817335372853,
-            "width" : 0.17643172640080768,
-            "x" : 0.7199126989027864,
-            "y" : 0.8499999890893284
+            "height" : 0.011682242990654214,
+            "width" : 0.028919157509608183,
+            "x" : 0.1925305164963187,
+            "y" : 0.9092618119822916
           },
-          "text" : "Apup sinok"
+          "text" : "Tol"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014485981308411212,
+            "width" : 0.08149944389071397,
+            "x" : 0.21684889919441536,
+            "y" : 0.9087945222561753
+          },
+          "text" : "Chito Saada"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.016632649608861617,
+            "width" : 0.10945766288939336,
+            "x" : 0.2353271616188704,
+            "y" : 0.9319562788262076
+          },
+          "text" : "199\/182 ☆"
         }
       ]
     },
@@ -193,24 +242,24 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
+      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
       "normalizedRect" : {
         "height" : 0.105,
-        "width" : 0.11495436507936509,
-        "x" : 0.7856366071428572,
-        "y" : 0.8294
+        "width" : 0.09385411093276262,
+        "x" : 0.3051459599370257,
+        "y" : 0.8769702232258015
       },
-      "text" : "Sar",
+      "text" : ":12",
       "tokens" : [
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.01393805309734513,
-            "width" : 0.05618556046013912,
-            "x" : 0.7856366074044107,
-            "y" : 0.851236283255531
+            "height" : 0.010685840707964595,
+            "width" : 0.02541882171095654,
+            "x" : 0.305145959908511,
+            "y" : 0.9350454445315262
           },
-          "text" : "Sar"
+          "text" : ":12"
         }
       ]
     },
@@ -218,24 +267,34 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.1899246031746032,
-        "x" : 0.7049186507936508,
-        "y" : 0.842
+        "width" : 0.20177684898749348,
+        "x" : 0.1925305163356567,
+        "y" : 0.8895702232258015
       },
-      "text" : "byours and y",
+      "text" : "htro Tndla 199\/182",
       "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020027397260273964,
+            "width" : 0.07492690809307574,
+            "x" : 0.22407868795618985,
+            "y" : 0.9054058396861515
+          },
+          "text" : "htro Tndla"
+        },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.03306849315068492,
-            "width" : 0.18926514274691358,
-            "x" : 0.7049186520795986,
-            "y" : 0.8457260271610567
+            "height" : 0.015194814603622637,
+            "width" : 0.09355722294290457,
+            "x" : 0.2377674065492293,
+            "y" : 0.9334385693211538
           },
-          "text" : "byours and y"
+          "text" : "199\/182"
         }
       ]
     },
@@ -244,50 +303,68 @@
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.7996825396825398,
-        "x" : 0.10015873015873017,
+        "width" : 0.6528981630105226,
+        "x" : 0.17355091849473875,
         "y" : 0.02
       },
-      "text" : "1 Rocke 1500",
+      "text" : "mp Rocket Weezing ∞ 130 ives from. Team Rocket's Kolling ١٢٠٠٠٢",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.021141311853818918,
-            "width" : 0.09270646419574807,
-            "x" : 0.24031324890659295,
-            "y" : 0.025360210303261722
+            "height" : 0.06833754113102934,
+            "width" : 0.3905841451544619,
+            "x" : 0.17317747258787458,
+            "y" : 0.07593361727324527
           },
-          "text" : "1 Rocke"
+          "text" : "mp Rocket Weezing"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.01703353504272043,
-            "width" : 0.056948107969874026,
-            "x" : 0.4180251450609178,
-            "y" : 0.03289363526177792
+            "height" : 0.05481228668941978,
+            "width" : 0.1584704279151754,
+            "x" : 0.6077598909445883,
+            "y" : 0.08232081891686983
           },
-          "text" : "1500"
+          "text" : "∞ 130"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02102389078498293,
+            "width" : 0.30848909967487476,
+            "x" : 0.17355091946669068,
+            "y" : 0.1446416383303754
+          },
+          "text" : "ives from. Team Rocket's Kolling"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.033037542662116046,
+            "width" : 0.10775989098231925,
+            "x" : 0.49894353092956506,
+            "y" : 0.17092150172525594
+          },
+          "text" : "١٢٠٠٠٢"
         }
       ]
     }
   ],
-  "scanID" : "42A25CCD-3161-41C6-81A9-C66BB9E78660",
+  "scanID" : "482563AB-81CA-4914-B365-CEB23ED410BD",
   "setConfidenceReasons" : [
-    "rewrite_raw_footer_family_set_hints"
+
   ],
-  "setConfidenceScore" : 0.56,
   "setHintTokens" : [
-    "lor",
-    "n40",
-    "par"
+
   ],
   "stage1AssessmentReasons" : [
-    "collector_signal_weak",
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 1,
+  "titleTextPrimary" : "from Team Rocket's Kolling",
   "warnings" : [
     "Raw scene looks holder-like",
     "Rewrite raw escalation used focused ROIs"

@@ -7,8 +7,9 @@ What this backend currently does:
 - stores raw and future graded pricing snapshots in SQLite `card_price_snapshots`
 - stores scan telemetry in SQLite `scan_events`
 - resolves raw cards through the new evidence -> retrieval -> rerank flow
-- refreshes raw pricing from Pokemon TCG API
-- preserves thin Scrydex and PriceCharting adapters only for env/config structure
+- refreshes raw pricing from Scrydex
+- treats Scrydex as the active raw identity/reference/pricing lane
+- preserves PriceCharting as a thin non-active shell
 
 What is intentionally removed right now:
 - slab runtime matching
@@ -17,9 +18,6 @@ What is intentionally removed right now:
 - old catalog sync/cache layers
 - old collector-number-first raw matcher
 - legacy Pokemon TCG importer CLI / catalog JSON / image download path
-
-Runtime Pokemon TCG API helper code now lives in:
-- `backend/pokemontcg_api_client.py`
 
 ## Runtime tables
 
@@ -48,15 +46,48 @@ python3 backend/server.py \
 ```
 The backend is always live-only. It does not support seeded catalog startup anymore.
 
+## VM beta deploy
+
+For the current beta stage, the recommended hosted path is one Linux VM with:
+- one backend process
+- one SQLite file
+- one daily Scrydex sync at `3:00 AM`
+
+Run this on the VM after cloning the repo:
+
+```bash
+backend/deploy.sh vm staging backend/.env
+```
+
+What it does:
+- creates `backend/.venv`
+- installs CPU-only `torch` for the VM visual runtime
+- installs Python runtime dependencies from `backend/requirements.vm.txt`
+- writes `backend/.vm-runtime.conf`
+- validates Scrydex credentials
+- runs one initial full sync unless `SPOTLIGHT_SKIP_INITIAL_SYNC=1`
+- installs user `crontab` entries for:
+  - `@reboot` backend start
+  - `0 3 * * *` Scrydex sync
+- starts the backend immediately on `0.0.0.0:8788`
+
+Useful follow-ups on the VM:
+
+```bash
+curl http://127.0.0.1:8788/api/v1/health
+curl http://127.0.0.1:8788/api/v1/ops/provider-status
+tail -f backend/logs/backend.log
+tail -f backend/logs/scrydex_sync.log
+```
+
 ## Environment
 
-Raw runtime provider:
-- `POKEMONTCG_API_KEY`
-
-Thin provider shells preserved for the later slab rebuild:
+Active raw runtime provider:
 - `SCRYDEX_API_KEY`
 - `SCRYDEX_TEAM_ID`
 - `SCRYDEX_BASE_URL`
+
+Thin provider shells preserved for the later slab rebuild / future experiments:
 - `PRICECHARTING_API_KEY`
 - `PRICECHARTING_BASE_URL`
 
@@ -67,8 +98,7 @@ Compile the kept backend:
 ```bash
 python3 -m py_compile \
   backend/catalog_tools.py \
-  backend/pokemontcg_api_client.py \
-  backend/pokemontcg_pricing_adapter.py \
+  backend/raw_set_badge_matcher.py \
   backend/pricecharting_adapter.py \
   backend/pricing_provider.py \
   backend/pricing_utils.py \
@@ -87,7 +117,6 @@ python3 -m unittest -v \
   backend.tests.test_raw_decision_phase5 \
   backend.tests.test_pricing_phase6 \
   backend.tests.test_scan_logging_phase7 \
-  backend.tests.test_pokemontcg_api_client \
   backend.tests.test_pricing_utils
 ```
 

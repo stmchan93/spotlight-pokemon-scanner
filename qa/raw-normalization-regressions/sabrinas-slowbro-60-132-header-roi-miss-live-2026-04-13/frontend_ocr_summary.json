@@ -1,0 +1,58 @@
+{
+  "payload" : {
+    "analysisMs" : 947.0109939575195,
+    "captureSource" : "live_preview_frame",
+    "collectorNumber" : "60\/132",
+    "cropConfidence" : 0.58,
+    "geometryKind" : "fallback",
+    "pipelineVersion" : "rewrite_v1",
+    "rawEvidence" : {
+      "collectorConfidence" : {
+        "reasons" : [
+          "rewrite_raw_footer_band_wide"
+        ],
+        "score" : 0.66
+      },
+      "collectorNumberExact" : "60\/132",
+      "footerBandText" : "next turn. weakness resistance retreat cost LY. 29 1 #80 Hux. Ken Sa mari 01995, 96. 98 Nimtendo, Crestures, GAMEFREAK. @i999-2000 Wüardi 60\/132 •",
+      "setBadgeHint" : {
+        "canonicalTokens" : [
+
+        ],
+        "kind" : "unknown",
+        "source" : "none"
+      },
+      "setHints" : [
+
+      ],
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Rewrite raw escalation used focused ROIs",
+        "Low-confidence rewrite raw evidence"
+      ],
+      "wholeCardText" : "next turn. weakness resistance retreat cost LY. 29 1 #80 Hux. Ken Sa mari 01995, 96. 98 Nimtendo, Crestures, GAMEFREAK. @i999-2000 Wüardi 60\/132 •"
+    },
+    "resolverModeHint" : "raw_card",
+    "scanID" : "4E9731FB-3A38-4D65-BEAF-3D8E210305EF",
+    "selectedMode" : "raw",
+    "setBadgeHint" : {
+      "canonicalTokens" : [
+
+      ],
+      "kind" : "unknown",
+      "source" : "none"
+    },
+    "setHintTokens" : [
+
+    ],
+    "shouldRetryWithStillPhoto" : false,
+    "targetQualityScore" : 0.58,
+    "usedFallback" : true,
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "stage" : "frontend_ocr_summary"
+}

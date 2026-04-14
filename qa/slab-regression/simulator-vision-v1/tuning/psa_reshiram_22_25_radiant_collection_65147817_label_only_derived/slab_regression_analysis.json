@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "65147817",
   "cropConfidence" : 0.4,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2013 POKEMON B & W #22\/25 FA\/RESHIRAM MINT LEG. TREAS. RADIANT COLL. 9 HIAA LI PEA 65147817",
     "ON B & W #22\/25 L MINT ADIANT COLL. 9 FFA 65147817"
   ],
-  "scanID" : "9D1C268D-4806-43FC-9A6C-2A08D734C001",
+  "scanID" : "AEBB19AC-D127-4AD8-AD60-B01C92649AE2",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-reshiram-22-25-radiant-collection-65147817-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

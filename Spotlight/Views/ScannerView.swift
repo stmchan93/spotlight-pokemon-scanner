@@ -15,6 +15,14 @@ struct ScannerView: View {
     @State private var isTrayExpanded = false
     @State private var reticleBounds: CGRect = .zero
 
+    private var activePendingItem: LiveScanStackItem? {
+        viewModel.scannedItems.first(where: { $0.phase == .pending })
+    }
+
+    private var scanIsActive: Bool {
+        viewModel.isCapturingPhoto || viewModel.isProcessing
+    }
+
     var body: some View {
         GeometryReader { proxy in
             ZStack {
@@ -28,7 +36,7 @@ struct ScannerView: View {
                     Spacer(minLength: 0)
 
                     // Chevron button to expand/collapse tray
-                    if !viewModel.scannedItems.isEmpty {
+                    if !viewModel.visibleScannedItems.isEmpty {
                         Button {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                                 isTrayExpanded.toggle()
@@ -160,7 +168,7 @@ struct ScannerView: View {
 
                     RoundedRectangle(cornerRadius: 32, style: .continuous)
                         .strokeBorder(
-                            Color.white.opacity(0.5),
+                            scanIsActive ? Color(red: 0.72, green: 0.95, blue: 0.42) : Color.white.opacity(0.5),
                             style: StrokeStyle(lineWidth: 2, dash: [16, 8])
                         )
                         .frame(width: layout.width, height: layout.height)
@@ -185,10 +193,7 @@ struct ScannerView: View {
                                 .offset(x: -1, y: 1)
                         }
                         .overlay {
-                            Text("Tap Anywhere to Scan")
-                                .font(.system(size: 18, weight: .semibold))
-                                .foregroundStyle(.white)
-                                .shadow(color: .black.opacity(0.6), radius: 12, x: 0, y: 2)
+                            reticleOverlayLabel
                         }
                         .contentShape(Rectangle())
                         .background(
@@ -205,7 +210,12 @@ struct ScannerView: View {
                         .onTapGesture {
                             // Only capture if camera is ready and not already processing
                             guard cameraIsInteractive, !scanInteractionLocked else { return }
-                            viewModel.capturePhoto(reticleRect: reticleBounds)
+                            let fallbackReticleRect = resolvedReticleCaptureRect(
+                                preferred: reticleBounds,
+                                containerFrame: geo.frame(in: .global),
+                                layout: layout
+                            )
+                            viewModel.capturePhoto(reticleRect: fallbackReticleRect)
                         }
 
                     cameraControls
@@ -263,8 +273,7 @@ struct ScannerView: View {
 
     private var zoomControls: some View {
         HStack(spacing: 12) {
-            // Zoom buttons: 1.5x, 2x, 3x
-            ForEach([1.5, 2.0, 3.0], id: \.self) { zoom in
+            ForEach([1.5], id: \.self) { zoom in
                 Button {
                     viewModel.cameraController.setZoomLevel(zoom)
                 } label: {
@@ -368,7 +377,7 @@ struct ScannerView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
 
-                    if !viewModel.scannedItems.isEmpty {
+                    if !viewModel.visibleScannedItems.isEmpty {
                         Button("CLEAR") {
                             viewModel.clearScans()
                         }
@@ -397,8 +406,8 @@ struct ScannerView: View {
             .background(Color.black.opacity(0.9))
 
             // Cards list (show first when collapsed, all when expanded)
-            if !viewModel.scannedItems.isEmpty {
-                let itemsToShow = isTrayExpanded ? viewModel.scannedItems : Array(viewModel.scannedItems.prefix(1))
+            if !viewModel.visibleScannedItems.isEmpty {
+                let itemsToShow = isTrayExpanded ? viewModel.visibleScannedItems : Array(viewModel.visibleScannedItems.prefix(1))
                 let maxHeight = isTrayExpanded ? screenHeight * 0.40 : 90.0
 
                 ScrollView(showsIndicators: false) {
@@ -417,56 +426,65 @@ struct ScannerView: View {
     }
 
     private func compactCardRow(_ item: LiveScanStackItem) -> some View {
-        HStack(alignment: .center, spacing: 12) {
-            // Thumbnail
-            StackItemThumbnail(item: item)
+        let detailAction = rowAction(for: item)
+        let cycleState = viewModel.candidateCycleState(for: item.id)
+
+        return HStack(alignment: .center, spacing: 12) {
+            StackItemThumbnail(
+                item: item,
+                cycleState: cycleState,
+                onPrimaryTap: detailAction,
+                onCycleTap: cycleState == nil ? nil : { viewModel.cycleCandidate(for: item.id) }
+            )
                 .frame(width: 50, height: 70)
 
-            // Card info - now has more space
-            VStack(alignment: .leading, spacing: 3) {
-                Text(primaryTitle(for: item))
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(2)
-
-                if let secondaryTitle = secondaryTitle(for: item) {
-                    Text(secondaryTitle)
-                        .font(.system(size: 12))
-                        .foregroundStyle(.white.opacity(0.7))
+            HStack(alignment: .center, spacing: 12) {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(primaryTitle(for: item))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.white)
                         .lineLimit(2)
+
+                    if let secondaryTitle = secondaryTitle(for: item) {
+                        Text(secondaryTitle)
+                            .font(.system(size: 12))
+                            .foregroundStyle(.white.opacity(0.7))
+                            .lineLimit(2)
+                    }
+
+                    if let tertiaryLine = tertiaryLine(for: item) {
+                        Text(tertiaryLine)
+                            .font(.system(size: 11))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .lineLimit(1)
+                    }
                 }
 
-                if let tertiaryLine = tertiaryLine(for: item) {
-                    Text(tertiaryLine)
-                        .font(.system(size: 11))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .lineLimit(1)
+                Spacer(minLength: 8)
+
+                if let pricing = item.pricing, let primaryPrice = pricing.primaryDisplayPrice {
+                    VStack(alignment: .trailing, spacing: 2) {
+                        Text(pricing.primaryLabel.uppercased())
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.5))
+
+                        Text(formattedPrice(primaryPrice, currencyCode: pricing.currencyCode))
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                    }
+                } else if item.phase == .pending {
+                    ProgressView()
+                        .tint(.white)
                 }
             }
-
-            Spacer(minLength: 8)
-
-            // Price display (if available)
-            if let pricing = item.pricing, let primaryPrice = pricing.primaryDisplayPrice {
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(pricing.primaryLabel.uppercased())
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.5))
-
-                    Text(formattedPrice(primaryPrice, currencyCode: pricing.currencyCode))
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                }
+            .contentShape(Rectangle())
+            .onTapGesture {
+                detailAction?()
             }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
         .background(Color.black.opacity(0.9))
-        .contentShape(Rectangle())
-        .onTapGesture {
-            // Toggle expanded view for this item
-            viewModel.toggleExpansion(for: item.id)
-        }
     }
 
     private var emptyTrayState: some View {
@@ -486,18 +504,7 @@ struct ScannerView: View {
     }
 
     private func stackItemRow(_ item: LiveScanStackItem) -> some View {
-        VStack(spacing: 0) {
-            rowPrimaryButton(item)
-
-            if item.isExpanded, item.phase == .resolved {
-                Divider()
-                    .overlay(Color.white.opacity(0.08))
-                    .padding(.horizontal, 14)
-
-                expandedPricing(item)
-                    .padding(14)
-            }
-        }
+        rowPrimaryButton(item)
         .background(
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .fill(rowBackgroundColor(for: item.phase))
@@ -532,11 +539,11 @@ struct ScannerView: View {
     private func rowAction(for item: LiveScanStackItem) -> (() -> Void)? {
         switch item.phase {
         case .resolved:
-            return { viewModel.toggleExpansion(for: item.id) }
+            return { viewModel.presentResultDetail(for: item.id) }
         case .needsReview:
-            return { viewModel.showAlternatives() }
+            return { viewModel.presentResultDetail(for: item.id) }
         case .unsupported:
-            return { viewModel.showAlternatives() }
+            return nil
         case .pending, .failed:
             return nil
         }
@@ -544,7 +551,12 @@ struct ScannerView: View {
 
     private func rowContent(_ item: LiveScanStackItem) -> some View {
         HStack(alignment: .top, spacing: 12) {
-            StackItemThumbnail(item: item)
+            StackItemThumbnail(
+                item: item,
+                cycleState: nil,
+                onPrimaryTap: nil,
+                onCycleTap: nil
+            )
 
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .top, spacing: 10) {
@@ -591,11 +603,11 @@ struct ScannerView: View {
 
                     Spacer(minLength: 8)
 
-                    if item.phase == .resolved {
-                        Image(systemName: item.isExpanded ? "chevron.up" : "chevron.down")
+                    if item.phase == .resolved || item.phase == .needsReview {
+                        Image(systemName: "chevron.right")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(Color.white.opacity(0.48))
-                    } else if item.phase == .needsReview || item.phase == .unsupported {
+                    } else if item.phase == .unsupported {
                         Text(item.phase == .unsupported ? "Unsupported" : "Fix")
                             .font(.caption.weight(.bold))
                             .foregroundStyle(Color(red: 0.96, green: 0.82, blue: 0.45))
@@ -654,6 +666,38 @@ struct ScannerView: View {
 
     private func expandedPricing(_ item: LiveScanStackItem) -> some View {
         VStack(alignment: .leading, spacing: 14) {
+            if viewModel.hasAlternatives(for: item.id) {
+                Button {
+                    viewModel.showAlternatives(for: item.id)
+                } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .foregroundStyle(Color(red: 0.78, green: 0.92, blue: 0.47))
+
+                        Text("\(viewModel.similarMatchCount(for: item.id)) similar cards found")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.white)
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(Color.white.opacity(0.62))
+                    }
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color(red: 0.18, green: 0.22, blue: 0.10))
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(Color(red: 0.52, green: 0.68, blue: 0.24), lineWidth: 1)
+                    )
+                }
+                .buttonStyle(.plain)
+            }
+
             if let pricing = item.pricing {
                 LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
                     priceMetric(title: "Market", value: pricing.market, currencyCode: pricing.currencyCode)
@@ -747,7 +791,7 @@ struct ScannerView: View {
     private func primaryTitle(for item: LiveScanStackItem) -> String {
         switch item.phase {
         case .pending:
-            return "Identifying card"
+            return "Scanning card"
         case .failed:
             return "Could not identify card"
         case .unsupported:
@@ -760,7 +804,7 @@ struct ScannerView: View {
     private func secondaryTitle(for item: LiveScanStackItem) -> String? {
         switch item.phase {
         case .pending:
-            return nil
+            return item.statusMessage ?? "Reading card…"
         case .failed:
             return "Try a cleaner angle or show more of the card"
         case .unsupported:
@@ -779,7 +823,7 @@ struct ScannerView: View {
     private func tertiaryLine(for item: LiveScanStackItem) -> String? {
         switch item.phase {
         case .pending:
-            return "Pending scan row"
+            return viewModel.isCapturingPhoto ? "Hold steady for a moment" : "Checking crop and OCR"
         case .failed:
             return nil
         case .unsupported:
@@ -895,6 +939,18 @@ struct ScannerView: View {
         .font(.footnote)
     }
 
+    @ViewBuilder
+    private var reticleOverlayLabel: some View {
+        if scanIsActive {
+            EmptyView()
+        } else {
+            Text("Tap Anywhere to Scan")
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(.white)
+                .shadow(color: .black.opacity(0.6), radius: 12, x: 0, y: 2)
+        }
+    }
+
     private func statusCapsule(_ label: String) -> some View {
         Text(label)
             .font(.caption2.weight(.semibold))
@@ -981,35 +1037,69 @@ private struct TopBarIconButton: View {
 
 private struct StackItemThumbnail: View {
     let item: LiveScanStackItem
+    let cycleState: ResultCandidateCycleState?
+    let onPrimaryTap: (() -> Void)?
+    let onCycleTap: (() -> Void)?
 
     var body: some View {
-        Group {
-            if let urlString = item.detail?.imageSmallURL
-                ?? item.detail?.imageLargeURL
-                ?? item.displayCard?.imageSmallURL
-                ?? item.displayCard?.imageLargeURL,
-               let url = URL(string: urlString) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .scaledToFill()
-                    case .failure(_):
-                        fallback
-                    case .empty:
-                        // Keep showing preview image while loading, no spinner
-                        fallback
-                    @unknown default:
-                        fallback
+        ZStack(alignment: .bottomLeading) {
+            imageContent
+                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .onTapGesture {
+                    if let onCycleTap {
+                        onCycleTap()
+                    } else {
+                        onPrimaryTap?()
                     }
                 }
-            } else {
-                fallback
+
+            if let cycleState, let onCycleTap {
+                Button(action: onCycleTap) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 8, weight: .bold))
+                        Text("\(cycleState.currentIndex)/\(cycleState.totalCount)")
+                            .font(.system(size: 10, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(Color.black.opacity(0.82))
+                    .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(5)
             }
         }
         .frame(width: 64, height: 90)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var imageContent: some View {
+        if let urlString = item.detail?.imageSmallURL
+            ?? item.detail?.imageLargeURL
+            ?? item.displayCard?.imageSmallURL
+            ?? item.displayCard?.imageLargeURL,
+           let url = URL(string: urlString) {
+            AsyncImage(url: url) { phase in
+                switch phase {
+                case .success(let image):
+                    image
+                        .resizable()
+                        .scaledToFill()
+                case .failure(_):
+                    fallback
+                case .empty:
+                    // Keep showing preview image while loading, no spinner
+                    fallback
+                @unknown default:
+                    fallback
+                }
+            }
+        } else {
+            fallback
+        }
     }
 
     @ViewBuilder

@@ -1,0 +1,21 @@
+{
+  "payload" : {
+    "passTimings" : [
+      {
+        "durationMs" : 1542.2760248184204,
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "recognitionRequestCount" : 1,
+        "tokenCount" : 6,
+        "usedAggressiveRetry" : false
+      }
+    ],
+    "stage1BroadMs" : 1542.5779819488525,
+    "stage1TightMs" : 0,
+    "stage2Ms" : 0,
+    "synthesisMs" : 47.7830171585083,
+    "targetSelectionMs" : 376.1179447174072,
+    "totalMs" : 2039.8629903793335
+  },
+  "stage" : "rewrite_raw_timing_breakdown"
+}

@@ -1,0 +1,88 @@
+{
+  "candidates" : [
+    {
+      "areaCoverage" : 0.7114516594025619,
+      "areaScore" : 1,
+      "aspectRatio" : 0.8264918177602606,
+      "aspectScore" : 0.7542606069974007,
+      "boundingBox" : {
+        "height" : 0.7435899525880814,
+        "width" : 0.9567795488983393,
+        "x" : 0.01567118428647518,
+        "y" : 0.20873628556728363
+      },
+      "centerDistance" : 0.08074996190783561,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.885802308708828,
+      "quadrilateral" : [
+        {
+          "x" : 0.4693584144115448,
+          "y" : 0.952326238155365
+        },
+        {
+          "x" : 0.8456349968910217,
+          "y" : 0.9505646228790283
+        },
+        {
+          "x" : 0.9724507331848145,
+          "y" : 0.21956229209899902
+        },
+        {
+          "x" : 0.01567118428647518,
+          "y" : 0.20873628556728363
+        }
+      ],
+      "rank" : 1,
+      "totalScore" : 0.8884916076854371
+    },
+    {
+      "areaCoverage" : 0.4948784547861118,
+      "areaScore" : 1,
+      "aspectRatio" : 0.8876172878705365,
+      "aspectScore" : 0.6184262289745655,
+      "boundingBox" : {
+        "height" : 0.714505210518837,
+        "width" : 0.6926169991493225,
+        "x" : 0.254258394241333,
+        "y" : 0.22858409583568573
+      },
+      "centerDistance" : 0.13221815074598392,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.8130152980231392,
+      "quadrilateral" : [
+        {
+          "x" : 0.254258394241333,
+          "y" : 0.9405282139778137
+        },
+        {
+          "x" : 0.8307019472122192,
+          "y" : 0.9430893063545227
+        },
+        {
+          "x" : 0.9468753933906555,
+          "y" : 0.23472104966640472
+        },
+        {
+          "x" : 0.254258394241333,
+          "y" : 0.22858409583568573
+        }
+      ],
+      "rank" : 2,
+      "totalScore" : 0.8224093320445398
+    }
+  ],
+  "chosenCandidateIndex" : 1,
+  "mode" : "raw",
+  "normalizationReason" : "holder_like_selected_raw_card_preserved",
+  "normalizedContentRect" : {
+    "height" : 1,
+    "width" : 0.5108048917572726,
+    "x" : 0.24459755412136366,
+    "y" : 0
+  },
+  "normalizedGeometryKind" : "raw_card",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

@@ -7,13 +7,13 @@
     "collectorNearMiss" : false,
     "exactCollectorPass" : false,
     "setHintPass" : false,
-    "titlePass" : false
+    "titlePass" : true
   },
   "debug" : {
     "contentRectNormalized" : {
       "height" : 1,
-      "width" : 0.9994234982128445,
-      "x" : 0.00028825089357774737,
+      "width" : 0.4377719949882491,
+      "x" : 0.2811140025058754,
       "y" : 0
     },
     "footerRoutingReasons" : [
@@ -25,11 +25,11 @@
         "label" : "13_raw_footer_band",
         "normalizedRect" : {
           "height" : 0.2,
-          "width" : 0.89948114839156,
-          "x" : 0.05025942580421998,
+          "width" : 0.3939947954894242,
+          "x" : 0.30300260225528786,
           "y" : 0.76
         },
-        "text" : ""
+        "text" : "Meal Time Flip a coin until you get tails. For each heads, d Gnaw weskn x2 resHItANe @-20 reenat M"
       },
       {
         "footerFamily" : "modern_left",
@@ -38,11 +38,11 @@
         "label" : "14_raw_footer_modern_left_set",
         "normalizedRect" : {
           "height" : 0.098,
-          "width" : 0.13792044275337256,
-          "x" : 0.0708875268073331,
+          "width" : 0.06041253530837838,
+          "x" : 0.31203821623184536,
           "y" : 0.8451
         },
-        "text" : "n2s= pat,"
+        "text" : ""
       },
       {
         "footerFamily" : "modern_left",
@@ -51,11 +51,11 @@
         "label" : "15_raw_footer_modern_left_collector",
         "normalizedRect" : {
           "height" : 0.092,
-          "width" : 0.27484146200853227,
-          "x" : 0.17019024558976134,
+          "width" : 0.12038729862176852,
+          "x" : 0.3555352416538778,
           "y" : 0.85
         },
-        "text" : ""
+        "text" : "*"
       },
       {
         "footerFamily" : "legacy_right_mid",
@@ -64,11 +64,11 @@
         "label" : "16_raw_footer_legacy_right_mid_set",
         "normalizedRect" : {
           "height" : 0.102,
-          "width" : 0.12492793727660556,
-          "x" : 0.6724005534417157,
+          "width" : 0.054721499373531136,
+          "x" : 0.5755156691354729,
           "y" : 0.84184
         },
-        "text" : ""
+        "text" : "HEWH"
       },
       {
         "footerFamily" : "legacy_right_mid",
@@ -77,11 +77,11 @@
         "label" : "17_raw_footer_legacy_right_mid_collector",
         "normalizedRect" : {
           "height" : 0.1,
-          "width" : 0.18489334716937622,
-          "x" : 0.7198731696068258,
+          "width" : 0.08098781907282608,
+          "x" : 0.5963098388974147,
           "y" : 0.85
         },
-        "text" : ""
+        "text" : "rereet ct"
       },
       {
         "footerFamily" : "legacy_right_corner",
@@ -90,8 +90,8 @@
         "label" : "18_raw_footer_legacy_right_corner_set",
         "normalizedRect" : {
           "height" : 0.105,
-          "width" : 0.11493370229447712,
-          "x" : 0.7855852646143202,
+          "width" : 0.05034377942364865,
+          "x" : 0.6250933475678923,
           "y" : 0.8294
         },
         "text" : ""
@@ -103,22 +103,22 @@
         "label" : "19_raw_footer_legacy_right_corner_collector",
         "normalizedRect" : {
           "height" : 0.102,
-          "width" : 0.18989046466044046,
-          "x" : 0.7048818171336331,
+          "width" : 0.08317667904776734,
+          "x" : 0.5897432589725911,
           "y" : 0.842
         },
-        "text" : ""
+        "text" : "nenat"
       },
       {
         "kind" : "header_wide",
         "label" : "12_raw_header_wide",
         "normalizedRect" : {
           "height" : 0.22,
-          "width" : 0.7995387985702757,
-          "x" : 0.1002306007148622,
+          "width" : 0.3502175959905993,
+          "x" : 0.32489120200470034,
           "y" : 0.02
         },
-        "text" : ""
+        "text" : "BASic Pikachu"
       }
     ],
     "requestedGeometryKind" : "raw_card",
@@ -132,16 +132,17 @@
   },
   "fixtureName" : "pikachu-25-25",
   "ocr" : {
+    "collectorConfidenceScore" : 0.42,
+    "collectorNumberPartial" : "20",
     "cropConfidence" : 0.9633294750497268,
-    "setConfidenceScore" : 0.56,
     "setHintTokens" : [
-      "n2s"
+
     ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "BASic Pikachu",
     "warnings" : [
       "Raw scene looks holder-like",
-      "Rewrite raw escalation used focused ROIs",
-      "Could not read strong raw-card clues",
-      "Low-confidence rewrite raw evidence"
+      "Rewrite raw escalation used focused ROIs"
     ]
   },
   "sourceImage" : "source_scan.jpg",

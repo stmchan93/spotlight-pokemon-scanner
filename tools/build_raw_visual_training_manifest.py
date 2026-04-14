@@ -11,9 +11,33 @@ from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
 from build_raw_visual_seed_manifest import TruthKey, choose_mapping, truth_from_fixture, utc_now_iso
+from raw_visual_dataset_paths import (
+    default_raw_visual_train_expansion_snapshot_path,
+    default_raw_visual_train_manifest_path,
+    default_raw_visual_train_manifest_summary_path,
+    default_raw_visual_train_query_cache_path,
+    default_raw_visual_train_reference_image_root,
+    default_raw_visual_train_root,
+)
 
 
 USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
+
+
+def is_scrydex_mapping(mapping: dict[str, Any]) -> bool:
+    if not isinstance(mapping, dict):
+        return False
+    source_provider = str(
+        mapping.get("sourceProvider")
+        or mapping.get("providerSource")
+        or mapping.get("source")
+        or ""
+    ).strip().lower()
+    if source_provider == "scrydex":
+        return True
+    reference_url = str(mapping.get("referenceImageUrl") or "").strip().lower()
+    provider_card_id = str(mapping.get("providerCardId") or "").strip().lower()
+    return "scrydex" in reference_url or "_ja-" in provider_card_id
 
 
 @dataclass(frozen=True)
@@ -24,6 +48,7 @@ class TrainingFixture:
     truth: TruthKey
     source_scan_path: Path
     normalized_image_path: Path
+    pinned_provider_mapping: dict[str, Any] | None
 
 
 def discover_fixtures(
@@ -72,6 +97,20 @@ def discover_fixtures(
                 continue
 
             truth = truth_from_fixture(fixture_dir)
+            pinned_provider_mapping: dict[str, Any] | None = None
+            label_status_path = fixture_dir / "label_status.json"
+            if label_status_path.exists():
+                try:
+                    label_status = json.loads(label_status_path.read_text())
+                    candidate_mapping = label_status.get("providerMapping")
+                    if (
+                        isinstance(candidate_mapping, dict)
+                        and str(candidate_mapping.get("providerCardId") or "").strip()
+                        and is_scrydex_mapping(candidate_mapping)
+                    ):
+                        pinned_provider_mapping = candidate_mapping
+                except Exception:  # noqa: BLE001
+                    pinned_provider_mapping = None
             fixtures.append(
                 TrainingFixture(
                     fixture_root=root,
@@ -80,6 +119,7 @@ def discover_fixtures(
                     truth=truth,
                     source_scan_path=source_scan_path,
                     normalized_image_path=normalized_image_path,
+                    pinned_provider_mapping=pinned_provider_mapping,
                 )
             )
 
@@ -140,10 +180,45 @@ def grouped_truths(fixtures: Iterable[TrainingFixture]) -> dict[str, dict[str, A
             {
                 "truth": fixture.truth,
                 "fixtures": [],
+                "pinnedProviderMappings": [],
             },
         )
         entry["fixtures"].append(fixture)
+        if fixture.pinned_provider_mapping:
+            entry["pinnedProviderMappings"].append(fixture.pinned_provider_mapping)
     return grouped
+
+
+def pinned_mapping_payload(mapping: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "providerSupported": True,
+        "mappingConfidence": 1.0,
+        "mappingReason": "pinned_label_status",
+        "selected": {
+            "providerCardId": mapping.get("providerCardId"),
+            "providerName": mapping.get("providerName"),
+            "providerCollectorNumber": mapping.get("providerCollectorNumber"),
+            "providerSetId": mapping.get("providerSetId"),
+            "providerSetPtcgoCode": mapping.get("providerSetPtcgoCode"),
+            "providerSetName": mapping.get("providerSetName"),
+            "referenceImageUrl": mapping.get("referenceImageUrl"),
+            "sourceProvider": "scrydex",
+        },
+        "candidateSummaries": [
+            {
+                "providerCardId": mapping.get("providerCardId"),
+                "providerName": mapping.get("providerName"),
+                "providerCollectorNumber": mapping.get("providerCollectorNumber"),
+                "providerSetId": mapping.get("providerSetId"),
+                "providerSetPtcgoCode": mapping.get("providerSetPtcgoCode"),
+                "providerSetName": mapping.get("providerSetName"),
+                "referenceImageUrl": mapping.get("referenceImageUrl"),
+                "sourceProvider": "scrydex",
+                "mappingScore": 999,
+                "mappingReasons": ["pinned_label_status"],
+            }
+        ],
+    }
 
 
 def build_manifest(
@@ -153,6 +228,7 @@ def build_manifest(
     query_cache_path: Path,
     reference_image_root: Path,
     download_reference_images: bool,
+    expansion_snapshot_path: Path,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     query_cache = load_query_cache(query_cache_path)
     grouped = grouped_truths(fixtures)
@@ -164,7 +240,27 @@ def build_manifest(
     for index, grouped_entry in enumerate(grouped.values(), start=1):
         truth: TruthKey = grouped_entry["truth"]
         print(f"[{index}/{total_truths}] Mapping {truth.card_name} | {truth.collector_number} | {truth.set_code or '-'}")
-        truth_mappings[truth.key] = choose_mapping(truth, api_key, query_cache)
+        pinned_mappings = [
+            mapping
+            for mapping in grouped_entry.get("pinnedProviderMappings") or []
+            if isinstance(mapping, dict) and str(mapping.get("providerCardId") or "").strip()
+        ]
+        pinned_by_id = {
+            str(mapping.get("providerCardId") or "").strip(): mapping
+            for mapping in pinned_mappings
+            if str(mapping.get("providerCardId") or "").strip()
+        }
+        if len(pinned_by_id) == 1:
+            truth_mappings[truth.key] = pinned_mapping_payload(next(iter(pinned_by_id.values())))
+        else:
+            truth_mappings[truth.key] = choose_mapping(
+                truth,
+                api_key,
+                query_cache,
+                allow_live_expansion_lookup=False,
+                allow_legacy_set_code_queries=False,
+                expansion_snapshot_path=expansion_snapshot_path,
+            )
 
     write_query_cache(query_cache_path, query_cache)
 
@@ -205,6 +301,7 @@ def build_manifest(
             "providerSetId": selected.get("providerSetId"),
             "providerSetPtcgoCode": selected.get("providerSetPtcgoCode"),
             "providerSetName": selected.get("providerSetName"),
+            "sourceProvider": selected.get("sourceProvider") or "scrydex",
             "referenceImageUrl": reference_image_url or None,
             "referenceImagePath": reference_image_path,
             "referenceImageError": reference_image_error,
@@ -229,13 +326,14 @@ def build_manifest(
     manifest_rows.sort(key=lambda row: (str(row["providerCardId"] or ""), str(row["fixtureName"])))
     summary = {
         "generatedAt": utc_now_iso(),
-        "provider": "pokemontcg_api",
+        "provider": "scrydex",
         "fixtureCount": len(fixtures),
         "uniqueTruthCount": len(grouped),
         "manifestEntryCount": len(manifest_rows),
         "unsupportedFixtureCount": len(skipped_rows),
         "referenceImageDownloadEnabled": download_reference_images,
         "missingReferenceImageCount": sum(1 for row in manifest_rows if not row["referenceImagePath"]),
+        "expansionSnapshotPath": str(expansion_snapshot_path),
         "skipped": skipped_rows,
     }
     return manifest_rows, summary
@@ -254,25 +352,31 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output",
         type=Path,
-        default=Path("qa/raw-visual-train/raw_visual_training_manifest.jsonl"),
+        default=default_raw_visual_train_manifest_path(),
         help="Path to write the training manifest JSONL.",
     )
     parser.add_argument(
         "--summary-output",
         type=Path,
-        default=Path("qa/raw-visual-train/raw_visual_training_manifest_summary.json"),
+        default=default_raw_visual_train_manifest_summary_path(),
         help="Path to write the manifest summary JSON.",
     )
     parser.add_argument(
         "--query-cache",
         type=Path,
-        default=Path("qa/raw-visual-train/.visual_reference_cache/provider_search_cache.json"),
+        default=default_raw_visual_train_query_cache_path(),
         help="Path to cache provider search query results.",
+    )
+    parser.add_argument(
+        "--expansion-snapshot",
+        type=Path,
+        default=default_raw_visual_train_expansion_snapshot_path(),
+        help="Local Scrydex expansions snapshot used for offline expansion resolution.",
     )
     parser.add_argument(
         "--reference-image-root",
         type=Path,
-        default=Path("qa/raw-visual-train/.visual_reference_cache/reference_images"),
+        default=default_raw_visual_train_reference_image_root(),
         help="Directory used to cache official reference images.",
     )
     parser.add_argument(
@@ -291,10 +395,11 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    fixture_roots = args.fixture_roots or [Path("qa/raw-visual-train")]
+    fixture_roots = args.fixture_roots or [default_raw_visual_train_root()]
     output_path = args.output.resolve()
     summary_output_path = args.summary_output.resolve()
     query_cache_path = args.query_cache.resolve()
+    expansion_snapshot_path = args.expansion_snapshot.resolve()
     reference_image_root = args.reference_image_root.resolve()
     api_key = os.environ.get("POKEMONTCG_API_KEY")
 
@@ -314,6 +419,7 @@ def main() -> int:
         fixtures=fixtures,
         api_key=api_key,
         query_cache_path=query_cache_path,
+        expansion_snapshot_path=expansion_snapshot_path,
         reference_image_root=reference_image_root,
         download_reference_images=not args.skip_reference_download,
     )

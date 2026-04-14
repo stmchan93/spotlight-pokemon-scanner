@@ -31,7 +31,6 @@ from catalog_tools import (  # noqa: E402
     upsert_scan_event,
     upsert_slab_price_snapshot,
 )
-from pokemontcg_api_client import map_card  # noqa: E402
 from pricing_provider import PsaPricingResult, RawPricingResult  # noqa: E402
 from scrydex_adapter import (  # noqa: E402
     _best_scrydex_graded_price,
@@ -53,7 +52,7 @@ def sample_catalog_card() -> dict[str, object]:
         "reference_image_path": None,
         "reference_image_url": "https://images.example/gym1-60-large.png",
         "reference_image_small_url": "https://images.example/gym1-60-small.png",
-        "source": "pokemontcg_api",
+        "source": "scrydex",
         "source_record_id": "gym1-60",
         "set_id": "gym1",
         "set_series": "Gym",
@@ -592,7 +591,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             rarity="Rare Holo",
             variant="Raw",
             language="English",
-            source_provider="pokemontcg_api",
+            source_provider="scrydex",
             source_record_id="base1-4",
             set_id="base1",
             set_series="Base",
@@ -616,7 +615,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(card["setSeries"], "Base")
         self.assertEqual(card["artist"], "Mitsuhiro Arita")
         self.assertEqual(card["imageURL"], "https://images.example/base1-4-large.png")
-        self.assertEqual(card["sourceProvider"], "pokemontcg_api")
+        self.assertEqual(card["sourceProvider"], "scrydex")
 
     def test_upsert_catalog_card_populates_cards_and_raw_snapshot(self) -> None:
         upsert_catalog_card(
@@ -791,94 +790,29 @@ class BackendResetPhase1Tests(unittest.TestCase):
         assert detail is not None
         self.assertEqual(detail["card"]["id"], "gym1-60")
         self.assertEqual(detail["setID"], "gym1")
-        self.assertEqual(detail["source"], "pokemontcg_api")
+        self.assertEqual(detail["source"], "scrydex")
         self.assertEqual(detail["imageLargeURL"], "https://images.example/gym1-60-large.png")
 
-    def test_raw_provider_import_path_persists_primary_card_record(self) -> None:
+    def test_import_catalog_card_uses_scrydex_exact_import_path(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
-        raw_payload = {
-            "id": "base1-4",
-            "name": "Charizard",
-            "number": "4",
-            "rarity": "Rare Holo",
-            "supertype": "Pokémon",
-            "subtypes": ["Stage 2"],
-            "types": ["Fire"],
-            "artist": "Mitsuhiro Arita",
-            "images": {
-                "small": "https://images.example/base1-4-small.png",
-                "large": "https://images.example/base1-4-large.png",
-            },
-            "set": {
-                "id": "base1",
-                "name": "Base Set",
-                "series": "Base",
-                "printedTotal": 102,
-                "releaseDate": "1999-01-09",
-            },
-            "tcgplayer": {},
-            "cardmarket": {},
-        }
-
-        mapped = service._persist_catalog_card(
-            raw_card=raw_payload,
-            sync_mode="exact_card_import",
-            trigger_source="test",
-            query_text="base1-4",
-            refresh_embeddings=False,
-        )
-        card = card_by_id(service.connection, "base1-4")
-        detail = service.card_detail("base1-4")
+        with patch("server.fetch_scrydex_card_by_id", return_value=sample_scrydex_card()):
+            mapped = service.import_catalog_card("m2a_ja-232", trigger_source="test")
+        card = card_by_id(service.connection, "m2a_ja-232")
+        detail = service.card_detail("m2a_ja-232")
         service.connection.close()
 
-        self.assertEqual(mapped["id"], "base1-4")
+        self.assertEqual(mapped["id"], "m2a_ja-232")
         self.assertIsNotNone(card)
         self.assertIsNotNone(detail)
         assert card is not None
         assert detail is not None
-        self.assertEqual(card["setID"], "base1")
-        self.assertEqual(card["setSeries"], "Base")
-        self.assertEqual(card["imageURL"], "https://images.example/base1-4-large.png")
-        self.assertEqual(detail["source"], "pokemontcg_api")
-        self.assertEqual(detail["card"]["name"], "Charizard")
+        self.assertEqual(card["setID"], "m2a_ja")
+        self.assertEqual(card["setSeries"], "Scarlet & Violet")
+        self.assertEqual(card["imageURL"], "https://images.example/m2a_ja-232-large.png")
+        self.assertEqual(detail["source"], "scrydex")
+        self.assertEqual(detail["card"]["name"], "Mega Dragonite ex")
 
-    def test_ensure_raw_card_cached_persists_remote_provider_pricing(self) -> None:
-        service = SpotlightScanService(self.database_path, REPO_ROOT)
-        provider_card = sample_provider_card()
-        mapped = map_card(provider_card, None)
-        remote_candidate = {
-            "id": mapped["id"],
-            "name": mapped["name"],
-            "setName": mapped["set_name"],
-            "number": mapped["number"],
-            "rarity": mapped["rarity"],
-            "variant": mapped["variant"],
-            "language": mapped["language"],
-            "sourceProvider": mapped["source"],
-            "sourceRecordID": mapped["source_record_id"],
-            "setID": mapped["set_id"],
-            "setSeries": mapped["set_series"],
-            "setPtcgoCode": mapped["set_ptcgo_code"],
-            "imageURL": mapped["reference_image_url"],
-            "imageSmallURL": mapped["reference_image_small_url"],
-            "sourcePayload": provider_card,
-        }
-
-        cached = service._ensure_raw_card_cached(remote_candidate, "test_remote_cache")
-        snapshot = price_snapshot_for_card(
-            service.connection,
-            "gym1-60",
-            pricing_mode=RAW_PRICING_MODE,
-        )
-        service.connection.close()
-
-        self.assertEqual(cached["id"], "gym1-60")
-        self.assertIsNotNone(snapshot)
-        assert snapshot is not None
-        self.assertEqual(snapshot["provider"], "tcgplayer")
-        self.assertEqual(snapshot["market"], 2.5)
-
-    def test_low_confidence_top_candidate_still_refreshes_missing_pricing(self) -> None:
+    def test_low_confidence_top_candidate_skips_live_pricing_refresh(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         upsert_card(
             service.connection,
@@ -889,7 +823,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             rarity="Common",
             variant="Raw",
             language="English",
-            source_provider="pokemontcg_api",
+            source_provider="scrydex",
             source_record_id="gym1-60",
             set_id="gym1",
         )
@@ -911,6 +845,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
             breakdown=RawCandidateScoreBreakdown(
                 title_overlap_score=4.0,
                 set_overlap_score=0.0,
+                set_badge_image_score=0.0,
                 collector_exact_score=30.0,
                 collector_partial_score=0.0,
                 collector_denominator_score=8.0,
@@ -951,6 +886,87 @@ class BackendResetPhase1Tests(unittest.TestCase):
         })
 
         response, _ = service._build_raw_match_response({"scanID": "scan-low"}, decision, api_key="test-key")
+        top_candidate = response["topCandidates"][0]["candidate"]
+        service.connection.close()
+
+        service.refresh_card_pricing.assert_not_called()
+        self.assertEqual(top_candidate["id"], "gym1-60")
+        self.assertNotIn("pricing", top_candidate)
+
+    def test_medium_confidence_ready_top_candidate_still_refreshes_missing_pricing(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="gym1-60",
+            name="Sabrina's Slowbro",
+            set_name="Gym Heroes",
+            number="60/132",
+            rarity="Common",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="gym1-60",
+            set_id="gym1",
+        )
+        service.connection.commit()
+
+        match = RawCandidateMatch(
+            card={
+                "id": "gym1-60",
+                "name": "Sabrina's Slowbro",
+                "setName": "Gym Heroes",
+                "number": "60/132",
+                "rarity": "Common",
+                "variant": "Raw",
+                "language": "English",
+            },
+            retrieval_score=68.0,
+            resolution_score=72.0,
+            final_total=70.0,
+            breakdown=RawCandidateScoreBreakdown(
+                title_overlap_score=12.0,
+                set_overlap_score=15.0,
+                set_badge_image_score=0.0,
+                collector_exact_score=30.0,
+                collector_partial_score=0.0,
+                collector_denominator_score=8.0,
+                footer_text_support_score=7.0,
+                promo_support_score=0.0,
+                cache_presence_score=0.0,
+                contradiction_penalty=0.0,
+                retrieval_total=68.0,
+                resolution_total=72.0,
+                final_total=70.0,
+            ),
+            reasons=("collector_exact", "set_overlap"),
+        )
+        decision = RawDecisionResult(
+            matches=(match,),
+            top_candidates=(match,),
+            confidence="medium",
+            confidence_percent=70.0,
+            ambiguity_flags=tuple(),
+            resolver_path="visual_fallback",
+            review_disposition="ready",
+            review_reason=None,
+            fallback_reason=None,
+            selected_card_id="gym1-60",
+            debug_payload={},
+        )
+        service.refresh_card_pricing = Mock(return_value={  # type: ignore[method-assign]
+            "card": {
+                "pricing": {
+                    "source": "tcgplayer",
+                    "pricingMode": "raw",
+                    "market": 3.25,
+                    "currencyCode": "USD",
+                    "variant": "normal",
+                    "isFresh": True,
+                }
+            }
+        })
+
+        response, _ = service._build_raw_match_response({"scanID": "scan-medium"}, decision, api_key="test-key")
         top_candidate = response["topCandidates"][0]["candidate"]
         service.connection.close()
 
@@ -1070,18 +1086,11 @@ class BackendResetPhase1Tests(unittest.TestCase):
             refresh_embeddings=False,
         )
         scrydex_provider = service.pricing_registry.get_provider("scrydex")
-        pokemontcg_provider = service.pricing_registry.get_provider("pokemontcg_api")
         assert scrydex_provider is not None
-        assert pokemontcg_provider is not None
+        self.assertIsNone(service.pricing_registry.get_provider("pokemontcg_api"))
         scrydex_provider.refresh_raw_pricing = Mock(return_value=RawPricingResult(  # type: ignore[method-assign]
             success=True,
             provider_id="scrydex",
-            card_id="m2a_ja-232",
-            payload={"id": "m2a_ja-232"},
-        ))
-        pokemontcg_provider.refresh_raw_pricing = Mock(return_value=RawPricingResult(  # type: ignore[method-assign]
-            success=True,
-            provider_id="pokemontcg_api",
             card_id="m2a_ja-232",
             payload={"id": "m2a_ja-232"},
         ))
@@ -1090,7 +1099,6 @@ class BackendResetPhase1Tests(unittest.TestCase):
         service.connection.close()
 
         scrydex_provider.refresh_raw_pricing.assert_called_once_with(service.connection, "m2a_ja-232")
-        pokemontcg_provider.refresh_raw_pricing.assert_not_called()
 
     def test_card_detail_keeps_native_jpy_snapshot_but_returns_usd_display_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -1304,7 +1312,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         with patch("scrydex_adapter._scrydex_run_japanese_query") as run_ja, patch(
             "scrydex_adapter._scrydex_run_cards_query"
         ) as run_cards:
-            run_ja.side_effect = lambda query, include_prices, page_size: (
+            run_ja.side_effect = lambda query, include_prices, page_size, request_type: (
                 [sample_xy_promo_pikachu_scrydex_card()]
                 if query == 'number:"150" expansion.name:"XY Promos"'
                 else []
@@ -1325,7 +1333,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
     def test_search_remote_scrydex_slab_candidates_uses_name_scope_for_plain_english_set_names(self) -> None:
         with patch("scrydex_adapter._scrydex_run_cards_query") as run_cards:
-            run_cards.side_effect = lambda query, include_prices, page_size: (
+            run_cards.side_effect = lambda query, include_prices, page_size, request_type: (
                 [{
                     "id": "base1-58",
                     "name": "Pikachu",

@@ -127,17 +127,18 @@
       "title_signal_weak",
       "set_signal_weak"
     ],
-    "targetQualityScore" : 0.851881542270959,
-    "usedFallback" : false
+    "targetQualityScore" : 0.631881542270959,
+    "usedFallback" : true
   },
   "fixtureName" : "pikachu-vmax-swsh286-overhead",
   "ocr" : {
-    "cropConfidence" : 0.851881542270959,
+    "cropConfidence" : 0.631881542270959,
     "setHintTokens" : [
 
     ],
     "warnings" : [
       "Raw scene looks holder-like",
+      "Target selection used fallback crop",
       "Rewrite raw escalation used focused ROIs",
       "Could not read strong raw-card clues",
       "Low-confidence rewrite raw evidence"

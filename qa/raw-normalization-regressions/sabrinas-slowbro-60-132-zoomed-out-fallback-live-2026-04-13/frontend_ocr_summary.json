@@ -1,0 +1,66 @@
+{
+  "payload" : {
+    "analysisMs" : 419.65603828430176,
+    "captureSource" : "live_preview_frame",
+    "collectorNumber" : "60\/132",
+    "cropConfidence" : 0.52,
+    "geometryKind" : "fallback",
+    "pipelineVersion" : "rewrite_v1",
+    "rawEvidence" : {
+      "collectorConfidence" : {
+        "reasons" : [
+          "rewrite_raw_footer_band_wide"
+        ],
+        "score" : 0.66
+      },
+      "collectorNumberExact" : "60\/132",
+      "footerBandText" : "LV. 29 #80 illaa. Ken Sugin лuгi 01995, 96. 98 Ninendo, Creatures, GAMEFR 60\/132 S",
+      "setBadgeHint" : {
+        "canonicalTokens" : [
+
+        ],
+        "kind" : "unknown",
+        "source" : "none"
+      },
+      "setHints" : [
+
+      ],
+      "titleConfidence" : {
+        "reasons" : [
+          "rewrite_raw_header_wide"
+        ],
+        "score" : 1,
+        "tokenConfidenceAverage" : 0.8000000317891439
+      },
+      "titleTextPrimary" : "Sabrinas S Sabrina's Slowbro",
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak",
+        "Rewrite raw escalation used focused ROIs"
+      ],
+      "wholeCardText" : "LV. 29 #80 illaa. Ken Sugin лuгi 01995, 96. 98 Ninendo, Creatures, GAMEFR 60\/132 S Yelline Evolves from Sabrina' Slowpoke STAGE I Put Sabrinas S Sabrina's Slowbro 70."
+    },
+    "resolverModeHint" : "raw_card",
+    "scanID" : "53FFB14E-EAFD-4717-94F6-99243002B825",
+    "selectedMode" : "raw",
+    "setBadgeHint" : {
+      "canonicalTokens" : [
+
+      ],
+      "kind" : "unknown",
+      "source" : "none"
+    },
+    "setHintTokens" : [
+
+    ],
+    "shouldRetryWithStillPhoto" : false,
+    "targetQualityScore" : 0.52,
+    "usedFallback" : true,
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Target selection confidence is weak",
+      "Rewrite raw escalation used focused ROIs"
+    ]
+  },
+  "stage" : "frontend_ocr_summary"
+}

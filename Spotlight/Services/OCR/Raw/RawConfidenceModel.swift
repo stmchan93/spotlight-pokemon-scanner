@@ -28,6 +28,7 @@ struct RawResolvedCollectorEvidence: Codable, Hashable, Sendable {
 
 struct RawResolvedSetEvidence: Codable, Hashable, Sendable {
     let hints: [String]
+    let badgeHint: OCRSetBadgeHint
     let confidence: OCRFieldConfidence?
 }
 
@@ -87,13 +88,28 @@ struct RawConfidenceModel {
             reasons.append("target_quality_too_low_for_escalation")
         }
 
-        let shouldEscalate =
-            sceneTraits.targetQualityScore >= tuning.minimumTargetQualityForEscalation &&
+        let exactCollectorFallbackHeaderRescue =
+            sceneTraits.usedFallback &&
+            collector.exact != nil &&
+            (collector.confidence?.score ?? 0) >= 0.60
+
+        if exactCollectorFallbackHeaderRescue {
+            reasons.append("fallback_exact_collector_allows_header_rescue")
+        }
+
+        let needsEscalation =
             !footerSatisfied &&
             (
                 (collector.confidence?.score ?? 0) < tuning.minimumCollectorConfidenceForStrongSignal ||
                 (title.confidence?.score ?? 0) < tuning.minimumTitleConfidenceForStrongSignal ||
                 (set.confidence?.score ?? 0) < tuning.minimumSetConfidenceForStrongSignal
+            )
+
+        let shouldEscalate =
+            needsEscalation &&
+            (
+                sceneTraits.targetQualityScore >= tuning.minimumTargetQualityForEscalation ||
+                exactCollectorFallbackHeaderRescue
             )
 
         return RawStageAssessment(
@@ -147,6 +163,11 @@ struct RawConfidenceModel {
         }
 
         return .none
+    }
+
+    func shouldSkipTightFooterPasses(after broadPassResults: [RawOCRPassResult]) -> Bool {
+        let collector = resolveCollectorEvidence(from: broadPassResults)
+        return collector.exact != nil
     }
 
     func shouldRetryWithStillPhoto(
@@ -333,8 +354,6 @@ struct RawConfidenceModel {
     }
 
     private func resolveSetEvidence(from passResults: [RawOCRPassResult]) -> RawResolvedSetEvidence {
-        let footerBandText = passResults.first(where: { $0.kind == .footerBandWide })?.text ?? ""
-        let headerText = passResults.first(where: { $0.kind == .headerWide })?.text ?? ""
         let metadataCollectorFamilies = Set(
             passResults
                 .filter {
@@ -348,62 +367,59 @@ struct RawConfidenceModel {
                 }
         )
         let setBadgePasses = passResults.filter {
-            if $0.kind == .footerMetadata {
-                return $0.footerRole == .setBadge &&
-                    (
-                        metadataCollectorFamilies.isEmpty ||
-                        ($0.footerFamily.map { metadataCollectorFamilies.contains($0) } ?? false)
-                    )
-            }
-            return $0.kind == .footerLeft || $0.kind == .footerRight
+            guard $0.kind == .footerMetadata else { return false }
+            return $0.footerRole == .setBadge &&
+                (
+                    metadataCollectorFamilies.isEmpty ||
+                    ($0.footerFamily.map { metadataCollectorFamilies.contains($0) } ?? false)
+                )
         }
 
-        let broadHints = extractSetHintCandidates(from: [footerBandText, headerText])
         let familyHints = extractSetHintCandidates(from: setBadgePasses.map(\.text))
-        let mergedHints = Array(Set((broadHints + familyHints).map(\.token))).sorted()
+        let mergedHints = Array(Set(familyHints.map(\.token))).sorted()
 
         guard !mergedHints.isEmpty else {
-            return RawResolvedSetEvidence(hints: [], confidence: nil)
+            return RawResolvedSetEvidence(
+                hints: [],
+                badgeHint: OCRSetBadgeHint(
+                    kind: .unknown,
+                    rawValue: nil,
+                    canonicalTokens: [],
+                    confidence: nil,
+                    source: .none
+                ),
+                confidence: nil
+            )
         }
 
-        let broadHintLookup = Dictionary(uniqueKeysWithValues: broadHints.map { ($0.token, $0.matchKind) })
-        let familyHintLookup = Dictionary(uniqueKeysWithValues: familyHints.map { ($0.token, $0.matchKind) })
-        let agreement = Set(broadHintLookup.keys).intersection(Set(familyHintLookup.keys))
-        let broadHasOnlyFuzzy = !broadHints.isEmpty && broadHints.allSatisfy { $0.matchKind == .fuzzy }
         let familyHasOnlyFuzzy = !familyHints.isEmpty && familyHints.allSatisfy { $0.matchKind == .fuzzy }
-        let agreementIncludesOnlyFuzzy = !agreement.isEmpty && agreement.allSatisfy { token in
-            broadHintLookup[token] == .fuzzy && familyHintLookup[token] == .fuzzy
-        }
         let score: Double
         let reasons: [String]
-        if !agreement.isEmpty {
-            score = agreementIncludesOnlyFuzzy ? 0.62 : 0.74
-            reasons = agreementIncludesOnlyFuzzy
-                ? ["rewrite_raw_footer_band_set_hints", "rewrite_raw_footer_family_set_agreement", "rewrite_raw_fuzzy_set_hints"]
-                : ["rewrite_raw_footer_band_set_hints", "rewrite_raw_footer_family_set_agreement"]
-        } else if !familyHints.isEmpty {
-            if familyHasOnlyFuzzy {
-                score = metadataCollectorFamilies.isEmpty ? 0.40 : 0.46
-                reasons = ["rewrite_raw_footer_family_set_hints", "rewrite_raw_fuzzy_set_hints"]
-            } else {
-                score = metadataCollectorFamilies.isEmpty ? 0.56 : 0.62
-                reasons = ["rewrite_raw_footer_family_set_hints"]
-            }
+        if familyHasOnlyFuzzy {
+            score = metadataCollectorFamilies.isEmpty ? 0.40 : 0.46
+            reasons = ["rewrite_raw_set_badge_ocr", "rewrite_raw_fuzzy_set_hints"]
         } else {
-            score = broadHasOnlyFuzzy ? 0.30 : 0.48
-            reasons = broadHasOnlyFuzzy
-                ? ["rewrite_raw_footer_band_set_hints", "rewrite_raw_fuzzy_set_hints"]
-                : ["rewrite_raw_footer_band_set_hints"]
+            score = metadataCollectorFamilies.isEmpty ? 0.58 : 0.66
+            reasons = ["rewrite_raw_set_badge_ocr"]
         }
 
+        let confidence = OCRFieldConfidence(
+            score: score,
+            agreementScore: metadataCollectorFamilies.isEmpty ? nil : 0.70,
+            tokenConfidenceAverage: nil,
+            reasons: reasons
+        )
         return RawResolvedSetEvidence(
             hints: mergedHints,
-            confidence: OCRFieldConfidence(
-                score: score,
-                agreementScore: !agreement.isEmpty ? 0.76 : nil,
-                tokenConfidenceAverage: nil,
-                reasons: reasons
+            badgeHint: OCRSetBadgeHint(
+                kind: .text,
+                rawValue: mergedHints.first?.uppercased(),
+                canonicalTokens: mergedHints,
+                confidence: confidence,
+                source: .badgeOCR
             )
+            ,
+            confidence: confidence
         )
     }
 

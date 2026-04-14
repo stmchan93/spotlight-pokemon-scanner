@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "59540878",
   "cropConfidence" : 0.4,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2013 POKEMON B & W #115 FA\/ZEKROM MINT LEGENDARY TREASURES 59540878 9",
     "N B & W #115 MINT"
   ],
-  "scanID" : "7DA5B532-447B-4D9F-8AAA-E1B4C4999811",
+  "scanID" : "825C94CE-818E-4CDC-A1E6-BDE4B5BB8690",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-zekrom-115-legendary-treasures-59540878-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

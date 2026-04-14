@@ -91,7 +91,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
+      "label" : "14_raw_footer_modern_left_set_anchored",
       "normalizedRect" : {
         "height" : 0.098,
         "width" : 0.13793441688052469,
@@ -107,7 +107,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
+      "label" : "15_raw_footer_modern_left_collector_anchored",
       "normalizedRect" : {
         "height" : 0.23947626402546932,
         "width" : 0.999524760003802,
@@ -162,7 +162,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
+      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
       "normalizedRect" : {
         "height" : 0.102,
         "width" : 0.12494059500047525,
@@ -178,7 +178,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
       "normalizedRect" : {
         "height" : 0.23947626402546932,
         "width" : 0.999524760003802,
@@ -233,7 +233,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
+      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
       "normalizedRect" : {
         "height" : 0.105,
         "width" : 0.11494534740043723,
@@ -258,7 +258,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
       "normalizedRect" : {
         "height" : 0.23947626402546932,
         "width" : 0.999524760003802,
@@ -353,11 +353,12 @@
       ]
     }
   ],
-  "scanID" : "D3064CEE-CA3A-4527-81F0-EB1938EF0D85",
+  "scanID" : "A54C5F09-27F0-42D2-B216-440DF99D658B",
   "setConfidenceReasons" : [
-    "rewrite_raw_footer_band_set_hints"
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_fuzzy_set_hints"
   ],
-  "setConfidenceScore" : 0.48,
+  "setConfidenceScore" : 0.3,
   "setHintTokens" : [
     "meg"
   ],
@@ -365,6 +366,8 @@
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 1,
+  "titleTextPrimary" : "Supporter Lt Surge's Bargain",
   "warnings" : [
     "Target selection used fallback crop",
     "Rewrite raw escalation used focused ROIs"

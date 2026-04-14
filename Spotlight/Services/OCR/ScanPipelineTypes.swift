@@ -68,6 +68,27 @@ struct OCRNormalizedTarget: Codable, Hashable, Sendable {
     let targetQuality: OCRTargetQuality
 }
 
+enum OCRSetBadgeHintKind: String, Codable, Hashable, Sendable {
+    case text
+    case icon
+    case unknown
+}
+
+enum OCRSetBadgeHintSource: String, Codable, Hashable, Sendable {
+    case badgeOCR = "badge_ocr"
+    case badgeIcon = "badge_icon"
+    case badgeFused = "badge_fused"
+    case none
+}
+
+struct OCRSetBadgeHint: Codable, Hashable, Sendable {
+    let kind: OCRSetBadgeHintKind
+    let rawValue: String?
+    let canonicalTokens: [String]
+    let confidence: OCRFieldConfidence?
+    let source: OCRSetBadgeHintSource
+}
+
 struct OCRRawEvidence: Codable, Hashable, Sendable {
     let titleTextPrimary: String?
     let titleTextSecondary: String?
@@ -75,6 +96,7 @@ struct OCRRawEvidence: Codable, Hashable, Sendable {
     let collectorNumberExact: String?
     let collectorNumberPartial: String?
     let collectorConfidence: OCRFieldConfidence?
+    let setBadgeHint: OCRSetBadgeHint?
     let setHints: [String]
     let setConfidence: OCRFieldConfidence?
     let footerBandText: String
@@ -89,6 +111,7 @@ struct OCRSlabEvidence: Codable, Hashable, Sendable {
     let cardNumber: String?
     let cardNumberConfidence: OCRFieldConfidence?
     let setText: String?
+    let setBadgeHint: OCRSetBadgeHint?
     let setHints: [String]
     let setConfidence: OCRFieldConfidence?
     let grader: String?

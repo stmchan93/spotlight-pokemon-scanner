@@ -32,16 +32,12 @@ enum MatcherError: LocalizedError {
 }
 
 final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable {
-    private static let slabMatchingFeatureFlagEnvKey = "SPOTLIGHT_ENABLE_SLAB_MATCHING"
-    private static let slabMatchingDisabledReason = "Slab backend matching is disabled by feature flag."
-
     private let baseURL: URL
     private let session: URLSession
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
-    private let slabMatchRequestsEnabled: Bool
 
-    init(baseURL: URL, session: URLSession? = nil, slabMatchRequestsEnabled: Bool? = nil) {
+    init(baseURL: URL, session: URLSession? = nil) {
         self.baseURL = baseURL
 
         if let session {
@@ -58,9 +54,6 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
 
         decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        self.slabMatchRequestsEnabled = slabMatchRequestsEnabled
-            ?? Self.boolEnv(Self.slabMatchingFeatureFlagEnvKey)
-            ?? false
     }
 
     func primeLocalNetworkPermissionIfNeeded() async {
@@ -68,7 +61,9 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             return
         }
 
-        let endpoint = baseURL.appending(path: "api/v1/health")
+        var components = URLComponents(url: baseURL.appending(path: "api/v1/health"), resolvingAgainstBaseURL: false)
+        components?.queryItems = [URLQueryItem(name: "prewarm", value: "visual")]
+        let endpoint = components?.url ?? baseURL.appending(path: "api/v1/health")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
         request.timeoutInterval = 1.5
@@ -90,11 +85,6 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
 
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
         let payload = makePayload(analysis: analysis)
-        if payload.resolverModeHint == .psaSlab, !slabMatchRequestsEnabled {
-            print("⚠️ [MATCH] Skipping slab POST /api/v1/scan/match because slab matching is feature-flagged off")
-            return slabMatchingDisabledResponse(for: payload)
-        }
-
         return try await performMatch(payload: payload)
     }
 
@@ -262,6 +252,7 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             recognizedTokens: analysis.recognizedTokens,
             collectorNumber: analysis.collectorNumber,
             setHintTokens: analysis.setHintTokens,
+            setBadgeHint: analysis.setBadgeHint,
             promoCodeHint: analysis.promoCodeHint,
             slabGrader: analysis.slabGrader,
             slabGrade: analysis.slabGrade,
@@ -275,33 +266,10 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             slabClassifierReasons: analysis.slabClassifierReasons,
             slabRecommendedLookupPath: analysis.slabRecommendedLookupPath,
             resolverModeHint: analysis.resolverModeHint,
+            rawResolverMode: analysis.resolverModeHint.runtimeRawResolverMode,
             cropConfidence: analysis.cropConfidence,
             warnings: analysis.warnings,
             ocrAnalysis: analysis.ocrAnalysis
-        )
-    }
-
-    private func slabMatchingDisabledResponse(for payload: ScanMatchRequestPayload) -> ScanMatchResponse {
-        let slabContext = payload.slabGrader.map {
-            SlabContext(
-                grader: $0,
-                grade: payload.slabGrade,
-                certNumber: payload.slabCertNumber,
-                variantName: nil
-            )
-        }
-        return ScanMatchResponse(
-            scanID: payload.scanID,
-            topCandidates: [],
-            confidence: .low,
-            ambiguityFlags: ["slab_backend_match_disabled"],
-            matcherSource: .remoteHybrid,
-            matcherVersion: "frontend_slab_feature_flag_disabled",
-            resolverMode: payload.resolverModeHint,
-            resolverPath: nil,
-            slabContext: slabContext,
-            reviewDisposition: .unsupported,
-            reviewReason: Self.slabMatchingDisabledReason
         )
     }
 
@@ -316,6 +284,7 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             "🌐 [MATCH] POST \(endpoint.path): "
             + "scanID=\(payload.scanID.uuidString) "
             + "mode=\(payload.resolverModeHint.rawValue) "
+            + "rawResolver=\(payload.rawResolverMode?.rawValue ?? "n/a") "
             + "pipeline=\(payload.ocrAnalysis?.pipelineVersion.rawValue ?? "none") "
             + "collector=\(payload.collectorNumber ?? "<none>") "
             + "setHints=\(payload.setHintTokens) "
@@ -371,20 +340,6 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         return items
     }
 
-    private static func boolEnv(_ key: String, processInfo: ProcessInfo = .processInfo) -> Bool? {
-        guard let value = processInfo.environment[key] else {
-            return nil
-        }
-
-        switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-        case "1", "true", "yes", "on":
-            return true
-        case "0", "false", "no", "off":
-            return false
-        default:
-            return nil
-        }
-    }
 }
 
 private extension URL {

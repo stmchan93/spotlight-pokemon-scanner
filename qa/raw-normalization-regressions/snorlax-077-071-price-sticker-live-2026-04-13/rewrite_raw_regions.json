@@ -1,0 +1,147 @@
+{
+  "payload" : {
+    "collectorNumber" : "7\/071",
+    "didEscalate" : false,
+    "overallEvidenceScore" : 0.264,
+    "plans" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "minimumTextHeight" : 0.0035,
+        "normalizedRect" : {
+          "height" : 0.21984375,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.7798011363636363
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 3.6,
+        "usesLanguageCorrection" : false
+      }
+    ],
+    "regions" : [
+      {
+        "averageConfidence" : 0.4166666666666667,
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.21984375,
+          "width" : 1,
+          "x" : 0,
+          "y" : 0.7798011363636363
+        },
+        "text" : "出し抜けに特に疲れたちまち染飯を IPOu 空に 7\/071 CHR 吉より災応のひとっと 02022 Pokémon\/Nintendo\/Creatures\/GAME FREAK",
+        "tokens" : [
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.04160057220383837,
+              "width" : 0.6583333225687555,
+              "x" : 0.2750000108683999,
+              "y" : 0.827334921217405
+            },
+            "text" : "出し抜けに特に疲れたちまち染飯を"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.01648828076940553,
+              "width" : 0.05384615405316496,
+              "x" : -3.482607954713495e-10,
+              "y" : 0.8402581678872433
+            },
+            "text" : "IPOu"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.027716690544412625,
+              "width" : 0.07564102657257565,
+              "x" : 0.9192307685869315,
+              "y" : 0.8364943671903892
+            },
+            "text" : "空に"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.0384466421518763,
+              "width" : 0.21753792199297975,
+              "x" : -0.0004356277944649685,
+              "y" : 0.8764414129618378
+            },
+            "text" : "7\/071 CHR"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.03590571275071631,
+              "width" : 0.3624999838531333,
+              "x" : 0.5208333459380166,
+              "y" : 0.8717701549882781
+            },
+            "text" : "吉より災応のひとっと"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.02393714183381089,
+              "width" : 0.6416666343729333,
+              "x" : 0.1791666892302,
+              "y" : 0.9312980472617843
+            },
+            "text" : "02022 Pokémon\/Nintendo\/Creatures\/GAME FREAK"
+          }
+        ]
+      }
+    ],
+    "routing" : {
+      "anchorIdentifier" : "7\/071",
+      "collectorAnchor" : {
+        "height" : 0.03844664215187632,
+        "width" : 0.21753792199297975,
+        "x" : -0.0004356277944649685,
+        "y" : 0.8764414129618378
+      },
+      "reasons" : [
+        "footer_band_collector_anchor"
+      ]
+    },
+    "sceneTraits" : {
+      "holderLikely" : false,
+      "normalizedContentRect" : {
+        "height" : 0.9992897727272727,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.0003551136363636364
+      },
+      "targetQualityScore" : 0.44741744643189046,
+      "usedFallback" : true,
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak"
+      ]
+    },
+    "setHintTokens" : [
+
+    ],
+    "stage1Assessment" : {
+      "collectorNumberExact" : "7\/071",
+      "reasons" : [
+        "collector_signal_weak",
+        "title_signal_weak",
+        "set_signal_weak",
+        "target_quality_too_low_for_escalation"
+      ],
+      "setHintTokens" : [
+
+      ],
+      "shouldEscalate" : false,
+      "titleConfidenceScore" : 0
+    }
+  },
+  "stage" : "rewrite_raw_regions"
+}

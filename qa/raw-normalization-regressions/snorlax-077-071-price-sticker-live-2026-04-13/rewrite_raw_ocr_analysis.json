@@ -1,0 +1,62 @@
+{
+  "payload" : {
+    "modeSanitySignals" : {
+      "looksLikeRawScore" : 0.8,
+      "looksLikeSlabScore" : 0.09999999999999999,
+      "selectedMode" : "raw",
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak"
+      ]
+    },
+    "normalizedTarget" : {
+      "contentRectNormalized" : {
+        "height" : 0.9992897727272727,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.0003551136363636364
+      },
+      "geometryKind" : "raw_card",
+      "normalizedHeight" : 880,
+      "normalizedWidth" : 630,
+      "targetQuality" : {
+        "overallScore" : 0.44741744643189046,
+        "reasons" : [
+          "raw_card",
+          "fallback:best_rectangle_aspect_mismatch",
+          "normalization:fallback_search_partial_card_salvaged"
+        ]
+      },
+      "usedFallback" : true
+    },
+    "pipelineVersion" : "rewrite_v1",
+    "rawEvidence" : {
+      "collectorConfidence" : {
+        "reasons" : [
+          "rewrite_raw_footer_band_wide"
+        ],
+        "score" : 0.66
+      },
+      "collectorNumberExact" : "7\/071",
+      "footerBandText" : "出し抜けに特に疲れたちまち染飯を IPOu 空に 7\/071 CHR 吉より災応のひとっと 02022 Pokémon\/Nintendo\/Creatures\/GAME FREAK",
+      "setBadgeHint" : {
+        "canonicalTokens" : [
+
+        ],
+        "kind" : "unknown",
+        "source" : "none"
+      },
+      "setHints" : [
+
+      ],
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak",
+        "Low-confidence rewrite raw evidence"
+      ],
+      "wholeCardText" : "出し抜けに特に疲れたちまち染飯を IPOu 空に 7\/071 CHR 吉より災応のひとっと 02022 Pokémon\/Nintendo\/Creatures\/GAME FREAK"
+    },
+    "selectedMode" : "raw"
+  },
+  "stage" : "rewrite_raw_ocr_analysis"
+}

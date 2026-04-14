@@ -15,6 +15,8 @@ import torch
 from PIL import Image
 from transformers import CLIPModel, CLIPProcessor
 
+from raw_visual_dataset_paths import default_raw_footer_layout_reference_cache_root
+
 
 USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
 DEFAULT_CROP_PRESET = "none"
@@ -182,7 +184,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--cache-root",
         type=Path,
-        default=Path("qa/raw-footer-layout-check/.visual_reference_cache"),
+        default=default_raw_footer_layout_reference_cache_root(),
         help="Cache directory for downloaded reference images.",
     )
     parser.add_argument(

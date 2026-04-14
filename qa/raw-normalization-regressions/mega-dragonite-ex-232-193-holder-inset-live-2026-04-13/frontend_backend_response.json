@@ -1,0 +1,46 @@
+{
+  "payload" : {
+    "ambiguityFlags" : [
+      "Top matches are close together",
+      "Footer collector OCR is weak",
+      "Set hints are weak"
+    ],
+    "confidence" : "low",
+    "matchMs" : 902.3309946060181,
+    "networkOverheadMs" : 349.4549946060181,
+    "resolverMode" : "raw_card",
+    "resolverPath" : "visual_hybrid_index",
+    "reviewDisposition" : "needs_review",
+    "reviewReason" : "Review the best guess before relying on the card result.",
+    "scanID" : "F5AD370E-A198-419B-83BB-AAA1E861FACB",
+    "scrydexRequestCount" : 0,
+    "scrydexRequestTypes" : [
+
+    ],
+    "serverProcessingMs" : 552.876,
+    "topCandidates" : [
+      {
+        "finalScore" : 0.6738,
+        "id" : "sv9_ja-125",
+        "name" : "Iono's Bellibolt ex",
+        "number" : "125\/100",
+        "setName" : "バトルパートナーズ"
+      },
+      {
+        "finalScore" : 0.6729,
+        "id" : "adv3_ja-53",
+        "name" : "Balloon Berry",
+        "number" : "053\/054",
+        "setName" : "天空の覇者"
+      },
+      {
+        "finalScore" : 0.6687,
+        "id" : "bw8t_ja-52",
+        "name" : "Thundurus-EX",
+        "number" : "052\/051",
+        "setName" : "ライデンナックル"
+      }
+    ]
+  },
+  "stage" : "frontend_backend_response"
+}

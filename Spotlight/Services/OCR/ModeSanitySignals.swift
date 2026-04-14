@@ -166,6 +166,7 @@ func buildLegacySlabOCRAnalysisEnvelope(
             )
         },
         setText: nil,
+        setBadgeHint: nil,
         setHints: [],
         setConfidence: nil,
         grader: slabLabelAnalysis.grader,

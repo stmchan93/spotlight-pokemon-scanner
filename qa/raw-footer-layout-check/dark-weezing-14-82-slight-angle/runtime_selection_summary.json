@@ -141,7 +141,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
+      "label" : "14_raw_footer_modern_left_set_anchored",
       "normalizedRect" : {
         "height" : 0.098,
         "width" : 0.13786397471194048,
@@ -176,7 +176,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
+      "label" : "15_raw_footer_modern_left_collector_anchored",
       "normalizedRect" : {
         "height" : 0.092,
         "width" : 0.27472893511437413,
@@ -221,7 +221,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
+      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
       "normalizedRect" : {
         "height" : 0.102,
         "width" : 0.12487678868835186,
@@ -266,7 +266,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
       "normalizedRect" : {
         "height" : 0.1,
         "width" : 0.18481764725876076,
@@ -291,7 +291,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
+      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
       "normalizedRect" : {
         "height" : 0.105,
         "width" : 0.11488664559328372,
@@ -316,7 +316,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
       "normalizedRect" : {
         "height" : 0.102,
         "width" : 0.18981271880629483,
@@ -401,7 +401,7 @@
       ]
     }
   ],
-  "scanID" : "6F90612A-1E4A-444F-93BA-B45E3A8397F3",
+  "scanID" : "C3A5A80B-D9A9-4AEA-BA7B-9266D3B4C527",
   "setConfidenceReasons" : [
 
   ],
@@ -412,6 +412,8 @@
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 1,
+  "titleTextPrimary" : "Basic Pokémon Dark Weezing",
   "warnings" : [
     "Target selection used fallback crop",
     "Rewrite raw escalation used focused ROIs"

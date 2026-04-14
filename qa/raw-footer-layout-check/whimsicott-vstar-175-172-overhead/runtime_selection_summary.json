@@ -4,8 +4,8 @@
   ],
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.9995869475423379,
-    "x" : 0.00020652622883105887,
+    "width" : 0.4485030847999254,
+    "x" : 0.2757484576000373,
     "y" : 0
   },
   "fixtureName" : "whimsicott-vstar-175-172-overhead",
@@ -19,7 +19,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:holder_like_selected_raw_card_preserved"
   ],
   "ocrTargetQualityScore" : 0.896186267499202,
   "ocrUsedFallback" : false,
@@ -29,22 +29,13 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.2,
-        "width" : 0.8996282527881041,
-        "x" : 0.05018587360594796,
+        "width" : 0.40365277631993285,
+        "x" : 0.29817361184003355,
         "y" : 0.76
       },
-      "text" : "retreat",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.0299999990433361,
-            "width" : 0.2138077528179276,
-            "x" : 0.05018587362422794,
-            "y" : 0.8283333336866653
-          },
-          "text" : "retreat"
-        }
+
       ]
     },
     {
@@ -54,8 +45,8 @@
       "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
         "height" : 0.098,
-        "width" : 0.13794299876084265,
-        "x" : 0.07081734820322179,
+        "width" : 0.06189342570238971,
+        "x" : 0.30743071551030404,
         "y" : 0.8451
       },
       "text" : "",
@@ -70,8 +61,8 @@
       "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
         "height" : 0.092,
-        "width" : 0.2748864105741429,
-        "x" : 0.1701363073110285,
+        "width" : 0.1233383483199795,
+        "x" : 0.3519939820160246,
         "y" : 0.85
       },
       "text" : "",
@@ -86,8 +77,8 @@
       "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.12494836844279224,
-        "x" : 0.6724287484510533,
+        "width" : 0.056062885599990675,
+        "x" : 0.5773667821279871,
         "y" : 0.84184
       },
       "text" : "",
@@ -102,8 +93,8 @@
       "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
         "height" : 0.1,
-        "width" : 0.1849235852953325,
-        "x" : 0.7199091284593143,
+        "width" : 0.08297307068798619,
+        "x" : 0.5986706786559836,
         "y" : 0.85
       },
       "text" : "",
@@ -118,8 +109,8 @@
       "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
         "height" : 0.105,
-        "width" : 0.11495249896736887,
-        "x" : 0.785631970260223,
+        "width" : 0.05157785475199142,
+        "x" : 0.6281597564815788,
         "y" : 0.8294
       },
       "text" : "",
@@ -134,8 +125,8 @@
       "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.18992152003304422,
-        "x" : 0.7049153242461793,
+        "width" : 0.08521558611198583,
+        "x" : 0.5919431323839848,
         "y" : 0.842
       },
       "text" : "",
@@ -148,46 +139,26 @@
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.7996695580338704,
-        "x" : 0.10016522098306486,
+        "width" : 0.35880246783994035,
+        "x" : 0.32059876608002985,
         "y" : 0.02
       },
-      "text" : "ext turns they can't play any ergy cards from their hand Power",
+      "text" : "Whinsicott \/Sat\/.250",
       "tokens" : [
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.042954712174451404,
-            "width" : 0.6474068755759037,
-            "x" : 0.10016523018345085,
-            "y" : 0.022471909684738552
+            "height" : 0.02737207276015559,
+            "width" : 0.2886440426897094,
+            "x" : 0.3251471150735869,
+            "y" : 0.02991943918911835
           },
-          "text" : "ext turns they can't play any"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.0486274573420502,
-            "width" : 0.6147769490050613,
-            "x" : 0.0995417834177231,
-            "y" : 0.07230236005416389
-          },
-          "text" : "ergy cards from their hand"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.045318351459177675,
-            "width" : 0.18829428471657075,
-            "x" : 0.10016522076065865,
-            "y" : 0.15430711624339136
-          },
-          "text" : "Power"
+          "text" : "Whinsicott \/Sat\/.250"
         }
       ]
     }
   ],
-  "scanID" : "D1F8A608-E020-454A-ABD2-8816D3E40FB9",
+  "scanID" : "AA82803F-0405-45D5-87B4-E50EB4CB32FB",
   "setConfidenceReasons" : [
 
   ],
@@ -199,6 +170,8 @@
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 0.58,
+  "titleTextPrimary" : "Whinsicott",
   "warnings" : [
     "Raw scene looks holder-like",
     "Rewrite raw escalation used focused ROIs",

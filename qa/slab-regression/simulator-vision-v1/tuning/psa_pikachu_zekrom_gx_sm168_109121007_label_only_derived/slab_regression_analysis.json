@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "109121007",
   "cropConfidence" : 0.7420308888105696,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2019 P.M. SM BLACK STAR #SM168 PIKACHU & ZEKROM GX GEM MT PROMO-TAG TEAM TINS-FA 10 PSA 109121007",
     "LACK STAR #SM168 ROM GX GEM MT EAM TINS-FA 10 PA 109121007"
   ],
-  "scanID" : "308C2759-01FC-474C-B5AF-B4EE040536E0",
+  "scanID" : "7246053D-5CB6-45A4-AD38-F8B618F47F38",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-pikachu-zekrom-gx-sm168-109121007-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

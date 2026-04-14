@@ -7,9 +7,39 @@ Date: 2026-04-11
 - This document is the source of truth for the next raw-card improvement phase after the first hybrid visual + OCR baseline.
 - It does not replace [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md) as the architecture document.
 - It defines the concrete next implementation phase for improving visual retrieval quality.
-- The current shipped raw runtime should remain unchanged until this phase proves a net-positive result on the held-out regression suite.
-- The first tool in this phase is now landed:
+- The current shipped raw runtime now uses the promoted Scrydex-backed candidate from this phase: `v004-scrydex-b8`.
+- Stable active visual artifact aliases are now published and are currently backed by `v004-scrydex-b8`.
+- Current promoted Scrydex visual results:
+  - base `v004-scrydex`: hybrid top-1 `29/67`
+  - adapter `v004-scrydex-b8`: hybrid top-1 `33/67` before matcher shortlist improvements
+  - adapter `v004-scrydex-b8` plus language-aware shortlist reranking: hybrid top-1 `36/67`
+  - runtime decision: keep `v004-scrydex-b8` active unless a later candidate beats `36/67` on the same `67`-fixture held-out suite
+- Landed tooling in this phase now includes:
   - [tools/build_raw_visual_training_manifest.py](/Users/stephenchan/Code/spotlight/tools/build_raw_visual_training_manifest.py)
+  - [tools/mine_raw_visual_hard_negatives.py](/Users/stephenchan/Code/spotlight/tools/mine_raw_visual_hard_negatives.py)
+  - [tools/train_raw_visual_adapter.py](/Users/stephenchan/Code/spotlight/tools/train_raw_visual_adapter.py)
+  - [tools/eval_raw_visual_model.py](/Users/stephenchan/Code/spotlight/tools/eval_raw_visual_model.py)
+  - [tools/publish_raw_visual_runtime_artifacts.py](/Users/stephenchan/Code/spotlight/tools/publish_raw_visual_runtime_artifacts.py)
+  - [backend/raw_visual_model.py](/Users/stephenchan/Code/spotlight/backend/raw_visual_model.py)
+- Current measured model-candidate results:
+  - adapter `v001` on the held-out suite was net-zero against the frozen baseline:
+    - visual top-1: `22/47`
+    - visual top-10 contains-truth: `32/47`
+    - hybrid top-1: `30/47`
+  - hard-negative adapter `v002` improved only visual top-10 by `+1` fixture and did not improve hybrid:
+    - visual top-1: `22/47`
+    - visual top-10 contains-truth: `33/47`
+    - hybrid top-1: `30/47`
+  - smaller-batch hard-negative adapter `v003-b8` is the first keep:
+    - visual top-1: `24/47`
+    - visual top-5 contains-truth: `31/47`
+    - visual top-10 contains-truth: `37/47`
+    - hybrid top-1: `32/47`
+    - hybrid top-5 contains-truth: `35/47`
+- Runtime implication:
+  - do not adopt `v001` or `v002` into runtime
+  - `v003-b8` is now the active runtime model
+  - env vars remain explicit override points for local experiments and rollback
 
 ## Frozen Decisions
 
@@ -92,6 +122,13 @@ Failure / stop conditions:
 - hybrid top-1 stays `<= 30/47`
 - improvements only appear on a contaminated train/eval split instead of the held-out suite
 
+Current measured status:
+
+- `v001` failed the keep gate
+- `v002` failed the keep gate
+- `v003-b8` cleared the keep gate
+- the next visual-model work is runtime adoption / artifact wiring, not another blind training pass
+
 ## Critical Data Rule
 
 Do **not** train on [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check).
@@ -110,7 +147,21 @@ Create a separate corpus outside the held-out suite.
 
 Recommended root:
 
-- `qa/raw-visual-train/`
+- default local root: `~/spotlight-datasets/raw-visual-train/`
+- excluded-but-labeled archive:
+  - `~/spotlight-datasets/raw-visual-train-excluded/`
+
+Override these with:
+
+- `SPOTLIGHT_DATASET_ROOT`
+- `SPOTLIGHT_RAW_VISUAL_TRAIN_ROOT`
+- `SPOTLIGHT_RAW_VISUAL_TRAIN_EXCLUDED_ROOT`
+
+The active local workflow for bulk imports is:
+
+- `zsh tools/import_raw_visual_train_batch.sh /path/to/images /path/to/cards.tsv`
+- supported import headers:
+  - `file_name`, `card_name`, `number`, `set promo`
 
 Recommended minimum:
 
@@ -151,15 +202,43 @@ Minimum `truth.json`:
 
 The corpus must then be mapped to provider card IDs using the same provider-reference-mapping approach already used for the held-out suite.
 
+Current seeded training state after the first manual-label import pass:
+
+- accepted training fixtures in the active training root: `35`
+- manifest entries: `35`
+- unsupported accepted fixtures: `0`
+- excluded held-out overlaps: `15`
+- excluded duplicates: `3`
+- blocked on provider support: `6`
+
+Key generated artifacts:
+
+- `<active-training-root>/manual_label_application_summary.json`
+- `<active-training-root>/raw_visual_training_manifest.jsonl`
+- `<active-training-root>/raw_visual_training_manifest_summary.json`
+
+Current labeling / corpus-prep tools:
+
+- `python3 tools/apply_raw_visual_train_manual_labels.py`
+- `python3 tools/build_raw_visual_training_manifest.py ...`
+- `.venv-raw-visual-poc/bin/python tools/train_raw_visual_adapter.py ...`
+
 ## Data Splits
 
-Use three separate data surfaces:
+Use four separate data surfaces:
 
 1. `qa/raw-visual-train/`
    - model training inputs
-2. validation split inside the training corpus
+   - accepted fixtures only
+2. `qa/raw-visual-train-excluded/`
+   - labeled archive for:
+     - held-out overlaps
+     - duplicates
+     - provider-blocked cards
+   - never include these in the training manifest
+3. validation split inside the training corpus
    - early stopping and model selection
-3. `qa/raw-footer-layout-check/`
+4. `qa/raw-footer-layout-check/`
    - final held-out regression gate only
 
 Important:
@@ -370,6 +449,10 @@ The only change is that index generation must apply the trained projection to re
      - train the projection adapter
      - write model artifact + metadata
      - emit train/validation metrics
+   - current landed scope:
+      - consumes the manifest directly
+      - uses in-batch negatives by default
+      - applies mined hard negatives to the scan-to-reference loss when `--hard-negatives-path` is provided
 
 4. `tools/eval_raw_visual_model.py`
    - input:
@@ -389,6 +472,10 @@ The only change is that index generation must apply the trained projection to re
        - training
        - index building
        - backend runtime matching
+   - landed V1 scope:
+      - frozen CLIP image encoder
+      - projection adapter module
+      - device resolution helpers
    - should support:
      - base CLIP only
      - CLIP + optional adapter projection
@@ -441,6 +528,14 @@ Output:
 
 - hard-negative manifest from the current baseline model
 
+Status:
+
+- landed
+- current manifest:
+  - `qa/raw-visual-train/raw_visual_hard_negatives.json`
+  - `35` fixtures
+  - `5` negatives per fixture
+
 ### V3: Train the adapter
 
 Implement:
@@ -453,6 +548,15 @@ Output:
 - trained adapter artifact
 - metadata
 - train/validation metrics
+
+Status:
+
+- first adapter candidate landed:
+  - `backend/data/visual-models/raw_visual_adapter_v001.pt`
+- hard-negative adapter candidate landed:
+  - `backend/data/visual-models/raw_visual_adapter_v002.pt`
+- first keep candidate landed:
+  - `backend/data/visual-models/raw_visual_adapter_v003-b8.pt`
 
 ### V4: Evaluate offline on the held-out suite
 
@@ -474,6 +578,28 @@ Decision:
 
 - keep only if net-positive against the frozen held-out baseline
 
+Current measured result:
+
+- `v001`:
+  - visual top-1: `22/47`
+  - visual top-10: `32/47`
+  - hybrid top-1: `30/47`
+- `v002`:
+  - visual top-1: `22/47`
+  - visual top-10: `33/47`
+  - hybrid top-1: `30/47`
+- `v003-b8`:
+  - visual top-1: `24/47`
+  - visual top-5: `31/47`
+  - visual top-10: `37/47`
+  - hybrid top-1: `32/47`
+  - hybrid top-5: `35/47`
+- decision:
+  - keep tooling
+  - keep `v003-b8` as the current best candidate
+  - make `v003-b8` the active runtime default
+  - keep env overrides available for experiments and rollback
+
 ### V5: Rebuild the production-shaped visual index
 
 Only after V4 is positive:
@@ -481,6 +607,12 @@ Only after V4 is positive:
 - rebuild the full reference index with the improved model
 - write a new versioned index artifact, for example:
   - `visual_index_v002_clip-vit-base-patch32-adapter-v001.npz`
+
+Current landed artifact:
+
+- `backend/data/visual-index/visual_index_v003-b8_clip-vit-base-patch32.npz`
+- `backend/data/visual-index/visual_index_v003-b8_manifest.json`
+- `backend/data/visual-index/visual_index_v003-b8_build_report.json`
 
 ### V6: Backend runtime adoption
 
@@ -493,6 +625,14 @@ Only after V5 is positive:
   - backend decision tests
 
 Do not revisit `top-K` until the new model is measured at `K=10`.
+
+Current next step:
+
+- keep validating local scanner flow and backend regression on the active `v003-b8` runtime path
+- use env overrides only when:
+  - testing a newer candidate
+  - forcing rollback to an older model/index
+  - comparing multiple candidates side by side
 
 ## Validation Contract
 
@@ -511,8 +651,17 @@ Additional new validation commands after tooling lands:
 ```bash
 python tools/build_raw_visual_training_manifest.py ...
 python tools/mine_raw_visual_hard_negatives.py ...
-python tools/train_raw_visual_adapter.py ...
+.venv-raw-visual-poc/bin/python tools/train_raw_visual_adapter.py ...
 python tools/eval_raw_visual_model.py ...
+```
+
+First landed training command:
+
+```bash
+.venv-raw-visual-poc/bin/python tools/train_raw_visual_adapter.py \
+  --manifest-path ~/spotlight-datasets/raw-visual-train/raw_visual_training_manifest.jsonl \
+  --output-dir backend/data/visual-models \
+  --artifact-version v001
 ```
 
 ## Decision Rules

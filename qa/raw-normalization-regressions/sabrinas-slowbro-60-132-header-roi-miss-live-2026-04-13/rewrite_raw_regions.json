@@ -1,0 +1,218 @@
+{
+  "payload" : {
+    "collectorNumber" : "60\/132",
+    "didEscalate" : true,
+    "overallEvidenceScore" : 0.264,
+    "plans" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "minimumTextHeight" : 0.0035,
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 3.6,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "minimumTextHeight" : 0.008,
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8795708465084086,
+          "x" : 0.06021457674579577,
+          "y" : 0
+        },
+        "preprocessing" : "none",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 2.6,
+        "usesLanguageCorrection" : true
+      }
+    ],
+    "regions" : [
+      {
+        "averageConfidence" : 0.48000001907348633,
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "text" : "next turn. weakness resistance retreat cost LY. 29 1 #80 Hux. Ken Sa mari 01995, 96. 98 Nimtendo, Crestures, GAMEFREAK. @i999-2000 Wüardi 60\/132 •",
+        "tokens" : [
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.01481375358166191,
+              "width" : 0.12814260377419806,
+              "x" : 0.3308517602535402,
+              "y" : 0.780000000080156
+            },
+            "text" : "next turn."
+          },
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.013285385120905586,
+              "width" : 0.08726499070217546,
+              "x" : 0.2295550921792178,
+              "y" : 0.815523973698022
+            },
+            "text" : "weakness"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.014277850153794593,
+              "width" : 0.0924137125529718,
+              "x" : 0.4243203453020499,
+              "y" : 0.8173194082419868
+            },
+            "text" : "resistance"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.01295940787197869,
+              "width" : 0.1127654929351935,
+              "x" : 0.22705625073362484,
+              "y" : 0.845873925669844
+            },
+            "text" : "retreat cost"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.012271092805616486,
+              "width" : 0.08083071069363713,
+              "x" : 0.2282872407043088,
+              "y" : 0.8760727870777214
+            },
+            "text" : "LY. 29 1"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.009166666265886598,
+              "width" : 0.03331707684679989,
+              "x" : 0.30650466572107826,
+              "y" : 0.8762500001545568
+            },
+            "text" : "#80"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.011840206572524447,
+              "width" : 0.08222355280281901,
+              "x" : 0.22054297741249138,
+              "y" : 0.895079896660898
+            },
+            "text" : "Hux. Ken Sa"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.009166666265886622,
+              "width" : 0.03331707684679989,
+              "x" : 0.31291179601324337,
+              "y" : 0.8964166668212233
+            },
+            "text" : "mari"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.016678542216391135,
+              "width" : 0.3912996597603786,
+              "x" : 0.37674277446736804,
+              "y" : 0.895271490017206
+            },
+            "text" : "01995, 96. 98 Nimtendo, Crestures, GAMEFREAK. @i999-2000 Wüardi"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.015208610490946491,
+              "width" : 0.08091907840116325,
+              "x" : 0.7754119833963709,
+              "y" : 0.8979790281299511
+            },
+            "text" : "60\/132 •"
+          }
+        ]
+      },
+      {
+        "averageConfidence" : 0,
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8795708465084086,
+          "x" : 0.06021457674579577,
+          "y" : 0
+        },
+        "text" : "",
+        "tokens" : [
+
+        ]
+      }
+    ],
+    "routing" : {
+      "anchorIdentifier" : "60\/132",
+      "collectorAnchor" : {
+        "height" : 0.09586823037891079,
+        "width" : 0.4320107164954843,
+        "x" : 0.4243203453020499,
+        "y" : 0.8173194082419868
+      },
+      "reasons" : [
+        "footer_band_collector_anchor"
+      ]
+    },
+    "sceneTraits" : {
+      "holderLikely" : false,
+      "normalizedContentRect" : {
+        "height" : 1,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0
+      },
+      "targetQualityScore" : 0.58,
+      "usedFallback" : true,
+      "warnings" : [
+        "Target selection used fallback crop"
+      ]
+    },
+    "setHintTokens" : [
+
+    ],
+    "stage1Assessment" : {
+      "collectorNumberExact" : "60\/132",
+      "reasons" : [
+        "collector_signal_weak",
+        "title_signal_weak",
+        "set_signal_weak",
+        "fallback_exact_collector_allows_header_rescue"
+      ],
+      "setHintTokens" : [
+
+      ],
+      "shouldEscalate" : true,
+      "titleConfidenceScore" : 0
+    }
+  },
+  "stage" : "rewrite_raw_regions"
+}

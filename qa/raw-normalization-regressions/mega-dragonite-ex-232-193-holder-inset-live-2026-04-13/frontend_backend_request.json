@@ -1,0 +1,31 @@
+{
+  "payload" : {
+    "cropConfidence" : 0.8737324050962765,
+    "imageHeight" : 880,
+    "imageWidth" : 630,
+    "ocrAnalysisIncluded" : true,
+    "pipelineVersion" : "rewrite_v1",
+    "rawResolverMode" : "hybrid",
+    "recognizedTokenCount" : 1,
+    "resolverModeHint" : "raw_card",
+    "scanID" : "F5AD370E-A198-419B-83BB-AAA1E861FACB",
+    "setBadgeHint" : {
+      "canonicalTokens" : [
+
+      ],
+      "kind" : "unknown",
+      "source" : "none"
+    },
+    "setHintTokens" : [
+
+    ],
+    "titleTextPrimary" : "スカイさ",
+    "warnings" : [
+      "Raw scene looks holder-like",
+      "Rewrite raw escalation used focused ROIs",
+      "Rewrite raw is relying on broader title evidence",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "stage" : "frontend_backend_request"
+}

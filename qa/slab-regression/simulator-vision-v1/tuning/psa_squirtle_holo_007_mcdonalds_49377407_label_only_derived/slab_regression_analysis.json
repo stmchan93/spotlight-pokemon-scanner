@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "49377407",
   "cropConfidence" : 0.7839743840132233,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2002 POKEMON JAPANESE #007 SQUIRTLE - HOLO GEM MT MCDONALD S 10 PFA 49377407",
     "ON JAPANESE #007 OLO GEM MT 10 PSA 49377407"
   ],
-  "scanID" : "4EA48ECC-D2CF-47DF-8AA9-5EEAA6E41421",
+  "scanID" : "36F8F931-69D5-4AC9-8589-60CB3AC624A1",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-squirtle-holo-007-mcdonalds-49377407-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

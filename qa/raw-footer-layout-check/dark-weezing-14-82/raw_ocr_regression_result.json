@@ -32,84 +32,6 @@
         "text" : "weakness resistance retreat cost Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #|I0 #110 Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK, ©1999-2000 Wzards 14\/82 *"
       },
       {
-        "footerFamily" : "modern_left",
-        "footerRole" : "set_badge",
-        "kind" : "footer_metadata",
-        "label" : "14_raw_footer_modern_left_set",
-        "normalizedRect" : {
-          "height" : 0.098,
-          "width" : 0.13793897633897637,
-          "x" : 0.00022110022110016162,
-          "y" : 0.8653157277715317
-        },
-        "text" : "Ius"
-      },
-      {
-        "footerFamily" : "modern_left",
-        "footerRole" : "collector",
-        "kind" : "footer_metadata",
-        "label" : "15_raw_footer_modern_left_collector",
-        "normalizedRect" : {
-          "height" : 0.092,
-          "width" : 0.9995577995577997,
-          "x" : 0.00022110022110016162,
-          "y" : 0.8702157277715317
-        },
-        "text" : "Kesedrchers nove oosciro industrial waste sites. LV. 24 #I10 14\/82 * Illus, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wzands"
-      },
-      {
-        "footerFamily" : "legacy_right_mid",
-        "footerRole" : "set_badge",
-        "kind" : "footer_metadata",
-        "label" : "16_raw_footer_legacy_right_mid_set",
-        "normalizedRect" : {
-          "height" : 0.102,
-          "width" : 0.12494472494472496,
-          "x" : 0.00022110022110016162,
-          "y" : 0.8580557277715317
-        },
-        "text" : ""
-      },
-      {
-        "footerFamily" : "legacy_right_mid",
-        "footerRole" : "collector",
-        "kind" : "footer_metadata",
-        "label" : "17_raw_footer_legacy_right_mid_collector",
-        "normalizedRect" : {
-          "height" : 0.1,
-          "width" : 0.9995577995577997,
-          "x" : 0.00022110022110016162,
-          "y" : 0.8662157277715317
-        },
-        "text" : "industrial waste sites. LV. 24 #||0 14\/82 * Illus. Shin-ichi Yoshida ©1995,96, 98 Nintendo, Creatures, GAMEFREAK O1999-2000 Wizards"
-      },
-      {
-        "footerFamily" : "legacy_right_corner",
-        "footerRole" : "set_badge",
-        "kind" : "footer_metadata",
-        "label" : "18_raw_footer_legacy_right_corner_set",
-        "normalizedRect" : {
-          "height" : 0.105,
-          "width" : 0.11494914694914697,
-          "x" : 0.8848297528297528,
-          "y" : 0.8526157277715317
-        },
-        "text" : ""
-      },
-      {
-        "footerFamily" : "legacy_right_corner",
-        "footerRole" : "collector",
-        "kind" : "footer_metadata",
-        "label" : "19_raw_footer_legacy_right_corner_collector",
-        "normalizedRect" : {
-          "height" : 0.102,
-          "width" : 0.9995577995577997,
-          "x" : 0.00022110022110016162,
-          "y" : 0.8652157277715317
-        },
-        "text" : "industrial waste sites. LV. 24 #|I0 14\/82 * Illus. Shin-ichi Yoshida ©1995, 96,98 Nintendo, Creatures, GAMEFREAK ©1999-2000 Wiznds"
-      },
-      {
         "kind" : "header_wide",
         "label" : "12_raw_header_wide",
         "normalizedRect" : {
@@ -123,17 +45,18 @@
     ],
     "requestedGeometryKind" : "raw_card",
     "stage1AssessmentReasons" : [
+      "collector_signal_weak",
       "title_signal_weak",
       "set_signal_weak"
     ],
-    "targetQualityScore" : 0.8342420695898636,
+    "targetQualityScore" : 0.58,
     "usedFallback" : true
   },
   "fixtureName" : "dark-weezing-14-82",
   "ocr" : {
-    "collectorConfidenceScore" : 0.92,
+    "collectorConfidenceScore" : 0.66,
     "collectorNumberExact" : "14\/82",
-    "cropConfidence" : 0.8342420695898636,
+    "cropConfidence" : 0.58,
     "setHintTokens" : [
 
     ],

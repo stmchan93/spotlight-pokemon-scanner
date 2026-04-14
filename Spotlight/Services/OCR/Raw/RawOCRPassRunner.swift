@@ -9,6 +9,9 @@ struct RawOCRPassResult: Codable, Hashable, Sendable {
     let normalizedRect: OCRNormalizedRect
     let text: String
     let tokens: [RecognizedToken]
+    let durationMs: Double
+    let recognitionRequestCount: Int
+    let usedAggressiveRetry: Bool
     let footerFamily: RawFooterFamily?
     let footerRole: RawFooterFieldRole?
 
@@ -18,6 +21,9 @@ struct RawOCRPassResult: Codable, Hashable, Sendable {
         normalizedRect: OCRNormalizedRect,
         text: String,
         tokens: [RecognizedToken],
+        durationMs: Double = 0,
+        recognitionRequestCount: Int = 0,
+        usedAggressiveRetry: Bool = false,
         footerFamily: RawFooterFamily? = nil,
         footerRole: RawFooterFieldRole? = nil
     ) {
@@ -26,6 +32,9 @@ struct RawOCRPassResult: Codable, Hashable, Sendable {
         self.normalizedRect = normalizedRect
         self.text = text
         self.tokens = tokens
+        self.durationMs = durationMs
+        self.recognitionRequestCount = recognitionRequestCount
+        self.usedAggressiveRetry = usedAggressiveRetry
         self.footerFamily = footerFamily
         self.footerRole = footerRole
     }
@@ -71,6 +80,8 @@ actor RawOCRPassRunner {
         scanID: UUID,
         cardImage: CGImage
     ) throws -> RawOCRPassResult {
+        let startedAt = Date().timeIntervalSinceReferenceDate
+
         guard let regionImage = cropToRect(cardImage, region: plan.cgRect) else {
             return RawOCRPassResult(
                 kind: plan.kind,
@@ -78,6 +89,9 @@ actor RawOCRPassRunner {
                 normalizedRect: plan.normalizedRect,
                 text: "",
                 tokens: [],
+                durationMs: (Date().timeIntervalSinceReferenceDate - startedAt) * 1000,
+                recognitionRequestCount: 0,
+                usedAggressiveRetry: false,
                 footerFamily: plan.footerFamily,
                 footerRole: plan.footerRole
             )
@@ -91,6 +105,10 @@ actor RawOCRPassRunner {
             named: "\(plan.label).jpg"
         )
 
+        var recognitionRequestCount = 0
+        var usedAggressiveRetry = false
+
+        recognitionRequestCount += 1
         var tokens = try recognizeTokens(
             in: upscaled,
             plan: plan,
@@ -104,6 +122,7 @@ actor RawOCRPassRunner {
                 aggressivelyPreprocessed,
                 factor: CGFloat(max(plan.upscaleFactor, 5.8))
            ) {
+            usedAggressiveRetry = true
             if let aggressiveImage = UIImage(cgImage: aggressivelyUpscaled).jpegData(compressionQuality: 0.92) {
                 ScanStageArtifactWriter.recordRawRegionImage(
                     scanID: scanID,
@@ -113,6 +132,7 @@ actor RawOCRPassRunner {
             }
 
             for languages in aggressiveRecognitionLanguageAttempts(for: plan) {
+                recognitionRequestCount += 1
                 let aggressiveTokens = try recognizeTokens(
                     in: aggressivelyUpscaled,
                     plan: plan,
@@ -131,6 +151,9 @@ actor RawOCRPassRunner {
             normalizedRect: plan.normalizedRect,
             text: tokens.map(\.text).joined(separator: " "),
             tokens: tokens,
+            durationMs: (Date().timeIntervalSinceReferenceDate - startedAt) * 1000,
+            recognitionRequestCount: recognitionRequestCount,
+            usedAggressiveRetry: usedAggressiveRetry,
             footerFamily: plan.footerFamily,
             footerRole: plan.footerRole
         )

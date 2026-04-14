@@ -141,7 +141,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
+      "label" : "14_raw_footer_modern_left_set_anchored",
       "normalizedRect" : {
         "height" : 0.09800000000000003,
         "width" : 0.1377824700318927,
@@ -166,7 +166,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
+      "label" : "15_raw_footer_modern_left_collector_anchored",
       "normalizedRect" : {
         "height" : 0.09200000000000001,
         "width" : 0.27456651636790214,
@@ -211,7 +211,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
+      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
       "normalizedRect" : {
         "height" : 0.10200000000000002,
         "width" : 0.12480296198541005,
@@ -266,7 +266,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
       "normalizedRect" : {
         "height" : 0.10000000000000003,
         "width" : 0.20290976363377689,
@@ -301,7 +301,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
+      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
       "normalizedRect" : {
         "height" : 0.10500000000000002,
         "width" : 0.11481872502657725,
@@ -326,7 +326,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
       "normalizedRect" : {
         "height" : 0.10200000000000002,
         "width" : 0.20290976363377689,
@@ -358,7 +358,7 @@
       ]
     }
   ],
-  "scanID" : "BA24AC63-396D-4076-9A69-762BDFAB61C8",
+  "scanID" : "6ABFC82D-980E-4CD5-B934-6EC371F241A6",
   "setConfidenceReasons" : [
     "rewrite_raw_footer_family_set_hints"
   ],

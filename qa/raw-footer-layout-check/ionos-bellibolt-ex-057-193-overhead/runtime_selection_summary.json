@@ -151,7 +151,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
+      "label" : "14_raw_footer_modern_left_set_anchored",
       "normalizedRect" : {
         "height" : 0.09783904474431819,
         "width" : 0.138,
@@ -167,7 +167,7 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
+      "label" : "15_raw_footer_modern_left_collector_anchored",
       "normalizedRect" : {
         "height" : 0.09184889914772727,
         "width" : 0.275,
@@ -202,7 +202,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
+      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
       "normalizedRect" : {
         "height" : 0.10183247514204545,
         "width" : 0.125,
@@ -237,7 +237,7 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
+      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
       "normalizedRect" : {
         "height" : 0.09983575994318183,
         "width" : 0.22963918050130203,
@@ -272,7 +272,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
+      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
       "normalizedRect" : {
         "height" : 0.10482754794034091,
         "width" : 0.115,
@@ -297,7 +297,7 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
       "normalizedRect" : {
         "height" : 0.10183247514204545,
         "width" : 0.22963918050130203,
@@ -382,7 +382,7 @@
       ]
     }
   ],
-  "scanID" : "9EF86CBD-B52F-487B-A545-BDDA8FA3A25A",
+  "scanID" : "32504F13-83E2-47D5-8E01-F7FD07034268",
   "setConfidenceReasons" : [
 
   ],
@@ -393,6 +393,8 @@
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 0.7399999841054281,
+  "titleTextPrimary" : "Uin ナンジャモのハラバリービス。",
   "warnings" : [
     "Target selection used fallback crop",
     "Rewrite raw escalation used focused ROIs"

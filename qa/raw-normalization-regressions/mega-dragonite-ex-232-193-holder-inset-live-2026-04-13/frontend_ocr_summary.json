@@ -1,0 +1,60 @@
+{
+  "payload" : {
+    "analysisMs" : 5173.85196685791,
+    "captureSource" : "live_preview_frame",
+    "cropConfidence" : 0.8737324050962765,
+    "geometryKind" : "raw_card",
+    "pipelineVersion" : "rewrite_v1",
+    "rawEvidence" : {
+      "footerBandText" : "",
+      "setBadgeHint" : {
+        "canonicalTokens" : [
+
+        ],
+        "kind" : "unknown",
+        "source" : "none"
+      },
+      "setHints" : [
+
+      ],
+      "titleConfidence" : {
+        "reasons" : [
+          "rewrite_raw_header_wide"
+        ],
+        "score" : 0.58,
+        "tokenConfidenceAverage" : 0.5
+      },
+      "titleTextPrimary" : "スカイさ",
+      "warnings" : [
+        "Raw scene looks holder-like",
+        "Rewrite raw escalation used focused ROIs",
+        "Rewrite raw is relying on broader title evidence",
+        "Low-confidence rewrite raw evidence"
+      ],
+      "wholeCardText" : "スカイさ"
+    },
+    "resolverModeHint" : "raw_card",
+    "scanID" : "F5AD370E-A198-419B-83BB-AAA1E861FACB",
+    "selectedMode" : "raw",
+    "setBadgeHint" : {
+      "canonicalTokens" : [
+
+      ],
+      "kind" : "unknown",
+      "source" : "none"
+    },
+    "setHintTokens" : [
+
+    ],
+    "shouldRetryWithStillPhoto" : false,
+    "targetQualityScore" : 0.8737324050962765,
+    "usedFallback" : false,
+    "warnings" : [
+      "Raw scene looks holder-like",
+      "Rewrite raw escalation used focused ROIs",
+      "Rewrite raw is relying on broader title evidence",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "stage" : "frontend_ocr_summary"
+}

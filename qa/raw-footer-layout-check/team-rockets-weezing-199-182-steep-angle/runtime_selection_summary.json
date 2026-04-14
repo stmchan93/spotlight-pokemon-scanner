@@ -1,12 +1,13 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_partial_collector_hint"
   ],
+  "collectorConfidenceScore" : 0.42,
   "contentRectNormalized" : {
-    "height" : 0.9974007561436674,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.0012996219281663198
+    "height" : 1,
+    "width" : 0.5108048917572726,
+    "x" : 0.24459755412136366,
+    "y" : 0
   },
   "fixtureName" : "team-rockets-weezing-199-182-steep-angle",
   "footerRouting" : {
@@ -19,7 +20,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:holder_like_selected_raw_card_preserved"
   ],
   "ocrTargetQualityScore" : 0.8884916076854371,
   "ocrUsedFallback" : false,
@@ -28,14 +29,73 @@
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.1994801512287335,
-        "width" : 0.9,
-        "x" : 0.05,
-        "y" : 0.7593241965973536
+        "height" : 0.2,
+        "width" : 0.45972440258154534,
+        "x" : 0.2701377987092273,
+        "y" : 0.76
       },
-      "text" : "",
+      "text" : "plode Together Now 40 o damage for each Pokémion in play tha orNeezing\" in its name (both yours and y catrD* MAHUE",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.028213166144200642,
+            "width" : 0.2818233885557366,
+            "x" : 0.3414743446419566,
+            "y" : 0.7831974920454545
+          },
+          "text" : "plode Together Now"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02194357366771158,
+            "width" : 0.04139281019412381,
+            "x" : 0.6690940332618771,
+            "y" : 0.783197492254441
+          },
+          "text" : "40"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.023824451410658323,
+            "width" : 0.36372831085474755,
+            "x" : 0.3388322507940459,
+            "y" : 0.8132915361295716
+          },
+          "text" : "o damage for each Pokémion in play tha"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.024451410658307207,
+            "width" : 0.37605808410406105,
+            "x" : 0.30976921378997196,
+            "y" : 0.826457680174373
+          },
+          "text" : "orNeezing\" in its name (both yours and y"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01504702194357368,
+            "width" : 0.07485933758511751,
+            "x" : 0.5422735086236301,
+            "y" : 0.9317868338330009
+          },
+          "text" : "catrD*"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009404388714733525,
+            "width" : 0.04755769681878055,
+            "x" : 0.6567642594878143,
+            "y" : 0.9336677116248694
+          },
+          "text" : "MAHUE"
+        }
       ]
     },
     {
@@ -44,10 +104,10 @@
       "kind" : "footer_metadata",
       "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
-        "height" : 0.09774527410207941,
-        "width" : 0.138,
-        "x" : 0.07064000000000001,
-        "y" : 0.8442030009451796
+        "height" : 0.098,
+        "width" : 0.07049107506250363,
+        "x" : 0.2806808116750974,
+        "y" : 0.8451
       },
       "text" : "",
       "tokens" : [
@@ -60,10 +120,10 @@
       "kind" : "footer_metadata",
       "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
-        "height" : 0.0917608695652174,
-        "width" : 0.275,
-        "x" : 0.17,
-        "y" : 0.8490902646502836
+        "height" : 0.092,
+        "width" : 0.14047134523324997,
+        "x" : 0.33143438572010003,
+        "y" : 0.85
       },
       "text" : "",
       "tokens" : [
@@ -76,10 +136,10 @@
       "kind" : "footer_metadata",
       "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
-        "height" : 0.10173487712665406,
-        "width" : 0.125,
-        "x" : 0.6725,
-        "y" : 0.8409514744801513
+        "height" : 0.102,
+        "width" : 0.06385061146965908,
+        "x" : 0.5881138438281295,
+        "y" : 0.84184
       },
       "text" : "",
       "tokens" : [
@@ -92,10 +152,10 @@
       "kind" : "footer_metadata",
       "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
-        "height" : 0.09974007561436675,
-        "width" : 0.185,
-        "x" : 0.72,
-        "y" : 0.8490902646502836
+        "height" : 0.1,
+        "width" : 0.09449890497509543,
+        "x" : 0.6123770761866,
+        "y" : 0.85
       },
       "text" : "",
       "tokens" : [
@@ -108,10 +168,10 @@
       "kind" : "footer_metadata",
       "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
-        "height" : 0.10472707939508508,
-        "width" : 0.115,
-        "x" : 0.7857500000000001,
-        "y" : 0.8285438090737242
+        "height" : 0.105,
+        "width" : 0.058742562552086354,
+        "x" : 0.6459624978196405,
+        "y" : 0.8294
       },
       "text" : "",
       "tokens" : [
@@ -124,10 +184,10 @@
       "kind" : "footer_metadata",
       "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
-        "height" : 0.10173487712665406,
-        "width" : 0.19,
-        "x" : 0.705,
-        "y" : 0.8411110586011343
+        "height" : 0.102,
+        "width" : 0.0970529294338818,
+        "x" : 0.6047150028102408,
+        "y" : 0.842
       },
       "text" : "",
       "tokens" : [
@@ -138,23 +198,34 @@
       "kind" : "header_wide",
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
-        "height" : 0.21942816635160683,
-        "width" : 0.8,
-        "x" : 0.1,
-        "y" : 0.02124763705103967
+        "height" : 0.22,
+        "width" : 0.4086439134058181,
+        "x" : 0.2956780432970909,
+        "y" : 0.02
       },
-      "text" : "",
+      "text" : "6130",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.09235494880546076,
+            "width" : 0.17739580736996755,
+            "x" : 0.4667382860466005,
+            "y" : 0.06505119439028954
+          },
+          "text" : "6130"
+        }
       ]
     }
   ],
-  "scanID" : "426A96EE-A7C2-4734-93CB-D670AE8F9D47",
+  "scanID" : "12170CF9-2C3A-4B30-B4EF-8456A9CC61EF",
   "setConfidenceReasons" : [
-
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_fuzzy_set_hints"
   ],
+  "setConfidenceScore" : 0.3,
   "setHintTokens" : [
-
+    "lor"
   ],
   "stage1AssessmentReasons" : [
     "collector_signal_weak",
@@ -164,7 +235,6 @@
   "warnings" : [
     "Raw scene looks holder-like",
     "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
     "Low-confidence rewrite raw evidence"
   ]
 }

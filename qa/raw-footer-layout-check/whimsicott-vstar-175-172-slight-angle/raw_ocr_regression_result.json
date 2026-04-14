@@ -1,46 +1,46 @@
 {
   "checks" : {
-    "backendRecoverablePass" : false,
+    "backendRecoverablePass" : true,
     "backendRecoverableReasons" : [
-
+      "exact_collector_plus_title"
     ],
     "collectorNearMiss" : false,
-    "exactCollectorPass" : false,
+    "exactCollectorPass" : true,
     "setHintPass" : false,
-    "titlePass" : false
+    "titlePass" : true
   },
   "debug" : {
     "contentRectNormalized" : {
-      "height" : 0.9992897727272727,
-      "width" : 1,
-      "x" : 0,
-      "y" : 0.0003551136363636364
+      "height" : 1,
+      "width" : 0.8528316676464824,
+      "x" : 0.07358416617675877,
+      "y" : 0
     },
     "footerRoutingReasons" : [
-      "footer_band_anchor_unavailable"
+      "footer_band_collector_anchor"
     ],
     "passSummaries" : [
       {
         "kind" : "footer_band_wide",
         "label" : "13_raw_footer_band",
         "normalizedRect" : {
-          "height" : 0.19985795454545455,
-          "width" : 0.9,
-          "x" : 0.05,
-          "y" : 0.7598153409090909
+          "height" : 0.2,
+          "width" : 0.7675485008818342,
+          "x" : 0.1162257495590829,
+          "y" : 0.76
         },
-        "text" : "rokemoп Tor eaen energy attacned to cnis apply Weakness and Resistance for Be (You can't use more than 1 VSTAR Power in weakness 5 ×2 resistance ret"
+        "text" : "weakness ©) x2 resistance でとしすせコ ilusSban Graphics VSTAR rule Wh is Knocked Out, your oppon 、175\/172 02022 PokerPOr Minterdo\/Creatures I GAME"
       },
       {
         "footerFamily" : "modern_left",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "14_raw_footer_modern_left_set",
+        "label" : "14_raw_footer_modern_left_set_anchored",
         "normalizedRect" : {
-          "height" : 0.09793039772727273,
-          "width" : 0.138,
-          "x" : 0.07064000000000001,
-          "y" : 0.8448549005681818
+          "height" : 0.098,
+          "width" : 0.11769077013521459,
+          "x" : 0.07358416617675877,
+          "y" : 0.7509971920375988
         },
         "text" : ""
       },
@@ -48,25 +48,25 @@
         "footerFamily" : "modern_left",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "15_raw_footer_modern_left_collector",
+        "label" : "15_raw_footer_modern_left_collector_anchored",
         "normalizedRect" : {
-          "height" : 0.09193465909090909,
-          "width" : 0.275,
-          "x" : 0.17,
-          "y" : 0.8497514204545454
+          "height" : 0.2212663609873641,
+          "width" : 0.40394799201996373,
+          "x" : 0.0866765419601864,
+          "y" : 0.7558971920375989
         },
-        "text" : ""
+        "text" : "weakness res Illus-Sban Graphics F 175\/172 1020"
       },
       {
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "16_raw_footer_legacy_right_mid_set",
+        "label" : "16_raw_footer_legacy_right_mid_set_anchored",
         "normalizedRect" : {
-          "height" : 0.10192755681818182,
-          "width" : 0.125,
-          "x" : 0.6725,
-          "y" : 0.8415972159090909
+          "height" : 0.102,
+          "width" : 0.1066039584558103,
+          "x" : 0.07358416617675877,
+          "y" : 0.7477371920375989
         },
         "text" : ""
       },
@@ -74,74 +74,75 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
         "normalizedRect" : {
-          "height" : 0.09992897727272727,
-          "width" : 0.185,
-          "x" : 0.72,
-          "y" : 0.8497514204545454
+          "height" : 0.2212663609873641,
+          "width" : 0.40394799201996373,
+          "x" : 0.0866765419601864,
+          "y" : 0.7558971920375989
         },
-        "text" : ""
+        "text" : "weakness res Illus-Sban Graphics F 175\/172 1020"
       },
       {
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "18_raw_footer_legacy_right_corner_set",
+        "label" : "18_raw_footer_legacy_right_corner_set_anchored",
         "normalizedRect" : {
-          "height" : 0.10492542613636363,
-          "width" : 0.115,
-          "x" : 0.7857500000000001,
-          "y" : 0.8291660511363637
+          "height" : 0.105,
+          "width" : 0.09807564177934548,
+          "x" : 0.39745267428977193,
+          "y" : 0.7432971920375989
         },
-        "text" : "rower"
+        "text" : "resi"
       },
       {
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
         "normalizedRect" : {
-          "height" : 0.10192755681818182,
-          "width" : 0.19,
-          "x" : 0.705,
-          "y" : 0.8417571022727273
+          "height" : 0.2212663609873641,
+          "width" : 0.40394799201996373,
+          "x" : 0.0866765419601864,
+          "y" : 0.7558971920375989
         },
-        "text" : ""
+        "text" : "weakness res Illus-Sban Graphics F 175\/172 1020"
       },
       {
         "kind" : "header_wide",
         "label" : "12_raw_header_wide",
         "normalizedRect" : {
-          "height" : 0.21984375,
-          "width" : 0.8,
-          "x" : 0.1,
-          "y" : 0.02034090909090909
+          "height" : 0.22,
+          "width" : 0.682265334117186,
+          "x" : 0.15886733294140704,
+          "y" : 0.02
         },
-        "text" : ""
+        "text" : "VSTAR Whimsicott VSTAR Evolves from Whimsicott V"
       }
     ],
     "requestedGeometryKind" : "raw_card",
     "stage1AssessmentReasons" : [
-      "collector_signal_weak",
       "title_signal_weak",
       "set_signal_weak"
     ],
-    "targetQualityScore" : 0.8387303246866198,
-    "usedFallback" : false
+    "targetQualityScore" : 0.6187303246866198,
+    "usedFallback" : true
   },
   "fixtureName" : "whimsicott-vstar-175-172-slight-angle",
   "ocr" : {
-    "cropConfidence" : 0.8387303246866198,
-    "setConfidenceScore" : 0.3,
+    "collectorConfidenceScore" : 0.92,
+    "collectorNumberExact" : "175\/172",
+    "cropConfidence" : 0.6187303246866198,
     "setHintTokens" : [
-      "lor"
+
     ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "VSTAR Whimsicott VSTAR Evolves",
     "warnings" : [
       "Raw scene looks holder-like",
-      "Rewrite raw escalation used focused ROIs",
-      "Could not read strong raw-card clues",
-      "Low-confidence rewrite raw evidence"
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs"
     ]
   },
   "sourceImage" : "source_scan.jpg",

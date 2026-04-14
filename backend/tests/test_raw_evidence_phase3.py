@@ -32,6 +32,7 @@ def raw_payload(
     collector_number_partial: str = "",
     set_hint_tokens: list[str] | None = None,
     promo_code_hint: str | None = None,
+    set_badge_hint: dict[str, object] | None = None,
     recognized_tokens: list[str] | None = None,
     crop_confidence: float = 1.0,
 ) -> dict[str, object]:
@@ -50,6 +51,7 @@ def raw_payload(
                 "collectorNumberExact": collector_number_exact or None,
                 "collectorNumberPartial": collector_number_partial or None,
                 "setHints": set_hint_tokens or [],
+                "setBadgeHint": set_badge_hint,
                 "footerBandText": footer_band_text,
                 "wholeCardText": whole_card_text,
             }
@@ -66,6 +68,13 @@ class RawEvidencePhase3Tests(unittest.TestCase):
             footer_band_text="OBF 223/197 Basic Pokemon",
             collector_number_exact="223/197",
             set_hint_tokens=["OBF"],
+            set_badge_hint={
+                "kind": "text",
+                "rawValue": "OBF",
+                "canonicalTokens": ["OBF"],
+                "confidence": 0.93,
+                "source": "badge_ocr",
+            },
             crop_confidence=0.92,
         )
 
@@ -78,6 +87,20 @@ class RawEvidencePhase3Tests(unittest.TestCase):
         self.assertIn("obf", evidence.set_hint_tokens)
         self.assertIn("obf", evidence.trusted_set_hint_tokens)
         self.assertIn("223/197", evidence.footer_band_text)
+
+    def test_build_raw_evidence_does_not_trust_generic_junk_set_tokens_without_badge_hint(self) -> None:
+        payload = raw_payload(
+            title_text_primary="Eevee & Snorlax GX",
+            footer_band_text="HP 270 066/095",
+            collector_number_exact="066/095",
+            set_hint_tokens=["p270"],
+            crop_confidence=0.88,
+        )
+
+        evidence = build_raw_evidence(payload)
+
+        self.assertEqual(evidence.set_hint_tokens, ())
+        self.assertEqual(evidence.trusted_set_hint_tokens, ())
 
     def test_score_raw_signals_prefers_title_and_set_when_footer_is_weak(self) -> None:
         payload = raw_payload(

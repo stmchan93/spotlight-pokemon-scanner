@@ -35,7 +35,7 @@
         "footerFamily" : "modern_left",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "14_raw_footer_modern_left_set",
+        "label" : "14_raw_footer_modern_left_set_anchored",
         "normalizedRect" : {
           "height" : 0.098,
           "width" : 0.13797369324030653,
@@ -48,7 +48,7 @@
         "footerFamily" : "modern_left",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "15_raw_footer_modern_left_collector",
+        "label" : "15_raw_footer_modern_left_collector_anchored",
         "normalizedRect" : {
           "height" : 0.092,
           "width" : 0.2749475771093065,
@@ -61,7 +61,7 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "16_raw_footer_legacy_right_mid_set",
+        "label" : "16_raw_footer_legacy_right_mid_set_anchored",
         "normalizedRect" : {
           "height" : 0.102,
           "width" : 0.12497617141332112,
@@ -74,7 +74,7 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
         "normalizedRect" : {
           "height" : 0.1,
           "width" : 0.18496473369171526,
@@ -87,7 +87,7 @@
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "18_raw_footer_legacy_right_corner_set",
+        "label" : "18_raw_footer_legacy_right_corner_set_anchored",
         "normalizedRect" : {
           "height" : 0.105,
           "width" : 0.11497807770025543,
@@ -100,7 +100,7 @@
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
         "normalizedRect" : {
           "height" : 0.102,
           "width" : 0.1899637805482481,
@@ -134,9 +134,8 @@
     "collectorConfidenceScore" : 0.92,
     "collectorNumberExact" : "213\/162",
     "cropConfidence" : 0.7817403328008734,
-    "setConfidenceScore" : 0.48,
     "setHintTokens" : [
-      "hp220"
+
     ],
     "titleConfidenceScore" : 1,
     "titleTextPrimary" : "Leaves EX HP220 Futore",

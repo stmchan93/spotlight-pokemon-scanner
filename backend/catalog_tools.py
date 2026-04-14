@@ -12,6 +12,9 @@ from typing import Any, Iterable
 MATCHER_VERSION = "raw-backend-reset-v1"
 RAW_PRICING_MODE = "raw"
 PSA_GRADE_PRICING_MODE = "graded"
+PROVIDER_SYNC_STATUS_RUNNING = "running"
+PROVIDER_SYNC_STATUS_SUCCEEDED = "succeeded"
+PROVIDER_SYNC_STATUS_FAILED = "failed"
 
 RAW_ROUTE_COLLECTOR_SET_EXACT = "collector_set_exact"
 RAW_ROUTE_TITLE_SET_PRIMARY = "title_set_primary"
@@ -54,6 +57,9 @@ class RawEvidence:
     collector_number_partial: str | None
     collector_number_query_values: tuple[str, ...]
     collector_number_printed_total: int | None
+    set_badge_hint_kind: str | None
+    set_badge_hint_source: str | None
+    set_badge_hint_raw_value: str | None
     set_hint_tokens: tuple[str, ...]
     trusted_set_hint_tokens: tuple[str, ...]
     promo_code_hint: str | None
@@ -85,6 +91,7 @@ class RawRetrievalPlan:
 class RawCandidateScoreBreakdown:
     title_overlap_score: float
     set_overlap_score: float
+    set_badge_image_score: float
     collector_exact_score: float
     collector_partial_score: float
     collector_denominator_score: float
@@ -368,6 +375,174 @@ def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
     connection.commit()
 
 
+def start_provider_sync_run(
+    connection: sqlite3.Connection,
+    *,
+    provider: str,
+    sync_scope: str,
+    page_size: int,
+    scheduled_for: str | None = None,
+    started_at: str | None = None,
+    usage_before: dict[str, Any] | None = None,
+    notes: dict[str, Any] | None = None,
+) -> str:
+    started_at = started_at or utc_now()
+    run_id = f"{provider}:{sync_scope}:{started_at}"
+    connection.execute(
+        """
+        INSERT INTO provider_sync_runs (
+            id, provider, sync_scope, status, scheduled_for, started_at, completed_at,
+            page_size, pages_fetched, cards_seen, cards_upserted, raw_snapshots_upserted,
+            graded_snapshots_upserted, estimated_credits_used, usage_before_json,
+            usage_after_json, error_text, notes_json
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            provider,
+            sync_scope,
+            PROVIDER_SYNC_STATUS_RUNNING,
+            scheduled_for,
+            started_at,
+            None,
+            page_size,
+            0,
+            0,
+            0,
+            0,
+            0,
+            None,
+            json.dumps(usage_before or {}),
+            json.dumps({}),
+            None,
+            json.dumps(notes or {}),
+        ),
+    )
+    return run_id
+
+
+def update_provider_sync_run(
+    connection: sqlite3.Connection,
+    run_id: str,
+    *,
+    status: str | None = None,
+    completed_at: str | None = None,
+    pages_fetched: int | None = None,
+    cards_seen: int | None = None,
+    cards_upserted: int | None = None,
+    raw_snapshots_upserted: int | None = None,
+    graded_snapshots_upserted: int | None = None,
+    estimated_credits_used: int | None = None,
+    usage_after: dict[str, Any] | None = None,
+    error_text: str | None = None,
+    notes: dict[str, Any] | None = None,
+) -> None:
+    assignments: list[str] = []
+    values: list[Any] = []
+
+    def add(column: str, value: Any) -> None:
+        assignments.append(f"{column} = ?")
+        values.append(value)
+
+    if status is not None:
+        add("status", status)
+    if completed_at is not None:
+        add("completed_at", completed_at)
+    if pages_fetched is not None:
+        add("pages_fetched", pages_fetched)
+    if cards_seen is not None:
+        add("cards_seen", cards_seen)
+    if cards_upserted is not None:
+        add("cards_upserted", cards_upserted)
+    if raw_snapshots_upserted is not None:
+        add("raw_snapshots_upserted", raw_snapshots_upserted)
+    if graded_snapshots_upserted is not None:
+        add("graded_snapshots_upserted", graded_snapshots_upserted)
+    if estimated_credits_used is not None:
+        add("estimated_credits_used", estimated_credits_used)
+    if usage_after is not None:
+        add("usage_after_json", json.dumps(usage_after))
+    if error_text is not None:
+        add("error_text", error_text)
+    if notes is not None:
+        add("notes_json", json.dumps(notes))
+
+    if not assignments:
+        return
+
+    values.append(run_id)
+    connection.execute(
+        f"""
+        UPDATE provider_sync_runs
+        SET {", ".join(assignments)}
+        WHERE id = ?
+        """,
+        values,
+    )
+
+
+def latest_provider_sync_run(
+    connection: sqlite3.Connection,
+    *,
+    provider: str,
+    sync_scope: str | None = None,
+) -> dict[str, Any] | None:
+    query = """
+        SELECT *
+        FROM provider_sync_runs
+        WHERE provider = ?
+    """
+    params: list[Any] = [provider]
+    if sync_scope is not None:
+        query += " AND sync_scope = ?"
+        params.append(sync_scope)
+    query += " ORDER BY started_at DESC LIMIT 1"
+    row = connection.execute(query, params).fetchone()
+    if row is None:
+        return None
+    return {
+        "id": row["id"],
+        "provider": row["provider"],
+        "syncScope": row["sync_scope"],
+        "status": row["status"],
+        "scheduledFor": row["scheduled_for"],
+        "startedAt": row["started_at"],
+        "completedAt": row["completed_at"],
+        "pageSize": row["page_size"],
+        "pagesFetched": row["pages_fetched"],
+        "cardsSeen": row["cards_seen"],
+        "cardsUpserted": row["cards_upserted"],
+        "rawSnapshotsUpserted": row["raw_snapshots_upserted"],
+        "gradedSnapshotsUpserted": row["graded_snapshots_upserted"],
+        "estimatedCreditsUsed": row["estimated_credits_used"],
+        "usageBefore": _json_load(row["usage_before_json"], {}),
+        "usageAfter": _json_load(row["usage_after_json"], {}),
+        "errorText": row["error_text"],
+        "notes": _json_load(row["notes_json"], {}),
+    }
+
+
+def provider_sync_run_is_fresh(
+    connection: sqlite3.Connection,
+    *,
+    provider: str,
+    sync_scope: str,
+    max_age_hours: float = 24.0,
+) -> bool:
+    latest = latest_provider_sync_run(connection, provider=provider, sync_scope=sync_scope)
+    if latest is None or latest.get("status") != PROVIDER_SYNC_STATUS_SUCCEEDED:
+        return False
+    completed_at = str(latest.get("completedAt") or "").strip()
+    if not completed_at:
+        return False
+    try:
+        completed = datetime.fromisoformat(completed_at)
+    except ValueError:
+        return False
+    return datetime.now(timezone.utc) - completed <= timedelta(hours=max_age_hours)
+
+
 def tokenize(text: str) -> list[str]:
     return re.findall(r"[^\W_]+", text.lower(), flags=re.UNICODE)
 
@@ -412,11 +587,30 @@ def _normalized_set_tokens(tokens: Iterable[str]) -> tuple[str, ...]:
     seen: set[str] = set()
     for token in tokens:
         cleaned = token.strip().lower()
-        if not cleaned or cleaned in seen:
+        if not cleaned or cleaned in seen or _looks_like_junk_set_token(cleaned):
             continue
         seen.add(cleaned)
         normalized.append(cleaned)
     return tuple(normalized)
+
+
+def _looks_like_junk_set_token(token: str) -> bool:
+    cleaned = str(token or "").strip().lower()
+    if not cleaned:
+        return True
+    if re.fullmatch(r"hp\d{2,4}", cleaned):
+        return True
+    if re.fullmatch(r"p\d{2,4}", cleaned):
+        return True
+    if re.fullmatch(r"\d{2,4}", cleaned):
+        return True
+    return False
+
+
+def _payload_set_badge_hint(payload: dict[str, Any]) -> dict[str, Any]:
+    raw_evidence = _payload_raw_evidence(payload)
+    set_badge_hint = raw_evidence.get("setBadgeHint") or payload.get("setBadgeHint") or {}
+    return set_badge_hint if isinstance(set_badge_hint, dict) else {}
 
 
 def _payload_raw_evidence(payload: dict[str, Any]) -> dict[str, Any]:
@@ -462,10 +656,11 @@ def _recognized_token_texts(payload: dict[str, Any]) -> tuple[str, ...]:
 def build_raw_evidence(payload: dict[str, Any]) -> RawEvidence:
     raw_evidence = _payload_raw_evidence(payload)
     normalized_target = _payload_normalized_target(payload)
-    title_primary = str(raw_evidence.get("titleTextPrimary") or "").strip()
-    title_secondary = str(raw_evidence.get("titleTextSecondary") or "").strip()
-    whole_card_text = str(raw_evidence.get("wholeCardText") or "").strip()
-    footer_band_text = str(raw_evidence.get("footerBandText") or "").strip()
+    set_badge_hint = _payload_set_badge_hint(payload)
+    title_primary = str(raw_evidence.get("titleTextPrimary") or payload.get("titleTextPrimary") or "").strip()
+    title_secondary = str(raw_evidence.get("titleTextSecondary") or payload.get("titleTextSecondary") or "").strip()
+    whole_card_text = str(raw_evidence.get("wholeCardText") or payload.get("wholeCardText") or "").strip()
+    footer_band_text = str(raw_evidence.get("footerBandText") or payload.get("footerBandText") or "").strip()
     collector_number_exact = (
         str(raw_evidence.get("collectorNumberExact") or "").strip()
         or str(payload.get("collectorNumber") or "").strip()
@@ -479,8 +674,19 @@ def build_raw_evidence(payload: dict[str, Any]) -> RawEvidence:
         collector_number_partial = _collector_hint_from_text(footer_band_text, whole_card_text)
     query_value, printed_total = _collector_components(collector_number_exact or collector_number_partial)
     query_values = (query_value,) if query_value else ()
-    set_hint_tokens = _normalized_set_tokens(raw_evidence.get("setHints") or payload.get("setHintTokens") or [])
-    trusted_set_hint_tokens = _normalized_set_tokens(payload.get("trustedSetHints") or set_hint_tokens)
+    set_badge_kind = str(set_badge_hint.get("kind") or "").strip().lower() or None
+    set_badge_source = str(set_badge_hint.get("source") or "").strip().lower() or None
+    set_badge_raw_value = str(set_badge_hint.get("rawValue") or "").strip() or None
+    badge_canonical_tokens = _normalized_set_tokens(set_badge_hint.get("canonicalTokens") or [])
+    set_hint_tokens = badge_canonical_tokens or _normalized_set_tokens(raw_evidence.get("setHints") or payload.get("setHintTokens") or [])
+    explicit_trusted_tokens = _normalized_set_tokens(payload.get("trustedSetHints") or [])
+    set_badge_confidence = _ocr_confidence_score(set_badge_hint.get("confidence"))
+    if explicit_trusted_tokens:
+        trusted_set_hint_tokens = explicit_trusted_tokens
+    elif set_badge_kind in {"text", "icon"} and badge_canonical_tokens and set_badge_confidence >= 0.40:
+        trusted_set_hint_tokens = badge_canonical_tokens
+    else:
+        trusted_set_hint_tokens = ()
     promo_code_hint = str(payload.get("promoCodeHint") or "").strip() or None
     recognized_tokens = _recognized_token_texts(payload)
     recognized_text = " ".join(part for part in [whole_card_text, footer_band_text] if part).strip()
@@ -503,14 +709,17 @@ def build_raw_evidence(payload: dict[str, Any]) -> RawEvidence:
         collector_number_partial=collector_number_partial,
         collector_number_query_values=query_values,
         collector_number_printed_total=printed_total,
+        set_badge_hint_kind=set_badge_kind,
+        set_badge_hint_source=set_badge_source,
+        set_badge_hint_raw_value=set_badge_raw_value,
         set_hint_tokens=set_hint_tokens,
         trusted_set_hint_tokens=trusted_set_hint_tokens,
         promo_code_hint=promo_code_hint,
         recognized_tokens=recognized_tokens,
         crop_confidence=float(payload.get("cropConfidence") or 0.0),
-        title_confidence_score=_ocr_confidence_score(raw_evidence.get("titleConfidence")),
-        collector_confidence_score=_ocr_confidence_score(raw_evidence.get("collectorConfidence")),
-        set_confidence_score=_ocr_confidence_score(raw_evidence.get("setConfidence")),
+        title_confidence_score=_ocr_confidence_score(raw_evidence.get("titleConfidence") or payload.get("titleConfidence")),
+        collector_confidence_score=_ocr_confidence_score(raw_evidence.get("collectorConfidence") or payload.get("collectorConfidence")),
+        set_confidence_score=_ocr_confidence_score(raw_evidence.get("setConfidence") or payload.get("setConfidence")),
         used_fallback_normalization=bool(normalized_target.get("usedFallback") or False),
         target_quality_score=target_quality_score,
     )
@@ -1181,7 +1390,10 @@ def upsert_catalog_card(
                 trend_price=price_payload.get("trend"),
                 source_updated_at=tcgplayer.get("updatedAt"),
                 source_url=tcgplayer.get("url"),
-                payload={"provider": "pokemontcg_api", "priceSource": "tcgplayer"},
+                payload={
+                    "provider": str(card.get("source") or card.get("sourceProvider") or "scrydex"),
+                    "priceSource": "tcgplayer",
+                },
             )
 
 
@@ -1441,6 +1653,14 @@ def score_raw_candidate_retrieval(candidate: dict[str, Any], evidence: RawEviden
 def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvidence) -> tuple[float, RawCandidateScoreBreakdown, tuple[str, ...]]:
     title_overlap_score = _title_overlap(candidate, evidence) * 35.0
     set_overlap_score = _set_overlap(candidate, evidence) * 20.0
+    raw_badge_image_similarity = max(0.0, min(1.0, float(candidate.get("_setBadgeImageScore") or 0.0)))
+    badge_image_weight = 12.0 if not evidence.trusted_set_hint_tokens else 6.0
+    if evidence.set_badge_hint_kind == "icon":
+        badge_image_weight += 3.0
+    elif evidence.set_badge_hint_kind == "unknown":
+        badge_image_weight += 1.5
+    badge_image_similarity = 0.0 if raw_badge_image_similarity < 0.45 else (raw_badge_image_similarity - 0.45) / 0.55
+    set_badge_image_score = max(0.0, min(badge_image_weight, badge_image_similarity * badge_image_weight))
     exact, partial, denominator = _collector_match(str(candidate.get("number") or ""), evidence)
     collector_exact_score = exact * 30.0
     collector_partial_score = partial * 18.0
@@ -1460,6 +1680,8 @@ def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvide
         reasons.append("title_overlap")
     if set_overlap_score:
         reasons.append("set_overlap")
+    if set_badge_image_score:
+        reasons.append("set_badge_image")
     if collector_exact_score:
         reasons.append("collector_exact")
     elif collector_partial_score:
@@ -1480,6 +1702,7 @@ def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvide
     resolution_total = (
         title_overlap_score
         + set_overlap_score
+        + set_badge_image_score
         + collector_exact_score
         + collector_partial_score
         + collector_denominator_score
@@ -1492,6 +1715,7 @@ def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvide
     breakdown = RawCandidateScoreBreakdown(
         title_overlap_score=round(title_overlap_score, 4),
         set_overlap_score=round(set_overlap_score, 4),
+        set_badge_image_score=round(set_badge_image_score, 4),
         collector_exact_score=round(collector_exact_score, 4),
         collector_partial_score=round(collector_partial_score, 4),
         collector_denominator_score=round(collector_denominator_score, 4),
@@ -1525,6 +1749,7 @@ def rank_raw_candidates(
                 breakdown=RawCandidateScoreBreakdown(
                     title_overlap_score=breakdown.title_overlap_score,
                     set_overlap_score=breakdown.set_overlap_score,
+                    set_badge_image_score=breakdown.set_badge_image_score,
                     collector_exact_score=breakdown.collector_exact_score,
                     collector_partial_score=breakdown.collector_partial_score,
                     collector_denominator_score=breakdown.collector_denominator_score,
@@ -1582,6 +1807,8 @@ def _hybrid_visual_leader_state(candidates: list[dict[str, Any]]) -> tuple[str |
 def _has_strong_hybrid_corroboration(breakdown: RawCandidateScoreBreakdown) -> bool:
     if breakdown.collector_exact_score > 0.0:
         return True
+    if breakdown.set_badge_image_score >= 7.0 and breakdown.title_overlap_score > 0.0:
+        return True
     if breakdown.title_overlap_score > 0.0 and (
         breakdown.collector_partial_score > 0.0
         or breakdown.footer_text_support_score > 0.0
@@ -1601,6 +1828,7 @@ def _cap_hybrid_resolution_breakdown(
         return RawCandidateScoreBreakdown(
             title_overlap_score=breakdown.title_overlap_score,
             set_overlap_score=breakdown.set_overlap_score,
+            set_badge_image_score=breakdown.set_badge_image_score,
             collector_exact_score=breakdown.collector_exact_score,
             collector_partial_score=breakdown.collector_partial_score,
             collector_denominator_score=breakdown.collector_denominator_score,
@@ -1617,6 +1845,7 @@ def _cap_hybrid_resolution_breakdown(
     return RawCandidateScoreBreakdown(
         title_overlap_score=round(breakdown.title_overlap_score * factor, 4),
         set_overlap_score=round(breakdown.set_overlap_score * factor, 4),
+        set_badge_image_score=round(breakdown.set_badge_image_score * factor, 4),
         collector_exact_score=round(breakdown.collector_exact_score * factor, 4),
         collector_partial_score=round(breakdown.collector_partial_score * factor, 4),
         collector_denominator_score=round(breakdown.collector_denominator_score * factor, 4),
@@ -1658,6 +1887,7 @@ def _apply_hybrid_set_confidence(
         RawCandidateScoreBreakdown(
             title_overlap_score=breakdown.title_overlap_score,
             set_overlap_score=adjusted_set_overlap,
+            set_badge_image_score=breakdown.set_badge_image_score,
             collector_exact_score=breakdown.collector_exact_score,
             collector_partial_score=breakdown.collector_partial_score,
             collector_denominator_score=breakdown.collector_denominator_score,
@@ -1744,6 +1974,7 @@ def rank_visual_hybrid_candidates(
             RawCandidateScoreBreakdown(
                 title_overlap_score=0.0,
                 set_overlap_score=1.0,
+                set_badge_image_score=0.0,
                 collector_exact_score=0.0,
                 collector_partial_score=0.0,
                 collector_denominator_score=0.0,
@@ -1838,7 +2069,7 @@ def finalize_raw_decision(
             ),
             resolver_path="visual_fallback",
             review_disposition="unsupported",
-            review_reason="Japanese raw cards are not currently supported by the Pokemon TCG API-backed matcher.",
+            review_reason="Japanese raw cards are not currently supported by the active raw provider.",
             fallback_reason="provider_unsupported_japanese",
             selected_card_id=None,
             debug_payload={},
@@ -1856,7 +2087,7 @@ def finalize_raw_decision(
             ambiguity_flag_list.append("Best guess is arbitrary among same-number matches")
         elif kind == "arbitrary_best_guess_minimal_signal":
             ambiguity_flag_list.append("Best guess is arbitrary because OCR evidence is minimal")
-    top_candidates = tuple(matches[:3])
+    top_candidates = tuple(matches[:5])
     selected_card_id = top_candidates[0].card.get("id") if top_candidates else None
     review_disposition = "ready" if confidence != "low" else "needs_review"
     review_reason = None if review_disposition == "ready" else "Review the best guess before relying on the card result."
@@ -1895,6 +2126,9 @@ def raw_debug_payload(
             "footerBandText": evidence.footer_band_text,
             "collectorNumberExact": evidence.collector_number_exact,
             "collectorNumberPartial": evidence.collector_number_partial,
+            "setBadgeHintKind": evidence.set_badge_hint_kind,
+            "setBadgeHintSource": evidence.set_badge_hint_source,
+            "setBadgeHintRawValue": evidence.set_badge_hint_raw_value,
             "setHintTokens": list(evidence.set_hint_tokens),
             "trustedSetHintTokens": list(evidence.trusted_set_hint_tokens),
             "promoCodeHint": evidence.promo_code_hint,
@@ -1930,6 +2164,7 @@ def raw_debug_payload(
                 "breakdown": {
                     "titleOverlap": match.breakdown.title_overlap_score,
                     "setOverlap": match.breakdown.set_overlap_score,
+                    "setBadgeImage": match.breakdown.set_badge_image_score,
                     "collectorExact": match.breakdown.collector_exact_score,
                     "collectorPartial": match.breakdown.collector_partial_score,
                     "collectorDenominator": match.breakdown.collector_denominator_score,

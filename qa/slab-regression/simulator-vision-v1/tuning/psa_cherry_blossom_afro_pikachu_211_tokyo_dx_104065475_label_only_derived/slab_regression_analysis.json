@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "104065475",
   "cropConfidence" : 0.4,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2018 P.M. JPN. SM PROMO #211 CHRY.BLSM.AFR.PIKACHU GEM MT P TOON IN POKEMON CENTER TOKYO DX 10 PEA 104065475",
     "PN. SM PROMO #211 1.AFR.PIKACHU GEM MT CENTER TOKYO DX 10 PSA 104065475"
   ],
-  "scanID" : "F3FC4EC1-1110-4E07-9D85-C572F7FD5148",
+  "scanID" : "62ABBB1A-780B-4107-A3CE-F053857BAE19",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-cherry-blossom-afro-pikachu-211-tokyo-dx-104065475-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

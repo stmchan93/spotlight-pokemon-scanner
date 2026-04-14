@@ -1,0 +1,322 @@
+{
+  "payload" : {
+    "didEscalate" : true,
+    "overallEvidenceScore" : 0.23199999999999998,
+    "plans" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "minimumTextHeight" : 0.0035,
+        "normalizedRect" : {
+          "height" : 0.1994695108331472,
+          "width" : 0.9,
+          "x" : 0.05,
+          "y" : 0.7593103640830914
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 3.6,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "minimumTextHeight" : 0.001,
+        "normalizedRect" : {
+          "height" : 0.09774006030824213,
+          "width" : 0.138,
+          "x" : 0.07064000000000001,
+          "y" : 0.8441846409425955
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 4.8,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "footerFamily" : "modern_left",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "minimumTextHeight" : 0.001,
+        "normalizedRect" : {
+          "height" : 0.09175597498324771,
+          "width" : 0.275,
+          "x" : 0.17,
+          "y" : 0.8490716439580076
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 4.8,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "minimumTextHeight" : 0.001,
+        "normalizedRect" : {
+          "height" : 0.10172945052490506,
+          "width" : 0.125,
+          "x" : 0.6725,
+          "y" : 0.8409332879160152
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 4.8,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "footerFamily" : "legacy_right_mid",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "minimumTextHeight" : 0.001,
+        "normalizedRect" : {
+          "height" : 0.0997347554165736,
+          "width" : 0.185,
+          "x" : 0.72,
+          "y" : 0.8490716439580076
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 4.8,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "set_badge",
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "minimumTextHeight" : 0.001,
+        "normalizedRect" : {
+          "height" : 0.10472149318740227,
+          "width" : 0.115,
+          "x" : 0.7857500000000001,
+          "y" : 0.8285262843421934
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 4.8,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "footerFamily" : "legacy_right_corner",
+        "footerRole" : "collector",
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "minimumTextHeight" : 0.001,
+        "normalizedRect" : {
+          "height" : 0.10172945052490506,
+          "width" : 0.19,
+          "x" : 0.705,
+          "y" : 0.8410928635246817
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 4.8,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "minimumTextHeight" : 0.008,
+        "normalizedRect" : {
+          "height" : 0.2194164619164619,
+          "width" : 0.8,
+          "x" : 0.1,
+          "y" : 0.02127317400044674
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 3,
+        "usesLanguageCorrection" : true
+      }
+    ],
+    "regions" : [
+      {
+        "averageConfidence" : 0,
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.1994695108331472,
+          "width" : 0.9,
+          "x" : 0.05,
+          "y" : 0.7593103640830914
+        },
+        "text" : "",
+        "tokens" : [
+
+        ]
+      },
+      {
+        "averageConfidence" : 0,
+        "label" : "14_raw_footer_modern_left_set",
+        "normalizedRect" : {
+          "height" : 0.09774006030824213,
+          "width" : 0.138,
+          "x" : 0.07064000000000001,
+          "y" : 0.8441846409425955
+        },
+        "text" : "",
+        "tokens" : [
+
+        ]
+      },
+      {
+        "averageConfidence" : 0,
+        "label" : "15_raw_footer_modern_left_collector",
+        "normalizedRect" : {
+          "height" : 0.09175597498324771,
+          "width" : 0.275,
+          "x" : 0.17,
+          "y" : 0.8490716439580076
+        },
+        "text" : "",
+        "tokens" : [
+
+        ]
+      },
+      {
+        "averageConfidence" : 0,
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "normalizedRect" : {
+          "height" : 0.10172945052490506,
+          "width" : 0.125,
+          "x" : 0.6725,
+          "y" : 0.8409332879160152
+        },
+        "text" : "",
+        "tokens" : [
+
+        ]
+      },
+      {
+        "averageConfidence" : 0,
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "normalizedRect" : {
+          "height" : 0.0997347554165736,
+          "width" : 0.185,
+          "x" : 0.72,
+          "y" : 0.8490716439580076
+        },
+        "text" : "",
+        "tokens" : [
+
+        ]
+      },
+      {
+        "averageConfidence" : 0,
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "normalizedRect" : {
+          "height" : 0.10472149318740227,
+          "width" : 0.115,
+          "x" : 0.7857500000000001,
+          "y" : 0.8285262843421934
+        },
+        "text" : "",
+        "tokens" : [
+
+        ]
+      },
+      {
+        "averageConfidence" : 0,
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "normalizedRect" : {
+          "height" : 0.10172945052490506,
+          "width" : 0.19,
+          "x" : 0.705,
+          "y" : 0.8410928635246817
+        },
+        "text" : "",
+        "tokens" : [
+
+        ]
+      },
+      {
+        "averageConfidence" : 0.5,
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2194164619164619,
+          "width" : 0.8,
+          "x" : 0.1,
+          "y" : 0.02127317400044674
+        },
+        "text" : "スカイさ",
+        "tokens" : [
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.09048101522328326,
+              "width" : 0.33488372318328374,
+              "x" : 0.5639534889897535,
+              "y" : 0.14870060309818114
+            },
+            "text" : "スカイさ"
+          }
+        ]
+      }
+    ],
+    "routing" : {
+      "reasons" : [
+        "footer_band_anchor_unavailable"
+      ]
+    },
+    "sceneTraits" : {
+      "holderLikely" : true,
+      "normalizedContentRect" : {
+        "height" : 0.997347554165736,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.001326222917132017
+      },
+      "targetQualityScore" : 0.8737324050962765,
+      "usedFallback" : false,
+      "warnings" : [
+        "Raw scene looks holder-like"
+      ]
+    },
+    "setHintTokens" : [
+
+    ],
+    "stage1Assessment" : {
+      "reasons" : [
+        "collector_signal_weak",
+        "title_signal_weak",
+        "set_signal_weak"
+      ],
+      "setHintTokens" : [
+
+      ],
+      "shouldEscalate" : true,
+      "titleConfidenceScore" : 0
+    }
+  },
+  "stage" : "rewrite_raw_regions"
+}

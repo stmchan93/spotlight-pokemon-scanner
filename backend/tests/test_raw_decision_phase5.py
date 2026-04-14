@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -12,6 +13,8 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from catalog_tools import (  # noqa: E402
+    RawCandidateMatch,
+    RawCandidateScoreBreakdown,
     apply_schema,
     build_raw_evidence,
     connect,
@@ -33,8 +36,9 @@ def raw_payload(
     set_hint_tokens: list[str] | None = None,
     recognized_tokens: list[str] | None = None,
     crop_confidence: float = 1.0,
+    raw_resolver_mode: str | None = "ocr",
 ) -> dict[str, object]:
-    return {
+    payload = {
         "scanID": "scan-phase5",
         "capturedAt": "2026-04-09T04:00:00Z",
         "collectorNumber": collector_number_exact or None,
@@ -56,6 +60,9 @@ def raw_payload(
             }
         },
     }
+    if raw_resolver_mode is not None:
+        payload["rawResolverMode"] = raw_resolver_mode
+    return payload
 
 
 def catalog_card(
@@ -93,7 +100,7 @@ def catalog_card(
         "reference_image_path": None,
         "reference_image_url": f"https://images.example/{card_id}-large.png",
         "reference_image_small_url": f"https://images.example/{card_id}-small.png",
-        "source": "pokemontcg_api",
+        "source": "scrydex",
         "source_record_id": card_id,
         "set_id": set_id,
         "set_series": "Test Series",
@@ -149,6 +156,11 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         self.assertIn(response["confidence"], {"medium", "low"})
         self.assertEqual(response["resolverMode"], "raw_card")
         self.assertIn("rawDecisionDebug", response)
+
+    def test_raw_resolver_strategy_defaults_to_hybrid_when_mode_is_omitted(self) -> None:
+        payload = raw_payload(raw_resolver_mode=None)
+
+        self.assertEqual(self.service._raw_resolver_strategy(payload), "hybrid")
 
     def test_footer_collector_reranks_between_same_name_candidates(self) -> None:
         response = self.service.match_scan(
@@ -235,6 +247,369 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         self.assertEqual(candidate["imageLargeURL"], "https://images.example/sv7-101-large.png")
         self.assertIn("pricing", candidate)
         self.assertEqual(candidate["pricing"]["market"], 7.5)
+
+    def test_finalize_raw_decision_keeps_top_five_candidates(self) -> None:
+        payload = raw_payload(
+            title_text_primary="Charizard ex",
+            whole_card_text="Charizard ex",
+            footer_band_text="OBF 223/197",
+            collector_number_exact="223/197",
+            set_hint_tokens=["OBF"],
+            crop_confidence=0.95,
+        )
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+
+        matches = [
+            RawCandidateMatch(
+                card={
+                    "id": f"candidate-{index}",
+                    "name": f"Candidate {index}",
+                    "setName": "Test Set",
+                    "number": f"{index}/100",
+                    "rarity": "Rare",
+                    "variant": "Raw",
+                    "language": "English",
+                },
+                retrieval_score=80.0 - index,
+                resolution_score=82.0 - index,
+                final_total=81.0 - index,
+                breakdown=RawCandidateScoreBreakdown(
+                    title_overlap_score=20.0,
+                    set_overlap_score=15.0,
+                    set_badge_image_score=0.0,
+                    collector_exact_score=10.0,
+                    collector_partial_score=0.0,
+                    collector_denominator_score=4.0,
+                    footer_text_support_score=5.0,
+                    promo_support_score=0.0,
+                    cache_presence_score=0.0,
+                    contradiction_penalty=0.0,
+                    retrieval_total=80.0 - index,
+                    resolution_total=82.0 - index,
+                    final_total=81.0 - index,
+                ),
+                reasons=("title_overlap",),
+            )
+            for index in range(6)
+        ]
+
+        decision = finalize_raw_decision(matches, evidence, signals)
+
+        self.assertEqual(len(decision.top_candidates), 5)
+        self.assertEqual(decision.top_candidates[0].card["id"], "candidate-0")
+        self.assertEqual(decision.top_candidates[-1].card["id"], "candidate-4")
+
+    def test_visual_hybrid_path_handles_visual_match_objects_without_crashing(self) -> None:
+        class FakeVisualMatcher:
+            def prewarm(self):
+                return {
+                    "available": True,
+                    "prewarmed": True,
+                    "timings": {"indexLoadMs": 1.0, "runtimeLoadMs": 2.0, "totalMs": 3.0},
+                }
+
+            def match_payload(self, payload: dict[str, object], *, top_k: int = 10):  # noqa: ARG002
+                return (
+                    [
+                        SimpleNamespace(
+                            row_index=0,
+                            similarity=0.91,
+                            entry={
+                                "providerCardId": "obf-223",
+                                "name": "Charizard ex",
+                                "collectorNumber": "223/197",
+                                "setId": "obf",
+                                "setName": "Obsidian Flames",
+                                "setSeries": "Scarlet & Violet",
+                                "setPtcgoCode": "OBF",
+                                "sourceProvider": "scrydex",
+                                "sourceRecordID": "obf-223",
+                                "imageUrl": "https://images.example/obf-223-large.png",
+                                "language": "English",
+                            },
+                        ),
+                        SimpleNamespace(
+                            row_index=1,
+                            similarity=0.83,
+                            entry={
+                                "providerCardId": "pal-223",
+                                "name": "Charizard ex",
+                                "collectorNumber": "223/193",
+                                "setId": "pal",
+                                "setName": "Paldea Evolved",
+                                "setSeries": "Scarlet & Violet",
+                                "setPtcgoCode": "PAL",
+                                "sourceProvider": "scrydex",
+                                "sourceRecordID": "pal-223",
+                                "imageUrl": "https://images.example/pal-223-large.png",
+                                "language": "English",
+                            },
+                        ),
+                    ],
+                    {
+                        "source": "fake",
+                        "timings": {
+                            "imageDecodeMs": 4.0,
+                            "ensureRuntimeMs": 5.0,
+                            "embeddingMs": 6.0,
+                            "indexSearchMs": 7.0,
+                            "matchPayloadMs": 8.0,
+                        },
+                    },
+                )
+
+        class FakeBadgeMatcher:
+            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
+                return {
+                    str(entry.get("providerCardId")): {"score": 0.0, "family": "modern_left"}
+                    for entry in entries
+                }
+
+        self.service._raw_visual_matcher = FakeVisualMatcher()
+        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
+
+        response = self.service._resolve_raw_candidates_visual_hybrid(
+            raw_payload(
+                title_text_primary="Charizard ex",
+                whole_card_text="Charizard ex",
+                footer_band_text="OBF 223/197",
+                collector_number_exact="223/197",
+                set_hint_tokens=["OBF"],
+                crop_confidence=0.95,
+            )
+        )
+
+        self.assertEqual(response["resolverPath"], "visual_hybrid_index")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "obf-223")
+        self.assertGreaterEqual(len(response["topCandidates"]), 2)
+        self.assertIn("phaseTimings", response["rawDecisionDebug"]["visualHybrid"])
+        self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["timings"]["matchPayloadMs"], 8.0)
+
+    def test_visual_hybrid_weak_fallback_merges_local_manifest_ocr_candidates(self) -> None:
+        class FakeIndex:
+            def __init__(self) -> None:
+                self.entries = [
+                    {
+                        "providerCardId": "gym1-60",
+                        "name": "Sabrina's Slowbro",
+                        "collectorNumber": "60/132",
+                        "setId": "gym1",
+                        "setName": "Gym Heroes",
+                        "setSeries": "Gym",
+                        "setPtcgoCode": "G1",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "gym1-60",
+                        "imageUrl": "https://images.example/gym1-60-large.png",
+                        "language": "English",
+                    },
+                    {
+                        "providerCardId": "gym2-60",
+                        "name": "Blaine's Charmander",
+                        "collectorNumber": "60/132",
+                        "setId": "gym2",
+                        "setName": "Gym Challenge",
+                        "setSeries": "Gym",
+                        "setPtcgoCode": "G2",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "gym2-60",
+                        "imageUrl": "https://images.example/gym2-60-large.png",
+                        "language": "English",
+                    },
+                ]
+
+            def load(self) -> None:
+                return None
+
+        class FakeVisualMatcher:
+            def __init__(self) -> None:
+                self.index = FakeIndex()
+
+            def prewarm(self):
+                return {
+                    "available": True,
+                    "prewarmed": True,
+                    "timings": {"indexLoadMs": 1.0, "runtimeLoadMs": 2.0, "totalMs": 3.0},
+                }
+
+            def match_payload(self, payload: dict[str, object], *, top_k: int = 10):  # noqa: ARG002
+                return (
+                    [
+                        SimpleNamespace(
+                            row_index=0,
+                            similarity=0.8343,
+                            entry={
+                                "providerCardId": "me1-156",
+                                "name": "Mega Camerupt ex",
+                                "collectorNumber": "156/132",
+                                "setId": "me1",
+                                "setName": "Mega Evolution",
+                                "setSeries": "XY",
+                                "setPtcgoCode": "ME1",
+                                "sourceProvider": "scrydex",
+                                "sourceRecordID": "me1-156",
+                                "imageUrl": "https://images.example/me1-156-large.png",
+                                "language": "English",
+                            },
+                        ),
+                        SimpleNamespace(
+                            row_index=1,
+                            similarity=0.8243,
+                            entry={
+                                "providerCardId": "swsh7-19",
+                                "name": "Entei",
+                                "collectorNumber": "019/203",
+                                "setId": "swsh7",
+                                "setName": "Evolving Skies",
+                                "setSeries": "Sword & Shield",
+                                "setPtcgoCode": "EVS",
+                                "sourceProvider": "scrydex",
+                                "sourceRecordID": "swsh7-19",
+                                "imageUrl": "https://images.example/swsh7-19-large.png",
+                                "language": "English",
+                            },
+                        ),
+                    ],
+                    {
+                        "source": "fake",
+                        "internalTopK": top_k * 8,
+                        "timings": {
+                            "imageDecodeMs": 4.0,
+                            "ensureRuntimeMs": 5.0,
+                            "embeddingMs": 6.0,
+                            "indexSearchMs": 7.0,
+                            "matchPayloadMs": 8.0,
+                        },
+                    },
+                )
+
+        class FakeBadgeMatcher:
+            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
+                return {
+                    str(entry.get("providerCardId")): {"score": 0.0, "family": "modern_left"}
+                    for entry in entries
+                }
+
+        self.service._raw_visual_matcher = FakeVisualMatcher()
+        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
+
+        payload = raw_payload(
+            title_text_primary="Sabrina's Slowpoke Pur Sabrinali",
+            whole_card_text="Evolves from Sabrina's Slowpoke Pur Sabrinali M STAGE Sabrina's Slowbro 70 M",
+            footer_band_text="Illus. Ken Sugimori 60/132",
+            collector_number_exact="60/132",
+            crop_confidence=0.58,
+        )
+        payload["ocrAnalysis"]["normalizedTarget"] = {
+            "usedFallback": True,
+            "targetQuality": {
+                "overallScore": 0.58,
+                "reasons": [
+                    "fallback",
+                    "normalization:exact_reticle_fallback",
+                ],
+            },
+        }
+
+        response = self.service._resolve_raw_candidates_visual_hybrid(payload)
+
+        self.assertEqual(response["resolverPath"], "visual_hybrid_index")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "gym1-60")
+        self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["retrievalStrategy"], "fallback_local_rescue")
+        self.assertGreaterEqual(response["rawDecisionDebug"]["visualHybrid"]["localOCRCandidateCount"], 1)
+
+    def test_visual_hybrid_weak_fallback_fails_closed_when_signal_is_too_weak(self) -> None:
+        class FakeIndex:
+            entries: list[dict[str, object]] = []
+
+            def load(self) -> None:
+                return None
+
+        class FakeVisualMatcher:
+            def __init__(self) -> None:
+                self.index = FakeIndex()
+
+            def match_payload(self, payload: dict[str, object], *, top_k: int = 10):  # noqa: ARG002
+                return (
+                    [
+                        SimpleNamespace(
+                            row_index=0,
+                            similarity=0.84,
+                            entry={
+                                "providerCardId": "swsh7-19",
+                                "name": "Entei",
+                                "collectorNumber": "019/203",
+                                "setId": "swsh7",
+                                "setName": "Evolving Skies",
+                                "setSeries": "Sword & Shield",
+                                "setPtcgoCode": "EVS",
+                                "sourceProvider": "scrydex",
+                                "sourceRecordID": "swsh7-19",
+                                "imageUrl": "https://images.example/swsh7-19-large.png",
+                                "language": "English",
+                            },
+                        ),
+                    ],
+                    {
+                        "source": "fake",
+                        "internalTopK": top_k * 8,
+                        "timings": {
+                            "imageDecodeMs": 4.0,
+                            "ensureRuntimeMs": 5.0,
+                            "embeddingMs": 6.0,
+                            "indexSearchMs": 7.0,
+                            "matchPayloadMs": 8.0,
+                        },
+                    },
+                )
+
+        class FakeBadgeMatcher:
+            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
+                return {}
+
+        self.service._raw_visual_matcher = FakeVisualMatcher()
+        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
+
+        payload = raw_payload(
+            title_text_primary="",
+            whole_card_text="",
+            footer_band_text="",
+            collector_number_exact="",
+            crop_confidence=0.42,
+        )
+        payload["ocrAnalysis"]["normalizedTarget"] = {
+            "usedFallback": True,
+            "targetQuality": {
+                "overallScore": 0.42,
+                "reasons": [
+                    "fallback",
+                    "normalization:exact_reticle_fallback",
+                ],
+            },
+        }
+
+        response = self.service._resolve_raw_candidates_visual_hybrid(payload)
+
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertEqual(response["topCandidates"], [])
+        self.assertIn("card centered and filling more of the reticle", response["reviewReason"])
+
+    def test_health_can_prewarm_visual_runtime(self) -> None:
+        class FakeVisualMatcher:
+            def prewarm(self):
+                return {
+                    "available": True,
+                    "prewarmed": True,
+                    "timings": {"indexLoadMs": 1.0, "runtimeLoadMs": 2.0, "totalMs": 3.0},
+                }
+
+        self.service._raw_visual_matcher = FakeVisualMatcher()
+
+        payload = self.service.health(prewarm_visual=True)
+
+        self.assertEqual(payload["status"], "ok")
+        self.assertTrue(payload["visualRuntime"]["requested"])
+        self.assertTrue(payload["visualRuntime"]["prewarmed"])
 
 
 if __name__ == "__main__":

@@ -87,6 +87,40 @@ final class RawConfidenceModelTests: XCTestCase {
         XCTAssertEqual(assessment.setHintTokens, [])
     }
 
+    func testExactCollectorFallbackStillEscalatesStageTwoWhenTargetQualityIsLow() {
+        let model = RawConfidenceModel()
+
+        let passResults = [
+            RawOCRPassResult(
+                kind: .footerBandWide,
+                label: "13_raw_footer_band",
+                normalizedRect: OCRNormalizedRect(x: 0, y: 0.78, width: 1, height: 0.22),
+                text: "メガシンカeXルール Mus. DOM м2a 232/193 MA",
+                tokens: [
+                    RecognizedToken(text: "232/193", confidence: 0.82),
+                ]
+            )
+        ]
+
+        let assessment = model.assessStage1(
+            passResults: passResults,
+            sceneTraits: RawSceneTraits(
+                usedFallback: true,
+                holderLikely: false,
+                targetQualityScore: 0.49,
+                warnings: [
+                    "Target selection used fallback crop",
+                    "Target selection confidence is weak",
+                ]
+            )
+        )
+
+        XCTAssertTrue(assessment.shouldEscalate)
+        XCTAssertEqual(assessment.collectorNumberExact, "232/193")
+        XCTAssertEqual(assessment.setHintTokens, [])
+        XCTAssertTrue(assessment.reasons.contains("fallback_exact_collector_allows_header_rescue"))
+    }
+
     func testBareAlphaSetHintFromFooterMetadataIsAccepted() {
         let model = RawConfidenceModel()
 

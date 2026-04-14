@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "52300610",
   "cropConfidence" : 0.4,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2020 POKEMON SWSH #079 FA\/CHARIZARD V GEM MT CHAMPION S PATH - SECRET 10 PSA 52300610",
     "ION SWSH #079 RD V GEM MT 5 PATH-SECRET 10 PA 52300610"
   ],
-  "scanID" : "CC921846-FD65-4CA2-AFC8-E7AE4C2B81B1",
+  "scanID" : "F4623CEE-D8C0-46AF-A041-E2E3154FA718",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-charizard-v-079-champions-path-secret-52300610-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

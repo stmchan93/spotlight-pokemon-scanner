@@ -1,0 +1,150 @@
+{
+  "collectorConfidenceReasons" : [
+    "rewrite_raw_footer_band_wide"
+  ],
+  "collectorConfidenceScore" : 0.66,
+  "collectorNumber" : "232\/193",
+  "contentRectNormalized" : {
+    "height" : 1,
+    "width" : 0.41044504092520795,
+    "x" : 0.294777479537396,
+    "y" : 0
+  },
+  "fixtureName" : "mega-dragonite-ex-232-193-holder-inset",
+  "footerRouting" : {
+    "anchorIdentifier" : "232\/193",
+    "collectorAnchor" : {
+      "height" : 0.0295098461599268,
+      "width" : 0.13749034902829887,
+      "x" : 0.4593194440295562,
+      "y" : 0.8894284581126259
+    },
+    "reasons" : [
+      "footer_band_collector_anchor"
+    ]
+  },
+  "normalizedImageHeight" : 880,
+  "normalizedImageWidth" : 630,
+  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrTargetQualityReasons" : [
+    "raw_card",
+    "normalization:selected_card_conservative_canonicalization"
+  ],
+  "ocrTargetQualityScore" : 0.8720482694423588,
+  "ocrUsedFallback" : false,
+  "passSummaries" : [
+    {
+      "kind" : "footer_band_wide",
+      "label" : "13_raw_footer_band",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.41044504092520795,
+        "x" : 0.294777479537396,
+        "y" : 0.78
+      },
+      "text" : "US. 12g 232\/193 MA",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009455587392550173,
+            "width" : 0.02280250227362265,
+            "x" : 0.3763402763215287,
+            "y" : 0.8461891117110794
+          },
+          "text" : "US."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.027106017191977097,
+            "width" : 0.04472798522902907,
+            "x" : 0.3991427783692525,
+            "y" : 0.878968481252149
+          },
+          "text" : "12g"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02950984615992679,
+            "width" : 0.13749034902829887,
+            "x" : 0.4593194440295562,
+            "y" : 0.8894284581126259
+          },
+          "text" : "232\/193 MA"
+        }
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
+      "normalizedRect" : {
+        "height" : 0.2,
+        "width" : 0.3776094376511913,
+        "x" : 0.3111952811744043,
+        "y" : 0
+      },
+      "text" : "己通化 マカカイリュー②2 ー カイリコ",
+      "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011353711790393017,
+            "width" : 0.05237808328710073,
+            "x" : 0.32581242041470143,
+            "y" : 0.020087336173580786
+          },
+          "text" : "己通化"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.032137175314291076,
+            "width" : 0.24022503182922914,
+            "x" : 0.3813145740341115,
+            "y" : 0.020445837998512587
+          },
+          "text" : "マカカイリュー②2"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.009029463389034343,
+            "width" : 0.02376183140046055,
+            "x" : 0.447170620928804,
+            "y" : 0.05381270709196349
+          },
+          "text" : "ー"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.010855582707834023,
+            "width" : 0.04280991075929514,
+            "x" : 0.6241573922776121,
+            "y" : 0.0609477542673279
+          },
+          "text" : "カイリコ"
+        }
+      ]
+    }
+  ],
+  "scanID" : "62BCA127-E7EE-4D2F-91FB-ADC47CEC51F0",
+  "setConfidenceReasons" : [
+
+  ],
+  "setHintTokens" : [
+
+  ],
+  "stage1AssessmentReasons" : [
+    "collector_signal_weak",
+    "title_signal_weak",
+    "set_signal_weak"
+  ],
+  "titleConfidenceScore" : 0.5400000059604645,
+  "titleTextPrimary" : "己通化 マカカイリュー②2 ー カイリコ",
+  "warnings" : [
+    "Rewrite raw escalation used focused ROIs"
+  ]
+}

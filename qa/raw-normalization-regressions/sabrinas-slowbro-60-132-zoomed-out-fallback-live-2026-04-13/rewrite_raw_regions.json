@@ -1,0 +1,249 @@
+{
+  "payload" : {
+    "collectorNumber" : "60\/132",
+    "didEscalate" : true,
+    "overallEvidenceScore" : 0.664,
+    "plans" : [
+      {
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "minimumTextHeight" : 0.0035,
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "preprocessing" : "contrast_boosted",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 3.6,
+        "usesLanguageCorrection" : false
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "minimumTextHeight" : 0.008,
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8795708465084086,
+          "x" : 0.06021457674579577,
+          "y" : 0
+        },
+        "preprocessing" : "none",
+        "recognitionLanguages" : [
+          "ja-JP",
+          "en-US"
+        ],
+        "upscaleFactor" : 2.6,
+        "usesLanguageCorrection" : true
+      }
+    ],
+    "regions" : [
+      {
+        "averageConfidence" : 0.3999999591282436,
+        "label" : "13_raw_footer_band",
+        "normalizedRect" : {
+          "height" : 0.22,
+          "width" : 0.999512325577737,
+          "x" : 0.00024383721113155034,
+          "y" : 0.78
+        },
+        "text" : "LV. 29 #80 illaa. Ken Sugin лuгi 01995, 96. 98 Ninendo, Creatures, GAMEFR 60\/132 S",
+        "tokens" : [
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.015583333012709288,
+              "width" : 0.06407130188709903,
+              "x" : 0.17708063377385433,
+              "y" : 0.7800000002716215
+            },
+            "text" : "LV. 29"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.012833333493645356,
+              "width" : 0.04228705816955253,
+              "x" : 0.2603733280565138,
+              "y" : 0.7809166665063023
+            },
+            "text" : "#80"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.017542011184473773,
+              "width" : 0.1141586510996416,
+              "x" : 0.16869344445816822,
+              "y" : 0.7982931060145645
+            },
+            "text" : "illaa. Ken Sugin"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.008249999759531978,
+              "width" : 0.02306566793965181,
+              "x" : 0.28472042286747035,
+              "y" : 0.8047500000171091
+            },
+            "text" : "лuгi"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.01887458276612027,
+              "width" : 0.2647792399007941,
+              "x" : 0.34191786540582336,
+              "y" : 0.8021861828806959
+            },
+            "text" : "01995, 96. 98 Ninendo, Creatures, GAMEFR"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.012305795948279952,
+              "width" : 0.08339987688088261,
+              "x" : 0.7728901595992992,
+              "y" : 0.8100554353242446
+            },
+            "text" : "60\/132"
+          },
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.030249999519063958,
+              "width" : 0.052538468757845645,
+              "x" : 0.6909324826087628,
+              "y" : 0.9670000003917181
+            },
+            "text" : "S"
+          }
+        ]
+      },
+      {
+        "averageConfidence" : 0.8000000317891439,
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8795708465084086,
+          "x" : 0.06021457674579577,
+          "y" : 0
+        },
+        "text" : "Yelline Evolves from Sabrina' Slowpoke STAGE I Put Sabrinas S Sabrina's Slowbro 70.",
+        "tokens" : [
+          {
+            "confidence" : 0.3,
+            "normalizedBoundingBox" : {
+              "height" : 0.020183486605315215,
+              "width" : 0.06647919037630608,
+              "x" : 0.67003331874413,
+              "y" : 0.011009174105599274
+            },
+            "text" : "Yelline"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.022358238853221392,
+              "width" : 0.22004752862757715,
+              "x" : 0.318971989314903,
+              "y" : 0.13492946704067107
+            },
+            "text" : "Evolves from Sabrina' Slowpoke"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.012227074235807845,
+              "width" : 0.07414986690292569,
+              "x" : 0.23024789556103073,
+              "y" : 0.14759825341264102
+            },
+            "text" : "STAGE I"
+          },
+          {
+            "confidence" : 0.5,
+            "normalizedBoundingBox" : {
+              "height" : 0.01245424195668583,
+              "width" : 0.08962485171661659,
+              "x" : 0.566412376301046,
+              "y" : 0.14469031029745727
+            },
+            "text" : "Put Sabrinas S"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.03161342237714076,
+              "width" : 0.28952540735498905,
+              "x" : 0.3460751024174213,
+              "y" : 0.16052631605249582
+            },
+            "text" : "Sabrina's Slowbro"
+          },
+          {
+            "confidence" : 1,
+            "normalizedBoundingBox" : {
+              "height" : 0.022935779021817006,
+              "width" : 0.056251624768011675,
+              "x" : 0.6585273036119735,
+              "y" : 0.16788990860835756
+            },
+            "text" : "70."
+          }
+        ]
+      }
+    ],
+    "routing" : {
+      "anchorIdentifier" : "60\/132",
+      "collectorAnchor" : {
+        "height" : 0.012305795948279963,
+        "width" : 0.08339987688088257,
+        "x" : 0.7728901595992992,
+        "y" : 0.8100554353242446
+      },
+      "reasons" : [
+        "footer_band_collector_anchor"
+      ]
+    },
+    "sceneTraits" : {
+      "holderLikely" : false,
+      "normalizedContentRect" : {
+        "height" : 1,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0
+      },
+      "targetQualityScore" : 0.52,
+      "usedFallback" : true,
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak"
+      ]
+    },
+    "setHintTokens" : [
+
+    ],
+    "stage1Assessment" : {
+      "collectorNumberExact" : "60\/132",
+      "reasons" : [
+        "collector_signal_weak",
+        "title_signal_weak",
+        "set_signal_weak",
+        "target_quality_too_low_for_escalation",
+        "fallback_exact_collector_allows_header_rescue"
+      ],
+      "setHintTokens" : [
+
+      ],
+      "shouldEscalate" : true,
+      "titleConfidenceScore" : 0
+    }
+  },
+  "stage" : "rewrite_raw_regions"
+}

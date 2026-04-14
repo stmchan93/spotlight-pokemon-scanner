@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "129236570",
   "cropConfidence" : 0.7028553942816559,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2021 POKEMON SWSH #266 FA\/INTELEON VMAX GEM MT FUSION STRIKE-SECRET 10 PSA 129236570",
     "N SWSH #266 VMAX GEM MT E-SECRET 10 PSA 129236570"
   ],
-  "scanID" : "EA1FE8DC-4A0E-4ADE-AA7E-EC0F5F6281FF",
+  "scanID" : "2FB495BE-0916-482E-9457-FEFEDB5C315E",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-inteleon-vmax-266-fusion-strike-secret-129236570-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

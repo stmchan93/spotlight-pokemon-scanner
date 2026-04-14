@@ -1,0 +1,16 @@
+{
+  "exactCropRectNormalized" : {
+    "height" : 0.5250276854928018,
+    "width" : 0.6682170542635661,
+    "x" : 0.16589147286821693,
+    "y" : 0.14375
+  },
+  "searchCropRectNormalized" : {
+    "height" : 0.7612901439645625,
+    "width" : 0.9689147286821709,
+    "x" : 0.015542635658914561,
+    "y" : 0.025618770764119614
+  },
+  "source" : "live_preview_frame",
+  "stage" : "capture"
+}

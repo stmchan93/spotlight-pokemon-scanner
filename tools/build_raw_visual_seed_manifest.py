@@ -3,8 +3,8 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import re
+import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,16 +12,19 @@ from typing import Any
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
+REPO_ROOT = Path(__file__).resolve().parent.parent
+TOOLS_ROOT = Path(__file__).resolve().parent
+BACKEND_ROOT = REPO_ROOT / "backend"
+if str(TOOLS_ROOT) not in sys.path:
+    sys.path.insert(0, str(TOOLS_ROOT))
+if str(BACKEND_ROOT) not in sys.path:
+    sys.path.insert(0, str(BACKEND_ROOT))
 
-API_BASE_URL = "https://api.pokemontcg.io/v2/cards"
+from scrydex_adapter import map_scrydex_catalog_card, scrydex_credentials, scrydex_request_url  # noqa: E402
+from scrydex_expansion_resolver import resolve_expansion_token  # noqa: E402
+from raw_visual_dataset_paths import default_raw_footer_layout_query_cache_path  # noqa: E402
+
 USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
-DEFAULT_FIELDS = [
-    "id",
-    "name",
-    "number",
-    "images",
-    "set",
-]
 
 
 @dataclass(frozen=True)
@@ -69,6 +72,12 @@ def normalize_collector_number(value: str | None) -> str:
     return re.sub(r"[^A-Z0-9/]+", "", str(value or "").upper())
 
 
+def printed_number_query_value(value: str | None) -> str:
+    text = str(value or "").strip().upper()
+    text = re.sub(r"\s+", "", text)
+    return re.sub(r"[^A-Z0-9/\-]+", "", text)
+
+
 def collector_prefix(value: str | None) -> str:
     normalized = normalize_collector_number(value)
     if "/" in normalized:
@@ -76,16 +85,85 @@ def collector_prefix(value: str | None) -> str:
     return normalized
 
 
+def stripped_number_variants(value: str | None) -> list[str]:
+    normalized = collector_prefix(value)
+    if not normalized:
+        return []
+
+    variants: list[str] = []
+    seen: set[str] = set()
+
+    def add(candidate: str) -> None:
+        cleaned = candidate.strip().upper()
+        if cleaned and cleaned not in seen:
+            seen.add(cleaned)
+            variants.append(cleaned)
+
+    add(normalized)
+
+    trailing_digits_match = re.search(r"(\d+)$", normalized)
+    if trailing_digits_match:
+        trailing = trailing_digits_match.group(1)
+        add(trailing)
+        stripped_trailing = trailing.lstrip("0") or "0"
+        add(stripped_trailing)
+        prefix = normalized[: -len(trailing)]
+        if prefix:
+            add(f"{prefix}{stripped_trailing}")
+
+    stripped_normalized = normalized.lstrip("0") or "0"
+    add(stripped_normalized)
+    return variants
+
+
+def build_card_queries(
+    truth: TruthKey,
+    *,
+    resolved_expansion: dict[str, Any] | None,
+) -> list[str]:
+    queries: list[str] = []
+    seen: set[str] = set()
+
+    def add(query: str) -> None:
+        normalized = query.strip()
+        if normalized and normalized not in seen:
+            seen.add(normalized)
+            queries.append(normalized)
+
+    printed_number = printed_number_query_value(truth.collector_number)
+    number_variants = stripped_number_variants(truth.collector_number)
+    name = truth.card_name.replace('"', '\\"')
+    set_code = str(truth.set_code or "").strip()
+    expansion_id = str((resolved_expansion or {}).get("id") or "").strip()
+
+    if expansion_id:
+        if printed_number:
+            add(f'printed_number:"{printed_number}" expansion.id:{expansion_id}')
+        for number_variant in number_variants:
+            add(f'number:"{number_variant}" expansion.id:{expansion_id}')
+            add(f'name:"{name}" number:"{number_variant}" expansion.id:{expansion_id}')
+        if printed_number:
+            add(f'name:"{name}" printed_number:"{printed_number}" expansion.id:{expansion_id}')
+        add(f'name:"{name}" expansion.id:{expansion_id}')
+
+    if set_code and printed_number:
+        add(f'printed_number:"{printed_number}" expansion.code:{set_code}')
+    if set_code:
+        for number_variant in number_variants:
+            add(f'number:"{number_variant}" expansion.code:{set_code}')
+            add(f'name:"{name}" number:"{number_variant}" expansion.code:{set_code}')
+        if printed_number:
+            add(f'name:"{name}" printed_number:"{printed_number}" expansion.code:{set_code}')
+        add(f'name:"{name}" expansion.code:{set_code}')
+
+    for number_variant in number_variants:
+        add(f'name:"{name}" number:"{number_variant}"')
+    add(f'name:"{name}"')
+    return queries
+
+
 def candidate_display_number(card: dict[str, Any]) -> str:
-    raw_number = str(card.get("number") or "")
-    set_info = card.get("set") or {}
-    printed_total = set_info.get("printedTotal")
-    set_name = str(set_info.get("name") or "")
-    set_series = str(set_info.get("series") or "")
-    is_promo = "promo" in f"{set_name} {set_series}".lower()
-    if printed_total and "/" not in raw_number and not is_promo:
-        return f"{raw_number}/{printed_total}"
-    return raw_number
+    return str(card.get("number") or "")
 
 
 def set_match_score(expected: str | None, card: dict[str, Any]) -> tuple[int, str | None]:
@@ -93,11 +171,10 @@ def set_match_score(expected: str | None, card: dict[str, Any]) -> tuple[int, st
     if not token:
         return 0, None
 
-    set_info = card.get("set") or {}
-    ptcgo = normalized_set_token(set_info.get("ptcgoCode"))
-    set_id = normalized_set_token(set_info.get("id"))
-    set_name = normalized_set_token(set_info.get("name"))
-    set_series = normalized_set_token(set_info.get("series"))
+    ptcgo = normalized_set_token(card.get("set_ptcgo_code") or card.get("setPtcgoCode"))
+    set_id = normalized_set_token(card.get("set_id") or card.get("setID"))
+    set_name = normalized_set_token(card.get("set_name") or card.get("setName"))
+    set_series = normalized_set_token(card.get("set_series") or card.get("setSeries"))
     card_id = normalized_set_token(card.get("id"))
 
     checks = [
@@ -153,26 +230,25 @@ def api_request(url: str, api_key: str | None) -> dict[str, Any]:
     request = Request(url)
     request.add_header("Accept", "application/json")
     request.add_header("User-Agent", USER_AGENT)
-    if api_key:
-        request.add_header("X-Api-Key", api_key)
+    credentials = scrydex_credentials()
+    if credentials is None:
+        raise SystemExit("Scrydex credentials are required to build the visual seed manifest.")
+    scrydex_api_key, team_id = credentials
+    request.add_header("X-Api-Key", scrydex_api_key)
+    request.add_header("X-Team-ID", team_id)
     with urlopen(request, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
 
 
-def search_cards(query: str, api_key: str | None, page_size: int = 10) -> list[dict[str, Any]]:
-    params = urlencode(
-        {
-            "q": query,
-            "pageSize": page_size,
-            "orderBy": "set.releaseDate,name,number",
-            "select": ",".join(DEFAULT_FIELDS),
-        }
-    )
-    payload = api_request(f"{API_BASE_URL}?{params}", api_key)
+def search_cards(query: str, api_key: str | None, page_size: int = 10, *, japanese: bool = False) -> list[dict[str, Any]]:
+    del api_key
+    params = urlencode({"q": query, "page_size": page_size})
+    path = "/pokemon/v1/ja/cards" if japanese else "/pokemon/v1/cards"
+    payload = api_request(scrydex_request_url(path, q=query, page_size=str(page_size)), None)
     data = payload.get("data")
     if not isinstance(data, list):
         return []
-    return [item for item in data if isinstance(item, dict)]
+    return [map_scrydex_catalog_card(item) for item in data if isinstance(item, dict)]
 
 
 def truth_from_fixture(directory: Path) -> TruthKey:
@@ -206,16 +282,15 @@ def unique_truths(fixture_root: Path) -> dict[str, dict[str, Any]]:
 
 
 def candidate_summary(card: dict[str, Any], score: int, reasons: list[str]) -> dict[str, Any]:
-    set_info = card.get("set") or {}
-    images = card.get("images") or {}
     return {
         "providerCardId": card.get("id"),
         "providerName": card.get("name"),
         "providerCollectorNumber": candidate_display_number(card),
-        "providerSetId": set_info.get("id"),
-        "providerSetPtcgoCode": set_info.get("ptcgoCode"),
-        "providerSetName": set_info.get("name"),
-        "referenceImageUrl": images.get("large") or images.get("small"),
+        "providerSetId": card.get("set_id") or card.get("setID"),
+        "providerSetPtcgoCode": card.get("set_ptcgo_code") or card.get("setPtcgoCode"),
+        "providerSetName": card.get("set_name") or card.get("setName"),
+        "referenceImageUrl": card.get("reference_image_url") or card.get("imageURL"),
+        "sourceProvider": card.get("source") or "scrydex",
         "mappingScore": score,
         "mappingReasons": reasons,
     }
@@ -225,37 +300,41 @@ def choose_mapping(
     truth: TruthKey,
     api_key: str | None,
     query_cache: dict[str, list[dict[str, Any]]],
+    *,
+    allow_live_expansion_lookup: bool = False,
+    allow_legacy_set_code_queries: bool = True,
+    expansion_snapshot_path: Path | None = None,
 ) -> dict[str, Any]:
-    queries: list[str] = []
-    seen: set[str] = set()
-
-    def add(query: str) -> None:
-        normalized = query.strip()
-        if normalized and normalized not in seen:
-            seen.add(normalized)
-            queries.append(normalized)
-
-    left_number = collector_prefix(truth.collector_number)
-    full_number = normalize_collector_number(truth.collector_number)
-    name = truth.card_name.replace('"', '\\"')
-
-    add(f'name:"{name}" number:"{left_number}"')
-    if full_number and full_number != left_number:
-        add(f'name:"{name}" number:"{full_number}"')
-    add(f'name:"{name}"')
+    expansion_resolution = resolve_expansion_token(
+        truth.set_code,
+        query_cache,
+        snapshot_path=expansion_snapshot_path,
+        allow_live_lookup=allow_live_expansion_lookup,
+    )
+    queries = build_card_queries(truth, resolved_expansion=expansion_resolution.get("selected"))
+    if not allow_legacy_set_code_queries:
+        queries = [query for query in queries if "expansion.code:" not in query]
 
     candidates_by_id: dict[str, dict[str, Any]] = {}
-    attempts: list[dict[str, Any]] = []
+    attempts: list[dict[str, Any]] = list(expansion_resolution.get("attempts") or [])
     for query in queries:
-        cards = query_cache.get(query)
-        if cards is None:
-            cards = search_cards(query, api_key, page_size=12)
-            query_cache[query] = cards
-        attempts.append({"query": query, "resultCount": len(cards)})
-        for card in cards:
-            card_id = str(card.get("id") or "")
-            if card_id:
-                candidates_by_id[card_id] = card
+        for lane in ("global", "ja"):
+            cache_key = f"{lane}:{query}"
+            cards = query_cache.get(cache_key)
+            if cards is None:
+                try:
+                    cards = search_cards(query, api_key, page_size=12, japanese=(lane == "ja"))
+                except Exception as exc:  # noqa: BLE001
+                    cards = []
+                    attempts.append({"query": f"{lane}:{query}", "resultCount": 0, "error": str(exc)})
+                    query_cache[cache_key] = cards
+                    continue
+                query_cache[cache_key] = cards
+            attempts.append({"query": f"{lane}:{query}", "resultCount": len(cards)})
+            for card in cards:
+                card_id = str(card.get("id") or "")
+                if card_id:
+                    candidates_by_id[card_id] = card
 
     scored: list[tuple[int, dict[str, Any], list[str]]] = []
     for card in candidates_by_id.values():
@@ -295,6 +374,8 @@ def choose_mapping(
         "mappingConfidence": mapping_confidence,
         "mappingReason": mapping_reason,
         "attempts": attempts,
+        "resolvedExpansion": expansion_resolution.get("selected"),
+        "expansionResolution": expansion_resolution,
         "candidateSummaries": top_candidates,
         "selected": selected,
     }
@@ -333,8 +414,10 @@ def build_manifest(
                 "providerSetPtcgoCode": selected.get("providerSetPtcgoCode"),
                 "providerSetName": selected.get("providerSetName"),
                 "referenceImageUrl": selected.get("referenceImageUrl"),
+                "sourceProvider": selected.get("sourceProvider") or "scrydex",
                 "mappingConfidence": mapping["mappingConfidence"],
                 "mappingReason": mapping["mappingReason"],
+                "resolvedExpansion": mapping.get("resolvedExpansion"),
                 "attempts": mapping["attempts"],
                 "candidateSummaries": mapping["candidateSummaries"],
             }
@@ -345,7 +428,7 @@ def build_manifest(
     query_cache_path.write_text(json.dumps(query_cache, indent=2) + "\n")
     return {
         "generatedAt": utc_now_iso(),
-        "provider": "pokemontcg_api",
+        "provider": "scrydex",
         "entryCount": len(entries),
         "supportedEntryCount": sum(1 for entry in entries if entry["providerSupported"]),
         "unsupportedEntryCount": sum(1 for entry in entries if not entry["providerSupported"]),
@@ -370,7 +453,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--query-cache",
         type=Path,
-        default=Path("qa/raw-footer-layout-check/.visual_reference_cache/provider_search_cache.json"),
+        default=default_raw_footer_layout_query_cache_path(),
         help="Path to cache provider search query results.",
     )
     return parser.parse_args()
@@ -381,10 +464,7 @@ def main() -> int:
     fixture_root = args.fixture_root.resolve()
     output_path = args.output.resolve()
     query_cache_path = args.query_cache.resolve()
-    api_key = os.environ.get("POKEMONTCG_API_KEY")
-
-    if not api_key:
-        print("Warning: POKEMONTCG_API_KEY is not set; provider mapping may be slower or rate-limited.")
+    api_key = None
 
     manifest = build_manifest(fixture_root, api_key, query_cache_path)
     output_path.write_text(json.dumps(manifest, indent=2) + "\n")

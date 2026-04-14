@@ -14,10 +14,13 @@ This is the current product/source-of-truth status doc.
   - `card_price_snapshots`
   - `scan_events`
 - active raw pricing provider:
-  - Pokemon TCG API
-- preserved thin provider shells:
   - Scrydex
-  - PriceCharting
+- active raw identity/reference migration source of truth:
+  - [raw-set-badge-scrydex-first-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md)
+- active/thin provider status:
+  - Scrydex is the active raw identity/reference/pricing lane
+  - PriceCharting remains a thin non-active shell
+  - Pokemon TCG API raw helper files/tests are deleted from the active repo surfaces; historical docs may still reference them
 - slab rebuild target:
   - OCR cert-first slab identification
   - Scrydex graded pricing
@@ -30,6 +33,10 @@ Use this raw backend migration spec first:
 Use this next-step visual retrieval improvement spec after that:
 
 - [raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md)
+
+Use this raw set-badge + provider migration spec next:
+
+- [raw-set-badge-scrydex-first-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md)
 
 Use this earlier landed backend reset spec next for the currently shipped OCR-primary resolver baseline:
 
@@ -64,6 +71,34 @@ Use this slab rebuild implementation spec when slab work resumes:
   - exact collector: `31/67`
   - set hint: `11/67`
   - backend recoverable heuristic: `21/67`
+- current Scrydex provider + visual runtime state:
+  - held-out provider manifest support: `67/67` fixtures, `0` unsupported
+  - backend badge-image matching is landed for raw set badges
+  - backend visual shortlist bias is now landed for raw scans:
+    - language-aware reranking
+    - `tcgp-*` digital-card de-prioritization
+  - stable active visual artifact aliases are now the runtime default surface:
+    - `backend/data/visual-index/visual_index_active_clip-vit-base-patch32.npz`
+    - `backend/data/visual-index/visual_index_active_manifest.json`
+    - `backend/data/visual-models/raw_visual_adapter_active.pt`
+    - `backend/data/visual-models/raw_visual_adapter_active_metadata.json`
+  - the active alias publication is currently `v004-scrydex-b8`
+  - current active-alias held-out/runtime-shaped result:
+    - visual top-1: `25/67`
+    - visual top-5 contains-truth: `37/67`
+    - visual top-10 contains-truth: `40/67`
+    - hybrid top-1: `36/67`
+    - hybrid top-5 contains-truth: `40/67`
+  - request-budget guardrails:
+    - cached raw scans/details should issue `0` live Scrydex requests
+    - first-seen visual-hybrid top-1 hydration should issue `1` Scrydex fetch-by-id request
+    - non-visual remote raw fallback is capped at `2` Scrydex search queries max
+    - `GET /api/v1/ops/provider-status` includes `scrydexRequestStats`
+  - promoted Scrydex visual candidates:
+    - `v004-scrydex` base: hybrid top-1 `29/67`
+    - `v004-scrydex-b8` adapter: hybrid top-1 `33/67` before matcher shortlist improvements
+    - `v004-scrydex-b8` with matcher shortlist improvements: hybrid top-1 `36/67`
+    - runtime decision: keep the active aliases on `v004-scrydex-b8` unless a later Scrydex-backed candidate beats `36/67`
 - current raw visual proof-of-concept baseline on the provider-supported subset:
   - provider-supported fixtures: `47`
   - provider-unsupported fixtures: `20`
@@ -95,6 +130,62 @@ Use this slab rebuild implementation spec when slab work resumes:
   - `python tools/run_raw_visual_hybrid_regression.py`
 - first landed command for the next visual-model-improvement phase:
   - `python3 tools/build_raw_visual_training_manifest.py ...`
+- current visual-training corpus prep status:
+  - accepted training fixtures now default to `~/spotlight-datasets/raw-visual-train/`
+  - excluded labeled archive defaults to `~/spotlight-datasets/raw-visual-train-excluded/`
+  - active bulk batch intake now goes through:
+    - `python3 tools/process_raw_visual_batch.py --spreadsheet ... --photo-root ...`
+  - every batch now writes:
+    - `<active-training-root>/batch-audits/<batch-id>/`
+    - `<active-training-root>/raw_scan_registry.json`
+  - bulk import command:
+    - `zsh tools/import_raw_visual_train_batch.sh /path/to/images /path/to/cards.tsv`
+  - supported bulk import headers:
+    - `file_name`, `card_name`, `number`, `set promo`
+  - current first local staged batch under `~/spotlight-datasets/raw-visual-train/`:
+    - batch id: `drive-download-20260413t135937z-3-001`
+    - sheet rows: `164`
+    - imported accepted photos: `104`
+    - `safe_new`: `20`
+    - `safe_training_augment`: `84`
+    - `heldout_blocked`: `43`
+    - `manual_review`: `17`
+    - broken source files quarantined from training: `1`
+  - manual-label application command:
+    - `python3 tools/apply_raw_visual_train_manual_labels.py`
+  - manual-label summary:
+    - `<active-training-root>/manual_label_application_summary.json`
+  - accepted training manifest summary:
+    - `<active-training-root>/raw_visual_training_manifest_summary.json`
+  - first training toolchain is landed:
+    - shared model layer: `backend/raw_visual_model.py`
+    - trainer: `tools/train_raw_visual_adapter.py`
+    - hard-negative miner: `tools/mine_raw_visual_hard_negatives.py`
+    - held-out evaluator: `tools/eval_raw_visual_model.py`
+    - smoke-validated output contract:
+      - adapter checkpoint
+      - adapter metadata
+      - adapter metrics
+      - train/validation split
+  - current measured visual-model candidates:
+    - adapter `v001` held-out result:
+      - visual top-1: `22/47`
+      - visual top-10 contains-truth: `32/47`
+      - hybrid top-1: `30/47`
+    - hard-negative adapter `v002` held-out result:
+      - visual top-1: `22/47`
+      - visual top-10 contains-truth: `33/47`
+      - hybrid top-1: `30/47`
+    - smaller-batch hard-negative adapter `v003-b8` held-out/runtime-shaped result:
+      - visual top-1: `24/47`
+      - visual top-5 contains-truth: `31/47`
+      - visual top-10 contains-truth: `37/47`
+      - hybrid top-1: `32/47`
+      - hybrid top-5 contains-truth: `35/47`
+    - runtime decision:
+      - `v003-b8` remains the last PokemonTCG-backed checkpoint
+      - `v004-scrydex-b8` plus matcher shortlist improvements is now the active backend visual model through the stable alias artifacts
+      - env vars remain available for explicit override, rollback, or candidate comparison
 - the simulator-backed OCR fixture runner is landed and now writes legacy slab reference outputs under:
   - [qa/ocr-golden/simulator-legacy-v1](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-legacy-v1)
 - the rewrite raw branch is now the live raw runtime path
@@ -114,6 +205,11 @@ Use this slab rebuild implementation spec when slab work resumes:
   - centralized OCR field-confidence outputs and still-photo retry decisions
   - per-fixture simulator outputs for review
 - the app now routes raw scanner OCR through the rewrite coordinator path directly
+- the app now forces raw scan requests onto backend `rawResolverMode=hybrid`
+  - the backend now defaults omitted raw resolver mode to `hybrid` instead of falling back to the OCR-primary path
+  - scanner runtime testing now exercises:
+    - visual retrieval first
+    - OCR rerank second
 - the shipped app path still keeps slab matching feature-flagged off by default
 - slab rebuild groundwork is now landed:
   - experimental resolver paths:
@@ -175,8 +271,7 @@ Current kept backend validation:
 ```bash
 python3 -m py_compile \
   backend/catalog_tools.py \
-  backend/pokemontcg_api_client.py \
-  backend/pokemontcg_pricing_adapter.py \
+  backend/raw_set_badge_matcher.py \
   backend/pricecharting_adapter.py \
   backend/pricing_provider.py \
   backend/pricing_utils.py \
@@ -191,7 +286,6 @@ python3 -m unittest -v \
   backend.tests.test_raw_decision_phase5 \
   backend.tests.test_pricing_phase6 \
   backend.tests.test_scan_logging_phase7 \
-  backend.tests.test_pokemontcg_api_client \
   backend.tests.test_pricing_utils
 ```
 

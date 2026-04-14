@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "120252258",
   "cropConfidence" : 0.7210622342742338,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2022 POKEMON SWSH #TG20 FA\/RAYQUAZA VMAX GEM MT SILVER TEMPEST 10 PA 120252258 250",
     "ON SWSH #TG20 A VMAX GEM MT EST 10 PA 120252258"
   ],
-  "scanID" : "E3E1EC25-7D05-4D73-B33D-9D57ABA32ECC",
+  "scanID" : "B853FFC8-1644-448D-819A-A594B275ED2D",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-rayquaza-vmax-tg20-silver-tempest-120252258-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

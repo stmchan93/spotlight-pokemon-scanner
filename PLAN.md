@@ -1,10 +1,11 @@
 # PLAN
 
-Date: 2026-04-11
+Date: 2026-04-13
 
 ## Current planning override
 
 - The current raw visual-match-primary migration source of truth is [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md).
+- The current raw set-badge and Scrydex-first migration source of truth is [docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md).
 - The current next-step implementation source of truth for improving raw visual retrieval is [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md).
 - The current backend reset / raw-matcher redesign source of truth is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
 - The current backend latency / network-call refactor pre-implementation source of truth is [docs/backend-latency-refactor-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/backend-latency-refactor-spec-2026-04-10.md).
@@ -15,6 +16,10 @@ Date: 2026-04-11
 - The next raw identity direction is now:
   - visual matching first
   - OCR confirmation second
+- The next raw-provider / set-evidence direction is now:
+  - set evidence becomes badge-first and typed (`text | icon | unknown`)
+  - broad OCR junk such as `p270` must not become trusted set evidence
+  - Scrydex becomes the target raw identity/reference/pricing provider lane
 - The revised implementation order is now:
   - Phase 0 proof-of-concept on live normalized images
   - then full reference index buildout
@@ -26,7 +31,15 @@ Date: 2026-04-11
 - Treat the current backend runtime as:
   - raw-only
   - 3-table SQLite (`cards`, `card_price_snapshots`, `scan_events`)
-  - thin provider shells preserved for Pokemon TCG API, Scrydex, and PriceCharting
+  - Scrydex-first for raw identity/reference/pricing
+  - PriceCharting preserved as a thin non-active shell
+  - Pokemon TCG API raw helper files/tests are deleted; only historical doc references remain
+- Current pricing-cache operating decision:
+  - move toward a same-machine SQLite mirror for Scrydex-backed metadata/pricing
+  - nightly full Scrydex sync runs at `3:00 AM America/Los_Angeles`
+  - sync persists card metadata plus raw and graded price snapshots from the same `include=prices` payload
+  - fresh successful syncs should suppress normal hot-path Scrydex calls
+  - live provider fallback remains available for stale/missing/manual-refresh cases
 - Treat the old slab/sync/cache backend modules as deleted legacy state, not as code to revive.
 - Treat the current OCR implementation as temporary legacy structure while the new OCR pipeline is planned and evaluated side-by-side.
 
@@ -54,7 +67,6 @@ Date: 2026-04-11
 - The new OCR path must be:
   - fixture-first
   - replayable by stage
-  - launched behind a feature flag
   - run side-by-side with the old path before old OCR is deleted
 
 ## Current slab planning override
@@ -152,6 +164,33 @@ Status: `done`
 
 Status: `active`
 
+- current raw visual/provider cutover state:
+  - the held-out Scrydex provider manifest now supports `67/67` fixtures with `0` provider gaps
+  - backend badge-image matching is landed for raw set badges
+  - backend visual shortlist bias is now landed for raw scans:
+    - language-aware reranking
+    - `tcgp-*` digital-card de-prioritization
+  - stable active visual artifact aliases are now published via:
+    - `python3 tools/publish_raw_visual_runtime_artifacts.py --artifact-version <version>`
+  - local/staging/production visual env defaults now point at the active aliases, not version-pinned filenames
+  - current active alias publication is now `v004-scrydex-b8`
+  - active alias held-out/runtime-shaped result on the full `67`-fixture Scrydex-supported suite:
+    - visual top-1: `25/67`
+    - visual top-5 contains-truth: `37/67`
+    - visual top-10 contains-truth: `40/67`
+    - hybrid top-1: `36/67`
+    - hybrid top-5 contains-truth: `40/67`
+  - active Scrydex request-budget guardrails:
+    - cached raw scans/details should issue `0` live Scrydex requests
+    - during the same-machine nightly-sync stage, first-seen visual-hybrid top-1 hydration should also stay local when the latest full sync is fresh
+    - before that sync is fresh, first-seen visual-hybrid top-1 hydration may still issue `1` Scrydex fetch-by-id request
+    - before that sync is fresh, non-visual remote raw fallback is capped at `2` Scrydex search queries max
+    - `GET /api/v1/ops/provider-status` includes `scrydexRequestStats` for process-local request auditing
+  - promoted Scrydex visual candidates:
+    - `v004-scrydex` base: hybrid top-1 `29/67`
+    - `v004-scrydex-b8` adapter: hybrid top-1 `33/67` before matcher shortlist improvements
+    - `v004-scrydex-b8` with matcher shortlist improvements: hybrid top-1 `36/67`
+    - runtime decision: keep the active aliases on `v004-scrydex-b8` unless a later Scrydex candidate beats `36/67`
 - user-provided raw photos under [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check) are now the canonical seed raw regression suite
 - the new source-of-truth migration plan is [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md)
 - local Phase 0 proof-of-concept is now complete:
@@ -182,14 +221,151 @@ Status: `active`
   - `zsh tools/run_raw_visual_poc.sh`
   - `zsh tools/run_build_raw_visual_index.sh`
   - `python tools/run_raw_visual_hybrid_regression.py`
+- the app scanner runtime now forces backend `rawResolverMode=hybrid`
+  - the backend now defaults omitted raw resolver mode to `hybrid`, so raw scans no longer silently fall back to the OCR-primary path
+  - end-to-end raw scanner testing now runs:
+    - visual retrieval first
+    - OCR rerank second
 - next work is:
-  - build the separate visual training corpus and manifest tooling
-  - train and evaluate a lightweight visual adapter on top of frozen CLIP
-  - rebuild the visual index only if the held-out suite improves
+  - improve the visual training signal beyond the first two adapter candidates
+  - keep evaluating only on the held-out suite at runtime-shaped `top-K = 10`
+  - rebuild the visual index only if a later candidate is actually net-positive
   - keep OCR and runtime `top-K = 10` stable during that phase
   - only after a visual-model win, resume app contract work and cleanup
-- first landed tool in that phase:
+- landed tooling in that phase now includes:
   - `python3 tools/build_raw_visual_training_manifest.py ...`
+  - `python3 tools/mine_raw_visual_hard_negatives.py ...`
+  - `.venv-raw-visual-poc/bin/python tools/train_raw_visual_adapter.py ...`
+  - `.venv-raw-visual-poc/bin/python tools/eval_raw_visual_model.py ...`
+- current measured visual-model results:
+  - adapter `v001` held-out result: visual top-10 `32/47`, hybrid top-1 `30/47`
+  - hard-negative adapter `v002` held-out result: visual top-10 `33/47`, hybrid top-1 `30/47`
+  - smaller-batch hard-negative adapter `v003-b8` held-out/runtime-shaped result:
+    - visual top-1: `24/47`
+    - visual top-5 contains-truth: `31/47`
+    - visual top-10 contains-truth: `37/47`
+    - hybrid top-1: `32/47`
+    - hybrid top-5 contains-truth: `35/47`
+  - current runtime decision:
+    - `v003-b8` remains the last PokemonTCG-backed checkpoint
+    - `v004-scrydex-b8` plus matcher shortlist improvements is now the active backend visual model through the stable alias artifacts
+    - env vars remain available for candidate comparison or rollback
+ - the next linked migration slice is now:
+   - typed raw set-badge evidence
+   - junk set-hint suppression
+   - Scrydex-first raw provider migration
+   - see [docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md)
+
+### Milestone 1c: Raw scan reliability and candidate UX hardening
+
+Status: `planned`
+
+Purpose:
+
+- reduce repeat scans caused by bad raw normalization and weak frontend OCR evidence
+- stop wasting live Scrydex pricing fetches on low-confidence guesses
+- make weak matches recoverable through candidate selection instead of blind rescans
+
+Execution rules for this slice:
+
+- do not start implementation until the todo list below is reviewed/approved
+- keep the held-out raw regression corpus frozen
+- for each code change:
+  - state the expected improvement first
+  - run the relevant regression commands before the change
+  - run the same regression commands after the change
+  - keep the change only if it is net-positive or neutral
+- prefer extending the existing alternatives flow and scan feedback path before adding new endpoints or a separate result-screen architecture
+
+Ordered todo list:
+
+1. Scrydex hot-path gating
+   - stop live raw pricing refresh during scan-match response building for `confidence = low` or `reviewDisposition = needs_review`
+   - stop idle auto-refresh for review-state tray rows
+   - allow live pricing only after:
+     - confident auto-accept
+     - explicit candidate selection
+     - explicit user refresh
+   - preserve cached pricing display when available
+
+2. Frontend no-signal retry gate
+   - before sending a raw scan to the backend, short-circuit obviously unreadable scans when all of these are true:
+     - very low target quality
+     - no exact collector
+     - no meaningful title
+     - no set evidence
+   - show a retry/rescan message instead of surfacing a weak backend guess
+   - keep this gate aligned with the existing preview-frame-first capture flow
+
+3. Target-selection ambiguity fix
+   - in raw mode, when rectangle selection fails because candidates are too close or otherwise ambiguity-driven, evaluate an exact-reticle-direct path before relaxed holder heuristics
+   - use a conservative card-likeness check on the reticle crop
+   - keep this as an explicit fallback-style path, not as a fake clean primary selection
+
+4. Honest target confidence and fallback reporting
+   - make fallback and ambiguity paths report honest `selectionConfidence` / target-quality values
+   - fix the current branch where fallback normalization can inherit an unrealistically high confidence from the rejected rectangle candidate
+   - preserve clear normalization reasons in artifacts/logs so backend scoring and triage can distinguish:
+     - clean rectangle selection
+     - relaxed rectangle promotion
+     - exact-reticle fallback/direct path
+     - holder-preserve rejection
+
+5. Holder-preserve rejection hardening
+   - broaden the existing narrow-content rejection so `holder_like_selected_raw_card_preserved` does not survive when the normalized content is too narrow to be a reliable raw-card crop
+   - apply the rejection consistently across the relevant raw selection paths, not only the current relaxed branch
+   - prefer conservative canonicalization over half-card inner-crop guesses
+
+6. Candidate list contract upgrade
+   - return `topCandidates` as top `5` instead of top `3`
+   - keep candidate payloads rich enough for the scanner alternatives UX:
+     - id
+     - name
+     - set name
+     - number
+     - image URLs
+     - pricing snapshot if already cached/allowed
+     - visual/hybrid scores already exposed in the response
+
+7. Alternatives UX upgrade on top of the existing scanner flow
+   - evolve the current [AlternateMatchesView](/Users/stephenchan/Code/spotlight/Spotlight/Views/AlternateMatchesView.swift) instead of introducing a separate architecture first
+   - low-confidence / `needs_review` scans should route directly into candidate picking
+   - medium/high-confidence scans should keep the main resolved flow but expose a more obvious "similar cards" affordance
+   - selecting a candidate should:
+     - confirm the card
+     - log scan feedback with the selected card id
+     - trigger pricing refresh on demand for that chosen card
+
+8. Dedicated result screen decision
+   - treat the screenshot-style full card-detail screen as a second-phase UX decision
+   - do not block the reliability fixes on building a new standalone result-screen stack
+   - only add it after the functional candidate-selection flow is working and reviewed
+
+Primary files expected in this slice:
+
+- `Spotlight/Services/OCR/TargetSelection.swift`
+- `Spotlight/Services/OCR/PerspectiveNormalization.swift`
+- `Spotlight/Services/OCR/Raw/RawPipeline.swift`
+- `Spotlight/ViewModels/ScannerViewModel.swift`
+- `Spotlight/Views/AlternateMatchesView.swift`
+- `Spotlight/Views/ScannerRootView.swift`
+- `Spotlight/Views/ScannerView.swift`
+- `backend/server.py`
+- `backend/catalog_tools.py`
+- `backend/tests/test_raw_decision_phase5.py`
+- `backend/tests/test_scan_logging_phase7.py`
+
+Validation focus:
+
+- backend/unit:
+  - `python3 -m unittest -v backend.tests.test_raw_evidence_phase3 backend.tests.test_raw_retrieval_phase4 backend.tests.test_raw_decision_phase5 backend.tests.test_pricing_phase6 backend.tests.test_scan_logging_phase7`
+- app/runtime:
+  - `zsh tools/run_scanner_reticle_layout_tests.sh`
+  - `zsh tools/run_scan_tray_logic_tests.sh`
+  - `xcodebuild -project Spotlight.xcodeproj -scheme Spotlight -configuration Debug -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath .derivedData CODE_SIGNING_ALLOWED=NO build`
+- manual verification:
+  - live-device raw scans that previously needed repeat attempts
+  - request-budget audit through `GET /api/v1/ops/provider-status`
 
 ### Milestone 2: OCR architecture rewrite
 
@@ -234,9 +410,8 @@ Status: `active`
 
 Status: `active`
 
-- shipped slab matching remains feature-flagged off by default in the app
 - groundwork already landed:
-  - slab match requests are gated by a real feature flag instead of a hard-disable branch
+  - slab match requests now go through the live backend path by default
   - repeat-scan cert cache resolution paths are landed:
     - `psa_cert_barcode`
     - `psa_cert_ocr`
@@ -273,7 +448,7 @@ Status: `active`
 
 Status: `planned`
 
-- remove the hard-disabled slab match path from the app once the feature-flagged rebuilt path is proven
+- remove any remaining transitional slab gating or compatibility branches once the rebuilt path is proven
 - delete obsolete slab logic from `CardRectangleAnalyzer.swift` once `SlabPipeline` is live
 - remove backend slab title-repair heuristics that only compensate for weak OCR
 - align docs and ops/provider-status output with actual runtime behavior
@@ -283,8 +458,26 @@ Status: `planned`
 
 1. Keep [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md) as the raw identity architecture source of truth.
 2. Treat [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md) as the next raw implementation source of truth.
-3. Build the separate visual training corpus and manifest tooling without contaminating the held-out regression suite.
-4. Train and evaluate the lightweight visual adapter against the frozen held-out baseline.
+3. Treat the first manual-labeled visual-training corpus pass as landed:
+  - accepted training fixtures now default to `~/spotlight-datasets/raw-visual-train/`
+  - excluded archive defaults to `~/spotlight-datasets/raw-visual-train-excluded/`
+  - manual corpus summary now lives under the active training root
+  - staged bulk intake now runs through `python3 tools/process_raw_visual_batch.py ...`
+  - each batch now writes:
+    - `<active-training-root>/batch-audits/<batch-id>/`
+    - `<active-training-root>/raw_scan_registry.json`
+  - do not import batch photos directly without the four staging buckets:
+    - `safe_new`
+    - `safe_training_augment`
+    - `heldout_blocked`
+    - `manual_review`
+  - bulk import flow is now `zsh tools/import_raw_visual_train_batch.sh /path/to/images /path/to/cards.tsv`
+  - supported manifest headers include `file_name`, `card_name`, `number`, `set promo`
+4. Treat the first trainer/tooling pass as landed:
+  - shared model layer: `backend/raw_visual_model.py`
+  - first trainer: `tools/train_raw_visual_adapter.py`
+  - current training command:
+    - `.venv-raw-visual-poc/bin/python tools/train_raw_visual_adapter.py --manifest-path ~/spotlight-datasets/raw-visual-train/raw_visual_training_manifest.jsonl --output-dir backend/data/visual-models --artifact-version v001`
 5. Rebuild the full visual index only if the new model is net-positive on the held-out suite.
 6. Keep runtime `top-K = 10` and current OCR extraction stable until the visual model improves.
 7. Do human tap-through verification only after the improved visual model is integrated.
@@ -344,7 +537,7 @@ Status: `planned`
    - Identity success with `pricing = null` is still success.
    - Exact-grade pricing remains a follow-up serving concern, not the identity gate.
 
-7. Re-enable slab backend matching behind a real feature flag.
+7. Keep slab backend matching on in the app and tune the live path against the held-out suite.
    - Do not keep the current hard-disable path as the shipped steady state.
 
 8. Fix the known slab bugs during cutover.
@@ -405,32 +598,52 @@ Status: `planned`
 
 ## Pricing Freshness Decision
 
-- Do **not** run a daily cron that refreshes all `15k+` cards. That is wasteful for the current product stage.
-- Keep pricing refresh **on-demand**:
-  - fast scan/match path reads the latest persisted snapshot from storage
-  - if the stored snapshot is older than the target TTL, trigger a provider refresh and persist the new result
-  - otherwise return the stored snapshot immediately
-- Keep the default freshness window at `24 hours` for now for both raw and slab pricing.
-- Add a separate **force refresh** path for explicit user refresh so the user can bypass the 24-hour freshness gate when they really want live data.
-- If we add scheduled refreshing later, it should only prewarm a small hot set:
-  - recently scanned cards
-  - cards in the user collection/watchlist
-  - maybe the top N most frequently scanned cards
-  not the whole catalog.
+- Run a same-machine nightly Scrydex full-catalog sync for the current prototype stage.
+- Current schedule target:
+  - `3:00 AM America/Los_Angeles`
+- Current host model:
+  - the backend server and the cron job run on the same machine
+  - both point at the same SQLite database path
+  - do not assume Cloud Run shares that SQLite file
+- Nightly sync scope:
+  - `cards` metadata mirror
+  - raw price snapshot mirror
+  - graded price snapshot mirror from the same Scrydex `include=prices` payload
+- Scan hot-path serving rule:
+  - if the latest successful full sync is still within the `24 hour` freshness window, serve identity and pricing from SQLite only
+  - do not perform normal live Scrydex search or pricing refresh in that case
+  - keep live fallback only for:
+    - stale or failed sync state
+    - missing local card data
+    - explicit user/admin force refresh
+- Keep the default freshness window at `24 hours`.
+- Keep explicit force refresh available even after the nightly sync lands.
 
 ## Pricing Freshness Follow-Up TODOs
 
-1. Keep provider/in-memory caching as an optimization, not as the sole source of the 24-hour policy.
-2. Add explicit freshness metadata to API responses so the app can show:
+1. Land the dedicated sync runner and same-machine cron wiring:
+   - `backend/sync_scrydex_catalog.py`
+   - local `crontab` entry at `3:00 AM PT`
+   - repo-managed VM deploy path via `backend/deploy.sh vm ...`
+2. Persist full Scrydex graded rows, not only one requested grade, into `card_price_snapshots`.
+3. Expose latest sync status and freshness in ops/provider-status.
+4. Keep Scrydex search identity-only on the hot path.
+5. Keep live provider fallback only as a repair path:
+   - stale sync
+   - missing card
+   - force refresh
+6. Add explicit freshness metadata to API responses so the app can show:
    - snapshot age
-   - provider updated-at
-   - whether the latest response was live-fetched or cache-served
-3. Add an ops view/report for pricing freshness:
-   - oldest snapshots
-   - average snapshot age
-   - refresh success/failure rates by provider
-4. If Cloud Run remains multi-instance, avoid relying on per-instance memory cache semantics for correctness.
-5. Consider a small scheduled prewarm job only after TestFlight proves there is repeated demand for the same cards.
+   - whether the latest response was served from a fresh nightly sync or a live fallback
+7. Add richer sync ops reporting:
+   - latest run status
+   - pages fetched
+   - raw/graded snapshots written
+   - estimated credits used
+8. Decide later whether to add:
+   - inactive-card pruning
+   - image self-hosting/CDN
+   - a non-SQLite shared database for multi-host deployment
 
 ## Immediate next best tasks
 

@@ -4,8 +4,8 @@
   ],
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.9994234982128445,
-    "x" : 0.00028825089357774737,
+    "width" : 0.5523098652149918,
+    "x" : 0.22384506739250407,
     "y" : 0
   },
   "fixtureName" : "magby-186-182-slight-angle",
@@ -19,7 +19,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:holder_like_selected_raw_card_preserved"
   ],
   "ocrTargetQualityScore" : 0.9308329336675323,
   "ocrUsedFallback" : false,
@@ -29,13 +29,82 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.2,
-        "width" : 0.89948114839156,
-        "x" : 0.05025942580421998,
+        "width" : 0.49707887869349265,
+        "x" : 0.2514605606532537,
         "y" : 0.76
       },
-      "text" : "",
+      "text" : "ccorellig neater During your apponent's next turn, if this Pok damaged by an attack (even ffit ts Knocked Out)put 6 counters on the Attacking Pokémon. cakniess resistance retreut",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.022570532915360486,
+            "width" : 0.2568974027938051,
+            "x" : 0.4247783268356598,
+            "y" : 0.7599999998746082
+          },
+          "text" : "ccorellig neater"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.0238244514106583,
+            "width" : 0.4794831661733691,
+            "x" : 0.2681764858663522,
+            "y" : 0.7825705328302732
+          },
+          "text" : "During your apponent's next turn, if this Pok"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02695924764890283,
+            "width" : 0.4830023086773937,
+            "x" : 0.2646573468065834,
+            "y" : 0.8032601882001045
+          },
+          "text" : "damaged by an attack (even ffit ts Knocked Out)put 6"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.024451410658307207,
+            "width" : 0.3598323210365283,
+            "x" : 0.2637775593262196,
+            "y" : 0.8245768024205106
+          },
+          "text" : "counters on the Attacking Pokémon."
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010031347962382432,
+            "width" : 0.05454670881238327,
+            "x" : 0.251460561042873,
+            "y" : 0.9299059560949395
+          },
+          "text" : "cakniess"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.008592169112920002,
+            "width" : 0.06521015602327007,
+            "x" : 0.40097110668203917,
+            "y" : 0.9309390251838465
+          },
+          "text" : "resistance"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01065830721003136,
+            "width" : 0.047508423804333795,
+            "x" : 0.589298241435531,
+            "y" : 0.930532915323929
+          },
+          "text" : "retreut"
+        }
       ]
     },
     {
@@ -45,8 +114,8 @@
       "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
         "height" : 0.098,
-        "width" : 0.13792044275337256,
-        "x" : 0.0708875268073331,
+        "width" : 0.07621876139966888,
+        "x" : 0.26286023627129107,
         "y" : 0.8451
       },
       "text" : "",
@@ -61,13 +130,32 @@
       "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
         "height" : 0.092,
-        "width" : 0.27484146200853227,
-        "x" : 0.17019024558976134,
+        "width" : 0.15188521293412277,
+        "x" : 0.3177377444790527,
         "y" : 0.85
       },
-      "text" : "",
+      "text" : "FHSI stance",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.005661538461538462,
+            "width" : 0.025642958027838902,
+            "x" : 0.40255675975064176,
+            "y" : 0.9325641025263589
+          },
+          "text" : "FHSI"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.006133333333333332,
+            "width" : 0.038793192913910146,
+            "x" : 0.4262271820466829,
+            "y" : 0.9325641025847435
+          },
+          "text" : "stance"
+        }
       ]
     },
     {
@@ -77,13 +165,22 @@
       "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.12492793727660556,
-        "x" : 0.6724005534417157,
+        "width" : 0.06903873315187398,
+        "x" : 0.595273451749586,
         "y" : 0.84184
       },
-      "text" : "",
+      "text" : "retreat",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.006986301369863007,
+            "width" : 0.040381145805813076,
+            "x" : 0.5952734516286287,
+            "y" : 0.931730410909002
+          },
+          "text" : "retreat"
+        }
       ]
     },
     {
@@ -93,8 +190,8 @@
       "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
         "height" : 0.1,
-        "width" : 0.18489334716937622,
-        "x" : 0.7198731696068258,
+        "width" : 0.10217732506477348,
+        "x" : 0.6215081703472981,
         "y" : 0.85
       },
       "text" : "",
@@ -109,8 +206,8 @@
       "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
         "height" : 0.105,
-        "width" : 0.11493370229447712,
-        "x" : 0.7855852646143202,
+        "width" : 0.06351563449972406,
+        "x" : 0.6578225439851839,
         "y" : 0.8294
       },
       "text" : "",
@@ -125,8 +222,8 @@
       "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.18989046466044046,
-        "x" : 0.7048818171336331,
+        "width" : 0.10493887439084845,
+        "x" : 0.6132235223690733,
         "y" : 0.842
       },
       "text" : "",
@@ -139,17 +236,36 @@
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.7995387985702757,
-        "x" : 0.1002306007148622,
+        "width" : 0.4418478921719935,
+        "x" : 0.27907605391400325,
         "y" : 0.02
       },
-      "text" : "",
+      "text" : "ASIC Magby",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.05631399317406144,
+            "width" : 0.09783774755236999,
+            "x" : 0.27907605421974624,
+            "y" : 0.057542662001066544
+          },
+          "text" : "ASIC"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.08559726962457338,
+            "width" : 0.20514366422271127,
+            "x" : 0.38217389567679294,
+            "y" : 0.056791808588395915
+          },
+          "text" : "Magby"
+        }
       ]
     }
   ],
-  "scanID" : "15958F2D-E38C-49CB-9387-DA2804DA73B9",
+  "scanID" : "4460F8C2-868C-4BC5-83EA-4A97128D4E20",
   "setConfidenceReasons" : [
 
   ],
@@ -161,10 +277,12 @@
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 1,
+  "titleTextPrimary" : "ASIC Magby",
   "warnings" : [
     "Raw scene looks holder-like",
     "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
+    "Rewrite raw is relying on broader title evidence",
     "Low-confidence rewrite raw evidence"
   ]
 }

@@ -1,0 +1,51 @@
+{
+  "candidates" : [
+    {
+      "areaCoverage" : 0.770444818861848,
+      "areaScore" : 1,
+      "aspectRatio" : 0.9434960954900322,
+      "aspectScore" : 0.4942511009312416,
+      "boundingBox" : {
+        "height" : 0.9335264079272747,
+        "width" : 0.8253058642148972,
+        "x" : 0.08779479563236237,
+        "y" : 0.04760091379284859
+      },
+      "centerDistance" : 0.014371093871072962,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.9796762041413918,
+      "quadrilateral" : [
+        {
+          "x" : 0.14384423196315765,
+          "y" : 0.8336367011070251
+        },
+        {
+          "x" : 0.8836988210678101,
+          "y" : 0.9811273217201233
+        },
+        {
+          "x" : 0.9131006598472595,
+          "y" : 0.09394374489784241
+        },
+        {
+          "x" : 0.08779479563236237,
+          "y" : 0.04760091379284859
+        }
+      ],
+      "rank" : 1,
+      "totalScore" : 0.8692713181285383
+    }
+  ],
+  "chosenCandidateIndex" : 1,
+  "mode" : "raw",
+  "normalizedContentRect" : {
+    "height" : 1,
+    "width" : 0.9745966019257946,
+    "x" : 0.012701699037102712,
+    "y" : 0
+  },
+  "normalizedGeometryKind" : "raw_card",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

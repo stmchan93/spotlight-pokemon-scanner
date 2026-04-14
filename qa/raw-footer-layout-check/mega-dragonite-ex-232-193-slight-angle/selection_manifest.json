@@ -1,0 +1,16 @@
+{
+  "candidates" : [
+
+  ],
+  "mode" : "raw",
+  "normalizationReason" : "holder_like_selected_raw_card_preserved",
+  "normalizedContentRect" : {
+    "height" : 1.0000000000000002,
+    "width" : 0.7924297924297925,
+    "x" : 0.10378510378510375,
+    "y" : -6.45947941600091e-17
+  },
+  "normalizedGeometryKind" : "raw_card",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

@@ -80,6 +80,10 @@ private struct OCRRelaxedDetectionResult {
     let sourceLabel: String
 }
 
+private let fallbackSelectionConfidenceCap = 0.58
+private let fallbackSelectionConfidenceFloor = 0.40
+private let fallbackSelectionPenalty = 0.18
+
 func selectOCRInput(
     scanID: UUID,
     capture: ScanCaptureInput,
@@ -107,6 +111,7 @@ func selectOCRInput(
                 "reason=slab_candidate_not_portrait"
             )
         } else {
+            // Accepted rectangle: no relaxed retries or salvage, just use the corrected crop.
             let normalizationResult = normalizeOCRInputImage(
                 normalizedCandidateImage,
                 chosenCandidate: chosenCandidate.summary,
@@ -147,58 +152,13 @@ func selectOCRInput(
         }
     }
 
-    if mode == .rawCard,
-       let relaxedDetection = try recoverRelaxedRectangleCandidate(in: searchCGImage),
-       let correctedCandidateImage = perspectiveCorrect(searchCGImage, observation: relaxedDetection.observation) {
-        let relaxedSummary = makeCandidateSummary(
-            observation: relaxedDetection.observation,
-            rank: candidates.count + 1,
-            mode: mode
-        )
-        let normalizedCandidateImage = correctedCandidateImage.normalizedOrientation()
-        let normalizationResult = normalizeOCRInputImage(
-            normalizedCandidateImage,
-            chosenCandidate: relaxedSummary,
-            mode: mode
-        )
-        let promotedReason = normalizationResult.reason ?? "relaxed_rectangle_detector_promoted"
-        print(
-            "  🎯 [TARGET] mode=\(mode.rawValue) source=\(capture.captureSource.rawValue) " +
-            "chosen=relaxed:\(relaxedDetection.sourceLabel) score=\(String(format: "%.2f", relaxedSummary.totalScore)) " +
-            "geometry=\(normalizationResult.geometryKind.rawValue)"
-        )
-        ScanStageArtifactWriter.recordSelectionArtifacts(
-            scanID: scanID,
-            mode: mode,
-            source: capture.captureSource,
-            selectedTargetImage: normalizedCandidateImage,
-            candidateOverlayImage: candidateOverlayImage,
-            normalizedImage: normalizationResult.image,
-            normalizedContentRect: normalizationResult.normalizedContentRect,
-            chosenCandidateIndex: nil,
-            candidates: candidates.map(\.summary),
-            fallbackReason: nil,
-            normalizedGeometryKind: normalizationResult.geometryKind,
-            normalizationReason: promotedReason
-        )
-        return OCRTargetSelectionResult(
-            normalizedImage: normalizationResult.image,
-            normalizedContentRect: normalizationResult.normalizedContentRect,
-            selectionConfidence: max(0.50, relaxedSummary.totalScore),
-            usedFallback: false,
-            fallbackReason: nil,
-            chosenCandidateIndex: nil,
-            candidates: candidates.map(\.summary),
-            normalizedGeometryKind: normalizationResult.geometryKind,
-            normalizationReason: promotedReason
-        )
-    }
-
-    let chosenFallbackReason = if mode == .psaSlab, chosenCandidate != nil {
+    let selectionFailureReason = if mode == .psaSlab, chosenCandidate != nil {
         "slab_candidate_not_portrait"
     } else {
         fallbackReason(for: candidates, mode: mode)
     }
+
+    let chosenFallbackReason = selectionFailureReason
     let normalizationResult = normalizeFallbackOCRInputImage(
         searchImage: searchImage,
         fallbackImage: fallbackImage,
@@ -228,7 +188,11 @@ func selectOCRInput(
     return OCRTargetSelectionResult(
         normalizedImage: normalizationResult.image,
         normalizedContentRect: normalizationResult.normalizedContentRect,
-        selectionConfidence: candidates.first?.summary.totalScore ?? 0.40,
+        selectionConfidence: fallbackSelectionConfidence(
+            candidates: candidates,
+            fallbackReason: chosenFallbackReason,
+            normalizationReason: normalizationResult.reason
+        ),
         usedFallback: true,
         fallbackReason: chosenFallbackReason,
         chosenCandidateIndex: nil,
@@ -247,14 +211,10 @@ func chooseBestSelectionCandidateRank(
     }
 
     let margin = best.totalScore - (candidates.dropFirst().first?.totalScore ?? 0)
-    let holderAccepted = mode == .rawCard
-        && best.geometryKind == .rawHolder
-        && best.proximityScore >= 0.44
-        && best.areaCoverage >= 0.18
     guard best.totalScore >= mode.minimumSelectionScore else {
         return nil
     }
-    guard best.aspectScore >= 0.45 || holderAccepted else {
+    guard best.aspectScore >= 0.45 else {
         return nil
     }
     guard best.proximityScore >= 0.32 else {
@@ -425,6 +385,158 @@ private func inferredGeometryKind(for aspectRatio: CGFloat, mode: OCRTargetMode)
     case .psaSlab:
         return .slab
     }
+}
+
+private func degradedSelectionConfidence(
+    base: Double?,
+    cap: Double,
+    floor: Double,
+    penalty: Double
+) -> Double {
+    min(
+        cap,
+        max(floor, (base ?? floor) - penalty)
+    )
+}
+
+private func fallbackSelectionConfidence(
+    candidates: [OCRTargetSelectionCandidate],
+    fallbackReason: String,
+    normalizationReason: String?
+) -> Double {
+    var confidence = degradedSelectionConfidence(
+        base: candidates.first?.summary.totalScore,
+        cap: fallbackSelectionConfidenceCap,
+        floor: fallbackSelectionConfidenceFloor,
+        penalty: fallbackSelectionPenalty
+    )
+    if fallbackReason == "no_rectangle_detected" {
+        confidence = min(confidence, 0.40)
+    } else if fallbackReason == "multiple_rectangles_too_close_to_call" {
+        confidence = min(confidence, 0.52)
+    }
+    if normalizationReason?.contains("small_card_detected") == true {
+        confidence = min(confidence, 0.48)
+    }
+    return confidence
+}
+
+private struct ReticleCropContentSummary {
+    let averageLuminance: CGFloat
+    let nonDarkCoverage: CGFloat
+    let contentCoverage: CGFloat
+    let contentAspectRatio: CGFloat?
+}
+
+func reticleCropLooksLikeRawCard(_ image: UIImage) -> Bool {
+    guard image.size.width > 0, image.size.height > 0 else {
+        return false
+    }
+
+    let imageAspectRatio = image.size.width / image.size.height
+    guard imageAspectRatio >= 0.60, imageAspectRatio <= 0.85 else {
+        return false
+    }
+
+    guard let summary = reticleCropContentSummary(for: image) else {
+        return false
+    }
+
+    guard summary.averageLuminance >= 0.08 else {
+        return false
+    }
+    guard summary.nonDarkCoverage >= 0.50 else {
+        return false
+    }
+    guard summary.contentCoverage >= 0.50 else {
+        return false
+    }
+    guard let contentAspectRatio = summary.contentAspectRatio,
+          contentAspectRatio >= 0.60,
+          contentAspectRatio <= 0.85 else {
+        return false
+    }
+    return true
+}
+
+private func reticleCropContentSummary(for image: UIImage) -> ReticleCropContentSummary? {
+    guard let cgImage = image.cgImage else {
+        return nil
+    }
+
+    let sampleSize = CGSize(width: 48, height: 48)
+    let width = Int(sampleSize.width)
+    let height = Int(sampleSize.height)
+    let bytesPerRow = width * 4
+    var pixels = [UInt8](repeating: 0, count: height * bytesPerRow)
+
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB),
+          let context = CGContext(
+            data: &pixels,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: bytesPerRow,
+            space: colorSpace,
+            bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+          ) else {
+        return nil
+    }
+
+    context.interpolationQuality = .medium
+    context.draw(cgImage, in: CGRect(origin: .zero, size: sampleSize))
+
+    var totalLuminance: CGFloat = 0
+    var nonDarkPixels = 0
+    var minX = width
+    var minY = height
+    var maxX = -1
+    var maxY = -1
+
+    for y in 0..<height {
+        for x in 0..<width {
+            let offset = y * bytesPerRow + x * 4
+            let red = CGFloat(pixels[offset]) / 255
+            let green = CGFloat(pixels[offset + 1]) / 255
+            let blue = CGFloat(pixels[offset + 2]) / 255
+            let alpha = CGFloat(pixels[offset + 3]) / 255
+            let luminance = (0.2126 * red) + (0.7152 * green) + (0.0722 * blue)
+            totalLuminance += luminance
+
+            guard alpha >= 0.20, luminance >= 0.10 else {
+                continue
+            }
+
+            nonDarkPixels += 1
+            minX = min(minX, x)
+            minY = min(minY, y)
+            maxX = max(maxX, x)
+            maxY = max(maxY, y)
+        }
+    }
+
+    let totalPixels = max(1, width * height)
+    let averageLuminance = totalLuminance / CGFloat(totalPixels)
+    let nonDarkCoverage = CGFloat(nonDarkPixels) / CGFloat(totalPixels)
+
+    let contentCoverage: CGFloat
+    let contentAspectRatio: CGFloat?
+    if maxX >= minX, maxY >= minY {
+        let contentWidth = CGFloat(maxX - minX + 1)
+        let contentHeight = CGFloat(maxY - minY + 1)
+        contentCoverage = (contentWidth * contentHeight) / CGFloat(totalPixels)
+        contentAspectRatio = contentWidth / max(contentHeight, 1)
+    } else {
+        contentCoverage = 0
+        contentAspectRatio = nil
+    }
+
+    return ReticleCropContentSummary(
+        averageLuminance: averageLuminance,
+        nonDarkCoverage: nonDarkCoverage,
+        contentCoverage: contentCoverage,
+        contentAspectRatio: contentAspectRatio
+    )
 }
 
 private func drawCandidateOverlay(

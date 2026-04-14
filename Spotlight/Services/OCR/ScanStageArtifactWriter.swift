@@ -216,6 +216,9 @@ enum ScanStageArtifactWriter {
         guard isDebugExportsEnabled() else {
             return
         }
+        guard shouldWriteArtifact(named: filename) else {
+            return
+        }
         guard let directoryURL = scanDirectoryURL(for: scanID) else {
             return
         }
@@ -254,6 +257,38 @@ enum ScanStageArtifactWriter {
         }
         guard shouldLog else { return }
         print("  🧪 [DEBUG] Scan artifacts directory: \(directoryURL.path)")
+    }
+
+    private static func shouldWriteArtifact(named filename: String) -> Bool {
+        if filename.hasSuffix(".json") {
+            return true
+        }
+
+        if filename.hasSuffix("_aggressive.jpg") {
+            return false
+        }
+
+        if filename.contains("_set") && filename.hasSuffix(".jpg") {
+            return false
+        }
+
+        if filename.contains("_collector") && filename.hasSuffix(".jpg") {
+            return true
+        }
+
+        let keptImageNames: Set<String> = [
+            "01_full_camera_frame.jpg",
+            "02_reticle_expanded_search_crop.jpg",
+            "04_selected_target_crop.jpg",
+            "05_rectangle_candidate_overlay.jpg",
+            "06_ocr_input_normalized.jpg",
+            "07_fallback_search_remnant_overlay.jpg",
+            "08_fallback_exact_remnant_overlay.jpg",
+            "12_raw_header_wide.jpg",
+            "12_raw_header_wide_lowered.jpg",
+            "13_raw_footer_band.jpg",
+        ]
+        return keptImageNames.contains(filename)
     }
 
     private static func scaledSelectionDebugImage(from image: UIImage) -> UIImage {

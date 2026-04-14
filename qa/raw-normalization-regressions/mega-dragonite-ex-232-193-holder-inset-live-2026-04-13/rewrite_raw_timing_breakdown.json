@@ -1,0 +1,77 @@
+{
+  "payload" : {
+    "passTimings" : [
+      {
+        "durationMs" : 2337.4509811401367,
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "recognitionRequestCount" : 4,
+        "tokenCount" : 0,
+        "usedAggressiveRetry" : true
+      },
+      {
+        "durationMs" : 141.27397537231445,
+        "kind" : "footer_metadata",
+        "label" : "14_raw_footer_modern_left_set",
+        "recognitionRequestCount" : 4,
+        "tokenCount" : 0,
+        "usedAggressiveRetry" : true
+      },
+      {
+        "durationMs" : 166.82100296020508,
+        "kind" : "footer_metadata",
+        "label" : "15_raw_footer_modern_left_collector",
+        "recognitionRequestCount" : 4,
+        "tokenCount" : 0,
+        "usedAggressiveRetry" : true
+      },
+      {
+        "durationMs" : 139.30201530456543,
+        "kind" : "footer_metadata",
+        "label" : "16_raw_footer_legacy_right_mid_set",
+        "recognitionRequestCount" : 4,
+        "tokenCount" : 0,
+        "usedAggressiveRetry" : true
+      },
+      {
+        "durationMs" : 179.28898334503174,
+        "kind" : "footer_metadata",
+        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "recognitionRequestCount" : 4,
+        "tokenCount" : 0,
+        "usedAggressiveRetry" : true
+      },
+      {
+        "durationMs" : 143.32211017608643,
+        "kind" : "footer_metadata",
+        "label" : "18_raw_footer_legacy_right_corner_set",
+        "recognitionRequestCount" : 4,
+        "tokenCount" : 0,
+        "usedAggressiveRetry" : true
+      },
+      {
+        "durationMs" : 172.50895500183105,
+        "kind" : "footer_metadata",
+        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "recognitionRequestCount" : 4,
+        "tokenCount" : 0,
+        "usedAggressiveRetry" : true
+      },
+      {
+        "durationMs" : 1563.7669563293457,
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "recognitionRequestCount" : 1,
+        "tokenCount" : 1,
+        "usedAggressiveRetry" : false
+      }
+    ],
+    "stage1BroadMs" : 2337.5409841537476,
+    "stage1TightMs" : 942.5868988037109,
+    "stage2Ms" : 1563.8130903244019,
+    "synthesisMs" : 178.48193645477295,
+    "targetSelectionMs" : 139.59801197052002,
+    "totalMs" : 5169.7269678115845
+  },
+  "stage" : "rewrite_raw_timing_breakdown"
+}

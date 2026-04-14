@@ -1,0 +1,70 @@
+{
+  "payload" : {
+    "modeSanitySignals" : {
+      "looksLikeRawScore" : 0.48000000000000004,
+      "looksLikeSlabScore" : 0.27999999999999997,
+      "selectedMode" : "raw",
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak"
+      ]
+    },
+    "normalizedTarget" : {
+      "contentRectNormalized" : {
+        "height" : 1,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0
+      },
+      "geometryKind" : "fallback",
+      "normalizedHeight" : 880,
+      "normalizedWidth" : 630,
+      "targetQuality" : {
+        "overallScore" : 0.52,
+        "reasons" : [
+          "fallback",
+          "fallback:multiple_rectangles_too_close_to_call",
+          "normalization:exact_reticle_fallback"
+        ]
+      },
+      "usedFallback" : true
+    },
+    "pipelineVersion" : "rewrite_v1",
+    "rawEvidence" : {
+      "collectorConfidence" : {
+        "reasons" : [
+          "rewrite_raw_footer_band_wide"
+        ],
+        "score" : 0.66
+      },
+      "collectorNumberExact" : "60\/132",
+      "footerBandText" : "LV. 29 #80 illaa. Ken Sugin лuгi 01995, 96. 98 Ninendo, Creatures, GAMEFR 60\/132 S",
+      "setBadgeHint" : {
+        "canonicalTokens" : [
+
+        ],
+        "kind" : "unknown",
+        "source" : "none"
+      },
+      "setHints" : [
+
+      ],
+      "titleConfidence" : {
+        "reasons" : [
+          "rewrite_raw_header_wide"
+        ],
+        "score" : 1,
+        "tokenConfidenceAverage" : 0.8000000317891439
+      },
+      "titleTextPrimary" : "Sabrinas S Sabrina's Slowbro",
+      "warnings" : [
+        "Target selection used fallback crop",
+        "Target selection confidence is weak",
+        "Rewrite raw escalation used focused ROIs"
+      ],
+      "wholeCardText" : "LV. 29 #80 illaa. Ken Sugin лuгi 01995, 96. 98 Ninendo, Creatures, GAMEFR 60\/132 S Yelline Evolves from Sabrina' Slowpoke STAGE I Put Sabrinas S Sabrina's Slowbro 70."
+    },
+    "selectedMode" : "raw"
+  },
+  "stage" : "rewrite_raw_ocr_analysis"
+}

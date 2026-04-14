@@ -1,0 +1,32 @@
+{
+  "CRZ:GG": {
+    "id": "swsh12pt5gg",
+    "code": "CRZ",
+    "name": "Crown Zenith Galarian Gallery"
+  },
+  "HIF:SV": {
+    "id": "sma",
+    "code": null,
+    "name": "Hidden Fates Shiny Vault"
+  },
+  "SM-P": {
+    "id": "smp_ja",
+    "code": null,
+    "name": "Sun & Moon Promos"
+  },
+  "SVP": {
+    "id": "svp",
+    "code": "PR-SV",
+    "name": "Scarlet & Violet Black Star Promos"
+  },
+  "SWSD": {
+    "id": "swshp",
+    "code": "PR-SW",
+    "name": "SWSH Black Star Promos"
+  },
+  "SWSH11:TG": {
+    "id": "swsh11tg",
+    "code": "LOR",
+    "name": "Lost Origin Trainer Gallery"
+  }
+}

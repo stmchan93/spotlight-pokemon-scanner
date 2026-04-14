@@ -123,6 +123,7 @@ struct RawROIPlanner {
 
         var plans: [RawROIPlanItem] = []
         var nextArtifactIndex = 14
+        let labelSuffix = routing.collectorAnchor == nil ? "" : "_anchored"
 
         for family in RawFooterFamily.allCases {
             let collectorRect = collectorRect(
@@ -139,7 +140,12 @@ struct RawROIPlanner {
             plans.append(
                 RawROIPlanItem(
                     kind: .footerMetadata,
-                    label: String(format: "%02d_raw_footer_%@_set", nextArtifactIndex, family.rawValue),
+                    label: String(
+                        format: "%02d_raw_footer_%@_set%@",
+                        nextArtifactIndex,
+                        family.rawValue,
+                        labelSuffix
+                    ),
                     normalizedRect: setBadgeRect,
                     minimumTextHeight: 0.001,
                     upscaleFactor: 4.8,
@@ -155,7 +161,12 @@ struct RawROIPlanner {
             plans.append(
                 RawROIPlanItem(
                     kind: .footerMetadata,
-                    label: String(format: "%02d_raw_footer_%@_collector", nextArtifactIndex, family.rawValue),
+                    label: String(
+                        format: "%02d_raw_footer_%@_collector%@",
+                        nextArtifactIndex,
+                        family.rawValue,
+                        labelSuffix
+                    ),
                     normalizedRect: collectorRect,
                     minimumTextHeight: 0.001,
                     upscaleFactor: 4.8,
@@ -175,27 +186,52 @@ struct RawROIPlanner {
     func stage2Plan(for sceneTraits: RawSceneTraits) -> [RawROIPlanItem] {
         let titleInsetX = sceneTraits.holderLikely ? 0.06 : (sceneTraits.usedFallback ? 0.02 : 0.0)
         let topInsetY = sceneTraits.holderLikely ? 0.02 : 0.0
-
-        return [
-            RawROIPlanItem(
-                kind: .headerWide,
+        var plans = [
+            headerWidePlan(
                 label: "12_raw_header_wide",
-                normalizedRect: mapCardRelativeRect(
-                    OCRNormalizedRect(
-                        x: 0.04 + titleInsetX,
-                        y: topInsetY,
-                        width: 0.92 - (titleInsetX * 2),
-                        height: sceneTraits.holderLikely ? 0.22 : 0.20
-                    ),
-                    sceneTraits: sceneTraits
+                rect: OCRNormalizedRect(
+                    x: 0.04 + titleInsetX,
+                    y: topInsetY,
+                    width: 0.92 - (titleInsetX * 2),
+                    height: sceneTraits.holderLikely ? 0.22 : 0.20
                 ),
-                minimumTextHeight: 0.008,
-                upscaleFactor: sceneTraits.holderLikely ? 3.0 : 2.6,
-                preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-                usesLanguageCorrection: true,
-                recognitionLanguages: ["ja-JP", "en-US"]
+                sceneTraits: sceneTraits
             )
         ]
+
+        if sceneTraits.isExactReticleFallback {
+            plans.append(
+                headerWidePlan(
+                    label: "12_raw_header_wide_lowered",
+                    rect: OCRNormalizedRect(
+                        x: 0.04 + titleInsetX,
+                        y: sceneTraits.holderLikely ? 0.05 : 0.05,
+                        width: 0.92 - (titleInsetX * 2),
+                        height: sceneTraits.holderLikely ? 0.24 : 0.22
+                    ),
+                    sceneTraits: sceneTraits
+                )
+            )
+        }
+
+        return plans
+    }
+
+    private func headerWidePlan(
+        label: String,
+        rect: OCRNormalizedRect,
+        sceneTraits: RawSceneTraits
+    ) -> RawROIPlanItem {
+        RawROIPlanItem(
+            kind: .headerWide,
+            label: label,
+            normalizedRect: mapCardRelativeRect(rect, sceneTraits: sceneTraits),
+            minimumTextHeight: 0.008,
+            upscaleFactor: sceneTraits.holderLikely ? 3.0 : 2.6,
+            preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
+            usesLanguageCorrection: true,
+            recognitionLanguages: ["ja-JP", "en-US"]
+        )
     }
 
     private func collectorRect(

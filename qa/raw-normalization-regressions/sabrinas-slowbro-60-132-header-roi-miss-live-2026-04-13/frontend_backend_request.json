@@ -1,0 +1,30 @@
+{
+  "payload" : {
+    "collectorNumber" : "60\/132",
+    "cropConfidence" : 0.58,
+    "imageHeight" : 880,
+    "imageWidth" : 630,
+    "ocrAnalysisIncluded" : true,
+    "pipelineVersion" : "rewrite_v1",
+    "rawResolverMode" : "hybrid",
+    "recognizedTokenCount" : 10,
+    "resolverModeHint" : "raw_card",
+    "scanID" : "4E9731FB-3A38-4D65-BEAF-3D8E210305EF",
+    "setBadgeHint" : {
+      "canonicalTokens" : [
+
+      ],
+      "kind" : "unknown",
+      "source" : "none"
+    },
+    "setHintTokens" : [
+
+    ],
+    "warnings" : [
+      "Target selection used fallback crop",
+      "Rewrite raw escalation used focused ROIs",
+      "Low-confidence rewrite raw evidence"
+    ]
+  },
+  "stage" : "frontend_backend_request"
+}

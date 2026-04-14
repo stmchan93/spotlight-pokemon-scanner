@@ -7,11 +7,13 @@ Repo-specific workflow notes for future coding agents.
 - This repo is a local iOS + Python backend prototype for a Pokemon card scanner.
 - The active product/status doc is [docs/spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md).
 - The active raw visual-match migration plan is [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md).
+- The active raw set-badge + Scrydex-first migration plan is [docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md).
 - The active next-step implementation plan for improving raw visual retrieval is [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md).
 - The earlier landed backend reset / OCR-primary raw-matcher baseline is [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
 - The active OCR rewrite / rollout plan is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 - The active slab rebuild / rollout plan is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
 - For raw identity backend work, treat the hybrid migration spec as the source of truth over older OCR-primary raw-matcher planning, `direct_lookup`, `slab_sales`, or fragmented SQLite planning notes elsewhere in the repo.
+- For raw set evidence and raw provider migration work, treat the set-badge + Scrydex-first spec as the source of truth over older generic `setHints` assumptions or Pokemon TCG API raw-provider assumptions.
 - Treat the older raw-backend-reset spec as the source of truth for the currently landed OCR-primary baseline only.
 - The revised implementation order in the hybrid migration spec is authoritative:
   - prove visual matching on live normalized images first
@@ -20,12 +22,74 @@ Repo-specific workflow notes for future coding agents.
   - keep runtime `top-K = 10`
   - keep the held-out regression suite frozen
   - improve the visual model before more OCR tuning
+- Current visual-training corpus roots:
+  - accepted training fixtures default to `~/spotlight-datasets/raw-visual-train/`
+  - labeled-but-excluded archive defaults to `~/spotlight-datasets/raw-visual-train-excluded/`
+  - override with `SPOTLIGHT_DATASET_ROOT`, `SPOTLIGHT_RAW_VISUAL_TRAIN_ROOT`, or `SPOTLIGHT_RAW_VISUAL_TRAIN_EXCLUDED_ROOT`
+  - treat those roots as config, not hardcoded storage backends; GCS/object storage can be upstream, but tooling should point at a configurable local working root
+  - current local workflow/spec: [docs/raw-visual-local-dataset-workflow-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-local-dataset-workflow-2026-04-12.md)
+  - preferred bulk batch intake now goes through `python3 tools/process_raw_visual_batch.py ...`, which writes:
+    - `<active-training-root>/batch-audits/<batch-id>/`
+    - `<active-training-root>/raw_scan_registry.json`
+  - do not import new bulk raw photo batches straight into the training root without the staged audit buckets:
+    - `safe_new`
+    - `safe_training_augment`
+    - `heldout_blocked`
+    - `manual_review`
+  - broken or zero-byte images must stay out of accepted training fixtures and remain in `manual_review`
 - For OCR work, treat the OCR rewrite spec as the source of truth over older raw-only OCR heuristics or legacy `CardRectangleAnalyzer.swift` structure.
 - For slab OCR/backend work, treat the slab cert-first rebuild spec as the source of truth over older slab parser-reset ideas, generic multi-grader heuristics, or backend slab title-repair notes elsewhere in the repo.
 - For raw OCR runtime behavior, treat the normalized-target rewrite path in `Spotlight/Services/OCR/Raw/*`, `TargetSelection.swift`, and `PerspectiveNormalization.swift` as the live source of truth.
 - The canonical seed raw regression corpus is [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check).
 - The live normalized image produced by the rewrite raw path is the query image source of truth for visual matching experiments, not raw `source_scan.jpg`.
+- Current raw set-evidence rule:
+  - trusted set evidence must be badge-first
+  - broad footer/header OCR text should not be promoted into trusted raw set evidence by default
 - The old `RawCardScanner` raw path has been deleted from app runtime. Do not recreate it.
+
+## Current scan reliability remediation slice
+
+- This slice is the active pre-implementation planning bundle for repeat-scan reduction on raw scans.
+- Do not start coding this slice until the concrete todo list in [PLAN.md](/Users/stephenchan/Code/spotlight/PLAN.md) has been reviewed in-thread.
+- Primary goals for this slice:
+  - reduce bad raw normalizations that produce unusable `06_ocr_input_normalized.jpg`
+  - stop live Scrydex pricing fetches for weak/unconfirmed guesses
+  - route weak matches into candidate selection instead of blind rescans
+- Implement in this order unless the user explicitly reprioritizes:
+  1. Scrydex hot-path gating
+  2. frontend no-signal retry gate
+  3. target-selection ambiguity fix
+  4. honest target confidence / fallback reporting
+  5. holder-preserve rejection hardening
+  6. top-candidate contract expansion to `top 5`
+  7. alternatives UX upgrade on top of the existing scanner flow
+  8. standalone result-screen decision only after the above works
+- UX rules for this slice:
+  - if frontend evidence is effectively unreadable, fail fast and ask the user to rescan instead of sending a weak backend guess
+  - if backend confidence is low but plausible candidates exist, route directly to candidate picking
+  - if confidence is medium/high, preserve the normal resolved flow and expose similar matches as an affordance
+- Architecture rules for this slice:
+  - prefer extending the existing alternatives sheet and `/api/v1/scan/feedback` path before adding a new confirm endpoint
+  - do not block reliability fixes on building a brand-new card-detail navigation stack
+  - treat image-3-style standalone detail UI as a follow-up decision, not a prerequisite
+- Validation rule for this slice:
+  - before each change, state the expected improvement
+  - run the relevant regression commands before the change
+  - run the same validation after the change
+  - keep the change only if it is net-positive or neutral
+- Files most likely to move in this slice:
+  - `Spotlight/Services/OCR/TargetSelection.swift`
+  - `Spotlight/Services/OCR/PerspectiveNormalization.swift`
+  - `Spotlight/Services/OCR/Raw/RawPipeline.swift`
+  - `Spotlight/ViewModels/ScannerViewModel.swift`
+  - `Spotlight/Views/AlternateMatchesView.swift`
+  - `Spotlight/Views/ScannerRootView.swift`
+  - `Spotlight/Views/ScannerView.swift`
+  - `backend/server.py`
+  - `backend/catalog_tools.py`
+  - `backend/tests/test_raw_decision_phase5.py`
+  - `backend/tests/test_pricing_phase6.py`
+  - `backend/tests/test_scan_logging_phase7.py`
 
 ## Subagent workflow
 
@@ -80,18 +144,22 @@ Repo-specific workflow notes for future coding agents.
 
 ## Current provider rules
 
-- Pricing provider abstraction is now implemented with specialized providers, but the current backend runtime is intentionally **raw-only** during the reset:
+- Pricing provider abstraction is now implemented with specialized providers.
+- Runtime status:
+  - raw remains the more mature lane during the reset
+  - slab is live for PSA Pokemon testing through the cert-first rebuild path
 - Runtime scanner behavior is mode-specific, not cross-provider blended:
   - **Raw mode**:
     - resolve as `raw_card`
     - send OCR payloads directly to the backend matcher
-    - refresh/display raw pricing from **Pokemon TCG API** only
+    - treat Scrydex as the active raw identity/reference/pricing provider lane
+    - if runtime/code still depends on Pokemon TCG API for raw, treat that as transitional deletion debt rather than the desired architecture
   - **Slab mode**:
-    - the shipped app path keeps slab matching feature-flagged off by default
-    - experimental slab rebuild work should stay isolated from the raw runtime lane
-    - rebuild against the cert-first slab spec instead of reviving the old heuristic slab matcher
+    - send OCR payloads directly to the backend matcher
+    - use the cert-first slab spec instead of reviving the old heuristic slab matcher
+    - treat the current slab lane as PSA Pokemon only while held-out validation is still in progress
 - PriceCharting remains a thin provider shell for env/config structure and later work, but it is not an active runtime lane right now.
-- Scrydex is the intended PSA slab identity/pricing lane for the cert-first rebuild.
+- Scrydex is the active raw identity/reference/pricing lane and the intended slab identity/pricing lane.
 - Do not add a PSA API or “official verification” dependency to the slab rebuild.
 - Treat slab certs as OCR-derived lookup keys and repeat-scan cache keys, not as an official PSA-validation contract.
 - Each provider implements the shared `PricingProvider` contract.
@@ -102,10 +170,29 @@ Repo-specific workflow notes for future coding agents.
   - persisted SQLite snapshot timestamps are the source of truth for the `24 hour` freshness window
   - runtime refresh should read existing snapshots first and only hit the live provider when the snapshot is stale or the caller explicitly requests `forceRefresh`
   - the in-memory provider cache may exist as an optimization, but it is not the correctness layer for scanner runtime behavior
+- Current Scrydex mirror rule:
+  - for the current prototype stage, run the backend and the nightly Scrydex sync on the same machine against the same SQLite file
+  - nightly full-catalog sync runs at `3:00 AM America/Los_Angeles`
+  - sync command:
+    - `python3 backend/sync_scrydex_catalog.py --database-path backend/data/spotlight_scanner.sqlite`
+  - sync should persist:
+    - card metadata
+    - raw price snapshots
+    - graded price snapshots returned by the same `include=prices` payload
+  - when the latest successful full sync is fresh, normal scan hot paths should prefer SQLite-only identity/pricing reads and avoid live Scrydex calls
+  - live Scrydex fallback remains allowed when:
+    - the full sync is missing
+    - the full sync is stale
+    - a card is unexpectedly missing locally
+    - the caller explicitly forces refresh
+- Scrydex request-budget rule:
+  - cached raw scans/details should stay fully local and issue `0` live Scrydex requests
+  - once the nightly full sync is fresh, first-seen raw and slab responses should also stay local unless an explicit fallback condition is hit
+  - before the nightly sync is in place or when it is stale, non-visual remote raw fallback is capped at `2` Scrydex search requests max
+  - use `GET /api/v1/ops/provider-status` and inspect `scrydexRequestStats` when auditing overage risk
 - Implementation files:
   - [backend/pricing_provider.py](/Users/stephenchan/Code/spotlight/backend/pricing_provider.py) - provider contract and registry
   - [backend/pricing_utils.py](/Users/stephenchan/Code/spotlight/backend/pricing_utils.py) - shared price normalization utilities
-  - [backend/pokemontcg_pricing_adapter.py](/Users/stephenchan/Code/spotlight/backend/pokemontcg_pricing_adapter.py) - Pokemon TCG API implementation
   - [backend/pricecharting_adapter.py](/Users/stephenchan/Code/spotlight/backend/pricecharting_adapter.py) - PriceCharting implementation
   - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py) - Scrydex implementation
 
@@ -145,6 +232,39 @@ Repo-specific workflow notes for future coding agents.
 - Current local visual tooling:
   - `zsh tools/run_raw_visual_poc.sh`
   - `zsh tools/run_build_raw_visual_index.sh`
+- Current raw visual runtime state:
+  - the held-out Scrydex provider manifest now supports `67/67` fixtures with `0` provider gaps
+  - the backend now supports badge-image matching in:
+    - `backend/raw_set_badge_matcher.py`
+    - `backend/catalog_tools.py`
+    - `backend/server.py`
+  - the visual matcher now applies:
+    - language-aware shortlist reranking
+    - `tcgp-*` de-prioritization for raw physical scans
+    - wider internal retrieval before final `top-K = 10`
+  - stable active visual artifact aliases now exist:
+    - `backend/data/visual-index/visual_index_active_clip-vit-base-patch32.npz`
+    - `backend/data/visual-index/visual_index_active_manifest.json`
+    - `backend/data/visual-models/raw_visual_adapter_active.pt`
+    - `backend/data/visual-models/raw_visual_adapter_active_metadata.json`
+  - the active aliases are currently published from `v004-scrydex-b8`
+  - current active-alias held-out/runtime-shaped result on the full `67`-fixture Scrydex-supported suite:
+    - visual top-1: `25/67`
+    - visual top-5 contains-truth: `37/67`
+    - visual top-10 contains-truth: `40/67`
+    - hybrid top-1: `36/67`
+    - hybrid top-5 contains-truth: `40/67`
+  - Scrydex request-budget guardrails now landed:
+    - cached raw scans/details should issue `0` live Scrydex requests
+    - during the same-machine nightly-sync stage, first-seen visual-hybrid top-1 hydration should also stay local when the latest full sync is fresh
+    - before that sync is fresh, first-seen visual-hybrid top-1 hydration may still issue `1` Scrydex fetch-by-id request
+    - before that sync is fresh, non-visual remote raw fallback is capped at `2` Scrydex search queries max
+    - `GET /api/v1/ops/provider-status` includes `scrydexRequestStats`
+  - promoted Scrydex visual candidates:
+    - base `v004-scrydex`: hybrid top-1 `29/67`
+    - adapter `v004-scrydex-b8`: hybrid top-1 `33/67` before matcher shortlist improvements
+    - adapter `v004-scrydex-b8` with language-aware shortlist improvements: hybrid top-1 `36/67`
+    - runtime decision: keep the active aliases on `v004-scrydex-b8` unless a later candidate beats `36/67`
 - Current local Phase 0 proof:
   - provider-supported fixtures: `47`
   - visual top-1: `39/47`
@@ -173,15 +293,51 @@ Repo-specific workflow notes for future coding agents.
   - build a separate raw visual training corpus
   - train a lightweight adapter on top of frozen CLIP
   - rebuild the visual index only if the held-out suite improves
-- The first landed tool in that phase is:
+- Landed tooling in that phase now includes:
+  - `python3 tools/process_raw_visual_batch.py --spreadsheet ... --photo-root ...`
+  - `zsh tools/import_raw_visual_train_batch.sh /path/to/images /path/to/cards.tsv`
   - `python3 tools/build_raw_visual_training_manifest.py ...`
+  - `python3 tools/mine_raw_visual_hard_negatives.py ...`
+  - `.venv-raw-visual-poc/bin/python tools/train_raw_visual_adapter.py ...`
+  - `.venv-raw-visual-poc/bin/python tools/eval_raw_visual_model.py ...`
+- Manual-label corpus prep is now also landed:
+  - `python3 tools/apply_raw_visual_train_manual_labels.py`
+  - current accepted training manifest summary lives under the active training root, default `~/spotlight-datasets/raw-visual-train/raw_visual_training_manifest_summary.json`
+- First visual-model training tooling is now also landed:
+  - shared model layer: `backend/raw_visual_model.py`
+  - first trainer: `tools/train_raw_visual_adapter.py`
+  - current training command:
+    - `.venv-raw-visual-poc/bin/python tools/train_raw_visual_adapter.py --manifest-path ~/spotlight-datasets/raw-visual-train/raw_visual_training_manifest.jsonl --output-dir backend/data/visual-models --artifact-version v001`
+- Current visual-model candidate results:
+  - adapter `v001` held-out result:
+    - visual top-1: `22/47`
+    - visual top-10 contains-truth: `32/47`
+    - hybrid top-1: `30/47`
+  - hard-negative adapter `v002` held-out result:
+    - visual top-1: `22/47`
+    - visual top-10 contains-truth: `33/47`
+    - hybrid top-1: `30/47`
+  - smaller-batch hard-negative adapter `v003-b8` held-out/runtime-shaped result:
+    - visual top-1: `24/47`
+    - visual top-5 contains-truth: `31/47`
+    - visual top-10 contains-truth: `37/47`
+    - hybrid top-1: `32/47`
+    - hybrid top-5 contains-truth: `35/47`
+  - runtime decision:
+    - `v003-b8` remains the last PokemonTCG-backed checkpoint, but it is no longer the active publication
+    - `v004-scrydex-b8` plus matcher shortlist bias is the active runtime publication through the stable alias artifacts
+    - env vars remain explicit override points:
+      - `SPOTLIGHT_VISUAL_INDEX_NPZ_PATH=backend/data/visual-index/visual_index_active_clip-vit-base-patch32.npz`
+      - `SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH=backend/data/visual-index/visual_index_active_manifest.json`
+      - `SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH=backend/data/visual-models/raw_visual_adapter_active.pt`
+      - `SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH=backend/data/visual-models/raw_visual_adapter_active_metadata.json`
 - Treat that Phase 0 result as the current go/no-go evidence for continuing the hybrid migration.
 - Treat the Phase 1 full-index result as the first real production-shaped visual-only baseline.
 - Treat the current hybrid reranker result as the first material evidence that OCR should be used as a reranker over the visual shortlist, not as the raw-primary identifier.
 - Treat the visual-model-improvement spec as the next raw implementation contract and do not improvise new OCR-heavy follow-up phases on top of this baseline.
 - Provider target after reset:
-  - raw identity/pricing => Pokemon TCG API lane
-  - slab identity/pricing => deferred until the slab rebuild lands
+  - raw identity/reference/pricing => Scrydex-first lane
+  - slab identity/pricing => Scrydex lane
 - Keep the app/backend split:
   - app = capture, normalize, OCR, structured hints, normalized image upload
   - backend = visual retrieval, OCR rerank, identity resolution, pricing refresh, scan logging
@@ -254,14 +410,14 @@ Repo-specific workflow notes for future coding agents.
 - Debug artifact naming for the shared front half:
   - `01_full_camera_frame.jpg`
   - `02_reticle_expanded_search_crop.jpg`
-  - `03_reticle_exact_crop.jpg`
   - `04_selected_target_crop.jpg`
   - `05_rectangle_candidate_overlay.jpg`
   - `06_ocr_input_normalized.jpg`
 - Raw footer ROI artifacts:
   - `13_raw_footer_band.jpg`
-  - `14_raw_footer_left.jpg`
-  - `15_raw_footer_right.jpg`
+  - collector ROI artifacts remain the most useful image-level footer diagnostics
+  - set-badge ROI crops and aggressive retry crops are omitted from default debug exports
+  - when footer routing recenters collector ROIs around a band-derived anchor, the ROI labels now include `_anchored` so they no longer imply a literal left/right crop
 
 ## Local backend and catalog rules
 
@@ -283,9 +439,14 @@ Repo-specific workflow notes for future coding agents.
   - treat the app as OCR capture plus backend request/response UI, not as a local card-identity runtime
   - treat backend SQLite as the runtime cache/source for previously hydrated card metadata and pricing snapshots
   - treat provider APIs as the live source of truth for rich metadata and pricing:
-    - raw/singles => Pokemon TCG API
-    - future PSA/slabs => Scrydex after the slab rebuild
+    - raw/singles => Scrydex-first migration lane
+    - slab/graded => Scrydex
   - do not make Cloud Run correctness depend on a preseeded lightweight JSON catalog file or bundled local identifier asset
+- Current deployment rule for the SQLite mirror stage:
+  - if you want the nightly Scrydex mirror to be authoritative, the backend process and the cron job must run on the same host with the same SQLite database path
+  - do not assume Cloud Run instances share the same local SQLite file as a cron job running elsewhere
+  - for internet-reachable tester builds, point the app at the host that is actually running that shared backend + cron pair
+  - current preferred hosted path for this prototype stage is one Linux VM via `backend/deploy.sh vm ...`, not Cloud Run
 - Preferred raw runtime flow:
   - app OCR extracts collector number/text locally
   - app sends the normalized image plus OCR payload to the backend
@@ -298,7 +459,7 @@ Repo-specific workflow notes for future coding agents.
   - 3. backend visually retrieves top raw candidates
   - 4. backend reranks and confirms with OCR evidence
   - 5. backend checks SQLite for the selected card's metadata/pricing snapshot
-  - 6. if SQLite has no card record, or no fresh pricing snapshot, backend fetches live data from Pokemon TCG API
+  - 6. if SQLite has no card record, or no fresh pricing snapshot, backend fetches live data from Scrydex first; Pokemon TCG API remains transitional only where the migration is not finished yet
   - 7. backend writes the hydrated card metadata/pricing snapshot into SQLite
   - 8. backend returns the normalized card detail/pricing payload plus alternatives to the user
   - 9. later scans of the same card should reuse SQLite until the stored snapshot is older than the `24 hour` freshness window
@@ -306,10 +467,10 @@ Repo-specific workflow notes for future coding agents.
 - Required raw migration cleanup rule:
   - after the hybrid path is proven and cut over, schedule an explicit cleanup pass to remove dead OCR-primary resolver code, misleading compatibility names, obsolete tests, and stale docs before starting major new raw feature work
 - Required slab rebuild cleanup rule:
-  - after the cert-first slab path is proven on the held-out suite, schedule an explicit cleanup pass to remove hard-disable branches, obsolete slab heuristics, misleading ops metadata, stale tests, and stale docs before starting non-PSA slab work
+  - after the cert-first slab path is proven on the held-out suite, schedule an explicit cleanup pass to remove obsolete slab heuristics, misleading ops metadata, stale tests, and stale docs before starting non-PSA slab work
 - Canonical slab scan flow:
-  - shipped app runtime keeps slab matching feature-flagged off by default while the rebuild is in progress
-  - use [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md) as the source of truth when slab work resumes
+  - app runtime sends slab scans through the backend by default
+  - use [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md) as the slab source of truth
   - phase 1 slab target is:
     - PSA
     - Pokemon
@@ -337,8 +498,8 @@ Repo-specific workflow notes for future coding agents.
   - in-memory caches are allowed only as short-lived optimizations and must not decide correctness
   - `forceRefresh` should bypass the normal freshness gate and re-query the live provider
 - Rich card metadata and pricing should come from runtime metadata/provider APIs:
-  - raw/singles => Pokemon TCG API
-  - future PSA/slabs => Scrydex
+  - raw/singles => Scrydex-first migration lane
+  - slab/graded => Scrydex
   - do not silently cross-fallback slab pricing into raw pricing in the scanner flow
   not from large checked-in image bundles.
 - Do not use card-ID prefix hacks such as `me*` blocking in runtime matching or bundled identifier lookup.
@@ -367,8 +528,6 @@ Repo-specific workflow notes for future coding agents.
 
 - `backend/server.py`
 - `backend/catalog_tools.py`
-- `backend/pokemontcg_api_client.py`
-- `backend/pokemontcg_pricing_adapter.py`
 - `backend/pricing_provider.py`
 - `backend/scrydex_adapter.py`
 - `backend/pricecharting_adapter.py`
@@ -387,8 +546,8 @@ Repo-specific workflow notes for future coding agents.
 Run these after backend or app changes:
 
 ```bash
-python3 -m py_compile backend/catalog_tools.py backend/pokemontcg_api_client.py backend/pokemontcg_pricing_adapter.py backend/pricecharting_adapter.py backend/pricing_provider.py backend/pricing_utils.py backend/scrydex_adapter.py backend/validate_scrydex.py backend/server.py
-python3 -m unittest -v backend.tests.test_backend_reset_phase1 backend.tests.test_raw_evidence_phase3 backend.tests.test_raw_retrieval_phase4 backend.tests.test_raw_decision_phase5 backend.tests.test_pricing_phase6 backend.tests.test_scan_logging_phase7 backend.tests.test_pokemontcg_api_client backend.tests.test_pricing_utils
+python3 -m py_compile backend/catalog_tools.py backend/raw_set_badge_matcher.py backend/pricecharting_adapter.py backend/pricing_provider.py backend/pricing_utils.py backend/scrydex_adapter.py backend/sync_scrydex_catalog.py backend/validate_scrydex.py backend/server.py
+python3 -m unittest -v backend.tests.test_backend_reset_phase1 backend.tests.test_raw_evidence_phase3 backend.tests.test_raw_retrieval_phase4 backend.tests.test_raw_decision_phase5 backend.tests.test_pricing_phase6 backend.tests.test_scan_logging_phase7 backend.tests.test_pricing_utils
 zsh tools/run_card_identifier_parser_tests.sh
 zsh tools/run_raw_card_decision_tests.sh
 zsh tools/run_scanner_reticle_layout_tests.sh
@@ -401,19 +560,37 @@ xcodebuild -project Spotlight.xcodeproj -scheme Spotlight -configuration Debug -
 Imported backend:
 
 ```bash
-export POKEMONTCG_API_KEY=your_api_key
-python3 backend/server.py \
+export SCRYDEX_API_KEY=your_api_key
+export SCRYDEX_TEAM_ID=your_team_id
+.venv-raw-visual-poc/bin/python backend/server.py \
   --database-path backend/data/spotlight_scanner.sqlite \
   --port 8788
 ```
 
+- For the active visual runtime, use a Python environment that already has the visual matcher deps installed.
+  - current known-good local command uses `.venv-raw-visual-poc/bin/python`
+  - if you use a different Python, make sure it has `numpy`, `torch`, `transformers`, and `Pillow`
+
 - For physical-device testing over LAN, bind the backend to all interfaces:
 
 ```bash
-python3 backend/server.py \
+.venv-raw-visual-poc/bin/python backend/server.py \
   --database-path backend/data/spotlight_scanner.sqlite \
   --host 0.0.0.0 \
   --port 8788
+```
+
+- Nightly Scrydex full sync:
+
+```bash
+.venv-raw-visual-poc/bin/python backend/sync_scrydex_catalog.py \
+  --database-path backend/data/spotlight_scanner.sqlite
+```
+
+- Example same-machine cron entry for the current prototype stage:
+
+```bash
+0 3 * * * cd /Users/stephenchan/Code/spotlight && .venv-raw-visual-poc/bin/python backend/sync_scrydex_catalog.py --database-path backend/data/spotlight_scanner.sqlite >> /Users/stephenchan/Code/spotlight/backend/logs/scrydex_sync.log 2>&1
 ```
 
 Cloud Run deploy:

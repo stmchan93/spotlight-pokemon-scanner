@@ -40,9 +40,15 @@ backend/data/*.db
 backend/data/*.sqlite-*
 backend/data/*.sqlite.bak.*
 backend/data/visual-index/
+backend/data/visual-models/
 
 # Generated QA caches
+qa/raw-visual-train
+qa/raw-visual-train-excluded
+qa/raw-footer-layout-check/.visual_reference_cache
 qa/raw-footer-layout-check/.visual_reference_cache/
+qa/raw-visual-train/
+qa/raw-visual-train-excluded/
 
 # Logs
 *.log

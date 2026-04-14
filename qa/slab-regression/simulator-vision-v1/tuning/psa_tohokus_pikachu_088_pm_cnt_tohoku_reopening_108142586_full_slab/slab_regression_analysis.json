@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "108142586",
   "cropConfidence" : 0.6858250323858532,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2017 P.M. JPN. SM PROMO PM.CNT.TOHOKU REOPENING TOHOKU S PIKACHU #088 MINT PSA 108142586 9 TE 1A HP60 4 EMRIENO.025 LLA : 6.0KG O # 2# K H N-THA 4 30+ PROMO ILLUS.KOUKI SAITOU 56 # A X2 HE BR TJ -20 088\/SM-P 2017 POK MON\/NINTENDO\/CREATURES\/GAME FREAK. 3A6 ITLS E AHT.",
     "VI PHUMU J REOPENING HU # VOO MINT PSA 108142586 9 HP60 4 AME SE:04M LL : 6.0KG TONOKU 5 305X-V. 30+ -20 \/NINTENDO\/CREATURES\/GAME FREAK. 6 HI T ANT."
   ],
-  "scanID" : "5D4E8155-BC55-45EE-88C3-AF1044903470",
+  "scanID" : "2F19F1C1-7B23-4FAB-8E52-340D7E218E45",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-tohokus-pikachu-088-pm-cnt-tohoku-reopening-108142586-full-slab.jpg",
   "split" : "tuning",
   "truth" : {

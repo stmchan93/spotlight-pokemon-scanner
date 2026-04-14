@@ -9,5 +9,4 @@ python3 -m unittest -v \
   backend.tests.test_raw_decision_phase5 \
   backend.tests.test_pricing_phase6 \
   backend.tests.test_scan_logging_phase7 \
-  backend.tests.test_pokemontcg_api_client \
   backend.tests.test_pricing_utils

@@ -1,0 +1,87 @@
+{
+  "candidates" : [
+    {
+      "areaCoverage" : 0.3937925653415364,
+      "areaScore" : 1,
+      "aspectRatio" : 1.057832987663638,
+      "aspectScore" : 0.24016911832322863,
+      "boundingBox" : {
+        "height" : 0.5991774052381516,
+        "width" : 0.6572219878435135,
+        "x" : 0.1924424022436142,
+        "y" : 0.14206917583942413
+      },
+      "centerDistance" : 0.06202458090192327,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.9122839964879929,
+      "quadrilateral" : [
+        {
+          "x" : 0.2220367193222046,
+          "y" : 0.7412465810775757
+        },
+        {
+          "x" : 0.8255681991577148,
+          "y" : 0.7369439601898193
+        },
+        {
+          "x" : 0.8496643900871277,
+          "y" : 0.14206917583942413
+        },
+        {
+          "x" : 0.1924424022436142,
+          "y" : 0.145494282245636
+        }
+      ],
+      "rank" : 2,
+      "totalScore" : 0.7772912267820516
+    },
+    {
+      "areaCoverage" : 0.4421425867925801,
+      "areaScore" : 1,
+      "aspectRatio" : 1.1125178354206104,
+      "aspectScore" : 0.11864723441884562,
+      "boundingBox" : {
+        "height" : 0.617049053311348,
+        "width" : 0.716543659567833,
+        "x" : 0.1485045701265335,
+        "y" : 0.13151727616786957
+      },
+      "centerDistance" : 0.06033991220077451,
+      "confidence" : 1,
+      "geometryKind" : "raw_card",
+      "proximityScore" : 0.9146664778132629,
+      "quadrilateral" : [
+        {
+          "x" : 0.17945247888565063,
+          "y" : 0.7485663294792175
+        },
+        {
+          "x" : 0.8359320163726807,
+          "y" : 0.7485633492469788
+        },
+        {
+          "x" : 0.8650482296943665,
+          "y" : 0.13151727616786957
+        },
+        {
+          "x" : 0.1485045701265335,
+          "y" : 0.13291673362255096
+        }
+      ],
+      "rank" : 1,
+      "totalScore" : 0.749221916054624
+    }
+  ],
+  "mode" : "raw",
+  "normalizationReason" : "holder_inner_card_inset_fallback",
+  "normalizedContentRect" : {
+    "height" : 1,
+    "width" : 0.9997229149348851,
+    "x" : 0.00013854253255748706,
+    "y" : 0
+  },
+  "normalizedGeometryKind" : "raw_card",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

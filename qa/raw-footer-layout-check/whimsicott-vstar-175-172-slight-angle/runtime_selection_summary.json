@@ -1,17 +1,26 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_footer_band_metadata_agreement"
   ],
+  "collectorConfidenceScore" : 0.92,
+  "collectorNumber" : "175\/172",
   "contentRectNormalized" : {
-    "height" : 0.9992897727272727,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.0003551136363636364
+    "height" : 1,
+    "width" : 0.8528316676464824,
+    "x" : 0.07358416617675877,
+    "y" : 0
   },
   "fixtureName" : "whimsicott-vstar-175-172-slight-angle",
   "footerRouting" : {
+    "anchorIdentifier" : "175\/172",
+    "collectorAnchor" : {
+      "height" : 0.10057561863062003,
+      "width" : 0.22441555112220207,
+      "x" : 0.1764427624090672,
+      "y" : 0.8162425632159709
+    },
     "reasons" : [
-      "footer_band_anchor_unavailable"
+      "footer_band_collector_anchor"
     ]
   },
   "normalizedImageHeight" : 880,
@@ -19,7 +28,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:holder_like_selected_raw_card_preserved"
   ],
   "ocrTargetQualityScore" : 0.8387303246866198,
   "ocrUsedFallback" : false,
@@ -28,72 +37,122 @@
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.19985795454545455,
-        "width" : 0.9,
-        "x" : 0.05,
-        "y" : 0.7598153409090909
+        "height" : 0.2,
+        "width" : 0.7675485008818342,
+        "x" : 0.1162257495590829,
+        "y" : 0.76
       },
-      "text" : "rokemoп Tor eaen energy attacned to cnis apply Weakness and Resistance for Be (You can't use more than 1 VSTAR Power in weakness 5 ×2 resistance ret",
+      "text" : "weakness ©) x2 resistance でとしすせコ ilusSban Graphics VSTAR rule Wh is Knocked Out, your oppon 、175\/172 02022 PokerPOr Minterdo\/Creatures I GAME",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.0216512790464139,
-            "width" : 0.8462337370841734,
-            "x" : 0.10025975060336795,
-            "y" : 0.7598153405654471
+            "height" : 0.013705349865378259,
+            "width" : 0.10603740485289771,
+            "x" : 0.1764427624090672,
+            "y" : 0.8162425632159709
           },
-          "text" : "rokemoп Tor eaen energy attacned to cnis"
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.022727272727272707,
+            "width" : 0.09594356261022928,
+            "x" : 0.28892416105820107,
+            "y" : 0.8145454546590909
+          },
+          "text" : "©) x2"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.0324769161796597,
-            "width" : 0.8462337370841734,
-            "x" : 0.10142858353084044,
-            "y" : 0.7847975860691723
-          },
-          "text" : "apply Weakness and Resistance for Be"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03909126976746444,
-            "width" : 0.8467967461281157,
-            "x" : 0.10108987912071296,
-            "y" : 0.8150258476668386
-          },
-          "text" : "(You can't use more than 1 VSTAR Power in"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.021456014444156044,
-            "width" : 0.2774999892606763,
-            "x" : 0.0650000019009119,
-            "y" : 0.9355525078775178
-          },
-          "text" : "weakness 5 ×2"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01582208743085885,
-            "width" : 0.1554545427697146,
-            "x" : 0.43922078008731347,
-            "y" : 0.9430184661147374
+            "height" : 0.01269841209100704,
+            "width" : 0.11267790211159301,
+            "x" : 0.4542594654015151,
+            "y" : 0.8187301589431586
           },
           "text" : "resistance"
         },
         {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010576386287294605,
+            "width" : 0.07035844494838582,
+            "x" : 0.8056435488539357,
+            "y" : 0.8217752986700566
+          },
+          "text" : "でとしすせコ"
+        },
+        {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.010825639523206938,
-            "width" : 0.0420779219820353,
-            "x" : 0.9067532469681662,
-            "y" : 0.9480149145360705
+            "height" : 0.01833486407528102,
+            "width" : 0.19469898026528934,
+            "x" : 0.1928842229194057,
+            "y" : 0.8660195374004416
           },
-          "text" : "ret"
+          "text" : "ilusSban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019055999708026183,
+            "width" : 0.1641691715035932,
+            "x" : 0.573544798809374,
+            "y" : 0.8627735874276783
+          },
+          "text" : "VSTAR rule"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01269841209100704,
+            "width" : 0.03569992964815725,
+            "x" : 0.8402649609558319,
+            "y" : 0.8679365082005283
+          },
+          "text" : "Wh"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.020532915360501572,
+            "width" : 0.30382126367045525,
+            "x" : 0.5767548560142728,
+            "y" : 0.8894670847076802
+          },
+          "text" : "is Knocked Out, your oppon"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.015909090909090918,
+            "width" : 0.1215285054681821,
+            "x" : 0.27932980806308716,
+            "y" : 0.9009090909375
+          },
+          "text" : "、175\/172"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01285266457680252,
+            "width" : 0.1349903547800781,
+            "x" : 0.45314384614927433,
+            "y" : 0.9289655172762338
+          },
+          "text" : "02022 PokerPOr"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01910381855262111,
+            "width" : 0.24929460539690637,
+            "x" : 0.6124417426709913,
+            "y" : 0.9277964732896722
+          },
+          "text" : "Minterdo\/Creatures I GAME"
         }
       ]
     },
@@ -101,12 +160,12 @@
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
+      "label" : "14_raw_footer_modern_left_set_anchored",
       "normalizedRect" : {
-        "height" : 0.09793039772727273,
-        "width" : 0.138,
-        "x" : 0.07064000000000001,
-        "y" : 0.8448549005681818
+        "height" : 0.098,
+        "width" : 0.11769077013521459,
+        "x" : 0.07358416617675877,
+        "y" : 0.7509971920375988
       },
       "text" : "",
       "tokens" : [
@@ -117,72 +176,190 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
+      "label" : "15_raw_footer_modern_left_collector_anchored",
       "normalizedRect" : {
-        "height" : 0.09193465909090909,
-        "width" : 0.275,
-        "x" : 0.17,
-        "y" : 0.8497514204545454
+        "height" : 0.2212663609873641,
+        "width" : 0.40394799201996373,
+        "x" : 0.0866765419601864,
+        "y" : 0.7558971920375989
       },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
-      "normalizedRect" : {
-        "height" : 0.10192755681818182,
-        "width" : 0.125,
-        "x" : 0.6725,
-        "y" : 0.8415972159090909
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
-      "normalizedRect" : {
-        "height" : 0.09992897727272727,
-        "width" : 0.185,
-        "x" : 0.72,
-        "y" : 0.8497514204545454
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
-      "normalizedRect" : {
-        "height" : 0.10492542613636363,
-        "width" : 0.115,
-        "x" : 0.7857500000000001,
-        "y" : 0.8291660511363637
-      },
-      "text" : "rower",
+      "text" : "weakness res Illus-Sban Graphics F 175\/172 1020",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.01717805649135156,
-            "width" : 0.11434285714285715,
-            "x" : 0.785750000272245,
-            "y" : 0.8291660511109392
+            "height" : 0.01243673293531044,
+            "width" : 0.10512452275642428,
+            "x" : 0.1779591758851088,
+            "y" : 0.8163424086818774
           },
-          "text" : "rower"
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00898303602299127,
+            "width" : 0.03349812616750922,
+            "x" : 0.44990132160902085,
+            "y" : 0.821142401067969
+          },
+          "text" : "res"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018241221639165067,
+            "width" : 0.19692464610973232,
+            "x" : 0.1893466549575552,
+            "y" : 0.8658211852261802
+          },
+          "text" : "Illus-Sban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019857237524507014,
+            "width" : 0.020361606101819314,
+            "x" : 0.25942178072220023,
+            "y" : 0.8915883151500977
+          },
+          "text" : "F"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013710949719302477,
+            "width" : 0.10246485651238105,
+            "x" : 0.30014499353997115,
+            "y" : 0.901516933867436
+          },
+          "text" : "175\/172"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012743291455274116,
+            "width" : 0.04733747491218964,
+            "x" : 0.4393767714811424,
+            "y" : 0.9293343591445034
+          },
+          "text" : "1020"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
+      "normalizedRect" : {
+        "height" : 0.102,
+        "width" : 0.1066039584558103,
+        "x" : 0.07358416617675877,
+        "y" : 0.7477371920375989
+      },
+      "text" : "",
+      "tokens" : [
+
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_mid",
+      "footerRole" : "collector",
+      "kind" : "footer_metadata",
+      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
+      "normalizedRect" : {
+        "height" : 0.2212663609873641,
+        "width" : 0.40394799201996373,
+        "x" : 0.0866765419601864,
+        "y" : 0.7558971920375989
+      },
+      "text" : "weakness res Illus-Sban Graphics F 175\/172 1020",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01243673293531044,
+            "width" : 0.10512452275642428,
+            "x" : 0.1779591758851088,
+            "y" : 0.8163424086818774
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00898303602299127,
+            "width" : 0.03349812616750922,
+            "x" : 0.44990132160902085,
+            "y" : 0.821142401067969
+          },
+          "text" : "res"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018241221639165067,
+            "width" : 0.19692464610973232,
+            "x" : 0.1893466549575552,
+            "y" : 0.8658211852261802
+          },
+          "text" : "Illus-Sban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019857237524507014,
+            "width" : 0.020361606101819314,
+            "x" : 0.25942178072220023,
+            "y" : 0.8915883151500977
+          },
+          "text" : "F"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013710949719302477,
+            "width" : 0.10246485651238105,
+            "x" : 0.30014499353997115,
+            "y" : 0.901516933867436
+          },
+          "text" : "175\/172"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012743291455274116,
+            "width" : 0.04733747491218964,
+            "x" : 0.4393767714811424,
+            "y" : 0.9293343591445034
+          },
+          "text" : "1020"
+        }
+      ]
+    },
+    {
+      "footerFamily" : "legacy_right_corner",
+      "footerRole" : "set_badge",
+      "kind" : "footer_metadata",
+      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
+      "normalizedRect" : {
+        "height" : 0.105,
+        "width" : 0.09807564177934548,
+        "x" : 0.39745267428977193,
+        "y" : 0.7432971920375989
+      },
+      "text" : "resi",
+      "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01082959641255605,
+            "width" : 0.041568483932967616,
+            "x" : 0.4533103247118154,
+            "y" : 0.8195752188832641
+          },
+          "text" : "resi"
         }
       ]
     },
@@ -190,50 +367,136 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
+      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
       "normalizedRect" : {
-        "height" : 0.10192755681818182,
-        "width" : 0.19,
-        "x" : 0.705,
-        "y" : 0.8417571022727273
+        "height" : 0.2212663609873641,
+        "width" : 0.40394799201996373,
+        "x" : 0.0866765419601864,
+        "y" : 0.7558971920375989
       },
-      "text" : "",
+      "text" : "weakness res Illus-Sban Graphics F 175\/172 1020",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.01243673293531044,
+            "width" : 0.10512452275642428,
+            "x" : 0.1779591758851088,
+            "y" : 0.8163424086818774
+          },
+          "text" : "weakness"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.00898303602299127,
+            "width" : 0.03349812616750922,
+            "x" : 0.44990132160902085,
+            "y" : 0.821142401067969
+          },
+          "text" : "res"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018241221639165067,
+            "width" : 0.19692464610973232,
+            "x" : 0.1893466549575552,
+            "y" : 0.8658211852261802
+          },
+          "text" : "Illus-Sban Graphics"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.019857237524507014,
+            "width" : 0.020361606101819314,
+            "x" : 0.25942178072220023,
+            "y" : 0.8915883151500977
+          },
+          "text" : "F"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.013710949719302477,
+            "width" : 0.10246485651238105,
+            "x" : 0.30014499353997115,
+            "y" : 0.901516933867436
+          },
+          "text" : "175\/172"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012743291455274116,
+            "width" : 0.04733747491218964,
+            "x" : 0.4393767714811424,
+            "y" : 0.9293343591445034
+          },
+          "text" : "1020"
+        }
       ]
     },
     {
       "kind" : "header_wide",
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
-        "height" : 0.21984375,
-        "width" : 0.8,
-        "x" : 0.1,
-        "y" : 0.02034090909090909
+        "height" : 0.22,
+        "width" : 0.682265334117186,
+        "x" : 0.15886733294140704,
+        "y" : 0.02
       },
-      "text" : "",
+      "text" : "VSTAR Whimsicott VSTAR Evolves from Whimsicott V",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.022664251229868836,
+            "width" : 0.09770307346947459,
+            "x" : 0.17454011503176242,
+            "y" : 0.06235388116662248
+          },
+          "text" : "VSTAR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.04580204778156997,
+            "width" : 0.449554677519076,
+            "x" : 0.29849372549541464,
+            "y" : 0.06129692831591296
+          },
+          "text" : "Whimsicott VSTAR"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02220183505946866,
+            "width" : 0.27574890587236267,
+            "x" : 0.28963485693424784,
+            "y" : 0.11082568819687119
+          },
+          "text" : "Evolves from Whimsicott V"
+        }
       ]
     }
   ],
-  "scanID" : "7C14831C-208A-412B-938A-FB7E3283932B",
+  "scanID" : "C5140E9C-F1F9-43DA-92A1-A0E24B288EC4",
   "setConfidenceReasons" : [
-    "rewrite_raw_footer_band_set_hints"
+
   ],
-  "setConfidenceScore" : 0.48,
   "setHintTokens" : [
-    "lor"
+
   ],
   "stage1AssessmentReasons" : [
-    "collector_signal_weak",
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 1,
+  "titleTextPrimary" : "VSTAR Whimsicott VSTAR Evolves",
   "warnings" : [
     "Raw scene looks holder-like",
-    "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
-    "Low-confidence rewrite raw evidence"
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

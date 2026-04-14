@@ -3,10 +3,10 @@
 
   ],
   "contentRectNormalized" : {
-    "height" : 0.9976539589442814,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.0011730205278592688
+    "height" : 1,
+    "width" : 0.7544581618655694,
+    "x" : 0.12277091906721535,
+    "y" : 0
   },
   "fixtureName" : "snorlax-077-071-overhead",
   "footerRouting" : {
@@ -19,7 +19,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:holder_like_selected_raw_card_preserved"
   ],
   "ocrTargetQualityScore" : 0.8133062067620479,
   "ocrUsedFallback" : false,
@@ -28,22 +28,22 @@
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.1995307917888563,
-        "width" : 0.9,
-        "x" : 0.05,
-        "y" : 0.7593900293255131
+        "height" : 0.2,
+        "width" : 0.6790123456790125,
+        "x" : 0.16049382716049382,
+        "y" : 0.76
       },
-      "text" : "一風の税込価",
+      "text" : "¥2000",
       "tokens" : [
         {
-          "confidence" : 0.3,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.09828189858287724,
-            "width" : 0.8665596791376465,
-            "x" : 0.04664512927082043,
-            "y" : 0.8379397432628524
+            "height" : 0.1540250772219093,
+            "width" : 0.5036008337958836,
+            "x" : 0.3330761256961638,
+            "y" : 0.7919749238558118
           },
-          "text" : "一風の税込価"
+          "text" : "¥2000"
         }
       ]
     },
@@ -53,10 +53,10 @@
       "kind" : "footer_metadata",
       "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
-        "height" : 0.09777008797653959,
-        "width" : 0.138,
-        "x" : 0.07064000000000001,
-        "y" : 0.8442903812316715
+        "height" : 0.098,
+        "width" : 0.10411522633744857,
+        "x" : 0.1760658436213992,
+        "y" : 0.8451
       },
       "text" : "",
       "tokens" : [
@@ -69,23 +69,14 @@
       "kind" : "footer_metadata",
       "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
-        "height" : 0.09178416422287389,
-        "width" : 0.275,
-        "x" : 0.17,
-        "y" : 0.8491788856304985
+        "height" : 0.092,
+        "width" : 0.2074759945130316,
+        "x" : 0.25102880658436216,
+        "y" : 0.85
       },
-      "text" : "（の夢",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.05929422994563964,
-            "width" : 0.26927084441232213,
-            "x" : 0.16999999530197699,
-            "y" : 0.8540523633532194
-          },
-          "text" : "（の夢"
-        }
+
       ]
     },
     {
@@ -94,10 +85,10 @@
       "kind" : "footer_metadata",
       "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
-        "height" : 0.1017607038123167,
-        "width" : 0.125,
-        "x" : 0.6725,
-        "y" : 0.8410380293255132
+        "height" : 0.102,
+        "width" : 0.09430727023319617,
+        "x" : 0.6301440329218108,
+        "y" : 0.84184
       },
       "text" : "",
       "tokens" : [
@@ -110,10 +101,10 @@
       "kind" : "footer_metadata",
       "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
-        "height" : 0.09976539589442815,
-        "width" : 0.185,
-        "x" : 0.72,
-        "y" : 0.8491788856304985
+        "height" : 0.1,
+        "width" : 0.13957475994513033,
+        "x" : 0.6659807956104253,
+        "y" : 0.85
       },
       "text" : "",
       "tokens" : [
@@ -126,10 +117,10 @@
       "kind" : "footer_metadata",
       "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
-        "height" : 0.10475366568914955,
-        "width" : 0.115,
-        "x" : 0.7857500000000001,
-        "y" : 0.8286272140762463
+        "height" : 0.105,
+        "width" : 0.08676268861454048,
+        "x" : 0.7155864197530865,
+        "y" : 0.8294
       },
       "text" : "",
       "tokens" : [
@@ -142,10 +133,10 @@
       "kind" : "footer_metadata",
       "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
-        "height" : 0.1017607038123167,
-        "width" : 0.19,
-        "x" : 0.705,
-        "y" : 0.8411976539589442
+        "height" : 0.102,
+        "width" : 0.14334705075445817,
+        "x" : 0.6546639231824417,
+        "y" : 0.842
       },
       "text" : "",
       "tokens" : [
@@ -156,18 +147,27 @@
       "kind" : "header_wide",
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
-        "height" : 0.2194838709677419,
-        "width" : 0.8,
-        "x" : 0.1,
-        "y" : 0.0211260997067449
+        "height" : 0.22,
+        "width" : 0.6035665294924555,
+        "x" : 0.19821673525377229,
+        "y" : 0.02
       },
-      "text" : "",
+      "text" : "カビ",
       "tokens" : [
-
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.14024708301947791,
+            "width" : 0.26713751966231025,
+            "x" : 0.542721495119034,
+            "y" : 0.05633643809673525
+          },
+          "text" : "カビ"
+        }
       ]
     }
   ],
-  "scanID" : "71D9C65F-28CF-4727-B3DF-C56C16C32AE3",
+  "scanID" : "7A9FF9E1-3AD7-4278-A79D-93C75B7EE652",
   "setConfidenceReasons" : [
 
   ],

@@ -1,0 +1,17 @@
+{
+  "candidates" : [
+
+  ],
+  "fallbackReason" : "no_rectangle_detected",
+  "mode" : "raw",
+  "normalizationReason" : "fallback_search_partial_card_salvaged",
+  "normalizedContentRect" : {
+    "height" : 1,
+    "width" : 0.9993547554523164,
+    "x" : 0.0003226222738417633,
+    "y" : 0
+  },
+  "normalizedGeometryKind" : "raw_card",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

@@ -1,0 +1,45 @@
+{
+  "payload" : {
+    "ambiguityFlags" : [
+      "Top matches are close together",
+      "Set hints are weak"
+    ],
+    "confidence" : "low",
+    "matchMs" : 1201.794981956482,
+    "networkOverheadMs" : 361.54398195648196,
+    "resolverMode" : "raw_card",
+    "resolverPath" : "visual_hybrid_index",
+    "reviewDisposition" : "needs_review",
+    "reviewReason" : "Review the best guess before relying on the card result.",
+    "scanID" : "13B85EB4-C995-4541-9C0D-DC5611525936",
+    "scrydexRequestCount" : 0,
+    "scrydexRequestTypes" : [
+
+    ],
+    "serverProcessingMs" : 840.251,
+    "topCandidates" : [
+      {
+        "finalScore" : 0.7134,
+        "id" : "pcg8_ja-69",
+        "name" : "Memory Berry",
+        "number" : "069\/075",
+        "setName" : "きせきの結晶"
+      },
+      {
+        "finalScore" : 0.6799,
+        "id" : "pcg10_ja-87",
+        "name" : "Mysterious Fossil",
+        "number" : "087\/108",
+        "setName" : "ワールドチャンピオンズパック"
+      },
+      {
+        "finalScore" : 0.6798,
+        "id" : "pt1_ja-87",
+        "name" : "Memory Berry",
+        "number" : "087\/096",
+        "setName" : "ギンガの覇道"
+      }
+    ]
+  },
+  "stage" : "frontend_backend_response"
+}

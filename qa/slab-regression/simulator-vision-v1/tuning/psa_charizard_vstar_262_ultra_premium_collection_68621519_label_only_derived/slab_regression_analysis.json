@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "68621519",
   "cropConfidence" : 0.4,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2022 POKEMON SWSH BSP #262 FA\/CHARIZARD VSTAR GEM MT ULTRA - PREMIUM COLLECTION 10 PSA 68621519",
     "ON SWSH BSP #262 RD VSTAR GEM MT MIUM COLLECTION 10 PA 68621519"
   ],
-  "scanID" : "32EE40AB-2837-44C2-89B7-11BF71DD3C9A",
+  "scanID" : "5B362E41-79B6-411A-9F93-D579A2D8448F",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-charizard-vstar-262-ultra-premium-collection-68621519-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "111274095",
   "cropConfidence" : 0.4,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2016 P.M. JPN. XY PROMO #230 PONCHO-WEAR.PIKACHU GEM MT RAYQUAZA P.W. PIKACHU BOX 10 PA 111274095",
     "XY PROMO #230 R.PIKACHU GEM MT N. PIKACHU BOX 10 PA 111274095"
   ],
-  "scanID" : "C297C5EF-EB76-4534-80D8-B5A50F591205",
+  "scanID" : "97EED6B7-E98E-43A8-BA2E-3323CF16A89F",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-poncho-wear-pikachu-230-rayquaza-box-111274095-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

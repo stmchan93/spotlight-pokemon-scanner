@@ -23,13 +23,10 @@ from catalog_tools import (  # noqa: E402
     search_cards_local_title_set,
     upsert_catalog_card,
 )
-from pokemontcg_api_client import (  # noqa: E402
-    best_remote_raw_candidates,
-    build_raw_provider_queries,
-)
 from scrydex_adapter import (  # noqa: E402
     ScrydexRawSearchResult,
     best_remote_scrydex_raw_candidates,
+    search_remote_scrydex_raw_candidates,
     search_remote_scrydex_slab_candidates,
 )
 from server import SpotlightScanService  # noqa: E402
@@ -44,6 +41,7 @@ def raw_payload(
     collector_number_exact: str = "",
     collector_number_partial: str = "",
     set_hint_tokens: list[str] | None = None,
+    set_badge_hint: dict[str, object] | None = None,
     recognized_tokens: list[str] | None = None,
     crop_confidence: float = 1.0,
 ) -> dict[str, object]:
@@ -62,6 +60,7 @@ def raw_payload(
                 "collectorNumberExact": collector_number_exact or None,
                 "collectorNumberPartial": collector_number_partial or None,
                 "setHints": set_hint_tokens or [],
+                "setBadgeHint": set_badge_hint,
                 "footerBandText": footer_band_text,
                 "wholeCardText": whole_card_text,
             }
@@ -104,40 +103,6 @@ def catalog_card(
         "tcgplayer": {},
         "cardmarket": {},
         "source_payload": {"id": card_id, "name": name},
-    }
-
-
-def remote_card(
-    *,
-    card_id: str,
-    name: str,
-    set_name: str,
-    set_id: str,
-    printed_total: int,
-    number: str,
-) -> dict[str, object]:
-    return {
-        "id": card_id,
-        "name": name,
-        "number": number,
-        "rarity": "Rare",
-        "supertype": "Pokémon",
-        "subtypes": [],
-        "types": ["Fire"],
-        "artist": "Test Artist",
-        "images": {
-            "small": f"https://images.example/{card_id}-small.png",
-            "large": f"https://images.example/{card_id}-large.png",
-        },
-        "set": {
-            "id": set_id,
-            "name": set_name,
-            "series": "Scarlet & Violet",
-            "printedTotal": printed_total,
-            "releaseDate": "2024-01-01",
-        },
-        "tcgplayer": {},
-        "cardmarket": {},
     }
 
 
@@ -263,84 +228,6 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         self.assertEqual(merged[0]["_retrievalScoreHint"], 92.0)
         self.assertEqual(set(merged[0]["_retrievalRoutes"]), {"title_only", "collector_set_exact"})
 
-    def test_build_raw_provider_queries_opens_title_and_collector_queries(self) -> None:
-        payload = raw_payload(
-            title_text_primary="Charizard ex",
-            whole_card_text="Charizard ex",
-            footer_band_text="OBF 223/197",
-            collector_number_exact="223/197",
-            set_hint_tokens=["OBF"],
-        )
-        evidence = build_raw_evidence(payload)
-        signals = score_raw_signals(evidence)
-
-        queries = build_raw_provider_queries(evidence, signals)
-
-        self.assertTrue(any('name:"Charizard ex"' in query for query in queries))
-        self.assertTrue(any("set.ptcgoCode:OBF" in query or 'set.id:obf' in query for query in queries))
-        self.assertFalse(any(query == 'number:"223"' for query in queries))
-        self.assertFalse(any(query == 'set.printedTotal:197 number:"223"' for query in queries))
-
-    def test_build_raw_provider_queries_generates_tokenized_title_clauses_for_noisy_ocr(self) -> None:
-        payload = raw_payload(
-            title_text_primary="Sabrina caronor Sabrina's Slowbro",
-            whole_card_text="Sabrina caronor Sabrina's Slowbro",
-            footer_band_text="60/132",
-            collector_number_exact="60/132",
-            set_hint_tokens=[],
-        )
-        evidence = build_raw_evidence(payload)
-        signals = score_raw_signals(evidence)
-
-        queries = build_raw_provider_queries(evidence, signals)
-
-        self.assertTrue(any("name:sabrina name:slowbro" in query for query in queries))
-        self.assertTrue(any('number:"60"' in query for query in queries))
-        self.assertTrue(any("set.printedTotal:132" in query for query in queries))
-
-    def test_build_raw_provider_queries_with_japanese_title_and_trusted_set_skips_relaxed_queries(self) -> None:
-        payload = raw_payload(
-            title_text_primary="ハクリューから進化 カイリコ",
-            whole_card_text="ハクリューから進化 カイリコ",
-            footer_band_text="M2a 232/193 MA",
-            collector_number_exact="232/193",
-            set_hint_tokens=["m2a"],
-        )
-        evidence = build_raw_evidence(payload)
-        signals = score_raw_signals(evidence)
-
-        queries = build_raw_provider_queries(evidence, signals)
-
-        self.assertTrue(any("set.id:m2a number:\"232\"" in query or "set.ptcgoCode:M2A number:\"232\"" in query for query in queries))
-        self.assertFalse(any(query == 'number:"232"' for query in queries))
-        self.assertFalse(any(query == 'set.printedTotal:193 number:"232"' for query in queries))
-        self.assertFalse(any("name:ハクリューから進化" in query for query in queries))
-
-    def test_best_remote_raw_candidates_prefers_title_set_match(self) -> None:
-        payload = raw_payload(
-            title_text_primary="Charizard ex",
-            whole_card_text="Charizard ex",
-            footer_band_text="OBF 223/197",
-            collector_number_exact="223/197",
-            set_hint_tokens=["OBF"],
-        )
-        evidence = build_raw_evidence(payload)
-        signals = score_raw_signals(evidence)
-
-        candidates = best_remote_raw_candidates(
-            [
-                remote_card(card_id="pal-223", name="Charizard ex", set_name="Paldea Evolved", set_id="pal", printed_total=193, number="223"),
-                remote_card(card_id="obf-223", name="Charizard ex", set_name="Obsidian Flames", set_id="obf", printed_total=197, number="223"),
-            ],
-            evidence,
-            signals,
-            limit=5,
-        )
-
-        self.assertTrue(candidates)
-        self.assertEqual(candidates[0]["id"], "obf-223")
-        self.assertFalse(candidates[0]["_cachePresence"])
-
     def test_server_local_retrieval_helper_combines_plan_routes(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         payload = raw_payload(
@@ -401,7 +288,7 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         signals = score_raw_signals(evidence)
         plan = build_raw_retrieval_plan(evidence, signals)
 
-        with patch("server.search_remote_scrydex_japanese_raw_candidates") as search_scrydex, patch("server.search_remote_raw_candidates") as search_pokemontcg:
+        with patch("server.search_remote_scrydex_raw_candidates") as search_scrydex:
             search_scrydex.return_value = ScrydexRawSearchResult(
                 cards=[
                     scrydex_remote_card(
@@ -427,7 +314,6 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         service.connection.close()
 
         search_scrydex.assert_called_once()
-        search_pokemontcg.assert_not_called()
         self.assertEqual(candidates[0]["id"], "m2a_ja-232")
         self.assertEqual(debug["queries"], ['printed_number:"232/193" expansion.code:m2a'])
 
@@ -473,10 +359,87 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         self.assertEqual(candidates[0]["id"], "swsh10a_ja-77")
         self.assertEqual(candidates[0]["setPtcgoCode"], "S10a")
 
+    def test_remote_scrydex_raw_search_caps_attempts_to_two_queries(self) -> None:
+        payload = raw_payload(
+            title_text_primary="Charizard ex",
+            whole_card_text="Charizard ex",
+            footer_band_text="OBF 223/197",
+            collector_number_exact="223/197",
+            set_hint_tokens=["OBF", "Obsidian Flames"],
+        )
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+        observed_queries: list[tuple[str, str]] = []
+
+        def fake_run(
+            query: str,
+            *,
+            include_prices: bool,
+            page_size: int,
+            request_type: str,
+        ) -> list[dict[str, object]]:
+            self.assertFalse(include_prices)
+            observed_queries.append((query, request_type))
+            return []
+
+        with patch("scrydex_adapter._scrydex_run_cards_query", side_effect=fake_run):
+            result = search_remote_scrydex_raw_candidates(evidence, signals, page_size=10)
+
+        self.assertEqual(result.cards, [])
+        self.assertLessEqual(len(observed_queries), 2)
+        self.assertEqual(len(result.attempts), len(observed_queries))
+        self.assertTrue(observed_queries)
+        self.assertEqual(observed_queries[0][1], "raw_search")
+        self.assertIn('printed_number:"223/197"', observed_queries[0][0])
+
+    def test_server_resolve_raw_candidates_skips_remote_when_local_match_is_strong(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        payload = raw_payload(
+            title_text_primary="Charizard ex",
+            whole_card_text="Charizard ex",
+            footer_band_text="223/197",
+            collector_number_exact="223/197",
+        )
+
+        with patch.object(
+            service,
+            "_retrieve_remote_raw_candidates",
+            side_effect=AssertionError("remote retrieval should not run"),
+        ), patch.object(
+            service,
+            "_build_raw_match_response",
+            return_value=(
+                {
+                    "scanID": "scan-phase4",
+                    "topCandidates": [],
+                    "confidence": "high",
+                    "ambiguityFlags": [],
+                    "matcherSource": "remoteHybrid",
+                    "matcherVersion": "test",
+                    "resolverMode": "raw_card",
+                    "resolverPath": "visual_fallback",
+                    "slabContext": None,
+                    "reviewDisposition": "ready",
+                    "reviewReason": None,
+                },
+                [],
+            ),
+        ), patch.object(service, "_emit_structured_log"), patch.object(service, "_log_raw_scan_event"):
+            service._resolve_raw_candidates(payload, api_key=None)
+
+        service.connection.close()
+
     def test_scrydex_slab_queries_normalize_label_number_and_infer_expansion_name(self) -> None:
         observed_queries: list[str] = []
 
-        def fake_run(query: str, *, include_prices: bool, page_size: int) -> list[dict[str, object]]:
+        def fake_run(
+            query: str,
+            *,
+            include_prices: bool,
+            page_size: int,
+            request_type: str,
+        ) -> list[dict[str, object]]:
+            self.assertFalse(include_prices)
             observed_queries.append(query)
             return []
 

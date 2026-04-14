@@ -433,7 +433,7 @@
       ]
     }
   ],
-  "scanID" : "77F98EBD-4D1D-4316-84E9-A49DC16A42C1",
+  "scanID" : "A9435FAD-03A4-4932-8B72-26D5CFD3CB67",
   "setConfidenceReasons" : [
     "rewrite_raw_footer_band_set_hints",
     "rewrite_raw_footer_family_set_agreement"
@@ -447,6 +447,8 @@
     "collector_signal_weak",
     "title_signal_weak"
   ],
+  "titleConfidenceScore" : 1,
+  "titleTextPrimary" : "BASIC Mew HP",
   "warnings" : [
     "Target selection used fallback crop",
     "Rewrite raw escalation used focused ROIs"

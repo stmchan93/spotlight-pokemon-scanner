@@ -1,13 +1,12 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_partial_collector_hint"
+
   ],
-  "collectorConfidenceScore" : 0.42,
   "contentRectNormalized" : {
-    "height" : 0.9980614973262033,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.0009692513368983539
+    "height" : 1,
+    "width" : 0.7287784679089027,
+    "x" : 0.13561076604554867,
+    "y" : 0
   },
   "fixtureName" : "mega-dragonite-ex-232-193",
   "footerRouting" : {
@@ -20,7 +19,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:holder_like_selected_raw_card_preserved"
   ],
   "ocrTargetQualityScore" : 0.6790740104485933,
   "ocrUsedFallback" : false,
@@ -29,22 +28,22 @@
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.19961229946524067,
-        "width" : 0.9,
-        "x" : 0.05,
-        "y" : 0.7594959893048129
+        "height" : 0.2,
+        "width" : 0.6559006211180124,
+        "x" : 0.1720496894409938,
+        "y" : 0.76
       },
-      "text" : "：32\/",
+      "text" : "1193",
       "tokens" : [
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.19794886872868045,
-            "width" : 0.14961041760934063,
-            "x" : 0.6461038820554411,
-            "y" : 0.7594959866643931
+            "height" : 0.14210359101011463,
+            "width" : 0.08798447355591366,
+            "x" : 0.6075653809944861,
+            "y" : 0.7593066447613074
           },
-          "text" : "：32\/"
+          "text" : "1193"
         }
       ]
     },
@@ -54,10 +53,10 @@
       "kind" : "footer_metadata",
       "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
-        "height" : 0.09781002673796793,
-        "width" : 0.138,
-        "x" : 0.07064000000000001,
-        "y" : 0.8444310227272728
+        "height" : 0.098,
+        "width" : 0.10057142857142858,
+        "x" : 0.18709167701863355,
+        "y" : 0.8451
       },
       "text" : "",
       "tokens" : [
@@ -70,10 +69,10 @@
       "kind" : "footer_metadata",
       "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
-        "height" : 0.0918216577540107,
-        "width" : 0.275,
-        "x" : 0.17,
-        "y" : 0.8493215240641712
+        "height" : 0.092,
+        "width" : 0.20041407867494826,
+        "x" : 0.2595031055900621,
+        "y" : 0.85
       },
       "text" : "",
       "tokens" : [
@@ -86,10 +85,10 @@
       "kind" : "footer_metadata",
       "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
-        "height" : 0.10180227272727273,
-        "width" : 0.125,
-        "x" : 0.6725,
-        "y" : 0.8411773422459894
+        "height" : 0.102,
+        "width" : 0.09109730848861283,
+        "x" : 0.6257142857142857,
+        "y" : 0.84184
       },
       "text" : "",
       "tokens" : [
@@ -102,10 +101,10 @@
       "kind" : "footer_metadata",
       "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
-        "height" : 0.09980614973262034,
-        "width" : 0.185,
-        "x" : 0.72,
-        "y" : 0.8493215240641712
+        "height" : 0.1,
+        "width" : 0.134824016563147,
+        "x" : 0.6603312629399586,
+        "y" : 0.85
       },
       "text" : "",
       "tokens" : [
@@ -118,10 +117,10 @@
       "kind" : "footer_metadata",
       "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
-        "height" : 0.10479645721925135,
-        "width" : 0.115,
-        "x" : 0.7857500000000001,
-        "y" : 0.8287614572192514
+        "height" : 0.105,
+        "width" : 0.0838095238095238,
+        "x" : 0.7082484472049689,
+        "y" : 0.8294
       },
       "text" : "",
       "tokens" : [
@@ -134,41 +133,50 @@
       "kind" : "footer_metadata",
       "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
-        "height" : 0.10180227272727273,
-        "width" : 0.19,
-        "x" : 0.705,
-        "y" : 0.8413370320855615
+        "height" : 0.102,
+        "width" : 0.1384679089026915,
+        "x" : 0.649399585921325,
+        "y" : 0.842
       },
-      "text" : "",
+      "text" : "Cl",
       "tokens" : [
-
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.05679545454545454,
+            "width" : 0.04506995510500396,
+            "x" : 0.6493995817513262,
+            "y" : 0.8419999999657859
+          },
+          "text" : "Cl"
+        }
       ]
     },
     {
       "kind" : "header_wide",
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
-        "height" : 0.21957352941176472,
-        "width" : 0.8,
-        "x" : 0.1,
-        "y" : 0.02093048128342242
+        "height" : 0.22,
+        "width" : 0.5830227743271221,
+        "x" : 0.20848861283643894,
+        "y" : 0.02
       },
-      "text" : "カイリュ",
+      "text" : "١٢٢٢ ١١",
       "tokens" : [
         {
           "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.21721252669038885,
-            "width" : 0.1500000322937335,
-            "x" : 0.6499999836906333,
-            "y" : 0.020930479526294905
+            "height" : 0.16957197169801885,
+            "width" : 0.05162915316703137,
+            "x" : 0.7368599561688548,
+            "y" : 0.06449445842125756
           },
-          "text" : "カイリュ"
+          "text" : "١٢٢٢ ١١"
         }
       ]
     }
   ],
-  "scanID" : "F12F9656-C4EC-44B2-A7F0-099A78B60544",
+  "scanID" : "5C15F86B-B2C9-4630-99F1-C735267C399C",
   "setConfidenceReasons" : [
 
   ],
@@ -183,6 +191,7 @@
   "warnings" : [
     "Raw scene looks holder-like",
     "Rewrite raw escalation used focused ROIs",
+    "Could not read strong raw-card clues",
     "Low-confidence rewrite raw evidence"
   ]
 }

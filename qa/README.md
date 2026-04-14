@@ -1,5 +1,22 @@
 # Scanner QA
 
+## Storage Split
+
+Keep the repo for:
+
+- curated regression fixtures under [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check)
+- live bug repro folders under [qa/raw-normalization-regressions](/Users/stephenchan/Code/spotlight/qa/raw-normalization-regressions)
+- small manifests, truth metadata, and docs
+
+Keep bulk local-only assets out of the repo under `~/spotlight-datasets/`:
+
+- `~/spotlight-datasets/raw-visual-train/`
+- `~/spotlight-datasets/raw-visual-train-excluded/`
+- `~/spotlight-datasets/reference-image-cache/`
+
+Do not move the curated regression suites out of `qa/` unless the test/tool
+defaults are updated first.
+
 ## Recommended Manual Cards
 
 See [scanner-test-matrix.md](/Users/stephenchan/Code/spotlight/qa/scanner-test-matrix.md).

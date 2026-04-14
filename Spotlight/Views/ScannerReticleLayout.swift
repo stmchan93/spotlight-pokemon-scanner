@@ -72,3 +72,20 @@ struct ScannerReticleLayout: Equatable {
         )
     }
 }
+
+func resolvedReticleCaptureRect(
+    preferred: CGRect,
+    containerFrame: CGRect,
+    layout: ScannerReticleLayout
+) -> CGRect {
+    if isValidReticleCaptureRect(preferred) {
+        return preferred
+    }
+
+    return CGRect(
+        x: containerFrame.midX - (layout.width / 2),
+        y: containerFrame.minY + layout.topSpacing,
+        width: layout.width,
+        height: layout.height
+    )
+}

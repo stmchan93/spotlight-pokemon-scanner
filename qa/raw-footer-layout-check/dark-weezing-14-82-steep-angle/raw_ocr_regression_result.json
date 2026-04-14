@@ -35,7 +35,7 @@
         "footerFamily" : "modern_left",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "14_raw_footer_modern_left_set",
+        "label" : "14_raw_footer_modern_left_set_anchored",
         "normalizedRect" : {
           "height" : 0.09794209090909091,
           "width" : 0.138,
@@ -48,7 +48,7 @@
         "footerFamily" : "modern_left",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "15_raw_footer_modern_left_collector",
+        "label" : "15_raw_footer_modern_left_collector_anchored",
         "normalizedRect" : {
           "height" : 0.11408269952307827,
           "width" : 1,
@@ -61,7 +61,7 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "16_raw_footer_legacy_right_mid_set",
+        "label" : "16_raw_footer_legacy_right_mid_set_anchored",
         "normalizedRect" : {
           "height" : 0.10193972727272727,
           "width" : 0.125,
@@ -74,7 +74,7 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
         "normalizedRect" : {
           "height" : 0.11408269952307827,
           "width" : 1,
@@ -87,7 +87,7 @@
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "18_raw_footer_legacy_right_corner_set",
+        "label" : "18_raw_footer_legacy_right_corner_set_anchored",
         "normalizedRect" : {
           "height" : 0.10493795454545454,
           "width" : 0.115,
@@ -100,7 +100,7 @@
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
         "normalizedRect" : {
           "height" : 0.11408269952307827,
           "width" : 1,
@@ -127,14 +127,14 @@
       "title_signal_weak",
       "set_signal_weak"
     ],
-    "targetQualityScore" : 0.7739913199205359,
+    "targetQualityScore" : 0.58,
     "usedFallback" : true
   },
   "fixtureName" : "dark-weezing-14-82-steep-angle",
   "ocr" : {
     "collectorConfidenceScore" : 0.42,
     "collectorNumberPartial" : "24",
-    "cropConfidence" : 0.7739913199205359,
+    "cropConfidence" : 0.58,
     "setHintTokens" : [
 
     ],

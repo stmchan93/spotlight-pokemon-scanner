@@ -1,12 +1,12 @@
 {
   "checks" : {
-    "backendRecoverablePass" : true,
+    "backendRecoverablePass" : false,
     "backendRecoverableReasons" : [
-      "exact_collector_plus_set_hint"
+
     ],
     "collectorNearMiss" : false,
     "exactCollectorPass" : true,
-    "setHintPass" : true,
+    "setHintPass" : false,
     "titlePass" : false
   },
   "debug" : {
@@ -35,7 +35,7 @@
         "footerFamily" : "modern_left",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "14_raw_footer_modern_left_set",
+        "label" : "14_raw_footer_modern_left_set_anchored",
         "normalizedRect" : {
           "height" : 0.098,
           "width" : 0.1340783410138249,
@@ -48,7 +48,7 @@
         "footerFamily" : "modern_left",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "15_raw_footer_modern_left_collector",
+        "label" : "15_raw_footer_modern_left_collector_anchored",
         "normalizedRect" : {
           "height" : 0.092,
           "width" : 0.26718509984639016,
@@ -61,7 +61,7 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "16_raw_footer_legacy_right_mid_set",
+        "label" : "16_raw_footer_legacy_right_mid_set_anchored",
         "normalizedRect" : {
           "height" : 0.102,
           "width" : 0.12144777265745008,
@@ -74,7 +74,7 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
         "normalizedRect" : {
           "height" : 0.1,
           "width" : 0.18639037172452846,
@@ -87,7 +87,7 @@
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "18_raw_footer_legacy_right_corner_set",
+        "label" : "18_raw_footer_legacy_right_corner_set_anchored",
         "normalizedRect" : {
           "height" : 0.105,
           "width" : 0.11173195084485407,
@@ -100,7 +100,7 @@
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
         "normalizedRect" : {
           "height" : 0.102,
           "width" : 0.18639037172452846,
@@ -108,12 +108,23 @@
           "y" : 0.898
         },
         "text" : "ukihito Toda 199\/182"
+      },
+      {
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "normalizedRect" : {
+          "height" : 0.2,
+          "width" : 0.8938556067588326,
+          "x" : 0.0530721966205837,
+          "y" : 0
+        },
+        "text" : "STAGE ] Teem Rockats Weezing 130 HP Erolves from Te chet's Koffing"
       }
     ],
     "requestedGeometryKind" : "raw_card",
     "stage1AssessmentReasons" : [
-      "set_signal_weak",
-      "footer_signal_sufficient_for_early_exit"
+      "title_signal_weak",
+      "set_signal_weak"
     ],
     "targetQualityScore" : 0.8518428798536338,
     "usedFallback" : false
@@ -123,12 +134,13 @@
     "collectorConfidenceScore" : 0.92,
     "collectorNumberExact" : "199\/182",
     "cropConfidence" : 0.8518428798536338,
-    "setConfidenceScore" : 0.48,
     "setHintTokens" : [
-      "dri"
-    ],
-    "warnings" : [
 
+    ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "Te chet's Koffing",
+    "warnings" : [
+      "Rewrite raw escalation used focused ROIs"
     ]
   },
   "sourceImage" : "source_scan.jpg",

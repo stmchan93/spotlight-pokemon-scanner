@@ -8,7 +8,7 @@ Date: 2026-04-11
 - The next concrete implementation phase after the first landed hybrid baseline is now documented in [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md).
 - It replaces the older OCR-primary raw-matcher direction as the planning source of truth for future raw identity work.
 - This document also supersedes the earlier heavier implementation phasing that front-loaded backend refactors and harness expansion before proving visual matching on the real normalized scan outputs.
-- The currently shipped runtime is still the landed OCR-first backend reset described in [docs/raw-backend-reset-spec-2026-04-08.md](/Users/stephenchan/Code/spotlight/docs/raw-backend-reset-spec-2026-04-08.md).
+- Raw scanner runtime now defaults to the hybrid resolver path. The iOS scanner runtime explicitly sends `rawResolverMode=hybrid`, and the backend treats omitted raw resolver mode as `hybrid` as well, so end-to-end raw testing exercises visual retrieval first and OCR reranking second.
 - The migration goal is to move from:
   - OCR-primary raw identification
 - to:
@@ -76,7 +76,8 @@ Important:
 - the regression harness and fixture layout
 - the backend candidate-ranking/disambiguation responsibility
 - the raw-only provider lane:
-  - raw identity and pricing remain on the Pokemon TCG API lane
+  - raw identity/reference/pricing now move toward the Scrydex-first lane
+  - generic broad-text `setHints` are no longer the desired end state for raw set evidence
 
 ## What Changes
 
@@ -539,6 +540,16 @@ Interpretation:
 - widening the visual pool above `K=10` increases ceiling slightly but hurts hybrid top-1
 - visual retrieval is now the primary bottleneck, not OCR extraction
 - the next workstream is the visual-model-improvement phase in [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md)
+- current follow-on result from that next phase:
+  - the last PokemonTCG-backed checkpoint `v003-b8` improved the runtime-shaped regression to:
+    - visual top-1: `24/47`
+    - visual top-10 contains-truth: `37/47`
+    - hybrid top-1: `32/47`
+  - the promoted Scrydex-backed active runtime is now `v004-scrydex-b8` plus matcher shortlist improvements:
+    - visual top-1: `25/67`
+    - visual top-10 contains-truth: `40/67`
+    - hybrid top-1: `36/67`
+  - see [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md) for the current runtime/default wiring and follow-up work
 
 Done when:
 

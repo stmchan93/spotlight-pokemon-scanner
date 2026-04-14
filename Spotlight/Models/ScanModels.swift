@@ -1,8 +1,9 @@
 import Foundation
 import UIKit
 
-enum ScannerRoute {
+enum ScannerRoute: Equatable {
     case scanner
+    case resultDetail
     case alternatives
 }
 
@@ -11,12 +12,27 @@ enum ResolverPath: String, Codable, Hashable, Sendable {
     case psaCertBarcode = "psa_cert_barcode"
     case psaCertOCR = "psa_cert_ocr"
     case visualFallback = "visual_fallback"
+    case visualOnlyIndex = "visual_only_index"
+    case visualHybridIndex = "visual_hybrid_index"
+    case visualOnlyUnavailable = "visual_only_unavailable"
+    case visualHybridUnavailable = "visual_hybrid_unavailable"
 }
 
 enum ResolverMode: String, Codable, Hashable, Sendable {
     case rawCard = "raw_card"
     case psaSlab = "psa_slab"
     case unknownFallback = "unknown_fallback"
+}
+
+extension ResolverMode {
+    var runtimeRawResolverMode: RawResolverMode? {
+        switch self {
+        case .rawCard:
+            return .hybrid
+        case .psaSlab, .unknownFallback:
+            return nil
+        }
+    }
 }
 
 enum ReviewDisposition: String, Codable, Hashable, Sendable {
@@ -48,6 +64,7 @@ struct AnalyzedCapture: @unchecked Sendable {
     let recognizedTokens: [RecognizedToken]
     let collectorNumber: String?
     let setHintTokens: [String]
+    let setBadgeHint: OCRSetBadgeHint?
     let promoCodeHint: String?
     let slabGrader: String?
     let slabGrade: String?
@@ -82,6 +99,7 @@ struct ScanMatchResponse: Codable, Hashable, Sendable {
     let slabContext: SlabContext?
     let reviewDisposition: ReviewDisposition?
     let reviewReason: String?
+    let performance: ScanMatchPerformance?
 
     var bestMatch: CardCandidate? {
         topCandidates.first?.candidate
@@ -90,6 +108,12 @@ struct ScanMatchResponse: Codable, Hashable, Sendable {
     var alternateMatches: [CardCandidate] {
         Array(topCandidates.dropFirst()).map(\.candidate)
     }
+}
+
+struct ScanMatchPerformance: Codable, Hashable, Sendable {
+    let serverProcessingMs: Double?
+    let scrydexRequestCount: Int?
+    let scrydexRequestTypes: [String]?
 }
 
 enum CorrectionType: String, Codable, Sendable {
@@ -144,6 +168,18 @@ struct ScanCaptureInput: @unchecked Sendable {
     let searchImage: UIImage
     let fallbackImage: UIImage?
     let captureSource: ScanCaptureSource
+
+    // Live scans should show the exact reticle crop in the tray so the pending
+    // thumbnail matches the scanner composition the user saw. The broader
+    // search crop is only a fallback when the exact crop is unavailable.
+    var trayPreviewImage: UIImage {
+        switch captureSource {
+        case .livePreviewFrame, .liveStillPhoto:
+            return fallbackImage ?? searchImage
+        case .importedPhoto:
+            return originalImage
+        }
+    }
 }
 
 struct LiveScanStackItem: Identifiable {

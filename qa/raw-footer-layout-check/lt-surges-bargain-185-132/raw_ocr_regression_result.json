@@ -11,10 +11,10 @@
   },
   "debug" : {
     "contentRectNormalized" : {
-      "height" : 0.9990224828934506,
-      "width" : 1,
-      "x" : 0,
-      "y" : 0.0004887585532746899
+      "height" : 1,
+      "width" : 0.5379818594104309,
+      "x" : 0.23100907029478457,
+      "y" : 0
     },
     "footerRoutingReasons" : [
       "footer_band_anchor_unavailable"
@@ -24,12 +24,12 @@
         "kind" : "footer_band_wide",
         "label" : "13_raw_footer_band",
         "normalizedRect" : {
-          "height" : 0.19980449657869015,
-          "width" : 0.9,
-          "x" : 0.05,
-          "y" : 0.7597458455522972
+          "height" : 0.22,
+          "width" : 0.5379818594104309,
+          "x" : 0.23100907029478457,
+          "y" : 0.78
         },
-        "text" : ""
+        "text" : "ien player may take a wrize cardo i Prize card. lf no, you draw 4 cards."
       },
       {
         "footerFamily" : "modern_left",
@@ -37,10 +37,10 @@
         "kind" : "footer_metadata",
         "label" : "14_raw_footer_modern_left_set",
         "normalizedRect" : {
-          "height" : 0.09790420332355816,
-          "width" : 0.138,
-          "x" : 0.07064000000000001,
-          "y" : 0.8447626588465298
+          "height" : 0.098,
+          "width" : 0.07424149659863946,
+          "x" : 0.2690121088435374,
+          "y" : 0.8451
         },
         "text" : ""
       },
@@ -50,12 +50,12 @@
         "kind" : "footer_metadata",
         "label" : "15_raw_footer_modern_left_collector",
         "normalizedRect" : {
-          "height" : 0.09191006842619746,
-          "width" : 0.275,
-          "x" : 0.17,
-          "y" : 0.8496578690127077
+          "height" : 0.092,
+          "width" : 0.1479450113378685,
+          "x" : 0.3224659863945578,
+          "y" : 0.85
         },
-        "text" : ""
+        "text" : "١١"
       },
       {
         "footerFamily" : "legacy_right_mid",
@@ -63,10 +63,10 @@
         "kind" : "footer_metadata",
         "label" : "16_raw_footer_legacy_right_mid_set",
         "normalizedRect" : {
-          "height" : 0.10190029325513196,
-          "width" : 0.125,
-          "x" : 0.6725,
-          "y" : 0.8415058455522971
+          "height" : 0.102,
+          "width" : 0.06724773242630386,
+          "x" : 0.5928018707482993,
+          "y" : 0.84184
         },
         "text" : ""
       },
@@ -76,12 +76,12 @@
         "kind" : "footer_metadata",
         "label" : "17_raw_footer_legacy_right_mid_collector",
         "normalizedRect" : {
-          "height" : 0.09990224828934507,
-          "width" : 0.185,
-          "x" : 0.72,
-          "y" : 0.8496578690127077
+          "height" : 0.1,
+          "width" : 0.09952664399092971,
+          "x" : 0.6183560090702948,
+          "y" : 0.85
         },
-        "text" : "ازداد"
+        "text" : ""
       },
       {
         "footerFamily" : "legacy_right_corner",
@@ -89,10 +89,10 @@
         "kind" : "footer_metadata",
         "label" : "18_raw_footer_legacy_right_corner_set",
         "normalizedRect" : {
-          "height" : 0.10489736070381231,
-          "width" : 0.115,
-          "x" : 0.7857500000000001,
-          "y" : 0.8290780058651026
+          "height" : 0.105,
+          "width" : 0.06186791383219955,
+          "x" : 0.6537283163265306,
+          "y" : 0.8294
         },
         "text" : ""
       },
@@ -102,23 +102,23 @@
         "kind" : "footer_metadata",
         "label" : "19_raw_footer_legacy_right_corner_collector",
         "normalizedRect" : {
-          "height" : 0.10190029325513196,
-          "width" : 0.19,
-          "x" : 0.705,
-          "y" : 0.8416656891495601
+          "height" : 0.102,
+          "width" : 0.10221655328798186,
+          "x" : 0.6102862811791383,
+          "y" : 0.842
         },
-        "text" : ""
+        "text" : "•"
       },
       {
         "kind" : "header_wide",
         "label" : "12_raw_header_wide",
         "normalizedRect" : {
-          "height" : 0.21978494623655914,
-          "width" : 0.8,
-          "x" : 0.1,
-          "y" : 0.020469208211143702
+          "height" : 0.2,
+          "width" : 0.4734240362811792,
+          "x" : 0.26328798185941044,
+          "y" : 0
         },
-        "text" : ""
+        "text" : "-."
       }
     ],
     "requestedGeometryKind" : "raw_card",
@@ -127,17 +127,17 @@
       "title_signal_weak",
       "set_signal_weak"
     ],
-    "targetQualityScore" : 0.8414620859814159,
-    "usedFallback" : false
+    "targetQualityScore" : 0.621462085981416,
+    "usedFallback" : true
   },
   "fixtureName" : "lt-surges-bargain-185-132",
   "ocr" : {
-    "cropConfidence" : 0.8414620859814159,
+    "cropConfidence" : 0.621462085981416,
     "setHintTokens" : [
 
     ],
     "warnings" : [
-      "Raw scene looks holder-like",
+      "Target selection used fallback crop",
       "Rewrite raw escalation used focused ROIs",
       "Could not read strong raw-card clues",
       "Low-confidence rewrite raw evidence"

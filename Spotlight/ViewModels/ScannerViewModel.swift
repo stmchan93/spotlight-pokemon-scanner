@@ -2,6 +2,16 @@ import Foundation
 import SwiftUI
 import UIKit
 
+private let frontendRetryGateMessage = "Couldn't read this card clearly. Try again with the card centered and well-lit."
+
+private struct ScanAlternativesContext {
+    let itemID: UUID
+    let scanID: UUID
+    let previewImage: UIImage?
+    let analysis: AnalyzedCapture?
+    let response: ScanMatchResponse
+}
+
 @MainActor
 final class ScannerViewModel: ObservableObject {
     @Published var route: ScannerRoute = .scanner
@@ -27,6 +37,9 @@ final class ScannerViewModel: ObservableObject {
     private var currentReticleRect: CGRect?
     private var idlePricingRefreshTask: Task<Void, Never>?
     private var hasShownPhotoSaveFailureBanner = false
+    private var alternativesContexts: [UUID: ScanAlternativesContext] = [:]
+    private var activeAlternativesItemID: UUID?
+    private var activeResultItemID: UUID?
 
     private var selectedResolverMode: ResolverMode {
         scannerPresentationMode == .slab ? .psaSlab : .rawCard
@@ -58,8 +71,15 @@ final class ScannerViewModel: ObservableObject {
         trayMetrics.countLabel
     }
 
+    var visibleScannedItems: [LiveScanStackItem] {
+        if isCapturingPhoto || isProcessing {
+            return scannedItems
+        }
+        return scannedItems.filter { $0.phase != .pending }
+    }
+
     var trayMetrics: ScanTrayMetrics {
-        ScanTrayCalculator.metrics(for: scannedItems.map(\.metricInput))
+        ScanTrayCalculator.metrics(for: visibleScannedItems.map(\.metricInput))
     }
 
     var totalValueText: String {
@@ -80,6 +100,10 @@ final class ScannerViewModel: ObservableObject {
 
     func capturePhoto(reticleRect: CGRect) {
         guard !isProcessing, !isCapturingPhoto else { return }
+        guard isValidReticleCaptureRect(reticleRect) else {
+            errorMessage = "Scanner overlay is still loading. Try again."
+            return
+        }
         errorMessage = nil
         route = .scanner
         currentReticleRect = reticleRect
@@ -100,6 +124,9 @@ final class ScannerViewModel: ObservableObject {
             preferStillPhoto: preferStillPhoto
         )
         if didStartCapture {
+            updateStackItem(id: pendingItemID) { item in
+                item.statusMessage = "Capturing preview frame…"
+            }
             isCapturingPhoto = true
         } else {
             markPendingScanFailed(itemID: pendingItemID, message: "Could not capture card")
@@ -127,7 +154,7 @@ final class ScannerViewModel: ObservableObject {
         guard !isProcessing else { return }
         isCapturingPhoto = false
         let scanID = currentScanID ?? UUID()
-        let previewImage = capture.fallbackImage ?? capture.searchImage
+        let previewImage = capture.trayPreviewImage
         let pendingItemID = currentPendingItemID ?? enqueuePendingScan(scanID: scanID, previewImage: previewImage)
         currentScanID = scanID
         currentPendingItemID = pendingItemID
@@ -149,18 +176,49 @@ final class ScannerViewModel: ObservableObject {
         completeSelection(with: bestMatch, correctionType: .acceptedTop)
     }
 
-    func showAlternatives() {
-        route = .alternatives
-        if searchQuery.isEmpty {
-            searchQuery = analyzedCapture?.collectorNumber ?? matchResponse?.bestMatch?.name ?? ""
+    var activeResultItem: LiveScanStackItem? {
+        guard let activeResultItemID else {
+            return nil
         }
-        refreshSearchResults()
+        return scannedItems.first(where: { $0.id == activeResultItemID })
+    }
+
+    var activeAlternativesPreviewImage: UIImage? {
+        activeAlternativesContext?.previewImage
+    }
+
+    var activeAlternativesResponse: ScanMatchResponse? {
+        activeAlternativesContext?.response
+    }
+
+    func presentResultDetail(for itemID: UUID) {
+        guard scannedItems.contains(where: { $0.id == itemID }) else { return }
+        activeResultItemID = itemID
+        route = .resultDetail
+    }
+
+    func showAlternatives(for itemID: UUID) {
+        guard activateAlternativesContext(for: itemID) else {
+            return
+        }
+        activeResultItemID = itemID
+        route = .alternatives
+        searchQuery = ""
+        searchResults = []
     }
 
     func dismissAlternatives() {
-        Task {
-            await abandonPendingScanIfNeeded()
-        }
+        activeAlternativesItemID = nil
+        analyzedCapture = nil
+        matchResponse = nil
+        route = activeResultItemID == nil ? .scanner : .resultDetail
+        searchQuery = ""
+        searchResults = []
+    }
+
+    func dismissResultDetail() {
+        activeResultItemID = nil
+        route = .scanner
     }
 
     func selectCandidate(_ candidate: CardCandidate, correctionType override: CorrectionType? = nil) {
@@ -187,6 +245,20 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func removeStackItem(_ itemID: UUID) {
+        alternativesContexts.removeValue(forKey: itemID)
+        if activeAlternativesItemID == itemID {
+            activeAlternativesItemID = nil
+            searchQuery = ""
+            searchResults = []
+        }
+        if activeResultItemID == itemID {
+            activeResultItemID = nil
+        }
+        if activeAlternativesItemID == nil, activeResultItemID == nil {
+            route = .scanner
+        } else if activeAlternativesItemID == nil, route == .alternatives {
+            route = .resultDetail
+        }
         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
             scannedItems.removeAll { $0.id == itemID }
         }
@@ -194,9 +266,50 @@ final class ScannerViewModel: ObservableObject {
 
     func clearScans() {
         idlePricingRefreshTask?.cancel()
+        alternativesContexts.removeAll()
+        activeAlternativesItemID = nil
+        activeResultItemID = nil
+        route = .scanner
         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
             scannedItems.removeAll()
         }
+    }
+
+    func hasAlternatives(for itemID: UUID) -> Bool {
+        (alternativesContexts[itemID]?.response.topCandidates.count ?? 0) > 1
+    }
+
+    func similarMatchCount(for itemID: UUID) -> Int {
+        max(0, (alternativesContexts[itemID]?.response.topCandidates.count ?? 0) - 1)
+    }
+
+    func candidateCycleState(for itemID: UUID) -> ResultCandidateCycleState? {
+        guard let item = scannedItems.first(where: { $0.id == itemID }),
+              let context = alternativesContexts[itemID] else {
+            return nil
+        }
+        return resultCandidateCycleState(
+            currentCardID: item.displayCard?.id,
+            topCandidates: context.response.topCandidates.map(\.candidate)
+        )
+    }
+
+    func cycleCandidate(for itemID: UUID) {
+        guard let item = scannedItems.first(where: { $0.id == itemID }),
+              let context = alternativesContexts[itemID],
+              let nextCandidate = nextResultCandidate(
+                currentCardID: item.displayCard?.id,
+                topCandidates: context.response.topCandidates.map(\.candidate)
+              ) else {
+            return
+        }
+
+        applyCandidateToResultItem(
+            nextCandidate,
+            itemID: itemID,
+            response: context.response,
+            preservePhase: true
+        )
     }
 
     func refreshPricing(for itemID: UUID) {
@@ -209,11 +322,24 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
+    func showBannerMessage(_ message: String) {
+        showBanner(message)
+    }
+
     private func refreshSearchResults() {
+        let trimmedQuery = searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedQuery.isEmpty else {
+            searchResults = []
+            return
+        }
+
         Task {
-            let query = searchQuery
+            let query = trimmedQuery
             let results = await matcher.search(query: query)
             await MainActor.run {
+                guard self.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines) == query else {
+                    return
+                }
                 self.searchResults = results
             }
         }
@@ -244,7 +370,7 @@ final class ScannerViewModel: ObservableObject {
         print("🔍 [SCAN] Downscaled search image from \(capture.searchImage.size) to \(processedCapture.searchImage.size)")
 
         let effectiveScanID = scanID ?? currentScanID ?? UUID()
-        let previewImage = processedCapture.fallbackImage ?? processedCapture.searchImage
+        let previewImage = processedCapture.trayPreviewImage
         let effectivePendingItemID = pendingItemID ?? currentPendingItemID ?? enqueuePendingScan(scanID: effectiveScanID, previewImage: previewImage)
         let effectiveScanStartedAt = scanStartedAt ?? currentScanStartedAt ?? Date().timeIntervalSinceReferenceDate
         currentScanID = effectiveScanID
@@ -254,7 +380,7 @@ final class ScannerViewModel: ObservableObject {
             if item.previewImage == nil {
                 item.previewImage = downscaleImage(previewImage, maxDimension: 300)
             }
-            item.statusMessage = "Identifying card..."
+            item.statusMessage = "Reading card…"
         }
         isProcessing = true
 
@@ -314,6 +440,15 @@ final class ScannerViewModel: ObservableObject {
                 isProcessing = true
             }
 
+            if shouldShortCircuitBackendMatch(analysis) {
+                print("⚠️ [SCAN] Skipping backend match because frontend evidence is too weak")
+                removeStackItem(effectivePendingItemID)
+                showBanner(frontendRetryGateMessage)
+                resetPendingScanState()
+                isProcessing = false
+                return
+            }
+
             print("🔍 [SCAN] Sending scan to backend matcher...")
 
             let performance = ScanPerformanceMetrics(
@@ -341,36 +476,24 @@ final class ScannerViewModel: ObservableObject {
     }
 
     private func completeSelection(with candidate: CardCandidate, correctionType: CorrectionType) {
-        guard let scanID = currentScanID,
-              let itemID = currentPendingItemID else { return }
+        let context = activeAlternativesContext
+        guard let scanID = currentScanID ?? context?.scanID,
+              let itemID = currentPendingItemID ?? context?.itemID else { return }
 
         let wasTopPrediction = candidate.id == matchResponse?.bestMatch?.id
 
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-            for index in scannedItems.indices {
-                scannedItems[index].isExpanded = false
-            }
-            updateStackItem(id: itemID) { item in
-                item.phase = .resolved
-                item.card = candidate
-                item.detail = nil
-                // Keep existing thumbnail, don't replace with full-res
-                item.isExpanded = false
-                item.isRefreshingPrice = false
-                item.statusMessage = ScanTrayCalculator.initialStatusMessage(for: candidate.pricing)
-                item.slabContext = matchResponse?.slabContext
-                item.pricingContextNote = pricingContextNote(
-                    for: matchResponse?.resolverMode ?? .unknownFallback,
-                    matcherSource: matchResponse?.matcherSource ?? .remoteHybrid,
-                    slabContext: matchResponse?.slabContext,
-                    pricing: candidate.pricing
-                )
-            }
+        applyCandidateToResultItem(
+            candidate,
+            itemID: itemID,
+            response: matchResponse ?? context?.response,
+            preservePhase: false
+        )
+        activeResultItemID = itemID
+        if activeAlternativesItemID == itemID {
+            activeAlternativesItemID = nil
         }
-
-        scheduleIdlePricingRefresh(for: itemID, cardID: candidate.id)
         resetPendingScanState()
-        route = .scanner
+        route = .resultDetail
         showBanner("Added \(candidate.name)")
 
         Task {
@@ -386,6 +509,40 @@ final class ScannerViewModel: ObservableObject {
                 wasTopPrediction: wasTopPrediction,
                 correctionType: correctionType
             )
+        }
+    }
+
+    private func applyCandidateToResultItem(
+        _ candidate: CardCandidate,
+        itemID: UUID,
+        response: ScanMatchResponse?,
+        preservePhase: Bool
+    ) {
+        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+            for index in scannedItems.indices {
+                scannedItems[index].isExpanded = false
+            }
+            updateStackItem(id: itemID) { item in
+                if !preservePhase {
+                    item.phase = .resolved
+                }
+                item.card = candidate
+                item.detail = nil
+                item.isExpanded = false
+                item.isRefreshingPrice = false
+                item.statusMessage = ScanTrayCalculator.initialStatusMessage(for: candidate.pricing)
+                item.slabContext = response?.slabContext
+                item.pricingContextNote = pricingContextNote(
+                    for: response?.resolverMode ?? item.resolverMode,
+                    matcherSource: response?.matcherSource ?? item.matcherSource,
+                    slabContext: response?.slabContext,
+                    pricing: candidate.pricing
+                )
+            }
+        }
+
+        if !preservePhase {
+            scheduleIdlePricingRefresh(for: itemID, cardID: candidate.id)
         }
     }
 
@@ -414,13 +571,37 @@ final class ScannerViewModel: ObservableObject {
         route = .scanner
     }
 
+    private var activeAlternativesContext: ScanAlternativesContext? {
+        guard let activeAlternativesItemID else {
+            return nil
+        }
+        return alternativesContexts[activeAlternativesItemID]
+    }
+
+    @discardableResult
+    private func activateAlternativesContext(for itemID: UUID) -> Bool {
+        guard let context = alternativesContexts[itemID] else {
+            activeAlternativesItemID = nil
+            analyzedCapture = nil
+            matchResponse = nil
+            return false
+        }
+
+        activeAlternativesItemID = itemID
+        analyzedCapture = context.analysis
+        matchResponse = context.response
+        return true
+    }
+
     private func resetPendingScanState() {
         currentScanID = nil
         currentPendingItemID = nil
         currentScanStartedAt = nil
         currentReticleRect = nil
-        analyzedCapture = nil
-        matchResponse = nil
+        if activeAlternativesItemID == nil {
+            analyzedCapture = nil
+            matchResponse = nil
+        }
         searchQuery = ""
         searchResults = []
         errorMessage = nil
@@ -531,7 +712,7 @@ final class ScannerViewModel: ObservableObject {
     }
 
     private func shouldAutoRefresh(_ item: LiveScanStackItem) -> Bool {
-        guard item.phase == .resolved || item.phase == .needsReview else { return false }
+        guard item.phase == .resolved else { return false }
         return ScanTrayCalculator.shouldAutoRefresh(pricing: item.pricing)
     }
 
@@ -730,6 +911,8 @@ final class ScannerViewModel: ObservableObject {
                 + "collectorExact=\(quoted(rawEvidence.collectorNumberExact)) "
                 + "collectorPartial=\(quoted(rawEvidence.collectorNumberPartial)) "
                 + "collectorScore=\(formatFieldConfidence(rawEvidence.collectorConfidence)) "
+                + "setBadge=\(quoted(rawEvidence.setBadgeHint?.rawValue)) "
+                + "setBadgeKind=\(rawEvidence.setBadgeHint?.kind.rawValue ?? "unknown") "
                 + "setHints=\(rawEvidence.setHints) "
                 + "setScore=\(formatFieldConfidence(rawEvidence.setConfidence))"
             )
@@ -762,6 +945,7 @@ final class ScannerViewModel: ObservableObject {
                 targetQualityScore: analysis.ocrAnalysis?.normalizedTarget?.targetQuality.overallScore,
                 collectorNumber: analysis.collectorNumber,
                 setHintTokens: analysis.setHintTokens,
+                setBadgeHint: analysis.setBadgeHint,
                 warnings: analysis.warnings,
                 shouldRetryWithStillPhoto: analysis.shouldRetryWithStillPhoto,
                 stillPhotoRetryReason: analysis.stillPhotoRetryReason,
@@ -803,6 +987,7 @@ final class ScannerViewModel: ObservableObject {
                 "🌐 [MATCH] Request: "
                 + "scanID=\(scanID.uuidString) "
                 + "mode=\(analysis.resolverModeHint.rawValue) "
+                + "rawResolver=\(analysis.resolverModeHint.runtimeRawResolverMode?.rawValue ?? "n/a") "
                 + "pipeline=\(analysis.ocrAnalysis?.pipelineVersion.rawValue ?? "none") "
                 + "collector=\(quoted(analysis.collectorNumber)) "
                 + "setHints=\(analysis.setHintTokens) "
@@ -814,6 +999,7 @@ final class ScannerViewModel: ObservableObject {
                 payload: FrontendBackendRequestArtifact(
                     scanID: scanID.uuidString,
                     resolverModeHint: analysis.resolverModeHint.rawValue,
+                    rawResolverMode: analysis.resolverModeHint.runtimeRawResolverMode?.rawValue,
                     pipelineVersion: analysis.ocrAnalysis?.pipelineVersion.rawValue,
                     imageWidth: Int(analysis.normalizedImage.size.width.rounded()),
                     imageHeight: Int(analysis.normalizedImage.size.height.rounded()),
@@ -822,6 +1008,7 @@ final class ScannerViewModel: ObservableObject {
                     collectorNumber: analysis.collectorNumber,
                     collectorNumberPartial: analysis.ocrAnalysis?.rawEvidence?.collectorNumberPartial,
                     setHintTokens: analysis.setHintTokens,
+                    setBadgeHint: analysis.setBadgeHint,
                     titleTextPrimary: analysis.ocrAnalysis?.rawEvidence?.titleTextPrimary,
                     titleTextSecondary: analysis.ocrAnalysis?.rawEvidence?.titleTextSecondary,
                     ocrAnalysisIncluded: analysis.ocrAnalysis != nil,
@@ -831,6 +1018,8 @@ final class ScannerViewModel: ObservableObject {
             let matchStarted = Date().timeIntervalSinceReferenceDate
             let response = try await matcher.match(analysis: analysis)
             let matchMs = (Date().timeIntervalSinceReferenceDate - matchStarted) * 1000
+            let serverProcessingMs = response.performance?.serverProcessingMs
+            let networkOverheadMs = serverProcessingMs.map { max(0, matchMs - $0) }
             print("✅ [SCAN] Backend match completed in \(matchMs)ms")
             logBackendResponseSummary(response, matchMs: matchMs)
             ScanStageArtifactWriter.recordFinalDecisionArtifact(
@@ -839,6 +1028,10 @@ final class ScannerViewModel: ObservableObject {
                 payload: FrontendBackendResponseArtifact(
                     scanID: scanID.uuidString,
                     matchMs: matchMs,
+                    serverProcessingMs: serverProcessingMs,
+                    networkOverheadMs: networkOverheadMs,
+                    scrydexRequestCount: response.performance?.scrydexRequestCount,
+                    scrydexRequestTypes: response.performance?.scrydexRequestTypes,
                     confidence: response.confidence.rawValue,
                     resolverMode: response.resolverMode.rawValue,
                     resolverPath: response.resolverPath?.rawValue,
@@ -869,6 +1062,13 @@ final class ScannerViewModel: ObservableObject {
             analyzedCapture = analysis
             matchResponse = response
             applyAnalysis(analysis, response: response, to: pendingItemID)
+            alternativesContexts[pendingItemID] = ScanAlternativesContext(
+                itemID: pendingItemID,
+                scanID: scanID,
+                previewImage: scannedItems.first(where: { $0.id == pendingItemID })?.previewImage,
+                analysis: analysis,
+                response: response
+            )
             updateStackItem(id: pendingItemID) { item in
                 item.performance = updatedPerformance
             }
@@ -880,10 +1080,14 @@ final class ScannerViewModel: ObservableObject {
             } else if response.bestMatch != nil {
                 updateStackItem(id: pendingItemID) { item in
                     let disposition = response.reviewDisposition ?? .needsReview
-                    item.phase = (disposition == .unsupported) ? .unsupported : .needsReview
+                    item.phase = matchedStackPhase(for: response)
                     item.reviewDisposition = disposition
                     item.reviewReason = response.reviewReason
-                    item.statusMessage = response.reviewReason ?? "Could not identify the card strongly enough."
+                    if item.phase == .resolved {
+                        item.statusMessage = ScanTrayCalculator.initialStatusMessage(for: item.pricing)
+                    } else {
+                        item.statusMessage = response.reviewReason ?? "Could not identify the card strongly enough."
+                    }
                     item.isRefreshingPrice = false
                 }
                 if let bestMatch = response.bestMatch {
@@ -960,6 +1164,96 @@ final class ScannerViewModel: ObservableObject {
     }
 }
 
+func shouldShortCircuitBackendMatch(_ analysis: AnalyzedCapture) -> Bool {
+    guard analysis.resolverModeHint == .rawCard else {
+        return false
+    }
+    guard analysis.cropConfidence < 0.50 else {
+        return false
+    }
+
+    let rawEvidence = analysis.ocrAnalysis?.rawEvidence
+    let exactCollector = analysis.collectorNumber ?? rawEvidence?.collectorNumberExact
+    let titleText = rawEvidence?.titleTextPrimary ?? rawEvidence?.titleTextSecondary
+    let badgeTokens = analysis.setBadgeHint?.canonicalTokens ?? rawEvidence?.setBadgeHint?.canonicalTokens ?? []
+    let hasSetHints = !analysis.setHintTokens.isEmpty || !(rawEvidence?.setHints.isEmpty ?? true) || !badgeTokens.isEmpty
+
+    return normalizedNonEmpty(exactCollector) == nil &&
+        normalizedNonEmpty(titleText) == nil &&
+        !hasSetHints
+}
+
+func isValidReticleCaptureRect(_ rect: CGRect) -> Bool {
+    guard rect.minX.isFinite,
+          rect.minY.isFinite,
+          rect.width.isFinite,
+          rect.height.isFinite else {
+        return false
+    }
+    return !rect.isEmpty && rect.width > 1 && rect.height > 1
+}
+
+func matchedStackPhase(for response: ScanMatchResponse) -> LiveScanStackItemPhase {
+    let disposition = response.reviewDisposition ?? .needsReview
+    if disposition == .unsupported {
+        return .unsupported
+    }
+    if response.confidence == .low || disposition == .needsReview {
+        return .needsReview
+    }
+    return .resolved
+}
+
+func shouldPresentAlternativesImmediately(for response: ScanMatchResponse) -> Bool {
+    false
+}
+
+private func normalizedNonEmpty(_ value: String?) -> String? {
+    guard let value else {
+        return nil
+    }
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    return trimmed.isEmpty ? nil : trimmed
+}
+
+struct ResultCandidateCycleState: Equatable {
+    let currentIndex: Int
+    let totalCount: Int
+}
+
+func resultCandidateCycleState(
+    currentCardID: String?,
+    topCandidates: [CardCandidate]
+) -> ResultCandidateCycleState? {
+    guard topCandidates.count > 1,
+          let currentCardID,
+          let currentIndex = topCandidates.firstIndex(where: { $0.id == currentCardID }) else {
+        return nil
+    }
+
+    return ResultCandidateCycleState(
+        currentIndex: currentIndex + 1,
+        totalCount: topCandidates.count
+    )
+}
+
+func nextResultCandidate(
+    currentCardID: String?,
+    topCandidates: [CardCandidate]
+) -> CardCandidate? {
+    guard topCandidates.count > 1 else {
+        return nil
+    }
+
+    guard let currentCardID,
+          let currentIndex = topCandidates.firstIndex(where: { $0.id == currentCardID }) else {
+        return topCandidates.first
+    }
+
+    let nextIndex = (currentIndex + 1) % topCandidates.count
+    return topCandidates[nextIndex]
+}
+
 private struct FrontendOCRSummaryArtifact: Codable {
     let scanID: String
     let resolverModeHint: String
@@ -973,6 +1267,7 @@ private struct FrontendOCRSummaryArtifact: Codable {
     let targetQualityScore: Double?
     let collectorNumber: String?
     let setHintTokens: [String]
+    let setBadgeHint: OCRSetBadgeHint?
     let warnings: [String]
     let shouldRetryWithStillPhoto: Bool
     let stillPhotoRetryReason: String?
@@ -983,6 +1278,7 @@ private struct FrontendOCRSummaryArtifact: Codable {
 private struct FrontendBackendRequestArtifact: Codable {
     let scanID: String
     let resolverModeHint: String
+    let rawResolverMode: String?
     let pipelineVersion: String?
     let imageWidth: Int
     let imageHeight: Int
@@ -991,6 +1287,7 @@ private struct FrontendBackendRequestArtifact: Codable {
     let collectorNumber: String?
     let collectorNumberPartial: String?
     let setHintTokens: [String]
+    let setBadgeHint: OCRSetBadgeHint?
     let titleTextPrimary: String?
     let titleTextSecondary: String?
     let ocrAnalysisIncluded: Bool
@@ -1008,6 +1305,10 @@ private struct FrontendBackendCandidateArtifact: Codable {
 private struct FrontendBackendResponseArtifact: Codable {
     let scanID: String
     let matchMs: Double
+    let serverProcessingMs: Double?
+    let networkOverheadMs: Double?
+    let scrydexRequestCount: Int?
+    let scrydexRequestTypes: [String]?
     let confidence: String
     let resolverMode: String
     let resolverPath: String?

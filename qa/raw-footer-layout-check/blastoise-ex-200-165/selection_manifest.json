@@ -1,0 +1,16 @@
+{
+  "candidates" : [
+
+  ],
+  "mode" : "raw",
+  "normalizationReason" : "relaxed_rectangle_detector_promoted",
+  "normalizedContentRect" : {
+    "height" : 0.9647001934235976,
+    "width" : 1,
+    "x" : 0,
+    "y" : 0.0176499032882012
+  },
+  "normalizedGeometryKind" : "raw_card",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

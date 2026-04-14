@@ -76,6 +76,27 @@ CREATE TABLE IF NOT EXISTS scan_events (
     completed_at TEXT
 );
 
+CREATE TABLE IF NOT EXISTS provider_sync_runs (
+    id TEXT PRIMARY KEY,
+    provider TEXT NOT NULL,
+    sync_scope TEXT NOT NULL,
+    status TEXT NOT NULL,
+    scheduled_for TEXT,
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    page_size INTEGER NOT NULL,
+    pages_fetched INTEGER NOT NULL DEFAULT 0,
+    cards_seen INTEGER NOT NULL DEFAULT 0,
+    cards_upserted INTEGER NOT NULL DEFAULT 0,
+    raw_snapshots_upserted INTEGER NOT NULL DEFAULT 0,
+    graded_snapshots_upserted INTEGER NOT NULL DEFAULT 0,
+    estimated_credits_used INTEGER,
+    usage_before_json TEXT NOT NULL DEFAULT '{}',
+    usage_after_json TEXT NOT NULL DEFAULT '{}',
+    error_text TEXT,
+    notes_json TEXT NOT NULL DEFAULT '{}'
+);
+
 CREATE INDEX IF NOT EXISTS idx_cards_name_set_number
     ON cards(name, set_name, number);
 
@@ -102,3 +123,6 @@ CREATE INDEX IF NOT EXISTS idx_scan_events_created_at
 
 CREATE INDEX IF NOT EXISTS idx_scan_events_selected_card_id
     ON scan_events(selected_card_id);
+
+CREATE INDEX IF NOT EXISTS idx_provider_sync_runs_provider_scope_started
+    ON provider_sync_runs(provider, sync_scope, started_at DESC);

@@ -1,0 +1,45 @@
+{
+  "payload" : {
+    "ambiguityFlags" : [
+      "Top matches are close together",
+      "Set hints are weak"
+    ],
+    "confidence" : "low",
+    "matchMs" : 5921.162962913513,
+    "networkOverheadMs" : 314.3599629135133,
+    "resolverMode" : "raw_card",
+    "resolverPath" : "visual_hybrid_index",
+    "reviewDisposition" : "needs_review",
+    "reviewReason" : "Review the best guess before relying on the card result.",
+    "scanID" : "4E9731FB-3A38-4D65-BEAF-3D8E210305EF",
+    "scrydexRequestCount" : 0,
+    "scrydexRequestTypes" : [
+
+    ],
+    "serverProcessingMs" : 5606.803,
+    "topCandidates" : [
+      {
+        "finalScore" : 0.6121,
+        "id" : "gym2-93",
+        "name" : "Sabrina's Abra",
+        "number" : "93\/132",
+        "setName" : "Gym Challenge"
+      },
+      {
+        "finalScore" : 0.603,
+        "id" : "swsh2-34",
+        "name" : "Heatmor",
+        "number" : "034\/192",
+        "setName" : "Rebel Clash"
+      },
+      {
+        "finalScore" : 0.6022,
+        "id" : "neo3-17",
+        "name" : "Entei",
+        "number" : "17\/64",
+        "setName" : "Neo Revelation"
+      }
+    ]
+  },
+  "stage" : "frontend_backend_response"
+}

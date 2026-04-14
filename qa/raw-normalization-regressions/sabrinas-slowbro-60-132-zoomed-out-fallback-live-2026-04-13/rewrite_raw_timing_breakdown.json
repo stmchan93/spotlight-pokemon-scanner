@@ -1,0 +1,29 @@
+{
+  "payload" : {
+    "passTimings" : [
+      {
+        "durationMs" : 219.09594535827637,
+        "kind" : "footer_band_wide",
+        "label" : "13_raw_footer_band",
+        "recognitionRequestCount" : 1,
+        "tokenCount" : 7,
+        "usedAggressiveRetry" : false
+      },
+      {
+        "durationMs" : 131.91699981689453,
+        "kind" : "header_wide",
+        "label" : "12_raw_header_wide",
+        "recognitionRequestCount" : 1,
+        "tokenCount" : 6,
+        "usedAggressiveRetry" : false
+      }
+    ],
+    "stage1BroadMs" : 219.1319465637207,
+    "stage1TightMs" : 0,
+    "stage2Ms" : 131.92403316497803,
+    "synthesisMs" : 7.4340105056762695,
+    "targetSelectionMs" : 50.8960485458374,
+    "totalMs" : 418.50006580352783
+  },
+  "stage" : "rewrite_raw_timing_breakdown"
+}

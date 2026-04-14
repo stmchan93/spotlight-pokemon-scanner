@@ -35,7 +35,7 @@
         "footerFamily" : "modern_left",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "14_raw_footer_modern_left_set",
+        "label" : "14_raw_footer_modern_left_set_anchored",
         "normalizedRect" : {
           "height" : 0.098,
           "width" : 0.13797609052017115,
@@ -48,7 +48,7 @@
         "footerFamily" : "modern_left",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "15_raw_footer_modern_left_collector",
+        "label" : "15_raw_footer_modern_left_collector_anchored",
         "normalizedRect" : {
           "height" : 0.092,
           "width" : 0.27495235429744247,
@@ -61,7 +61,7 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "16_raw_footer_legacy_right_mid_set",
+        "label" : "16_raw_footer_legacy_right_mid_set_anchored",
         "normalizedRect" : {
           "height" : 0.102,
           "width" : 0.12497834286247385,
@@ -74,7 +74,7 @@
         "footerFamily" : "legacy_right_mid",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "17_raw_footer_legacy_right_mid_collector",
+        "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
         "normalizedRect" : {
           "height" : 0.1,
           "width" : 0.21919278966897005,
@@ -87,7 +87,7 @@
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "set_badge",
         "kind" : "footer_metadata",
-        "label" : "18_raw_footer_legacy_right_corner_set",
+        "label" : "18_raw_footer_legacy_right_corner_set_anchored",
         "normalizedRect" : {
           "height" : 0.105,
           "width" : 0.11498007543347595,
@@ -100,7 +100,7 @@
         "footerFamily" : "legacy_right_corner",
         "footerRole" : "collector",
         "kind" : "footer_metadata",
-        "label" : "19_raw_footer_legacy_right_corner_collector",
+        "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
         "normalizedRect" : {
           "height" : 0.102,
           "width" : 0.21919278966897005,
@@ -122,7 +122,7 @@
     "collectorConfidenceScore" : 0.92,
     "collectorNumberExact" : "256\/198",
     "cropConfidence" : 0.8428233719512224,
-    "setConfidenceScore" : 0.74,
+    "setConfidenceScore" : 0.66,
     "setHintTokens" : [
       "svi"
     ],

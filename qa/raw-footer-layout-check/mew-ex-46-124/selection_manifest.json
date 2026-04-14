@@ -1,0 +1,17 @@
+{
+  "candidates" : [
+
+  ],
+  "fallbackReason" : "no_rectangle_detected",
+  "mode" : "raw",
+  "normalizationReason" : "exact_reticle_fallback",
+  "normalizedContentRect" : {
+    "height" : 1,
+    "width" : 0.9998229775181448,
+    "x" : 8.851124092760955e-05,
+    "y" : 0
+  },
+  "normalizedGeometryKind" : "fallback",
+  "source" : "imported_photo",
+  "stage" : "selection"
+}

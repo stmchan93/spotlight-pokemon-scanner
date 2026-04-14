@@ -11,10 +11,10 @@
   },
   "debug" : {
     "contentRectNormalized" : {
-      "height" : 0.9976539589442814,
-      "width" : 1,
-      "x" : 0,
-      "y" : 0.0011730205278592688
+      "height" : 1,
+      "width" : 0.7544581618655694,
+      "x" : 0.12277091906721535,
+      "y" : 0
     },
     "footerRoutingReasons" : [
       "footer_band_anchor_unavailable"
@@ -24,12 +24,12 @@
         "kind" : "footer_band_wide",
         "label" : "13_raw_footer_band",
         "normalizedRect" : {
-          "height" : 0.1995307917888563,
-          "width" : 0.9,
-          "x" : 0.05,
-          "y" : 0.7593900293255131
+          "height" : 0.2,
+          "width" : 0.6790123456790125,
+          "x" : 0.16049382716049382,
+          "y" : 0.76
         },
-        "text" : "一風の税込価"
+        "text" : "¥2000"
       },
       {
         "footerFamily" : "modern_left",
@@ -37,10 +37,10 @@
         "kind" : "footer_metadata",
         "label" : "14_raw_footer_modern_left_set",
         "normalizedRect" : {
-          "height" : 0.09777008797653959,
-          "width" : 0.138,
-          "x" : 0.07064000000000001,
-          "y" : 0.8442903812316715
+          "height" : 0.098,
+          "width" : 0.10411522633744857,
+          "x" : 0.1760658436213992,
+          "y" : 0.8451
         },
         "text" : ""
       },
@@ -50,12 +50,12 @@
         "kind" : "footer_metadata",
         "label" : "15_raw_footer_modern_left_collector",
         "normalizedRect" : {
-          "height" : 0.09178416422287389,
-          "width" : 0.275,
-          "x" : 0.17,
-          "y" : 0.8491788856304985
+          "height" : 0.092,
+          "width" : 0.2074759945130316,
+          "x" : 0.25102880658436216,
+          "y" : 0.85
         },
-        "text" : "（の夢"
+        "text" : ""
       },
       {
         "footerFamily" : "legacy_right_mid",
@@ -63,10 +63,10 @@
         "kind" : "footer_metadata",
         "label" : "16_raw_footer_legacy_right_mid_set",
         "normalizedRect" : {
-          "height" : 0.1017607038123167,
-          "width" : 0.125,
-          "x" : 0.6725,
-          "y" : 0.8410380293255132
+          "height" : 0.102,
+          "width" : 0.09430727023319617,
+          "x" : 0.6301440329218108,
+          "y" : 0.84184
         },
         "text" : ""
       },
@@ -76,10 +76,10 @@
         "kind" : "footer_metadata",
         "label" : "17_raw_footer_legacy_right_mid_collector",
         "normalizedRect" : {
-          "height" : 0.09976539589442815,
-          "width" : 0.185,
-          "x" : 0.72,
-          "y" : 0.8491788856304985
+          "height" : 0.1,
+          "width" : 0.13957475994513033,
+          "x" : 0.6659807956104253,
+          "y" : 0.85
         },
         "text" : ""
       },
@@ -89,10 +89,10 @@
         "kind" : "footer_metadata",
         "label" : "18_raw_footer_legacy_right_corner_set",
         "normalizedRect" : {
-          "height" : 0.10475366568914955,
-          "width" : 0.115,
-          "x" : 0.7857500000000001,
-          "y" : 0.8286272140762463
+          "height" : 0.105,
+          "width" : 0.08676268861454048,
+          "x" : 0.7155864197530865,
+          "y" : 0.8294
         },
         "text" : ""
       },
@@ -102,10 +102,10 @@
         "kind" : "footer_metadata",
         "label" : "19_raw_footer_legacy_right_corner_collector",
         "normalizedRect" : {
-          "height" : 0.1017607038123167,
-          "width" : 0.19,
-          "x" : 0.705,
-          "y" : 0.8411976539589442
+          "height" : 0.102,
+          "width" : 0.14334705075445817,
+          "x" : 0.6546639231824417,
+          "y" : 0.842
         },
         "text" : ""
       },
@@ -113,12 +113,12 @@
         "kind" : "header_wide",
         "label" : "12_raw_header_wide",
         "normalizedRect" : {
-          "height" : 0.2194838709677419,
-          "width" : 0.8,
-          "x" : 0.1,
-          "y" : 0.0211260997067449
+          "height" : 0.22,
+          "width" : 0.6035665294924555,
+          "x" : 0.19821673525377229,
+          "y" : 0.02
         },
-        "text" : ""
+        "text" : "カビ"
       }
     ],
     "requestedGeometryKind" : "raw_card",
@@ -127,17 +127,18 @@
       "title_signal_weak",
       "set_signal_weak"
     ],
-    "targetQualityScore" : 0.8133062067620479,
-    "usedFallback" : false
+    "targetQualityScore" : 0.5933062067620479,
+    "usedFallback" : true
   },
   "fixtureName" : "snorlax-077-071-overhead",
   "ocr" : {
-    "cropConfidence" : 0.8133062067620479,
+    "cropConfidence" : 0.5933062067620479,
     "setHintTokens" : [
 
     ],
     "warnings" : [
       "Raw scene looks holder-like",
+      "Target selection used fallback crop",
       "Rewrite raw escalation used focused ROIs",
       "Could not read strong raw-card clues",
       "Low-confidence rewrite raw evidence"

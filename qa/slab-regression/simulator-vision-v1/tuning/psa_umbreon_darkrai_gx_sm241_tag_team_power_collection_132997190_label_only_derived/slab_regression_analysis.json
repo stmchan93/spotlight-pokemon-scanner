@@ -5,7 +5,6 @@
   "certExactMatch" : true,
   "certNumber" : "132997190",
   "cropConfidence" : 0.7222671672898789,
-  "directLookupLikely" : true,
   "expects" : {
     "certReadRequired" : true,
     "identityMustMatch" : true,
@@ -22,7 +21,7 @@
     "2020 P.M. SM BLACK STAR #SM241 UMBREON & DARKRAI GX GEM MT PRM-TAG TEAM PWR.CLL. 10 PEA 132997190",
     "BLACK STAR #SM241 ARKRAI GX GEM MT M PWR.CLL. 10 PEA 132997190"
   ],
-  "scanID" : "0B73A062-9DD3-42D0-A455-6814ACCA34CB",
+  "scanID" : "81204ED1-16E6-4306-913D-8E64C87BB69A",
   "sourceImage" : "..\/..\/..\/incoming-slab-regression\/psa-umbreon-darkrai-gx-sm241-tag-team-power-collection-132997190-label-only-derived.jpg",
   "split" : "tuning",
   "truth" : {

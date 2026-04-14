@@ -1,0 +1,72 @@
+{
+  "payload" : {
+    "modeSanitySignals" : {
+      "looksLikeRawScore" : 0.94,
+      "looksLikeSlabScore" : 0.13999999999999999,
+      "selectedMode" : "raw",
+      "warnings" : [
+
+      ]
+    },
+    "normalizedTarget" : {
+      "contentRectNormalized" : {
+        "height" : 0.997347554165736,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.001326222917132017
+      },
+      "geometryKind" : "raw_card",
+      "normalizedHeight" : 880,
+      "normalizedWidth" : 630,
+      "selectedRectNormalized" : {
+        "height" : 0.6360611766576767,
+        "width" : 0.5282444357872009,
+        "x" : 0.13660180568695068,
+        "y" : 0.1911984235048294
+      },
+      "targetQuality" : {
+        "areaCoverageScore" : 1,
+        "aspectScore" : 0.7441403790593899,
+        "centeringScore" : 0.8589972046130933,
+        "holderPenalty" : 0.12,
+        "overallScore" : 0.8737324050962765,
+        "reasons" : [
+          "raw_card",
+          "normalization:holder_inner_card_inset_fallback"
+        ]
+      },
+      "usedFallback" : false
+    },
+    "pipelineVersion" : "rewrite_v1",
+    "rawEvidence" : {
+      "footerBandText" : "",
+      "setBadgeHint" : {
+        "canonicalTokens" : [
+
+        ],
+        "kind" : "unknown",
+        "source" : "none"
+      },
+      "setHints" : [
+
+      ],
+      "titleConfidence" : {
+        "reasons" : [
+          "rewrite_raw_header_wide"
+        ],
+        "score" : 0.58,
+        "tokenConfidenceAverage" : 0.5
+      },
+      "titleTextPrimary" : "スカイさ",
+      "warnings" : [
+        "Raw scene looks holder-like",
+        "Rewrite raw escalation used focused ROIs",
+        "Rewrite raw is relying on broader title evidence",
+        "Low-confidence rewrite raw evidence"
+      ],
+      "wholeCardText" : "スカイさ"
+    },
+    "selectedMode" : "raw"
+  },
+  "stage" : "rewrite_raw_ocr_analysis"
+}

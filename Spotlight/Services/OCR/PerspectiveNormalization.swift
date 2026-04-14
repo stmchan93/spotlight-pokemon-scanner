@@ -28,6 +28,7 @@ func normalizeOCRInputImage(
     chosenCandidate: OCRTargetCandidateSummary,
     mode: OCRTargetMode
 ) -> OCRTargetNormalizationResult {
+    _ = chosenCandidate
     guard mode == .rawCard else {
         return OCRTargetNormalizationResult(
             image: image,
@@ -37,18 +38,24 @@ func normalizeOCRInputImage(
         )
     }
 
-    if chosenCandidate.geometryKind == .rawHolder || rawImageLooksLikeHolder(image) {
-        if let innerCardImage = extractInnerRawCard(from: image) {
-            return innerCardImage
-        }
-        return makeRawNormalizationResult(
-            image: image,
-            geometryKind: .rawHolder,
-            reason: "holder_detected_inner_card_not_found"
-        )
-    }
+    // Keep the happy path simple: perspective-correct the accepted rectangle,
+    // then canonicalize it. Do not reinterpret holder edges or infer missing card area.
+    return makeRawNormalizationResult(
+        image: image,
+        geometryKind: .rawCard,
+        reason: "basic_perspective_canonicalization"
+    )
+}
 
-    return makeRawNormalizationResult(image: image, geometryKind: .rawCard, reason: nil)
+func normalizeDirectRawCardImage(
+    _ image: UIImage,
+    reason: String
+) -> OCRTargetNormalizationResult {
+    makeRawNormalizationResult(
+        image: image,
+        geometryKind: .rawCard,
+        reason: reason
+    )
 }
 
 func normalizeFallbackOCRInputImage(
@@ -57,6 +64,8 @@ func normalizeFallbackOCRInputImage(
     mode: OCRTargetMode,
     scanID: UUID? = nil
 ) -> OCRTargetNormalizationResult {
+    _ = searchImage
+    _ = scanID
     guard mode == .rawCard else {
         let normalizedSearch = searchImage.normalizedOrientation()
         return OCRTargetNormalizationResult(
@@ -67,22 +76,7 @@ func normalizeFallbackOCRInputImage(
         )
     }
 
-    if let recovered = recoverRawCardFromFallback(
-        searchImage,
-        source: .search,
-        scanID: scanID
-    ) {
-        return recovered
-    }
-
-    if let recovered = recoverRawCardFromFallback(
-        fallbackImage,
-        source: .exact,
-        scanID: scanID
-    ) {
-        return recovered
-    }
-
+    // Weak or ambiguous detection falls back to the exact reticle crop directly.
     let normalizedFallback = fallbackImage.normalizedOrientation()
     let canonicalized = canonicalizeRawCardImage(normalizedFallback) ?? RawCanonicalizationResult(
         image: normalizedFallback,
@@ -137,7 +131,7 @@ private func rawImageLooksLikeHolder(_ image: UIImage) -> Bool {
     return (image.size.height / image.size.width) > 1.50
 }
 
-private func extractInnerRawCard(from image: UIImage) -> OCRTargetNormalizationResult? {
+private func detectedInnerRawCard(from image: UIImage) -> OCRTargetNormalizationResult? {
     guard let correctedCGImage = image.cgImage else { return nil }
 
     if let innerCardObservation = try? bestRawCardObservation(
@@ -152,6 +146,12 @@ private func extractInnerRawCard(from image: UIImage) -> OCRTargetNormalizationR
             reason: "holder_inner_card_detected"
         )
     }
+
+    return nil
+}
+
+private func heuristicInnerRawCardNormalization(from image: UIImage) -> OCRTargetNormalizationResult? {
+    guard let correctedCGImage = image.cgImage else { return nil }
 
     guard let heuristicCrop = heuristicInnerRawCardCrop(from: correctedCGImage) else {
         return nil
@@ -171,6 +171,7 @@ private enum RawFallbackRecoverySource: String {
 
 private struct PartialRawCardRemnantCandidate {
     let boundingBox: CGRect
+    let widthHeightAspect: CGFloat
     let totalScore: Double
 }
 
@@ -216,7 +217,7 @@ private func recoverRawCardFromFallback(
     }
 
     if rawImageLooksLikeHolder(image),
-       let holderRecovered = extractInnerRawCard(from: image) {
+       let holderRecovered = detectedInnerRawCard(from: image) ?? heuristicInnerRawCardNormalization(from: image) {
         return OCRTargetNormalizationResult(
             image: holderRecovered.image,
             geometryKind: .rawCard,
@@ -416,6 +417,7 @@ private func bestPartialRawCardRecovery(in cgImage: CGImage) throws -> PartialRa
 
         return PartialRawCardRemnantCandidate(
             boundingBox: box,
+            widthHeightAspect: widthHeightAspect,
             totalScore: totalScore
         )
     }.sorted { lhs, rhs in
@@ -426,16 +428,29 @@ private func bestPartialRawCardRecovery(in cgImage: CGImage) throws -> PartialRa
         return nil
     }
 
-    var consensusRect = best.boundingBox
-    for candidate in candidates.dropFirst() {
-        guard candidate.totalScore >= best.totalScore - 0.08 else { continue }
-        let overlapWithMerged = rectIntersectionOverUnion(consensusRect, candidate.boundingBox)
-        if overlapWithMerged >= 0.42 {
-            let intersection = consensusRect.intersection(candidate.boundingBox)
-            if !intersection.isNull, intersection.width >= 40, intersection.height >= 60 {
-                consensusRect = intersection.integral
+    var consensusRect = mergedStripLikeRemnantConsensusRect(
+        from: candidates,
+        within: imageBounds
+    ) ?? best.boundingBox
+    if consensusRect == best.boundingBox {
+        for candidate in candidates.dropFirst() {
+            guard candidate.totalScore >= best.totalScore - 0.08 else { continue }
+            let overlapWithMerged = rectIntersectionOverUnion(consensusRect, candidate.boundingBox)
+            if overlapWithMerged >= 0.42 {
+                let intersection = consensusRect.intersection(candidate.boundingBox)
+                if !intersection.isNull, intersection.width >= 40, intersection.height >= 60 {
+                    consensusRect = intersection.integral
+                }
             }
         }
+    }
+
+    if shouldRejectStripLikePartialRecovery(
+        consensusRect,
+        primaryCandidate: best,
+        within: imageBounds
+    ) {
+        return nil
     }
 
     let paddedRemnantRect = consensusRect.insetBy(
@@ -457,6 +472,81 @@ private func bestPartialRawCardRecovery(in cgImage: CGImage) throws -> PartialRa
         remnantRect: paddedRemnantRect,
         fullCardRect: fullCardRect
     )
+}
+
+private func mergedStripLikeRemnantConsensusRect(
+    from candidates: [PartialRawCardRemnantCandidate],
+    within imageBounds: CGRect
+) -> CGRect? {
+    guard let best = candidates.first,
+          best.widthHeightAspect >= 1.35 else {
+        return nil
+    }
+
+    var mergedRect = best.boundingBox
+    var didMerge = false
+
+    for candidate in candidates.dropFirst() {
+        guard candidate.totalScore >= best.totalScore - 0.12 else { continue }
+        guard candidate.widthHeightAspect >= 1.35 else { continue }
+
+        let overlapRatio = horizontalOverlapRatio(mergedRect, candidate.boundingBox)
+        let verticalGap = verticalGapBetween(mergedRect, candidate.boundingBox)
+        let widthCoverage = max(mergedRect.width, candidate.boundingBox.width) / imageBounds.width
+
+        guard overlapRatio >= 0.72,
+              verticalGap <= imageBounds.height * 0.10,
+              widthCoverage >= 0.45 else {
+            continue
+        }
+
+        mergedRect = mergedRect.union(candidate.boundingBox).integral
+        didMerge = true
+    }
+
+    return didMerge ? mergedRect : nil
+}
+
+private func shouldRejectStripLikePartialRecovery(
+    _ remnantRect: CGRect,
+    primaryCandidate: PartialRawCardRemnantCandidate,
+    within imageBounds: CGRect
+) -> Bool {
+    let aspect = remnantRect.width / max(1, remnantRect.height)
+    let widthCoverage = remnantRect.width / imageBounds.width
+    let heightCoverage = remnantRect.height / imageBounds.height
+    let touchesTop = remnantRect.minY <= imageBounds.height * 0.06
+    let touchesBottom = remnantRect.maxY >= imageBounds.height - (imageBounds.height * 0.06)
+
+    guard primaryCandidate.widthHeightAspect >= 1.35 || aspect >= 1.35 else {
+        return false
+    }
+
+    guard widthCoverage >= 0.45,
+          heightCoverage <= 0.42 else {
+        return false
+    }
+
+    return !(touchesTop || touchesBottom)
+}
+
+private func horizontalOverlapRatio(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+    let overlap = max(0, min(lhs.maxX, rhs.maxX) - max(lhs.minX, rhs.minX))
+    let baseline = max(1, min(lhs.width, rhs.width))
+    return overlap / baseline
+}
+
+private func verticalGapBetween(_ lhs: CGRect, _ rhs: CGRect) -> CGFloat {
+    if lhs.intersects(rhs) {
+        return 0
+    }
+    if lhs.maxY < rhs.minY {
+        return rhs.minY - lhs.maxY
+    }
+    if rhs.maxY < lhs.minY {
+        return lhs.minY - rhs.maxY
+    }
+    return 0
 }
 
 private func inferredFullRawCardRect(
@@ -714,10 +804,22 @@ private func heuristicInnerRawCardCrop(from cgImage: CGImage) -> CGImage? {
         width: width * 0.88,
         height: height * 0.91
     )
-    let cropRect = centeredAspectFitRect(
-        in: containerRect,
-        widthHeightAspect: 63.0 / 88.0
-    ).integral
+    let expectedAspect = 63.0 / 88.0
+    let containerAspect = containerRect.width / max(1, containerRect.height)
+    let cropRect: CGRect
+    if containerAspect < expectedAspect {
+        // A narrow holder crop is already missing horizontal room, usually because
+        // a sticker or sleeve edge ate the right side. Forcing it back to card
+        // aspect here would crop away the header/footer vertically, which is much
+        // worse than keeping the full-height inset and letting canonicalization
+        // letterbox it later.
+        cropRect = containerRect.integral
+    } else {
+        cropRect = centeredAspectFitRect(
+            in: containerRect,
+            widthHeightAspect: expectedAspect
+        ).integral
+    }
 
     guard cropRect.width > 0, cropRect.height > 0 else { return nil }
     return cgImage.cropping(to: cropRect)

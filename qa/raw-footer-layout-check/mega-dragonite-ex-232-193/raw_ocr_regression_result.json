@@ -11,10 +11,10 @@
   },
   "debug" : {
     "contentRectNormalized" : {
-      "height" : 0.9980614973262033,
-      "width" : 1,
-      "x" : 0,
-      "y" : 0.0009692513368983539
+      "height" : 1,
+      "width" : 0.7287784679089027,
+      "x" : 0.13561076604554867,
+      "y" : 0
     },
     "footerRoutingReasons" : [
       "footer_band_anchor_unavailable"
@@ -24,12 +24,12 @@
         "kind" : "footer_band_wide",
         "label" : "13_raw_footer_band",
         "normalizedRect" : {
-          "height" : 0.19961229946524067,
-          "width" : 0.9,
-          "x" : 0.05,
-          "y" : 0.7594959893048129
+          "height" : 0.2,
+          "width" : 0.6559006211180124,
+          "x" : 0.1720496894409938,
+          "y" : 0.76
         },
-        "text" : "：32\/"
+        "text" : "1193"
       },
       {
         "footerFamily" : "modern_left",
@@ -37,10 +37,10 @@
         "kind" : "footer_metadata",
         "label" : "14_raw_footer_modern_left_set",
         "normalizedRect" : {
-          "height" : 0.09781002673796793,
-          "width" : 0.138,
-          "x" : 0.07064000000000001,
-          "y" : 0.8444310227272728
+          "height" : 0.098,
+          "width" : 0.10057142857142858,
+          "x" : 0.18709167701863355,
+          "y" : 0.8451
         },
         "text" : ""
       },
@@ -50,10 +50,10 @@
         "kind" : "footer_metadata",
         "label" : "15_raw_footer_modern_left_collector",
         "normalizedRect" : {
-          "height" : 0.0918216577540107,
-          "width" : 0.275,
-          "x" : 0.17,
-          "y" : 0.8493215240641712
+          "height" : 0.092,
+          "width" : 0.20041407867494826,
+          "x" : 0.2595031055900621,
+          "y" : 0.85
         },
         "text" : ""
       },
@@ -63,10 +63,10 @@
         "kind" : "footer_metadata",
         "label" : "16_raw_footer_legacy_right_mid_set",
         "normalizedRect" : {
-          "height" : 0.10180227272727273,
-          "width" : 0.125,
-          "x" : 0.6725,
-          "y" : 0.8411773422459894
+          "height" : 0.102,
+          "width" : 0.09109730848861283,
+          "x" : 0.6257142857142857,
+          "y" : 0.84184
         },
         "text" : ""
       },
@@ -76,10 +76,10 @@
         "kind" : "footer_metadata",
         "label" : "17_raw_footer_legacy_right_mid_collector",
         "normalizedRect" : {
-          "height" : 0.09980614973262034,
-          "width" : 0.185,
-          "x" : 0.72,
-          "y" : 0.8493215240641712
+          "height" : 0.1,
+          "width" : 0.134824016563147,
+          "x" : 0.6603312629399586,
+          "y" : 0.85
         },
         "text" : ""
       },
@@ -89,10 +89,10 @@
         "kind" : "footer_metadata",
         "label" : "18_raw_footer_legacy_right_corner_set",
         "normalizedRect" : {
-          "height" : 0.10479645721925135,
-          "width" : 0.115,
-          "x" : 0.7857500000000001,
-          "y" : 0.8287614572192514
+          "height" : 0.105,
+          "width" : 0.0838095238095238,
+          "x" : 0.7082484472049689,
+          "y" : 0.8294
         },
         "text" : ""
       },
@@ -102,47 +102,35 @@
         "kind" : "footer_metadata",
         "label" : "19_raw_footer_legacy_right_corner_collector",
         "normalizedRect" : {
-          "height" : 0.10180227272727273,
-          "width" : 0.19,
-          "x" : 0.705,
-          "y" : 0.8413370320855615
+          "height" : 0.102,
+          "width" : 0.1384679089026915,
+          "x" : 0.649399585921325,
+          "y" : 0.842
         },
-        "text" : ""
-      },
-      {
-        "kind" : "header_wide",
-        "label" : "12_raw_header_wide",
-        "normalizedRect" : {
-          "height" : 0.21957352941176472,
-          "width" : 0.8,
-          "x" : 0.1,
-          "y" : 0.02093048128342242
-        },
-        "text" : "カイリュ"
+        "text" : "Cl"
       }
     ],
     "requestedGeometryKind" : "raw_card",
     "stage1AssessmentReasons" : [
       "collector_signal_weak",
       "title_signal_weak",
-      "set_signal_weak"
+      "set_signal_weak",
+      "target_quality_too_low_for_escalation"
     ],
-    "targetQualityScore" : 0.6790740104485933,
-    "usedFallback" : false
+    "targetQualityScore" : 0.46,
+    "usedFallback" : true
   },
   "fixtureName" : "mega-dragonite-ex-232-193",
   "ocr" : {
-    "collectorConfidenceScore" : 0.42,
-    "collectorNumberPartial" : "32",
-    "cropConfidence" : 0.6790740104485933,
+    "cropConfidence" : 0.46,
     "setHintTokens" : [
 
     ],
-    "titleConfidenceScore" : 0.58,
-    "titleTextPrimary" : "カイリュ",
     "warnings" : [
       "Raw scene looks holder-like",
-      "Rewrite raw escalation used focused ROIs",
+      "Target selection used fallback crop",
+      "Target selection confidence is weak",
+      "Could not read strong raw-card clues",
       "Low-confidence rewrite raw evidence"
     ]
   },

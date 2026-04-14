@@ -1,0 +1,45 @@
+{
+  "payload" : {
+    "ambiguityFlags" : [
+      "Top matches are close together",
+      "Set hints are weak"
+    ],
+    "confidence" : "low",
+    "matchMs" : 415.7160520553589,
+    "networkOverheadMs" : 139.3090520553589,
+    "resolverMode" : "raw_card",
+    "resolverPath" : "visual_hybrid_index",
+    "reviewDisposition" : "needs_review",
+    "reviewReason" : "Review the best guess before relying on the card result.",
+    "scanID" : "53FFB14E-EAFD-4717-94F6-99243002B825",
+    "scrydexRequestCount" : 0,
+    "scrydexRequestTypes" : [
+
+    ],
+    "serverProcessingMs" : 276.407,
+    "topCandidates" : [
+      {
+        "finalScore" : 0.6429,
+        "id" : "gym1-12",
+        "name" : "Rocket's Moltres",
+        "number" : "12\/132",
+        "setName" : "Gym Heroes"
+      },
+      {
+        "finalScore" : 0.6077,
+        "id" : "base3-39",
+        "name" : "Magmar",
+        "number" : "39\/62",
+        "setName" : "Fossil"
+      },
+      {
+        "finalScore" : 0.6076,
+        "id" : "base5-50",
+        "name" : "Charmander",
+        "number" : "50\/82",
+        "setName" : "Team Rocket"
+      }
+    ]
+  },
+  "stage" : "frontend_backend_response"
+}

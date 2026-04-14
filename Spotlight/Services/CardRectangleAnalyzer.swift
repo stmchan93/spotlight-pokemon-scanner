@@ -282,6 +282,7 @@ actor SlabScanner {
             recognizedTokens: [],
             collectorNumber: nil,
             setHintTokens: [],
+            setBadgeHint: nil,
             promoCodeHint: nil,
             slabGrader: slabLabelAnalysis.grader,
             slabGrade: slabLabelAnalysis.grade,

@@ -1,5 +1,10 @@
 import Foundation
 
+enum RawResolverMode: String, Codable, Hashable, Sendable {
+    case visual
+    case hybrid
+}
+
 struct ScanClientContext: Codable, Hashable, Sendable {
     let platform: String
     let appVersion: String
@@ -36,6 +41,7 @@ struct ScanMatchRequestPayload: Codable, Hashable, Sendable {
     let recognizedTokens: [RecognizedToken]
     let collectorNumber: String?
     let setHintTokens: [String]
+    let setBadgeHint: OCRSetBadgeHint?
     let promoCodeHint: String?
     let slabGrader: String?
     let slabGrade: String?
@@ -49,6 +55,7 @@ struct ScanMatchRequestPayload: Codable, Hashable, Sendable {
     let slabClassifierReasons: [String]
     let slabRecommendedLookupPath: SlabRecommendedLookupPath?
     let resolverModeHint: ResolverMode
+    let rawResolverMode: RawResolverMode?
     let cropConfidence: Double
     let warnings: [String]
     let ocrAnalysis: OCRAnalysisEnvelope?

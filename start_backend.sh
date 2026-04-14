@@ -14,9 +14,15 @@ if [ ! -f backend/.env ]; then
     echo ""
 fi
 
-# Start the server (python-dotenv will load backend/.env automatically)
-# Bind to 0.0.0.0 to allow iPhone to connect
-python3 backend/server.py \
+# Prefer the visual-model venv so local runtime matches the active backend path.
+PYTHON_BIN="python3"
+if [ -x ".venv-raw-visual-poc/bin/python" ]; then
+    PYTHON_BIN=".venv-raw-visual-poc/bin/python"
+fi
+
+# Start the server. backend/server.py will load backend/.env directly.
+# Bind to 0.0.0.0 to allow iPhone to connect.
+"$PYTHON_BIN" backend/server.py \
   --database-path backend/data/spotlight_scanner.sqlite \
   --port 8788 \
   --host 0.0.0.0

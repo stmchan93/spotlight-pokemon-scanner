@@ -7,14 +7,14 @@
     "collectorNearMiss" : false,
     "exactCollectorPass" : false,
     "setHintPass" : false,
-    "titlePass" : false
+    "titlePass" : true
   },
   "debug" : {
     "contentRectNormalized" : {
-      "height" : 0.9998224431818182,
-      "width" : 1,
-      "x" : 0,
-      "y" : 8.87784090909091e-05
+      "height" : 1,
+      "width" : 0.4514094780930868,
+      "x" : 0.27429526095345663,
+      "y" : 0
     },
     "footerRoutingReasons" : [
       "footer_band_anchor_unavailable"
@@ -24,12 +24,12 @@
         "kind" : "footer_band_wide",
         "label" : "13_raw_footer_band",
         "normalizedRect" : {
-          "height" : 0.19996448863636365,
-          "width" : 0.9,
-          "x" : 0.05,
-          "y" : 0.7599538352272728
+          "height" : 0.2,
+          "width" : 0.40626853028377813,
+          "x" : 0.29686573485811096,
+          "y" : 0.76
         },
-        "text" : ""
+        "text" : "any number of Item cards during"
       },
       {
         "footerFamily" : "modern_left",
@@ -37,12 +37,12 @@
         "kind" : "footer_metadata",
         "label" : "14_raw_footer_modern_left_set",
         "normalizedRect" : {
-          "height" : 0.0979825994318182,
-          "width" : 0.138,
-          "x" : 0.07064000000000001,
-          "y" : 0.8450387251420455
+          "height" : 0.098,
+          "width" : 0.062294507976845985,
+          "x" : 0.3061828264859523,
+          "y" : 0.8451
         },
-        "text" : "J7"
+        "text" : ""
       },
       {
         "footerFamily" : "modern_left",
@@ -50,10 +50,10 @@
         "kind" : "footer_metadata",
         "label" : "15_raw_footer_modern_left_collector",
         "normalizedRect" : {
-          "height" : 0.09198366477272728,
-          "width" : 0.275,
-          "x" : 0.17,
-          "y" : 0.8499378551136364
+          "height" : 0.092,
+          "width" : 0.12413760647559888,
+          "x" : 0.3510348722292814,
+          "y" : 0.85
         },
         "text" : ""
       },
@@ -63,10 +63,10 @@
         "kind" : "footer_metadata",
         "label" : "16_raw_footer_legacy_right_mid_set",
         "normalizedRect" : {
-          "height" : 0.10198188920454546,
-          "width" : 0.125,
-          "x" : 0.6725,
-          "y" : 0.8417793039772727
+          "height" : 0.102,
+          "width" : 0.05642618476163585,
+          "x" : 0.5778681349710575,
+          "y" : 0.84184
         },
         "text" : ""
       },
@@ -76,10 +76,10 @@
         "kind" : "footer_metadata",
         "label" : "17_raw_footer_legacy_right_mid_collector",
         "normalizedRect" : {
-          "height" : 0.09998224431818183,
-          "width" : 0.185,
-          "x" : 0.72,
-          "y" : 0.8499378551136364
+          "height" : 0.1,
+          "width" : 0.08351075344722106,
+          "x" : 0.5993100851804791,
+          "y" : 0.85
         },
         "text" : ""
       },
@@ -89,10 +89,10 @@
         "kind" : "footer_metadata",
         "label" : "18_raw_footer_legacy_right_corner_set",
         "normalizedRect" : {
-          "height" : 0.10498135653409091,
-          "width" : 0.115,
-          "x" : 0.7857500000000001,
-          "y" : 0.829341512784091
+          "height" : 0.105,
+          "width" : 0.051912089980704984,
+          "x" : 0.6289902583650996,
+          "y" : 0.8294
         },
         "text" : ""
       },
@@ -102,10 +102,10 @@
         "kind" : "footer_metadata",
         "label" : "19_raw_footer_legacy_right_corner_collector",
         "normalizedRect" : {
-          "height" : 0.10198188920454546,
-          "width" : 0.19,
-          "x" : 0.705,
-          "y" : 0.8419392755681818
+          "height" : 0.102,
+          "width" : 0.0857678008376865,
+          "x" : 0.5925389430090828,
+          "y" : 0.842
         },
         "text" : ""
       },
@@ -113,12 +113,12 @@
         "kind" : "header_wide",
         "label" : "12_raw_header_wide",
         "normalizedRect" : {
-          "height" : 0.2199609375,
-          "width" : 0.8,
-          "x" : 0.1,
-          "y" : 0.020085227272727272
+          "height" : 0.22,
+          "width" : 0.36112758247446947,
+          "x" : 0.3194362087627653,
+          "y" : 0.02
         },
-        "text" : ""
+        "text" : "itch"
       }
     ],
     "requestedGeometryKind" : "raw_card",
@@ -136,10 +136,12 @@
     "setHintTokens" : [
 
     ],
+    "titleConfidenceScore" : 1,
+    "titleTextPrimary" : "itch",
     "warnings" : [
       "Raw scene looks holder-like",
       "Rewrite raw escalation used focused ROIs",
-      "Could not read strong raw-card clues",
+      "Rewrite raw is relying on broader title evidence",
       "Low-confidence rewrite raw evidence"
     ]
   },

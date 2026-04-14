@@ -1,11 +1,12 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_partial_collector_hint"
   ],
+  "collectorConfidenceScore" : 0.42,
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.9994234982128445,
-    "x" : 0.00028825089357774737,
+    "width" : 0.4377719949882491,
+    "x" : 0.2811140025058754,
     "y" : 0
   },
   "fixtureName" : "pikachu-25-25",
@@ -19,7 +20,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:holder_like_selected_raw_card_preserved"
   ],
   "ocrTargetQualityScore" : 0.9633294750497268,
   "ocrUsedFallback" : false,
@@ -29,13 +30,92 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.2,
-        "width" : 0.89948114839156,
-        "x" : 0.05025942580421998,
+        "width" : 0.3939947954894242,
+        "x" : 0.30300260225528786,
         "y" : 0.76
       },
-      "text" : "",
+      "text" : "Meal Time Flip a coin until you get tails. For each heads, d Gnaw weskn x2 resHItANe @-20 reenat M",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02296880405150983,
+            "width" : 0.11747109426440705,
+            "x" : 0.46577968407132087,
+            "y" : 0.7729670085179462
+          },
+          "text" : "Meal Time"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.022997499184922356,
+            "width" : 0.36565664714685603,
+            "x" : 0.3307833812735872,
+            "y" : 0.8008261878777033
+          },
+          "text" : "Flip a coin until you get tails. For each heads, d"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.018181818181818188,
+            "width" : 0.06041253530837835,
+            "x" : 0.4500939921937612,
+            "y" : 0.8609404389067399
+          },
+          "text" : "Gnaw"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.006896551724137945,
+            "width" : 0.04640383146875441,
+            "x" : 0.31350913004015524,
+            "y" : 0.9355485892842216
+          },
+          "text" : "weskn"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.013166144200626962,
+            "width" : 0.027141863689271444,
+            "x" : 0.38355264937690287,
+            "y" : 0.932413793030303
+          },
+          "text" : "x2"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.007523510971786829,
+            "width" : 0.059536991318401886,
+            "x" : 0.43170756927797466,
+            "y" : 0.9342946708254963
+          },
+          "text" : "resHItANe"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.012539184952978056,
+            "width" : 0.05515927136851937,
+            "x" : 0.4964978236460992,
+            "y" : 0.9324137931392745
+          },
+          "text" : "@-20"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008777429467084642,
+            "width" : 0.053408183388566385,
+            "x" : 0.5945587505359748,
+            "y" : 0.9336677116256158
+          },
+          "text" : "reenat M"
+        }
       ]
     },
     {
@@ -45,22 +125,13 @@
       "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
         "height" : 0.098,
-        "width" : 0.13792044275337256,
-        "x" : 0.0708875268073331,
+        "width" : 0.06041253530837838,
+        "x" : 0.31203821623184536,
         "y" : 0.8451
       },
-      "text" : "n2s= pat,",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.06537376916455657,
-            "width" : 0.03540188535201223,
-            "x" : 0.13323547375296133,
-            "y" : 0.8613390766508362
-          },
-          "text" : "n2s= pat,"
-        }
+
       ]
     },
     {
@@ -70,13 +141,22 @@
       "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
         "height" : 0.092,
-        "width" : 0.27484146200853227,
-        "x" : 0.17019024558976134,
+        "width" : 0.12038729862176852,
+        "x" : 0.3555352416538778,
         "y" : 0.85
       },
-      "text" : "",
+      "text" : "*",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020287179487179487,
+            "width" : 0.0240774597243537,
+            "x" : 0.3555352416945492,
+            "y" : 0.8599076923922222
+          },
+          "text" : "*"
+        }
       ]
     },
     {
@@ -86,13 +166,22 @@
       "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.12492793727660556,
-        "x" : 0.6724005534417157,
+        "width" : 0.054721499373531136,
+        "x" : 0.5755156691354729,
         "y" : 0.84184
       },
-      "text" : "",
+      "text" : "HEWH",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.007340909090909072,
+            "width" : 0.030748271076555592,
+            "x" : 0.5958407972179774,
+            "y" : 0.9337945454770834
+          },
+          "text" : "HEWH"
+        }
       ]
     },
     {
@@ -102,13 +191,22 @@
       "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
         "height" : 0.1,
-        "width" : 0.18489334716937622,
-        "x" : 0.7198731696068258,
+        "width" : 0.08098781907282608,
+        "x" : 0.5963098388974147,
         "y" : 0.85
       },
-      "text" : "",
+      "text" : "rereet ct",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011372549019607847,
+            "width" : 0.0552433467847754,
+            "x" : 0.5963098390315005,
+            "y" : 0.9319607842699849
+          },
+          "text" : "rereet ct"
+        }
       ]
     },
     {
@@ -118,8 +216,8 @@
       "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
         "height" : 0.105,
-        "width" : 0.11493370229447712,
-        "x" : 0.7855852646143202,
+        "width" : 0.05034377942364865,
+        "x" : 0.6250933475678923,
         "y" : 0.8294
       },
       "text" : "",
@@ -134,13 +232,22 @@
       "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.18989046466044046,
-        "x" : 0.7048818171336331,
+        "width" : 0.08317667904776734,
+        "x" : 0.5897432589725911,
         "y" : 0.842
       },
-      "text" : "",
+      "text" : "nenat",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009315068493150684,
+            "width" : 0.06025397222357949,
+            "x" : 0.5897432585422056,
+            "y" : 0.9328219178348336
+          },
+          "text" : "nenat"
+        }
       ]
     },
     {
@@ -148,33 +255,43 @@
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.7995387985702757,
-        "x" : 0.1002306007148622,
+        "width" : 0.3502175959905993,
+        "x" : 0.32489120200470034,
         "y" : 0.02
       },
-      "text" : "",
+      "text" : "BASic Pikachu",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.07992404898685807,
+            "width" : 0.3448736032809808,
+            "x" : 0.32388223265253374,
+            "y" : 0.09116425374004575
+          },
+          "text" : "BASic Pikachu"
+        }
       ]
     }
   ],
-  "scanID" : "5359F0A2-57EA-49FD-A199-171E75F92DCD",
+  "scanID" : "236E88E0-035F-4B79-9AB9-6F6BB5599747",
   "setConfidenceReasons" : [
-    "rewrite_raw_footer_family_set_hints"
+    "rewrite_raw_footer_band_set_hints",
+    "rewrite_raw_fuzzy_set_hints"
   ],
-  "setConfidenceScore" : 0.56,
+  "setConfidenceScore" : 0.3,
   "setHintTokens" : [
-    "n2s"
+    "lor"
   ],
   "stage1AssessmentReasons" : [
     "collector_signal_weak",
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 1,
+  "titleTextPrimary" : "BASic Pikachu",
   "warnings" : [
     "Raw scene looks holder-like",
-    "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
-    "Low-confidence rewrite raw evidence"
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

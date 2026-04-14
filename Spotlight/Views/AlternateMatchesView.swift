@@ -2,99 +2,174 @@ import SwiftUI
 
 struct AlternateMatchesView: View {
     @ObservedObject var viewModel: ScannerViewModel
+    @State private var isSearchExpanded = false
+
+    private let limeAccent = Color(red: 0.78, green: 0.92, blue: 0.47)
+    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
+
+    private var topCandidates: [ScoredCandidate] {
+        viewModel.activeAlternativesResponse?.topCandidates ?? []
+    }
+
+    private var bestMatch: ScoredCandidate? {
+        topCandidates.first
+    }
+
+    private var similarMatches: [ScoredCandidate] {
+        Array(topCandidates.dropFirst())
+    }
+
+    private var resultCountText: String {
+        let count = topCandidates.count
+        return "\(count) \(count == 1 ? "card" : "cards") found"
+    }
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 20) {
+            VStack(alignment: .leading, spacing: 28) {
                 header
-                searchField
-                alternateMatchesSection
+                scanPreview
+                closestMatchSection
+                similarMatchesSection
+                manualSearchSection
 
-                if !viewModel.searchResults.isEmpty {
+                if shouldShowSearchResults {
                     searchResultsSection
                 }
             }
-            .padding(20)
-            .padding(.bottom, 32)
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
+            .padding(.bottom, 40)
         }
-        .background(Color(red: 0.04, green: 0.05, blue: 0.07).ignoresSafeArea())
+        .background(background.ignoresSafeArea())
+        .onAppear {
+            isSearchExpanded = !viewModel.searchQuery.isEmpty || !viewModel.searchResults.isEmpty
+        }
+    }
+
+    private var background: some View {
+        ZStack {
+            inkBackground
+
+            LinearGradient(
+                colors: [
+                    Color(red: 0.19, green: 0.16, blue: 0.12).opacity(0.42),
+                    Color.clear,
+                    Color(red: 0.06, green: 0.07, blue: 0.10).opacity(0.8)
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+
+            Circle()
+                .fill(Color.white.opacity(0.08))
+                .frame(width: 280, height: 280)
+                .blur(radius: 52)
+                .offset(y: 88)
+        }
+    }
+
+    private var shouldShowSearchResults: Bool {
+        isSearchExpanded && !viewModel.searchResults.isEmpty
     }
 
     private var header: some View {
-        HStack(alignment: .top) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Fix This Match")
-                    .font(.system(size: 30, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
-                Text("The scan was weak. Pick a better match or search manually without leaving the scanner flow.")
-                    .font(.subheadline)
-                    .foregroundStyle(Color.white.opacity(0.7))
+        HStack(spacing: 12) {
+            Button {
+                viewModel.dismissAlternatives()
+            } label: {
+                HStack(spacing: 6) {
+                    Image(systemName: "chevron.left")
+                    Text("Back")
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.82))
             }
+            .buttonStyle(.plain)
 
             Spacer()
 
-            Button("Dismiss") {
-                viewModel.dismissAlternatives()
-            }
-            .foregroundStyle(Color.white.opacity(0.78))
-        }
-    }
-
-    private var searchField: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text("Search")
-                .font(.headline)
+            Text(resultCountText)
+                .font(.headline.weight(.semibold))
                 .foregroundStyle(.white)
 
-            TextField("Search by name, set, or number", text: Binding(
-                get: { viewModel.searchQuery },
-                set: { viewModel.updateSearchQuery($0) }
-            ))
-            .textInputAutocapitalization(.never)
-            .autocorrectionDisabled()
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(red: 0.12, green: 0.16, blue: 0.20))
-            )
-            .foregroundStyle(.white)
+            Spacer()
+
+            Color.clear
+                .frame(width: 36, height: 36)
         }
     }
 
-    private var alternateMatchesSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            if let bestMatch = viewModel.matchResponse?.bestMatch {
+    private var scanPreview: some View {
+        VStack(spacing: 14) {
+            if let previewImage = viewModel.activeAlternativesPreviewImage {
+                ZStack {
+                    Circle()
+                        .fill(Color.white.opacity(0.12))
+                        .frame(width: 210, height: 210)
+                        .blur(radius: 48)
+
+                    Image(uiImage: previewImage)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: 220, maxHeight: 290)
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .shadow(color: .black.opacity(0.36), radius: 22, y: 10)
+                }
+            } else {
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(Color.white.opacity(0.06))
+                    .frame(width: 220, height: 280)
+                    .overlay(
+                        Image(systemName: "photo")
+                            .font(.title.weight(.semibold))
+                            .foregroundStyle(Color.white.opacity(0.55))
+                    )
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 6)
+    }
+
+    @ViewBuilder
+    private var closestMatchSection: some View {
+        if let bestMatch {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Closest Match")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(limeAccent)
+
                 Button {
                     viewModel.acceptBestMatch()
                 } label: {
-                    matchCell(
-                        title: bestMatch.name,
-                        subtitle: bestMatch.subtitle,
-                        detail: bestMatch.pricingLine ?? bestMatch.detailLine,
-                        score: viewModel.matchResponse?.topCandidates.first?.finalScore,
-                        badge: "Use Top"
+                    candidateRow(
+                        candidate: bestMatch.candidate,
+                        detailLabel: estimatedValueLabel(for: bestMatch.candidate),
+                        emphasize: true
                     )
                 }
                 .buttonStyle(.plain)
             }
+        }
+    }
 
-            Text("Likely Alternatives")
-                .font(.headline)
-                .foregroundStyle(.white)
+    @ViewBuilder
+    private var similarMatchesSection: some View {
+        if !similarMatches.isEmpty {
+            VStack(alignment: .leading, spacing: 12) {
+                Text("\(similarMatches.count) similar \(similarMatches.count == 1 ? "card" : "cards")")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
 
-            if let topCandidates = viewModel.matchResponse?.topCandidates.dropFirst() {
-                ForEach(topCandidates) { candidate in
+                ForEach(similarMatches) { candidate in
                     Button {
-                        let correctionType: CorrectionType = candidate.rank == 1 ? .acceptedTop : .choseAlternative
-                        viewModel.selectCandidate(candidate.candidate, correctionType: correctionType)
+                        viewModel.selectCandidate(candidate.candidate, correctionType: .choseAlternative)
                     } label: {
-                    matchCell(
-                        title: candidate.candidate.name,
-                        subtitle: candidate.candidate.subtitle,
-                        detail: candidate.candidate.pricingLine ?? "\(candidate.candidate.rarity) • \(candidate.candidate.variant)",
-                        score: candidate.finalScore,
-                        badge: candidate.rank == 1 ? "Top" : "Alt"
-                    )
+                        candidateRow(
+                            candidate: candidate.candidate,
+                            detailLabel: estimatedValueLabel(for: candidate.candidate),
+                            emphasize: false
+                        )
                     }
                     .buttonStyle(.plain)
                 }
@@ -102,22 +177,70 @@ struct AlternateMatchesView: View {
         }
     }
 
+    private var manualSearchSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Button {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    isSearchExpanded.toggle()
+                    if !isSearchExpanded {
+                        viewModel.updateSearchQuery("")
+                    }
+                }
+            } label: {
+                Text("Are these wrong?")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+            .buttonStyle(.plain)
+
+            if isSearchExpanded {
+                Text("Search by name, set, or number, or go back and rescan.")
+                    .font(.subheadline)
+                    .foregroundStyle(Color.white.opacity(0.68))
+
+                TextField("Search by name, set, or number", text: Binding(
+                    get: { viewModel.searchQuery },
+                    set: { viewModel.updateSearchQuery($0) }
+                ))
+                .textInputAutocapitalization(.never)
+                .autocorrectionDisabled()
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(red: 0.12, green: 0.16, blue: 0.20))
+                )
+                .foregroundStyle(.white)
+            }
+
+            Button {
+                viewModel.dismissAlternatives()
+            } label: {
+                Text("Back To Scanner")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(Color.white.opacity(0.78))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .background(Color.white.opacity(0.06))
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
     private var searchResultsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Search Results")
-                .font(.headline)
+                .font(.headline.weight(.semibold))
                 .foregroundStyle(.white)
 
             ForEach(viewModel.searchResults) { candidate in
                 Button {
                     viewModel.selectCandidate(candidate, correctionType: .manualSearch)
                 } label: {
-                    matchCell(
-                        title: candidate.name,
-                        subtitle: candidate.subtitle,
-                        detail: candidate.pricingLine ?? candidate.detailLine,
-                        score: nil,
-                        badge: "Search"
+                    candidateRow(
+                        candidate: candidate,
+                        detailLabel: estimatedValueLabel(for: candidate),
+                        emphasize: false
                     )
                 }
                 .buttonStyle(.plain)
@@ -125,47 +248,100 @@ struct AlternateMatchesView: View {
         }
     }
 
-    private func matchCell(
-        title: String,
-        subtitle: String,
-        detail: String,
-        score: Double?,
-        badge: String
-    ) -> some View {
-        HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .fill(Color(red: 0.22, green: 0.28, blue: 0.35))
-                .frame(width: 64, height: 90)
-                .overlay(
-                    Text(badge)
-                        .font(.caption.weight(.semibold))
+    private func candidateRow(candidate: CardCandidate, detailLabel: String, emphasize: Bool) -> some View {
+        VStack(spacing: 0) {
+            HStack(alignment: .top, spacing: 14) {
+                CandidateThumbnail(candidate: candidate)
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("\(candidate.setName) • \(candidate.language)".uppercased())
+                        .font(.caption.weight(.bold))
+                        .foregroundStyle(Color.white.opacity(0.58))
+                        .lineLimit(2)
+
+                    Text("\(candidate.name) #\(candidate.number)")
+                        .font(.headline.weight(.semibold))
                         .foregroundStyle(.white)
-                )
+                        .lineLimit(2)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(title)
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text(subtitle)
-                    .font(.subheadline)
-                    .foregroundStyle(Color.white.opacity(0.76))
-                Text(detail)
-                    .font(.footnote)
-                    .foregroundStyle(Color.white.opacity(0.62))
+                    Text(detailLabel)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(emphasize ? .white : Color.white.opacity(0.78))
+                        .lineLimit(1)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.white.opacity(0.52))
+                    .padding(.top, 4)
             }
+            .padding(.vertical, 6)
 
-            Spacer()
+            Rectangle()
+                .fill(Color.white.opacity(0.06))
+                .frame(height: 1)
+                .padding(.leading, 78)
+        }
+    }
 
-            if let score {
-                Text(String(format: "%.2f", score))
-                    .font(.footnote.weight(.semibold))
-                    .foregroundStyle(Color(red: 0.46, green: 0.85, blue: 0.68))
+    private func estimatedValueLabel(for candidate: CardCandidate) -> String {
+        guard let pricing = candidate.pricing,
+              let price = pricing.primaryDisplayPrice else {
+            return "EST VALUE unavailable"
+        }
+        return "EST VALUE \(formattedEstimatePrice(price, currencyCode: pricing.currencyCode))"
+    }
+
+    private func formattedEstimatePrice(_ value: Double, currencyCode: String) -> String {
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.currencyCode = currencyCode
+        formatter.maximumFractionDigits = 0
+        formatter.minimumFractionDigits = 0
+        return formatter.string(from: NSNumber(value: value)) ?? "\(currencyCode) \(value)"
+    }
+}
+
+private struct CandidateThumbnail: View {
+    let candidate: CardCandidate
+
+    var body: some View {
+        Group {
+            if let urlString = candidate.imageSmallURL ?? candidate.imageLargeURL,
+               let url = URL(string: urlString) {
+                AsyncImage(url: url) { phase in
+                    switch phase {
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFit()
+                    case .failure(_):
+                        fallback
+                    case .empty:
+                        fallback
+                    @unknown default:
+                        fallback
+                    }
+                }
+            } else {
+                fallback
             }
         }
-        .padding(14)
-        .background(
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .fill(Color(red: 0.12, green: 0.16, blue: 0.20))
-        )
+        .frame(width: 64, height: 90)
+        .background(Color.white.opacity(0.04))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+
+    @ViewBuilder
+    private var fallback: some View {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .fill(Color.white.opacity(0.08))
+            .overlay(
+                Text(String(candidate.name.prefix(1)))
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(Color.white.opacity(0.74))
+            )
     }
 }
