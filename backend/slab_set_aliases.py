@@ -86,8 +86,25 @@ def _normalize_grader(value: str | None) -> str:
 
 @lru_cache(maxsize=1)
 def _load_alias_entries() -> tuple[dict[str, Any], ...]:
-    path = Path(__file__).resolve().parent / "data" / "slab_set_aliases.json"
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(payload, list):
-        return ()
-    return tuple(entry for entry in payload if isinstance(entry, dict))
+    for path in _alias_entry_paths():
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            continue
+        except json.JSONDecodeError:
+            continue
+        if not isinstance(payload, list):
+            continue
+        return tuple(entry for entry in payload if isinstance(entry, dict))
+    return ()
+
+
+def _alias_entry_paths() -> tuple[Path, ...]:
+    module_dir = Path(__file__).resolve().parent
+    candidates = (
+        module_dir / "data" / "slab_set_aliases.json",
+        module_dir / "backend" / "data" / "slab_set_aliases.json",
+        module_dir.parent / "backend" / "data" / "slab_set_aliases.json",
+    )
+    # Preserve search order while removing duplicates.
+    return tuple(dict.fromkeys(candidates))

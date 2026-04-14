@@ -35,6 +35,11 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             "scanID": "scan-phase7-1",
             "collectorNumber": "223/197",
             "setHintTokens": ["obf"],
+            "image": {
+                "jpegBase64": "abc123",
+                "width": 630,
+                "height": 880,
+            },
         }
         response_payload = {
             "scanID": "scan-phase7-1",
@@ -82,7 +87,11 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
 
         self.assertIsNotNone(row)
         assert row is not None
-        self.assertEqual(json.loads(row["request_json"])["collectorNumber"], "223/197")
+        stored_request = json.loads(row["request_json"])
+        self.assertEqual(stored_request["collectorNumber"], "223/197")
+        self.assertEqual(stored_request["image"]["width"], 630)
+        self.assertEqual(stored_request["image"]["height"], 880)
+        self.assertNotIn("jpegBase64", stored_request["image"])
         self.assertEqual(json.loads(row["response_json"])["resolverMode"], "raw_card")
         self.assertIsNone(row["selected_card_id"])
         self.assertEqual(row["confidence"], "medium")

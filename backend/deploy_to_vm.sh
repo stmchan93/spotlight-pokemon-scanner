@@ -74,6 +74,70 @@ for raw_line in env_path.read_text().splitlines():
 PY
 }
 
+normalize_vm_repo_path() {
+  local raw_path="${1:-}"
+  if [ -z "$raw_path" ]; then
+    printf '%s' ""
+    return
+  fi
+
+  if [[ "$raw_path" = /* ]]; then
+    printf '%s' "$raw_path"
+    return
+  fi
+
+  if [ -e "$SCRIPT_DIR/$raw_path" ]; then
+    printf '%s' "$SCRIPT_DIR/$raw_path"
+    return
+  fi
+
+  if [[ "$raw_path" == backend/* ]]; then
+    local stripped_path="${raw_path#backend/}"
+    if [ -e "$SCRIPT_DIR/$stripped_path" ]; then
+      printf '%s' "$SCRIPT_DIR/$stripped_path"
+      return
+    fi
+  fi
+
+  printf '%s' "$raw_path"
+}
+
+stage_runtime_data_file() {
+  local relative_target_path="$1"
+  shift
+
+  local target_path="$DATA_DIR/$relative_target_path"
+  local source_path=""
+  local candidate_path=""
+
+  mkdir -p "$(dirname "$target_path")"
+
+  for candidate_path in "$@"; do
+    if [ -n "$candidate_path" ] && [ -f "$candidate_path" ]; then
+      source_path="$candidate_path"
+      break
+    fi
+  done
+
+  if [ -z "$source_path" ]; then
+    if [ -f "$target_path" ]; then
+      return
+    fi
+    echo "Missing required runtime data file: $relative_target_path" >&2
+    echo "Checked candidate paths:" >&2
+    for candidate_path in "$@"; do
+      if [ -n "$candidate_path" ]; then
+        echo "  $candidate_path" >&2
+      fi
+    done
+    exit 1
+  fi
+
+  if [ "$source_path" != "$target_path" ]; then
+    cp "$source_path" "$target_path"
+  fi
+}
+
 REQUIRED_ENV_KEYS=(
   SCRYDEX_API_KEY
   SCRYDEX_TEAM_ID
@@ -95,11 +159,20 @@ RUNTIME_CONFIG_FILE="$SCRIPT_DIR/.vm-runtime.conf"
 FLOCK_BIN="$(command -v flock)"
 SYNC_LOCK_FILE="$DATA_DIR/scrydex-sync.lock"
 SYNC_LOG_FILE="$LOG_DIR/scrydex_sync.log"
+HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
+RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
-TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch}"
+TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
 SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 3 * * *}"
 SYNC_CRON_TIMEZONE="${SPOTLIGHT_VM_SYNC_CRON_TZ:-America/Los_Angeles}"
 BACKEND_HOST="${SPOTLIGHT_VM_BACKEND_HOST:-127.0.0.1}"
+PUBLIC_BASE_URL="${SPOTLIGHT_VM_PUBLIC_BASE_URL:-}"
+HEALTH_CRON_SCHEDULE="${SPOTLIGHT_VM_HEALTH_CRON:-*/5 * * * *}"
+RESOURCE_CRON_SCHEDULE="${SPOTLIGHT_VM_RESOURCE_CRON:-*/15 * * * *}"
+VISUAL_INDEX_NPZ_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_NPZ_PATH")")"
+VISUAL_INDEX_MANIFEST_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH")")"
+VISUAL_ADAPTER_CHECKPOINT_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")")"
+VISUAL_ADAPTER_METADATA_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH")")"
 SERVICE_NAME="spotlight-backend.service"
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 SERVICE_USER="$(id -un)"
@@ -119,7 +192,26 @@ if [ -z "$BACKEND_HOST" ] || [[ "$BACKEND_HOST" == *$'\n'* ]]; then
   exit 1
 fi
 
+if [[ "$PUBLIC_BASE_URL" == *$'\n'* ]]; then
+  echo "SPOTLIGHT_VM_PUBLIC_BASE_URL must be a single-line URL." >&2
+  exit 1
+fi
+
+for schedule_var in SYNC_CRON_SCHEDULE HEALTH_CRON_SCHEDULE RESOURCE_CRON_SCHEDULE; do
+  schedule_value="${!schedule_var}"
+  if [ -z "$schedule_value" ] || [[ "$schedule_value" == *$'\n'* ]]; then
+    echo "$schedule_var must be a single non-empty cron schedule line." >&2
+    exit 1
+  fi
+done
+
 mkdir -p "$LOG_DIR" "$DATA_DIR"
+
+stage_runtime_data_file \
+  "slab_set_aliases.json" \
+  "$SCRIPT_DIR/data/slab_set_aliases.json" \
+  "$SCRIPT_DIR/backend/data/slab_set_aliases.json" \
+  "$REPO_ROOT/backend/data/slab_set_aliases.json"
 
 python3 -m venv "$VENV_DIR"
 "$VENV_DIR/bin/python" -m pip install --upgrade pip setuptools wheel
@@ -134,13 +226,28 @@ SPOTLIGHT_VM_PYTHON=$VENV_DIR/bin/python
 SPOTLIGHT_DATABASE_PATH=$DATABASE_PATH
 SPOTLIGHT_HOST=$BACKEND_HOST
 SPOTLIGHT_PORT=8788
+SPOTLIGHT_PUBLIC_BASE_URL=$PUBLIC_BASE_URL
 EOF
+
+for override_key in \
+  SPOTLIGHT_VISUAL_INDEX_NPZ_PATH \
+  SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH \
+  SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH \
+  SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH; do
+  override_value="${!override_key:-}"
+  if [ -n "$override_value" ]; then
+    printf '%s=%s\n' "$override_key" "$override_value" >> "$RUNTIME_CONFIG_FILE"
+  fi
+done
 
 chmod 600 "$RUNTIME_CONFIG_FILE"
 chmod +x \
   "$SCRIPT_DIR/run_backend_vm.sh" \
   "$SCRIPT_DIR/run_backend_vm_forever.sh" \
-  "$SCRIPT_DIR/run_sync_vm.sh"
+  "$SCRIPT_DIR/run_vm_prewarm_visual.sh" \
+  "$SCRIPT_DIR/run_sync_vm.sh" \
+  "$SCRIPT_DIR/run_vm_health_check.sh" \
+  "$SCRIPT_DIR/run_vm_resource_snapshot.sh"
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
 [Unit]
@@ -153,6 +260,7 @@ Type=simple
 User=$SERVICE_USER
 WorkingDirectory=$SCRIPT_DIR
 ExecStart=$SCRIPT_DIR/run_backend_vm.sh
+ExecStartPost=$SCRIPT_DIR/run_vm_prewarm_visual.sh
 Restart=always
 RestartSec=5
 
@@ -178,6 +286,8 @@ CRON_BEGIN="# BEGIN spotlight-backend-vm"
 CRON_END="# END spotlight-backend-vm"
 SYNC_TZ_LINE="CRON_TZ=$SYNC_CRON_TIMEZONE"
 SYNC_LINE="$SYNC_CRON_SCHEDULE cd $REPO_ROOT && $FLOCK_BIN -n $SYNC_LOCK_FILE $SCRIPT_DIR/run_sync_vm.sh >> $SYNC_LOG_FILE 2>&1"
+HEALTH_LINE="$HEALTH_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_health_check.sh >> $HEALTH_MONITOR_LOG_FILE 2>&1"
+RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resource_snapshot.sh >> $RESOURCE_MONITOR_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -211,6 +321,8 @@ PY
   echo "$CRON_BEGIN"
   echo "$SYNC_TZ_LINE"
   echo "$SYNC_LINE"
+  echo "$HEALTH_LINE"
+  echo "$RESOURCE_LINE"
   echo "$CRON_END"
 } | crontab -
 
@@ -227,8 +339,13 @@ echo "  Database: $DATABASE_PATH"
 echo "  Runtime config: $RUNTIME_CONFIG_FILE"
 echo "  Backend log: $LOG_DIR/backend.log"
 echo "  Sync log: $SYNC_LOG_FILE"
+echo "  Health monitor log: $HEALTH_MONITOR_LOG_FILE"
+echo "  Resource monitor log: $RESOURCE_MONITOR_LOG_FILE"
 echo "  Sync cron: $SYNC_CRON_SCHEDULE timezone=$SYNC_CRON_TIMEZONE"
+echo "  Health cron: $HEALTH_CRON_SCHEDULE"
+echo "  Resource cron: $RESOURCE_CRON_SCHEDULE"
 echo "  Backend bind: $BACKEND_HOST:8788"
 echo "  Backend service: $SERVICE_NAME"
+echo "  Public base URL: ${PUBLIC_BASE_URL:-<unset>}"
 echo "  Health: curl http://127.0.0.1:8788/api/v1/health"
 echo "  Provider status: curl http://127.0.0.1:8788/api/v1/ops/provider-status"

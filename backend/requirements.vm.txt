@@ -1,5 +1,5 @@
-numpy
-Pillow
-python-dotenv
-safetensors
-transformers
+numpy==2.4.4
+Pillow==12.2.0
+python-dotenv==1.2.2
+safetensors==0.7.0
+transformers==5.5.4

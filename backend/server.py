@@ -445,9 +445,12 @@ class SpotlightScanService:
         visual_hybrid_debug = ((response.get("rawDecisionDebug") or {}).get("visualHybrid") or {})
         phase_timings = visual_hybrid_debug.get("phaseTimings") or {}
         matcher_timings = visual_hybrid_debug.get("timings") or {}
+        backend_timings = response.get("backendTimingDebug") or {}
         if phase_timings or matcher_timings:
             response["performance"]["phaseTimings"] = phase_timings
             response["performance"]["matcherTimings"] = matcher_timings
+        if backend_timings:
+            response["performance"]["backendTimings"] = backend_timings
         print(
             "[MATCH PERF] "
             f"scan={scan_id} "
@@ -458,12 +461,13 @@ class SpotlightScanService:
             f"types={types or ['none']} "
             f"details={details or []}"
         )
-        if phase_timings or matcher_timings:
+        if phase_timings or matcher_timings or backend_timings:
             print(
                 "[MATCH PERF DETAIL] "
                 f"scan={scan_id} "
                 f"phases={phase_timings or {}} "
-                f"matcher={matcher_timings or {}}"
+                f"matcher={matcher_timings or {}} "
+                f"backend={backend_timings or {}}"
             )
 
     def _display_pricing_summary_for_card(
@@ -1432,7 +1436,7 @@ class SpotlightScanService:
             }
             top_candidate_summaries[0] = best_candidate
 
-        return {
+        payload = {
             "severity": "INFO",
             "event": "scan_match",
             "scanID": request_payload.get("scanID"),
@@ -1451,9 +1455,54 @@ class SpotlightScanService:
             "ambiguityFlags": response_payload.get("ambiguityFlags") or [],
             "matcherVersion": response_payload.get("matcherVersion"),
         }
+        backend_timing_debug = response_payload.get("backendTimingDebug") or {}
+        if isinstance(backend_timing_debug, dict) and backend_timing_debug:
+            payload["backendTimingDebug"] = backend_timing_debug
+        return payload
 
     def _emit_structured_log(self, payload: dict[str, Any]) -> None:
         print(json.dumps(payload, separators=(",", ":"), default=str), flush=True)
+
+    @staticmethod
+    def _backend_timing_payload(response_payload: dict[str, Any]) -> dict[str, Any]:
+        payload = response_payload.get("backendTimingDebug")
+        if isinstance(payload, dict):
+            return payload
+        payload = {}
+        response_payload["backendTimingDebug"] = payload
+        return payload
+
+    @staticmethod
+    def _record_backend_timing(response_payload: dict[str, Any], **timings: float | int | list[dict[str, Any]] | None) -> None:
+        payload = SpotlightScanService._backend_timing_payload(response_payload)
+        for key, value in timings.items():
+            if value is None:
+                continue
+            if isinstance(value, (int, float)):
+                payload[key] = round(float(value), 3)
+            else:
+                payload[key] = value
+
+    def _finalize_scan_response(
+        self,
+        request_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        top_candidates: list[dict[str, Any]],
+    ) -> None:
+        structured_log_started_at = perf_counter()
+        self._emit_structured_log(self._scan_log_payload(request_payload, response_payload, top_candidates))
+        structured_log_ms = (perf_counter() - structured_log_started_at) * 1000.0
+
+        scan_log_started_at = perf_counter()
+        self._log_scan(request_payload, response_payload, top_candidates)
+        scan_log_ms = (perf_counter() - scan_log_started_at) * 1000.0
+
+        self._record_backend_timing(
+            response_payload,
+            structuredLogMs=structured_log_ms,
+            scanLogMs=scan_log_ms,
+            finalizeScanResponseMs=structured_log_ms + scan_log_ms,
+        )
 
     def _scan_error_log_payload(self, request_payload: dict[str, Any], error: Exception) -> dict[str, Any]:
         return {
@@ -2436,12 +2485,15 @@ class SpotlightScanService:
         pricing_policy: PricingLoadPolicy,
         trigger_source: str,
         api_key: str | None = None,
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, Any]]:
+        encode_started_at = perf_counter()
         encoded_candidates: list[dict[str, Any]] = []
         scored_candidates: list[dict[str, Any]] = []
+        candidate_timings: list[dict[str, Any]] = []
 
         for index, item in enumerate(items[:pricing_policy.limit], start=1):
             pricing_rule = pricing_policy.rule_for_rank(index)
+            candidate_started_at = perf_counter()
             candidate_payload = self._candidate_payload(
                 item.card,
                 pricing_context=pricing_context,
@@ -2471,8 +2523,27 @@ class SpotlightScanService:
                     "finalScore": round(item.final_score, 4),
                 }
             )
+            candidate_timings.append(
+                {
+                    "rank": index,
+                    "candidateID": str(candidate_payload.get("id") or ""),
+                    "ensureCached": pricing_rule.ensure_cached,
+                    "refreshStale": pricing_rule.refresh_stale,
+                    "refreshMissing": pricing_rule.refresh_missing,
+                    "forceShowModeRefresh": pricing_rule.force_show_mode_refresh,
+                    "totalMs": round((perf_counter() - candidate_started_at) * 1000.0, 3),
+                }
+            )
 
-        return encoded_candidates, scored_candidates
+        return (
+            encoded_candidates,
+            scored_candidates,
+            {
+                "candidateEncodeMs": round((perf_counter() - encode_started_at) * 1000.0, 3),
+                "encodedCandidateCount": len(encoded_candidates),
+                "candidateTimings": candidate_timings,
+            },
+        )
 
     @staticmethod
     def _unsupported_match_response(
@@ -2509,6 +2580,7 @@ class SpotlightScanService:
         *,
         api_key: str | None = None,
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        response_build_started_at = perf_counter()
         top_matches = list(decision.top_candidates)
         if not top_matches:
             response = self._unsupported_match_response(
@@ -2522,6 +2594,10 @@ class SpotlightScanService:
             response["confidence"] = decision.confidence
             response["reviewDisposition"] = decision.review_disposition
             response["ambiguityDebug"] = decision.debug_payload.get("ambiguity")
+            self._record_backend_timing(
+                response,
+                responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
+            )
             return response, []
 
         pricing_policy = self._scan_candidate_pricing_policy(
@@ -2529,7 +2605,7 @@ class SpotlightScanService:
             refresh_top_candidate_missing=decision.confidence != "low",
             force_show_mode_top_candidate_refresh=decision.confidence != "low",
         )
-        encoded_candidates, scored_candidates = self._encode_top_candidates(
+        encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
             [
                 CandidateEncodingItem(
                     card=match.card,
@@ -2566,6 +2642,13 @@ class SpotlightScanService:
             "reviewReason": decision.review_reason,
             "rawDecisionDebug": decision.debug_payload,
         }
+        self._record_backend_timing(
+            response,
+            candidateEncodeMs=encode_debug.get("candidateEncodeMs"),
+            encodedCandidateCount=encode_debug.get("encodedCandidateCount"),
+            candidateTimings=encode_debug.get("candidateTimings"),
+            responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
+        )
         return response, scored_candidates
 
     def _visual_candidate_stub(self, entry: dict[str, Any]) -> dict[str, Any]:
@@ -2674,8 +2757,7 @@ class SpotlightScanService:
                 raw_decision_debug={"visualOnly": {"error": str(exc)}},
             )
             response["matcherSource"] = "visualIndex"
-            self._emit_structured_log(self._scan_log_payload(payload, response, []))
-            self._log_scan(payload, response, [])
+            self._finalize_scan_response(payload, response, [])
             return response
 
         ranked_matches = [self._visual_match_summary(match) for match in matches]
@@ -2686,7 +2768,8 @@ class SpotlightScanService:
             refresh_top_candidate_missing=confidence != "low",
             force_show_mode_top_candidate_refresh=confidence != "low",
         )
-        encoded_candidates, scored_candidates = self._encode_top_candidates(
+        response_build_started_at = perf_counter()
+        encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
             [
                 CandidateEncodingItem(
                     card=self._visual_candidate_stub(match.entry),
@@ -2725,8 +2808,14 @@ class SpotlightScanService:
                 }
             },
         }
-        self._emit_structured_log(self._scan_log_payload(payload, response, scored_candidates))
-        self._log_scan(payload, response, scored_candidates)
+        self._record_backend_timing(
+            response,
+            candidateEncodeMs=encode_debug.get("candidateEncodeMs"),
+            encodedCandidateCount=encode_debug.get("encodedCandidateCount"),
+            candidateTimings=encode_debug.get("candidateTimings"),
+            responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
+        )
+        self._finalize_scan_response(payload, response, scored_candidates)
         return response
 
     def _resolve_raw_candidates_visual_hybrid(
@@ -2754,8 +2843,7 @@ class SpotlightScanService:
                 raw_decision_debug={"visualHybrid": {"error": str(exc)}},
             )
             response["matcherSource"] = "visualIndex"
-            self._emit_structured_log(self._scan_log_payload(payload, response, []))
-            self._log_scan(payload, response, [])
+            self._finalize_scan_response(payload, response, [])
             return response
         visual_match_ms = (perf_counter() - visual_match_started_at) * 1000.0
 
@@ -2908,8 +2996,7 @@ class SpotlightScanService:
             debug_payload=debug_payload,
         )
         response, top_candidates = self._build_raw_match_response(payload, decision, api_key=api_key)
-        self._emit_structured_log(self._scan_log_payload(payload, response, top_candidates))
-        self._log_scan(payload, response, top_candidates)
+        self._finalize_scan_response(payload, response, top_candidates)
         return response
 
     def _slab_resolution_log_payload(
@@ -2981,6 +3068,7 @@ class SpotlightScanService:
         *,
         resolver_path: str = "psa_label",
     ) -> tuple[dict[str, Any], list[dict[str, Any]]]:
+        response_build_started_at = perf_counter()
         pricing_context = self._slab_pricing_context(
             grader=evidence.grader,
             grade=evidence.grade,
@@ -3001,6 +3089,10 @@ class SpotlightScanService:
                 ambiguity_flags=["Slab OCR is missing a confident grader or grade."],
                 slab_context=slab_context,
             )
+            self._record_backend_timing(
+                response,
+                responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
+            )
             return response, []
 
         if not ranked_candidates:
@@ -3011,6 +3103,10 @@ class SpotlightScanService:
                 review_reason="Could not identify the slabbed card from the label OCR.",
                 ambiguity_flags=["No slab candidates were available."],
                 slab_context=slab_context,
+            )
+            self._record_backend_timing(
+                response,
+                responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
             )
             return response, []
 
@@ -3052,7 +3148,7 @@ class SpotlightScanService:
             refresh_top_candidate_missing=confidence != "low",
             force_show_mode_top_candidate_refresh=confidence != "low",
         )
-        encoded_candidates, scored_candidates = self._encode_top_candidates(
+        encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
             [
                 CandidateEncodingItem(
                     card=candidate,
@@ -3094,6 +3190,13 @@ class SpotlightScanService:
             "reviewDisposition": review_disposition,
             "reviewReason": review_reason,
         }
+        self._record_backend_timing(
+            response,
+            candidateEncodeMs=encode_debug.get("candidateEncodeMs"),
+            encodedCandidateCount=encode_debug.get("encodedCandidateCount"),
+            candidateTimings=encode_debug.get("candidateTimings"),
+            responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
+        )
         return response, scored_candidates
 
     def _resolve_psa_cert_candidate(
@@ -3180,8 +3283,7 @@ class SpotlightScanService:
                     cert_debug=cert_debug,
                 )
             )
-            self._emit_structured_log(self._scan_log_payload(payload, response, top_candidates))
-            self._log_scan(payload, response, top_candidates)
+            self._finalize_scan_response(payload, response, top_candidates)
             return response
 
         local_candidates = self._retrieve_local_slab_candidates(evidence)
@@ -3237,8 +3339,7 @@ class SpotlightScanService:
                 cert_debug=cert_debug,
             )
         )
-        self._emit_structured_log(self._scan_log_payload(payload, response, top_candidates))
-        self._log_scan(payload, response, top_candidates)
+        self._finalize_scan_response(payload, response, top_candidates)
         return response
 
     def _log_raw_scan_event(
@@ -3248,8 +3349,7 @@ class SpotlightScanService:
         response: dict[str, Any],
         top_candidates: list[dict[str, Any]],
     ) -> None:
-        self._emit_structured_log(self._scan_log_payload(payload, response, top_candidates))
-        self._log_scan(payload, response, top_candidates)
+        self._finalize_scan_response(payload, response, top_candidates)
 
     def _resolve_raw_candidates(self, payload: dict[str, Any], *, api_key: str | None = None) -> dict[str, Any]:
         evidence = build_raw_evidence(payload)
@@ -3605,8 +3705,7 @@ class SpotlightScanService:
             review_reason="This scan could not be routed to a supported matcher.",
             ambiguity_flags=["Could not determine whether this scan is raw or slab."],
         )
-        self._emit_structured_log(self._scan_log_payload(payload, response, []))
-        self._log_scan(payload, response, [])
+        self._finalize_scan_response(payload, response, [])
         self._log_scrydex_match_usage(
             scan_id,
             before_total=scrydex_before_total,
@@ -3658,13 +3757,23 @@ class SpotlightScanService:
         )
         self.connection.commit()
 
+    @staticmethod
+    def _request_payload_for_scan_event(request_payload: dict[str, Any]) -> dict[str, Any]:
+        persisted_payload = dict(request_payload or {})
+        image_payload = persisted_payload.get("image")
+        if isinstance(image_payload, dict) and "jpegBase64" in image_payload:
+            persisted_image_payload = dict(image_payload)
+            persisted_image_payload.pop("jpegBase64", None)
+            persisted_payload["image"] = persisted_image_payload
+        return persisted_payload
+
     def _log_scan(self, request_payload: dict[str, Any], response_payload: dict[str, Any], top_candidates: list[dict[str, Any]]) -> None:
         scan_id = request_payload["scanID"]
         now = utc_now()
         upsert_scan_event(
             self.connection,
             scan_id=scan_id,
-            request_payload=request_payload,
+            request_payload=self._request_payload_for_scan_event(request_payload),
             response_payload=response_payload,
             matcher_source=response_payload["matcherSource"],
             matcher_version=response_payload["matcherVersion"],

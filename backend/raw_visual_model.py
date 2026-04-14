@@ -69,11 +69,56 @@ class RawVisualFrozenEncoder:
             raise RuntimeError(f"Unable to determine CLIP projection_dim for model {model_id}")
         self.embedding_dim = projection_dim
 
+    def _project_visual_features_if_needed(self, features: torch.Tensor) -> torch.Tensor:
+        if features.shape[-1] == self.embedding_dim:
+            return features
+
+        visual_projection = getattr(self.model, "visual_projection", None)
+        if isinstance(visual_projection, torch.nn.Module):
+            in_features = getattr(visual_projection, "in_features", None)
+            out_features = getattr(visual_projection, "out_features", None)
+            if (
+                isinstance(in_features, int)
+                and isinstance(out_features, int)
+                and out_features == self.embedding_dim
+                and features.shape[-1] == in_features
+            ):
+                return visual_projection(features)
+
+        return features
+
+    def _coerce_image_features(self, features: object) -> torch.Tensor:
+        if isinstance(features, torch.Tensor):
+            return self._project_visual_features_if_needed(features)
+
+        image_embeds = getattr(features, "image_embeds", None)
+        if isinstance(image_embeds, torch.Tensor):
+            return self._project_visual_features_if_needed(image_embeds)
+
+        pooler_output = getattr(features, "pooler_output", None)
+        if isinstance(pooler_output, torch.Tensor):
+            return self._project_visual_features_if_needed(pooler_output)
+
+        last_hidden_state = getattr(features, "last_hidden_state", None)
+        if isinstance(last_hidden_state, torch.Tensor) and last_hidden_state.ndim >= 2:
+            pooled = last_hidden_state[:, 0]
+            return self._project_visual_features_if_needed(pooled)
+
+        if isinstance(features, (tuple, list)) and features:
+            for item in features:
+                if isinstance(item, torch.Tensor):
+                    return self._project_visual_features_if_needed(item)
+
+        raise RuntimeError(
+            f"Unsupported CLIP image feature output type: {type(features).__name__}"
+        )
+
     def _embed_batch(self, images: list[Image.Image]) -> np.ndarray:
         inputs = self.processor(images=images, return_tensors="pt")
         inputs = {key: value.to(self.device) for key, value in inputs.items()}
         with torch.inference_mode():
             features = self.model.get_image_features(**inputs)
+            features = self._coerce_image_features(features)
             features = F.normalize(features, p=2, dim=-1)
         return features.detach().cpu().numpy().astype(np.float32)
 
