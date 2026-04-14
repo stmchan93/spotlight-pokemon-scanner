@@ -27,6 +27,8 @@ if [ ! -f "$SECRETS_FILE" ]; then
   exit 1
 fi
 
+SECRETS_FILE="$(cd "$(dirname "$SECRETS_FILE")" && pwd)/$(basename "$SECRETS_FILE")"
+
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 is required on the VM." >&2
   exit 1
@@ -91,11 +93,31 @@ DATA_DIR="$SCRIPT_DIR/data"
 DATABASE_PATH="$DATA_DIR/spotlight_scanner.sqlite"
 RUNTIME_CONFIG_FILE="$SCRIPT_DIR/.vm-runtime.conf"
 FLOCK_BIN="$(command -v flock)"
-BACKEND_LOCK_FILE="$DATA_DIR/backend-supervisor.lock"
 SYNC_LOCK_FILE="$DATA_DIR/scrydex-sync.lock"
 SYNC_LOG_FILE="$LOG_DIR/scrydex_sync.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch}"
+SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 3 * * *}"
+SYNC_CRON_TIMEZONE="${SPOTLIGHT_VM_SYNC_CRON_TZ:-America/Los_Angeles}"
+BACKEND_HOST="${SPOTLIGHT_VM_BACKEND_HOST:-127.0.0.1}"
+SERVICE_NAME="spotlight-backend.service"
+SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
+SERVICE_USER="$(id -un)"
+
+if [ -z "$SYNC_CRON_SCHEDULE" ] || [[ "$SYNC_CRON_SCHEDULE" == *$'\n'* ]]; then
+  echo "SPOTLIGHT_VM_SYNC_CRON must be a single non-empty cron schedule line." >&2
+  exit 1
+fi
+
+if [ -z "$SYNC_CRON_TIMEZONE" ] || [[ "$SYNC_CRON_TIMEZONE" == *$'\n'* ]]; then
+  echo "SPOTLIGHT_VM_SYNC_CRON_TZ must be a single non-empty timezone name." >&2
+  exit 1
+fi
+
+if [ -z "$BACKEND_HOST" ] || [[ "$BACKEND_HOST" == *$'\n'* ]]; then
+  echo "SPOTLIGHT_VM_BACKEND_HOST must be a single non-empty host value." >&2
+  exit 1
+fi
 
 mkdir -p "$LOG_DIR" "$DATA_DIR"
 
@@ -110,7 +132,7 @@ SPOTLIGHT_RUNTIME_ENV_FILE=$ENV_FILE
 SPOTLIGHT_SECRETS_FILE=$SECRETS_FILE
 SPOTLIGHT_VM_PYTHON=$VENV_DIR/bin/python
 SPOTLIGHT_DATABASE_PATH=$DATABASE_PATH
-SPOTLIGHT_HOST=0.0.0.0
+SPOTLIGHT_HOST=$BACKEND_HOST
 SPOTLIGHT_PORT=8788
 EOF
 
@@ -119,6 +141,24 @@ chmod +x \
   "$SCRIPT_DIR/run_backend_vm.sh" \
   "$SCRIPT_DIR/run_backend_vm_forever.sh" \
   "$SCRIPT_DIR/run_sync_vm.sh"
+
+sudo tee "$SERVICE_PATH" >/dev/null <<EOF
+[Unit]
+Description=Spotlight backend
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$SERVICE_USER
+WorkingDirectory=$SCRIPT_DIR
+ExecStart=$SCRIPT_DIR/run_backend_vm.sh
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
 
 echo "Validating Scrydex configuration..."
 set -a
@@ -136,8 +176,8 @@ fi
 
 CRON_BEGIN="# BEGIN spotlight-backend-vm"
 CRON_END="# END spotlight-backend-vm"
-REBOOT_LINE="@reboot cd $REPO_ROOT && $FLOCK_BIN -n $BACKEND_LOCK_FILE $SCRIPT_DIR/run_backend_vm_forever.sh"
-SYNC_LINE="0 3 * * * cd $REPO_ROOT && $FLOCK_BIN -n $SYNC_LOCK_FILE $SCRIPT_DIR/run_sync_vm.sh >> $SYNC_LOG_FILE 2>&1"
+SYNC_TZ_LINE="CRON_TZ=$SYNC_CRON_TIMEZONE"
+SYNC_LINE="$SYNC_CRON_SCHEDULE cd $REPO_ROOT && $FLOCK_BIN -n $SYNC_LOCK_FILE $SCRIPT_DIR/run_sync_vm.sh >> $SYNC_LOG_FILE 2>&1"
 
 CURRENT_CRONTAB="$(mktemp "${TMPDIR:-/tmp}/spotlight-crontab.XXXXXX")"
 trap 'rm -f "$CURRENT_CRONTAB"' EXIT
@@ -169,14 +209,16 @@ PY
 {
   cat "$CURRENT_CRONTAB"
   echo "$CRON_BEGIN"
-  echo "$REBOOT_LINE"
+  echo "$SYNC_TZ_LINE"
   echo "$SYNC_LINE"
   echo "$CRON_END"
 } | crontab -
 
 pkill -f "$SCRIPT_DIR/run_backend_vm_forever.sh" 2>/dev/null || true
 pkill -f "$SCRIPT_DIR/server.py" 2>/dev/null || true
-nohup "$FLOCK_BIN" -n "$BACKEND_LOCK_FILE" "$SCRIPT_DIR/run_backend_vm_forever.sh" >/dev/null 2>&1 &
+sudo systemctl daemon-reload
+sudo systemctl enable "$SERVICE_NAME"
+sudo systemctl restart "$SERVICE_NAME"
 
 echo "VM deploy complete"
 echo "  Environment: $ENVIRONMENT"
@@ -185,5 +227,8 @@ echo "  Database: $DATABASE_PATH"
 echo "  Runtime config: $RUNTIME_CONFIG_FILE"
 echo "  Backend log: $LOG_DIR/backend.log"
 echo "  Sync log: $SYNC_LOG_FILE"
+echo "  Sync cron: $SYNC_CRON_SCHEDULE timezone=$SYNC_CRON_TIMEZONE"
+echo "  Backend bind: $BACKEND_HOST:8788"
+echo "  Backend service: $SERVICE_NAME"
 echo "  Health: curl http://127.0.0.1:8788/api/v1/health"
 echo "  Provider status: curl http://127.0.0.1:8788/api/v1/ops/provider-status"

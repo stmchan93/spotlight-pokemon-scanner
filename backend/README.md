@@ -98,7 +98,6 @@ Compile the kept backend:
 ```bash
 python3 -m py_compile \
   backend/catalog_tools.py \
-  backend/raw_set_badge_matcher.py \
   backend/pricecharting_adapter.py \
   backend/pricing_provider.py \
   backend/pricing_utils.py \

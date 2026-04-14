@@ -1998,14 +1998,7 @@ def score_raw_candidate_retrieval(candidate: dict[str, Any], evidence: RawEviden
 def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvidence) -> tuple[float, RawCandidateScoreBreakdown, tuple[str, ...]]:
     title_overlap_score = _title_overlap(candidate, evidence) * 35.0
     set_overlap_score = _set_overlap(candidate, evidence) * 20.0
-    raw_badge_image_similarity = max(0.0, min(1.0, float(candidate.get("_setBadgeImageScore") or 0.0)))
-    badge_image_weight = 12.0 if not evidence.trusted_set_hint_tokens else 6.0
-    if evidence.set_badge_hint_kind == "icon":
-        badge_image_weight += 3.0
-    elif evidence.set_badge_hint_kind == "unknown":
-        badge_image_weight += 1.5
-    badge_image_similarity = 0.0 if raw_badge_image_similarity < 0.45 else (raw_badge_image_similarity - 0.45) / 0.55
-    set_badge_image_score = max(0.0, min(badge_image_weight, badge_image_similarity * badge_image_weight))
+    set_badge_image_score = 0.0
     exact, partial, denominator = _collector_match(str(candidate.get("number") or ""), evidence)
     collector_exact_score = exact * 30.0
     collector_partial_score = partial * 18.0
@@ -2025,8 +2018,6 @@ def score_raw_candidate_resolution(candidate: dict[str, Any], evidence: RawEvide
         reasons.append("title_overlap")
     if set_overlap_score:
         reasons.append("set_overlap")
-    if set_badge_image_score:
-        reasons.append("set_badge_image")
     if collector_exact_score:
         reasons.append("collector_exact")
     elif collector_partial_score:
@@ -2151,8 +2142,6 @@ def _hybrid_visual_leader_state(candidates: list[dict[str, Any]]) -> tuple[str |
 
 def _has_strong_hybrid_corroboration(breakdown: RawCandidateScoreBreakdown) -> bool:
     if breakdown.collector_exact_score > 0.0:
-        return True
-    if breakdown.set_badge_image_score >= 7.0 and breakdown.title_overlap_score > 0.0:
         return True
     if breakdown.title_overlap_score > 0.0 and (
         breakdown.collector_partial_score > 0.0

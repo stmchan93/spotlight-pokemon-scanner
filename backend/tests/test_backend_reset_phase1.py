@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
@@ -1145,7 +1146,12 @@ class BackendResetPhase1Tests(unittest.TestCase):
             }
         })
 
-        response, _ = service._build_raw_match_response({"scanID": "scan-medium"}, decision, api_key="test-key")
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            clear=False,
+        ):
+            response, _ = service._build_raw_match_response({"scanID": "scan-medium"}, decision, api_key="test-key")
         top_candidate = response["topCandidates"][0]["candidate"]
         service.connection.close()
 
@@ -1314,7 +1320,12 @@ class BackendResetPhase1Tests(unittest.TestCase):
             payload={"id": "m2a_ja-232"},
         ))
 
-        service.refresh_card_pricing("m2a_ja-232")
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            clear=False,
+        ):
+            service.refresh_card_pricing("m2a_ja-232")
         service.connection.close()
 
         scrydex_provider.refresh_raw_pricing.assert_called_once_with(service.connection, "m2a_ja-232")
@@ -1394,7 +1405,12 @@ class BackendResetPhase1Tests(unittest.TestCase):
             payload={"id": "m2a_ja-232"},
         ))
 
-        service.refresh_card_pricing("m2a_ja-232", grader="PSA", grade="9")
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            clear=False,
+        ):
+            service.refresh_card_pricing("m2a_ja-232", grader="PSA", grade="9")
         service.connection.close()
 
         scrydex_provider.refresh_psa_pricing.assert_called_once_with(service.connection, "m2a_ja-232", "PSA", "9")
@@ -1451,7 +1467,11 @@ class BackendResetPhase1Tests(unittest.TestCase):
             }
         })
 
-        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex, patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            clear=False,
+        ):
             search_scrydex.return_value = type("SlabSearchResult", (), {
                 "cards": [sample_scrydex_card()],
                 "attempts": [
@@ -1891,12 +1911,17 @@ class BackendResetPhase1Tests(unittest.TestCase):
             payload={"id": "base1-58"},
         ))
 
-        service.refresh_card_pricing(
-            "base1-58",
-            grader="PSA",
-            grade="7",
-            preferred_variant="Unlimited Shadowless",
-        )
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            clear=False,
+        ):
+            service.refresh_card_pricing(
+                "base1-58",
+                grader="PSA",
+                grade="7",
+                preferred_variant="Unlimited Shadowless",
+            )
         service.connection.close()
 
         scrydex_provider.refresh_psa_pricing.assert_called_once_with(
@@ -2163,12 +2188,17 @@ class BackendResetPhase1Tests(unittest.TestCase):
             }
         })
 
-        response, _ = service._build_slab_match_response(
-            {"scanID": "scan-slab-low-refresh"},
-            evidence,
-            ranked_candidates,
-            resolver_path="psa_label",
-        )
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            clear=False,
+        ):
+            response, _ = service._build_slab_match_response(
+                {"scanID": "scan-slab-low-refresh"},
+                evidence,
+                ranked_candidates,
+                resolver_path="psa_label",
+            )
         service.connection.close()
 
         service._refresh_card_pricing_for_context.assert_called_once()
@@ -2253,12 +2283,17 @@ class BackendResetPhase1Tests(unittest.TestCase):
             }
         })
 
-        response, _ = service._build_slab_match_response(
-            {"scanID": "scan-slab-high-refresh"},
-            evidence,
-            ranked_candidates,
-            resolver_path="psa_label",
-        )
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            clear=False,
+        ):
+            response, _ = service._build_slab_match_response(
+                {"scanID": "scan-slab-high-refresh"},
+                evidence,
+                ranked_candidates,
+                resolver_path="psa_label",
+            )
         service.connection.close()
 
         service._refresh_card_pricing_for_context.assert_called_once()

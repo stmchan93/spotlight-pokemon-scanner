@@ -61,7 +61,6 @@ from catalog_tools import (
 from fx_rates import decorate_pricing_summary_with_fx
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
-from raw_set_badge_matcher import RawSetBadgeMatcher
 from scrydex_adapter import (
     SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
     SCRYDEX_PROVIDER,
@@ -144,6 +143,19 @@ class PricingLoadPolicy:
     rank_rules: tuple[CandidateRankPricingRule, ...]
 
     @classmethod
+    def top_five_cached_only(cls) -> "PricingLoadPolicy":
+        return cls(
+            limit=5,
+            rank_rules=(
+                CandidateRankPricingRule(rank=1, ensure_cached=True),
+                CandidateRankPricingRule(rank=2),
+                CandidateRankPricingRule(rank=3),
+                CandidateRankPricingRule(rank=4),
+                CandidateRankPricingRule(rank=5),
+            ),
+        )
+
+    @classmethod
     def top_five_refresh_top_one(
         cls,
         *,
@@ -194,7 +206,6 @@ class SpotlightScanService:
         self.index = load_index(self.connection)
         self._card_lookup_cache: dict[str, dict[str, Any] | None] = {}
         self._raw_visual_matcher: Any | None = None
-        self._raw_set_badge_matcher: RawSetBadgeMatcher | None = None
 
         self.pricing_registry = PricingProviderRegistry()
         self.pricing_registry.register(ScrydexProvider())
@@ -232,11 +243,6 @@ class SpotlightScanService:
                 "error": str(exc),
                 "totalMs": round((perf_counter() - started_at) * 1000.0, 3),
             }
-
-    def _raw_set_badge_matcher_instance(self) -> RawSetBadgeMatcher:
-        if self._raw_set_badge_matcher is None:
-            self._raw_set_badge_matcher = RawSetBadgeMatcher()
-        return self._raw_set_badge_matcher
 
     def _scrydex_full_catalog_sync(self) -> dict[str, Any] | None:
         return latest_provider_sync_run(
@@ -345,11 +351,9 @@ class SpotlightScanService:
         return not self._scrydex_full_catalog_sync_is_fresh()
 
     def _live_scrydex_pricing_refresh_allowed(self) -> bool:
-        if self._card_show_mode_active():
-            return True
-        if not self._manual_scrydex_mirror_enabled():
-            return True
-        return not self._scrydex_full_catalog_sync_is_fresh()
+        if self._manual_scrydex_mirror_enabled():
+            return False
+        return True
 
     def _live_scrydex_queries_blocked(self) -> bool:
         return not (
@@ -1948,8 +1952,6 @@ class SpotlightScanService:
             candidate["_retrievalScoreHint"] = round(retrieval_score, 4)
             candidate["_cachePresence"] = False
             candidate["_retrievalRoutes"] = ["local_visual_manifest_ocr"]
-            candidate["_setBadgeImageScore"] = 0.0
-            candidate["_setBadgeImageFamily"] = None
             candidate["_ocrRescueReasons"] = list(reasons)
             candidate["_ocrRescueResolutionScore"] = round(resolution_score, 4)
             scored.append((pseudo_similarity, retrieval_score, resolution_score, candidate))
@@ -2411,6 +2413,21 @@ class SpotlightScanService:
             candidate["pricing"] = pricing
         return candidate
 
+    def _scan_candidate_pricing_policy(
+        self,
+        *,
+        refresh_top_candidate_stale: bool,
+        refresh_top_candidate_missing: bool,
+        force_show_mode_top_candidate_refresh: bool = False,
+    ) -> PricingLoadPolicy:
+        if not self._live_scrydex_pricing_refresh_allowed():
+            return PricingLoadPolicy.top_five_cached_only()
+        return PricingLoadPolicy.top_five_refresh_top_one(
+            refresh_top_candidate_stale=refresh_top_candidate_stale,
+            refresh_top_candidate_missing=refresh_top_candidate_missing,
+            force_show_mode_top_candidate_refresh=force_show_mode_top_candidate_refresh,
+        )
+
     def _encode_top_candidates(
         self,
         items: list[CandidateEncodingItem],
@@ -2507,7 +2524,7 @@ class SpotlightScanService:
             response["ambiguityDebug"] = decision.debug_payload.get("ambiguity")
             return response, []
 
-        pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
+        pricing_policy = self._scan_candidate_pricing_policy(
             refresh_top_candidate_stale=True,
             refresh_top_candidate_missing=decision.confidence != "low",
             force_show_mode_top_candidate_refresh=decision.confidence != "low",
@@ -2664,7 +2681,7 @@ class SpotlightScanService:
         ranked_matches = [self._visual_match_summary(match) for match in matches]
         confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
         review_disposition = "ready" if confidence != "low" else "needs_review"
-        pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
+        pricing_policy = self._scan_candidate_pricing_policy(
             refresh_top_candidate_stale=True,
             refresh_top_candidate_missing=confidence != "low",
             force_show_mode_top_candidate_refresh=confidence != "low",
@@ -2745,15 +2762,7 @@ class SpotlightScanService:
         visual_matches = [self._visual_match_summary(match) for match in matches]
         badge_image_scores: dict[str, dict[str, Any]] = {}
         badge_match_error: str | None = None
-        badge_match_started_at = perf_counter()
-        try:
-            badge_image_scores = self._raw_set_badge_matcher_instance().score_payload_against_entries(
-                payload,
-                [match.entry for match in matches],
-            )
-        except Exception as exc:
-            badge_match_error = str(exc)
-        badge_match_ms = (perf_counter() - badge_match_started_at) * 1000.0
+        badge_match_ms = 0.0
         visual_candidates = [
             {
                 **self._visual_candidate_stub(match.entry),
@@ -2762,12 +2771,6 @@ class SpotlightScanService:
                 "_retrievalScoreHint": round(float(summary.get("similarity") or 0.0) * 100.0, 4),
                 "_cachePresence": False,
                 "_retrievalRoutes": ["visual_index"],
-                "_setBadgeImageScore": float(
-                    (badge_image_scores.get(str(summary.get("providerCardId") or ""), {}) or {}).get("score") or 0.0
-                ),
-                "_setBadgeImageFamily": (
-                    badge_image_scores.get(str(summary.get("providerCardId") or ""), {}) or {}
-                ).get("family"),
             }
             for match, summary in zip(matches, visual_matches, strict=True)
         ]
@@ -3044,7 +3047,7 @@ class SpotlightScanService:
             confidence = "low"
 
         review_disposition = "ready" if confidence != "low" else "needs_review"
-        pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
+        pricing_policy = self._scan_candidate_pricing_policy(
             refresh_top_candidate_stale=True,
             refresh_top_candidate_missing=confidence != "low",
             force_show_mode_top_candidate_refresh=confidence != "low",

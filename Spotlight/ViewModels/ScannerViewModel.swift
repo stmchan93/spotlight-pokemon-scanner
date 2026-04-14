@@ -710,7 +710,9 @@ final class ScannerViewModel: ObservableObject {
 
         let details = await matcher.hydrateCandidatePricing(
             cardIDs: [candidate.id],
-            maxRefreshCount: 1,
+            // Candidate cycling should only hydrate whatever pricing is already
+            // cached in SQLite. Live pricing stays behind explicit refresh flows.
+            maxRefreshCount: 0,
             slabContext: slabContext
         )
 

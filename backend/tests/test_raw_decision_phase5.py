@@ -361,15 +361,7 @@ class RawDecisionPhase5Tests(unittest.TestCase):
                     },
                 )
 
-        class FakeBadgeMatcher:
-            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
-                return {
-                    str(entry.get("providerCardId")): {"score": 0.0, "family": "modern_left"}
-                    for entry in entries
-                }
-
         self.service._raw_visual_matcher = FakeVisualMatcher()
-        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
 
         response = self.service._resolve_raw_candidates_visual_hybrid(
             raw_payload(
@@ -485,15 +477,7 @@ class RawDecisionPhase5Tests(unittest.TestCase):
                     },
                 )
 
-        class FakeBadgeMatcher:
-            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
-                return {
-                    str(entry.get("providerCardId")): {"score": 0.0, "family": "modern_left"}
-                    for entry in entries
-                }
-
         self.service._raw_visual_matcher = FakeVisualMatcher()
-        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
 
         payload = raw_payload(
             title_text_primary="Sabrina's Slowpoke Pur Sabrinali",
@@ -629,15 +613,7 @@ class RawDecisionPhase5Tests(unittest.TestCase):
                     },
                 )
 
-        class FakeBadgeMatcher:
-            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
-                return {
-                    str(entry.get("providerCardId")): {"score": 0.0, "family": "modern_left"}
-                    for entry in entries
-                }
-
         self.service._raw_visual_matcher = FakeVisualMatcher()
-        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
 
         payload = raw_payload(
             title_text_primary="たね カビゴン HP",
@@ -773,15 +749,7 @@ class RawDecisionPhase5Tests(unittest.TestCase):
                     },
                 )
 
-        class FakeBadgeMatcher:
-            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
-                return {
-                    str(entry.get("providerCardId")): {"score": 0.0, "family": "modern_left"}
-                    for entry in entries
-                }
-
         self.service._raw_visual_matcher = FakeVisualMatcher()
-        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
 
         payload = raw_payload(
             title_text_primary="なるイーブイ＆カビゴンタス HP",
@@ -856,12 +824,7 @@ class RawDecisionPhase5Tests(unittest.TestCase):
                     },
                 )
 
-        class FakeBadgeMatcher:
-            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
-                return {}
-
         self.service._raw_visual_matcher = FakeVisualMatcher()
-        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
 
         payload = raw_payload(
             title_text_primary="",
