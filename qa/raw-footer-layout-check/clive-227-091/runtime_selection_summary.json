@@ -1,11 +1,13 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_footer_metadata_collector"
   ],
+  "collectorConfidenceScore" : 0.8752000007629395,
+  "collectorNumber" : "227\/090",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.6735064506238355,
-    "x" : 0.16324677468808227,
+    "width" : 0.9998229775181448,
+    "x" : 8.851124092760955e-05,
     "y" : 0
   },
   "fixtureName" : "clive-227-091",
@@ -16,26 +18,96 @@
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
-    "normalization:holder_like_selected_raw_card_preserved"
+    "fallback",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.7899543765264057,
-  "ocrUsedFallback" : false,
+  "ocrTargetQualityScore" : 0.58,
+  "ocrUsedFallback" : true,
   "passSummaries" : [
     {
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.2,
-        "width" : 0.606155805561452,
-        "x" : 0.19692209721927406,
-        "y" : 0.76
+        "height" : 0.22,
+        "width" : 0.9998229775181448,
+        "x" : 8.851124092760955e-05,
+        "y" : 0.78
       },
-      "text" : "",
+      "text" : "You may play only I Supporter card during Tlen GOSSA your turn. 227\/09 €2024 Pокеs mon\/ lintendo \/ Creal JTES \/ GAME FREAK",
       "tokens" : [
-
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.02087895827853577,
+            "width" : 0.45408623666814063,
+            "x" : 0.4208473694332334,
+            "y" : 0.8127027031018141
+          },
+          "text" : "You may play only I Supporter card during"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01386819484240685,
+            "width" : 0.10510959579683095,
+            "x" : 0.17057114766478076,
+            "y" : 0.8395702006894282
+          },
+          "text" : "Tlen GOSSA"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.014666666506354644,
+            "width" : 0.10510959579683098,
+            "x" : 0.42309053922441797,
+            "y" : 0.840500000184918
+          },
+          "text" : "your turn."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02016666674682269,
+            "width" : 0.07562763641032169,
+            "x" : 0.2564533772256821,
+            "y" : 0.8624999998784405
+          },
+          "text" : "227\/09"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008510028653295136,
+            "width" : 0.0769094572219072,
+            "x" : 0.36540844758905455,
+            "y" : 0.8852722061662772
+          },
+          "text" : "€2024 Pокеs"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012776508495254293,
+            "width" : 0.1326158447118134,
+            "x" : 0.440732699530966,
+            "y" : 0.8806262236924225
+          },
+          "text" : "mon\/ lintendo \/ Creal"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01140497267758607,
+            "width" : 0.11594957766652109,
+            "x" : 0.5778689423258832,
+            "y" : 0.8794092137288613
+          },
+          "text" : "JTES \/ GAME FREAK"
+        }
       ]
     },
     {
@@ -45,8 +117,8 @@
       "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
         "height" : 0.098,
-        "width" : 0.09294389018608931,
-        "x" : 0.21082327036015003,
+        "width" : 0.13797557089750398,
+        "x" : 0.07071600637280934,
         "y" : 0.8451
       },
       "text" : "",
@@ -61,13 +133,42 @@
       "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
         "height" : 0.092,
-        "width" : 0.1852142739215548,
-        "x" : 0.27774287129413433,
+        "width" : 0.27495131881748985,
+        "x" : 0.1700584174190122,
         "y" : 0.85
       },
-      "text" : "",
+      "text" : "PAF EM 227\/090 €2024 Рок",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.012738461538461534,
+            "width" : 0.04275558785439436,
+            "x" : 0.2042628875380831,
+            "y" : 0.8599076922497901
+          },
+          "text" : "PAF EM"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.022178570400140218,
+            "width" : 0.10310674455655872,
+            "x" : 0.2525438137086763,
+            "y" : 0.8606785718349745
+          },
+          "text" : "227\/090"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.008492307692307683,
+            "width" : 0.06446227091893303,
+            "x" : 0.36476078726236283,
+            "y" : 0.8849128204735043
+          },
+          "text" : "€2024 Рок"
+        }
       ]
     },
     {
@@ -77,13 +178,22 @@
       "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.08418830632797944,
-        "x" : 0.6161798627326117,
+        "width" : 0.1249778721897681,
+        "x" : 0.6724694636218799,
         "y" : 0.84184
       },
-      "text" : "",
+      "text" : "LAK",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.007452054794520547,
+            "width" : 0.02148057178261639,
+            "x" : 0.6724694637753125,
+            "y" : 0.8800317807953033
+          },
+          "text" : "LAK"
+        }
       ]
     },
     {
@@ -93,13 +203,22 @@
       "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
         "height" : 0.1,
-        "width" : 0.12459869336540957,
-        "x" : 0.6481714191372439,
+        "width" : 0.18496725084085677,
+        "x" : 0.7199610550539918,
         "y" : 0.85
       },
-      "text" : "",
+      "text" : "Hajs iin",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011372557995366118,
+            "width" : 0.0676049893424184,
+            "x" : 0.8238023190219714,
+            "y" : 0.9272548974513366
+          },
+          "text" : "Hajs iin"
+        }
       ]
     },
     {
@@ -109,13 +228,22 @@
       "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
         "height" : 0.105,
-        "width" : 0.07745324182174108,
-        "x" : 0.6924544682657611,
+        "width" : 0.11497964241458665,
+        "x" : 0.7856994158258098,
         "y" : 0.8294
       },
-      "text" : "",
+      "text" : "43 41",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.006923076923076933,
+            "width" : 0.048131013103780464,
+            "x" : 0.8258085936529486,
+            "y" : 0.9270923076769231
+          },
+          "text" : "43 41"
+        }
       ]
     },
     {
@@ -125,31 +253,49 @@
       "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.12796622561852875,
-        "x" : 0.6380688223778863,
+        "width" : 0.1899663657284475,
+        "x" : 0.7049637103912196,
         "y" : 0.842
       },
-      "text" : "",
+      "text" : "4 796",
       "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010045454545454547,
+            "width" : 0.06605152371592572,
+            "x" : 0.8228738687540619,
+            "y" : 0.9273863636921716
+          },
+          "text" : "4 796"
+        }
       ]
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.5388051604990685,
-        "x" : 0.23059741975046583,
-        "y" : 0.02
+        "width" : 0.8798442202159674,
+        "x" : 0.0600778898920163,
+        "y" : 0.05
       },
-      "text" : "",
+      "text" : "Support•r",
       "tokens" : [
-
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.013828571428571423,
+            "width" : 0.17561760882554237,
+            "x" : 0.19442536064355623,
+            "y" : 0.22285714285714286
+          },
+          "text" : "Support•r"
+        }
       ]
     }
   ],
-  "scanID" : "81A9C8CD-5450-4CB8-BFD9-32EF54A6423E",
+  "scanID" : "B93A5262-C90C-4DDF-B714-A6114D37DF26",
   "setConfidenceReasons" : [
 
   ],
@@ -157,14 +303,14 @@
 
   ],
   "stage1AssessmentReasons" : [
-    "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "fallback_exact_collector_allows_header_rescue"
   ],
+  "titleConfidenceScore" : 0.58,
+  "titleTextPrimary" : "Support•r",
   "warnings" : [
-    "Raw scene looks holder-like",
-    "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
-    "Low-confidence rewrite raw evidence"
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

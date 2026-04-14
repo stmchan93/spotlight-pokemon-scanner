@@ -1,37 +1,28 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_band_metadata_agreement"
+
   ],
-  "collectorConfidenceScore" : 0.92,
-  "collectorNumber" : "6\/182",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.9995869475423379,
-    "x" : 0.00020652622883105887,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
     "y" : 0
   },
   "fixtureName" : "magby-186-182-steep-angle",
   "footerRouting" : {
-    "anchorIdentifier" : "6\/182",
-    "collectorAnchor" : {
-      "height" : 0.023833333974581428,
-      "width" : 0.12558913427281596,
-      "x" : 0.0002065243736694275,
-      "y" : 0.900083332939376
-    },
     "reasons" : [
-      "footer_band_collector_anchor"
+      "footer_band_anchor_unavailable"
     ]
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:best_rectangle_aspect_mismatch",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.6829183739802874,
+  "ocrTargetQualityScore" : 0.5029183739802874,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
@@ -39,342 +30,105 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.9995869475423379,
-        "x" : 0.00020652622883105887,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
         "y" : 0.78
       },
-      "text" : "cetreat x2 resistance This Pokémen makes tts horns arar Acthe cnd ofthe duy Magbysorls kaf reetingand tscovertngtano thedi 6\/182 02023 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.022916667468226754,
-            "width" : 0.12302608440288547,
-            "x" : 0.6691608692824746,
-            "y" : 0.7854999995342894
-          },
-          "text" : "cetreat"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.029333333012709312,
-            "width" : 0.07817282600549812,
-            "x" : 0.004051090822109131,
-            "y" : 0.798333333552574
-          },
-          "text" : "x2"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019734209055203757,
-            "width" : 0.17523960899117808,
-            "x" : 0.17270873483459112,
-            "y" : 0.7988025348410063
-          },
-          "text" : "resistance"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03936225147848485,
-            "width" : 0.6091139348442188,
-            "x" : 0.38510188688427294,
-            "y" : 0.8225128624520854
-          },
-          "text" : "This Pokémen makes tts horns arar"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.044451413304894556,
-            "width" : 0.5787969953775928,
-            "x" : 0.41315932497361313,
-            "y" : 0.8482618799784054
-          },
-          "text" : "Acthe cnd ofthe duy Magbysorls"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.017416666025418626,
-            "width" : 0.04613478333235258,
-            "x" : 0.00020652575945955443,
-            "y" : 0.8643333335571981
-          },
-          "text" : "kaf"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.05027280747378112,
-            "width" : 0.5895406100623052,
-            "x" : 0.41041085986771697,
-            "y" : 0.8727045166956288
-          },
-          "text" : "reetingand tscovertngtano thedi"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.0238333339745814,
-            "width" : 0.12558913427281596,
-            "x" : 0.0002065243736694275,
-            "y" : 0.900083332939376
-          },
-          "text" : "6\/182"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03043731448985101,
-            "width" : 0.6572318440349524,
-            "x" : 0.17009063257085258,
-            "y" : 0.9171623855292755
-          },
-          "text" : "02023 Pokémon \/ Nintendo \/ Creatures \/ GAME FREAK"
-        }
+
       ]
     },
     {
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
+      "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
         "height" : 0.098,
-        "width" : 0.13794299876084265,
-        "x" : 0.00020652622883105887,
-        "y" : 0.8610999999266667
+        "width" : 0.1379327009297277,
+        "x" : 0.0708493878899429,
+        "y" : 0.8451
       },
-      "text" : "kat 6\/182",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.018578199052132698,
-            "width" : 0.041186772141862976,
-            "x" : 0.00020652637592666958,
-            "y" : 0.8629578198086573
-          },
-          "text" : "kat"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019507109004739332,
-            "width" : 0.11898400840982637,
-            "x" : 0.00020652626449060987,
-            "y" : 0.901507582953724
-          },
-          "text" : "6\/182"
-        }
+
       ]
     },
     {
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
+      "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
         "height" : 0.092,
-        "width" : 0.2748864105741429,
-        "x" : 0.00020652622883105887,
-        "y" : 0.8659999999266668
+        "width" : 0.2748658895338777,
+        "x" : 0.17016093255934683,
+        "y" : 0.85
       },
-      "text" : "kai 6\/1821 02023 F",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014477157360406093,
-            "width" : 0.03945737950825018,
-            "x" : 0.0002065263932368064,
-            "y" : 0.8659999998780205
-          },
-          "text" : "kai"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02218919721109613,
-            "width" : 0.14343428159268534,
-            "x" : 0.0001702920906342732,
-            "y" : 0.8985703759107964
-          },
-          "text" : "6\/1821"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013642371802160574,
-            "width" : 0.09383014538057004,
-            "x" : 0.17096466315774628,
-            "y" : 0.9317981036042932
-          },
-          "text" : "02023 F"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
+      "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.12494836844279224,
-        "x" : 0.00020652622883105887,
-        "y" : 0.8538399999266668
+        "width" : 0.12493904069721712,
+        "x" : 0.6724158761621596,
+        "y" : 0.84184
       },
-      "text" : "kaf 6\/182",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.020493150684931506,
-            "width" : 0.04406074045087937,
-            "x" : 0.00020652635842147252,
-            "y" : 0.8622235615403654
-          },
-          "text" : "kaf"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02196690713542781,
-            "width" : 0.12068705454181387,
-            "x" : 3.550310972464491e-05,
-            "y" : 0.8999113408471605
-          },
-          "text" : "6\/182"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
         "height" : 0.1,
-        "width" : 0.22606044169106873,
-        "x" : 0.00020652622883105887,
-        "y" : 0.8619999999266668
+        "width" : 0.18490978023188134,
+        "x" : 0.7198927116271021,
+        "y" : 0.85
       },
-      "text" : "kal 6\/1821 020",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.016822429906542046,
-            "width" : 0.04086223727360426,
-            "x" : 0.00020652607673836865,
-            "y" : 0.8643364484600959
-          },
-          "text" : "kal"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.022480690145046913,
-            "width" : 0.14527924463073574,
-            "x" : 6.442187760353598e-05,
-            "y" : 0.8988904959054853
-          },
-          "text" : "6\/1821"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01121495327102804,
-            "width" : 0.05272546744981195,
-            "x" : 0.16892802182856811,
-            "y" : 0.9344299064899633
-          },
-          "text" : "020"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
+      "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
         "height" : 0.105,
-        "width" : 0.11495249896736887,
-        "x" : 0.11706209390089936,
-        "y" : 0.8483999999266668
+        "width" : 0.11494391744143975,
+        "x" : 0.7856106470338382,
+        "y" : 0.8294
       },
-      "text" : "0202",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013412930398778534,
-            "width" : 0.05910517239945836,
-            "x" : 0.17150895037351493,
-            "y" : 0.9328469482739317
-          },
-          "text" : "0202"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.22606044169106873,
-        "x" : 0.00020652622883105887,
-        "y" : 0.8609999999266668
-      },
-      "text" : "kal 6\/182食 020",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01723287671232877,
-            "width" : 0.04086223727360426,
-            "x" : 0.00020652628310727724,
-            "y" : 0.8637945205252969
-          },
-          "text" : "kal"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.026780821917808208,
-            "width" : 0.17048725111622567,
-            "x" : 0.00020652547728243655,
-            "y" : 0.8975616436795889
-          },
-          "text" : "6\/182食"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.011178082191780821,
-            "width" : 0.05074826242044401,
-            "x" : 0.16958709004886435,
-            "y" : 0.933657534193203
-          },
-          "text" : "020"
-        }
-      ]
-    },
-    {
-      "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
-      "normalizedRect" : {
-        "height" : 0.2,
-        "width" : 0.8796365138372574,
-        "x" : 0.06018174308137133,
-        "y" : 0
+        "width" : 0.18990734185977,
+        "x" : 0.704900026743436,
+        "y" : 0.842
       },
       "text" : "",
       "tokens" : [
@@ -382,7 +136,7 @@
       ]
     }
   ],
-  "scanID" : "635390BA-44EB-4D0A-8974-7BC0191F6FA3",
+  "scanID" : "165BEC3E-71B6-4F7F-B69C-A60D337D5774",
   "setConfidenceReasons" : [
 
   ],
@@ -390,12 +144,15 @@
 
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation"
   ],
   "warnings" : [
     "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs",
+    "Target selection confidence is weak",
+    "Could not read strong raw-card clues",
     "Low-confidence rewrite raw evidence"
   ]
 }

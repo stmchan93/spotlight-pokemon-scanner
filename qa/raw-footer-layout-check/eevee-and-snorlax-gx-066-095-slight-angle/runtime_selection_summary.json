@@ -34,7 +34,7 @@
         "x" : 0.00024383721113155034,
         "y" : 0.78
       },
-      "text" : "一まかさせつしたとき、相手に C-2018 Pokcmen NintendoiCr TOSIGAN ATAK",
+      "text" : "一まかさせつしたとき、相手に C2018Pokomon\/NintendolCt IeNGAN ATAK",
       "tokens" : [
         {
           "confidence" : 0.3,
@@ -47,14 +47,14 @@
           "text" : "一まかさせつしたとき、相手に"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
             "height" : 0.023597160710987875,
             "width" : 0.2198795007859563,
             "x" : 0.5925361463726543,
             "y" : 0.7969747099194198
           },
-          "text" : "C-2018 Pokcmen NintendoiCr"
+          "text" : "C2018Pokomon\/NintendolCt"
         },
         {
           "confidence" : 0.3,
@@ -64,7 +64,7 @@
             "x" : 0.8344522021947421,
             "y" : 0.8157500000858591
           },
-          "text" : "TOSIGAN"
+          "text" : "IeNGAN"
         },
         {
           "confidence" : 0.3,
@@ -175,7 +175,7 @@
       ]
     }
   ],
-  "scanID" : "30DB4B01-9964-4E01-856B-AC9AC2A91DEB",
+  "scanID" : "2918C7B3-89E2-4595-BF40-F0113ACF2D9D",
   "setConfidenceReasons" : [
 
   ],

@@ -6,7 +6,7 @@ import re
 import sys
 import traceback
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -32,6 +32,7 @@ from catalog_tools import (
     card_by_id,
     connect,
     contextual_pricing_summary_for_card,
+    delete_runtime_setting,
     finalize_raw_decision,
     latest_provider_sync_run,
     load_index,
@@ -50,8 +51,10 @@ from catalog_tools import (
     search_cards_local_collector_set,
     search_cards_local_title_only,
     search_cards_local_title_set,
+    runtime_setting,
     tokenize,
     upsert_catalog_card,
+    upsert_runtime_setting,
     upsert_scan_event,
     utc_now,
 )
@@ -77,6 +80,8 @@ from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from slab_set_aliases import resolve_slab_set_aliases
 
 MANUAL_SCRYDEX_MIRROR_ENV = "SPOTLIGHT_MANUAL_SCRYDEX_MIRROR"
+CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
+DEFAULT_CARD_SHOW_MODE_HOURS = 8.0
 
 
 def _env_flag(name: str, *, default: bool = False) -> bool:
@@ -99,6 +104,7 @@ class SlabMatchEvidence:
     label_text: str
     parsed_label_text: tuple[str, ...]
     card_number: str | None
+    language_hint: str | None
     set_hint_tokens: tuple[str, ...]
     matched_set_alias: str | None
     set_hint_source: str | None
@@ -128,6 +134,8 @@ class CandidateRankPricingRule:
     rank: int
     ensure_cached: bool = False
     refresh_stale: bool = False
+    refresh_missing: bool = False
+    force_show_mode_refresh: bool = False
 
 
 @dataclass(frozen=True)
@@ -136,11 +144,23 @@ class PricingLoadPolicy:
     rank_rules: tuple[CandidateRankPricingRule, ...]
 
     @classmethod
-    def top_five_refresh_top_one(cls, *, refresh_top_candidate: bool) -> "PricingLoadPolicy":
+    def top_five_refresh_top_one(
+        cls,
+        *,
+        refresh_top_candidate_stale: bool,
+        refresh_top_candidate_missing: bool,
+        force_show_mode_top_candidate_refresh: bool = False,
+    ) -> "PricingLoadPolicy":
         return cls(
             limit=5,
             rank_rules=(
-                CandidateRankPricingRule(rank=1, ensure_cached=True, refresh_stale=refresh_top_candidate),
+                CandidateRankPricingRule(
+                    rank=1,
+                    ensure_cached=True,
+                    refresh_stale=refresh_top_candidate_stale,
+                    refresh_missing=refresh_top_candidate_missing,
+                    force_show_mode_refresh=force_show_mode_top_candidate_refresh,
+                ),
                 CandidateRankPricingRule(rank=2),
                 CandidateRankPricingRule(rank=3),
                 CandidateRankPricingRule(rank=4),
@@ -237,16 +257,126 @@ class SpotlightScanService:
     def _manual_scrydex_mirror_enabled() -> bool:
         return _env_flag(MANUAL_SCRYDEX_MIRROR_ENV, default=True)
 
+    @staticmethod
+    def _coerce_utc_datetime(raw_value: str | None) -> datetime | None:
+        cleaned = str(raw_value or "").strip()
+        if not cleaned:
+            return None
+        try:
+            parsed = datetime.fromisoformat(cleaned)
+        except ValueError:
+            return None
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+
+    def _card_show_mode_record(self) -> dict[str, Any] | None:
+        return runtime_setting(self.connection, CARD_SHOW_MODE_SETTING_KEY)
+
+    def _card_show_mode_state(self) -> dict[str, Any]:
+        record = self._card_show_mode_record()
+        payload = (record or {}).get("value") if isinstance(record, dict) else {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        until_raw = str(payload.get("until") or "").strip() or None
+        set_at = str(payload.get("setAt") or "").strip() or None
+        note = str(payload.get("note") or "").strip() or None
+
+        now = datetime.now(timezone.utc)
+        until_at = self._coerce_utc_datetime(until_raw)
+        active = bool(until_at is not None and until_at > now)
+        remaining_seconds = max(0, int((until_at - now).total_seconds())) if until_at is not None else 0
+
+        return {
+            "active": active,
+            "until": until_at.isoformat() if until_at is not None else until_raw,
+            "setAt": set_at,
+            "note": note,
+            "remainingSeconds": remaining_seconds,
+        }
+
+    def _card_show_mode_active(self) -> bool:
+        return bool(self._card_show_mode_state().get("active"))
+
+    def set_card_show_mode(
+        self,
+        *,
+        until: str | None = None,
+        duration_hours: float | None = None,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        if until is not None:
+            until_at = self._coerce_utc_datetime(until)
+            if until_at is None:
+                raise ValueError("until must be an ISO-8601 timestamp")
+        else:
+            hours = float(duration_hours if duration_hours is not None else DEFAULT_CARD_SHOW_MODE_HOURS)
+            if hours <= 0:
+                raise ValueError("durationHours must be greater than 0")
+            until_at = now + timedelta(hours=hours)
+
+        upsert_runtime_setting(
+            self.connection,
+            key=CARD_SHOW_MODE_SETTING_KEY,
+            value={
+                "until": until_at.isoformat(),
+                "setAt": now.isoformat(),
+                "note": str(note or "").strip() or None,
+            },
+        )
+        self.connection.commit()
+        return self._card_show_mode_state()
+
+    def clear_card_show_mode(self) -> dict[str, Any]:
+        delete_runtime_setting(self.connection, CARD_SHOW_MODE_SETTING_KEY)
+        self.connection.commit()
+        return self._card_show_mode_state()
+
+    def _live_scrydex_searches_allowed(self) -> bool:
+        if self._manual_scrydex_mirror_enabled():
+            return False
+        return not self._scrydex_full_catalog_sync_is_fresh()
+
+    def _live_scrydex_imports_allowed(self) -> bool:
+        if self._manual_scrydex_mirror_enabled():
+            return False
+        return not self._scrydex_full_catalog_sync_is_fresh()
+
+    def _live_scrydex_pricing_refresh_allowed(self) -> bool:
+        if self._card_show_mode_active():
+            return True
+        if not self._manual_scrydex_mirror_enabled():
+            return True
+        return not self._scrydex_full_catalog_sync_is_fresh()
+
     def _live_scrydex_queries_blocked(self) -> bool:
-        return self._manual_scrydex_mirror_enabled() and self._scrydex_full_catalog_sync_is_fresh()
+        return not (
+            self._live_scrydex_searches_allowed()
+            or self._live_scrydex_imports_allowed()
+            or self._live_scrydex_pricing_refresh_allowed()
+        )
 
     def live_scrydex_queries_allowed(self) -> bool:
         return not self._live_scrydex_queries_blocked()
 
     def _manual_scrydex_mirror_status(self) -> dict[str, Any]:
+        full_sync_fresh = self._scrydex_full_catalog_sync_is_fresh()
+        searches_allowed = self._live_scrydex_searches_allowed()
+        imports_allowed = self._live_scrydex_imports_allowed()
+        pricing_refresh_allowed = self._live_scrydex_pricing_refresh_allowed()
         return {
             "enabled": self._manual_scrydex_mirror_enabled(),
-            "liveQueriesBlocked": self._live_scrydex_queries_blocked(),
+            "fullCatalogSyncFresh": full_sync_fresh,
+            "searchesAllowed": searches_allowed,
+            "searchesBlocked": not searches_allowed,
+            "importsAllowed": imports_allowed,
+            "importsBlocked": not imports_allowed,
+            "pricingRefreshAllowed": pricing_refresh_allowed,
+            "pricingRefreshBlocked": not pricing_refresh_allowed,
+            "liveQueriesBlocked": not (searches_allowed or imports_allowed or pricing_refresh_allowed),
+            "cardShowMode": self._card_show_mode_state(),
         }
 
     def run_manual_scrydex_sync(
@@ -477,6 +607,10 @@ class SpotlightScanService:
                 card_number=card_number,
             )
         )
+        language_hint = SpotlightScanService._inferred_slab_language_hint(
+            label_text,
+            parsed_label_text=parsed_label_text,
+        )
         set_hints = provided_set_hints or alias_resolution.scopes or inferred_set_hints
         set_hint_source = (
             "frontend"
@@ -531,6 +665,7 @@ class SpotlightScanService:
             label_text=label_text,
             parsed_label_text=parsed_label_text,
             card_number=SpotlightScanService._normalized_slab_card_number(card_number) or card_number,
+            language_hint=language_hint,
             set_hint_tokens=normalized_set_hints,
             matched_set_alias=alias_resolution.matched_alias,
             set_hint_source=set_hint_source,
@@ -729,6 +864,33 @@ class SpotlightScanService:
         }
 
     @staticmethod
+    def _inferred_slab_language_hint(
+        label_text: str,
+        *,
+        parsed_label_text: tuple[str, ...],
+    ) -> str | None:
+        combined_upper = " ".join(
+            text.upper()
+            for text in [label_text, *parsed_label_text]
+            if text
+        ).strip()
+        language_tokens = (
+            ("JAPANESE", "Japanese"),
+            ("FRENCH", "French"),
+            ("ENGLISH", "English"),
+            ("GERMAN", "German"),
+            ("ITALIAN", "Italian"),
+            ("SPANISH", "Spanish"),
+            ("PORTUGUESE", "Portuguese"),
+            ("KOREAN", "Korean"),
+            ("CHINESE", "Chinese"),
+        )
+        for token, label in language_tokens:
+            if token in combined_upper:
+                return label
+        return None
+
+    @staticmethod
     def _heuristic_slab_set_hints(
         label_text: str,
         *,
@@ -881,6 +1043,14 @@ class SpotlightScanService:
             "STAGE",
             "STAGEL",
             "TOXIC",
+            "FRENCH",
+            "ENGLISH",
+            "GERMAN",
+            "ITALIAN",
+            "SPANISH",
+            "PORTUGUESE",
+            "KOREAN",
+            "CHINESE",
         }
         set_hint_drop_tokens = {
             token
@@ -896,11 +1066,13 @@ class SpotlightScanService:
             if len(token) >= 4
         })
 
-        direct_title_tokens = SpotlightScanService._normalize_slab_title_tokens([
-            token.lstrip("#")
-            for token in SpotlightScanService._slab_query_tokens(title_text)
-            if token and not token.isdigit()
-        ])
+        direct_title_tokens = SpotlightScanService._strip_slab_condition_phrase_tokens(
+            SpotlightScanService._normalize_slab_title_tokens([
+                token.lstrip("#")
+                for token in SpotlightScanService._slab_query_tokens(title_text)
+                if token and not token.isdigit()
+            ])
+        )
         if normalized_number:
             number_pattern = rf"#?0*{re.escape(normalized_number)}\b" if normalized_number.isdigit() else rf"#?{re.escape(normalized_number)}\b"
             for text in texts:
@@ -910,8 +1082,10 @@ class SpotlightScanService:
                 match = re.search(rf"^(?:20\d{{2}}\s+)?(?P<pre>.*?)\s+{number_pattern}(?:\s+(?P<post>.*))?$", normalized_text)
                 if not match:
                     continue
-                post_tokens = SpotlightScanService._normalize_slab_title_tokens(
-                    SpotlightScanService._slab_query_tokens(match.group("post") or "")
+                post_tokens = SpotlightScanService._strip_slab_condition_phrase_tokens(
+                    SpotlightScanService._normalize_slab_title_tokens(
+                        SpotlightScanService._slab_query_tokens(match.group("post") or "")
+                    )
                 )
                 leading_title: list[str] = []
                 for token in post_tokens:
@@ -926,11 +1100,13 @@ class SpotlightScanService:
                 if leading_title:
                     title_candidates.append(leading_title)
 
-                pre_tokens = SpotlightScanService._normalize_slab_title_tokens([
-                    token.lstrip("#")
-                    for token in SpotlightScanService._slab_query_tokens(match.group("pre") or "")
-                    if token and not token.isdigit()
-                ])
+                pre_tokens = SpotlightScanService._strip_slab_condition_phrase_tokens(
+                    SpotlightScanService._normalize_slab_title_tokens([
+                        token.lstrip("#")
+                        for token in SpotlightScanService._slab_query_tokens(match.group("pre") or "")
+                        if token and not token.isdigit()
+                    ])
+                )
                 if len(pre_tokens) >= 2:
                     for suffix_length in range(1, min(3, len(pre_tokens) - 1) + 1):
                         title_candidates.append(pre_tokens[-suffix_length:])
@@ -950,11 +1126,13 @@ class SpotlightScanService:
                     title_candidates.append(cleaned_direct_title[start:start + window_size])
 
         if not title_candidates:
-            tokens = SpotlightScanService._normalize_slab_title_tokens([
-                token.lstrip("#")
-                for token in SpotlightScanService._slab_query_tokens(title_text)
-                if token and not token.isdigit()
-            ])
+            tokens = SpotlightScanService._strip_slab_condition_phrase_tokens(
+                SpotlightScanService._normalize_slab_title_tokens([
+                    token.lstrip("#")
+                    for token in SpotlightScanService._slab_query_tokens(title_text)
+                    if token and not token.isdigit()
+                ])
+            )
             if tokens:
                 title_candidates.append(tokens)
 
@@ -982,6 +1160,28 @@ class SpotlightScanService:
             return " ".join(token.title() for token in best_tokens)
 
         return title_text
+
+    @staticmethod
+    def _strip_slab_condition_phrase_tokens(tokens: list[str]) -> list[str]:
+        cleaned: list[str] = []
+        index = 0
+        while index < len(tokens):
+            current = str(tokens[index] or "").lstrip("#").upper()
+            following = str(tokens[index + 1] or "").lstrip("#").upper() if index + 1 < len(tokens) else ""
+            if (current, following) in {
+                ("EX", "MT"),
+                ("EX", "MINT"),
+                ("VG", "EX"),
+                ("GEM", "MT"),
+                ("GEM", "MINT"),
+                ("NM", "MT"),
+                ("NM", "MINT"),
+            }:
+                index += 2
+                continue
+            cleaned.append(current)
+            index += 1
+        return cleaned
 
     @staticmethod
     def _slab_title_values(card: dict[str, Any]) -> tuple[str, ...]:
@@ -1366,6 +1566,7 @@ class SpotlightScanService:
                 "bulk_auto_detect_without_capture",
             ],
             "manualScrydexMirror": self._manual_scrydex_mirror_status(),
+            "cardShowMode": self._card_show_mode_state(),
         }
         if prewarm_visual:
             payload["visualRuntime"] = self._prewarm_raw_visual_runtime()
@@ -1422,6 +1623,7 @@ class SpotlightScanService:
             "runtimeMode": "raw_only",
             "experimentalResolverModes": ["psa_slab"],
             "manualScrydexMirror": self._manual_scrydex_mirror_status(),
+            "cardShowMode": self._card_show_mode_state(),
             "scrydexRequestStats": scrydex_request_stats_snapshot(),
             "scrydexFullCatalogSync": scrydex_full_sync,
             "scrydexFullCatalogSyncFresh": scrydex_full_sync_is_fresh,
@@ -1843,19 +2045,12 @@ class SpotlightScanService:
         api_key: str | None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         del api_key
-        if self._live_scrydex_queries_blocked():
+        if not self._live_scrydex_searches_allowed():
             return [], {
                 "queries": [],
                 "attempts": [],
                 "resultCount": 0,
-                "reason": "manual_mirror_fresh",
-            }
-        if self._scrydex_full_catalog_sync_is_fresh():
-            return [], {
-                "queries": [],
-                "attempts": [],
-                "resultCount": 0,
-                "reason": "full_sync_fresh",
+                "reason": "search_policy_blocked",
             }
         if not plan.should_query_remote:
             return [], {
@@ -1882,18 +2077,25 @@ class SpotlightScanService:
         }
 
     def _retrieve_local_slab_candidates(self, evidence: SlabMatchEvidence) -> list[dict[str, Any]]:
-        query_parts = [
-            evidence.title_text_primary,
-            evidence.title_text_secondary,
-            evidence.card_number,
-            *evidence.set_hint_tokens,
-        ]
+        structured_candidates = self._retrieve_structured_local_slab_candidates(evidence)
+        if structured_candidates:
+            return structured_candidates[:12]
+
+        query_parts = list(dict.fromkeys(
+            part
+            for part in [
+                evidence.title_text_primary,
+                evidence.title_text_secondary,
+                *evidence.set_hint_tokens,
+            ]
+            if part
+        ))
         seen: set[str] = set()
         candidates: list[dict[str, Any]] = []
-        for query in [part for part in query_parts if part]:
+        for query in query_parts:
             for card in search_cards_local(self.connection, query, limit=12):
                 card_id = str(card.get("id") or "")
-                if not card_id or card_id in seen:
+                if not card_id or card_id in seen or not self._slab_candidate_matches_language_hint(card, evidence):
                     continue
                 seen.add(card_id)
                 score, reasons = self._score_slab_candidate(card, evidence)
@@ -1909,20 +2111,120 @@ class SpotlightScanService:
         )
         return candidates[:12]
 
+    @staticmethod
+    def _slab_number_query_values(card_number: str | None) -> tuple[tuple[str, ...], tuple[str, ...]]:
+        normalized = SpotlightScanService._normalized_slab_card_number(card_number)
+        if not normalized:
+            return tuple(), tuple()
+
+        exact_values: list[str] = []
+        like_values: list[str] = []
+        seen_exact: set[str] = set()
+        seen_like: set[str] = set()
+
+        def add_exact(value: str) -> None:
+            cleaned = str(value or "").strip().upper()
+            if not cleaned or cleaned in seen_exact:
+                return
+            seen_exact.add(cleaned)
+            exact_values.append(cleaned)
+
+        def add_like(value: str) -> None:
+            cleaned = str(value or "").strip().upper()
+            if not cleaned or cleaned in seen_like:
+                return
+            seen_like.add(cleaned)
+            like_values.append(cleaned)
+
+        add_exact(normalized)
+        prefix = normalized.split("/", 1)[0]
+        add_exact(prefix)
+        add_like(f"{prefix}/%")
+
+        if prefix.isdigit():
+            max_width = max(4, len(prefix))
+            for width in range(len(prefix) + 1, max_width + 1):
+                padded = prefix.zfill(width)
+                add_exact(padded)
+                add_like(f"{padded}/%")
+
+        return tuple(exact_values), tuple(like_values)
+
+    def _local_slab_cards_by_number(self, card_number: str | None, *, limit: int = 400) -> list[dict[str, Any]]:
+        exact_values, like_values = self._slab_number_query_values(card_number)
+        if not exact_values and not like_values:
+            return []
+
+        clauses: list[str] = []
+        params: list[Any] = []
+        for value in exact_values:
+            clauses.append("UPPER(number) = ?")
+            params.append(value)
+        for value in like_values:
+            clauses.append("UPPER(number) LIKE ?")
+            params.append(value)
+        params.append(limit)
+
+        rows = self.connection.execute(
+            f"""
+            SELECT id
+            FROM cards
+            WHERE {" OR ".join(clauses)}
+            LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        cards: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            card_id = str(row["id"] or "").strip()
+            if not card_id or card_id in seen:
+                continue
+            seen.add(card_id)
+            cached = self._cached_card_by_id(card_id)
+            if cached is not None:
+                cards.append(cached)
+        return cards
+
+    def _slab_candidate_matches_language_hint(self, card: dict[str, Any], evidence: SlabMatchEvidence) -> bool:
+        hint = str(evidence.language_hint or "").strip().lower()
+        if not hint:
+            return True
+        if hint == "japanese":
+            return self._candidate_is_japanese(card)
+        if hint in {"english", "french", "german", "italian", "spanish", "portuguese", "korean", "chinese"}:
+            return not self._candidate_is_japanese(card)
+        return True
+
+    def _retrieve_structured_local_slab_candidates(self, evidence: SlabMatchEvidence) -> list[dict[str, Any]]:
+        cards = self._local_slab_cards_by_number(evidence.card_number)
+        if not cards:
+            return []
+
+        candidates: list[dict[str, Any]] = []
+        for card in cards:
+            if not self._slab_candidate_matches_language_hint(card, evidence):
+                continue
+            score, reasons = self._score_slab_candidate(card, evidence)
+            if score <= 0:
+                continue
+            candidates.append(self._slab_candidate_from_card(card, score, reasons, "local_slab_structured"))
+        candidates.sort(
+            key=lambda candidate: (
+                -float(candidate.get("_retrievalScoreHint") or 0.0),
+                str(candidate.get("name") or ""),
+                str(candidate.get("number") or ""),
+            )
+        )
+        return candidates[:12]
+
     def _retrieve_remote_slab_candidates(self, evidence: SlabMatchEvidence) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        if self._live_scrydex_queries_blocked():
+        if not self._live_scrydex_searches_allowed():
             return [], {
                 "queries": [],
                 "attempts": [],
                 "resultCount": 0,
-                "reason": "manual_mirror_fresh",
-            }
-        if self._scrydex_full_catalog_sync_is_fresh():
-            return [], {
-                "queries": [],
-                "attempts": [],
-                "resultCount": 0,
-                "reason": "full_sync_fresh",
+                "reason": "search_policy_blocked",
             }
         title_text = evidence.title_text_primary or evidence.title_text_secondary
         search_result = search_remote_scrydex_slab_candidates(
@@ -2073,22 +2375,32 @@ class SpotlightScanService:
         ensure_cached: bool = False,
         api_key: str | None = None,
         refresh_pricing_if_stale: bool = False,
+        refresh_pricing_if_missing: bool = False,
+        force_show_mode_refresh: bool = False,
     ) -> dict[str, Any]:
         resolved_card = self._ensure_raw_card_cached(card, trigger_source) if ensure_cached else card
         card_id = str(resolved_card.get("id") or "").strip()
         pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context) if card_id else None
-
-        if (
+        card_show_mode_active = self._card_show_mode_active()
+        pricing_missing = pricing is None
+        pricing_stale = pricing is not None and pricing.get("isFresh") is not True
+        should_force_show_mode_refresh = card_show_mode_active and force_show_mode_refresh
+        should_refresh = (
             card_id
-            and refresh_pricing_if_stale
-            and pricing is not None
-            and pricing.get("isFresh") is not True
-            and not self._scrydex_full_catalog_sync_is_fresh()
-        ):
+            and self._live_scrydex_pricing_refresh_allowed()
+            and (
+                should_force_show_mode_refresh
+                or (pricing_missing and refresh_pricing_if_missing)
+                or (pricing_stale and refresh_pricing_if_stale)
+            )
+        )
+
+        if should_refresh:
             refreshed_detail = self._refresh_card_pricing_for_context(
                 card_id,
                 pricing_context=pricing_context,
                 api_key=api_key,
+                force_refresh=should_force_show_mode_refresh,
             )
             pricing = ((refreshed_detail or {}).get("card", {}) or {}).get("pricing") if isinstance(refreshed_detail, dict) else None
             if pricing is None:
@@ -2120,6 +2432,8 @@ class SpotlightScanService:
                 ensure_cached=pricing_rule.ensure_cached,
                 api_key=api_key,
                 refresh_pricing_if_stale=pricing_rule.refresh_stale,
+                refresh_pricing_if_missing=pricing_rule.refresh_missing,
+                force_show_mode_refresh=pricing_rule.force_show_mode_refresh,
             )
             scored_entry = {
                 "card": item.card,
@@ -2194,7 +2508,9 @@ class SpotlightScanService:
             return response, []
 
         pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
-            refresh_top_candidate=True,
+            refresh_top_candidate_stale=True,
+            refresh_top_candidate_missing=decision.confidence != "low",
+            force_show_mode_top_candidate_refresh=decision.confidence != "low",
         )
         encoded_candidates, scored_candidates = self._encode_top_candidates(
             [
@@ -2349,7 +2665,9 @@ class SpotlightScanService:
         confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
         review_disposition = "ready" if confidence != "low" else "needs_review"
         pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
-            refresh_top_candidate=True,
+            refresh_top_candidate_stale=True,
+            refresh_top_candidate_missing=confidence != "low",
+            force_show_mode_top_candidate_refresh=confidence != "low",
         )
         encoded_candidates, scored_candidates = self._encode_top_candidates(
             [
@@ -2621,6 +2939,7 @@ class SpotlightScanService:
                 "titleTextSecondary": evidence.title_text_secondary,
                 "labelText": evidence.label_text,
                 "cardNumber": evidence.card_number,
+                "languageHint": evidence.language_hint,
                 "setHintTokens": list(evidence.set_hint_tokens),
                 "setHintSource": evidence.set_hint_source,
                 "matchedSetAlias": evidence.matched_set_alias,
@@ -2725,7 +3044,11 @@ class SpotlightScanService:
             confidence = "low"
 
         review_disposition = "ready" if confidence != "low" else "needs_review"
-        pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
+        pricing_policy = PricingLoadPolicy.top_five_refresh_top_one(
+            refresh_top_candidate_stale=True,
+            refresh_top_candidate_missing=confidence != "low",
+            force_show_mode_top_candidate_refresh=confidence != "low",
+        )
         encoded_candidates, scored_candidates = self._encode_top_candidates(
             [
                 CandidateEncodingItem(
@@ -2993,12 +3316,13 @@ class SpotlightScanService:
         api_key: str | None = None,
         force_refresh: bool = False,
     ) -> dict[str, Any] | None:
+        effective_force_refresh = force_refresh or self._card_show_mode_active()
         if pricing_context.is_graded:
             if not pricing_context.grader or not pricing_context.grade:
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
             existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
-            if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
+            if existing_pricing is not None and not effective_force_refresh and existing_pricing.get("isFresh") is True:
                 self._log_pricing_provenance(
                     "refresh_slab_cached",
                     card_id,
@@ -3007,7 +3331,7 @@ class SpotlightScanService:
                 )
                 return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
-            if self._live_scrydex_queries_blocked():
+            if not self._live_scrydex_pricing_refresh_allowed():
                 self._log_pricing_provenance(
                     "refresh_slab_manual_mirror_cached_only",
                     card_id,
@@ -3044,7 +3368,7 @@ class SpotlightScanService:
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
         existing_card = card_by_id(self.connection, card_id)
-        if existing_card is None and api_key and self.live_scrydex_queries_allowed():
+        if existing_card is None and api_key and self._live_scrydex_imports_allowed():
             try:
                 self.import_catalog_card(card_id, api_key=api_key, trigger_source="refresh_pricing_auto_import")
             except Exception:
@@ -3052,11 +3376,11 @@ class SpotlightScanService:
             existing_card = card_by_id(self.connection, card_id)
 
         existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
-        if existing_pricing is not None and not force_refresh and existing_pricing.get("isFresh") is True:
+        if existing_pricing is not None and not effective_force_refresh and existing_pricing.get("isFresh") is True:
             self._log_pricing_provenance("refresh_raw_cached", card_id)
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
-        if self._live_scrydex_queries_blocked():
+        if not self._live_scrydex_pricing_refresh_allowed():
             self._log_pricing_provenance("refresh_raw_manual_mirror_cached_only", card_id)
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
@@ -3137,7 +3461,12 @@ class SpotlightScanService:
         for card_id in ordered_card_ids:
             detail = self._card_detail_for_context(card_id, pricing_context=pricing_context)
             pricing = ((detail or {}).get("card") or {}).get("pricing") if isinstance(detail, dict) else None
-            needs_refresh = force_refresh or pricing is None or pricing.get("isFresh") is not True
+            needs_refresh = (
+                force_refresh
+                or self._card_show_mode_active()
+                or pricing is None
+                or pricing.get("isFresh") is not True
+            )
 
             if needs_refresh and refreshed_count < refresh_budget:
                 refreshed_count += 1
@@ -3146,7 +3475,7 @@ class SpotlightScanService:
                         card_id,
                         pricing_context=pricing_context,
                         api_key=api_key,
-                        force_refresh=force_refresh,
+                        force_refresh=(force_refresh or self._card_show_mode_active()),
                     )
                 except Exception:
                     detail = self._card_detail_for_context(card_id, pricing_context=pricing_context)
@@ -3392,7 +3721,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 cert_number=cert_number,
                 preferred_variant=preferred_variant,
             )
-            if payload is None and self.service.live_scrydex_queries_allowed():
+            if payload is None and self.service._live_scrydex_imports_allowed():
                 api_key = os.environ.get("SCRYDEX_API_KEY")
                 try:
                     imported = self.service.import_catalog_card(
@@ -3484,6 +3813,34 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 )
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Manual Scrydex sync failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, summary)
+            return
+
+        if parsed.path == "/api/v1/admin/card-show-mode":
+            enabled = payload.get("enabled")
+            if enabled is False:
+                summary = self.service.clear_card_show_mode()
+                self._write_json(HTTPStatus.OK, summary)
+                return
+
+            until_value = payload.get("until")
+            until = str(until_value or "").strip() or None
+            duration_hours_value = payload.get("durationHours")
+            try:
+                duration_hours = float(duration_hours_value) if duration_hours_value is not None else None
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "durationHours must be a number"})
+                return
+            note = str(payload.get("note") or "").strip() or None
+            try:
+                summary = self.service.set_card_show_mode(
+                    until=until,
+                    duration_hours=duration_hours,
+                    note=note,
+                )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
             self._write_json(HTTPStatus.OK, summary)
             return

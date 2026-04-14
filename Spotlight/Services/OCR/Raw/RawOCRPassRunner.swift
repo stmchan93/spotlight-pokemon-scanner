@@ -165,7 +165,7 @@ actor RawOCRPassRunner {
         recognitionLanguages: [String]
     ) throws -> [RecognizedToken] {
         let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
+        request.recognitionLevel = plan.recognitionLevel == .fast ? .fast : .accurate
         request.usesLanguageCorrection = plan.usesLanguageCorrection
         request.minimumTextHeight = plan.minimumTextHeight
         request.recognitionLanguages = recognitionLanguages

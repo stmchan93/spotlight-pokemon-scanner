@@ -170,6 +170,29 @@ struct RawConfidenceModel {
         return collector.exact != nil
     }
 
+    func shouldSkipWideHeaderPassAfterLowered(
+        passResults: [RawOCRPassResult],
+        sceneTraits: RawSceneTraits,
+        stage1Assessment: RawStageAssessment
+    ) -> Bool {
+        guard sceneTraits.isExactReticleFallback else { return false }
+
+        let loweredPassResults = passResults.filter { $0.label == "12_raw_header_wide_lowered" }
+        guard !loweredPassResults.isEmpty else { return false }
+
+        let title = resolveTitleEvidence(from: loweredPassResults)
+        let titleText = title.primaryText ?? ""
+        let titleScore = title.confidence?.score ?? 0
+        let titleLength = titleText.count
+
+        if stage1Assessment.setHintTokens.isEmpty, containsJapaneseText(titleText) {
+            return false
+        }
+
+        return titleScore >= tuning.minimumTitleConfidenceForStrongSignal &&
+            titleLength >= tuning.minimumTitleLengthForStrongSignal
+    }
+
     func shouldRetryWithStillPhoto(
         captureSource: ScanCaptureSource,
         summary: RawEvidenceConfidenceSummary,
@@ -820,6 +843,17 @@ struct RawConfidenceModel {
         let union = headerTokens.union(nameplateTokens)
         guard !union.isEmpty else { return nil }
         return Double(overlap.count) / Double(union.count)
+    }
+
+    private func containsJapaneseText(_ text: String) -> Bool {
+        text.unicodeScalars.contains { scalar in
+            switch scalar.value {
+            case 0x3040...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xFF66...0xFF9F:
+                return true
+            default:
+                return false
+            }
+        }
     }
 
     private func normalizedCollectorIdentifier(_ value: String?) -> String {

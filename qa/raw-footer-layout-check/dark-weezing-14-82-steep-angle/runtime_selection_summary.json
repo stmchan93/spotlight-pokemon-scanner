@@ -1,406 +1,165 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_partial_collector_hint"
+
   ],
-  "collectorConfidenceScore" : 0.42,
   "contentRectNormalized" : {
-    "height" : 0.9994090909090909,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.0002954545454545351
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
   },
   "fixtureName" : "dark-weezing-14-82-steep-angle",
   "footerRouting" : {
-    "anchorIdentifier" : "10\/14",
-    "collectorAnchor" : {
-      "height" : 0.05185577251049012,
-      "width" : 0.624617852744386,
-      "x" : 0.3691940558061263,
-      "y" : 0.8557700469634157
-    },
     "reasons" : [
-      "footer_band_collector_anchor"
+      "footer_band_anchor_unavailable"
     ]
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:best_rectangle_aspect_mismatch",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.7739913199205359,
+  "ocrTargetQualityScore" : 0.58,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.21987,
-        "width" : 1,
-        "x" : 0,
-        "y" : 0.7798345454545454
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
       },
-      "text" : "searchers have observed these Pokémon reproducing in noustrial waste sites. LV. 24 #10 Havichr Yoshida D1995, 96, 98 Nintendo, Creatures. GAMEFREAK. ©1999-2000 Wizards 14\/8",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03315584323883055,
-            "width" : 0.9455741868868497,
-            "x" : 0.02913137172782894,
-            "y" : 0.8289515459549384
-          },
-          "text" : "searchers have observed these Pokémon reproducing in"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.020917701988220207,
-            "width" : 0.36666665590208886,
-            "x" : 0.004166678160066499,
-            "y" : 0.8510245455349311
-          },
-          "text" : "noustrial waste sites."
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019444371271133406,
-            "width" : 0.10520163372921143,
-            "x" : 0.3691940558061263,
-            "y" : 0.8557700469634157
-          },
-          "text" : "LV. 24"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.01740637435913083,
-            "width" : 0.10641025361560641,
-            "x" : 0.47435897486954715,
-            "y" : 0.8577051708131519
-          },
-          "text" : "#10"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02726259487152099,
-            "width" : 0.8880262694451334,
-            "x" : -0.0002651596537489232,
-            "y" : 0.8807256593912347
-          },
-          "text" : "Havichr Yoshida D1995, 96, 98 Nintendo, Creatures. GAMEFREAK. ©1999-2000 Wizards"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.016473922977447493,
-            "width" : 0.0607007411842414,
-            "x" : 0.9331111673662709,
-            "y" : 0.8911518964964583
-          },
-          "text" : "14\/8"
-        }
+
       ]
     },
     {
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
+      "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
-        "height" : 0.09794209090909091,
-        "width" : 0.138,
-        "x" : 0,
-        "y" : 0.819759478911667
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.0708493878899429,
+        "y" : 0.8451
       },
-      "text" : "Research Houstria Hn-tchr Yost",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.017331994013594077,
-            "width" : 0.1376983836780895,
-            "x" : -0.00012191949636266487,
-            "y" : 0.8304496262961018
-          },
-          "text" : "Research"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.017033407114624494,
-            "width" : 0.13745454545454547,
-            "x" : 3.0818183011598944e-10,
-            "y" : 0.8530520474055621
-          },
-          "text" : "Houstria"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.017107465721040598,
-            "width" : 0.13688935713334519,
-            "x" : -0.0002829840121796989,
-            "y" : 0.8795577960956663
-          },
-          "text" : "Hn-tchr Yost"
-        }
+
       ]
     },
     {
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
+      "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
-        "height" : 0.11408269952307827,
-        "width" : 1,
-        "x" : 0,
-        "y" : 0.8246565834571216
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.17016093255934683,
+        "y" : 0.85
       },
-      "text" : "Assearchers have observed these Pokémon reproducing in noustriol waste sites. LV. 24 #|10 In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards 14\/8",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03413795639866093,
-            "width" : 0.9764988813450728,
-            "x" : -0.00042810846757225247,
-            "y" : 0.8279935999453131
-          },
-          "text" : "Assearchers have observed these Pokémon reproducing in"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.024684060669210747,
-            "width" : 0.5754515632750495,
-            "x" : 0.003957577319112494,
-            "y" : 0.8506556525522991
-          },
-          "text" : "noustriol waste sites. LV. 24 #|10"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.030013717375206778,
-            "width" : 0.8804779052734375,
-            "x" : 0.009083688979483959,
-            "y" : 0.8807412468675916
-          },
-          "text" : "In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013309647685595912,
-            "width" : 0.061444968773574415,
-            "x" : 0.9318028359584187,
-            "y" : 0.8921555143221499
-          },
-          "text" : "14\/8"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
+      "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
-        "height" : 0.10193972727272727,
-        "width" : 0.125,
-        "x" : 0,
-        "y" : 0.8165014052753033
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.6724158761621596,
+        "y" : 0.84184
       },
-      "text" : "2STR",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.011171484064028538,
-            "width" : 0.05460526315789473,
-            "x" : 0.04342105293494152,
-            "y" : 0.8556015710578363
-          },
-          "text" : "2STR"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
-        "height" : 0.11408269952307827,
-        "width" : 1,
-        "x" : 0,
-        "y" : 0.8246565834571216
+        "height" : 0.1,
+        "width" : 0.18490978023188134,
+        "x" : 0.7198927116271021,
+        "y" : 0.85
       },
-      "text" : "Assearchers have observed these Pokémon reproducing in noustriol waste sites. LV. 24 #|10 In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards 14\/8",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03413795639866093,
-            "width" : 0.9764988813450728,
-            "x" : -0.00042810846757225247,
-            "y" : 0.8279935999453131
-          },
-          "text" : "Assearchers have observed these Pokémon reproducing in"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.024684060669210747,
-            "width" : 0.5754515632750495,
-            "x" : 0.003957577319112494,
-            "y" : 0.8506556525522991
-          },
-          "text" : "noustriol waste sites. LV. 24 #|10"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.030013717375206778,
-            "width" : 0.8804779052734375,
-            "x" : 0.009083688979483959,
-            "y" : 0.8807412468675916
-          },
-          "text" : "In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013309647685595912,
-            "width" : 0.061444968773574415,
-            "x" : 0.9318028359584187,
-            "y" : 0.8921555143221499
-          },
-          "text" : "14\/8"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
+      "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
-        "height" : 0.10493795454545454,
-        "width" : 0.115,
-        "x" : 0.885,
-        "y" : 0.8120640289116671
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.7856106470338382,
+        "y" : 0.8294
       },
-      "text" : "ing in 14\/8",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019293525275173265,
-            "width" : 0.08937142857142856,
-            "x" : 0.8850000001314285,
-            "y" : 0.8412396036438208
-          },
-          "text" : "ing in"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014117213615980437,
-            "width" : 0.06111428571428571,
-            "x" : 0.9323142853747619,
-            "y" : 0.8920615727564706
-          },
-          "text" : "14\/8"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
-        "height" : 0.11408269952307827,
-        "width" : 1,
-        "x" : 0,
-        "y" : 0.8246565834571216
+        "height" : 0.102,
+        "width" : 0.18990734185977,
+        "x" : 0.704900026743436,
+        "y" : 0.842
       },
-      "text" : "Assearchers have observed these Pokémon reproducing in noustriol waste sites. LV. 24 #|10 In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards 14\/8",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03413795639866093,
-            "width" : 0.9764988813450728,
-            "x" : -0.00042810846757225247,
-            "y" : 0.8279935999453131
-          },
-          "text" : "Assearchers have observed these Pokémon reproducing in"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.024684060669210747,
-            "width" : 0.5754515632750495,
-            "x" : 0.003957577319112494,
-            "y" : 0.8506556525522991
-          },
-          "text" : "noustriol waste sites. LV. 24 #|10"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.030013717375206778,
-            "width" : 0.8804779052734375,
-            "x" : 0.009083688979483959,
-            "y" : 0.8807412468675916
-          },
-          "text" : "In-chr Yoshida D1995, 96, 98 Nintendo, Creatures, GAMEFREAK. ©1999-2000 Wizards"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013309647685595912,
-            "width" : 0.061444968773574415,
-            "x" : 0.9318028359584187,
-            "y" : 0.8921555143221499
-          },
-          "text" : "14\/8"
-        }
+
       ]
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.1998818181818182,
-        "width" : 0.88,
-        "x" : 0.06,
-        "y" : 0.0002954545454545351
+        "height" : 0.22,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0.05
       },
-      "text" : "Dark Weezing 60 HP",
+      "text" : "OArk Wer21n",
       "tokens" : [
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.044129751893899186,
-            "width" : 0.6013333184755358,
-            "x" : 0.3166666680822321,
-            "y" : 0.11451363668337272
+            "height" : 0.023256793880279587,
+            "width" : 0.26193110707624484,
+            "x" : 0.34400637392318234,
+            "y" : 0.18011463469114902
           },
-          "text" : "Dark Weezing 60 HP"
+          "text" : "OArk Wer21n"
         }
       ]
     }
   ],
-  "scanID" : "799412C5-2BAE-46F0-903C-47248D8188EE",
+  "scanID" : "4023A58A-F500-47F6-BF2B-FD9173DB239F",
   "setConfidenceReasons" : [
 
   ],
@@ -412,10 +171,12 @@
     "title_signal_weak",
     "set_signal_weak"
   ],
-  "titleConfidenceScore" : 1,
-  "titleTextPrimary" : "Dark Weezing",
+  "titleConfidenceScore" : 0.6399999999999999,
+  "titleTextPrimary" : "OArk Wer21n",
   "warnings" : [
     "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs"
+    "Rewrite raw escalation used focused ROIs",
+    "Rewrite raw is relying on broader title evidence",
+    "Low-confidence rewrite raw evidence"
   ]
 }

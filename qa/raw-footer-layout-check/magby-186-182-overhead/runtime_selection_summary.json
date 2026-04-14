@@ -1,192 +1,54 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_band_metadata_agreement"
+
   ],
-  "collectorConfidenceScore" : 0.92,
-  "collectorNumber" : "186\/182",
   "contentRectNormalized" : {
-    "height" : 0.9991600790513835,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.00041996047430824425
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
   },
   "fixtureName" : "magby-186-182-overhead",
   "footerRouting" : {
-    "anchorIdentifier" : "186\/182",
-    "collectorAnchor" : {
-      "height" : 0.09971211073814357,
-      "width" : 0.2456685904312836,
-      "x" : 0.17356218141757138,
-      "y" : 0.8328868337959872
-    },
     "reasons" : [
-      "footer_band_collector_anchor"
+      "footer_band_anchor_unavailable"
     ]
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:best_rectangle_aspect_mismatch",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.8213638151379321,
+  "ocrTargetQualityScore" : 0.58,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.21981521739130436,
-        "width" : 1,
-        "x" : 0,
-        "y" : 0.7797648221343874
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
       },
-      "text" : "ผรสใกตรง( x2 resiktance cetreat Thio fatdaion makes te Gomo aear vodcanacs Aedos cnd of diis deys kinghycaste to aaeyue. Mu Mia Roket rocthygand rccoxor trugtron dhas dayte detigur PARE 186\/182合 03023 Poker iNinbem interida \/ Creatures1 CAMEIRCAX",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.020249453767649618,
-            "width" : 0.1102564103599158,
-            "x" : 0.06666666730401645,
-            "y" : 0.8364506944479437
-          },
-          "text" : "ผรสใกตรง("
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02198152029753415,
-            "width" : 0.05000000067278612,
-            "x" : 0.20641025579608555,
-            "y" : 0.8328868337959872
-          },
-          "text" : "x2"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01557024424486267,
-            "width" : 0.13589743962363593,
-            "x" : 0.28333333222521906,
-            "y" : 0.8338027298472889
-          },
-          "text" : "resiktance"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01648614082381573,
-            "width" : 0.07948717658902393,
-            "x" : 0.6179487200601889,
-            "y" : 0.8255596592701153
-          },
-          "text" : "cetreat"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.032300526608383576,
-            "width" : 0.4911150251116071,
-            "x" : 0.437712645053679,
-            "y" : 0.8511815590635972
-          },
-          "text" : "Thio fatdaion makes te Gomo aear vodcanacs"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.038942531348611385,
-            "width" : 0.48537438340498235,
-            "x" : 0.4514970453432054,
-            "y" : 0.8697280486090346
-          },
-          "text" : "Aedos cnd of diis deys kinghycaste to aaeyue."
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.02052962620462979,
-            "width" : 0.16245055829406416,
-            "x" : 0.0726102830549257,
-            "y" : 0.8819459184416752
-          },
-          "text" : "Mu Mia Roket"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.034611723813883506,
-            "width" : 0.47201215148602843,
-            "x" : 0.4543657002144566,
-            "y" : 0.8918090348533005
-          },
-          "text" : "rocthygand rccoxor trugtron dhas dayte detigur"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.01648614082381573,
-            "width" : 0.05769230406961323,
-            "x" : 0.11410256639468055,
-            "y" : 0.9098221593006453
-          },
-          "text" : "PARE"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.025284037198553468,
-            "width" : 0.1391533880216945,
-            "x" : 0.17356218141757138,
-            "y" : 0.9073149073355773
-          },
-          "text" : "186\/182合"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.010148345637042259,
-            "width" : 0.09487179011053931,
-            "x" : 0.31025641382293545,
-            "y" : 0.9372255797209933
-          },
-          "text" : "03023 Poker"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.009158966990860927,
-            "width" : 0.06666666532109444,
-            "x" : 0.43205128339073484,
-            "y" : 0.9345513711926987
-          },
-          "text" : "iNinbem"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.017950526348573553,
-            "width" : 0.2583333440979112,
-            "x" : 0.45416666140590556,
-            "y" : 0.9252585619914027
-          },
-          "text" : "interida \/ Creatures1 CAMEIRCAX"
-        }
+
       ]
     },
     {
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
+      "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
-        "height" : 0.09791768774703559,
-        "width" : 0.138,
-        "x" : 0,
-        "y" : 0.7681636829657492
+        "height" : 0.098,
+        "width" : 0.1379327009297277,
+        "x" : 0.0708493878899429,
+        "y" : 0.8451
       },
       "text" : "",
       "tokens" : [
@@ -197,107 +59,28 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
+      "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
-        "height" : 0.21936664362391586,
-        "width" : 0.4422034627763105,
-        "x" : 0.07529474524505791,
-        "y" : 0.773059567353101
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.17016093255934683,
+        "y" : 0.85
       },
-      "text" : "eakne 32 resistance ThslO Mus Mina Roket PAR EN 186\/182★ 03023 Pokemon \/ Nintendo",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.010827109020064516,
-            "width" : 0.055933473714265464,
-            "x" : 0.08384927691852921,
-            "y" : 0.8417881724000018
-          },
-          "text" : "eakne"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02165421804012903,
-            "width" : 0.03685028856469251,
-            "x" : 0.21874765437014312,
-            "y" : 0.8333147828328011
-          },
-          "text" : "32"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015762873154884737,
-            "width" : 0.14003109855401302,
-            "x" : 0.2798138443746999,
-            "y" : 0.8334839121026384
-          },
-          "text" : "resistance"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.013180828372252453,
-            "width" : 0.07830686319997161,
-            "x" : 0.43853330393771917,
-            "y" : 0.866737597636085
-          },
-          "text" : "ThslO"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019771242558378668,
-            "width" : 0.1602987492318685,
-            "x" : 0.07529474925919716,
-            "y" : 0.8820367732586317
-          },
-          "text" : "Mus Mina Roket"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01694677933575316,
-            "width" : 0.05527543284703883,
-            "x" : 0.11148699281091562,
-            "y" : 0.9086338019739464
-          },
-          "text" : "PAR EN"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.021852780787053515,
-            "width" : 0.1427283873443435,
-            "x" : 0.17618542549063393,
-            "y" : 0.9090153638071651
-          },
-          "text" : "186\/182★"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014572929229195198,
-            "width" : 0.20700883674835063,
-            "x" : 0.308974641740027,
-            "y" : 0.9333786547979294
-          },
-          "text" : "03023 Pokemon \/ Nintendo"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
+      "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
-        "height" : 0.1019143280632411,
-        "width" : 0.125,
-        "x" : 0.027794745245057914,
-        "y" : 0.7649064211080417
+        "height" : 0.102,
+        "width" : 0.12493904069721712,
+        "x" : 0.6724158761621596,
+        "y" : 0.84184
       },
       "text" : "",
       "tokens" : [
@@ -308,107 +91,28 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
-        "height" : 0.21936664362391586,
-        "width" : 0.4422034627763105,
-        "x" : 0.07529474524505791,
-        "y" : 0.773059567353101
+        "height" : 0.1,
+        "width" : 0.18490978023188134,
+        "x" : 0.7198927116271021,
+        "y" : 0.85
       },
-      "text" : "eakne 32 resistance ThslO Mus Mina Roket PAR EN 186\/182★ 03023 Pokemon \/ Nintendo",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.010827109020064516,
-            "width" : 0.055933473714265464,
-            "x" : 0.08384927691852921,
-            "y" : 0.8417881724000018
-          },
-          "text" : "eakne"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02165421804012903,
-            "width" : 0.03685028856469251,
-            "x" : 0.21874765437014312,
-            "y" : 0.8333147828328011
-          },
-          "text" : "32"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015762873154884737,
-            "width" : 0.14003109855401302,
-            "x" : 0.2798138443746999,
-            "y" : 0.8334839121026384
-          },
-          "text" : "resistance"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.013180828372252453,
-            "width" : 0.07830686319997161,
-            "x" : 0.43853330393771917,
-            "y" : 0.866737597636085
-          },
-          "text" : "ThslO"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019771242558378668,
-            "width" : 0.1602987492318685,
-            "x" : 0.07529474925919716,
-            "y" : 0.8820367732586317
-          },
-          "text" : "Mus Mina Roket"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01694677933575316,
-            "width" : 0.05527543284703883,
-            "x" : 0.11148699281091562,
-            "y" : 0.9086338019739464
-          },
-          "text" : "PAR EN"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.021852780787053515,
-            "width" : 0.1427283873443435,
-            "x" : 0.17618542549063393,
-            "y" : 0.9090153638071651
-          },
-          "text" : "186\/182★"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014572929229195198,
-            "width" : 0.20700883674835063,
-            "x" : 0.308974641740027,
-            "y" : 0.9333786547979294
-          },
-          "text" : "03023 Pokemon \/ Nintendo"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
+      "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
-        "height" : 0.10491180830039526,
-        "width" : 0.115,
-        "x" : 0.40824820802136835,
-        "y" : 0.7604701503570536
+        "height" : 0.105,
+        "width" : 0.11494391744143975,
+        "x" : 0.7856106470338382,
+        "y" : 0.8294
       },
       "text" : "",
       "tokens" : [
@@ -419,158 +123,80 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
-        "height" : 0.21936664362391586,
-        "width" : 0.4422034627763105,
-        "x" : 0.07529474524505791,
-        "y" : 0.773059567353101
+        "height" : 0.102,
+        "width" : 0.18990734185977,
+        "x" : 0.704900026743436,
+        "y" : 0.842
       },
-      "text" : "eakne 32 resistance ThslO Mus Mina Roket PAR EN 186\/182★ 03023 Pokemon \/ Nintendo",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.010827109020064516,
-            "width" : 0.055933473714265464,
-            "x" : 0.08384927691852921,
-            "y" : 0.8417881724000018
-          },
-          "text" : "eakne"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02165421804012903,
-            "width" : 0.03685028856469251,
-            "x" : 0.21874765437014312,
-            "y" : 0.8333147828328011
-          },
-          "text" : "32"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015762873154884737,
-            "width" : 0.14003109855401302,
-            "x" : 0.2798138443746999,
-            "y" : 0.8334839121026384
-          },
-          "text" : "resistance"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.013180828372252453,
-            "width" : 0.07830686319997161,
-            "x" : 0.43853330393771917,
-            "y" : 0.866737597636085
-          },
-          "text" : "ThslO"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019771242558378668,
-            "width" : 0.1602987492318685,
-            "x" : 0.07529474925919716,
-            "y" : 0.8820367732586317
-          },
-          "text" : "Mus Mina Roket"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01694677933575316,
-            "width" : 0.05527543284703883,
-            "x" : 0.11148699281091562,
-            "y" : 0.9086338019739464
-          },
-          "text" : "PAR EN"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.021852780787053515,
-            "width" : 0.1427283873443435,
-            "x" : 0.17618542549063393,
-            "y" : 0.9090153638071651
-          },
-          "text" : "186\/182★"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014572929229195198,
-            "width" : 0.20700883674835063,
-            "x" : 0.308974641740027,
-            "y" : 0.9333786547979294
-          },
-          "text" : "03023 Pokemon \/ Nintendo"
-        }
+
       ]
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.1998320158102767,
-        "width" : 0.88,
-        "x" : 0.06,
-        "y" : 0.00041996047430824425
+        "height" : 0.22,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0.05
       },
-      "text" : "m30 ASIC Magby",
+      "text" : "BASIC Magby н. 30",
       "tokens" : [
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.010999999500456326,
+            "width" : 0.0663827035580545,
+            "x" : 0.22744793219894202,
+            "y" : 0.2480000001886607
+          },
+          "text" : "BASIC"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.022916666666666658,
+            "width" : 0.11106336789725361,
+            "x" : 0.31680926742668053,
+            "y" : 0.2461666665234375
+          },
+          "text" : "Magby"
+        },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.043905914497817985,
-            "width" : 0.12279069702654954,
-            "x" : 0.6829069775066587,
-            "y" : 0.0933852889294356
+            "height" : 0.027674603008088595,
+            "width" : 0.07914861362170811,
+            "x" : 0.6321271134833608,
+            "y" : 0.23883333344333335
           },
-          "text" : "m30"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.016424549562493874,
-            "width" : 0.08186046468436636,
-            "x" : 0.060000000625258676,
-            "y" : 0.10809200530911253
-          },
-          "text" : "ASIC"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.04379879662375575,
-            "width" : 0.173953494418871,
-            "x" : 0.17895348480509937,
-            "y" : 0.10535458137530739
-          },
-          "text" : "Magby"
+          "text" : "н. 30"
         }
       ]
     }
   ],
-  "scanID" : "F41C25D4-2706-4C32-BE66-13C7860C77FD",
+  "scanID" : "2FA094CC-509D-438E-9AD1-98649C628D59",
   "setConfidenceReasons" : [
-    "rewrite_raw_footer_band_set_hints"
+
   ],
-  "setConfidenceScore" : 0.48,
   "setHintTokens" : [
-    "m30",
-    "par"
+
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
     "set_signal_weak"
   ],
-  "titleConfidenceScore" : 0.9066666507720946,
-  "titleTextPrimary" : "m30 ASIC Magby",
+  "titleConfidenceScore" : 0.7399999841054281,
+  "titleTextPrimary" : "BASIC Magby н",
   "warnings" : [
     "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs"
+    "Rewrite raw escalation used focused ROIs",
+    "Rewrite raw is relying on broader title evidence",
+    "Low-confidence rewrite raw evidence"
   ]
 }

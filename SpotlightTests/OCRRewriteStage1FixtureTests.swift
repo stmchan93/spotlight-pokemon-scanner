@@ -239,10 +239,15 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
         let plans = planner.stage2Plan(for: sceneTraits)
 
         XCTAssertEqual(plans.count, 2)
-        XCTAssertEqual(plans[0].label, "12_raw_header_wide")
-        XCTAssertEqual(plans[1].label, "12_raw_header_wide_lowered")
-        XCTAssertGreaterThan(plans[1].normalizedRect.y, plans[0].normalizedRect.y)
-        XCTAssertGreaterThan(plans[1].normalizedRect.height, plans[0].normalizedRect.height)
+        XCTAssertEqual(plans[0].label, "12_raw_header_wide_lowered")
+        XCTAssertEqual(plans[1].label, "12_raw_header_wide")
+        XCTAssertGreaterThan(plans[0].normalizedRect.y, plans[1].normalizedRect.y)
+        XCTAssertGreaterThan(plans[0].normalizedRect.height, plans[1].normalizedRect.height)
+        XCTAssertEqual(plans[0].recognitionLevel, .fast)
+        XCTAssertFalse(plans[0].usesLanguageCorrection)
+        XCTAssertLessThan(plans[0].upscaleFactor, plans[1].upscaleFactor)
+        XCTAssertEqual(plans[1].recognitionLevel, .accurate)
+        XCTAssertTrue(plans[1].usesLanguageCorrection)
     }
 
     func testRawNonFallbackStage2PlanKeepsSingleHeaderPass() {

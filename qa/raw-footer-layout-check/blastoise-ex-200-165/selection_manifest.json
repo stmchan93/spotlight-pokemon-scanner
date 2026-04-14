@@ -2,15 +2,16 @@
   "candidates" : [
 
   ],
+  "fallbackReason" : "no_rectangle_detected",
   "mode" : "raw",
-  "normalizationReason" : "relaxed_rectangle_detector_promoted",
+  "normalizationReason" : "exact_reticle_fallback",
   "normalizedContentRect" : {
-    "height" : 0.9647001934235976,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.0176499032882012
+    "height" : 1,
+    "width" : 0.9998229775181448,
+    "x" : 8.851124092760955e-05,
+    "y" : 0
   },
-  "normalizedGeometryKind" : "raw_card",
+  "normalizedGeometryKind" : "fallback",
   "source" : "imported_photo",
   "stage" : "selection"
 }

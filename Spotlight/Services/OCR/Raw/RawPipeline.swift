@@ -190,17 +190,51 @@ actor RawPipeline {
             passResults: stage1PassResults,
             sceneTraits: sceneTraits
         )
-        let stage2Plans = stage1Assessment.shouldEscalate
+        let stage2CandidatePlans = stage1Assessment.shouldEscalate
             ? roiPlanner.stage2Plan(for: sceneTraits)
             : []
         let stage2StartedAt = Date().timeIntervalSinceReferenceDate
-        let stage2PassResults = stage2Plans.isEmpty
-            ? []
-            : try await passRunner.run(
-                scanID: scanID,
-                in: workingCGImage,
-                plans: stage2Plans
-            )
+        var stage2Plans: [RawROIPlanItem] = []
+        var stage2PassResults: [RawOCRPassResult] = []
+        if !stage2CandidatePlans.isEmpty {
+            if sceneTraits.isExactReticleFallback,
+               let loweredIndex = stage2CandidatePlans.firstIndex(where: { $0.label == "12_raw_header_wide_lowered" }) {
+                let loweredPlan = stage2CandidatePlans[loweredIndex]
+                let loweredPassBatch = try await passRunner.run(
+                    scanID: scanID,
+                    in: workingCGImage,
+                    plans: [loweredPlan]
+                )
+                stage2Plans.append(loweredPlan)
+                stage2PassResults.append(contentsOf: loweredPassBatch)
+
+                if !confidenceModel.shouldSkipWideHeaderPassAfterLowered(
+                    passResults: loweredPassBatch,
+                    sceneTraits: sceneTraits,
+                    stage1Assessment: stage1Assessment
+                ) {
+                    let remainingPlans = stage2CandidatePlans.enumerated()
+                        .filter { $0.offset != loweredIndex }
+                        .map(\.element)
+                    if !remainingPlans.isEmpty {
+                        let remainingPassBatch = try await passRunner.run(
+                            scanID: scanID,
+                            in: workingCGImage,
+                            plans: remainingPlans
+                        )
+                        stage2Plans.append(contentsOf: remainingPlans)
+                        stage2PassResults.append(contentsOf: remainingPassBatch)
+                    }
+                }
+            } else {
+                stage2Plans = stage2CandidatePlans
+                stage2PassResults = try await passRunner.run(
+                    scanID: scanID,
+                    in: workingCGImage,
+                    plans: stage2Plans
+                )
+            }
+        }
         let stage2Ms = stage2Plans.isEmpty ? 0 : (Date().timeIntervalSinceReferenceDate - stage2StartedAt) * 1000
         let allPassResults = stage1PassResults + stage2PassResults
         let synthesisStartedAt = Date().timeIntervalSinceReferenceDate

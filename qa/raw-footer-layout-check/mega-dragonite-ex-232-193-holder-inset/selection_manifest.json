@@ -39,7 +39,7 @@
   ],
   "chosenCandidateIndex" : 1,
   "mode" : "raw",
-  "normalizationReason" : "selected_card_conservative_canonicalization",
+  "normalizationReason" : "basic_perspective_canonicalization",
   "normalizedContentRect" : {
     "height" : 1,
     "width" : 0.41044504092520795,

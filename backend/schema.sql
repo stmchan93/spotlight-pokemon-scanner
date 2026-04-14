@@ -108,6 +108,12 @@ CREATE TABLE IF NOT EXISTS provider_sync_runs (
     notes_json TEXT NOT NULL DEFAULT '{}'
 );
 
+CREATE TABLE IF NOT EXISTS runtime_settings (
+    key TEXT PRIMARY KEY,
+    value_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_cards_name_set_number
     ON cards(name, set_name, number);
 
@@ -143,3 +149,6 @@ CREATE INDEX IF NOT EXISTS idx_scan_events_selected_card_id
 
 CREATE INDEX IF NOT EXISTS idx_provider_sync_runs_provider_scope_started
     ON provider_sync_runs(provider, sync_scope, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_runtime_settings_updated_at
+    ON runtime_settings(updated_at DESC);

@@ -455,6 +455,114 @@ final class SlabRegressionFixtureExecutionTests: XCTestCase {
         )
     }
 
+    func testSlabLabelParserHandlesNoisyPSATokensAndPostCertGrades() {
+        let cases: [(name: String, texts: [String], expectedGrade: String, expectedCert: String, expectedCard: String)] = [
+            (
+                name: "charizard",
+                texts: [
+                    "2020 POKEMON SWSH #079 FA/CHARIZARD V GEM MT CHAMPION'S PATH - SECRET 10 IFSA 52300610",
+                    "10N SWSH #079 RD V GEM MT S PATH - SECRET 10 FSA 52300610",
+                    "H #079 GEM MT SECRET 10 52300610",
+                ],
+                expectedGrade: "10",
+                expectedCert: "52300610",
+                expectedCard: "079"
+            ),
+            (
+                name: "dracozolt",
+                texts: [
+                    "2021 POKEMON SWSH #210 FA/DRACOZOLT VMAX GEM MT EVOLVING SKIES-SECRET 10 80533912",
+                    "SWSH #210 T VMAX GEM MT S-SECRET 10 P:A 80533912",
+                    "#210 GEM MT ET 10 80533912",
+                ],
+                expectedGrade: "10",
+                expectedCert: "80533912",
+                expectedCard: "210"
+            ),
+            (
+                name: "zekrom",
+                texts: [
+                    "2013 POKEMON B & W #115 FA/ZEKROM MINT LEGENDARY TREASURES 59540878 9",
+                    "NB &W #115 MINT DEA DCC",
+                    "#115 MINT FOBLL 79",
+                ],
+                expectedGrade: "9",
+                expectedCert: "59540878",
+                expectedCard: "115"
+            ),
+        ]
+
+        for testCase in cases {
+            let analysis = SlabLabelParser.analyze(labelTexts: testCase.texts)
+
+            XCTAssertEqual(analysis.grader, "PSA", "grader mismatch for \(testCase.name)")
+            XCTAssertEqual(analysis.grade, testCase.expectedGrade, "grade mismatch for \(testCase.name)")
+            XCTAssertEqual(analysis.certNumber, testCase.expectedCert, "cert mismatch for \(testCase.name)")
+            XCTAssertEqual(analysis.cardNumberRaw, testCase.expectedCard, "card number mismatch for \(testCase.name)")
+            XCTAssertEqual(analysis.recommendedLookupPath, .psaCert, "lookup path mismatch for \(testCase.name)")
+        }
+    }
+
+    func testLabelOnlySlabRegressionFixtures() throws {
+        let manifests = try fixtureManifestURLs()
+        let labelOnlyFixtures = manifests.compactMap { manifestURL -> (URL, SlabRegressionManifest)? in
+            guard let fixture = try? decodeFixtureManifest(at: manifestURL),
+                  fixture.selectedMode == "slab",
+                  fixture.captureKind == "label_only" else {
+                return nil
+            }
+            return (manifestURL, fixture)
+        }
+
+        XCTAssertFalse(labelOnlyFixtures.isEmpty, "expected at least one label-only slab regression fixture")
+
+        for (manifestURL, fixture) in labelOnlyFixtures {
+            try withAutoreleasePool {
+                let sourceImageURL = manifestURL.deletingLastPathComponent().appendingPathComponent(fixture.sourceImage)
+                XCTAssertTrue(fileManager.fileExists(atPath: sourceImageURL.path), "missing source image for \(fixture.fixtureName)")
+                guard let sourceImage = UIImage(contentsOfFile: sourceImageURL.path) else {
+                    XCTFail("unable to load source image for \(fixture.fixtureName)")
+                    return
+                }
+
+                let analyzed = try analyzeLabelOnlyFixture(
+                    scanID: UUID(),
+                    sourceImage: sourceImage
+                )
+
+                XCTAssertEqual(
+                    normalizeComparison(analyzed.slabGrader),
+                    normalizeComparison(fixture.truth.grader),
+                    "grader mismatch for \(fixture.fixtureName)"
+                )
+                XCTAssertEqual(
+                    normalizeComparison(analyzed.slabGrade),
+                    normalizeComparison(fixture.truth.grade),
+                    "grade mismatch for \(fixture.fixtureName)"
+                )
+                XCTAssertEqual(
+                    analyzed.slabCertNumber,
+                    fixture.truth.certNumber,
+                    "cert mismatch for \(fixture.fixtureName)"
+                )
+                XCTAssertEqual(
+                    normalizeCardNumber(analyzed.slabCardNumberRaw),
+                    normalizeCardNumber(fixture.truth.cardNumber),
+                    "card number mismatch for \(fixture.fixtureName)"
+                )
+                XCTAssertEqual(
+                    analyzed.slabRecommendedLookupPath,
+                    .psaCert,
+                    "expected PSA cert lookup path for \(fixture.fixtureName)"
+                )
+                XCTAssertFalse(
+                    analyzed.slabParsedLabelText.isEmpty,
+                    "expected parsed label text for \(fixture.fixtureName)"
+                )
+            }
+        }
+    }
+
     private func fixtureManifestURLs() throws -> [URL] {
         let roots = [
             fixturesRoot.appendingPathComponent("tuning", isDirectory: true),
@@ -671,33 +779,35 @@ final class SlabRegressionFixtureExecutionTests: XCTestCase {
         minimumTextHeight: Float,
         upscaleFactor: CGFloat
     ) throws -> String {
-        guard let cropped = cropFixtureImage(sourceImage, normalizedRect: region) else {
-            return ""
-        }
-        let upscaled = upscaleFixtureImage(cropped, factor: upscaleFactor) ?? cropped
-
-        let request = VNRecognizeTextRequest()
-        request.recognitionLevel = .accurate
-        request.usesLanguageCorrection = false
-        request.minimumTextHeight = minimumTextHeight
-        request.recognitionLanguages = ["en-US"]
-
-        let handler = VNImageRequestHandler(cgImage: upscaled, options: [:])
-        try handler.perform([request])
-
-        let observations = (request.results ?? []).sorted {
-            let lhsTop = $0.boundingBox.maxY
-            let rhsTop = $1.boundingBox.maxY
-            if abs(lhsTop - rhsTop) > 0.05 {
-                return lhsTop > rhsTop
+        try withAutoreleasePool {
+            guard let cropped = cropFixtureImage(sourceImage, normalizedRect: region) else {
+                return ""
             }
-            return $0.boundingBox.minX < $1.boundingBox.minX
-        }
+            let upscaled = upscaleFixtureImage(cropped, factor: upscaleFactor) ?? cropped
 
-        return observations.compactMap { observation in
-            observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.usesLanguageCorrection = false
+            request.minimumTextHeight = minimumTextHeight
+            request.recognitionLanguages = ["en-US"]
+
+            let handler = VNImageRequestHandler(cgImage: upscaled, options: [:])
+            try handler.perform([request])
+
+            let observations = (request.results ?? []).sorted {
+                let lhsTop = $0.boundingBox.maxY
+                let rhsTop = $1.boundingBox.maxY
+                if abs(lhsTop - rhsTop) > 0.05 {
+                    return lhsTop > rhsTop
+                }
+                return $0.boundingBox.minX < $1.boundingBox.minX
+            }
+
+            return observations.compactMap { observation in
+                observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
+            .joined(separator: " ")
         }
-        .joined(separator: " ")
     }
 
     private func cropFixtureImage(_ image: CGImage, normalizedRect: CGRect) -> CGImage? {
@@ -734,5 +844,13 @@ final class SlabRegressionFixtureExecutionTests: XCTestCase {
         context.interpolationQuality = .high
         context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
         return context.makeImage()
+    }
+
+    private func withAutoreleasePool<T>(_ body: () throws -> T) throws -> T {
+        var result: Result<T, Error>!
+        autoreleasepool {
+            result = Result(catching: body)
+        }
+        return try result.get()
     }
 }

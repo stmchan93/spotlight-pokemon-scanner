@@ -14,6 +14,11 @@ enum RawOCRPreprocessing: String, Codable, Hashable, Sendable {
     case contrastBoosted = "contrast_boosted"
 }
 
+enum RawOCRRecognitionLevel: String, Codable, Hashable, Sendable {
+    case accurate
+    case fast
+}
+
 enum RawFooterFamily: String, Codable, Hashable, Sendable, CaseIterable {
     case modernLeft = "modern_left"
     case legacyRightMid = "legacy_right_mid"
@@ -44,6 +49,7 @@ struct RawROIPlanItem: Codable, Hashable, Sendable {
     let minimumTextHeight: Float
     let upscaleFactor: Double
     let preprocessing: RawOCRPreprocessing
+    let recognitionLevel: RawOCRRecognitionLevel
     let usesLanguageCorrection: Bool
     let recognitionLanguages: [String]
     let footerFamily: RawFooterFamily?
@@ -56,6 +62,7 @@ struct RawROIPlanItem: Codable, Hashable, Sendable {
         minimumTextHeight: Float,
         upscaleFactor: Double,
         preprocessing: RawOCRPreprocessing,
+        recognitionLevel: RawOCRRecognitionLevel = .accurate,
         usesLanguageCorrection: Bool,
         recognitionLanguages: [String],
         footerFamily: RawFooterFamily? = nil,
@@ -67,6 +74,7 @@ struct RawROIPlanItem: Codable, Hashable, Sendable {
         self.minimumTextHeight = minimumTextHeight
         self.upscaleFactor = upscaleFactor
         self.preprocessing = preprocessing
+        self.recognitionLevel = recognitionLevel
         self.usesLanguageCorrection = usesLanguageCorrection
         self.recognitionLanguages = recognitionLanguages
         self.footerFamily = footerFamily
@@ -186,7 +194,32 @@ struct RawROIPlanner {
     func stage2Plan(for sceneTraits: RawSceneTraits) -> [RawROIPlanItem] {
         let titleInsetX = sceneTraits.holderLikely ? 0.06 : (sceneTraits.usedFallback ? 0.02 : 0.0)
         let topInsetY = sceneTraits.holderLikely ? 0.02 : 0.0
-        var plans = [
+        if sceneTraits.isExactReticleFallback {
+            return [
+                headerWidePlan(
+                    label: "12_raw_header_wide_lowered",
+                    rect: OCRNormalizedRect(
+                        x: 0.04 + titleInsetX,
+                        y: sceneTraits.holderLikely ? 0.05 : 0.05,
+                        width: 0.92 - (titleInsetX * 2),
+                        height: sceneTraits.holderLikely ? 0.24 : 0.22
+                    ),
+                    sceneTraits: sceneTraits
+                ),
+                headerWidePlan(
+                    label: "12_raw_header_wide",
+                    rect: OCRNormalizedRect(
+                        x: 0.04 + titleInsetX,
+                        y: topInsetY,
+                        width: 0.92 - (titleInsetX * 2),
+                        height: sceneTraits.holderLikely ? 0.22 : 0.20
+                    ),
+                    sceneTraits: sceneTraits
+                )
+            ]
+        }
+
+        return [
             headerWidePlan(
                 label: "12_raw_header_wide",
                 rect: OCRNormalizedRect(
@@ -198,23 +231,6 @@ struct RawROIPlanner {
                 sceneTraits: sceneTraits
             )
         ]
-
-        if sceneTraits.isExactReticleFallback {
-            plans.append(
-                headerWidePlan(
-                    label: "12_raw_header_wide_lowered",
-                    rect: OCRNormalizedRect(
-                        x: 0.04 + titleInsetX,
-                        y: sceneTraits.holderLikely ? 0.05 : 0.05,
-                        width: 0.92 - (titleInsetX * 2),
-                        height: sceneTraits.holderLikely ? 0.24 : 0.22
-                    ),
-                    sceneTraits: sceneTraits
-                )
-            )
-        }
-
-        return plans
     }
 
     private func headerWidePlan(
@@ -222,14 +238,16 @@ struct RawROIPlanner {
         rect: OCRNormalizedRect,
         sceneTraits: RawSceneTraits
     ) -> RawROIPlanItem {
-        RawROIPlanItem(
+        let isLoweredFallbackPass = sceneTraits.isExactReticleFallback && label == "12_raw_header_wide_lowered"
+        return RawROIPlanItem(
             kind: .headerWide,
             label: label,
             normalizedRect: mapCardRelativeRect(rect, sceneTraits: sceneTraits),
             minimumTextHeight: 0.008,
-            upscaleFactor: sceneTraits.holderLikely ? 3.0 : 2.6,
+            upscaleFactor: isLoweredFallbackPass ? 1.8 : (sceneTraits.holderLikely ? 3.0 : 2.6),
             preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-            usesLanguageCorrection: true,
+            recognitionLevel: isLoweredFallbackPass ? .fast : .accurate,
+            usesLanguageCorrection: isLoweredFallbackPass ? false : true,
             recognitionLanguages: ["ja-JP", "en-US"]
         )
     }

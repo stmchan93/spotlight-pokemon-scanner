@@ -1,23 +1,23 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_metadata_families_agree"
+    "rewrite_raw_footer_band_wide"
   ],
-  "collectorConfidenceScore" : 0.94,
+  "collectorConfidenceScore" : 0.66,
   "collectorNumber" : "14\/82",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.9990143095068149,
-    "x" : 0.0004928452465925321,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
     "y" : 0
   },
   "fixtureName" : "dark-weezing-14-82-slight-angle",
   "footerRouting" : {
     "anchorIdentifier" : "14\/82",
     "collectorAnchor" : {
-      "height" : 0.0256666669872907,
-      "width" : 0.09990143229492732,
-      "x" : 0.8022658675758527,
-      "y" : 0.922083333044688
+      "height" : 0.02251148125503677,
+      "width" : 0.09377693961124844,
+      "x" : 0.7190074377864388,
+      "y" : 0.8915775926574224
     },
     "reasons" : [
       "footer_band_collector_anchor"
@@ -25,13 +25,13 @@
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:multiple_rectangles_too_close_to_call",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.8827519689821426,
+  "ocrTargetQualityScore" : 0.52,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
@@ -39,369 +39,129 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.9990143095068149,
-        "x" : 0.0004928452465925321,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
         "y" : 0.78
       },
-      "text" : "the Defending Pokémon is now Paralyzed. Defending Pokemo. retreat cost resistance weakness Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #|10 14\/82* illas, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK, ©1999-2000 Wizards.",
+      "text" : "the Defending Pokemon 15 hor recrear cost resistance weakness Researchers have observed these Pokémon reproducing in industrial waste sites. LV. 24 #110 Ilus. Shin-ichl Yoshida ©\/995, 96, 98 Nintendo, Creatures, GAMEFREAK, 01999-2000 Wizardi 14\/82 *",
       "tokens" : [
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.056829136845717124,
-            "width" : 0.4456380592361779,
-            "x" : 0.24670935948233663,
-            "y" : 0.7784571923697811
+            "height" : 0.02489971346704871,
+            "width" : 0.27935086708232276,
+            "x" : 0.2078348628655745,
+            "y" : 0.780000000007032
           },
-          "text" : "the Defending Pokémon is now Paralyzed."
+          "text" : "the Defending Pokemon 15 hor"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.023502663992195878,
+            "width" : 0.14264752312080847,
+            "x" : 0.6381744240896922,
+            "y" : 0.777294447855933
+          },
+          "text" : "recrear cost"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.0239541547277937,
-            "width" : 0.22798018113470608,
-            "x" : 0.25536957566478014,
-            "y" : 0.7799999997985426
-          },
-          "text" : "Defending Pokemo."
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.026959016685157936,
-            "width" : 0.15483021702668356,
-            "x" : 0.7133026722232428,
-            "y" : 0.7984385241603416
-          },
-          "text" : "retreat cost"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02016666674682269,
-            "width" : 0.11270930650678233,
-            "x" : 0.4257143212228725,
-            "y" : 0.8239999998338804
+            "height" : 0.0219544923886187,
+            "width" : 0.10674043725064122,
+            "x" : 0.36907191609165774,
+            "y" : 0.7971953711097566
           },
           "text" : "resistance"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.02275136494021703,
-            "width" : 0.09897940730404195,
-            "x" : 0.15768236636519226,
-            "y" : 0.8397185800658407
+            "height" : 0.016499999519063956,
+            "width" : 0.08841839741114628,
+            "x" : 0.12454216582105739,
+            "y" : 0.8185000001618966
           },
           "text" : "weakness"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.05518801713741268,
-            "width" : 0.6923541785546886,
-            "x" : 0.15115972138008665,
-            "y" : 0.8741427451579418
+            "height" : 0.05071610065449273,
+            "width" : 0.6409956933214557,
+            "x" : 0.11664002862981247,
+            "y" : 0.8464389689431813
           },
           "text" : "Researchers have observed these Pokémon reproducing in"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.04270678894567626,
-            "width" : 0.40298476012362866,
-            "x" : 0.14444394190827553,
-            "y" : 0.9083270511549104
+            "height" : 0.03564666223389373,
+            "width" : 0.37047247846108317,
+            "x" : 0.11018601998437301,
+            "y" : 0.8812042912276506
           },
-          "text" : "industrial waste sites. LV. 24 #|10"
+          "text" : "industrial waste sites. LV. 24 #110"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.025666666987290688,
-            "width" : 0.09990143229492736,
-            "x" : 0.8022658675758527,
-            "y" : 0.922083333044688
+            "height" : 0.050448676166698375,
+            "width" : 0.6300828832919035,
+            "x" : 0.0606587358659895,
+            "y" : 0.8991358088218367
           },
-          "text" : "14\/82*"
+          "text" : "Ilus. Shin-ichl Yoshida ©\/995, 96, 98 Nintendo, Creatures, GAMEFREAK, 01999-2000 Wizardi"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.04843565101951445,
-            "width" : 0.6811205843341601,
-            "x" : 0.09036554872156759,
-            "y" : 0.9342734507691796
-          },
-          "text" : "illas, Shin-ichi Yoshida ©1995, 96, 98 Nintendo, Creatures, GAMEFREAK, ©1999-2000 Wizards."
-        }
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.098,
-        "width" : 0.13786397471194048,
-        "x" : 0.6155900543735323,
-        "y" : 0.8840166665383333
-      },
-      "text" : "on reprodи 01999-2000 Wizar",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019507109004739343,
-            "width" : 0.13721059094553317,
-            "x" : 0.6155900544295366,
-            "y" : 0.8840166666080016
-          },
-          "text" : "on reprodи"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015762195370208593,
-            "width" : 0.13434991339050165,
-            "x" : 0.6148679895103851,
-            "y" : 0.9372376151924139
-          },
-          "text" : "01999-2000 Wizar"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.092,
-        "width" : 0.27472893511437413,
-        "x" : 0.7148521161661294,
-        "y" : 0.8889166665383333
-      },
-      "text" : "IUUSD 14\/82 * Vizards.",
-      "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.007939086294416246,
-            "width" : 0.09398621464439115,
-            "x" : 0.7148521165374735,
-            "y" : 0.8889166665780288
-          },
-          "text" : "IUUSD"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01983105174418028,
-            "width" : 0.0954935606344968,
-            "x" : 0.8038755247671503,
-            "y" : 0.9244943363108877
+            "height" : 0.022511481255036717,
+            "width" : 0.09377693961124847,
+            "x" : 0.7190074377864388,
+            "y" : 0.8915775926574224
           },
           "text" : "14\/82 *"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01541116751269035,
-            "width" : 0.05520868552537662,
-            "x" : 0.7148521163961656,
-            "y" : 0.9346831639749662
-          },
-          "text" : "Vizards."
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.12487678868835186,
-        "x" : 0.7123545803923623,
-        "y" : 0.8767566665383334
-      },
-      "text" : "oducing in Mizards. 14",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.021424657534246574,
-            "width" : 0.1242263887472667,
-            "x" : 0.7123545806626848,
-            "y" : 0.8767566664713813
-          },
-          "text" : "oducing in"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014438356164383565,
-            "width" : 0.059186394638750105,
-            "x" : 0.712354580128589,
-            "y" : 0.9359073515500533
-          },
-          "text" : "Mizards."
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.012575342465753429,
-            "width" : 0.027967197466662142,
-            "x" : 0.8040609722601657,
-            "y" : 0.9312498171854224
-          },
-          "text" : "14"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.1,
-        "width" : 0.18481764725876076,
-        "x" : 0.759807760093936,
-        "y" : 0.8849166665383333
-      },
-      "text" : "14\/82 *",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014731202615755735,
-            "width" : 0.09125993946268943,
-            "x" : 0.8033622875810957,
-            "y" : 0.9294380997319813
-          },
-          "text" : "14\/82 *"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.105,
-        "width" : 0.11488664559328372,
-        "x" : 0.8379806298128443,
-        "y" : 0.8713166665383334
-      },
-      "text" : "82★",
-      "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.015796460176991153,
-            "width" : 0.058088753389862545,
-            "x" : 0.8379806300548808,
-            "y" : 0.9270688789044839
-          },
-          "text" : "82★"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.18981271880629483,
-        "x" : 0.757310224320169,
-        "y" : 0.8839166665383333
-      },
-      "text" : "cing 14\/82 *",
-      "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.013972602739726036,
-            "width" : 0.08370213641805363,
-            "x" : 0.7573102243355474,
-            "y" : 0.8839166665849086
-          },
-          "text" : "cing"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014881499199018097,
-            "width" : 0.07222143126562144,
-            "x" : 0.8025617276459756,
-            "y" : 0.9294516484355952
-          },
-          "text" : "14\/82"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.015835616438356164,
-            "width" : 0.02240844597018759,
-            "x" : 0.8752841017271722,
-            "y" : 0.9281632418575114
-          },
-          "text" : "*"
         }
       ]
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.2,
-        "width" : 0.8791325923659972,
-        "x" : 0.06043370381700142,
-        "y" : 0
+        "height" : 0.22,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0.05
       },
-      "text" : "Put Dark Weezing on the Basic Pokémon Dark Weezing 60 HP Evolves from Koffing",
+      "text" : "eezing 03rk -4",
       "tokens" : [
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.09800332415051856,
-            "width" : 0.37699652782572285,
-            "x" : 0.562804609177028,
-            "y" : 0.03186051228018436
+            "height" : 0.059997392686804464,
+            "width" : 0.15376322104392792,
+            "x" : 0.48595370052736747,
+            "y" : 0.13965397229161935
           },
-          "text" : "Put Dark Weezing on the Basic Pokémon"
+          "text" : "eezing"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.14217807819749592,
-            "width" : 0.4835161812894093,
-            "x" : 0.3828598386491766,
-            "y" : 0.07375280402923971
+            "height" : 0.05087710385519278,
+            "width" : 0.19927050631376148,
+            "x" : 0.3415769725709555,
+            "y" : 0.17824606877402693
           },
-          "text" : "Dark Weezing 60 HP"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.055120244921555164,
-            "width" : 0.1872405614955372,
-            "x" : 0.35868001554093415,
-            "y" : 0.11890933179638817
-          },
-          "text" : "Evolves from Koffing"
+          "text" : "03rk -4"
         }
       ]
     }
   ],
-  "scanID" : "C3A5A80B-D9A9-4AEA-BA7B-9266D3B4C527",
+  "scanID" : "83D3637D-3C89-4850-9375-CFC2FD69403F",
   "setConfidenceReasons" : [
 
   ],
@@ -409,13 +169,17 @@
 
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation",
+    "fallback_exact_collector_allows_header_rescue"
   ],
-  "titleConfidenceScore" : 1,
-  "titleTextPrimary" : "Basic Pokémon Dark Weezing",
+  "titleConfidenceScore" : 0.6399999999999999,
+  "titleTextPrimary" : "eezing 03rk",
   "warnings" : [
     "Target selection used fallback crop",
+    "Target selection confidence is weak",
     "Rewrite raw escalation used focused ROIs"
   ]
 }

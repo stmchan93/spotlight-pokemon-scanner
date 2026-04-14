@@ -381,6 +381,155 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         XCTAssertFalse(model.shouldSkipTightFooterPasses(after: [broadPass]))
     }
 
+    func testExactReticleFallbackStrongLoweredHeaderSkipsWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: true,
+            targetQualityScore: 0.40,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: "exact_reticle_fallback",
+            warnings: ["Target selection used fallback crop"]
+        )
+        let loweredPass = RawOCRPassResult(
+            kind: .headerWide,
+            label: "12_raw_header_wide_lowered",
+            normalizedRect: OCRNormalizedRect(x: 0.06, y: 0.05, width: 0.88, height: 0.22),
+            text: "Lt. Surge's Bargain",
+            tokens: [
+                RecognizedToken(text: "Lt.", confidence: 0.98),
+                RecognizedToken(text: "Surge's", confidence: 0.96),
+                RecognizedToken(text: "Bargain", confidence: 0.95)
+            ]
+        )
+
+        XCTAssertTrue(
+            model.shouldSkipWideHeaderPassAfterLowered(
+                passResults: [loweredPass],
+                sceneTraits: sceneTraits,
+                stage1Assessment: RawStageAssessment(
+                    titleTextPrimary: nil,
+                    titleConfidenceScore: 0,
+                    collectorNumberExact: "185/132",
+                    setHintTokens: [],
+                    shouldEscalate: true,
+                    reasons: []
+                )
+            )
+        )
+    }
+
+    func testExactReticleFallbackWeakLoweredHeaderKeepsWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: true,
+            targetQualityScore: 0.40,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: "exact_reticle_fallback",
+            warnings: ["Target selection used fallback crop"]
+        )
+        let loweredPass = RawOCRPassResult(
+            kind: .headerWide,
+            label: "12_raw_header_wide_lowered",
+            normalizedRect: OCRNormalizedRect(x: 0.06, y: 0.05, width: 0.88, height: 0.22),
+            text: "HP",
+            tokens: [
+                RecognizedToken(text: "HP", confidence: 0.78)
+            ]
+        )
+
+        XCTAssertFalse(
+            model.shouldSkipWideHeaderPassAfterLowered(
+                passResults: [loweredPass],
+                sceneTraits: sceneTraits,
+                stage1Assessment: RawStageAssessment(
+                    titleTextPrimary: nil,
+                    titleConfidenceScore: 0,
+                    collectorNumberExact: "185/132",
+                    setHintTokens: [],
+                    shouldEscalate: true,
+                    reasons: []
+                )
+            )
+        )
+    }
+
+    func testNonFallbackNeverSkipsWideHeaderPassFromLoweredResult() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: false,
+            targetQualityScore: 0.86,
+            normalizationReason: "basic_perspective_canonicalization",
+            warnings: []
+        )
+        let loweredPass = RawOCRPassResult(
+            kind: .headerWide,
+            label: "12_raw_header_wide_lowered",
+            normalizedRect: OCRNormalizedRect(x: 0.06, y: 0.05, width: 0.88, height: 0.22),
+            text: "Lt. Surge's Bargain",
+            tokens: [
+                RecognizedToken(text: "Lt.", confidence: 0.98),
+                RecognizedToken(text: "Surge's", confidence: 0.96),
+                RecognizedToken(text: "Bargain", confidence: 0.95)
+            ]
+        )
+
+        XCTAssertFalse(
+            model.shouldSkipWideHeaderPassAfterLowered(
+                passResults: [loweredPass],
+                sceneTraits: sceneTraits,
+                stage1Assessment: RawStageAssessment(
+                    titleTextPrimary: nil,
+                    titleConfidenceScore: 0,
+                    collectorNumberExact: "185/132",
+                    setHintTokens: [],
+                    shouldEscalate: true,
+                    reasons: []
+                )
+            )
+        )
+    }
+
+    func testExactReticleFallbackJapaneseTitleWithoutSetHintKeepsWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: true,
+            targetQualityScore: 0.44,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: "exact_reticle_fallback",
+            warnings: ["Target selection used fallback crop"]
+        )
+        let loweredPass = RawOCRPassResult(
+            kind: .headerWide,
+            label: "12_raw_header_wide_lowered",
+            normalizedRect: OCRNormalizedRect(x: 0.06, y: 0.05, width: 0.88, height: 0.22),
+            text: "なるイーブイ＆カビゴンタス HP",
+            tokens: [
+                RecognizedToken(text: "なるイーブイ＆カビゴンタス", confidence: 0.3),
+                RecognizedToken(text: "HP 270 *", confidence: 0.5),
+                RecognizedToken(text: "TAG TEAM", confidence: 1.0)
+            ]
+        )
+
+        XCTAssertFalse(
+            model.shouldSkipWideHeaderPassAfterLowered(
+                passResults: [loweredPass],
+                sceneTraits: sceneTraits,
+                stage1Assessment: RawStageAssessment(
+                    titleTextPrimary: nil,
+                    titleConfidenceScore: 0,
+                    collectorNumberExact: "066/095",
+                    setHintTokens: [],
+                    shouldEscalate: true,
+                    reasons: []
+                )
+            )
+        )
+    }
+
     func testResolvedReticleCaptureRectFallsBackToLayoutWhenPreferredBoundsAreZero() {
         let layout = ScannerReticleLayout(
             width: 260,

@@ -1,37 +1,28 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_band_metadata_agreement"
+
   ],
-  "collectorConfidenceScore" : 0.92,
-  "collectorNumber" : "185\/132",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.999524760003802,
-    "x" : 0.00023761999809902056,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
     "y" : 0
   },
   "fixtureName" : "lt-surges-bargain-185-132-overhead",
   "footerRouting" : {
-    "anchorIdentifier" : "185\/132",
-    "collectorAnchor" : {
-      "height" : 0.10885284728430422,
-      "width" : 0.6933768957042109,
-      "x" : 0.23096125152483496,
-      "y" : 0.7911190929696179
-    },
     "reasons" : [
-      "footer_band_collector_anchor"
+      "footer_band_anchor_unavailable"
     ]
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:best_rectangle_aspect_mismatch",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.7892263583992001,
+  "ocrTargetQualityScore" : 0.58,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
@@ -39,64 +30,25 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.999524760003802,
-        "x" : 0.00023761999809902056,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
         "y" : 0.78
       },
-      "text" : "You may play only I Supporter card during your turn. D MEGR 185\/132カ",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.053709369648493474,
-            "width" : 0.510510168049508,
-            "x" : 0.41382797917953784,
-            "y" : 0.7911190929696179
-          },
-          "text" : "You may play only I Supporter card during"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.024105356210965476,
-            "width" : 0.11986261308208541,
-            "x" : 0.41597342242587226,
-            "y" : 0.8410010219536013
-          },
-          "text" : "your turn."
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.022063037249283674,
-            "width" : 0.08970093586208654,
-            "x" : 0.13863335870847376,
-            "y" : 0.878022922410315
-          },
-          "text" : "D MEGR"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.029640345751043715,
-            "width" : 0.13032265276611973,
-            "x" : 0.23096125152483496,
-            "y" : 0.8703315945028784
-          },
-          "text" : "185\/132カ"
-        }
+
       ]
     },
     {
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
+      "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
         "height" : 0.098,
-        "width" : 0.13793441688052469,
-        "x" : 0.00023761999809902056,
-        "y" : 0.7209073845990354
+        "width" : 0.1379327009297277,
+        "x" : 0.0708493878899429,
+        "y" : 0.8451
       },
       "text" : "",
       "tokens" : [
@@ -107,67 +59,28 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
+      "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
-        "height" : 0.23947626402546932,
-        "width" : 0.999524760003802,
-        "x" : 0.00023761999809902056,
-        "y" : 0.7258073845990354
+        "height" : 0.092,
+        "width" : 0.2748658895338777,
+        "x" : 0.17016093255934683,
+        "y" : 0.85
       },
-      "text" : "You may play only I Supporter card during your turn. D MEGD 185\/132",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.053293285400320155,
-            "width" : 0.5105991219021218,
-            "x" : 0.41369326699960995,
-            "y" : 0.791000870212441
-          },
-          "text" : "You may play only I Supporter card during"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019956354138953553,
-            "width" : 0.11355050069096964,
-            "x" : 0.4179913064492007,
-            "y" : 0.8435498815600635
-          },
-          "text" : "your turn."
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.02095417238432721,
-            "width" : 0.08411147769699785,
-            "x" : 0.13902156465639934,
-            "y" : 0.8784735031894082
-          },
-          "text" : "D MEGD"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.020714504612941463,
-            "width" : 0.09819250506286675,
-            "x" : 0.23298139960713452,
-            "y" : 0.8766989945766531
-          },
-          "text" : "185\/132"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
+      "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.12494059500047525,
-        "x" : 0.00023761999809902056,
-        "y" : 0.7176473845990354
+        "width" : 0.12493904069721712,
+        "x" : 0.6724158761621596,
+        "y" : 0.84184
       },
       "text" : "",
       "tokens" : [
@@ -178,135 +91,62 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
-        "height" : 0.23947626402546932,
-        "width" : 0.999524760003802,
-        "x" : 0.00023761999809902056,
-        "y" : 0.7258073845990354
+        "height" : 0.1,
+        "width" : 0.18490978023188134,
+        "x" : 0.7198927116271021,
+        "y" : 0.85
       },
-      "text" : "You may play only I Supporter card during your turn. D MEGD 185\/132",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.053293285400320155,
-            "width" : 0.5105991219021218,
-            "x" : 0.41369326699960995,
-            "y" : 0.791000870212441
-          },
-          "text" : "You may play only I Supporter card during"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019956354138953553,
-            "width" : 0.11355050069096964,
-            "x" : 0.4179913064492007,
-            "y" : 0.8435498815600635
-          },
-          "text" : "your turn."
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.02095417238432721,
-            "width" : 0.08411147769699785,
-            "x" : 0.13902156465639934,
-            "y" : 0.8784735031894082
-          },
-          "text" : "D MEGD"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.020714504612941463,
-            "width" : 0.09819250506286675,
-            "x" : 0.23298139960713452,
-            "y" : 0.8766989945766531
-          },
-          "text" : "185\/132"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
+      "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
         "height" : 0.105,
-        "width" : 0.11494534740043723,
-        "x" : 0.8848170326014637,
-        "y" : 0.7132073845990354
+        "width" : 0.11494391744143975,
+        "x" : 0.7856106470338382,
+        "y" : 0.8294
       },
-      "text" : "Sut",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013076927478496838,
-            "width" : 0.036869262373725155,
-            "x" : 0.8848170327246898,
-            "y" : 0.7958996901499968
-          },
-          "text" : "Sut"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
-        "height" : 0.23947626402546932,
-        "width" : 0.999524760003802,
-        "x" : 0.00023761999809902056,
-        "y" : 0.7258073845990354
+        "height" : 0.102,
+        "width" : 0.18990734185977,
+        "x" : 0.704900026743436,
+        "y" : 0.842
       },
-      "text" : "You may play only I Supporter card during your turn. D MEGD 185\/132",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.053293285400320155,
-            "width" : 0.5105991219021218,
-            "x" : 0.41369326699960995,
-            "y" : 0.791000870212441
-          },
-          "text" : "You may play only I Supporter card during"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.019956354138953553,
-            "width" : 0.11355050069096964,
-            "x" : 0.4179913064492007,
-            "y" : 0.8435498815600635
-          },
-          "text" : "your turn."
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.02095417238432721,
-            "width" : 0.08411147769699785,
-            "x" : 0.13902156465639934,
-            "y" : 0.8784735031894082
-          },
-          "text" : "D MEGD"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.020714504612941463,
-            "width" : 0.09819250506286675,
-            "x" : 0.23298139960713452,
-            "y" : 0.8766989945766531
-          },
-          "text" : "185\/132"
-        }
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide_lowered",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0.05
+      },
+      "text" : "",
+      "tokens" : [
+
       ]
     },
     {
@@ -314,62 +154,32 @@
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
         "height" : 0.2,
-        "width" : 0.8795817888033457,
-        "x" : 0.06020910559832714,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
         "y" : 0
       },
-      "text" : "TRAINER Supporter Lt. Surge's Bargain",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.04435534414766136,
-            "width" : 0.26280562890324427,
-            "x" : 0.5502874471930735,
-            "y" : 0.08528277598414902
-          },
-          "text" : "TRAINER"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02477064174335597,
-            "width" : 0.210946207840619,
-            "x" : 0.06787987961521057,
-            "y" : 0.12844036733933115
-          },
-          "text" : "Supporter"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.05240174672489082,
-            "width" : 0.45896783588785306,
-            "x" : 0.06915833473386748,
-            "y" : 0.14672489148218926
-          },
-          "text" : "Lt. Surge's Bargain"
-        }
+
       ]
     }
   ],
-  "scanID" : "A54C5F09-27F0-42D2-B216-440DF99D658B",
+  "scanID" : "7CD290DE-8D6F-4FBF-B1E4-BA510996D0D5",
   "setConfidenceReasons" : [
-    "rewrite_raw_footer_band_set_hints",
-    "rewrite_raw_fuzzy_set_hints"
+
   ],
-  "setConfidenceScore" : 0.3,
   "setHintTokens" : [
-    "meg"
+
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
     "set_signal_weak"
   ],
-  "titleConfidenceScore" : 1,
-  "titleTextPrimary" : "Supporter Lt Surge's Bargain",
   "warnings" : [
     "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs"
+    "Rewrite raw escalation used focused ROIs",
+    "Could not read strong raw-card clues",
+    "Low-confidence rewrite raw evidence"
   ]
 }

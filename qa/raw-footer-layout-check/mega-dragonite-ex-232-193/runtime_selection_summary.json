@@ -1,182 +1,207 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_footer_band_wide"
   ],
+  "collectorConfidenceScore" : 0.66,
+  "collectorNumber" : "232\/193",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.7287784679089027,
-    "x" : 0.13561076604554867,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
     "y" : 0
   },
   "fixtureName" : "mega-dragonite-ex-232-193",
   "footerRouting" : {
+    "anchorIdentifier" : "232\/193",
+    "collectorAnchor" : {
+      "height" : 0.01723260819399597,
+      "width" : 0.13728129472561426,
+      "x" : 0.20262480218584086,
+      "y" : 0.8483836958584812
+    },
     "reasons" : [
-      "footer_band_anchor_unavailable"
+      "footer_band_collector_anchor"
     ]
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
-    "normalization:holder_like_selected_raw_card_preserved"
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.6790740104485933,
-  "ocrUsedFallback" : false,
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
   "passSummaries" : [
     {
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.2,
-        "width" : 0.6559006211180124,
-        "x" : 0.1720496894409938,
-        "y" : 0.76
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
       },
-      "text" : "1193",
+      "text" : "木辛 メガシンカXルール Illus: DOM 1 M2a 232\/193 MA メオシンカもてかきせつしたとき、届 子はサイドを3般とる",
       "tokens" : [
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.14210359101011463,
-            "width" : 0.08798447355591366,
-            "x" : 0.6075653809944861,
-            "y" : 0.7593066447613074
+            "height" : 0.016499999519063956,
+            "width" : 0.06278987934613871,
+            "x" : 0.711435298086034,
+            "y" : 0.7800000002496347
           },
-          "text" : "1193"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
-      "normalizedRect" : {
-        "height" : 0.098,
-        "width" : 0.10057142857142858,
-        "x" : 0.18709167701863355,
-        "y" : 0.8451
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
-      "normalizedRect" : {
-        "height" : 0.092,
-        "width" : 0.20041407867494826,
-        "x" : 0.2595031055900621,
-        "y" : 0.85
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.09109730848861283,
-        "x" : 0.6257142857142857,
-        "y" : 0.84184
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
-      "normalizedRect" : {
-        "height" : 0.1,
-        "width" : 0.134824016563147,
-        "x" : 0.6603312629399586,
-        "y" : 0.85
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
-      "normalizedRect" : {
-        "height" : 0.105,
-        "width" : 0.0838095238095238,
-        "x" : 0.7082484472049689,
-        "y" : 0.8294
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.1384679089026915,
-        "x" : 0.649399585921325,
-        "y" : 0.842
-      },
-      "text" : "Cl",
-      "tokens" : [
+          "text" : "木辛"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019541547277936947,
+            "width" : 0.21015387503138247,
+            "x" : 0.41798873284956445,
+            "y" : 0.805530086068635
+          },
+          "text" : "メガシンカXルール"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014824259629563801,
+            "width" : 0.09354410102414779,
+            "x" : 0.1053207745336679,
+            "y" : 0.820333333560156
+          },
+          "text" : "Illus: DOM"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01833333253177327,
+            "width" : 0.020502816133151077,
+            "x" : 0.10660220051687691,
+            "y" : 0.8414166671983991
+          },
+          "text" : "1"
+        },
         {
           "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.05679545454545454,
-            "width" : 0.04506995510500396,
-            "x" : 0.6493995817513262,
-            "y" : 0.8419999999657859
+            "height" : 0.015583333012709288,
+            "width" : 0.041005632266302154,
+            "x" : 0.14376355683504627,
+            "y" : 0.8432500002901732
           },
-          "text" : "Cl"
+          "text" : "M2a"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.017232608193995986,
+            "width" : 0.13728129472561426,
+            "x" : 0.20262480218584086,
+            "y" : 0.8483836958584812
+          },
+          "text" : "232\/193 MA"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019263132800345438,
+            "width" : 0.28575799323628454,
+            "x" : 0.40133020127654834,
+            "y" : 0.8395702004928053
+          },
+          "text" : "メオシンカもてかきせつしたとき、届"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.019366693961244606,
+            "width" : 0.1697998041456048,
+            "x" : 0.694519901582613,
+            "y" : 0.8396372786432272
+          },
+          "text" : "子はサイドを3般とる"
         }
       ]
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.5830227743271221,
-        "x" : 0.20848861283643894,
-        "y" : 0.02
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0.05
       },
-      "text" : "١٢٢٢ ١١",
+      "text" : "已遣化 メガガカイリューCX uP 370 ムクリューから選！ カイリコ メガカイリュ",
       "tokens" : [
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017547618548075374,
+            "width" : 0.08553156633313608,
+            "x" : 0.14191636662599996,
+            "y" : 0.0892857142444643
+          },
+          "text" : "已遣化"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.038587300588214225,
+            "width" : 0.3740410288896847,
+            "x" : 0.2453201883340348,
+            "y" : 0.09757936545167992
+          },
+          "text" : "メガガカイリューCX"
+        },
         {
           "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.16957197169801885,
-            "width" : 0.05162915316703137,
-            "x" : 0.7368599561688548,
-            "y" : 0.06449445842125756
+            "height" : 0.0368678495619032,
+            "width" : 0.14987406862620864,
+            "x" : 0.694423559485575,
+            "y" : 0.09710774182970215
           },
-          "text" : "١٢٢٢ ١١"
+          "text" : "uP 370"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.011960317293802914,
+            "width" : 0.14936108416582206,
+            "x" : 0.2606392858468444,
+            "y" : 0.1380000001264104
+          },
+          "text" : "ムクリューから選！"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.015919861263699004,
+            "width" : 0.07545287286387745,
+            "x" : 0.6205707847569879,
+            "y" : 0.1479150693118724
+          },
+          "text" : "カイリコ"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.09533333732968284,
+            "width" : 0.04468067826159121,
+            "x" : 0.8593602168072884,
+            "y" : 0.17374999772143307
+          },
+          "text" : "メガカイリュ"
         }
       ]
     }
   ],
-  "scanID" : "5C15F86B-B2C9-4630-99F1-C735267C399C",
+  "scanID" : "76F57EE6-2779-40C8-908C-34842AEBBC97",
   "setConfidenceReasons" : [
 
   ],
@@ -186,12 +211,15 @@
   "stage1AssessmentReasons" : [
     "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation",
+    "fallback_exact_collector_allows_header_rescue"
   ],
+  "titleConfidenceScore" : 0.5733333174387614,
+  "titleTextPrimary" : "ムクリューから選！ カイリコ メガカイリュ",
   "warnings" : [
-    "Raw scene looks holder-like",
-    "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
-    "Low-confidence rewrite raw evidence"
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

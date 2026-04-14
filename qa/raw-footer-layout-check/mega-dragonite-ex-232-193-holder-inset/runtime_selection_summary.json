@@ -14,10 +14,10 @@
   "footerRouting" : {
     "anchorIdentifier" : "232\/193",
     "collectorAnchor" : {
-      "height" : 0.0295098461599268,
-      "width" : 0.13749034902829887,
-      "x" : 0.4593194440295562,
-      "y" : 0.8894284581126259
+      "height" : 0.030571838313324107,
+      "width" : 0.1369967847812521,
+      "x" : 0.45980816245343514,
+      "y" : 0.8883846005571695
     },
     "reasons" : [
       "footer_band_collector_anchor"
@@ -28,7 +28,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:selected_card_conservative_canonicalization"
+    "normalization:basic_perspective_canonicalization"
   ],
   "ocrTargetQualityScore" : 0.8720482694423588,
   "ocrUsedFallback" : false,
@@ -42,35 +42,45 @@
         "x" : 0.294777479537396,
         "y" : 0.78
       },
-      "text" : "US. 12g 232\/193 MA",
+      "text" : "メガ Mus. 12g 232\/193 MA",
       "tokens" : [
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.009455587392550173,
-            "width" : 0.02280250227362265,
-            "x" : 0.3763402763215287,
-            "y" : 0.8461891117110794
+            "height" : 0.024797687694473044,
+            "width" : 0.040690673314331204,
+            "x" : 0.6574552091200447,
+            "y" : 0.808612716757842
           },
-          "text" : "US."
+          "text" : "メガ"
         },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.027106017191977097,
-            "width" : 0.04472798522902907,
-            "x" : 0.3991427783692525,
-            "y" : 0.878968481252149
+            "height" : 0.01526011513434031,
+            "width" : 0.03626777185914528,
+            "x" : 0.36377470704814563,
+            "y" : 0.8416763007984368
+          },
+          "text" : "Mus."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.02543352602546058,
+            "width" : 0.04245983055084237,
+            "x" : 0.40092705968069536,
+            "y" : 0.8791907513403155
           },
           "text" : "12g"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.02950984615992679,
-            "width" : 0.13749034902829887,
-            "x" : 0.4593194440295562,
-            "y" : 0.8894284581126259
+            "height" : 0.03057183831332407,
+            "width" : 0.13699678478125213,
+            "x" : 0.45980816245343514,
+            "y" : 0.8883846005571695
           },
           "text" : "232\/193 MA"
         }
@@ -118,7 +128,7 @@
           "text" : "ー"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
             "height" : 0.010855582707834023,
             "width" : 0.04280991075929514,
@@ -130,7 +140,7 @@
       ]
     }
   ],
-  "scanID" : "62BCA127-E7EE-4D2F-91FB-ADC47CEC51F0",
+  "scanID" : "883DCB14-949E-42E3-818D-998B9DCBD006",
   "setConfidenceReasons" : [
 
   ],
@@ -142,7 +152,7 @@
     "title_signal_weak",
     "set_signal_weak"
   ],
-  "titleConfidenceScore" : 0.5400000059604645,
+  "titleConfidenceScore" : 0.4900000238418579,
   "titleTextPrimary" : "己通化 マカカイリュー②2 ー カイリコ",
   "warnings" : [
     "Rewrite raw escalation used focused ROIs"

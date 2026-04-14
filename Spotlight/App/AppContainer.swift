@@ -5,6 +5,7 @@ final class AppContainer: ObservableObject {
     let scannerViewModel: ScannerViewModel
     private let remoteMatcher: RemoteScanMatchingService
     private var hasPrimedLocalNetworkPermission = false
+    private var isPrimingLocalNetworkPermission = false
 
     init() {
         let cameraController = CameraSessionController()
@@ -55,12 +56,18 @@ final class AppContainer: ObservableObject {
     }
 
     func primeLocalNetworkPermissionIfNeeded() {
-        guard !hasPrimedLocalNetworkPermission else { return }
-        hasPrimedLocalNetworkPermission = true
+        guard !hasPrimedLocalNetworkPermission, !isPrimingLocalNetworkPermission else { return }
+        isPrimingLocalNetworkPermission = true
 
-        Task(priority: .utility) { [remoteMatcher] in
+        Task(priority: .utility) { [weak self, remoteMatcher] in
             try? await Task.sleep(for: .milliseconds(600))
-            await remoteMatcher.primeLocalNetworkPermissionIfNeeded()
+            let didPrime = await remoteMatcher.primeLocalNetworkPermissionIfNeeded()
+            await MainActor.run {
+                self?.isPrimingLocalNetworkPermission = false
+                if didPrime {
+                    self?.hasPrimedLocalNetworkPermission = true
+                }
+            }
         }
     }
 

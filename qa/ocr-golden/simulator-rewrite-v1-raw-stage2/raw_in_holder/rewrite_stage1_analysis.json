@@ -1,5 +1,6 @@
 {
-  "cropConfidence" : 0.8390469177415063,
+  "collectorNumber" : "185\/132",
+  "cropConfidence" : 0.52,
   "expected" : {
     "cardName" : "Lt. Surge's Bargain",
     "collectorNumber" : "185\/132",
@@ -9,23 +10,23 @@
     "setName" : "Mega Evolution"
   },
   "fixtureName" : "raw_in_holder",
-  "fullRecognizedText" : "",
-  "metadataStripRecognizedText" : "",
+  "fullRecognizedText" : "You may play only I Supporter card during your turn. ME68 185\/132 *4 LL Surge's Bargain",
+  "metadataStripRecognizedText" : "You may play only I Supporter card during your turn. ME68 185\/132 *4",
   "ocrPipelineVersion" : "rewrite_v1",
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrSelectedMode" : "raw",
-  "ocrTargetQualityScore" : 0.8390469177415063,
-  "ocrUsedFallback" : false,
-  "scanID" : "E4018E64-09AF-4EBB-97C5-C2DB85E78358",
+  "ocrTargetQualityScore" : 0.52,
+  "ocrUsedFallback" : true,
+  "scanID" : "851F7ECB-6B31-435F-A08C-0DFC57CC82E6",
   "setHintTokens" : [
 
   ],
   "shouldRetryWithStillPhoto" : false,
   "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_in_holder.JPG",
+  "titleTextPrimary" : "LL Surge's Bargain",
   "warnings" : [
-    "Raw scene looks holder-like",
-    "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
-    "Low-confidence rewrite raw evidence"
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

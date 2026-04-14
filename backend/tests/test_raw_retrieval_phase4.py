@@ -210,6 +210,51 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         self.assertEqual(candidates[0]["id"], "gym1-60")
         self.assertIn("collector_set_exact", candidates[0]["_retrievalRoutes"])
 
+    def test_remote_raw_search_respects_manual_mirror_search_policy(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        payload = raw_payload(
+            title_text_primary="Mega Dragonite ex",
+            whole_card_text="Mega Dragonite ex",
+            footer_band_text="M2a 232/193",
+            collector_number_exact="232/193",
+            set_hint_tokens=["m2a"],
+        )
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+        plan = build_raw_retrieval_plan(evidence, signals)
+
+        with patch("server.search_remote_scrydex_raw_candidates") as search_scrydex:
+            candidates, debug = service._retrieve_remote_raw_candidates(evidence, signals, plan, api_key="test-key")
+
+        service.connection.close()
+
+        search_scrydex.assert_not_called()
+        self.assertEqual(candidates, [])
+        self.assertEqual(debug["reason"], "search_policy_blocked")
+
+    def test_remote_raw_search_stays_blocked_during_card_show_mode(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        service.set_card_show_mode(duration_hours=8)
+        payload = raw_payload(
+            title_text_primary="Mega Dragonite ex",
+            whole_card_text="Mega Dragonite ex",
+            footer_band_text="M2a 232/193",
+            collector_number_exact="232/193",
+            set_hint_tokens=["m2a"],
+        )
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+        plan = build_raw_retrieval_plan(evidence, signals)
+
+        with patch("server.search_remote_scrydex_raw_candidates") as search_scrydex:
+            candidates, debug = service._retrieve_remote_raw_candidates(evidence, signals, plan, api_key="test-key")
+
+        service.connection.close()
+
+        search_scrydex.assert_not_called()
+        self.assertEqual(candidates, [])
+        self.assertEqual(debug["reason"], "search_policy_blocked")
+
     def test_merge_raw_candidate_pools_dedupes_and_preserves_routes(self) -> None:
         merged = merge_raw_candidate_pools(
             [
@@ -288,7 +333,9 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         signals = score_raw_signals(evidence)
         plan = build_raw_retrieval_plan(evidence, signals)
 
-        with patch("server.search_remote_scrydex_raw_candidates") as search_scrydex:
+        with patch.object(service, "_live_scrydex_searches_allowed", return_value=True), patch(
+            "server.search_remote_scrydex_raw_candidates"
+        ) as search_scrydex:
             search_scrydex.return_value = ScrydexRawSearchResult(
                 cards=[
                     scrydex_remote_card(
@@ -458,7 +505,7 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
 
         self.assertEqual(result.cards, [])
         self.assertIn('name:"Charizard" number:"10" expansion.name:"pokemon go"', observed_queries)
-        self.assertIn('name:"Charizard" number:"10" expansion.code:pgo', observed_queries)
+        self.assertIn('name:"Charizard" number:"10"', observed_queries)
         self.assertNotIn('printed_number:"010"', " ".join(observed_queries))
 
 

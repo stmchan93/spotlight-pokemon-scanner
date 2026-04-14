@@ -1,5 +1,5 @@
 {
-  "cropConfidence" : 0.8095722569717215,
+  "cropConfidence" : 0.58,
   "expected" : {
     "cardName" : "Sabrina's Slowbro",
     "collectorNumber" : "60\/132",
@@ -8,22 +8,22 @@
     "setName" : "Gym Heroes"
   },
   "fixtureName" : "raw_farther",
-  "fullRecognizedText" : "weakness resistance retreat cost LY. 29 #\/80 a. Kan Sugmuent 0:975, S6, N8 Hoscando, Cronirs, GAMEFREAR, SI 1122 • #80 näus. Каn Sugтив OWSN （132 STAGE I Evolves from Sabrina' Slowpoke Pur Sabrial 54 Sabrina's Slowbro 70 M",
-  "metadataStripRecognizedText" : "weakness resistance retreat cost LY. 29 #\/80 a. Kan Sugmuent 0:975, S6, N8 Hoscando, Cronirs, GAMEFREAR, SI 1122 •",
+  "fullRecognizedText" : "retreat cost LY. 29 #80 a. Man S DNE N la, Chatrm, GA° 6N\/122",
+  "metadataStripRecognizedText" : "retreat cost LY. 29 #80 a. Man S DNE N la, Chatrm, GA° 6N\/122",
   "ocrPipelineVersion" : "rewrite_v1",
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrSelectedMode" : "raw",
-  "ocrTargetQualityScore" : 0.8095722569717215,
+  "ocrTargetQualityScore" : 0.58,
   "ocrUsedFallback" : true,
-  "scanID" : "8020A36E-41A3-4A4C-A315-986504CE9FFD",
+  "scanID" : "612197FF-716C-4D8B-9F96-EF05131D2566",
   "setHintTokens" : [
-    "par"
+
   ],
   "shouldRetryWithStillPhoto" : false,
   "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_farther.JPG",
-  "titleTextPrimary" : "Sabrina' Slowpoke Pur Sabrial",
   "warnings" : [
     "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs"
+    "Rewrite raw escalation used focused ROIs",
+    "Low-confidence rewrite raw evidence"
   ]
 }

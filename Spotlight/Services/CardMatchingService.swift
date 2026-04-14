@@ -57,9 +57,9 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         decoder.dateDecodingStrategy = .iso8601
     }
 
-    func primeLocalNetworkPermissionIfNeeded() async {
+    func primeLocalNetworkPermissionIfNeeded() async -> Bool {
         guard baseURL.requiresLocalNetworkPermissionPrompt else {
-            return
+            return true
         }
 
         var components = URLComponents(url: baseURL.appending(path: "api/v1/health"), resolvingAgainstBaseURL: false)
@@ -67,7 +67,7 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         let endpoint = components?.url ?? baseURL.appending(path: "api/v1/health")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
-        request.timeoutInterval = 1.5
+        request.timeoutInterval = 5.0
         request.cachePolicy = .reloadIgnoringLocalCacheData
 
         print("🌐 [APP] Priming local backend connection for local-network permission")
@@ -79,8 +79,10 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             } else {
                 print("✅ [APP] Local backend warmup completed")
             }
+            return true
         } catch {
             print("⚠️ [APP] Local backend warmup failed: \(error.localizedDescription)")
+            return false
         }
     }
 

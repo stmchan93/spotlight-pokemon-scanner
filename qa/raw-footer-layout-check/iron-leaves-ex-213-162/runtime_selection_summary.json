@@ -1,23 +1,23 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_band_metadata_agreement"
+    "rewrite_raw_footer_band_wide"
   ],
-  "collectorConfidenceScore" : 0.92,
+  "collectorConfidenceScore" : 0.66,
   "collectorNumber" : "213\/162",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.999809371306569,
-    "x" : 9.531434671547658e-05,
+    "width" : 0.9998229775181448,
+    "x" : 8.851124092760955e-05,
     "y" : 0
   },
   "fixtureName" : "iron-leaves-ex-213-162",
   "footerRouting" : {
     "anchorIdentifier" : "213\/162",
     "collectorAnchor" : {
-      "height" : 0.016789234456496827,
-      "width" : 0.10135420985975577,
-      "x" : 0.17822073888463383,
-      "y" : 0.8971887162074537
+      "height" : 0.01466666650635462,
+      "width" : 0.08716405062127214,
+      "x" : 0.3115718257784484,
+      "y" : 0.882666666705156
     },
     "reasons" : [
       "footer_band_collector_anchor"
@@ -25,13 +25,13 @@
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:best_rectangle_aspect_mismatch",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.7817403328008734,
+  "ocrTargetQualityScore" : 0.58,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
@@ -39,422 +39,163 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.999809371306569,
-        "x" : 9.531434671547658e-05,
+        "width" : 0.9998229775181448,
+        "x" : 8.851124092760955e-05,
         "y" : 0.78
       },
-      "text" : "weakness x 2 esistance vetreat Pokémon eX rule Ius, Sban Grophic When your Pokémon eX i Loocked Out, jour opponent takes 2 Prize cards. 213\/162 G.kos Fosémoo\/ssotendo \/ Creutures\/ GAMME FREAK",
+      "text" : "weakness x 2 ance retreat Pokémon eX rule llits: Sbon Grophics When your Pokémon eX in Asocaed Que, pour opponent takes 2 Prize cards. 213\/162 ndo\/ Cieutures \/ GAIME PREAK",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.01331820840480332,
-            "width" : 0.09241965199373268,
-            "x" : 0.07693894934312175,
-            "y" : 0.8173408957054528
+            "height" : 0.010666738253268275,
+            "width" : 0.07705496182405153,
+            "x" : 0.22561684223606684,
+            "y" : 0.8163749641066502
           },
           "text" : "weakness"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.02212870064984079,
-            "width" : 0.04999046923798635,
-            "x" : 0.21287525682216463,
-            "y" : 0.8120833341234874
+            "height" : 0.01834646569282074,
+            "width" : 0.03973655278587424,
+            "x" : 0.34233560816562886,
+            "y" : 0.8120833336322616
           },
           "text" : "x 2"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.011916666987290688,
-            "width" : 0.09100828799525118,
-            "x" : 0.3333651061580076,
-            "y" : 0.8194166664605214
+            "height" : 0.010999999278595936,
+            "width" : 0.0384547286109536,
+            "x" : 0.480772635865433,
+            "y" : 0.8175833336023688
           },
-          "text" : "esistance"
+          "text" : "ance"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.012326602443924622,
-            "width" : 0.0744712904390198,
-            "x" : 0.6281174426994414,
-            "y" : 0.8210450321594824
+            "height" : 0.01127239664509506,
+            "width" : 0.06290167112231543,
+            "x" : 0.6909456853271815,
+            "y" : 0.8183638017215812
           },
-          "text" : "vetreat"
+          "text" : "retreat"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.019871955150177967,
-            "width" : 0.22096774427703061,
-            "x" : 0.4075001083264578,
-            "y" : 0.8482802629163654
+            "height" : 0.016499999519063956,
+            "width" : 0.1858645289068352,
+            "x" : 0.5064091203401923,
+            "y" : 0.8423333334706764
           },
           "text" : "Pokémon eX rule"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.01859598853868196,
-            "width" : 0.1807347726227299,
-            "x" : 0.0770037277003393,
-            "y" : 0.8651002867625714
+            "height" : 0.01292788912710282,
+            "width" : 0.15253709363222892,
+            "x" : 0.2295350679243509,
+            "y" : 0.8569054443933309
           },
-          "text" : "Ius, Sban Grophic"
+          "text" : "llits: Sbon Grophics"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.016499999519063956,
-            "width" : 0.2345706486007442,
-            "x" : 0.7050891056469264,
-            "y" : 0.8606666669224124
+            "height" : 0.015583333012709288,
+            "width" : 0.19996459819429693,
+            "x" : 0.7563648666846055,
+            "y" : 0.851500000132812
           },
           "text" : "When your Pokémon eX"
         },
         {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.025297813087616413,
-            "width" : 0.4967794096033629,
-            "x" : 0.38941558573771823,
-            "y" : 0.879169281453231
-          },
-          "text" : "i Loocked Out, jour opponent takes 2 Prize cards."
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.016789234456496806,
-            "width" : 0.10135420985975575,
-            "x" : 0.17822073888463383,
-            "y" : 0.8971887162074537
-          },
-          "text" : "213\/162"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.012922636103151862,
-            "width" : 0.4050509673749802,
-            "x" : 0.30772897477825845,
-            "y" : 0.9284527220725598
-          },
-          "text" : "G.kos Fosémoo\/ssotendo \/ Creutures\/ GAMME FREAK"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.098,
-        "width" : 0.13797369324030653,
-        "x" : 9.531434671547658e-05,
-        "y" : 0.854683333435702
-      },
-      "text" : "iias H",
-      "tokens" : [
-        {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.010845849802371533,
-            "width" : 0.03653848793320371,
-            "x" : 0.08080719834245556,
-            "y" : 0.8670785903483942
+            "height" : 0.019620747825819313,
+            "width" : 0.41453177484338916,
+            "x" : 0.4920852388270057,
+            "y" : 0.8692098377270996
           },
-          "text" : "iias"
+          "text" : "in Asocaed Que, pour opponent takes 2 Prize cards."
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.019754940711462447,
-            "width" : 0.02235937321285599,
-            "x" : 0.08026184754408154,
-            "y" : 0.8868335309936072
-          },
-          "text" : "H"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.092,
-        "width" : 0.2749475771093065,
-        "x" : 0.09142405525985847,
-        "y" : 0.859583333435702
-      },
-      "text" : "Ius. Sban Grophics TEF EN 213\/162",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.017746192893401007,
-            "width" : 0.16838894674636953,
-            "x" : 0.09142405582115495,
-            "y" : 0.8642533841815565
-          },
-          "text" : "Ius. Sban Grophics"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01541116751269036,
-            "width" : 0.044728313979504414,
-            "x" : 0.11970813631840671,
-            "y" : 0.890872673522214
-          },
-          "text" : "TEF EN"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01681218274111675,
-            "width" : 0.10195424510034092,
-            "x" : 0.17890737493400216,
-            "y" : 0.8964767345209812
+            "height" : 0.014666666506354644,
+            "width" : 0.08716405062127215,
+            "x" : 0.3115718257784484,
+            "y" : 0.882666666705156
           },
           "text" : "213\/162"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.12497617141332112,
-        "x" : 0.08892453183159205,
-        "y" : 0.8474233334357021
-      },
-      "text" : "Tus. Sban Gra 日號 21",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.018230422921376683,
-            "width" : 0.12523378501835183,
-            "x" : 0.08845574999291247,
-            "y" : 0.8637729944231058
-          },
-          "text" : "Tus. Sban Gra"
         },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.013506849315068497,
-            "width" : 0.03815062074722434,
-            "x" : 0.12444407549785225,
-            "y" : 0.8916699087704053
+            "height" : 0.01009121320992282,
+            "width" : 0.19099182560651753,
+            "x" : 0.571782163645735,
+            "y" : 0.9101666666138896
           },
-          "text" : "日號"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013972602739726026,
-            "width" : 0.02959961954526026,
-            "x" : 0.1796966986014992,
-            "y" : 0.8977247032780157
-          },
-          "text" : "21"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.1,
-        "width" : 0.18496473369171526,
-        "x" : 0.13641547696865408,
-        "y" : 0.855583333435702
-      },
-      "text" : "iban Grophics 213\/162",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01728971962616822,
-            "width" : 0.12287409870686383,
-            "x" : 0.13641547740749013,
-            "y" : 0.8649291278132054
-          },
-          "text" : "iban Grophics"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.017887810680353756,
-            "width" : 0.11141553666195486,
-            "x" : 0.1787455529806956,
-            "y" : 0.8957048485997395
-          },
-          "text" : "213\/162"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.105,
-        "width" : 0.11497807770025543,
-        "x" : 0.21465056027339313,
-        "y" : 0.8419833334357021
-      },
-      "text" : "phic 3\/162",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.016261061946902657,
-            "width" : 0.04204912555895056,
-            "x" : 0.214650560038744,
-            "y" : 0.8661426255872507
-          },
-          "text" : "phic"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01672566371681415,
-            "width" : 0.07490000490188069,
-            "x" : 0.2146505604141826,
-            "y" : 0.8963417405750826
-          },
-          "text" : "3\/162"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.1899637805482481,
-        "x" : 0.13391595354038766,
-        "y" : 0.854583333435702
-      },
-      "text" : "Sban Graphics Ta 213\/162",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.018416666666666668,
-            "width" : 0.12533692737204,
-            "x" : 0.13391595398801953,
-            "y" : 0.8640277778615949
-          },
-          "text" : "Sban Graphics"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.01511111111111111,
-            "width" : 0.029375842352821875,
-            "x" : 0.13391595365337167,
-            "y" : 0.8904722223136935
-          },
-          "text" : "Ta"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01747222222222223,
-            "width" : 0.12207294488839313,
-            "x" : 0.17177815055818743,
-            "y" : 0.8956666667066345
-          },
-          "text" : "213\/162"
+          "text" : "ndo\/ Cieutures \/ GAIME PREAK"
         }
       ]
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.2,
-        "width" : 0.8798322467497807,
-        "x" : 0.06008387662510961,
-        "y" : 0
+        "height" : 0.22,
+        "width" : 0.8798442202159674,
+        "x" : 0.0600778898920163,
+        "y" : 0.05
       },
-      "text" : "BASIC Iron Leaves EX HP220 Futore",
+      "text" : ",V•J. BASIC,",
       "tokens" : [
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.017191437966958923,
-            "width" : 0.10251446661243735,
-            "x" : 0.09834445971690786,
-            "y" : 0.0657162074804591
+            "height" : 0.012571428571428575,
+            "width" : 0.038635873941619374,
+            "x" : 0.8125993437094655,
+            "y" : 0.13108571428571428
           },
-          "text" : "BASIC"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.04147569414830106,
-            "width" : 0.399911776771249,
-            "x" : 0.22973078241010444,
-            "y" : 0.0635309332737971
-          },
-          "text" : "Iron Leaves EX"
+          "text" : ",V•J."
         },
         {
           "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.044036695322095046,
-            "width" : 0.1700838534804001,
-            "x" : 0.6994968455268734,
-            "y" : 0.05779816603488957
+            "height" : 0.00942857142857142,
+            "width" : 0.08605262832451578,
+            "x" : 0.24623255524709126,
+            "y" : 0.18262857142857142
           },
-          "text" : "HP220"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.031192659602935647,
-            "width" : 0.21995806168744517,
-            "x" : 0.6994968456469431,
-            "y" : 0.12385321153297756
-          },
-          "text" : "Futore"
+          "text" : "BASIC,"
         }
       ]
     }
   ],
-  "scanID" : "A037DC45-B4E1-461C-BDFF-80CA52878AD0",
+  "scanID" : "D7600834-6862-4105-9A2F-C2A8704B07BB",
   "setConfidenceReasons" : [
-    "rewrite_raw_footer_band_set_hints"
+
   ],
-  "setConfidenceScore" : 0.48,
   "setHintTokens" : [
-    "hp220"
+
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "fallback_exact_collector_allows_header_rescue"
   ],
-  "titleConfidenceScore" : 1,
-  "titleTextPrimary" : "Leaves EX HP220 Futore",
+  "titleConfidenceScore" : 0.6399999999999999,
+  "titleTextPrimary" : "V•J BASIC",
   "warnings" : [
     "Target selection used fallback crop",
     "Rewrite raw escalation used focused ROIs"

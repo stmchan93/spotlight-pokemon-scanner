@@ -664,6 +664,153 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["retrievalStrategy"], "fallback_local_rescue")
         self.assertGreaterEqual(response["rawDecisionDebug"]["visualHybrid"]["localOCRCandidateCount"], 2)
 
+    def test_visual_hybrid_weak_fallback_uses_japanese_fuzzy_title_aliases_for_noisy_tag_team_title(self) -> None:
+        upsert_catalog_card(
+            self.service.connection,
+            catalog_card(
+                card_id="sm8_ja-66",
+                name="Chansey",
+                set_name="超爆インパクト",
+                number="066/095",
+                set_id="sm8_ja",
+                language="Japanese",
+                source_payload={
+                    "id": "sm8_ja-66",
+                    "name": "ラッキー",
+                    "translation": {
+                        "en": {
+                            "name": "Chansey",
+                        }
+                    },
+                },
+            ),
+            REPO_ROOT,
+            "2026-04-14T17:02:59Z",
+            refresh_embeddings=False,
+        )
+        upsert_catalog_card(
+            self.service.connection,
+            catalog_card(
+                card_id="sm9_ja-66",
+                name="Eevee & Snorlax-GX",
+                set_name="タッグボルト",
+                number="066/095",
+                set_id="sm9_ja",
+                language="Japanese",
+                source_payload={
+                    "id": "sm9_ja-66",
+                    "name": "イーブイ&カビゴンGX",
+                    "translation": {
+                        "en": {
+                            "name": "Eevee & Snorlax-GX",
+                        }
+                    },
+                },
+            ),
+            REPO_ROOT,
+            "2026-04-14T17:02:59Z",
+            refresh_embeddings=False,
+        )
+        self.service.connection.commit()
+
+        class FakeIndex:
+            def __init__(self) -> None:
+                self.entries = [
+                    {
+                        "providerCardId": "sm8_ja-66",
+                        "name": "Chansey",
+                        "collectorNumber": "066/095",
+                        "setId": "sm8_ja",
+                        "setName": "超爆インパクト",
+                        "setSeries": "Sun & Moon",
+                        "setPtcgoCode": "SM8",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "sm8_ja-66",
+                        "imageUrl": "https://images.example/sm8_ja-66-large.png",
+                        "language": "Japanese",
+                    },
+                    {
+                        "providerCardId": "sm9_ja-66",
+                        "name": "Eevee & Snorlax-GX",
+                        "collectorNumber": "066/095",
+                        "setId": "sm9_ja",
+                        "setName": "タッグボルト",
+                        "setSeries": "Sun & Moon",
+                        "setPtcgoCode": "SM9",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "sm9_ja-66",
+                        "imageUrl": "https://images.example/sm9_ja-66-large.png",
+                        "language": "Japanese",
+                    },
+                ]
+
+            def load(self) -> None:
+                return None
+
+        class FakeVisualMatcher:
+            def __init__(self) -> None:
+                self.index = FakeIndex()
+
+            def match_payload(self, payload: dict[str, object], *, top_k: int = 10):  # noqa: ARG002
+                return (
+                    [
+                        SimpleNamespace(
+                            row_index=0,
+                            similarity=0.83,
+                            entry=self.index.entries[0],
+                        )
+                    ],
+                    {
+                        "source": "fake",
+                        "internalTopK": top_k * 8,
+                        "timings": {
+                            "imageDecodeMs": 4.0,
+                            "ensureRuntimeMs": 5.0,
+                            "embeddingMs": 6.0,
+                            "indexSearchMs": 7.0,
+                            "matchPayloadMs": 8.0,
+                        },
+                    },
+                )
+
+        class FakeBadgeMatcher:
+            def score_payload_against_entries(self, payload: dict[str, object], entries: list[dict[str, object]]):  # noqa: ARG002
+                return {
+                    str(entry.get("providerCardId")): {"score": 0.0, "family": "modern_left"}
+                    for entry in entries
+                }
+
+        self.service._raw_visual_matcher = FakeVisualMatcher()
+        self.service._raw_set_badge_matcher = FakeBadgeMatcher()
+
+        payload = raw_payload(
+            title_text_primary="なるイーブイ＆カビゴンタス HP",
+            whole_card_text="なるイーブイ＆カビゴンタス HP 270 TAG TEAM",
+            footer_band_text="TAG TEAMルール。 066/095 RR",
+            collector_number_exact="066/095",
+            crop_confidence=0.44,
+        )
+        payload["ocrAnalysis"]["normalizedTarget"] = {
+            "usedFallback": True,
+            "targetQuality": {
+                "overallScore": 0.44,
+                "reasons": [
+                    "fallback",
+                    "normalization:exact_reticle_fallback",
+                ],
+            },
+        }
+
+        response = self.service._resolve_raw_candidates_visual_hybrid(payload)
+
+        self.assertEqual(response["resolverPath"], "visual_hybrid_index")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "sm9_ja-66")
+        self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["retrievalStrategy"], "fallback_local_rescue")
+        self.assertGreater(
+            response["topCandidates"][0]["nameScore"],
+            response["topCandidates"][1]["nameScore"],
+        )
+
     def test_visual_hybrid_weak_fallback_fails_closed_when_signal_is_too_weak(self) -> None:
         class FakeIndex:
             entries: list[dict[str, object]] = []

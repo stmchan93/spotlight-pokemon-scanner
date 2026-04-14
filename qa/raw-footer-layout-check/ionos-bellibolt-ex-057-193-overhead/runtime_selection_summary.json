@@ -1,23 +1,23 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_band_metadata_agreement"
+    "rewrite_raw_footer_band_wide"
   ],
-  "collectorConfidenceScore" : 0.92,
+  "collectorConfidenceScore" : 0.66,
   "collectorNumber" : "057\/193",
   "contentRectNormalized" : {
-    "height" : 0.9983575994318182,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.0008212002840909091
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
   },
   "fixtureName" : "ionos-bellibolt-ex-057-193-overhead",
   "footerRouting" : {
     "anchorIdentifier" : "057\/193",
     "collectorAnchor" : {
-      "height" : 0.012945227989783592,
-      "width" : 0.12757732250072334,
-      "x" : 0.1726804096388136,
-      "y" : 0.8718384302805221
+      "height" : 0.011065663280323101,
+      "width" : 0.09098124921764705,
+      "x" : 0.2539661978962787,
+      "y" : 0.8010833336416544
     },
     "reasons" : [
       "footer_band_collector_anchor"
@@ -25,138 +25,76 @@
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:best_rectangle_aspect_mismatch",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.7949672021182151,
+  "ocrTargetQualityScore" : 0.58,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.21963867187500002,
-        "width" : 1,
-        "x" : 0,
-        "y" : 0.7795401278409092
+        "height" : 0.22,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
+        "y" : 0.78
       },
-      "text" : "x2 にぜる * * exルール Ilus, Sban Grophics #2g ポケセンのXがさぜつしたとさ 、相合はサイドを2枚とる 057\/193 RR",
+      "text" : "■2g 057\/193 RR ポケモンのズがほぜつレたとき 相はサイドを2枚とる",
       "tokens" : [
         {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02013354444446471,
-            "width" : 0.047680412440493425,
-            "x" : 0.20103092785308974,
-            "y" : 0.7960130283787232
-          },
-          "text" : "x2"
-        },
-        {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.010168457031249998,
-            "width" : 0.0670103042844743,
-            "x" : 0.5889175291077627,
-            "y" : 0.7978433505593142
+            "height" : 0.011081422953346059,
+            "width" : 0.030754225040299114,
+            "x" : 0.21167913725329535,
+            "y" : 0.7973352433133329
           },
-          "text" : "にぜる"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.023794190407945552,
-            "width" : 0.03865979377975326,
-            "x" : 0.6739690723580146,
-            "y" : 0.7896068997828382
-          },
-          "text" : "*"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.021963866232679437,
-            "width" : 0.03865979377975326,
-            "x" : 0.7074742265453222,
-            "y" : 0.7886917397118132
-          },
-          "text" : "*"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.018634248799286234,
-            "width" : 0.1135074272357598,
-            "x" : 0.3865452554214065,
-            "y" : 0.8242175098645221
-          },
-          "text" : "exルール"
+          "text" : "■2g"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.01478337214543269,
-            "width" : 0.17139175119013172,
-            "x" : 0.07603092937701318,
-            "y" : 0.8436014073791582
-          },
-          "text" : "Ilus, Sban Grophics"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.015557738780402203,
-            "width" : 0.04381443205333892,
-            "x" : 0.10953608274910374,
-            "y" : 0.8655652744667535
-          },
-          "text" : "#2g"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.015682889498197117,
-            "width" : 0.2396907099971065,
-            "x" : 0.3737113480297972,
-            "y" : 0.8599491570111878
-          },
-          "text" : "ポケセンのXがさぜつしたとさ"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.02003373227726953,
-            "width" : 0.2006010025266618,
-            "x" : 0.6103699768190077,
-            "y" : 0.8548449000594157
-          },
-          "text" : "、相合はサイドを2枚とる"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.012945227989783625,
-            "width" : 0.12757732250072334,
-            "x" : 0.1726804096388136,
-            "y" : 0.8718384302805221
+            "height" : 0.011065663280323084,
+            "width" : 0.09098124921764703,
+            "x" : 0.2539661978962787,
+            "y" : 0.8010833336416544
           },
           "text" : "057\/193 RR"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.011149712865878656,
+            "width" : 0.17042966866833073,
+            "x" : 0.39492306346441985,
+            "y" : 0.7937500003240354
+          },
+          "text" : "ポケモンのズがほぜつレたとき"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014872646605046233,
+            "width" : 0.13897533750352775,
+            "x" : 0.5701507293052638,
+            "y" : 0.7894051685835897
+          },
+          "text" : "相はサイドを2枚とる"
         }
       ]
     },
     {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.09783904474431819,
-        "width" : 0.138,
-        "x" : 0,
-        "y" : 0.8274946424643342
+        "height" : 0.22,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0.05
       },
       "text" : "",
       "tokens" : [
@@ -164,225 +102,21 @@
       ]
     },
     {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.09184889914772727,
-        "width" : 0.275,
-        "x" : 0.09896907088917525,
-        "y" : 0.8323865947015502
-      },
-      "text" : "1. Sban Graphics 057\/193 RR",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013054665868712505,
-            "width" : 0.1513157894736842,
-            "x" : 0.0989690719700023,
-            "y" : 0.8440425463500618
-          },
-          "text" : "1. Sban Graphics"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013987142002191972,
-            "width" : 0.12718749799226461,
-            "x" : 0.17344823813002214,
-            "y" : 0.8713174733894676
-          },
-          "text" : "057\/193 RR"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.10183247514204545,
-        "width" : 0.125,
-        "x" : 0.07414948063852425,
-        "y" : 0.8202465662924593
-      },
-      "text" : "Ius, Sban Gre 05",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01411106460720793,
-            "width" : 0.12480482459068298,
-            "x" : 0.07389212668165852,
-            "y" : 0.8425397507259742
-          },
-          "text" : "Ius, Sban Gre"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.011624711774206096,
-            "width" : 0.02734375,
-            "x" : 0.1711546888199479,
-            "y" : 0.8718602865880173
-          },
-          "text" : "05"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.09983575994318183,
-        "width" : 0.22963918050130203,
-        "x" : 0.12164948063852425,
-        "y" : 0.8283931643038229
-      },
-      "text" : "Sban Graphics 057\/193 RR",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01352914503902932,
-            "width" : 0.12757732250072334,
-            "x" : 0.12164948134728715,
-            "y" : 0.8442549205383354
-          },
-          "text" : "Sban Graphics"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013062622796304166,
-            "width" : 0.12561459446225068,
-            "x" : 0.17464313792262726,
-            "y" : 0.8717797327956204
-          },
-          "text" : "057\/193 RR"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.10482754794034091,
-        "width" : 0.115,
-        "x" : 0.24203866113982625,
-        "y" : 0.8148155009515502
-      },
-      "text" : "93 RR",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.011721380062526019,
-            "width" : 0.06076242109026229,
-            "x" : 0.24188602191553776,
-            "y" : 0.871240237672937
-          },
-          "text" : "93 RR"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.10183247514204545,
-        "width" : 0.22963918050130203,
-        "x" : 0.12164948063852425,
-        "y" : 0.8273948067043911
-      },
-      "text" : "Sbon Grophies 20 057\/193 RR",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.016761357589624815,
-            "width" : 0.12850169385246069,
-            "x" : 0.1211637698983146,
-            "y" : 0.8416085791832983
-          },
-          "text" : "Sbon Grophies"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014614845969460223,
-            "width" : 0.03402061933352622,
-            "x" : 0.12164948057309999,
-            "y" : 0.8651105381775869
-          },
-          "text" : "20"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.013073087538931178,
-            "width" : 0.12534471536378025,
-            "x" : 0.1752319591299576,
-            "y" : 0.8714304718450426
-          },
-          "text" : "057\/193 RR"
-        }
-      ]
-    },
-    {
       "kind" : "header_wide",
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
-        "height" : 0.19967151988636367,
-        "width" : 0.88,
-        "x" : 0.06,
-        "y" : 0.0008212002840909091
+        "height" : 0.2,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0
       },
-      "text" : "Uin ナンジャモのハラバリービス。 280",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.016411358116437572,
-            "width" : 0.04220930297345048,
-            "x" : 0.09453488318115268,
-            "y" : 0.10658328361551783
-          },
-          "text" : "Uin"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.03839028781810005,
-            "width" : 0.4031210339811333,
-            "x" : 0.2058139598193971,
-            "y" : 0.11478896307743569
-          },
-          "text" : "ナンジャモのハラバリービス。"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03464620010007041,
-            "width" : 0.11383721189380192,
-            "x" : 0.6841860456537252,
-            "y" : 0.10567154156960483
-          },
-          "text" : "280"
-        }
+
       ]
     }
   ],
-  "scanID" : "32504F13-83E2-47D5-8E01-F7FD07034268",
+  "scanID" : "47F698DE-8EB0-41B2-AB4D-AA36DE2AB541",
   "setConfidenceReasons" : [
 
   ],
@@ -390,13 +124,14 @@
 
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "fallback_exact_collector_allows_header_rescue"
   ],
-  "titleConfidenceScore" : 0.7399999841054281,
-  "titleTextPrimary" : "Uin ナンジャモのハラバリービス。",
   "warnings" : [
     "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs"
+    "Rewrite raw escalation used focused ROIs",
+    "Low-confidence rewrite raw evidence"
   ]
 }

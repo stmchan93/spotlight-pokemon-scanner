@@ -1,4 +1,5 @@
 {
+  "collectorNumber" : "199\/182",
   "cropConfidence" : 0.8979459373753425,
   "expected" : {
     "cardName" : "Team Rocket's Weezing",
@@ -9,22 +10,21 @@
     "setName" : "Destined Rivals"
   },
   "fixtureName" : "raw_offcenter",
-  "fullRecognizedText" : "Explode Together Now does 40 damage for each Pokémon in play tha Explode Tog hac 4n damaco fon o er Now kémon iniolavt",
-  "metadataStripRecognizedText" : "Explode Together Now does 40 damage for each Pokémon in play tha",
+  "fullRecognizedText" : "nent's): &2 resistanco retreat Uclthiro Tada Tap-grnde porturue bmadeusfing tas anternal DRIEN 199\/182 potsongaseshydilutngtharte\/Motgghesflourgl 01925 Pokémon \/ Nintendo \/ Creat 𢌥𠓗𡲢 Kret Weezing 130 Team Rocket's Koffing",
+  "metadataStripRecognizedText" : "nent's): &2 resistanco retreat Uclthiro Tada Tap-grnde porturue bmadeusfing tas anternal DRIEN 199\/182 potsongaseshydilutngtharte\/Motgghesflourgl 01925 Pokémon \/ Nintendo \/ Creat 𢌥𠓗𡲢",
   "ocrPipelineVersion" : "rewrite_v1",
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrSelectedMode" : "raw",
   "ocrTargetQualityScore" : 0.8979459373753425,
   "ocrUsedFallback" : false,
-  "scanID" : "DC01C944-EAF4-41B6-879D-2D020E4132F4",
+  "scanID" : "840A6CF7-5445-4D31-985A-D7DFF1AFBD7B",
   "setHintTokens" : [
-    "lor"
+
   ],
   "shouldRetryWithStillPhoto" : false,
   "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_offcenter.JPG",
+  "titleTextPrimary" : "Team Rocket's Koffing",
   "warnings" : [
-    "Raw scene looks holder-like",
-    "Rewrite raw escalation used focused ROIs",
-    "Low-confidence rewrite raw evidence"
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

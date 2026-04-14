@@ -1,17 +1,26 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_footer_band_wide"
   ],
+  "collectorConfidenceScore" : 0.66,
+  "collectorNumber" : "249\/191",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.999012390930287,
-    "x" : 0.0004938045348564759,
+    "width" : 0.37638829812372987,
+    "x" : 0.3118058509381351,
     "y" : 0
   },
   "fixtureName" : "counter-gain-249-191",
   "footerRouting" : {
+    "anchorIdentifier" : "249\/191",
+    "collectorAnchor" : {
+      "height" : 0.009344893950104405,
+      "width" : 0.059805321309241044,
+      "x" : 0.3994696987488866,
+      "y" : 0.9757860057147089
+    },
     "reasons" : [
-      "footer_band_anchor_unavailable"
+      "footer_band_collector_anchor"
     ]
   },
   "normalizedImageHeight" : 880,
@@ -19,7 +28,7 @@
   "ocrRequestedGeometryKind" : "raw_card",
   "ocrTargetQualityReasons" : [
     "raw_card",
-    "normalization:holder_inner_card_inset_fallback"
+    "normalization:basic_perspective_canonicalization"
   ],
   "ocrTargetQualityScore" : 0.8618930382249671,
   "ocrUsedFallback" : false,
@@ -28,128 +37,160 @@
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.2,
-        "width" : 0.8991111518372583,
-        "x" : 0.050444424081370835,
-        "y" : 0.76
+        "height" : 0.22,
+        "width" : 0.37638829812372987,
+        "x" : 0.3118058509381351,
+        "y" : 0.78
       },
-      "text" : "",
+      "text" : "I1 you have opponent, atteste unsd by the artached to coss éi less Tou way actach amy number Tibos Torgse Baach Pokémon, during your tum. S围 Fokémon Tool so each Pokem 249\/191 HAWƠTCH",
       "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
-      "normalizedRect" : {
-        "height" : 0.098,
-        "width" : 0.13786370994837963,
-        "x" : 0.07106403983017195,
-        "y" : 0.8451
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
-      "normalizedRect" : {
-        "height" : 0.092,
-        "width" : 0.27472840750582894,
-        "x" : 0.1703259109930053,
-        "y" : 0.85
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.12487654886628588,
-        "x" : 0.6723296374354745,
-        "y" : 0.84184
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
-      "normalizedRect" : {
-        "height" : 0.1,
-        "width" : 0.1848172923221031,
-        "x" : 0.7197827260046631,
-        "y" : 0.85
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
-      "normalizedRect" : {
-        "height" : 0.105,
-        "width" : 0.11488642495698302,
-        "x" : 0.7854677907083295,
-        "y" : 0.8294
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.18981235427675455,
-        "x" : 0.7047975401407088,
-        "y" : 0.842
-      },
-      "text" : "",
-      "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.020171919770773646,
+            "width" : 0.12019859403951279,
+            "x" : 0.3583060366755898,
+            "y" : 0.7800000001120663
+          },
+          "text" : "I1 you have"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.025845272206303747,
+            "width" : 0.3140955961032524,
+            "x" : 0.35479658795342456,
+            "y" : 0.8008022923630153
+          },
+          "text" : "opponent, atteste unsd by the"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.024584527220630373,
+            "width" : 0.226359396074411,
+            "x" : 0.3512871412581905,
+            "y" : 0.8241260744217407
+          },
+          "text" : "artached to coss éi less"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.009455587392550124,
+            "width" : 0.024566136008075612,
+            "x" : 0.5214953688566613,
+            "y" : 0.9375931231416292
+          },
+          "text" : "Tou"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.012607449856733524,
+            "width" : 0.12897221404239692,
+            "x" : 0.5530804016253357,
+            "y" : 0.9357020056406058
+          },
+          "text" : "way actach amy number"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.010085959885386823,
+            "width" : 0.09563245803143719,
+            "x" : 0.3425135212827239,
+            "y" : 0.9565042979312322
+          },
+          "text" : "Tibos Torgse Baach"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.013237822349570199,
+            "width" : 0.17108559005624085,
+            "x" : 0.5162311959360508,
+            "y" : 0.9502005730934814
+          },
+          "text" : "Pokémon, during your tum."
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.009455587392550148,
+            "width" : 0.028075584009229267,
+            "x" : 0.3635702091556915,
+            "y" : 0.9728939827855096
+          },
+          "text" : "S围"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.014332247627498771,
+            "width" : 0.16973301261826573,
+            "x" : 0.5142476819247408,
+            "y" : 0.9622271734478566
+          },
+          "text" : "Fokémon Tool so each Pokem"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.009344893950104372,
+            "width" : 0.05980532130924106,
+            "x" : 0.3994696987488866,
+            "y" : 0.9757860057147089
+          },
+          "text" : "249\/191"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.004412607449856725,
+            "width" : 0.044745462014709136,
+            "x" : 0.5583445735784979,
+            "y" : 0.9911747850608883
+          },
+          "text" : "HAWƠTCH"
+        }
       ]
     },
     {
       "kind" : "header_wide",
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
-        "height" : 0.22,
-        "width" : 0.7992099127442297,
-        "x" : 0.10039504362788519,
-        "y" : 0.02
+        "height" : 0.2,
+        "width" : 0.3462772342738315,
+        "x" : 0.3268613828630843,
+        "y" : 0
       },
-      "text" : "",
+      "text" : "Pokémon Toc Counter Ga",
       "tokens" : [
-
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.043599537678681105,
+            "width" : 0.30937602230508415,
+            "x" : 0.3628680028498228,
+            "y" : 0.058112895041285785
+          },
+          "text" : "Pokémon Toc"
+        },
+        {
+          "confidence" : 1,
+          "normalizedBoundingBox" : {
+            "height" : 0.057687104737394225,
+            "width" : 0.3108515431456956,
+            "x" : 0.3616254891678459,
+            "y" : 0.1409721713398457
+          },
+          "text" : "Counter Ga"
+        }
       ]
     }
   ],
-  "scanID" : "6E138DBC-5242-4DAD-9C08-80286A516D62",
+  "scanID" : "949297AF-2BDE-4A80-93FA-170C0488CF7D",
   "setConfidenceReasons" : [
 
   ],
@@ -161,10 +202,9 @@
     "title_signal_weak",
     "set_signal_weak"
   ],
+  "titleConfidenceScore" : 0.8899999999999999,
+  "titleTextPrimary" : "Pokémon Toc Counter Ga",
   "warnings" : [
-    "Raw scene looks holder-like",
-    "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
-    "Low-confidence rewrite raw evidence"
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

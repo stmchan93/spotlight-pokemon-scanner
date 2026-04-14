@@ -103,7 +103,7 @@ enum SlabLabelParser {
             certNumber: certCandidate.normalizedValue,
             cardNumberRaw: cardNumberRaw,
             visualSignals: visualSignals,
-            includeGradeSignal: false
+            includeGradeSignal: true
         )
         let provisionalGrader = parseExplicitGrader(from: combinedText)?.normalizedValue
             ?? (preliminaryPSAConfidence >= 0.45 ? "PSA" : nil)
@@ -253,9 +253,11 @@ enum SlabLabelParser {
                 patterns: [
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+PSA\b)"#, 0.96, "grade_before_psa_token"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+P(?:EA|A|S)\b(?:\s+\d{7,10}\b|$))"#, 0.95, "grade_before_partial_psa_token"),
+                    (#"\b(10|[1-9](?:\.5)?)\b(?=\s+P[:;.\-]?A\b(?:\s+\d{7,10}\b|$))"#, 0.95, "grade_before_noisy_psa_token"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z0-9]{1,4}\s+){1,2}PSA\b)"#, 0.94, "grade_before_psa_with_noise"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z]{2,4}\s+)?\d{7,10}\b)"#, 0.91, "grade_before_cert_number"),
                     (#"\b(10|[1-9](?:\.5)?)\b(?=\s+(?:[A-Z0-9]{1,4}\s+){1,2}(?:[A-Z]{2,4}\s+)?\d{7,10}\b)"#, 0.89, "grade_before_cert_number_with_noise"),
+                    (#"\b\d{7,10}\b\s+(10|[1-9](?:\.5)?)\b"#, 0.90, "grade_after_cert_number"),
                     (#"\bNM\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+[A-Z0-9]{1,4}){0,2}(?:\s+(?:PSA|[A-Z]{2,4})\b|\s+\d{7,10}\b|$)(?:\s+\d{7,10}\b|$)"#, 0.94, "grade_from_nm_layout"),
                     (#"\bGEM MT\s+(10|[1-9])\b"#, 0.92, "grade_from_psa_gem_mt"),
                     (#"\bGEM MINT\s+(10|[1-9])\b"#, 0.92, "grade_from_psa_gem_mint"),
@@ -302,7 +304,8 @@ enum SlabLabelParser {
            let inferred = firstCapturedField(
                 in: normalizedText,
                 patterns: [
-                    (#"\b(?:NM|MINT|GEM MT|GEM MINT)\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+[A-Z0-9]{1,4}){0,2}(?:\s+[A-Z]{2,4}\b)?(?:\s+\d{7,10}\b|$)"#, 0.79, "grade_from_cert_aligned_layout")
+                    (#"\b(?:NM|MINT|GEM MT|GEM MINT)\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+[A-Z0-9]{1,4}){0,2}(?:\s+[A-Z]{2,4}\b)?(?:\s+\d{7,10}\b|$)"#, 0.79, "grade_from_cert_aligned_layout"),
+                    (#"\b\d{7,10}\b\s+(10|[1-9](?:\.5)?)\b"#, 0.82, "grade_from_post_cert_layout")
                 ]
            ) {
             return inferred
@@ -386,6 +389,15 @@ enum SlabLabelParser {
             )
         }
 
+        if normalizedText.containsMatch(of: #"\bP[:;.\-]?A\b(?=\s+\d{7,10}\b)"#) {
+            return SlabFieldCandidate(
+                rawValue: "PSA",
+                normalizedValue: "PSA",
+                confidence: 0.84,
+                reasons: ["noisy_partial_grader_psa_token"]
+            )
+        }
+
         return nil
     }
 
@@ -420,6 +432,7 @@ enum SlabLabelParser {
         if normalizedText.containsMatch(of: #"\bP[5S]A\b"#)
             || normalizedText.containsMatch(of: #"\bPSA?\b"#)
             || normalizedText.containsMatch(of: #"\bP(?:EA|A|S)\b(?=\s+\d{7,10}\b)"#)
+            || normalizedText.containsMatch(of: #"\bP[:;.\-]?A\b(?=\s+\d{7,10}\b)"#)
             || normalizedText.contains("FEA") {
             score += 0.12
             reasons.append("partial_psa_logo_token")
@@ -427,6 +440,10 @@ enum SlabLabelParser {
         if gradeCandidate.normalizedValue != nil {
             score += min(0.16, gradeCandidate.confidence * 0.18)
             reasons.append("psa_grade_layout_detected")
+        }
+        if certNumber != nil, gradeCandidate.normalizedValue != nil {
+            score += 0.12
+            reasons.append("cert_grade_alignment_detected")
         }
 
         let confidence = min(0.94, score)
@@ -466,11 +483,15 @@ enum SlabLabelParser {
         if normalizedText.containsMatch(of: #"\bP[5S]A\b"#)
             || normalizedText.containsMatch(of: #"\bPSA?\b"#)
             || normalizedText.containsMatch(of: #"\bP(?:EA|A|S)\b(?=\s+\d{7,10}\b)"#)
+            || normalizedText.containsMatch(of: #"\bP[:;.\-]?A\b(?=\s+\d{7,10}\b)"#)
             || normalizedText.contains("FEA") {
             score += 0.12
         }
         if includeGradeSignal,
-           normalizedText.containsMatch(of: #"\b(?:NM|MINT|GEM MT|GEM MINT)\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+\d{7,10}\b|$)"#) {
+           (
+               normalizedText.containsMatch(of: #"\b(?:NM|MINT|GEM MT|GEM MINT)\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b(?:\s+\d{7,10}\b|$)"#)
+               || normalizedText.containsMatch(of: #"\b\d{7,10}\b\s+(10|[1-9](?:\.5)?)\b"#)
+           ) {
             score += 0.14
         }
 

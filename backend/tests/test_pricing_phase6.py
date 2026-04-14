@@ -4,6 +4,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -222,9 +223,97 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(provider_status["scrydexFullCatalogSync"]["pagesFetched"], 203)
         self.assertTrue(provider_status["manualScrydexMirror"]["enabled"])
         self.assertTrue(provider_status["manualScrydexMirror"]["liveQueriesBlocked"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["searchesBlocked"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["importsBlocked"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["pricingRefreshBlocked"])
         providers = {provider["providerId"]: provider for provider in provider_status["providers"]}
         self.assertTrue(providers["scrydex"]["fullCatalogSyncFresh"])
         self.assertIsNotNone(providers["scrydex"]["lastFullCatalogSyncAt"])
+
+    def test_provider_status_allows_only_pricing_refresh_when_full_sync_is_stale(self) -> None:
+        stale_completed_at = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        run_id = start_provider_sync_run(
+            self.connection,
+            provider="scrydex",
+            sync_scope="raw_catalog_full",
+            page_size=100,
+        )
+        update_provider_sync_run(
+            self.connection,
+            run_id,
+            status=PROVIDER_SYNC_STATUS_SUCCEEDED,
+            completed_at=stale_completed_at,
+            pages_fetched=203,
+            cards_seen=20237,
+            cards_upserted=20237,
+            raw_snapshots_upserted=20237,
+            graded_snapshots_upserted=51000,
+            estimated_credits_used=203,
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            provider_status = service.provider_status()
+        finally:
+            service.connection.close()
+
+        self.assertFalse(provider_status["scrydexFullCatalogSyncFresh"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["enabled"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["searchesBlocked"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["importsBlocked"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["pricingRefreshAllowed"])
+        self.assertFalse(provider_status["manualScrydexMirror"]["pricingRefreshBlocked"])
+        self.assertFalse(provider_status["manualScrydexMirror"]["liveQueriesBlocked"])
+
+    def test_card_show_mode_can_be_enabled_and_cleared(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            enabled = service.set_card_show_mode(duration_hours=8, note="trade night")
+            disabled = service.clear_card_show_mode()
+        finally:
+            service.connection.close()
+
+        self.assertTrue(enabled["active"])
+        self.assertIsNotNone(enabled["until"])
+        self.assertEqual(enabled["note"], "trade night")
+        self.assertFalse(disabled["active"])
+        self.assertIsNone(disabled["until"])
+
+    def test_provider_status_card_show_mode_reopens_pricing_refresh_while_sync_is_fresh(self) -> None:
+        run_id = start_provider_sync_run(
+            self.connection,
+            provider="scrydex",
+            sync_scope="raw_catalog_full",
+            page_size=100,
+        )
+        update_provider_sync_run(
+            self.connection,
+            run_id,
+            status=PROVIDER_SYNC_STATUS_SUCCEEDED,
+            completed_at=utc_now(),
+            pages_fetched=203,
+            cards_seen=20237,
+            cards_upserted=20237,
+            raw_snapshots_upserted=20237,
+            graded_snapshots_upserted=51000,
+            estimated_credits_used=203,
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            service.set_card_show_mode(duration_hours=8, note="show floor")
+            provider_status = service.provider_status()
+        finally:
+            service.connection.close()
+
+        self.assertTrue(provider_status["scrydexFullCatalogSyncFresh"])
+        self.assertTrue(provider_status["cardShowMode"]["active"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["searchesBlocked"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["importsBlocked"])
+        self.assertTrue(provider_status["manualScrydexMirror"]["pricingRefreshAllowed"])
+        self.assertFalse(provider_status["manualScrydexMirror"]["pricingRefreshBlocked"])
 
     def test_refresh_card_pricing_skips_live_raw_refresh_when_manual_mirror_sync_is_fresh(self) -> None:
         run_id = start_provider_sync_run(
@@ -291,6 +380,175 @@ class PricingPhase6Tests(unittest.TestCase):
 
         scrydex_provider.refresh_psa_pricing.assert_not_called()
         self.assertIsNotNone(detail)
+
+    def test_refresh_card_pricing_allows_live_raw_refresh_when_card_show_mode_is_active(self) -> None:
+        upsert_price_snapshot(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=100.0,
+            market_price=120.0,
+            mid_price=115.0,
+            high_price=140.0,
+            source_url="https://prices.example/raw",
+            payload={"provider": "scrydex"},
+        )
+        self.connection.commit()
+
+        run_id = start_provider_sync_run(
+            self.connection,
+            provider="scrydex",
+            sync_scope="raw_catalog_full",
+            page_size=100,
+        )
+        update_provider_sync_run(
+            self.connection,
+            run_id,
+            status=PROVIDER_SYNC_STATUS_SUCCEEDED,
+            completed_at=utc_now(),
+            pages_fetched=203,
+            cards_seen=20237,
+            cards_upserted=20237,
+            raw_snapshots_upserted=20237,
+            graded_snapshots_upserted=51000,
+            estimated_credits_used=203,
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        service.set_card_show_mode(duration_hours=8)
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_raw_pricing = Mock(return_value=Mock(success=True))  # type: ignore[method-assign]
+        try:
+            detail = service.refresh_card_pricing("base1-4", force_refresh=False)
+        finally:
+            service.connection.close()
+
+        scrydex_provider.refresh_raw_pricing.assert_called_once_with(service.connection, "base1-4")
+        self.assertIsNotNone(detail)
+
+    def test_refresh_card_pricing_allows_live_raw_refresh_when_manual_mirror_sync_is_stale(self) -> None:
+        stale_completed_at = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        run_id = start_provider_sync_run(
+            self.connection,
+            provider="scrydex",
+            sync_scope="raw_catalog_full",
+            page_size=100,
+        )
+        update_provider_sync_run(
+            self.connection,
+            run_id,
+            status=PROVIDER_SYNC_STATUS_SUCCEEDED,
+            completed_at=stale_completed_at,
+            pages_fetched=203,
+            cards_seen=20237,
+            cards_upserted=20237,
+            raw_snapshots_upserted=20237,
+            graded_snapshots_upserted=51000,
+            estimated_credits_used=203,
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_raw_pricing = Mock(return_value=Mock(success=True))  # type: ignore[method-assign]
+        try:
+            detail = service.refresh_card_pricing("base1-4", force_refresh=True)
+        finally:
+            service.connection.close()
+
+        scrydex_provider.refresh_raw_pricing.assert_called_once_with(service.connection, "base1-4")
+        self.assertIsNotNone(detail)
+
+    def test_refresh_card_pricing_allows_live_slab_refresh_when_manual_mirror_sync_is_stale(self) -> None:
+        stale_completed_at = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()
+        run_id = start_provider_sync_run(
+            self.connection,
+            provider="scrydex",
+            sync_scope="raw_catalog_full",
+            page_size=100,
+        )
+        update_provider_sync_run(
+            self.connection,
+            run_id,
+            status=PROVIDER_SYNC_STATUS_SUCCEEDED,
+            completed_at=stale_completed_at,
+            pages_fetched=203,
+            cards_seen=20237,
+            cards_upserted=20237,
+            raw_snapshots_upserted=20237,
+            graded_snapshots_upserted=51000,
+            estimated_credits_used=203,
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_psa_pricing = Mock(return_value=Mock(success=True))  # type: ignore[method-assign]
+        try:
+            detail = service.refresh_card_pricing("base1-4", grader="PSA", grade="9", force_refresh=True)
+        finally:
+            service.connection.close()
+
+        scrydex_provider.refresh_psa_pricing.assert_called_once_with(service.connection, "base1-4", "PSA", "9")
+        self.assertIsNotNone(detail)
+
+    def test_hydrate_candidate_pricing_refreshes_fresh_snapshot_when_card_show_mode_is_active(self) -> None:
+        upsert_price_snapshot(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=100.0,
+            market_price=120.0,
+            mid_price=115.0,
+            high_price=140.0,
+            source_url="https://prices.example/raw",
+            payload={"provider": "scrydex"},
+        )
+        self.connection.commit()
+
+        run_id = start_provider_sync_run(
+            self.connection,
+            provider="scrydex",
+            sync_scope="raw_catalog_full",
+            page_size=100,
+        )
+        update_provider_sync_run(
+            self.connection,
+            run_id,
+            status=PROVIDER_SYNC_STATUS_SUCCEEDED,
+            completed_at=utc_now(),
+            pages_fetched=203,
+            cards_seen=20237,
+            cards_upserted=20237,
+            raw_snapshots_upserted=20237,
+            graded_snapshots_upserted=51000,
+            estimated_credits_used=203,
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        service.set_card_show_mode(duration_hours=8)
+        scrydex_provider = service.pricing_registry.get_provider("scrydex")
+        assert scrydex_provider is not None
+        scrydex_provider.refresh_raw_pricing = Mock(return_value=Mock(success=True))  # type: ignore[method-assign]
+        try:
+            payload = service.hydrate_raw_candidate_pricing(["base1-4"], max_refresh_count=1)
+        finally:
+            service.connection.close()
+
+        scrydex_provider.refresh_raw_pricing.assert_called_once_with(service.connection, "base1-4")
+        self.assertEqual(payload["refreshedCount"], 1)
+        self.assertEqual(payload["returnedCount"], 1)
 
     def test_run_manual_scrydex_sync_reuses_current_database_path(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -922,17 +1180,29 @@ class PricingPhase6Tests(unittest.TestCase):
             service.connection.close()
 
     def test_shared_top_five_pricing_policy_has_explicit_rank_rules(self) -> None:
-        policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
+        policy = PricingLoadPolicy.top_five_refresh_top_one(
+            refresh_top_candidate_stale=True,
+            refresh_top_candidate_missing=True,
+            force_show_mode_top_candidate_refresh=True,
+        )
 
         self.assertEqual(policy.limit, 5)
         self.assertEqual(
-            [(policy.rule_for_rank(index).ensure_cached, policy.rule_for_rank(index).refresh_stale) for index in range(1, 6)],
             [
-                (True, True),
-                (False, False),
-                (False, False),
-                (False, False),
-                (False, False),
+                (
+                    policy.rule_for_rank(index).ensure_cached,
+                    policy.rule_for_rank(index).refresh_stale,
+                    policy.rule_for_rank(index).refresh_missing,
+                    policy.rule_for_rank(index).force_show_mode_refresh,
+                )
+                for index in range(1, 6)
+            ],
+            [
+                (True, True, True, True),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
             ],
         )
 

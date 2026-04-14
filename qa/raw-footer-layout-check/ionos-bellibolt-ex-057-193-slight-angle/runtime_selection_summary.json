@@ -1,8 +1,8 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_band_metadata_agreement"
+    "rewrite_raw_footer_band_wide"
   ],
-  "collectorConfidenceScore" : 0.92,
+  "collectorConfidenceScore" : 0.66,
   "collectorNumber" : "057\/193",
   "contentRectNormalized" : {
     "height" : 1,
@@ -14,10 +14,10 @@
   "footerRouting" : {
     "anchorIdentifier" : "057\/193",
     "collectorAnchor" : {
-      "height" : 0.043850096994131116,
-      "width" : 0.1926199129059735,
-      "x" : 0.059189441433065905,
-      "y" : 0.8156160456517049
+      "height" : 0.016220252247457823,
+      "width" : 0.11607285663110545,
+      "x" : 0.13573649770793395,
+      "y" : 0.8432458903983782
     },
     "reasons" : [
       "footer_band_collector_anchor"
@@ -43,7 +43,7 @@
         "x" : 0.00024383721113155034,
         "y" : 0.78
       },
-      "text" : "GX：ルール 3Mus. 5ban Grophics ポケモンexがきばつしたとき、相手はサイド L.22g 057\/193.2",
+      "text" : "GX：ルール Illus: Sban Grophies ポケモンexがきばつしたとき、相手はサイド L.22g 057\/193.2",
       "tokens" : [
         {
           "confidence" : 0.3,
@@ -56,17 +56,17 @@
           "text" : "GX：ルール"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
             "height" : 0.016704871060171912,
             "width" : 0.14992684076716437,
             "x" : 0.059189441433065905,
             "y" : 0.8156160456517049
           },
-          "text" : "3Mus. 5ban Grophics"
+          "text" : "Illus: Sban Grophies"
         },
         {
-          "confidence" : 0.5,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
             "height" : 0.026621433247126288,
             "width" : 0.33216101223982647,
@@ -98,287 +98,54 @@
       ]
     },
     {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.098,
-        "width" : 0.1379327009297277,
-        "x" : 0.00024383721113155034,
-        "y" : 0.7844059874552262
+        "height" : 0.22,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0.05
       },
-      "text" : "-55 12d",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.009377990430622015,
-            "width" : 0.028109507772408962,
-            "x" : 0.09045574585836731,
-            "y" : 0.8205112505935834
-          },
-          "text" : "-55"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.013781071129027734,
-            "width" : 0.03479201047047452,
-            "x" : 0.08875482757405108,
-            "y" : 0.8411904058931445
-          },
-          "text" : "12d"
-        }
+
       ]
     },
     {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide",
       "normalizedRect" : {
-        "height" : 0.09647021338708846,
-        "width" : 0.3467158432307523,
-        "x" : 0.00024383721113155034,
-        "y" : 0.7893059874552262
+        "height" : 0.2,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0
       },
-      "text" : "ius. 55ca Graphies ポケ D C20 05711932R D20s BolEn",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.014447230024153344,
-            "width" : 0.14896916458203424,
-            "x" : 0.06022699733229994,
-            "y" : 0.8163362887528731
-          },
-          "text" : "ius. 55ca Graphies"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.01211703163316087,
-            "width" : 0.03032115739280342,
-            "x" : 0.31202443385525813,
-            "y" : 0.8312495585396947
-          },
-          "text" : "ポケ"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.024140060298394096,
-            "width" : 0.19464829733440472,
-            "x" : 0.056832519341568334,
-            "y" : 0.8364229963433815
-          },
-          "text" : "D C20 05711932R"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.012583071311359367,
-            "width" : 0.08371276062795731,
-            "x" : 0.2447905637379945,
-            "y" : 0.8629402565606555
-          },
-          "text" : "D20s BolEn"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.12493904069721712,
-        "x" : 0.00024383721113155034,
-        "y" : 0.7793810941487704
-      },
-      "text" : "3.56 ①",
+      "text" : "2804 ナンジャモのハラハリー（g",
       "tokens" : [
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.009780821917808212,
-            "width" : 0.034851416615539525,
-            "x" : 0.08309814843382347,
-            "y" : 0.8203673954487705
+            "height" : 0.07385410825237959,
+            "width" : 0.16843664090554672,
+            "x" : 0.6534039778242503,
+            "y" : -0.0056256240183164335
           },
-          "text" : "3.56"
+          "text" : "2804"
         },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.020493154238348136,
-            "width" : 0.018412074172270077,
-            "x" : 0.058767911630506764,
-            "y" : 0.8380660238000917
+            "height" : 0.0852601963359716,
+            "width" : 0.30919765461737764,
+            "x" : 0.2236263148930749,
+            "y" : 0.06003844050432577
           },
-          "text" : "①"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.1,
-        "width" : 0.3467158432307523,
-        "x" : 0.00024383721113155034,
-        "y" : 0.7875410941487704
-      },
-      "text" : "Jllus. 5ban Graphics ポケ D Z2d 057\/193 28 D2035 B0",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015420560747663537,
-            "width" : 0.1483100089865385,
-            "x" : 0.06022699722518716,
-            "y" : 0.8155784772873996
-          },
-          "text" : "Jllus. 5ban Graphics"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.011682242990654214,
-            "width" : 0.029002846201811955,
-            "x" : 0.3133427449600523,
-            "y" : 0.8309990380973685
-          },
-          "text" : "ポケ"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.021495327102803732,
-            "width" : 0.19247343388475222,
-            "x" : 0.058249528862219555,
-            "y" : 0.8370738043395803
-          },
-          "text" : "D Z2d 057\/193 28"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.010747663551401877,
-            "width" : 0.06064231478560688,
-            "x" : 0.24742718569340952,
-            "y" : 0.8646438978333498
-          },
-          "text" : "D2035 B0"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.105,
-        "width" : 0.11494391744143975,
-        "x" : 0.23776295887251603,
-        "y" : 0.7739410941487704
-      },
-      "text" : "e ボケモ R",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.0122421524663677,
-            "width" : 0.015498056284239068,
-            "x" : 0.3326885535858052,
-            "y" : 0.7946585828942861
-          },
-          "text" : "e"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.011771300448430493,
-            "width" : 0.03809938836542103,
-            "x" : 0.3139617354816586,
-            "y" : 0.8309141882738998
-          },
-          "text" : "ボケモ"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01082959641255605,
-            "width" : 0.013560799248709184,
-            "x" : 0.2377629588499147,
-            "y" : 0.8426854887134565
-          },
-          "text" : "R"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.3467158432307523,
-        "x" : 0.00024383721113155034,
-        "y" : 0.7865410941487704
-      },
-      "text" : "Ius. 5ban Grophics ボケ D L2g 057\/193 RR 15 B0",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015583333333333334,
-            "width" : 0.1483100089865385,
-            "x" : 0.059567841629691434,
-            "y" : 0.8158188718924432
-          },
-          "text" : "Ius. 5ban Grophics"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.01180555555555555,
-            "width" : 0.03032115739280342,
-            "x" : 0.31202443400694846,
-            "y" : 0.8314022052303676
-          },
-          "text" : "ボケ"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02262067100736831,
-            "width" : 0.19266700853976487,
-            "x" : 0.058152741647628625,
-            "y" : 0.8375640925093273
-          },
-          "text" : "D L2g 057\/193 RR"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.009916666666666676,
-            "width" : 0.03098031298829917,
-            "x" : 0.2770891872245832,
-            "y" : 0.866346649766305
-          },
-          "text" : "15 B0"
+          "text" : "ナンジャモのハラハリー（g"
         }
       ]
     }
   ],
-  "scanID" : "C9AFB746-71BB-4FCA-A7A2-F343F4BE3FCA",
+  "scanID" : "8CAE113F-71C9-410F-AC29-D34E75B6E45A",
   "setConfidenceReasons" : [
 
   ],
@@ -386,13 +153,18 @@
 
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
     "set_signal_weak",
-    "target_quality_too_low_for_escalation"
+    "target_quality_too_low_for_escalation",
+    "fallback_exact_collector_allows_header_rescue"
   ],
+  "titleConfidenceScore" : 0.38000001192092897,
+  "titleTextPrimary" : "ナンジャモのハラハリー（g",
   "warnings" : [
     "Target selection used fallback crop",
     "Target selection confidence is weak",
+    "Rewrite raw escalation used focused ROIs",
     "Low-confidence rewrite raw evidence"
   ]
 }

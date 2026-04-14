@@ -1,6 +1,7 @@
 {
   "fixtures" : [
     {
+      "actualCollector" : "169\/14",
       "actualSetHintTokens" : [
 
       ],
@@ -15,6 +16,7 @@
       ]
     },
     {
+      "actualCollector" : "227\/090",
       "actualSetHintTokens" : [
 
       ],
@@ -43,10 +45,11 @@
       ]
     },
     {
+      "actualCollector" : "GG30\/GG70",
       "actualSetHintTokens" : [
 
       ],
-      "collectorExactMatch" : false,
+      "collectorExactMatch" : true,
       "collectorFamilyMatched" : false,
       "expectedCollector" : "GG30\/GG70",
       "expectedFooterFamily" : "modern_left",
@@ -59,20 +62,20 @@
     {
       "actualCollector" : "256\/198",
       "actualSetHintTokens" : [
-        "svi"
+
       ],
       "collectorExactMatch" : true,
-      "collectorFamilyMatched" : true,
+      "collectorFamilyMatched" : false,
       "expectedCollector" : "256\/198",
       "expectedFooterFamily" : "modern_left",
       "fixtureName" : "rare-candy-256-198",
-      "passed" : true,
+      "passed" : false,
       "requiredSetHintTokens" : [
 
       ]
     }
   ],
-  "generatedAt" : "2026-04-11T19:56:11Z",
-  "passedFixtureCount" : 1,
+  "generatedAt" : "2026-04-14T17:22:32Z",
+  "passedFixtureCount" : 0,
   "validatedFixtureCount" : 5
 }

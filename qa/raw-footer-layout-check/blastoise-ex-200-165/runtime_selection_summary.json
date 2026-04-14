@@ -1,155 +1,187 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_footer_band_wide"
   ],
+  "collectorConfidenceScore" : 0.66,
+  "collectorNumber" : "169\/14",
   "contentRectNormalized" : {
-    "height" : 0.9647001934235976,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.0176499032882012
+    "height" : 1,
+    "width" : 0.9998229775181448,
+    "x" : 8.851124092760955e-05,
+    "y" : 0
   },
   "fixtureName" : "blastoise-ex-200-165",
   "footerRouting" : {
+    "anchorIdentifier" : "169\/14",
+    "collectorAnchor" : {
+      "height" : 0.025845272206303727,
+      "width" : 0.16150986622000835,
+      "x" : 0.21415317333162526,
+      "y" : 0.8852722065608596
+    },
     "reasons" : [
-      "footer_band_anchor_unavailable"
+      "footer_band_collector_anchor"
     ]
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
-    "normalization:relaxed_rectangle_detector_promoted"
+    "fallback",
+    "fallback:no_rectangle_detected",
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.8548858964107872,
-  "ocrUsedFallback" : false,
+  "ocrTargetQualityScore" : 0.4,
+  "ocrUsedFallback" : true,
   "passSummaries" : [
     {
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.21223404255319148,
-        "width" : 1,
-        "x" : 0,
-        "y" : 0.7701160541586073
+        "height" : 0.22,
+        "width" : 0.9998229775181448,
+        "x" : 8.851124092760955e-05,
+        "y" : 0.78
       },
-      "text" : "",
+      "text" : "cetnas O82 1 ssta valcel 00O Pokémon EX rule aalto Aata When your Pokémon eX MEWA • 2091169 14 oant taars i Priaa carda",
       "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
-      "normalizedRect" : {
-        "height" : 0.09454061895551256,
-        "width" : 0.138,
-        "x" : 0.07064000000000001,
-        "y" : 0.8329180367504835
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
-      "normalizedRect" : {
-        "height" : 0.08875241779497098,
-        "width" : 0.275,
-        "x" : 0.17,
-        "y" : 0.8376450676982591
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
-      "normalizedRect" : {
-        "height" : 0.09839941972920695,
-        "width" : 0.125,
-        "x" : 0.6725,
-        "y" : 0.8297731141199225
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
-      "normalizedRect" : {
-        "height" : 0.09647001934235977,
-        "width" : 0.185,
-        "x" : 0.72,
-        "y" : 0.8376450676982591
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
-      "normalizedRect" : {
-        "height" : 0.10129352030947775,
-        "width" : 0.115,
-        "x" : 0.7857500000000001,
-        "y" : 0.817772243713733
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
-      "normalizedRect" : {
-        "height" : 0.09839941972920695,
-        "width" : 0.19,
-        "x" : 0.705,
-        "y" : 0.8299274661508703
-      },
-      "text" : "",
-      "tokens" : [
-
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.025036387074642653,
+            "width" : 0.169524397737386,
+            "x" : 0.14220921803906003,
+            "y" : 0.8160651392560315
+          },
+          "text" : "cetnas O82"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01375,
+            "width" : 0.08972769897111338,
+            "x" : 0.33720831288823916,
+            "y" : 0.8212499999770834
+          },
+          "text" : "1 ssta"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.016499999519063956,
+            "width" : 0.06280939466111551,
+            "x" : 0.6243369591317864,
+            "y" : 0.8203333335228754
+          },
+          "text" : "valcel"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.025666666987290712,
+            "width" : 0.11536418246952576,
+            "x" : 0.6922736525679524,
+            "y" : 0.8148333332280213
+          },
+          "text" : "00O"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.015759312320916923,
+            "width" : 0.18842817053000624,
+            "x" : 0.43719061176584867,
+            "y" : 0.847765042929526
+          },
+          "text" : "Pokémon EX rule"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.017416666025418626,
+            "width" : 0.11792783754603714,
+            "x" : 0.19364398528342888,
+            "y" : 0.8625000002117699
+          },
+          "text" : "aalto Aata"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.0139023400992582,
+            "width" : 0.1974009431177857,
+            "x" : 0.690991825645332,
+            "y" : 0.8550143266132418
+          },
+          "text" : "When your Pokémon eX"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01833333253177327,
+            "width" : 0.041018376960794856,
+            "x" : 0.1795439185571475,
+            "y" : 0.885416667028161
+          },
+          "text" : "MEWA"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.025845272206303723,
+            "width" : 0.16150986622000832,
+            "x" : 0.21415317333162526,
+            "y" : 0.8852722065608596
+          },
+          "text" : "• 2091169 14"
+        },
+        {
+          "confidence" : 0.3,
+          "normalizedBoundingBox" : {
+            "height" : 0.01017263628350289,
+            "width" : 0.20509188144063914,
+            "x" : 0.628182436143296,
+            "y" : 0.8770773638396612
+          },
+          "text" : "oant taars i Priaa carda"
+        }
       ]
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.19294003868471954,
-        "width" : 0.92,
-        "x" : 0.04,
-        "y" : 0.0176499032882012
+        "height" : 0.22,
+        "width" : 0.8798442202159674,
+        "x" : 0.0600778898920163,
+        "y" : 0.05
       },
-      "text" : "",
+      "text" : "5 7ACJf.2 Blastoise",
       "tokens" : [
-
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.010057142857142857,
+            "width" : 0.09219924463340978,
+            "x" : 0.170716983452108,
+            "y" : 0.20462857142857144
+          },
+          "text" : "5 7ACJf.2"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.022628571428571432,
+            "width" : 0.18615466535507494,
+            "x" : 0.2918931335417323,
+            "y" : 0.20902857142857145
+          },
+          "text" : "Blastoise"
+        }
       ]
     }
   ],
-  "scanID" : "F353582D-419A-4B30-84E7-37CF0B7524F9",
+  "scanID" : "7AC792F6-9A0D-4356-A2ED-0E9B285EBB1C",
   "setConfidenceReasons" : [
 
   ],
@@ -159,11 +191,15 @@
   "stage1AssessmentReasons" : [
     "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "target_quality_too_low_for_escalation",
+    "fallback_exact_collector_allows_header_rescue"
   ],
+  "titleConfidenceScore" : 0.6399999999999999,
+  "titleTextPrimary" : "7ACJf.2 Blastoise",
   "warnings" : [
-    "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
-    "Low-confidence rewrite raw evidence"
+    "Target selection used fallback crop",
+    "Target selection confidence is weak",
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

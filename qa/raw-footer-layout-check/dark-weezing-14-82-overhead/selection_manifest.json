@@ -145,15 +145,16 @@
       "totalScore" : 0.6336197026002577
     }
   ],
+  "fallbackReason" : "best_rectangle_aspect_mismatch",
   "mode" : "raw",
-  "normalizationReason" : "relaxed_rectangle_detector_promoted",
+  "normalizationReason" : "exact_reticle_fallback",
   "normalizedContentRect" : {
-    "height" : 0.5887667660208644,
-    "width" : 1,
-    "x" : 0,
-    "y" : 0.20561661698956782
+    "height" : 1,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
+    "y" : 0
   },
-  "normalizedGeometryKind" : "raw_card",
+  "normalizedGeometryKind" : "fallback",
   "source" : "imported_photo",
   "stage" : "selection"
 }

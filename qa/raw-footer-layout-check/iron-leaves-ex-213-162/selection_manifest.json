@@ -39,14 +39,14 @@
   ],
   "fallbackReason" : "best_rectangle_aspect_mismatch",
   "mode" : "raw",
-  "normalizationReason" : "fallback_search_partial_card_salvaged",
+  "normalizationReason" : "exact_reticle_fallback",
   "normalizedContentRect" : {
     "height" : 1,
-    "width" : 0.999809371306569,
-    "x" : 9.531434671547658e-05,
+    "width" : 0.9998229775181448,
+    "x" : 8.851124092760955e-05,
     "y" : 0
   },
-  "normalizedGeometryKind" : "raw_card",
+  "normalizedGeometryKind" : "fallback",
   "source" : "imported_photo",
   "stage" : "selection"
 }

@@ -1,218 +1,153 @@
 {
   "collectorConfidenceReasons" : [
-
+    "rewrite_raw_footer_band_wide"
   ],
+  "collectorConfidenceScore" : 0.66,
+  "collectorNumber" : "185\/152",
   "contentRectNormalized" : {
-    "height" : 1,
-    "width" : 0.5379818594104309,
-    "x" : 0.23100907029478457,
-    "y" : 0
+    "height" : 0.9998651200431615,
+    "width" : 1,
+    "x" : 0,
+    "y" : 6.743997841925617e-05
   },
   "fixtureName" : "lt-surges-bargain-185-132",
   "footerRouting" : {
+    "anchorIdentifier" : "185\/152",
+    "collectorAnchor" : {
+      "height" : 0.023780575178227625,
+      "width" : 0.20416666128437777,
+      "x" : 0.2125000052432277,
+      "y" : 0.8602216772823648
+    },
     "reasons" : [
-      "footer_band_anchor_unavailable"
+      "footer_band_collector_anchor"
     ]
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
-    "normalization:holder_like_selected_raw_card_preserved"
+    "fallback",
+    "fallback:best_rectangle_aspect_mismatch",
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.8414620859814159,
-  "ocrUsedFallback" : false,
+  "ocrTargetQualityScore" : 0.58,
+  "ocrUsedFallback" : true,
   "passSummaries" : [
     {
       "kind" : "footer_band_wide",
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
-        "height" : 0.2,
-        "width" : 0.4841836734693878,
-        "x" : 0.25790816326530613,
-        "y" : 0.76
+        "height" : 0.21997032640949554,
+        "width" : 1,
+        "x" : 0,
+        "y" : 0.7799622336120853
       },
-      "text" : "h player may take a Prize card. If rize card. If ne, you draw 4 cards. Nas2ue 1e",
+      "text" : "You may play only I Supporter card during Ilus, osare your turn. D MEGE 185\/152公公 D2025 Pokemon \/ Nintendo \/ Creatures \/ GAME FREAK",
       "tokens" : [
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.03260188087774296,
-            "width" : 0.4745175747249898,
-            "x" : 0.2579081635547722,
-            "y" : 0.7712852663617924
+            "height" : 0.020918729279096885,
+            "width" : 0.44166664513751097,
+            "x" : 0.4458333496187443,
+            "y" : 0.8186056697317299
           },
-          "text" : "h player may take a Prize card. If"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.03448275862068968,
-            "width" : 0.4718813659765177,
-            "x" : 0.2579081645070992,
-            "y" : 0.8063949843012704
-          },
-          "text" : "rize card. If ne, you draw 4 cards."
+          "text" : "You may play only I Supporter card during"
         },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.016927899686520375,
-            "width" : 0.10281214119041449,
-            "x" : 0.257908163907882,
-            "y" : 0.8665830720336991
+            "height" : 0.020234854128075047,
+            "width" : 0.10641025361560641,
+            "x" : 0.21282051450629935,
+            "y" : 0.8376335369621454
           },
-          "text" : "Nas2ue 1e"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set",
-      "normalizedRect" : {
-        "height" : 0.098,
-        "width" : 0.07424149659863946,
-        "x" : 0.2690121088435374,
-        "y" : 0.8451
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector",
-      "normalizedRect" : {
-        "height" : 0.092,
-        "width" : 0.1479450113378685,
-        "x" : 0.3224659863945578,
-        "y" : 0.85
-      },
-      "text" : "١١",
-      "tokens" : [
+          "text" : "Ilus, osare"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.01660425691094664,
+            "width" : 0.10179697268854376,
+            "x" : 0.4484604873464599,
+            "y" : 0.8449835474281968
+          },
+          "text" : "your turn."
+        },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.03632550672165891,
-            "width" : 0.06300128305103801,
-            "x" : 0.3783508355400329,
-            "y" : 0.8938501717769067
+            "height" : 0.02378057517822764,
+            "width" : 0.20416666128437777,
+            "x" : 0.2125000052432277,
+            "y" : 0.8602216772823648
           },
-          "text" : "١١"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.06724773242630386,
-        "x" : 0.5928018707482993,
-        "y" : 0.84184
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector",
-      "normalizedRect" : {
-        "height" : 0.1,
-        "width" : 0.09952664399092971,
-        "x" : 0.6183560090702948,
-        "y" : 0.85
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set",
-      "normalizedRect" : {
-        "height" : 0.105,
-        "width" : 0.06186791383219955,
-        "x" : 0.6537283163265306,
-        "y" : 0.8294
-      },
-      "text" : "",
-      "tokens" : [
-
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.10221655328798186,
-        "x" : 0.6102862811791383,
-        "y" : 0.842
-      },
-      "text" : "•",
-      "tokens" : [
+          "text" : "D MEGE 185\/152公公"
+        },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.009272728009657416,
-            "width" : 0.012439052489874008,
-            "x" : 0.6719407096036769,
-            "y" : 0.8902954541107557
+            "height" : 0.014621014344598279,
+            "width" : 0.3133436199638999,
+            "x" : 0.394605015304761,
+            "y" : 0.8838491778888183
           },
-          "text" : "•"
+          "text" : "D2025 Pokemon \/ Nintendo \/ Creatures \/ GAME FREAK"
         }
       ]
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.22,
-        "width" : 0.4303854875283447,
-        "x" : 0.28480725623582764,
-        "y" : 0.02
+        "height" : 0.21997032640949554,
+        "width" : 0.88,
+        "x" : 0.06,
+        "y" : 0.05006069598057734
       },
-      "text" : "",
+      "text" : "port•r Lt. Surge's Bargain",
       "tokens" : [
-
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.020107855677249615,
+            "width" : 0.12047172289231295,
+            "x" : 0.25838737507734655,
+            "y" : 0.1701041235508382
+          },
+          "text" : "port•r"
+        },
+        {
+          "confidence" : 0.5,
+          "normalizedBoundingBox" : {
+            "height" : 0.04712577963622804,
+            "width" : 0.40697148499368535,
+            "x" : 0.19169784081053123,
+            "y" : 0.1964992756912899
+          },
+          "text" : "Lt. Surge's Bargain"
+        }
       ]
     }
   ],
-  "scanID" : "2FB596DA-CA72-4D14-A4FC-C3855D951043",
+  "scanID" : "8E5C9621-46A7-4EA9-993C-B6D3BD4B150A",
   "setConfidenceReasons" : [
-    "rewrite_raw_footer_band_set_hints"
+
   ],
-  "setConfidenceScore" : 0.48,
   "setHintTokens" : [
-    "nas2ue"
+
   ],
   "stage1AssessmentReasons" : [
     "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "fallback_exact_collector_allows_header_rescue"
   ],
+  "titleConfidenceScore" : 0.72,
+  "titleTextPrimary" : "port•r Lt Surge's Bargain",
   "warnings" : [
-    "Raw scene looks holder-like",
-    "Rewrite raw escalation used focused ROIs",
-    "Could not read strong raw-card clues",
-    "Low-confidence rewrite raw evidence"
+    "Target selection used fallback crop",
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

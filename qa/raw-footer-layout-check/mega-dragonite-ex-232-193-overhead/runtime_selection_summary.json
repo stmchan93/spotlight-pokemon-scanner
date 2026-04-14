@@ -1,37 +1,28 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_metadata_families_agree"
+
   ],
-  "collectorConfidenceScore" : 0.94,
-  "collectorNumber" : "232\/193",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.9990239893152514,
-    "x" : 0.00048800534237429137,
+    "width" : 0.999512325577737,
+    "x" : 0.00024383721113155034,
     "y" : 0
   },
   "fixtureName" : "mega-dragonite-ex-232-193-overhead",
   "footerRouting" : {
-    "anchorIdentifier" : "232\/093",
-    "collectorAnchor" : {
-      "height" : 0.0210279354324997,
-      "width" : 0.13600967247810777,
-      "x" : 0.2027319670621657,
-      "y" : 0.870319365565182
-    },
     "reasons" : [
-      "footer_band_collector_anchor"
+      "footer_band_anchor_unavailable"
     ]
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:best_rectangle_aspect_mismatch",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.75118329913005,
+  "ocrTargetQualityScore" : 0.5711832991300501,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
@@ -39,74 +30,25 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.9990239893152514,
-        "x" : 0.00048800534237429137,
+        "width" : 0.999512325577737,
+        "x" : 0.00024383721113155034,
         "y" : 0.78
       },
-      "text" : "口四交 メガシンカeK』 •2a 232\/093 MA пдиКаекЬвІр",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.01834383918084524,
-            "width" : 0.07428639693059329,
-            "x" : 0.34886560328447774,
-            "y" : 0.8020000003614943
-          },
-          "text" : "口四交"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.01925000024046802,
-            "width" : 0.16906559116030354,
-            "x" : 0.4167480053454031,
-            "y" : 0.8304166665209697
-          },
-          "text" : "メガシンカeK』"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015583333012709337,
-            "width" : 0.04354719762127067,
-            "x" : 0.14265680514123763,
-            "y" : 0.863416666804062
-          },
-          "text" : "•2a"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.02102793543249966,
-            "width" : 0.13600967247810777,
-            "x" : 0.2027319670621657,
-            "y" : 0.870319365565182
-          },
-          "text" : "232\/093 MA"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.015583333012709312,
-            "width" : 0.19340079131365207,
-            "x" : 0.40394000240231687,
-            "y" : 0.868916666817812
-          },
-          "text" : "пдиКаекЬвІр"
-        }
+
       ]
     },
     {
       "footerFamily" : "modern_left",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
+      "label" : "14_raw_footer_modern_left_set",
       "normalizedRect" : {
         "height" : 0.098,
-        "width" : 0.13786531052550471,
-        "x" : 0.03410798119200911,
-        "y" : 0.8299333332814317
+        "width" : 0.1379327009297277,
+        "x" : 0.0708493878899429,
+        "y" : 0.8451
       },
       "text" : "",
       "tokens" : [
@@ -117,37 +59,28 @@
       "footerFamily" : "modern_left",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
+      "label" : "15_raw_footer_modern_left_collector",
       "normalizedRect" : {
         "height" : 0.092,
-        "width" : 0.27473159706169414,
-        "x" : 0.1333710047703725,
-        "y" : 0.8348333332814317
+        "width" : 0.2748658895338777,
+        "x" : 0.17016093255934683,
+        "y" : 0.85
       },
-      "text" : "232\/193 MI",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.015469026517141894,
-            "width" : 0.12820807796019867,
-            "x" : 0.20205390528586398,
-            "y" : 0.8714705014097128
-          },
-          "text" : "232\/193 MI"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
+      "label" : "16_raw_footer_legacy_right_mid_set",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.12487799866440642,
-        "x" : 0.10087445857844812,
-        "y" : 0.8226733332814318
+        "width" : 0.12493904069721712,
+        "x" : 0.6724158761621596,
+        "y" : 0.84184
       },
       "text" : "",
       "tokens" : [
@@ -158,37 +91,28 @@
       "footerFamily" : "legacy_right_mid",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
+      "label" : "17_raw_footer_legacy_right_mid_collector",
       "normalizedRect" : {
         "height" : 0.1,
-        "width" : 0.244817410460594,
-        "x" : 0.14832809807092256,
-        "y" : 0.8308333332814317
+        "width" : 0.18490978023188134,
+        "x" : 0.7198927116271021,
+        "y" : 0.85
       },
-      "text" : "232\/193 N",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01583865691568249,
-            "width" : 0.11484925197020017,
-            "x" : 0.20064671233185996,
-            "y" : 0.8720593806736865
-          },
-          "text" : "232\/193 N"
-        }
+
       ]
     },
     {
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "set_badge",
       "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
+      "label" : "18_raw_footer_legacy_right_corner_set",
       "normalizedRect" : {
         "height" : 0.105,
-        "width" : 0.11488775877125391,
-        "x" : 0.2840021376988253,
-        "y" : 0.8172333332814318
+        "width" : 0.11494391744143975,
+        "x" : 0.7856106470338382,
+        "y" : 0.8294
       },
       "text" : "",
       "tokens" : [
@@ -199,25 +123,30 @@
       "footerFamily" : "legacy_right_corner",
       "footerRole" : "collector",
       "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
+      "label" : "19_raw_footer_legacy_right_corner_collector",
       "normalizedRect" : {
         "height" : 0.102,
-        "width" : 0.244817410460594,
-        "x" : 0.14832809807092256,
-        "y" : 0.8298333332814317
+        "width" : 0.18990734185977,
+        "x" : 0.704900026743436,
+        "y" : 0.842
       },
-      "text" : "232\/193 Мл",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.017154538977636045,
-            "width" : 0.12986788930224308,
-            "x" : 0.20427274906545517,
-            "y" : 0.870101133664156
-          },
-          "text" : "232\/193 Мл"
-        }
+
+      ]
+    },
+    {
+      "kind" : "header_wide",
+      "label" : "12_raw_header_wide_lowered",
+      "normalizedRect" : {
+        "height" : 0.22,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
+        "y" : 0.05
+      },
+      "text" : "",
+      "tokens" : [
+
       ]
     },
     {
@@ -225,46 +154,17 @@
       "label" : "12_raw_header_wide",
       "normalizedRect" : {
         "height" : 0.2,
-        "width" : 0.8791411105974212,
-        "x" : 0.060429444701289366,
+        "width" : 0.8795708465084086,
+        "x" : 0.06021457674579577,
         "y" : 0
       },
-      "text" : "己進化 メガカイリュー＠X 370",
+      "text" : "",
       "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.016593886462882092,
-            "width" : 0.08178057016082325,
-            "x" : 0.16393297527635808,
-            "y" : 0.12052401714445866
-          },
-          "text" : "己進化"
-        },
-        {
-          "confidence" : 0.5,
-          "normalizedBoundingBox" : {
-            "height" : 0.041609128593877935,
-            "width" : 0.3527950853809246,
-            "x" : 0.27760088903839064,
-            "y" : 0.13033698818570155
-          },
-          "text" : "メガカイリュー＠X"
-        },
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.03493449781659388,
-            "width" : 0.10543446162501367,
-            "x" : 0.7613002741006087,
-            "y" : 0.13406113559174176
-          },
-          "text" : "370"
-        }
+
       ]
     }
   ],
-  "scanID" : "0B969AF2-4D37-4539-8B3F-B1A1549CFEAD",
+  "scanID" : "1A9D9C9C-0A9A-44AC-A05B-F57463AC060D",
   "setConfidenceReasons" : [
 
   ],
@@ -272,13 +172,15 @@
 
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
     "set_signal_weak"
   ],
-  "titleConfidenceScore" : 0.5066666746139527,
-  "titleTextPrimary" : "己進化 メガカイリュー＠X",
   "warnings" : [
     "Target selection used fallback crop",
-    "Rewrite raw escalation used focused ROIs"
+    "Target selection confidence is weak",
+    "Rewrite raw escalation used focused ROIs",
+    "Could not read strong raw-card clues",
+    "Low-confidence rewrite raw evidence"
   ]
 }

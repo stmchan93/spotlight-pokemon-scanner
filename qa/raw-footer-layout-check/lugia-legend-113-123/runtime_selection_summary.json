@@ -1,23 +1,23 @@
 {
   "collectorConfidenceReasons" : [
-    "rewrite_raw_footer_band_metadata_agreement"
+    "rewrite_raw_footer_band_wide"
   ],
-  "collectorConfidenceScore" : 0.92,
+  "collectorConfidenceScore" : 0.66,
   "collectorNumber" : "114\/123",
   "contentRectNormalized" : {
     "height" : 1,
-    "width" : 0.9996396806432648,
-    "x" : 0.00018015967836757025,
+    "width" : 0.9998229775181448,
+    "x" : 8.851124092760955e-05,
     "y" : 0
   },
   "fixtureName" : "lugia-legend-113-123",
   "footerRouting" : {
     "anchorIdentifier" : "114\/123",
     "collectorAnchor" : {
-      "height" : 0.011916666987290658,
-      "width" : 0.07305059328862695,
-      "x" : 0.7973287245386009,
-      "y" : 0.9275833332142713
+      "height" : 0.01112468074590911,
+      "width" : 0.0641328737409772,
+      "x" : 0.803771538163113,
+      "y" : 0.914687659580173
     },
     "reasons" : [
       "footer_band_collector_anchor"
@@ -25,13 +25,13 @@
   },
   "normalizedImageHeight" : 880,
   "normalizedImageWidth" : 630,
-  "ocrRequestedGeometryKind" : "raw_card",
+  "ocrRequestedGeometryKind" : "fallback",
   "ocrTargetQualityReasons" : [
-    "raw_card",
+    "fallback",
     "fallback:best_rectangle_aspect_mismatch",
-    "normalization:fallback_search_partial_card_salvaged"
+    "normalization:exact_reticle_fallback"
   ],
-  "ocrTargetQualityScore" : 0.791188832558563,
+  "ocrTargetQualityScore" : 0.58,
   "ocrUsedFallback" : true,
   "passSummaries" : [
     {
@@ -39,259 +39,89 @@
       "label" : "13_raw_footer_band",
       "normalizedRect" : {
         "height" : 0.22,
-        "width" : 0.9996396806432648,
-        "x" : 0.00018015967836757025,
+        "width" : 0.9998229775181448,
+        "x" : 8.851124092760955e-05,
         "y" : 0.78
       },
-      "text" : "Eleme Discard a d E to Lugia \/ NO.249 Diving Po nta mch t tn hc fi 02010 Pokémon\/Nintendo 114\/123",
+      "text" : "Eleme Discard a d En to Lugia LE ND: 249 Diving Pok mn i xaid to họ thơ nh have boee soen 2010 Pokémon\/Mintendo 114\/123",
       "tokens" : [
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.0958415121608614,
-            "width" : 0.08438194575080216,
-            "x" : 0.6284273520495025,
-            "y" : 0.7709012012736507
+            "height" : 0.09128823091785684,
+            "width" : 0.07414876452318651,
+            "x" : 0.660920436484607,
+            "y" : 0.7722041265527096
           },
           "text" : "Eleme"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.11289714911605706,
-            "width" : 0.06776404338985245,
-            "x" : 0.6827866728242395,
-            "y" : 0.7752925916768076
+            "height" : 0.10161037849491852,
+            "width" : 0.0519217745133806,
+            "x" : 0.7137805092880324,
+            "y" : 0.7768872038571717
           },
-          "text" : "Discard a d E"
+          "text" : "Discard a d En"
         },
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.07602210889231506,
-            "width" : 0.050181008879307105,
-            "x" : 0.7549137998632037,
-            "y" : 0.7779182875608717
+            "height" : 0.06875,
+            "width" : 0.03076379196976758,
+            "x" : 0.775592226064694,
+            "y" : 0.779999999819079
           },
-          "text" : "to Lugia \/"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.11366666602541863,
-            "width" : 0.02050544199552343,
-            "x" : 0.8383395778233181,
-            "y" : 0.7799999998039574
-          },
-          "text" : "NO.249 Diving Po"
+          "text" : "to Lugia LE"
         },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.13168449248830366,
-            "width" : 0.04921308903609143,
-            "x" : 0.8698235638389635,
-            "y" : 0.7795896004913317
+            "height" : 0.10816666217793024,
+            "width" : 0.01794555358389659,
+            "x" : 0.8384016166091817,
+            "y" : 0.7800000017527016
           },
-          "text" : "nta mch t tn hc fi"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.01375,
-            "width" : 0.22940449329752596,
-            "x" : 0.39619126433018376,
-            "y" : 0.9248333333136904
-          },
-          "text" : "02010 Pokémon\/Nintendo"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.011916666987290688,
-            "width" : 0.07305059328862691,
-            "x" : 0.7973287245386009,
-            "y" : 0.9275833332142713
-          },
-          "text" : "114\/123"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "14_raw_footer_modern_left_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.098,
-        "width" : 0.13795027592877054,
-        "x" : 0.5970793664257508,
-        "y" : 0.8826416667079166
-      },
-      "text" : "do",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.009377990430622015,
-            "width" : 0.027459296630371385,
-            "x" : 0.5970793663416917,
-            "y" : 0.9281249202294477
-          },
-          "text" : "do"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "modern_left",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "15_raw_footer_modern_left_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.092,
-        "width" : 0.2749009121768978,
-        "x" : 0.6964035650944655,
-        "y" : 0.8875416667079166
-      },
-      "text" : "114\/123",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.012266666666666664,
-            "width" : 0.07300000299434369,
-            "x" : 0.7989981640318479,
-            "y" : 0.9271724358829282
-          },
-          "text" : "114\/123"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "16_raw_footer_legacy_right_mid_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.1249549600804081,
-        "x" : 0.6939044658928574,
-        "y" : 0.8753816667079166
-      },
-      "text" : "1 1",
-      "tokens" : [
-        {
-          "confidence" : 0.3,
-          "normalizedBoundingBox" : {
-            "height" : 0.009315068493150695,
-            "width" : 0.009207207584872177,
-            "x" : 0.7991296954013708,
-            "y" : 0.9280118036359988
-          },
-          "text" : "1"
+          "text" : "ND: 249 Diving Pok"
         },
         {
           "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.008383561643835604,
-            "width" : 0.00789189221560472,
-            "x" : 0.8103098760401442,
-            "y" : 0.928011803624355
+            "height" : 0.12099999807625583,
+            "width" : 0.03589109539612021,
+            "x" : 0.8666017504495763,
+            "y" : 0.780000000625761
           },
-          "text" : "1"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_mid",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "17_raw_footer_legacy_right_mid_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.1,
-        "width" : 0.18493334091900399,
-        "x" : 0.7413873507234124,
-        "y" : 0.8835416667079166
-      },
-      "text" : "114\/123",
-      "tokens" : [
+          "text" : "mn i xaid to họ thơ nh"
+        },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.012278126333361462,
-            "width" : 0.07586246140078026,
-            "x" : 0.7978971682609365,
-            "y" : 0.9271689586705496
+            "height" : 0.08481983348769923,
+            "width" : 0.020177805801832704,
+            "x" : 0.8867945485263962,
+            "y" : 0.8155389449917805
           },
-          "text" : "114\/123"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "set_badge",
-      "kind" : "footer_metadata",
-      "label" : "18_raw_footer_legacy_right_corner_set_anchored",
-      "normalizedRect" : {
-        "height" : 0.105,
-        "width" : 0.11495856327397545,
-        "x" : 0.8196091557337479,
-        "y" : 0.8699416667079166
-      },
-      "text" : "NO. 4\/123",
-      "tokens" : [
+          "text" : "have boee soen"
+        },
         {
-          "confidence" : 1,
+          "confidence" : 0.3,
           "normalizedBoundingBox" : {
-            "height" : 0.023542600896860985,
-            "width" : 0.01510884225047744,
-            "x" : 0.8412870549466669,
-            "y" : 0.8699416666294413
+            "height" : 0.012833333493645332,
+            "width" : 0.18330087383032373,
+            "x" : 0.4756453391084982,
+            "y" : 0.9129166666257964
           },
-          "text" : "NO."
+          "text" : "2010 Pokémon\/Mintendo"
         },
         {
           "confidence" : 1,
           "normalizedBoundingBox" : {
-            "height" : 0.011300448430493283,
-            "width" : 0.05189557999225177,
-            "x" : 0.8196091559190893,
-            "y" : 0.9278564648872888
-          },
-          "text" : "4\/123"
-        }
-      ]
-    },
-    {
-      "footerFamily" : "legacy_right_corner",
-      "footerRole" : "collector",
-      "kind" : "footer_metadata",
-      "label" : "19_raw_footer_legacy_right_corner_collector_anchored",
-      "normalizedRect" : {
-        "height" : 0.102,
-        "width" : 0.18993153932222032,
-        "x" : 0.7388882515218043,
-        "y" : 0.8825416667079166
-      },
-      "text" : "2 114\/123",
-      "tokens" : [
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.011178082191780821,
-            "width" : 0.015664456851317145,
-            "x" : 0.8407072210227314,
-            "y" : 0.8825416666679948
-          },
-          "text" : "2"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.012305330772922462,
-            "width" : 0.07251187169382811,
-            "x" : 0.7982507713401271,
-            "y" : 0.927156124586655
+            "height" : 0.011124680745909069,
+            "width" : 0.06413287374097715,
+            "x" : 0.803771538163113,
+            "y" : 0.914687659580173
           },
           "text" : "114\/123"
         }
@@ -299,79 +129,29 @@
     },
     {
       "kind" : "header_wide",
-      "label" : "12_raw_header_wide",
+      "label" : "12_raw_header_wide_lowered",
       "normalizedRect" : {
-        "height" : 0.2,
-        "width" : 0.879682918966073,
-        "x" : 0.060158540516963455,
-        "y" : 0
+        "height" : 0.22,
+        "width" : 0.8798442202159674,
+        "x" : 0.0600778898920163,
+        "y" : 0.05
       },
-      "text" : "Lugia LEGEND Put this card from your hand onto rour Bench only with the other half of Lugia LEGEND. LEGEND D into",
+      "text" : "Lugia",
       "tokens" : [
         {
-          "confidence" : 1,
+          "confidence" : 0.5,
           "normalizedBoundingBox" : {
-            "height" : 0.036262272330871335,
-            "width" : 0.26119257066984325,
-            "x" : 0.11112471929411291,
-            "y" : 0.06168537756903958
+            "height" : 0.028285714285714282,
+            "width" : 0.0869307163686435,
+            "x" : 0.228670794364537,
+            "y" : 0.18074285714285715
           },
-          "text" : "Lugia LEGEND"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015720524017467243,
-            "width" : 0.3247666555828365,
-            "x" : 0.4795422614552832,
-            "y" : 0.05589519642055288
-          },
-          "text" : "Put this card from your hand onto"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.020033034278836317,
-            "width" : 0.3344759951568922,
-            "x" : 0.4702036801050579,
-            "y" : 0.06677367352719464
-          },
-          "text" : "rour Bench only with the other half"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.015720524017467263,
-            "width" : 0.16877637657821928,
-            "x" : 0.4514128617934317,
-            "y" : 0.08427947569404648
-          },
-          "text" : "of Lugia LEGEND."
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.022018347661047533,
-            "width" : 0.13425393169504837,
-            "x" : 0.12025316021736501,
-            "y" : 0.11743119310025188
-          },
-          "text" : "LEGEND"
-        },
-        {
-          "confidence" : 1,
-          "normalizedBoundingBox" : {
-            "height" : 0.050458716513288086,
-            "width" : 0.020457747995333224,
-            "x" : 0.5179005209908769,
-            "y" : 0.1376146781252367
-          },
-          "text" : "D into"
+          "text" : "Lugia"
         }
       ]
     }
   ],
-  "scanID" : "181F92A7-11C6-475F-8081-35EE4DC1F138",
+  "scanID" : "CA6B1AC5-6120-4D8A-BA60-C5995A954C06",
   "setConfidenceReasons" : [
 
   ],
@@ -379,11 +159,13 @@
 
   ],
   "stage1AssessmentReasons" : [
+    "collector_signal_weak",
     "title_signal_weak",
-    "set_signal_weak"
+    "set_signal_weak",
+    "fallback_exact_collector_allows_header_rescue"
   ],
-  "titleConfidenceScore" : 1,
-  "titleTextPrimary" : "of Lugia LEGEND LEGEND",
+  "titleConfidenceScore" : 0.58,
+  "titleTextPrimary" : "Lugia",
   "warnings" : [
     "Target selection used fallback crop",
     "Rewrite raw escalation used focused ROIs"

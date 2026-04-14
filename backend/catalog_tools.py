@@ -5,8 +5,10 @@ import re
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from difflib import SequenceMatcher
 from pathlib import Path
 from typing import Any, Iterable
+import unicodedata
 
 
 MATCHER_VERSION = "raw-backend-reset-v1"
@@ -718,8 +720,145 @@ def provider_sync_run_is_fresh(
     return datetime.now(timezone.utc) - completed <= timedelta(hours=max_age_hours)
 
 
+def runtime_setting(connection: sqlite3.Connection, key: str) -> dict[str, Any] | None:
+    row = connection.execute(
+        """
+        SELECT key, value_json, updated_at
+        FROM runtime_settings
+        WHERE key = ?
+        LIMIT 1
+        """,
+        (key,),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "key": row["key"],
+        "value": _json_load(row["value_json"], {}),
+        "updatedAt": row["updated_at"],
+    }
+
+
+def upsert_runtime_setting(
+    connection: sqlite3.Connection,
+    *,
+    key: str,
+    value: dict[str, Any] | None,
+    updated_at: str | None = None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO runtime_settings (key, value_json, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value_json = excluded.value_json,
+            updated_at = excluded.updated_at
+        """,
+        (key, json.dumps(value or {}), updated_at or utc_now()),
+    )
+
+
+def delete_runtime_setting(connection: sqlite3.Connection, key: str) -> None:
+    connection.execute(
+        """
+        DELETE FROM runtime_settings
+        WHERE key = ?
+        """,
+        (key,),
+    )
+
+
 def tokenize(text: str) -> list[str]:
     return re.findall(r"[^\W_]+", text.lower(), flags=re.UNICODE)
+
+
+def _strip_leading_hiragana_noise(value: str) -> str:
+    trimmed = re.sub(r"^[\u3041-\u3096]{1,3}(?=[\u30a0-\u30ff\u3400-\u4dbf\u4e00-\u9fff])", "", value)
+    return trimmed if len(trimmed) >= 2 else value
+
+
+def _japanese_title_components(text: str) -> tuple[str, ...]:
+    normalized = unicodedata.normalize("NFKC", text or "").lower()
+    normalized = re.sub(r"(tag\s*team|gx|ex|vmax|vstar|vm|hp|lv\.?|rrr|rr|sr|hr|ur|chr|csr|sar|ar|\d+)", " ", normalized)
+    components = re.findall(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]+", normalized)
+    stopwords = {
+        "たね",
+        "基本",
+        "進化",
+        "ポケモン",
+        "トレーナー",
+        "トレーナーズ",
+        "サポート",
+        "グッズ",
+        "スタジアム",
+        "エネルギー",
+        "ワザ",
+        "ルール",
+    }
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for component in components:
+        candidate = _strip_leading_hiragana_noise(component.strip())
+        if len(candidate) < 2 or candidate in stopwords or candidate in seen:
+            continue
+        seen.add(candidate)
+        cleaned.append(candidate)
+    return tuple(cleaned)
+
+
+def _japanese_component_similarity(query_component: str, candidate_component: str) -> float:
+    if not query_component or not candidate_component:
+        return 0.0
+    if query_component == candidate_component:
+        return 1.0
+
+    containment = 0.0
+    if query_component in candidate_component or candidate_component in query_component:
+        short_component, long_component = sorted(
+            (query_component, candidate_component),
+            key=len,
+        )
+        containment = len(short_component) / max(1, len(long_component))
+
+    ratio = SequenceMatcher(None, query_component, candidate_component).ratio()
+    return max(containment, ratio)
+
+
+def _japanese_title_fuzzy_overlap(card: dict[str, Any], evidence: RawEvidence) -> float:
+    query_text = " ".join(filter(None, [evidence.title_text_primary, evidence.title_text_secondary]))
+    if not _contains_japanese_text(query_text):
+        return 0.0
+
+    query_components = _japanese_title_components(query_text)
+    if not query_components:
+        return 0.0
+
+    candidate_components: list[str] = []
+    seen_components: set[str] = set()
+    for value in _candidate_title_values(card):
+        for component in _japanese_title_components(value):
+            if component in seen_components:
+                continue
+            seen_components.add(component)
+            candidate_components.append(component)
+    if not candidate_components:
+        return 0.0
+
+    matched_scores: list[float] = []
+    for query_component in query_components:
+        best_similarity = max(
+            _japanese_component_similarity(query_component, candidate_component)
+            for candidate_component in candidate_components
+        )
+        if best_similarity >= 0.72:
+            matched_scores.append(best_similarity)
+
+    if not matched_scores:
+        return 0.0
+
+    coverage = len(matched_scores) / max(1, len(query_components))
+    score = (sum(matched_scores) / len(matched_scores)) * coverage
+    return round(min(1.0, score), 4) if score >= 0.55 else 0.0
 
 
 def _json_load(value: Any, default: Any) -> Any:
@@ -1686,11 +1825,14 @@ def _candidate_source_expansion_values(card: dict[str, Any]) -> tuple[str, ...]:
 def _title_overlap(card: dict[str, Any], evidence: RawEvidence) -> float:
     query_tokens = set(tokenize(" ".join(filter(None, [evidence.title_text_primary, evidence.title_text_secondary]))))
     if not query_tokens:
-        return 0.0
+        return _japanese_title_fuzzy_overlap(card, evidence)
     candidate_tokens: set[str] = set()
     for value in _candidate_title_values(card):
         candidate_tokens.update(tokenize(value))
-    return len(query_tokens & candidate_tokens) / max(1, len(query_tokens))
+    exact_overlap = len(query_tokens & candidate_tokens) / max(1, len(query_tokens))
+    if exact_overlap > 0.0:
+        return exact_overlap
+    return _japanese_title_fuzzy_overlap(card, evidence)
 
 
 def _set_overlap(card: dict[str, Any], evidence: RawEvidence) -> float:

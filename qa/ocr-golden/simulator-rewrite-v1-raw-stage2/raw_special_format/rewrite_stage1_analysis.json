@@ -10,21 +10,23 @@
     "setName" : "Sword & Shield Promos"
   },
   "fixtureName" : "raw_special_format",
-  "fullRecognizedText" : "사 u-max inunaer weakness x2 resistance retreat ** Illus. AKIRA EGAWA VMAX rule When your Pokémon VMAX i Knocked Out, your opponent takes 3 Frize cards SWSH286 sagzt Pokemen Pmtends re es SAME FREa VMA is Knocke 02023 Pokemon : Pi When your Pekémon VMAX sonent takes 3 Prize carc. ANTE FREAKT",
+  "fullRecognizedText" : "사 u-max inunaer weakness x2 resistance retreat ** Illus. AKIRA EGAWA VMAX rule When your Pokémon VMAX i Knocked Out, your opponent takes 3 Frize cards SWSH286 sagzt Pokemen Pmtends re es SAME FREa VMAX, &Pr.ikac-huYNAx Gl9&ryntaffl•x",
   "metadataStripRecognizedText" : "사 u-max inunaer weakness x2 resistance retreat ** Illus. AKIRA EGAWA VMAX rule When your Pokémon VMAX i Knocked Out, your opponent takes 3 Frize cards SWSH286 sagzt Pokemen Pmtends re es SAME FREa",
   "ocrPipelineVersion" : "rewrite_v1",
   "ocrRequestedGeometryKind" : "fallback",
   "ocrSelectedMode" : "raw",
   "ocrTargetQualityScore" : 0.4,
   "ocrUsedFallback" : true,
-  "scanID" : "76895471-F4BE-4E1F-9E3C-8A97FB811A48",
+  "scanID" : "53FB5586-3305-4DF3-AFBA-274CFE08D59F",
   "setHintTokens" : [
-    "swsh286"
+
   ],
   "shouldRetryWithStillPhoto" : false,
   "sourceImage" : "..\/..\/incoming-ocr-fixtures\/raw_special_format.JPG",
+  "titleTextPrimary" : "VMAX &Pr.ikac-huYNAx Gl9&ryntaffl•x",
   "warnings" : [
     "Target selection used fallback crop",
-    "Target selection confidence is weak"
+    "Target selection confidence is weak",
+    "Rewrite raw escalation used focused ROIs"
   ]
 }

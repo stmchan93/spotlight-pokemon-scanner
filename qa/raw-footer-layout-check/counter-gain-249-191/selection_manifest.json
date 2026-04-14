@@ -39,11 +39,11 @@
   ],
   "chosenCandidateIndex" : 1,
   "mode" : "raw",
-  "normalizationReason" : "holder_inner_card_inset_fallback",
+  "normalizationReason" : "basic_perspective_canonicalization",
   "normalizedContentRect" : {
     "height" : 1,
-    "width" : 0.999012390930287,
-    "x" : 0.0004938045348564759,
+    "width" : 0.37638829812372987,
+    "x" : 0.3118058509381351,
     "y" : 0
   },
   "normalizedGeometryKind" : "raw_card",

@@ -678,6 +678,41 @@ def sample_shadowless_pikachu_slab_scan_payload() -> dict[str, object]:
     }
 
 
+def sample_french_pikachu_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-pikachu-french-first-edition",
+        "capturedAt": "2026-04-14T16:23:59Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 0.50,
+        "setHintTokens": [],
+        "warnings": ["Could not extract slab barcode payload", "Used slab label-only OCR path"],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "1999 POKEMON FRENCH #58 PIKACHU EX-MT 1ST EDITION 6 PEA 142460919",
+                "titleTextSecondary": None,
+                "cardNumber": "58",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "6",
+                "cert": "142460919",
+                "labelWideText": (
+                    "1999 POKEMON FRENCH #58 PIKACHU EX-MT 1ST EDITION 6 PEA 142460919 "
+                    "FRENCH #58 EX-MT 6 PSA 142460919"
+                ),
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "6",
+        "slabCertNumber": "142460919",
+        "slabCardNumberRaw": "58",
+        "slabParsedLabelText": [
+            "1999 POKEMON FRENCH #58 PIKACHU EX-MT 1ST EDITION 6 PEA 142460919",
+            "FRENCH #58 EX-MT 6 PSA 142460919",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
 class BackendResetPhase1Tests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
@@ -1510,6 +1545,27 @@ class BackendResetPhase1Tests(unittest.TestCase):
             },
         )
 
+    def test_build_slab_evidence_strips_language_and_condition_noise_from_french_pikachu(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_french_pikachu_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "58")
+        self.assertEqual(evidence.language_hint, "French")
+        self.assertEqual(evidence.title_text_primary, "Pikachu")
+        self.assertEqual(evidence.title_text_secondary, "Pikachu")
+        self.assertEqual(
+            evidence.variant_hints,
+            {
+                "shadowless": False,
+                "firstEdition": True,
+                "redCheeks": False,
+                "yellowCheeks": False,
+                "jumbo": False,
+            },
+        )
+
     def test_build_slab_evidence_maps_prize_pack_series_alias_and_cleans_title(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
 
@@ -1535,6 +1591,59 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertIn("evolving skies", evidence.set_hint_tokens)
         self.assertIn(evidence.matched_set_alias, {"EVOLVING SKIES SECRET", "EVOLVING SKIES-SECRET"})
         self.assertEqual(evidence.set_hint_source, "psa_alias_map")
+
+    def test_local_slab_retrieval_uses_number_prefilter_before_generic_search(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="base1-58",
+            name="Pikachu",
+            set_name="Base",
+            number="58/102",
+            rarity="Common",
+            variant="Unlimited",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base1-58",
+            set_id="base1",
+        )
+        upsert_card(
+            service.connection,
+            card_id="tcgp-a3-58",
+            name="Alolan Raichu ex",
+            set_name="Celestial Guardians",
+            number="58",
+            rarity="Rare",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="tcgp-a3-58",
+            set_id="tcgp-a3",
+        )
+        upsert_card(
+            service.connection,
+            card_id="base1_ja-58",
+            name="Pikachu",
+            set_name="Base",
+            number="58/102",
+            rarity="Common",
+            variant="Unlimited",
+            language="Japanese",
+            source_provider="scrydex",
+            source_record_id="base1_ja-58",
+            set_id="base1_ja",
+        )
+        service.connection.commit()
+
+        evidence = service._build_slab_evidence(sample_french_pikachu_slab_scan_payload())
+        with patch("server.search_cards_local", side_effect=AssertionError("generic slab fallback should be bypassed")):
+            candidates = service._retrieve_local_slab_candidates(evidence)
+        service.connection.close()
+
+        self.assertGreaterEqual(len(candidates), 2)
+        self.assertEqual(candidates[0]["id"], "base1-58")
+        self.assertEqual(candidates[0]["_retrievalRoutes"], ["local_slab_structured"])
+        self.assertNotIn("base1_ja-58", [candidate["id"] for candidate in candidates])
 
     def test_build_slab_evidence_does_not_apply_psa_alias_map_for_non_psa_grader(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -1927,6 +2036,19 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["topCandidates"][4]["candidate"]["id"], "slab-4")
         self.assertEqual(response["topCandidates"][4]["rank"], 5)
 
+    def test_remote_slab_search_respects_manual_mirror_search_policy(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        evidence = service._build_slab_evidence(sample_slab_scan_payload())
+
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+            candidates, debug = service._retrieve_remote_slab_candidates(evidence)
+
+        service.connection.close()
+
+        search_scrydex.assert_not_called()
+        self.assertEqual(candidates, [])
+        self.assertEqual(debug["reason"], "search_policy_blocked")
+
     def test_low_confidence_slab_top_candidate_does_not_refresh_missing_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         evidence = service._build_slab_evidence(sample_slab_scan_payload())
@@ -2150,21 +2272,53 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["topCandidates"][0]["candidate"]["pricing"]["market"], 123.0)
 
     def test_shared_top_five_policy_matches_raw_and_slab_usage(self) -> None:
-        raw_policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
-        slab_policy = PricingLoadPolicy.top_five_refresh_top_one(refresh_top_candidate=True)
+        raw_policy = PricingLoadPolicy.top_five_refresh_top_one(
+            refresh_top_candidate_stale=True,
+            refresh_top_candidate_missing=True,
+            force_show_mode_top_candidate_refresh=True,
+        )
+        slab_policy = PricingLoadPolicy.top_five_refresh_top_one(
+            refresh_top_candidate_stale=True,
+            refresh_top_candidate_missing=True,
+            force_show_mode_top_candidate_refresh=True,
+        )
 
         self.assertEqual(
-            [(raw_policy.rule_for_rank(index).ensure_cached, raw_policy.rule_for_rank(index).refresh_stale) for index in range(1, 6)],
-            [(slab_policy.rule_for_rank(index).ensure_cached, slab_policy.rule_for_rank(index).refresh_stale) for index in range(1, 6)],
+            [
+                (
+                    raw_policy.rule_for_rank(index).ensure_cached,
+                    raw_policy.rule_for_rank(index).refresh_stale,
+                    raw_policy.rule_for_rank(index).refresh_missing,
+                    raw_policy.rule_for_rank(index).force_show_mode_refresh,
+                )
+                for index in range(1, 6)
+            ],
+            [
+                (
+                    slab_policy.rule_for_rank(index).ensure_cached,
+                    slab_policy.rule_for_rank(index).refresh_stale,
+                    slab_policy.rule_for_rank(index).refresh_missing,
+                    slab_policy.rule_for_rank(index).force_show_mode_refresh,
+                )
+                for index in range(1, 6)
+            ],
         )
         self.assertEqual(
-            [(raw_policy.rule_for_rank(index).ensure_cached, raw_policy.rule_for_rank(index).refresh_stale) for index in range(1, 6)],
             [
-                (True, True),
-                (False, False),
-                (False, False),
-                (False, False),
-                (False, False),
+                (
+                    raw_policy.rule_for_rank(index).ensure_cached,
+                    raw_policy.rule_for_rank(index).refresh_stale,
+                    raw_policy.rule_for_rank(index).refresh_missing,
+                    raw_policy.rule_for_rank(index).force_show_mode_refresh,
+                )
+                for index in range(1, 6)
+            ],
+            [
+                (True, True, True, True),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
+                (False, False, False, False),
             ],
         )
 
@@ -2392,7 +2546,9 @@ class BackendResetPhase1Tests(unittest.TestCase):
             }
         ]
 
-        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+        with patch.object(service, "_live_scrydex_searches_allowed", return_value=True), patch(
+            "server.search_remote_scrydex_slab_candidates"
+        ) as search_scrydex:
             search_scrydex.return_value = type("SlabSearchResult", (), {
                 "cards": [priceless_card],
                 "attempts": [

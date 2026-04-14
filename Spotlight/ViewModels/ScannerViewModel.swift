@@ -695,9 +695,6 @@ final class ScannerViewModel: ObservableObject {
         itemID: UUID,
         response: ScanMatchResponse
     ) async {
-        guard candidate.pricing?.isFresh != true else {
-            return
-        }
         guard let activeCardID = scannedItems.first(where: { $0.id == itemID })?.displayCard?.id,
               activeCardID == candidate.id else {
             return
