@@ -47,7 +47,8 @@ struct CachedScan: Codable {
 /// - Thread-safe UserDefaults storage
 class ScanCacheManager {
     private let userDefaults = UserDefaults.standard
-    private let cacheKey = "com.spotlight.scanCache"
+    private let cacheKey = "com.looty.scanCache"
+    private let legacyCacheKey = "com.spotlight.scanCache"
     private let maxCacheSize = 1000
     private let cacheTTLDays = 7
 
@@ -103,11 +104,21 @@ class ScanCacheManager {
     }
 
     private func loadCache() -> [String: CachedScan] {
-        guard let data = userDefaults.data(forKey: cacheKey),
-              let cache = try? JSONDecoder().decode([String: CachedScan].self, from: data) else {
+        if let data = userDefaults.data(forKey: cacheKey),
+           let cache = try? JSONDecoder().decode([String: CachedScan].self, from: data) {
+            return cache
+        }
+
+        guard let legacyData = userDefaults.data(forKey: legacyCacheKey),
+              let legacyCache = try? JSONDecoder().decode([String: CachedScan].self, from: legacyData) else {
             return [:]
         }
-        return cache
+
+        if let migratedData = try? JSONEncoder().encode(legacyCache) {
+            userDefaults.set(migratedData, forKey: cacheKey)
+            userDefaults.removeObject(forKey: legacyCacheKey)
+        }
+        return legacyCache
     }
 
     private func saveCache(_ cache: [String: CachedScan]) {

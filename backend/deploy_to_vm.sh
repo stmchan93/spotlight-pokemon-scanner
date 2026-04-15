@@ -270,7 +270,7 @@ chmod +x \
 
 sudo tee "$SERVICE_PATH" >/dev/null <<EOF
 [Unit]
-Description=Spotlight backend
+Description=Looty backend
 After=network-online.target
 Wants=network-online.target
 

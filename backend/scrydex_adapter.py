@@ -30,7 +30,7 @@ from pricing_provider import ProviderMetadata, PricingProvider, PsaPricingResult
 
 SCRYDEX_PROVIDER = "scrydex"
 SCRYDEX_BASE_URL = "https://api.scrydex.com"
-SCRYDEX_USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
+SCRYDEX_USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
 SCRYDEX_FULL_CATALOG_SYNC_SCOPE = "raw_catalog_full"
 _SCRYDEX_REQUEST_STATS_LOCK = Lock()

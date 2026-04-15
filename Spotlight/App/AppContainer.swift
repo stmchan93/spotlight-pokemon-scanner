@@ -131,6 +131,34 @@ final class CollectionStore: ObservableObject {
         quantity(cardID: card.id, slabContext: slabContext)
     }
 
+    func entry(cardID: String, slabContext: SlabContext?) -> DeckCardEntry? {
+        let key = Self.storageKey(cardID: cardID, slabContext: slabContext)
+        return optimisticEntriesByID[key] ?? backendEntriesByID[key]
+    }
+
+    func entry(card: CardCandidate, slabContext: SlabContext?) -> DeckCardEntry? {
+        entry(cardID: card.id, slabContext: slabContext)
+    }
+
+    func previewEntry(
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        quantityFallback: Int = 1
+    ) -> DeckCardEntry {
+        if let existingEntry = entry(card: card, slabContext: slabContext) {
+            return existingEntry
+        }
+
+        return DeckCardEntry(
+            id: Self.storageKey(cardID: card.id, slabContext: slabContext),
+            card: card,
+            slabContext: slabContext,
+            condition: nil,
+            quantity: max(1, quantityFallback),
+            addedAt: Date()
+        )
+    }
+
     func condition(cardID: String, slabContext: SlabContext?) -> DeckCardCondition? {
         let key = Self.storageKey(cardID: cardID, slabContext: slabContext)
         return optimisticEntriesByID[key]?.condition ?? backendEntriesByID[key]?.condition
@@ -227,11 +255,15 @@ final class CollectionStore: ObservableObject {
             ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
         guard let baseURL else { return }
 
-        let legacyFileURL = baseURL
-            .appendingPathComponent("Spotlight", isDirectory: true)
-            .appendingPathComponent("deck_collection.json")
-        guard fileManager.fileExists(atPath: legacyFileURL.path) else { return }
-        try? fileManager.removeItem(at: legacyFileURL)
+        let candidateDirectories = [
+            baseURL.appendingPathComponent("Looty", isDirectory: true),
+            baseURL.appendingPathComponent("Spotlight", isDirectory: true),
+        ]
+        for directoryURL in candidateDirectories {
+            let legacyFileURL = directoryURL.appendingPathComponent("deck_collection.json")
+            guard fileManager.fileExists(atPath: legacyFileURL.path) else { continue }
+            try? fileManager.removeItem(at: legacyFileURL)
+        }
     }
 }
 

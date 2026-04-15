@@ -5,6 +5,7 @@ struct ScanResultDetailView: View {
     @Environment(\.openURL) private var openURL
     @ObservedObject var viewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
+    @ObservedObject var showsState: ShowsMockState
     @State private var marketHistory: CardMarketHistory?
     @State private var isLoadingMarketHistory = false
     @State private var selectedHistoryVariant: String?
@@ -55,6 +56,21 @@ struct ScanResultDetailView: View {
         persistedCondition ?? .nearMint
     }
 
+    private var sellableEntry: DeckCardEntry? {
+        guard let card,
+              let item,
+              showsState.activeShow != nil,
+              portfolioQuantity > 0 else {
+            return nil
+        }
+
+        return collectionStore.previewEntry(
+            card: card,
+            slabContext: item.slabContext,
+            quantityFallback: portfolioQuantity
+        )
+    }
+
     var body: some View {
         ZStack {
             background
@@ -65,7 +81,7 @@ struct ScanResultDetailView: View {
                         header(card: card)
                         similarCardsBanner(item: item)
                         heroImage(card: card)
-                        metadataChips(card: card)
+                        metadataChips(card: card, item: item)
                         titleBlock(card: card, item: item)
                         conditionSection(card: card, item: item)
                         marketplaceLinksSection(card: card, item: item)
@@ -222,13 +238,15 @@ struct ScanResultDetailView: View {
         }
     }
 
-    private func metadataChips(card: CardCandidate) -> some View {
+    private func metadataChips(card: CardCandidate, item: LiveScanStackItem) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
                 chip("Pokemon", background: Color(red: 0.24, green: 0.14, blue: 0.18))
                 chip(card.setName, background: secondaryPanelBackground)
                 chip(card.language, background: secondaryPanelBackground)
-                if !card.variant.isEmpty {
+                if let slabBadgeTitle = slabBadgeTitle(for: item) {
+                    chip(slabBadgeTitle, background: secondaryPanelBackground)
+                } else if !card.variant.isEmpty {
                     chip(card.variant, background: secondaryPanelBackground)
                 }
             }
@@ -339,6 +357,13 @@ struct ScanResultDetailView: View {
         return note
     }
 
+    private func slabBadgeTitle(for item: LiveScanStackItem) -> String? {
+        guard item.resolverMode == .psaSlab || item.slabContext != nil else {
+            return nil
+        }
+        return item.slabContext?.displayBadgeTitle
+    }
+
     private func marketplaceLinksSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             if let pricing {
@@ -421,34 +446,61 @@ struct ScanResultDetailView: View {
     }
 
     private func actionButtons(card: CardCandidate, item: LiveScanStackItem) -> some View {
-        Button {
-            let appliedCondition = persistedCondition ?? .nearMint
-            let quantity = collectionStore.add(card: card, slabContext: item.slabContext, condition: appliedCondition)
-            viewModel.recordDeckAddition(itemID: item.id, card: card, slabContext: item.slabContext, condition: appliedCondition)
-            viewModel.showBannerMessage("\(card.name) added to portfolio • Qty \(quantity)")
-        } label: {
-            HStack {
-                Label("ADD TO PORTFOLIO", systemImage: "plus.square.fill")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.86))
-                Spacer()
-                if portfolioQuantity > 0 {
-                    Text("QTY \(portfolioQuantity)")
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 6)
-                        .background(Color(red: 0.78, green: 0.92, blue: 0.47))
-                        .clipShape(Capsule())
+        VStack(spacing: 12) {
+            Button {
+                let appliedCondition = persistedCondition ?? .nearMint
+                let quantity = collectionStore.add(card: card, slabContext: item.slabContext, condition: appliedCondition)
+                viewModel.recordDeckAddition(itemID: item.id, card: card, slabContext: item.slabContext, condition: appliedCondition)
+                viewModel.showBannerMessage("\(card.name) added to portfolio • Qty \(quantity)")
+            } label: {
+                HStack {
+                    Label("ADD TO PORTFOLIO", systemImage: "plus.square.fill")
+                        .font(.headline.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.86))
+                    Spacer()
+                    if portfolioQuantity > 0 {
+                        Text("QTY \(portfolioQuantity)")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 6)
+                            .background(Color(red: 0.78, green: 0.92, blue: 0.47))
+                            .clipShape(Capsule())
+                    }
                 }
+                .frame(maxWidth: .infinity)
+                .frame(height: 54)
+                .padding(.horizontal, 18)
+                .background(panelBackground)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             }
-            .frame(maxWidth: .infinity)
-            .frame(height: 54)
-            .padding(.horizontal, 18)
-            .background(panelBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .buttonStyle(.plain)
+
+            if let sellableEntry {
+                Button {
+                    showsState.presentSell(
+                        entry: sellableEntry,
+                        title: "Sell Card"
+                    )
+                } label: {
+                    HStack {
+                        Label("SELL AT SHOW", systemImage: "dollarsign.circle.fill")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(.black)
+                        Spacer()
+                        Text("QTY \(sellableEntry.quantity)")
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(.black.opacity(0.78))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 54)
+                    .padding(.horizontal, 18)
+                    .background(Color(red: 0.78, green: 0.92, blue: 0.47))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .buttonStyle(.plain)
+            }
         }
-        .buttonStyle(.plain)
     }
 
     private func pricingSection(item: LiveScanStackItem, card: CardCandidate) -> some View {
@@ -460,8 +512,8 @@ struct ScanResultDetailView: View {
 
                 Spacer()
 
-                if let grader = item.slabContext?.grader, let grade = item.slabContext?.grade {
-                    menuChip("\(grader) \(grade)")
+                if let slabBadgeTitle = slabBadgeTitle(for: item) {
+                    menuChip(slabBadgeTitle)
                 }
             }
 

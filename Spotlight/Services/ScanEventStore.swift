@@ -37,8 +37,14 @@ actor ScanEventStore {
         let baseURL = baseDirectoryURL
             ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
             ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let directoryURL = baseURL.appendingPathComponent("Spotlight", isDirectory: true)
+        let legacyDirectoryURL = baseURL.appendingPathComponent("Spotlight", isDirectory: true)
+        let directoryURL = baseURL.appendingPathComponent("Looty", isDirectory: true)
         let cropsDirectoryURL = directoryURL.appendingPathComponent("ScanCrops", isDirectory: true)
+
+        if !fileManager.fileExists(atPath: directoryURL.path),
+           fileManager.fileExists(atPath: legacyDirectoryURL.path) {
+            try? fileManager.moveItem(at: legacyDirectoryURL, to: directoryURL)
+        }
 
         try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try? fileManager.createDirectory(at: cropsDirectoryURL, withIntermediateDirectories: true)

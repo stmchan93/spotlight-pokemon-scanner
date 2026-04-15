@@ -24,7 +24,7 @@ from scrydex_adapter import map_scrydex_catalog_card, scrydex_credentials, scryd
 from scrydex_expansion_resolver import resolve_expansion_token  # noqa: E402
 from raw_visual_dataset_paths import default_raw_footer_layout_query_cache_path  # noqa: E402
 
-USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
+USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
 
 
 @dataclass(frozen=True)

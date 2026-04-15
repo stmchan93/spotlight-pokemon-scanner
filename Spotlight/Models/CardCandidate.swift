@@ -5,6 +5,22 @@ struct SlabContext: Codable, Hashable, Sendable {
     let grade: String?
     let certNumber: String?
     let variantName: String?
+
+    var displayBadgeTitle: String {
+        let normalizedGrader = grader.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedGrade = grade?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedGrader.isEmpty, !normalizedGrade.isEmpty {
+            return "\(normalizedGrader) \(normalizedGrade)"
+        }
+        if !normalizedGrader.isEmpty {
+            return normalizedGrader
+        }
+        let normalizedVariant = variantName?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !normalizedVariant.isEmpty {
+            return normalizedVariant
+        }
+        return "Slab"
+    }
 }
 
 struct CardPricingSummary: Codable, Hashable, Sendable {

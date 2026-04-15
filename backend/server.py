@@ -841,7 +841,7 @@ class SpotlightScanService:
             return []
         rows = self.connection.execute(
             """
-            SELECT condition, market_price, mid_price, low_price, high_price, price_date, updated_at
+            SELECT condition, currency_code, market_price, mid_price, low_price, high_price, price_date, updated_at
             FROM card_price_history_daily
             WHERE card_id = ? AND pricing_mode = ? AND provider = ? AND variant = ? AND condition IS NOT NULL AND condition != ''
             ORDER BY price_date DESC, updated_at DESC
@@ -855,12 +855,18 @@ class SpotlightScanService:
             if not code or code in seen:
                 continue
             seen.add(code)
-            current_price = None
-            for key in ("market_price", "mid_price", "low_price", "high_price"):
-                value = row[key]
-                if isinstance(value, (int, float)):
-                    current_price = float(value)
-                    break
+            current_price = self._history_primary_price_value(
+                self._display_price_history_row(
+                    {
+                        "pricingMode": "raw",
+                        "currencyCode": row["currency_code"],
+                        "low": row["low_price"],
+                        "market": row["market_price"],
+                        "mid": row["mid_price"],
+                        "high": row["high_price"],
+                    }
+                )
+            )
             options.append(
                 {
                     "id": code,
@@ -991,6 +997,28 @@ class SpotlightScanService:
         ]
         return points
 
+    def _display_price_history_row(self, row: dict[str, Any]) -> dict[str, Any]:
+        pricing = {
+            "pricingMode": row.get("pricingMode"),
+            "currencyCode": row.get("currencyCode"),
+            "low": row.get("low"),
+            "market": row.get("market"),
+            "mid": row.get("mid"),
+            "high": row.get("high"),
+            "directLow": None,
+            "trend": row.get("market") or row.get("mid") or row.get("low") or row.get("high"),
+        }
+        converted = decorate_pricing_summary_with_fx(self.connection, pricing)
+        if converted is None:
+            return row
+        display_row = dict(row)
+        for key in ("currencyCode", "low", "market", "mid", "high"):
+            display_row[key] = converted.get(key)
+        return display_row
+
+    def _display_price_history_rows(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [self._display_price_history_row(row) for row in rows]
+
     def _backfill_market_history_if_needed(
         self,
         card_id: str,
@@ -1120,6 +1148,7 @@ class SpotlightScanService:
                     grader=pricing_context.grader,
                     grade=pricing_context.grade,
                 )
+            rows = self._display_price_history_rows(rows)
             points = self._history_points_payload(rows)
             latest_point = points[-1] if points else None
             current_price = self._history_primary_price_value(latest_point) or self._primary_price_value(pricing_summary)
@@ -1186,6 +1215,7 @@ class SpotlightScanService:
             variant=selected_variant,
             condition=selected_condition,
         )
+        rows = self._display_price_history_rows(rows)
         available_variants = [
             {"id": variant_name, "label": variant_name}
             for variant_name in self._raw_history_variants(card_id)
@@ -4827,12 +4857,19 @@ class SpotlightScanService:
             variant_name = str(row["variant_name"] or "").strip() or None
             condition = self._normalized_deck_card_condition(row["condition"])
             quantity = max(1, int(row["quantity"] or 1))
-            pricing = contextual_pricing_summary_for_card(
-                self.connection,
+            pricing_context = (
+                self._slab_pricing_context(
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=variant_name,
+                )
+                if grader or grade
+                else self._raw_pricing_context()
+            )
+            pricing = self._display_pricing_summary_for_context(
                 card_id,
-                grader=grader,
-                grade=grade,
-                variant=variant_name,
+                pricing_context=pricing_context,
             )
 
             card_payload = self._candidate_base_payload(card, card)
@@ -5359,11 +5396,11 @@ def main() -> None:
 
     SpotlightRequestHandler.service = SpotlightScanService(database_path, repo_root)
     server = HTTPServer((config.host, config.port), SpotlightRequestHandler)
-    print(f"Spotlight scan service listening on http://{config.host}:{config.port}", flush=True)
+    print(f"Looty scan service listening on http://{config.host}:{config.port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping Spotlight scan service", flush=True)
+        print("\nStopping Looty scan service", flush=True)
         server.server_close()
 
 

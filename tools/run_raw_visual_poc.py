@@ -18,7 +18,7 @@ from transformers import CLIPModel, CLIPProcessor
 from raw_visual_dataset_paths import default_raw_footer_layout_reference_cache_root
 
 
-USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
+USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
 DEFAULT_CROP_PRESET = "none"
 ARTWORK_V1_CROP_BOX = (
     30.0 / 630.0,

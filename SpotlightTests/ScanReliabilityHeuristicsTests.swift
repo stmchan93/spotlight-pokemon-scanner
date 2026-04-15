@@ -3,6 +3,16 @@ import UIKit
 @testable import Spotlight
 
 final class ScanReliabilityHeuristicsTests: XCTestCase {
+    func testSlabContextDisplayBadgeTitlePrefersGraderAndGrade() {
+        let slabContext = SlabContext(grader: "PSA", grade: "10", certNumber: "12345", variantName: "Raw")
+        XCTAssertEqual(slabContext.displayBadgeTitle, "PSA 10")
+    }
+
+    func testSlabContextDisplayBadgeTitleFallsBackToGraderWhenGradeMissing() {
+        let slabContext = SlabContext(grader: "CGC", grade: nil, certNumber: "12345", variantName: "Raw")
+        XCTAssertEqual(slabContext.displayBadgeTitle, "CGC")
+    }
+
     @MainActor
     func testCollectionStoreTracksQuantityByCardAndSlabContext() throws {
         let store = makeCollectionStore()
@@ -259,12 +269,31 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
     }
 
     func testTrayDismissSwipeHelpersClampAndThreshold() {
-        XCTAssertEqual(clampedTrayDismissOffset(-40), 0)
-        XCTAssertEqual(clampedTrayDismissOffset(40), 40)
-        XCTAssertEqual(clampedTrayDismissOffset(240), 180)
+        XCTAssertEqual(clampedTrayDismissOffset(40, hasSellAction: false), 40)
+        XCTAssertEqual(clampedTrayDismissOffset(400, hasSellAction: false), 120)
+        XCTAssertEqual(clampedTrayDismissOffset(-40, hasSellAction: false), 0)
+        XCTAssertEqual(clampedTrayDismissOffset(-40, hasSellAction: true), -40)
+        XCTAssertEqual(clampedTrayDismissOffset(-400, hasSellAction: true), -104)
 
-        XCTAssertFalse(shouldRevealTrayItemDeleteAction(forSwipeOffset: 91))
-        XCTAssertTrue(shouldRevealTrayItemDeleteAction(forSwipeOffset: 92))
+        XCTAssertFalse(shouldRevealTrayItemAction(forSwipeOffset: 71, hasSellAction: false))
+        XCTAssertTrue(shouldRevealTrayItemAction(forSwipeOffset: 72, hasSellAction: false))
+        XCTAssertFalse(shouldRevealTrayItemAction(forSwipeOffset: -40, hasSellAction: false))
+        XCTAssertFalse(shouldRevealTrayItemAction(forSwipeOffset: -63, hasSellAction: true))
+        XCTAssertTrue(shouldRevealTrayItemAction(forSwipeOffset: -64, hasSellAction: true))
+        XCTAssertEqual(trayActionRevealWidth(forSwipeOffset: 90, hasSellAction: false), 120)
+        XCTAssertEqual(trayActionRevealWidth(forSwipeOffset: -90, hasSellAction: true), -104)
+        XCTAssertEqual(trayActionRevealWidth(forSwipeOffset: -90, hasSellAction: false), 0)
+    }
+
+    func testTrayActionBackgroundHelpersHandleDirectionalReveal() {
+        XCTAssertEqual(leadingTrayActionBackgroundOpacity(forRevealedWidth: 0), 0)
+        XCTAssertEqual(leadingTrayActionBackgroundOpacity(forRevealedWidth: 9), 1)
+        XCTAssertEqual(trailingTrayActionBackgroundOpacity(forRevealedWidth: 0), 0)
+        XCTAssertEqual(trailingTrayActionBackgroundOpacity(forRevealedWidth: -9), 1)
+        XCTAssertFalse(leadingTrayActionButtonsAreInteractive(forRevealedWidth: 43))
+        XCTAssertTrue(leadingTrayActionButtonsAreInteractive(forRevealedWidth: 44))
+        XCTAssertFalse(trailingTrayActionButtonsAreInteractive(forRevealedWidth: -43))
+        XCTAssertTrue(trailingTrayActionButtonsAreInteractive(forRevealedWidth: -44))
     }
 
     @MainActor

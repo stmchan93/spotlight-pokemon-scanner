@@ -19,7 +19,7 @@ if str(BACKEND_ROOT) not in sys.path:
 from scrydex_adapter import scrydex_credentials, scrydex_request_url  # noqa: E402
 from raw_visual_dataset_paths import default_raw_visual_train_expansion_snapshot_path  # noqa: E402
 
-USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
+USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
 ALIAS_PATH = Path(__file__).with_name("scrydex_expansion_aliases.json")
 
 

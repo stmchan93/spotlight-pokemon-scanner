@@ -12,7 +12,7 @@ from catalog_tools import fx_rate_snapshot_for_pair, upsert_fx_rate_snapshot
 
 ECB_FX_SOURCE = "ecb"
 ECB_DATA_API_BASE_URL = "https://data-api.ecb.europa.eu/service/data/EXR"
-ECB_USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
+ECB_USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
 
 

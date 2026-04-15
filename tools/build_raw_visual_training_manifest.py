@@ -21,7 +21,7 @@ from raw_visual_dataset_paths import (
 )
 
 
-USER_AGENT = "SpotlightScanner/0.1 (+https://local.spotlight.app)"
+USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
 
 
 def is_scrydex_mapping(mapping: dict[str, Any]) -> bool:

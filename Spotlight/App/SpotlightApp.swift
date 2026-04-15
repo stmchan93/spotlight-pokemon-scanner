@@ -3,6 +3,7 @@ import SwiftUI
 enum AppShellTab {
     case deck
     case scan
+    case shows
 }
 
 struct AppShellState: Equatable {
@@ -14,6 +15,10 @@ struct AppShellState: Equatable {
 
     mutating func openScanner() {
         selectedTab = .scan
+    }
+
+    mutating func openShows() {
+        selectedTab = .shows
     }
 }
 
@@ -46,24 +51,26 @@ struct AppShellView: View {
     @ObservedObject var scannerViewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
     @State private var shellState = AppShellState()
+    @StateObject private var showsState = ShowsMockState()
 
-    private var showsDeckOverlay: Bool {
-        shellState.selectedTab == .deck && scannerViewModel.route == .scanner
+    private var showingDeckDetail: Bool {
+        shellState.selectedTab == .deck && scannerViewModel.route == .resultDetail
     }
 
     var body: some View {
         ZStack {
-            ScannerRootView(
-                viewModel: scannerViewModel,
-                collectionStore: collectionStore,
-                onExitScanner: {
-                    withAnimation(.easeInOut(duration: 0.18)) {
-                        shellState.exitScanner()
+            if shellState.selectedTab == .scan {
+                ScannerRootView(
+                    viewModel: scannerViewModel,
+                    collectionStore: collectionStore,
+                    showsState: showsState,
+                    onExitScanner: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            shellState.exitScanner()
+                        }
                     }
-                }
-            )
-
-            if showsDeckOverlay {
+                )
+            } else if shellState.selectedTab == .deck {
                 DeckView(
                     onSelectEntry: { entry in
                         scannerViewModel.presentResultDetail(for: entry)
@@ -73,12 +80,51 @@ struct AppShellView: View {
                         withAnimation(.easeInOut(duration: 0.18)) {
                             shellState.openScanner()
                         }
+                    },
+                    onOpenShows: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            shellState.openShows()
+                        }
                     }
                 )
-                    .transition(.move(edge: .leading).combined(with: .opacity))
-                    .zIndex(3)
+                .transition(.move(edge: .leading).combined(with: .opacity))
+
+                if showingDeckDetail {
+                    ScanResultDetailView(
+                        viewModel: scannerViewModel,
+                        collectionStore: collectionStore,
+                        showsState: showsState
+                    )
+                    .transition(.move(edge: .trailing).combined(with: .opacity))
+                    .zIndex(2)
+                }
+            } else if shellState.selectedTab == .shows {
+                ShowsView(
+                    state: showsState,
+                    collectionStore: collectionStore,
+                    onOpenPortfolio: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            shellState.exitScanner()
+                        }
+                    },
+                    onOpenScanner: {
+                        withAnimation(.easeInOut(duration: 0.18)) {
+                            shellState.openScanner()
+                        }
+                    }
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .sheet(item: $showsState.presentedFlow) { flow in
+            switch flow {
+            case .sell(let draft):
+                ShowSellPreviewSheet(draft: draft)
+            case .trade(let draft):
+                ShowTradePreviewSheet(draft: draft)
             }
         }
         .animation(.easeInOut(duration: 0.2), value: shellState.selectedTab)
+        .animation(.easeInOut(duration: 0.24), value: scannerViewModel.route)
     }
 }

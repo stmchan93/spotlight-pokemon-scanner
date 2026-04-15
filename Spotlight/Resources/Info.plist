@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Spotlight</string>
+	<string>Looty</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIconName</key>
@@ -27,18 +27,18 @@
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSCameraUsageDescription</key>
-	<string>Spotlight needs camera access to scan Pokemon cards for identification and pricing.</string>
+	<string>Looty needs camera access to scan Pokemon cards for identification and pricing.</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Spotlight needs local network access to connect to your Mac for card pricing and catalog matching.</string>
+	<string>Looty needs local network access to connect to your Mac for card pricing and catalog matching.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Spotlight needs photo library access to import card images for identification.</string>
+	<string>Looty needs photo library access to import card images for identification.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Spotlight can save captured scan images to your photo library.</string>
+	<string>Looty can save captured scan images to your photo library.</string>
 	<key>SpotlightAPIBaseURL</key>
 	<string>$(SPOTLIGHT_API_BASE_URL)</string>
 	<key>SpotlightDeviceAPIBaseURL</key>

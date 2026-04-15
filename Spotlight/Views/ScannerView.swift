@@ -12,6 +12,7 @@ struct ReticleBoundsKey: PreferenceKey {
 struct ScannerView: View {
     @ObservedObject var viewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
+    @ObservedObject var showsState: ShowsMockState
     let onExitScanner: (() -> Void)?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isTrayExpanded = false
@@ -164,7 +165,7 @@ struct ScannerView: View {
                 .buttonStyle(.plain)
             }
 
-            Text("Spotlight")
+            Text("Looty")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
 
@@ -490,15 +491,32 @@ struct ScannerView: View {
         let detailAction = rowAction(for: item)
         let cycleState = viewModel.candidateCycleState(for: item.id)
         let collectionState = collectionState(for: item)
+        let sellEntry = sellEntry(for: item, collectionState: collectionState)
         let swipeOffset = traySwipeOffsets[item.id] ?? 0
 
-        return ZStack(alignment: .leading) {
-            trayRemovalBackground(revealedWidth: swipeOffset) {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
-                    traySwipeOffsets[item.id] = nil
+        return ZStack {
+            trayActionBackground(
+                revealedWidth: swipeOffset,
+                sellEntry: sellEntry,
+                onSell: {
+                    guard let sellEntry else { return }
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                        traySwipeOffsets[item.id] = 0
+                    }
+                    showsState.presentSell(
+                        entry: sellEntry,
+                        title: "Sell Card",
+                        subtitle: nil,
+                        quantityLimit: 1
+                    )
+                },
+                onRemove: {
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                        traySwipeOffsets[item.id] = nil
+                    }
+                    viewModel.removeStackItem(item.id)
                 }
-                viewModel.removeStackItem(item.id)
-            }
+            )
 
             HStack(alignment: .center, spacing: 12) {
                 StackItemThumbnail(
@@ -560,21 +578,32 @@ struct ScannerView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(Color.black.opacity(0.9))
+            .frame(maxWidth: .infinity, alignment: .leading)
             .offset(x: swipeOffset)
         }
+        .frame(maxWidth: .infinity)
+        .contentShape(Rectangle())
         .clipped()
-        .simultaneousGesture(
+        .highPriorityGesture(
             DragGesture(minimumDistance: 16)
                 .onChanged { value in
-                    let translation = clampedTrayDismissOffset(value.translation.width)
-                    guard translation >= 0 else { return }
+                    let translation = clampedTrayDismissOffset(
+                        value.translation.width,
+                        hasSellAction: sellEntry != nil
+                    )
                     traySwipeOffsets[item.id] = translation
                 }
                 .onEnded { value in
-                    let translation = clampedTrayDismissOffset(value.translation.width)
-                    if shouldRevealTrayItemDeleteAction(forSwipeOffset: translation) {
+                    let translation = clampedTrayDismissOffset(
+                        value.translation.width,
+                        hasSellAction: sellEntry != nil
+                    )
+                    if shouldRevealTrayItemAction(forSwipeOffset: translation, hasSellAction: sellEntry != nil) {
                         withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
-                            traySwipeOffsets[item.id] = 132
+                            traySwipeOffsets[item.id] = trayActionRevealWidth(
+                                forSwipeOffset: translation,
+                                hasSellAction: sellEntry != nil
+                            )
                         }
                     } else {
                         withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
@@ -585,31 +614,93 @@ struct ScannerView: View {
         )
     }
 
-    private func trayRemovalBackground(revealedWidth: CGFloat, onRemove: @escaping () -> Void) -> some View {
-        Button(role: .destructive, action: onRemove) {
-            HStack(spacing: 10) {
-                Image(systemName: "trash.fill")
-                    .font(.system(size: 17, weight: .bold))
-                Text("Remove")
-                    .font(.system(size: 13, weight: .bold))
+    private func trayActionBackground(
+        revealedWidth: CGFloat,
+        sellEntry: DeckCardEntry?,
+        onSell: @escaping () -> Void,
+        onRemove: @escaping () -> Void
+    ) -> some View {
+        ZStack {
+            HStack(spacing: 0) {
+                Button(role: .destructive, action: onRemove) {
+                    HStack(spacing: 10) {
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 17, weight: .bold))
+                        Text("Remove")
+                            .font(.system(size: 13, weight: .bold))
+                    }
+                    .foregroundStyle(.white)
+                    .frame(width: 120)
+                    .frame(maxHeight: .infinity)
+                    .background(
+                        LinearGradient(
+                            colors: [
+                                Color(red: 0.70, green: 0.18, blue: 0.18),
+                                Color(red: 0.49, green: 0.08, blue: 0.08)
+                            ],
+                            startPoint: .leading,
+                            endPoint: .trailing
+                        )
+                    )
+                }
+                .buttonStyle(.plain)
+                .opacity(leadingTrayActionBackgroundOpacity(forRevealedWidth: revealedWidth))
+                .allowsHitTesting(leadingTrayActionButtonsAreInteractive(forRevealedWidth: revealedWidth))
+
+                Spacer(minLength: 0)
             }
-            .foregroundStyle(.white)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-            .padding(.leading, 18)
-            .background(
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.70, green: 0.18, blue: 0.18),
-                        Color(red: 0.49, green: 0.08, blue: 0.08)
-                    ],
-                    startPoint: .leading,
-                    endPoint: .trailing
-                )
-            )
+
+            if sellEntry != nil {
+                HStack(spacing: 0) {
+                    Spacer(minLength: 0)
+
+                    Button(action: onSell) {
+                        HStack(spacing: 8) {
+                            Image(systemName: "dollarsign.circle.fill")
+                                .font(.system(size: 16, weight: .bold))
+                            Text("Sell")
+                                .font(.system(size: 13, weight: .bold))
+                        }
+                        .foregroundStyle(.black)
+                        .frame(width: 104)
+                        .frame(maxHeight: .infinity)
+                        .background(
+                            LinearGradient(
+                                colors: [
+                                    Color(red: 0.58, green: 0.74, blue: 0.22),
+                                    Color(red: 0.79, green: 0.92, blue: 0.36)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .opacity(trailingTrayActionBackgroundOpacity(forRevealedWidth: revealedWidth))
+                    .allowsHitTesting(trailingTrayActionButtonsAreInteractive(forRevealedWidth: revealedWidth))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
+            }
         }
-        .buttonStyle(.plain)
-        .allowsHitTesting(revealedWidth >= 44)
-        .opacity(revealedWidth > 8 ? 1 : 0)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private func sellEntry(
+        for item: LiveScanStackItem,
+        collectionState: TrayCollectionState?
+    ) -> DeckCardEntry? {
+        guard showsState.activeShow != nil,
+              let collectionState,
+              collectionState.quantity > 0 else {
+            return nil
+        }
+
+        return collectionStore.previewEntry(
+            card: collectionState.card,
+            slabContext: collectionState.slabContext,
+            quantityFallback: collectionState.quantity
+        )
     }
 
     private func collectionState(for item: LiveScanStackItem) -> TrayCollectionState? {
@@ -967,6 +1058,25 @@ struct ScannerView: View {
             }
 
             HStack(spacing: 10) {
+                if let sellEntry = sellEntry(for: item, collectionState: collectionState(for: item)) {
+                    Button {
+                        showsState.presentSell(
+                            entry: sellEntry,
+                            title: "Sell Card",
+                            subtitle: nil,
+                            quantityLimit: 1
+                        )
+                    } label: {
+                        Text("Sell")
+                            .font(.subheadline.weight(.semibold))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 10)
+                            .background(Color(red: 0.79, green: 0.92, blue: 0.36))
+                            .foregroundStyle(.black)
+                            .clipShape(Capsule())
+                    }
+                }
+
                 Button {
                     viewModel.refreshPricing(for: item.id)
                 } label: {
@@ -1248,12 +1358,46 @@ private struct TopBarIconButton: View {
     }
 }
 
-func clampedTrayDismissOffset(_ translationWidth: CGFloat) -> CGFloat {
-    max(0, min(translationWidth, 180))
+func clampedTrayDismissOffset(_ translationWidth: CGFloat, hasSellAction: Bool) -> CGFloat {
+    let maxLeadingReveal: CGFloat = 120
+    let maxTrailingReveal: CGFloat = hasSellAction ? 104 : 0
+    return min(max(translationWidth, -maxTrailingReveal), maxLeadingReveal)
 }
 
-func shouldRevealTrayItemDeleteAction(forSwipeOffset offset: CGFloat) -> Bool {
-    offset >= 92
+func shouldRevealTrayItemAction(forSwipeOffset offset: CGFloat, hasSellAction: Bool) -> Bool {
+    if offset > 0 {
+        return offset >= 72
+    }
+    if offset < 0 {
+        return hasSellAction && offset <= -64
+    }
+    return false
+}
+
+func trayActionRevealWidth(forSwipeOffset offset: CGFloat, hasSellAction: Bool) -> CGFloat {
+    if offset > 0 {
+        return 120
+    }
+    if offset < 0, hasSellAction {
+        return -104
+    }
+    return 0
+}
+
+func leadingTrayActionBackgroundOpacity(forRevealedWidth revealedWidth: CGFloat) -> Double {
+    revealedWidth > 8 ? 1 : 0
+}
+
+func trailingTrayActionBackgroundOpacity(forRevealedWidth revealedWidth: CGFloat) -> Double {
+    revealedWidth < -8 ? 1 : 0
+}
+
+func leadingTrayActionButtonsAreInteractive(forRevealedWidth revealedWidth: CGFloat) -> Bool {
+    revealedWidth >= 44
+}
+
+func trailingTrayActionButtonsAreInteractive(forRevealedWidth revealedWidth: CGFloat) -> Bool {
+    revealedWidth <= -44
 }
 
 private struct TrayCollectionState {

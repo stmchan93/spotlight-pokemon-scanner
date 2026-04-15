@@ -90,7 +90,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 }
             }
         case .denied:
-            print("❌ [CAMERA] Permission DENIED - Go to Settings > Spotlight > Camera")
+            print("❌ [CAMERA] Permission DENIED - Go to Settings > Looty > Camera")
             authorizationState = .denied
         case .restricted:
             print("❌ [CAMERA] Camera access RESTRICTED")

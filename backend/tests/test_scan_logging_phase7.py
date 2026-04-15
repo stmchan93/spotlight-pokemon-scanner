@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -661,6 +662,50 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
 
         self.assertEqual(payload["entries"][0]["quantity"], 3)
         self.assertAlmostEqual(payload["summary"]["totalValue"], 7.5, places=2)
+
+    def test_deck_entries_convert_raw_jpy_pricing_to_usd(self) -> None:
+        self._insert_card("m2a_ja-232", name="Mega Dragonite ex")
+        upsert_card_price_summary(
+            self.service.connection,
+            card_id="m2a_ja-232",
+            source="scrydex",
+            currency_code="JPY",
+            variant="Holofoil",
+            low_price=2400.0,
+            market_price=2550.0,
+            mid_price=2500.0,
+            high_price=2600.0,
+            direct_low_price=None,
+            trend_price=2550.0,
+            source_updated_at="2026-04-14T19:00:00Z",
+            source_url="https://api.scrydex.com/pokemon/v1/cards/m2a_ja-232?include=prices",
+            payload={"source": "scrydex"},
+        )
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="m2a_ja-232",
+            quantity=2,
+            added_at="2026-04-14T20:00:00Z",
+            updated_at="2026-04-14T20:00:00Z",
+        )
+        self.service.connection.commit()
+
+        with patch("fx_rates.ensure_fx_rate_snapshot", return_value={
+            "baseCurrency": "JPY",
+            "quoteCurrency": "USD",
+            "rate": 0.0063,
+            "source": "ecb",
+            "effectiveAt": "2026-04-14",
+            "refreshedAt": "2026-04-14T20:05:00Z",
+            "isFresh": True,
+        }):
+            payload = self.service.deck_entries(limit=10)
+
+        pricing = payload["entries"][0]["card"]["pricing"]
+        self.assertEqual(pricing["currencyCode"], "USD")
+        self.assertEqual(pricing["nativeCurrencyCode"], "JPY")
+        self.assertAlmostEqual(pricing["market"], 16.07, places=2)
+        self.assertAlmostEqual(payload["summary"]["totalValue"], 32.14, places=2)
 
     def test_create_and_update_deck_entry_condition_round_trip(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")

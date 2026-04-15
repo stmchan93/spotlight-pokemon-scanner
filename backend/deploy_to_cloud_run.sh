@@ -137,7 +137,7 @@ def quote_yaml(value: str) -> str:
 output_file.write_text("".join(f"{key}: {quote_yaml(value)}\n" for key, value in merged.items()))
 PY
 
-echo "Deploying Spotlight backend"
+echo "Deploying Looty backend"
 echo "  Environment: $ENVIRONMENT"
 echo "  Project: $PROJECT_ID"
 echo "  Region: $REGION"

@@ -1562,6 +1562,63 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(payload["availableConditions"], [])
         self.assertAlmostEqual(payload["deltas"]["days30"]["priceChange"], 175.0)
 
+    def test_card_market_history_converts_raw_jpy_points_to_usd(self) -> None:
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-01",
+            currency_code="JPY",
+            variant="Holofoil",
+            condition="NM",
+            low_price=900.0,
+            market_price=1000.0,
+            mid_price=1000.0,
+            high_price=1100.0,
+            payload={"provider": "scrydex", "variantKey": "holofoil"},
+        )
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-14",
+            currency_code="JPY",
+            variant="Holofoil",
+            condition="NM",
+            low_price=1080.0,
+            market_price=1200.0,
+            mid_price=1200.0,
+            high_price=1320.0,
+            payload={"provider": "scrydex", "variantKey": "holofoil"},
+        )
+        self.connection.commit()
+
+        with patch("fx_rates.ensure_fx_rate_snapshot", return_value={
+            "baseCurrency": "JPY",
+            "quoteCurrency": "USD",
+            "rate": 0.0063,
+            "source": "ecb",
+            "effectiveAt": "2026-04-14",
+            "refreshedAt": "2026-04-14T20:05:00Z",
+            "isFresh": True,
+        }):
+            service = SpotlightScanService(self.database_path, REPO_ROOT)
+            try:
+                payload = service.card_market_history("base1-4", days=30)
+            finally:
+                service.connection.close()
+
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload["currencyCode"], "USD")
+        self.assertAlmostEqual(payload["currentPrice"], 7.56, places=2)
+        self.assertAlmostEqual(payload["points"][0]["market"], 6.30, places=2)
+        self.assertAlmostEqual(payload["points"][-1]["market"], 7.56, places=2)
+        self.assertEqual(payload["availableConditions"], [{"id": "NM", "label": "NM", "currentPrice": 7.56}])
+        self.assertAlmostEqual(payload["deltas"]["days30"]["priceChange"], 1.26, places=2)
+
     def test_card_market_history_skips_live_backfill_when_live_pricing_is_disabled(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         try:
