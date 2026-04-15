@@ -247,6 +247,56 @@ struct CardDetail: Codable, Hashable, Sendable {
     }
 }
 
+struct MarketHistoryOption: Codable, Hashable, Sendable, Identifiable {
+    let id: String
+    let label: String
+    let currentPrice: Double?
+}
+
+struct MarketHistoryPoint: Codable, Hashable, Sendable, Identifiable {
+    let date: String
+    let market: Double?
+    let low: Double?
+    let mid: Double?
+    let high: Double?
+
+    var id: String { date }
+
+    var primaryValue: Double? {
+        market ?? mid ?? low ?? high
+    }
+}
+
+struct MarketHistoryDelta: Codable, Hashable, Sendable {
+    let days: Int
+    let priceChange: Double?
+    let percentChange: Double?
+}
+
+struct MarketHistoryDeltas: Codable, Hashable, Sendable {
+    let days7: MarketHistoryDelta?
+    let days14: MarketHistoryDelta?
+    let days30: MarketHistoryDelta?
+}
+
+struct CardMarketHistory: Codable, Hashable, Sendable {
+    let cardID: String
+    let pricingMode: String
+    let currencyCode: String
+    let currentPrice: Double?
+    let currentDate: String?
+    let points: [MarketHistoryPoint]
+    let availableVariants: [MarketHistoryOption]
+    let availableConditions: [MarketHistoryOption]
+    let selectedVariant: String?
+    let selectedCondition: String?
+    let deltas: MarketHistoryDeltas
+    let source: String
+    let isFresh: Bool
+    let refreshedAt: String?
+    let livePricingEnabled: Bool
+}
+
 struct CardCandidate: Identifiable, Codable, Hashable, Sendable {
     let id: String
     let name: String
@@ -279,6 +329,66 @@ struct CardCandidate: Identifiable, Codable, Hashable, Sendable {
         formatter.maximumFractionDigits = 2
         formatter.minimumFractionDigits = 2
         return formatter.string(from: NSNumber(value: value)) ?? "\(currencyCode) \(value)"
+    }
+}
+
+enum CardMarketplaceLinks {
+    static func tcgPlayerSearchURL(card: CardCandidate, slabContext: SlabContext?) -> URL? {
+        searchURL(
+            baseURL: "https://www.tcgplayer.com/search/pokemon/product",
+            queryItems: [
+                URLQueryItem(name: "q", value: tcgPlayerSearchQuery(card: card)),
+                URLQueryItem(name: "view", value: "grid")
+            ]
+        )
+    }
+
+    static func eBaySearchURL(card: CardCandidate, slabContext: SlabContext?) -> URL? {
+        searchURL(
+            baseURL: "https://www.ebay.com/sch/i.html",
+            queryItems: [
+                URLQueryItem(name: "_nkw", value: eBaySearchQuery(card: card, slabContext: slabContext))
+            ]
+        )
+    }
+
+    private static func tcgPlayerSearchQuery(card: CardCandidate) -> String {
+        let setToken = cleanedToken(card.setName)
+        let numberToken = cleanedToken(card.number.replacingOccurrences(of: "#", with: ""))
+        return [card.name, numberToken, setToken]
+            .compactMap(cleanedToken)
+            .joined(separator: " ")
+    }
+
+    private static func eBaySearchQuery(card: CardCandidate, slabContext: SlabContext?) -> String {
+        let numberToken = cleanedToken(card.number.replacingOccurrences(of: "#", with: ""))
+        let setToken = cleanedToken(card.setName)
+        let graderToken = slabContext?.grader
+        let gradeToken = slabContext?.grade
+        let certToken = slabContext?.certNumber
+
+        return [card.name, numberToken, setToken, graderToken, gradeToken, certToken]
+            .compactMap(cleanedToken)
+            .joined(separator: " ")
+    }
+
+    private static func cleanedToken(_ token: String?) -> String? {
+        guard let token else {
+            return nil
+        }
+
+        let trimmed = token
+            .replacingOccurrences(of: "•", with: " ")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private static func searchURL(baseURL: String, queryItems: [URLQueryItem]) -> URL? {
+        guard var components = URLComponents(string: baseURL) else {
+            return nil
+        }
+        components.queryItems = queryItems
+        return components.url
     }
 }
 

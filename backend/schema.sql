@@ -59,6 +59,29 @@ CREATE TABLE IF NOT EXISTS card_price_snapshots (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS card_price_history_daily (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    pricing_mode TEXT NOT NULL,
+    provider TEXT NOT NULL,
+    price_date TEXT NOT NULL,
+    currency_code TEXT NOT NULL,
+    variant TEXT,
+    condition TEXT,
+    grader TEXT,
+    grade TEXT,
+    is_perfect INTEGER NOT NULL DEFAULT 0,
+    is_signed INTEGER NOT NULL DEFAULT 0,
+    is_error INTEGER NOT NULL DEFAULT 0,
+    low_price REAL,
+    market_price REAL,
+    mid_price REAL,
+    high_price REAL,
+    source_url TEXT,
+    source_payload_json TEXT NOT NULL DEFAULT '{}',
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS fx_rate_snapshots (
     id TEXT PRIMARY KEY,
     base_currency TEXT NOT NULL,
@@ -80,11 +103,93 @@ CREATE TABLE IF NOT EXISTS scan_events (
     response_json TEXT NOT NULL,
     matcher_source TEXT,
     matcher_version TEXT,
+    predicted_card_id TEXT,
     selected_card_id TEXT,
+    selected_rank INTEGER,
+    was_top_prediction INTEGER,
+    selection_source TEXT,
+    confirmed_card_id TEXT,
+    confirmation_source TEXT,
+    deck_entry_id TEXT,
     confidence TEXT,
     review_disposition TEXT,
     correction_type TEXT,
-    completed_at TEXT
+    completed_at TEXT,
+    confirmed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS scan_artifacts (
+    scan_id TEXT PRIMARY KEY REFERENCES scan_events(scan_id) ON DELETE CASCADE,
+    source_object_path TEXT NOT NULL,
+    normalized_object_path TEXT NOT NULL,
+    source_width INTEGER,
+    source_height INTEGER,
+    normalized_width INTEGER,
+    normalized_height INTEGER,
+    camera_zoom_factor REAL,
+    capture_source TEXT,
+    upload_status TEXT NOT NULL,
+    uploaded_at TEXT,
+    artifact_version TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scan_prediction_candidates (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_id TEXT NOT NULL REFERENCES scan_events(scan_id) ON DELETE CASCADE,
+    rank INTEGER NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    final_score REAL,
+    candidate_json TEXT NOT NULL,
+    UNIQUE(scan_id, rank)
+);
+
+CREATE TABLE IF NOT EXISTS scan_price_observations (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    scan_id TEXT NOT NULL REFERENCES scan_events(scan_id) ON DELETE CASCADE,
+    rank INTEGER NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    pricing_source TEXT,
+    pricing_mode TEXT,
+    grader TEXT,
+    grade TEXT,
+    variant TEXT,
+    currency_code TEXT,
+    low_price REAL,
+    market_price REAL,
+    mid_price REAL,
+    high_price REAL,
+    trend_price REAL,
+    source_updated_at TEXT,
+    snapshot_updated_at TEXT,
+    observed_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS scan_confirmations (
+    id TEXT PRIMARY KEY,
+    scan_id TEXT NOT NULL REFERENCES scan_events(scan_id) ON DELETE CASCADE,
+    confirmed_card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    confirmation_source TEXT NOT NULL,
+    selected_rank INTEGER,
+    was_top_prediction INTEGER NOT NULL,
+    deck_entry_id TEXT,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS deck_entries (
+    id TEXT PRIMARY KEY,
+    item_kind TEXT NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    grader TEXT,
+    grade TEXT,
+    cert_number TEXT,
+    variant_name TEXT,
+    condition TEXT,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    added_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    source_scan_id TEXT REFERENCES scan_events(scan_id),
+    source_confirmation_id TEXT REFERENCES scan_confirmations(id)
 );
 
 CREATE TABLE IF NOT EXISTS provider_sync_runs (
@@ -138,6 +243,12 @@ CREATE INDEX IF NOT EXISTS idx_card_name_aliases_card_id
 CREATE INDEX IF NOT EXISTS idx_card_price_snapshots_lookup
     ON card_price_snapshots(card_id, pricing_mode, grader, grade, updated_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_lookup
+    ON card_price_history_daily(card_id, pricing_mode, variant, condition, grader, grade, price_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_date
+    ON card_price_history_daily(price_date DESC, updated_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_fx_rate_snapshots_lookup
     ON fx_rate_snapshots(base_currency, quote_currency, updated_at DESC);
 
@@ -146,6 +257,30 @@ CREATE INDEX IF NOT EXISTS idx_scan_events_created_at
 
 CREATE INDEX IF NOT EXISTS idx_scan_events_selected_card_id
     ON scan_events(selected_card_id);
+
+CREATE INDEX IF NOT EXISTS idx_scan_events_predicted_card_id
+    ON scan_events(predicted_card_id);
+
+CREATE INDEX IF NOT EXISTS idx_scan_events_confirmed_card_id
+    ON scan_events(confirmed_card_id);
+
+CREATE INDEX IF NOT EXISTS idx_scan_events_deck_entry_id
+    ON scan_events(deck_entry_id);
+
+CREATE INDEX IF NOT EXISTS idx_scan_prediction_candidates_scan_rank
+    ON scan_prediction_candidates(scan_id, rank);
+
+CREATE INDEX IF NOT EXISTS idx_scan_price_observations_scan_rank
+    ON scan_price_observations(scan_id, rank);
+
+CREATE INDEX IF NOT EXISTS idx_scan_confirmations_scan_id
+    ON scan_confirmations(scan_id);
+
+CREATE INDEX IF NOT EXISTS idx_deck_entries_card_id
+    ON deck_entries(card_id);
+
+CREATE INDEX IF NOT EXISTS idx_deck_entries_added_at
+    ON deck_entries(added_at DESC, id DESC);
 
 CREATE INDEX IF NOT EXISTS idx_provider_sync_runs_provider_scope_started
     ON provider_sync_runs(provider, sync_scope, started_at DESC);

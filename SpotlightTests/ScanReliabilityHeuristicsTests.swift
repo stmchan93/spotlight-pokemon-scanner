@@ -4,6 +4,270 @@ import UIKit
 
 final class ScanReliabilityHeuristicsTests: XCTestCase {
     @MainActor
+    func testCollectionStoreTracksQuantityByCardAndSlabContext() throws {
+        let store = makeCollectionStore()
+        let rawCard = makeCardCandidate(id: "base1-4", name: "Charizard")
+
+        XCTAssertEqual(store.add(card: rawCard, slabContext: nil), 1)
+        XCTAssertEqual(store.add(card: rawCard, slabContext: nil), 2)
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertEqual(store.entries.first?.quantity, 2)
+        XCTAssertEqual(store.totalCardCount, 2)
+
+        let slabContext = SlabContext(grader: "PSA", grade: "10", certNumber: "12345", variantName: nil)
+        XCTAssertEqual(store.add(card: rawCard, slabContext: slabContext), 1)
+        XCTAssertEqual(store.entries.count, 2)
+        XCTAssertEqual(store.quantity(card: rawCard, slabContext: slabContext), 1)
+    }
+
+    @MainActor
+    func testCollectionStoreRefreshesFromBackendDeckEntries() async {
+        let matcher = RecordingCardMatchingService()
+        let store = makeCollectionStore(matcher: matcher)
+        let card = makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro", marketPrice: 12.75)
+        await matcher.setDeckEntries([
+            makeDeckEntryPayload(
+                id: "raw|gym1-60",
+                card: card,
+                slabContext: nil,
+                quantity: 3,
+                addedAt: makeDate("2026-04-14T12:00:00Z")
+            )
+        ])
+
+        await store.refreshFromBackend()
+
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertEqual(store.entries.first?.card.id, card.id)
+        XCTAssertEqual(store.entries.first?.quantity, 3)
+        XCTAssertEqual(store.entries.first?.card.pricing?.market, 12.75)
+        XCTAssertEqual(store.totalCardCount, 3)
+        XCTAssertEqual(store.totalValue, 38.25)
+    }
+
+    @MainActor
+    func testCollectionStorePersistsConditionOptimisticallyAndRefreshesFromBackend() async {
+        let matcher = RecordingCardMatchingService()
+        let store = makeCollectionStore(matcher: matcher)
+        let card = makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro", marketPrice: 12.75)
+
+        let mutation = store.setCondition(card: card, slabContext: nil, condition: .nearMint)
+        XCTAssertTrue(mutation.inserted)
+        XCTAssertEqual(mutation.quantity, 1)
+        XCTAssertEqual(store.condition(card: card, slabContext: nil), .nearMint)
+
+        await matcher.setDeckEntries([
+            makeDeckEntryPayload(
+                id: "raw|gym1-60",
+                card: card,
+                slabContext: nil,
+                condition: .nearMint,
+                quantity: 1,
+                addedAt: makeDate("2026-04-14T12:00:00Z")
+            )
+        ])
+
+        await store.refreshFromBackend()
+
+        XCTAssertEqual(store.condition(card: card, slabContext: nil), .nearMint)
+        XCTAssertEqual(store.searchResults(for: "near mint").count, 1)
+    }
+
+    @MainActor
+    func testCollectionStoreSyncConditionUsesBackendEndpoint() async {
+        let matcher = RecordingCardMatchingService()
+        let store = makeCollectionStore(matcher: matcher)
+        let card = makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro", marketPrice: 12.75)
+
+        await matcher.setDeckEntries([
+            makeDeckEntryPayload(
+                id: "raw|gym1-60",
+                card: card,
+                slabContext: nil,
+                condition: .nearMint,
+                quantity: 1,
+                addedAt: makeDate("2026-04-14T12:00:00Z")
+            )
+        ])
+        await store.refreshFromBackend()
+
+        _ = store.setCondition(card: card, slabContext: nil, condition: .lightlyPlayed)
+        await store.syncCondition(card: card, slabContext: nil, condition: .lightlyPlayed)
+
+        let payloads = await matcher.deckConditionUpdatePayloads()
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads.first?.cardID, card.id)
+        XCTAssertEqual(payloads.first?.condition, .lightlyPlayed)
+    }
+
+    @MainActor
+    func testCollectionStorePreservesHigherOptimisticQuantityUntilBackendCatchesUp() async {
+        let matcher = RecordingCardMatchingService()
+        let store = makeCollectionStore(matcher: matcher)
+        let card = makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro", marketPrice: 12.75)
+
+        XCTAssertEqual(store.add(card: card, slabContext: nil), 1)
+        XCTAssertEqual(store.add(card: card, slabContext: nil), 2)
+
+        await matcher.setDeckEntries([
+            makeDeckEntryPayload(
+                id: "raw|gym1-60",
+                card: card,
+                slabContext: nil,
+                quantity: 1,
+                addedAt: makeDate("2026-04-14T12:00:00Z")
+            )
+        ])
+        await store.refreshFromBackend()
+
+        XCTAssertEqual(store.quantity(card: card, slabContext: nil), 2)
+
+        await matcher.setDeckEntries([
+            makeDeckEntryPayload(
+                id: "raw|gym1-60",
+                card: card,
+                slabContext: nil,
+                quantity: 2,
+                addedAt: makeDate("2026-04-14T12:00:00Z")
+            )
+        ])
+        await store.refreshFromBackend()
+
+        XCTAssertEqual(store.quantity(card: card, slabContext: nil), 2)
+    }
+
+    @MainActor
+    func testCollectionStoreAddDoesNotCreateLegacyDeckJsonFile() throws {
+        let fileManager = FileManager.default
+        let rootURL = fileManager.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try fileManager.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        defer { try? fileManager.removeItem(at: rootURL) }
+
+        let spotlightDirectoryURL = rootURL.appendingPathComponent("Spotlight", isDirectory: true)
+        try fileManager.createDirectory(at: spotlightDirectoryURL, withIntermediateDirectories: true)
+        let legacyFileURL = spotlightDirectoryURL.appendingPathComponent("deck_collection.json")
+        try Data("{\"entries\":[]}".utf8).write(to: legacyFileURL)
+
+        let store = CollectionStore(baseDirectoryURL: rootURL)
+        let initialCard = makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro", marketPrice: nil)
+        XCTAssertEqual(store.add(card: initialCard, slabContext: nil), 1)
+
+        XCTAssertEqual(store.entries.count, 1)
+        XCTAssertFalse(
+            fileManager.fileExists(
+                atPath: legacyFileURL.path
+            )
+        )
+    }
+
+    @MainActor
+    func testCollectionStoreSearchMatchesNameSetAndNumber() throws {
+        let store = makeCollectionStore()
+
+        XCTAssertEqual(store.add(card: makeCardCandidate(id: "base1-4", name: "Charizard", setName: "Base Set", number: "4/102"), slabContext: nil), 1)
+        XCTAssertEqual(store.add(card: makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro", setName: "Gym Heroes", number: "60/132"), slabContext: nil), 1)
+
+        XCTAssertEqual(store.searchResults(for: "char").count, 1)
+        XCTAssertEqual(store.searchResults(for: "gym heroes").count, 1)
+        XCTAssertEqual(store.searchResults(for: "60/132").count, 1)
+        XCTAssertEqual(store.searchResults(for: "missing").count, 0)
+    }
+
+    func testSortedDeckEntriesSupportsRecentValueAndAlphabetical() {
+        let charizard = DeckCardEntry(
+            id: "raw|base1-4",
+            card: makeCardCandidate(id: "base1-4", name: "Charizard", marketPrice: 250),
+            slabContext: nil,
+            condition: nil,
+            quantity: 1,
+            addedAt: makeDate("2026-04-12T12:00:00Z")
+        )
+        let blastoise = DeckCardEntry(
+            id: "raw|base1-2",
+            card: makeCardCandidate(id: "base1-2", name: "Blastoise", marketPrice: 90),
+            slabContext: nil,
+            condition: nil,
+            quantity: 2,
+            addedAt: makeDate("2026-04-14T12:00:00Z")
+        )
+        let alakazam = DeckCardEntry(
+            id: "raw|base1-1",
+            card: makeCardCandidate(id: "base1-1", name: "Alakazam", marketPrice: 120),
+            slabContext: nil,
+            condition: nil,
+            quantity: 1,
+            addedAt: makeDate("2026-04-13T12:00:00Z")
+        )
+        let entries = [charizard, blastoise, alakazam]
+
+        XCTAssertEqual(
+            sortedDeckEntries(entries, by: .recentlyAdded).map(\.card.name),
+            ["Blastoise", "Alakazam", "Charizard"]
+        )
+        XCTAssertEqual(
+            sortedDeckEntries(entries, by: .highestValue).map(\.card.name),
+            ["Charizard", "Blastoise", "Alakazam"]
+        )
+        XCTAssertEqual(
+            sortedDeckEntries(entries, by: .alphabetical).map(\.card.name),
+            ["Alakazam", "Blastoise", "Charizard"]
+        )
+    }
+
+    func testCardMarketplaceLinksBuildTcgplayerSearchURL() throws {
+        let card = makeCardCandidate(
+            id: "gym1-60",
+            name: "Sabrina's Slowbro",
+            setName: "Gym Heroes",
+            number: "60/132"
+        )
+
+        let url = try XCTUnwrap(CardMarketplaceLinks.tcgPlayerSearchURL(card: card, slabContext: nil))
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let queryItems = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+
+        XCTAssertEqual(components.host, "www.tcgplayer.com")
+        XCTAssertEqual(components.path, "/search/pokemon/product")
+        XCTAssertEqual(queryItems["view"], "grid")
+        XCTAssertEqual(queryItems["q"], "Sabrina's Slowbro 60/132 Gym Heroes")
+    }
+
+    func testCardMarketplaceLinksBuildEbaySearchURLForSlab() throws {
+        let card = makeCardCandidate(
+            id: "sv9-125",
+            name: "Mega Charizard X ex",
+            setName: "Triumphant Light",
+            number: "125/094"
+        )
+        let slabContext = SlabContext(
+            grader: "PSA",
+            grade: "9",
+            certNumber: "147387041",
+            variantName: nil
+        )
+
+        let url = try XCTUnwrap(CardMarketplaceLinks.eBaySearchURL(card: card, slabContext: slabContext))
+        let components = try XCTUnwrap(URLComponents(url: url, resolvingAgainstBaseURL: false))
+        let queryItems = Dictionary(uniqueKeysWithValues: (components.queryItems ?? []).map { ($0.name, $0.value ?? "") })
+
+        XCTAssertEqual(components.host, "www.ebay.com")
+        XCTAssertEqual(components.path, "/sch/i.html")
+        XCTAssertEqual(
+            queryItems["_nkw"],
+            "Mega Charizard X ex 125/094 Triumphant Light PSA 9 147387041"
+        )
+    }
+
+    func testTrayDismissSwipeHelpersClampAndThreshold() {
+        XCTAssertEqual(clampedTrayDismissOffset(-40), 0)
+        XCTAssertEqual(clampedTrayDismissOffset(40), 40)
+        XCTAssertEqual(clampedTrayDismissOffset(240), 180)
+
+        XCTAssertFalse(shouldRevealTrayItemDeleteAction(forSwipeOffset: 91))
+        XCTAssertTrue(shouldRevealTrayItemDeleteAction(forSwipeOffset: 92))
+    }
+
+    @MainActor
     func testPresentResultDetailShowsDetailFirstForSlabItem() {
         let viewModel = makeScannerViewModel()
         let slabItem = makeScanStackItem(
@@ -17,6 +281,221 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         XCTAssertEqual(viewModel.route, .resultDetail)
         XCTAssertEqual(viewModel.activeResultItem?.id, slabItem.id)
         XCTAssertNil(viewModel.activeAlternativesResponse)
+    }
+
+    @MainActor
+    func testPresentResultDetailForDeckEntryUsesSharedDetailPreview() {
+        let viewModel = makeScannerViewModel()
+        let card = makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro", marketPrice: 12.75)
+        let entry = DeckCardEntry(
+            id: "raw|gym1-60",
+            card: card,
+            slabContext: nil,
+            condition: .nearMint,
+            quantity: 2,
+            addedAt: makeDate("2026-04-14T12:00:00Z")
+        )
+
+        viewModel.presentResultDetail(for: entry)
+
+        XCTAssertEqual(viewModel.route, .resultDetail)
+        XCTAssertEqual(viewModel.activeResultItem?.displayCard?.id, card.id)
+        XCTAssertEqual(viewModel.activeResultItem?.displayCard?.name, card.name)
+        XCTAssertEqual(viewModel.activeResultItem?.resolverMode, .rawCard)
+        XCTAssertNil(viewModel.activeAlternativesResponse)
+    }
+
+    @MainActor
+    func testDismissResultDetailFromDeckEntryReturnsToScannerRoute() {
+        let viewModel = makeScannerViewModel()
+        let entry = DeckCardEntry(
+            id: "raw|base1-4",
+            card: makeCardCandidate(id: "base1-4", name: "Charizard"),
+            slabContext: nil,
+            condition: nil,
+            quantity: 1,
+            addedAt: makeDate("2026-04-14T12:00:00Z")
+        )
+
+        viewModel.presentResultDetail(for: entry)
+        viewModel.dismissResultDetail()
+
+        XCTAssertEqual(viewModel.route, .scanner)
+        XCTAssertNil(viewModel.activeResultItem)
+    }
+
+    @MainActor
+    func testScanEventStoreLogPredictionQueuesArtifactUpload() async {
+        let logStore = makeScanEventStore()
+        let analysis = makeAnalyzedCapture(
+            cropConfidence: 0.58,
+            collectorNumber: "60/132",
+            setHintTokens: ["gym1"],
+            setBadgeHint: nil,
+            rawEvidence: OCRRawEvidence(
+                titleTextPrimary: "Sabrina's Slowbro",
+                titleTextSecondary: nil,
+                titleConfidence: makeFieldConfidence(0.72),
+                collectorNumberExact: "60/132",
+                collectorNumberPartial: nil,
+                collectorConfidence: makeFieldConfidence(0.9),
+                setBadgeHint: nil,
+                setHints: ["gym1"],
+                setConfidence: makeFieldConfidence(0.61),
+                footerBandText: "Sabrina's Slowbro 60/132",
+                wholeCardText: "Sabrina's Slowbro Gym Heroes 60/132",
+                warnings: []
+            )
+        )
+
+        await logStore.logPrediction(
+            analysis: analysis,
+            response: makeMatchResponse(confidence: .medium, reviewDisposition: .needsReview),
+            captureSource: .livePreviewFrame,
+            cameraZoomFactor: 1.5
+        )
+
+        let uploads = await logStore.pendingArtifactUploads()
+        XCTAssertEqual(uploads.count, 1)
+        XCTAssertEqual(uploads.first?.scanID, analysis.scanID)
+        XCTAssertEqual(uploads.first?.captureSource, .livePreviewFrame)
+        XCTAssertEqual(uploads.first?.cameraZoomFactor, 1.5)
+        XCTAssertNotNil(uploads.first?.sourceImagePath)
+        XCTAssertNotNil(uploads.first?.normalizedImagePath)
+        XCTAssertTrue(FileManager.default.fileExists(atPath: uploads.first?.sourceImagePath ?? ""))
+        XCTAssertTrue(FileManager.default.fileExists(atPath: uploads.first?.normalizedImagePath ?? ""))
+    }
+
+    @MainActor
+    func testScanEventStoreLogPredictionSkipsArtifactUploadQueueWhenDisabled() async {
+        let rootURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: rootURL, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: rootURL)
+        }
+
+        let logStore = ScanEventStore(baseDirectoryURL: rootURL)
+        let analysis = makeAnalyzedCapture(
+            cropConfidence: 0.58,
+            collectorNumber: "60/132",
+            setHintTokens: ["gym1"],
+            setBadgeHint: nil,
+            rawEvidence: OCRRawEvidence(
+                titleTextPrimary: "Sabrina's Slowbro",
+                titleTextSecondary: nil,
+                titleConfidence: makeFieldConfidence(0.72),
+                collectorNumberExact: "60/132",
+                collectorNumberPartial: nil,
+                collectorConfidence: makeFieldConfidence(0.9),
+                setBadgeHint: nil,
+                setHints: ["gym1"],
+                setConfidence: makeFieldConfidence(0.61),
+                footerBandText: "Sabrina's Slowbro 60/132",
+                wholeCardText: "Sabrina's Slowbro Gym Heroes 60/132",
+                warnings: []
+            )
+        )
+
+        await logStore.logPrediction(
+            analysis: analysis,
+            response: makeMatchResponse(confidence: .medium, reviewDisposition: .needsReview),
+            captureSource: .livePreviewFrame,
+            cameraZoomFactor: 1.5,
+            enqueueArtifactUpload: false
+        )
+
+        let uploads = await logStore.pendingArtifactUploads()
+        let cropsURL = rootURL.appendingPathComponent("Spotlight", isDirectory: true)
+            .appendingPathComponent("ScanCrops", isDirectory: true)
+        let cropFiles = (try? FileManager.default.contentsOfDirectory(atPath: cropsURL.path)) ?? []
+
+        XCTAssertTrue(uploads.isEmpty)
+        XCTAssertTrue(cropFiles.isEmpty)
+    }
+
+    @MainActor
+    func testFlushPendingBackendQueuesUploadsArtifactPayloads() async {
+        let matcher = RecordingCardMatchingService()
+        let logStore = makeScanEventStore()
+        let viewModel = makeScannerViewModel(matcher: matcher, logStore: logStore)
+        let analysis = makeAnalyzedCapture(
+            cropConfidence: 0.58,
+            collectorNumber: "60/132",
+            setHintTokens: ["gym1"],
+            setBadgeHint: nil,
+            rawEvidence: OCRRawEvidence(
+                titleTextPrimary: "Sabrina's Slowbro",
+                titleTextSecondary: nil,
+                titleConfidence: makeFieldConfidence(0.72),
+                collectorNumberExact: "60/132",
+                collectorNumberPartial: nil,
+                collectorConfidence: makeFieldConfidence(0.9),
+                setBadgeHint: nil,
+                setHints: ["gym1"],
+                setConfidence: makeFieldConfidence(0.61),
+                footerBandText: "Sabrina's Slowbro 60/132",
+                wholeCardText: "Sabrina's Slowbro Gym Heroes 60/132",
+                warnings: []
+            )
+        )
+
+        await logStore.logPrediction(
+            analysis: analysis,
+            response: makeMatchResponse(confidence: .medium, reviewDisposition: .needsReview),
+            captureSource: .liveStillPhoto,
+            cameraZoomFactor: 1.5
+        )
+
+        await viewModel.flushPendingBackendQueues()
+
+        let pendingUploads = await logStore.pendingArtifactUploads()
+        XCTAssertTrue(pendingUploads.isEmpty)
+
+        let uploadedPayloads = await matcher.uploadedArtifactPayloads()
+        XCTAssertEqual(uploadedPayloads.count, 1)
+        XCTAssertEqual(uploadedPayloads.first?.scanID, analysis.scanID)
+        XCTAssertEqual(uploadedPayloads.first?.captureSource, .liveStillPhoto)
+        XCTAssertEqual(uploadedPayloads.first?.cameraZoomFactor, 1.5)
+        XCTAssertNotNil(uploadedPayloads.first?.sourceImage.jpegBase64)
+        XCTAssertNotNil(uploadedPayloads.first?.normalizedImage.jpegBase64)
+    }
+
+    @MainActor
+    func testRecordDeckAdditionFlushesBackendConfirmationUsingSelectionMetadata() async {
+        let matcher = RecordingCardMatchingService()
+        let logStore = makeScanEventStore()
+        let viewModel = makeScannerViewModel(matcher: matcher, logStore: logStore)
+        var item = makeScanStackItem(resolverMode: .rawCard, reviewDisposition: .needsReview)
+        item.selectedRank = 2
+        item.wasTopPrediction = false
+        item.selectionSource = .alternatePrediction
+        viewModel.scannedItems = [item]
+
+        guard let card = item.card else {
+            XCTFail("Expected test card")
+            return
+        }
+
+        viewModel.recordDeckAddition(itemID: item.id, card: card, slabContext: nil)
+
+        for _ in 0..<20 {
+            if await matcher.deckEntryPayloads().count == 1 {
+                break
+            }
+            try? await Task.sleep(nanoseconds: 50_000_000)
+        }
+
+        let payloads = await matcher.deckEntryPayloads()
+        XCTAssertEqual(payloads.count, 1)
+        XCTAssertEqual(payloads.first?.cardID, card.id)
+        XCTAssertEqual(payloads.first?.sourceScanID, item.scanID)
+        XCTAssertEqual(payloads.first?.selectionSource, .alternatePrediction)
+        XCTAssertEqual(payloads.first?.selectedRank, 2)
+        XCTAssertEqual(payloads.first?.wasTopPrediction, false)
+        XCTAssertNil(payloads.first?.condition)
+
+        let pendingConfirmations = await logStore.pendingDeckConfirmations()
+        XCTAssertTrue(pendingConfirmations.isEmpty)
     }
 
     func testScannerNavigationStateStartsAtScanner() {
@@ -60,6 +539,22 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         navigation.push(.resultDetail)
 
         XCTAssertEqual(navigation.stack, [.scanner, .resultDetail])
+    }
+
+    func testAppShellStateStartsInScanMode() {
+        let state = AppShellState()
+
+        XCTAssertEqual(state.selectedTab, .scan)
+    }
+
+    func testAppShellStateExitScannerAndReturnToScan() {
+        var state = AppShellState()
+
+        state.exitScanner()
+        XCTAssertEqual(state.selectedTab, .deck)
+
+        state.openScanner()
+        XCTAssertEqual(state.selectedTab, .scan)
     }
 
     func testReticleCropLooksLikeRawCardRejectsBlankDarkCrop() {
@@ -711,6 +1206,15 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    private func makeFieldConfidence(_ score: Double) -> OCRFieldConfidence {
+        OCRFieldConfidence(
+            score: score,
+            agreementScore: nil,
+            tokenConfidenceAverage: nil,
+            reasons: []
+        )
+    }
+
     private func makeMatchResponse(
         confidence: MatchConfidence,
         reviewDisposition: ReviewDisposition,
@@ -744,15 +1248,20 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
     }
 
     @MainActor
-    private func makeScannerViewModel() -> ScannerViewModel {
+    private func makeScannerViewModel(
+        matcher: any CardMatchingService = StubCardMatchingService(),
+        logStore: ScanEventStore = ScanEventStore(),
+        artifactUploadsEnabled: Bool = true
+    ) -> ScannerViewModel {
         ScannerViewModel(
             cameraController: CameraSessionController(),
             ocrPipeline: OCRPipelineCoordinator(
                 rawRewritePipeline: RawPipeline(),
                 slabAnalyzer: SlabScanner(config: .default)
             ),
-            matcher: StubCardMatchingService(),
-            logStore: ScanEventStore()
+            matcher: matcher,
+            logStore: logStore,
+            artifactUploadsEnabled: artifactUploadsEnabled
         )
     }
 
@@ -783,22 +1292,105 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
             statusMessage: nil,
             pricingContextNote: nil,
             performance: nil,
-            cacheStatus: nil
+            cacheStatus: nil,
+            selectedRank: nil,
+            wasTopPrediction: false,
+            selectionSource: .unknown
         )
     }
 
-    private func makeCardCandidate(id: String, name: String) -> CardCandidate {
+    private func makeScanEventStore() -> ScanEventStore {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return ScanEventStore(baseDirectoryURL: url)
+    }
+
+    @MainActor
+    private func makeCollectionStore() -> CollectionStore {
+        makeCollectionStore(matcher: nil)
+    }
+
+    @MainActor
+    private func makeCollectionStore(matcher: (any CardMatchingService)?) -> CollectionStore {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        addTeardownBlock {
+            try? FileManager.default.removeItem(at: url)
+        }
+        return CollectionStore(matcher: matcher, baseDirectoryURL: url)
+    }
+
+    private func makeDeckEntryPayload(
+        id: String,
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        condition: DeckCardCondition? = nil,
+        quantity: Int = 1,
+        addedAt: Date
+    ) -> DeckEntryPayload {
+        DeckEntryPayload(
+            id: id,
+            card: card,
+            slabContext: slabContext,
+            condition: condition,
+            quantity: quantity,
+            addedAt: addedAt
+        )
+    }
+
+    private func makeDate(_ iso8601: String) -> Date {
+        ISO8601DateFormatter().date(from: iso8601) ?? Date()
+    }
+
+    private func makeCardCandidate(
+        id: String,
+        name: String,
+        setName: String = "Gym Heroes",
+        number: String = "60/132",
+        marketPrice: Double? = nil
+    ) -> CardCandidate {
         CardCandidate(
             id: id,
             name: name,
-            setName: "Gym Heroes",
-            number: "60/132",
+            setName: setName,
+            number: number,
             rarity: "Rare",
             variant: "1st Edition",
             language: "English",
             imageSmallURL: nil,
             imageLargeURL: nil,
-            pricing: nil
+            pricing: CardPricingSummary(
+                source: "scrydex",
+                currencyCode: "USD",
+                variant: nil,
+                low: nil,
+                market: marketPrice,
+                mid: nil,
+                high: nil,
+                directLow: nil,
+                trend: nil,
+                updatedAt: nil,
+                refreshedAt: nil,
+                sourceURL: nil,
+                pricingMode: nil,
+                snapshotAgeHours: nil,
+                freshnessWindowHours: nil,
+                isFresh: nil,
+                grader: nil,
+                grade: nil,
+                pricingTier: nil,
+                confidenceLabel: nil,
+                confidenceLevel: nil,
+                compCount: nil,
+                recentCompCount: nil,
+                lastSoldPrice: nil,
+                lastSoldAt: nil,
+                bucketKey: nil,
+                methodologySummary: nil
+            )
         )
     }
 
@@ -831,6 +1423,16 @@ private actor StubCardMatchingService: CardMatchingService {
         nil
     }
 
+    func fetchCardMarketHistory(
+        cardID: String,
+        slabContext: SlabContext?,
+        days: Int,
+        variant: String?,
+        condition: String?
+    ) async -> CardMarketHistory? {
+        nil
+    }
+
     func refreshCardDetail(
         cardID: String,
         slabContext: SlabContext?,
@@ -847,10 +1449,104 @@ private actor StubCardMatchingService: CardMatchingService {
         []
     }
 
+    func fetchDeckEntries() async -> [DeckEntryPayload] {
+        []
+    }
+
+    func updateDeckEntryCondition(_ payload: DeckEntryConditionUpdateRequestPayload) async throws {}
+
+    func uploadScanArtifacts(_ payload: ScanArtifactUploadRequestPayload) async throws {}
+
+    func addDeckEntry(_ payload: DeckEntryCreateRequestPayload) async throws {}
+
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
         wasTopPrediction: Bool,
         correctionType: CorrectionType
     ) async {}
+}
+
+private actor RecordingCardMatchingService: CardMatchingService {
+    private var artifactPayloads: [ScanArtifactUploadRequestPayload] = []
+    private var deckPayloads: [DeckEntryCreateRequestPayload] = []
+    private var deckEntries: [DeckEntryPayload] = []
+    private var deckConditionPayloads: [DeckEntryConditionUpdateRequestPayload] = []
+
+    func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
+        throw MatcherError.noCandidates
+    }
+
+    func search(query: String) async -> [CardCandidate] {
+        []
+    }
+
+    func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail? {
+        nil
+    }
+
+    func fetchCardMarketHistory(
+        cardID: String,
+        slabContext: SlabContext?,
+        days: Int,
+        variant: String?,
+        condition: String?
+    ) async -> CardMarketHistory? {
+        nil
+    }
+
+    func refreshCardDetail(
+        cardID: String,
+        slabContext: SlabContext?,
+        forceRefresh: Bool
+    ) async throws -> CardDetail? {
+        nil
+    }
+
+    func hydrateCandidatePricing(
+        cardIDs: [String],
+        maxRefreshCount: Int,
+        slabContext: SlabContext?
+    ) async -> [CardDetail] {
+        []
+    }
+
+    func fetchDeckEntries() async -> [DeckEntryPayload] {
+        deckEntries
+    }
+
+    func updateDeckEntryCondition(_ payload: DeckEntryConditionUpdateRequestPayload) async throws {
+        deckConditionPayloads.append(payload)
+    }
+
+    func uploadScanArtifacts(_ payload: ScanArtifactUploadRequestPayload) async throws {
+        artifactPayloads.append(payload)
+    }
+
+    func addDeckEntry(_ payload: DeckEntryCreateRequestPayload) async throws {
+        deckPayloads.append(payload)
+    }
+
+    func submitFeedback(
+        scanID: UUID,
+        selectedCardID: String?,
+        wasTopPrediction: Bool,
+        correctionType: CorrectionType
+    ) async {}
+
+    func uploadedArtifactPayloads() -> [ScanArtifactUploadRequestPayload] {
+        artifactPayloads
+    }
+
+    func deckEntryPayloads() -> [DeckEntryCreateRequestPayload] {
+        deckPayloads
+    }
+
+    func setDeckEntries(_ entries: [DeckEntryPayload]) {
+        deckEntries = entries
+    }
+
+    func deckConditionUpdatePayloads() -> [DeckEntryConditionUpdateRequestPayload] {
+        deckConditionPayloads
+    }
 }

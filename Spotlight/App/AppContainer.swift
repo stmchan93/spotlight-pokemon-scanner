@@ -1,8 +1,244 @@
 import Foundation
 
+struct DeckCardEntry: Identifiable, Codable, Hashable {
+    let id: String
+    let card: CardCandidate
+    let slabContext: SlabContext?
+    let condition: DeckCardCondition?
+    let quantity: Int
+    let addedAt: Date
+
+    var primaryPrice: Double? {
+        card.pricing?.primaryDisplayPrice
+    }
+
+    var totalEntryValue: Double? {
+        guard let primaryPrice else {
+            return nil
+        }
+        return primaryPrice * Double(quantity)
+    }
+
+    var searchIndexText: String {
+        [
+            card.name,
+            card.setName,
+            card.number,
+            card.language,
+            card.rarity,
+            condition?.displayName,
+            slabContext?.grader,
+            slabContext?.grade,
+            slabContext?.variantName
+        ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .filter { !$0.isEmpty }
+        .joined(separator: " ")
+        .lowercased()
+    }
+}
+
+@MainActor
+final class CollectionStore: ObservableObject {
+    @Published private(set) var entries: [DeckCardEntry] = []
+
+    private let matcher: (any CardMatchingService)?
+    private var backendEntriesByID: [String: DeckCardEntry] = [:]
+    private var optimisticEntriesByID: [String: DeckCardEntry] = [:]
+
+    init(
+        matcher: (any CardMatchingService)? = nil,
+        fileManager: FileManager = .default,
+        baseDirectoryURL: URL? = nil
+    ) {
+        self.matcher = matcher
+        Self.removeLegacyDeckJSONIfPresent(
+            fileManager: fileManager,
+            baseDirectoryURL: baseDirectoryURL
+        )
+    }
+
+    var totalValue: Double {
+        entries.compactMap(\.totalEntryValue).reduce(0, +)
+    }
+
+    var totalCardCount: Int {
+        entries.reduce(0) { $0 + max(1, $1.quantity) }
+    }
+
+    func refreshFromBackend() async {
+        guard let matcher else { return }
+
+        let backendEntries: [DeckCardEntry] = await matcher.fetchDeckEntries().map { payload in
+            let entryID = payload.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? Self.storageKey(cardID: payload.card.id, slabContext: payload.slabContext)
+                : payload.id
+            return DeckCardEntry(
+                id: entryID,
+                card: payload.card,
+                slabContext: payload.slabContext,
+                condition: payload.condition,
+                quantity: max(1, payload.quantity),
+                addedAt: payload.addedAt
+            )
+        }
+
+        let backendMap = Dictionary(uniqueKeysWithValues: backendEntries.map { ($0.id, $0) })
+        backendEntriesByID = backendMap
+        optimisticEntriesByID = optimisticEntriesByID.filter { key, optimisticEntry in
+            guard let backendEntry = backendMap[key] else {
+                return true
+            }
+            return optimisticEntry.quantity > backendEntry.quantity
+                || optimisticEntry.condition != backendEntry.condition
+        }
+        rebuildEntries()
+    }
+
+    func add(card: CardCandidate, slabContext: SlabContext?, condition: DeckCardCondition? = nil) -> Int {
+        let key = Self.storageKey(cardID: card.id, slabContext: slabContext)
+        let backendEntry = backendEntriesByID[key]
+        let optimisticEntry = optimisticEntriesByID[key]
+        let existingQuantity = max(backendEntry?.quantity ?? 0, optimisticEntry?.quantity ?? 0)
+        let nextQuantity = max(1, existingQuantity + 1)
+        optimisticEntriesByID[key] = DeckCardEntry(
+            id: key,
+            card: card,
+            slabContext: slabContext,
+            condition: condition ?? optimisticEntry?.condition ?? backendEntry?.condition,
+            quantity: nextQuantity,
+            addedAt: backendEntry?.addedAt ?? optimisticEntry?.addedAt ?? Date()
+        )
+        rebuildEntries()
+        return nextQuantity
+    }
+
+    func contains(cardID: String, slabContext: SlabContext?) -> Bool {
+        let key = Self.storageKey(cardID: cardID, slabContext: slabContext)
+        return backendEntriesByID[key] != nil || optimisticEntriesByID[key] != nil
+    }
+
+    func contains(card: CardCandidate, slabContext: SlabContext?) -> Bool {
+        contains(cardID: card.id, slabContext: slabContext)
+    }
+
+    func quantity(cardID: String, slabContext: SlabContext?) -> Int {
+        let key = Self.storageKey(cardID: cardID, slabContext: slabContext)
+        return max(backendEntriesByID[key]?.quantity ?? 0, optimisticEntriesByID[key]?.quantity ?? 0)
+    }
+
+    func quantity(card: CardCandidate, slabContext: SlabContext?) -> Int {
+        quantity(cardID: card.id, slabContext: slabContext)
+    }
+
+    func condition(cardID: String, slabContext: SlabContext?) -> DeckCardCondition? {
+        let key = Self.storageKey(cardID: cardID, slabContext: slabContext)
+        return optimisticEntriesByID[key]?.condition ?? backendEntriesByID[key]?.condition
+    }
+
+    func condition(card: CardCandidate, slabContext: SlabContext?) -> DeckCardCondition? {
+        condition(cardID: card.id, slabContext: slabContext)
+    }
+
+    @discardableResult
+    func setCondition(
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        condition: DeckCardCondition
+    ) -> (inserted: Bool, quantity: Int, pendingBackendCreate: Bool) {
+        let key = Self.storageKey(cardID: card.id, slabContext: slabContext)
+        let backendEntry = backendEntriesByID[key]
+        let optimisticEntry = optimisticEntriesByID[key]
+        let existingEntry = optimisticEntry ?? backendEntry
+        let inserted = existingEntry == nil
+        let quantity = max(1, existingEntry?.quantity ?? 1)
+        optimisticEntriesByID[key] = DeckCardEntry(
+            id: key,
+            card: card,
+            slabContext: slabContext,
+            condition: condition,
+            quantity: quantity,
+            addedAt: existingEntry?.addedAt ?? Date()
+        )
+        rebuildEntries()
+        return (inserted: inserted, quantity: quantity, pendingBackendCreate: backendEntry == nil)
+    }
+
+    func syncCondition(
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        condition: DeckCardCondition
+    ) async {
+        guard let matcher else { return }
+        do {
+            try await matcher.updateDeckEntryCondition(
+                DeckEntryConditionUpdateRequestPayload(
+                    cardID: card.id,
+                    slabContext: slabContext,
+                    condition: condition,
+                    updatedAt: Date()
+                )
+            )
+            await refreshFromBackend()
+        } catch {
+            // Keep the optimistic condition locally; refresh will reconcile once backend succeeds later.
+        }
+    }
+
+    func searchResults(for query: String) -> [DeckCardEntry] {
+        let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !trimmed.isEmpty else {
+            return entries
+        }
+        return entries.filter { $0.searchIndexText.contains(trimmed) }
+    }
+
+    private func rebuildEntries() {
+        var merged = backendEntriesByID
+        for (key, optimisticEntry) in optimisticEntriesByID {
+            merged[key] = optimisticEntry
+        }
+        entries = merged.values.sorted { lhs, rhs in
+            if lhs.addedAt == rhs.addedAt {
+                return lhs.card.name.localizedCaseInsensitiveCompare(rhs.card.name) == .orderedAscending
+            }
+            return lhs.addedAt > rhs.addedAt
+        }
+    }
+
+    private static func storageKey(cardID: String, slabContext: SlabContext?) -> String {
+        guard let slabContext else {
+            return "raw|\(cardID)"
+        }
+
+        let grader = slabContext.grader.trimmingCharacters(in: .whitespacesAndNewlines)
+        let grade = (slabContext.grade ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let cert = (slabContext.certNumber ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        let variant = (slabContext.variantName ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return "slab|\(cardID)|\(grader)|\(grade)|\(cert)|\(variant)"
+    }
+
+    private static func removeLegacyDeckJSONIfPresent(
+        fileManager: FileManager,
+        baseDirectoryURL: URL?
+    ) {
+        let baseURL = baseDirectoryURL
+            ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask).first
+        guard let baseURL else { return }
+
+        let legacyFileURL = baseURL
+            .appendingPathComponent("Spotlight", isDirectory: true)
+            .appendingPathComponent("deck_collection.json")
+        guard fileManager.fileExists(atPath: legacyFileURL.path) else { return }
+        try? fileManager.removeItem(at: legacyFileURL)
+    }
+}
+
 @MainActor
 final class AppContainer: ObservableObject {
     let scannerViewModel: ScannerViewModel
+    let collectionStore: CollectionStore
     private let remoteMatcher: RemoteScanMatchingService
     private var hasPrimedLocalNetworkPermission = false
     private var isPrimingLocalNetworkPermission = false
@@ -22,13 +258,22 @@ final class AppContainer: ObservableObject {
         let remoteMatcher = RemoteScanMatchingService(baseURL: remoteBaseURL)
         self.remoteMatcher = remoteMatcher
         let logStore = ScanEventStore()
+        self.collectionStore = CollectionStore(matcher: remoteMatcher)
+        let artifactUploadsEnabled = Self.shouldEnableScanArtifactUploads()
 
         scannerViewModel = ScannerViewModel(
             cameraController: cameraController,
             ocrPipeline: ocrPipeline,
             matcher: remoteMatcher,
-            logStore: logStore
+            logStore: logStore,
+            artifactUploadsEnabled: artifactUploadsEnabled
         )
+
+        Task { [weak self] in
+            guard let self else { return }
+            await self.scannerViewModel.flushPendingBackendQueues()
+            await self.collectionStore.refreshFromBackend()
+        }
 
         print("🔍 [OCR] Pipeline route: raw_rewrite_live")
         let scanDebugEnabled = Self.shouldEnableScanDebugExports()
@@ -39,6 +284,7 @@ final class AppContainer: ObservableObject {
         } else {
             print("🧪 [DEBUG] Scan artifact exports disabled for this build")
         }
+        print("🗂️ [APP] Scan artifact uploads \(artifactUploadsEnabled ? "enabled" : "disabled") for this build")
 
         Task.detached(priority: .utility) {
             let cacheManager = ScanCacheManager()
@@ -52,6 +298,12 @@ final class AppContainer: ObservableObject {
                 let rootPath = ScanStageArtifactWriter.artifactRootPath() ?? "<unavailable>"
                 print("🧹 [DEBUG] Cleared \(removedCount) scan artifact director\(removedCount == 1 ? "y" : "ies") at \(rootPath)")
             }
+        }
+    }
+
+    func refreshCollectionStoreFromBackend() {
+        Task { [weak self] in
+            await self?.collectionStore.refreshFromBackend()
         }
     }
 
@@ -123,6 +375,23 @@ final class AppContainer: ObservableObject {
         return trimmed.isEmpty ? fallback : trimmed
     }
 
+    private static func infoPlistBool(forKey key: String, fallback: Bool) -> Bool {
+        if let value = Bundle.main.object(forInfoDictionaryKey: key) as? Bool {
+            return value
+        }
+        if let value = Bundle.main.object(forInfoDictionaryKey: key) as? String {
+            switch value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            case "1", "true", "yes", "on":
+                return true
+            case "0", "false", "no", "off":
+                return false
+            default:
+                return fallback
+            }
+        }
+        return fallback
+    }
+
     private static func url(from value: String?) -> URL? {
         guard let value else {
             return nil
@@ -158,5 +427,12 @@ final class AppContainer: ObservableObject {
 
         let environment = infoPlistString(forKey: "SpotlightEnvironment", fallback: "local")
         return environment == "local"
+    }
+
+    private static func shouldEnableScanArtifactUploads() -> Bool {
+        if let envOverride = boolEnv("SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED") {
+            return envOverride
+        }
+        return infoPlistBool(forKey: "SpotlightScanArtifactUploadsEnabled", fallback: false)
     }
 }

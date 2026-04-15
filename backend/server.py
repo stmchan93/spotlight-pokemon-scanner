@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import os
 import re
@@ -32,11 +33,14 @@ from catalog_tools import (
     card_by_id,
     connect,
     contextual_pricing_summary_for_card,
+    deck_entry_storage_key,
     delete_runtime_setting,
     finalize_raw_decision,
+    latest_price_history_update_for_context,
     latest_provider_sync_run,
     load_index,
     merge_raw_candidate_pools,
+    price_history_rows_for_card,
     provider_sync_run_is_fresh,
     rank_raw_candidates,
     raw_debug_payload,
@@ -54,8 +58,13 @@ from catalog_tools import (
     runtime_setting,
     tokenize,
     upsert_catalog_card,
+    upsert_deck_entry,
     upsert_runtime_setting,
+    upsert_scan_artifact,
+    upsert_scan_confirmation,
     upsert_scan_event,
+    replace_scan_prediction_candidates,
+    replace_scan_price_observations,
     utc_now,
 )
 from fx_rates import decorate_pricing_summary_with_fx
@@ -67,7 +76,9 @@ from scrydex_adapter import (
     ScrydexProvider,
     best_remote_scrydex_raw_candidates,
     fetch_scrydex_card_by_id,
+    fetch_scrydex_price_history,
     map_scrydex_catalog_card,
+    persist_scrydex_price_history_payload,
     persist_scrydex_raw_snapshot,
     scrydex_request_stats_snapshot,
     search_remote_scrydex_raw_candidates,
@@ -77,13 +88,28 @@ from scrydex_adapter import (
 )
 from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from slab_set_aliases import resolve_slab_set_aliases
+from scan_artifact_store import (
+    SCAN_ARTIFACTS_GCS_BUCKET_ENV,
+    SCAN_ARTIFACTS_STORAGE_ENV,
+    SCAN_ARTIFACTS_ROOT_ENV,
+    build_scan_artifact_store,
+)
 
 MANUAL_SCRYDEX_MIRROR_ENV = "SPOTLIGHT_MANUAL_SCRYDEX_MIRROR"
 LIVE_PRICING_ENABLED_ENV = "SPOTLIGHT_LIVE_PRICING_ENABLED"
+SCAN_ARTIFACT_UPLOADS_ENABLED_ENV = "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED"
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
+SCAN_ARTIFACT_UPLOADS_SETTING_KEY = "scan_artifact_uploads"
 DEFAULT_CARD_SHOW_MODE_HOURS = 8.0
 LIVE_PRICING_REFRESH_WINDOW_HOURS = 1.0
+DECK_CARD_CONDITIONS = {
+    "near_mint",
+    "lightly_played",
+    "moderately_played",
+    "heavily_played",
+    "damaged",
+}
 
 
 def _env_flag(name: str, *, default: bool = False) -> bool:
@@ -224,10 +250,24 @@ class SpotlightScanService:
         self.index = load_index(self.connection)
         self._card_lookup_cache: dict[str, dict[str, Any] | None] = {}
         self._raw_visual_matcher: Any | None = None
+        self.artifact_store = build_scan_artifact_store(
+            repo_root=repo_root,
+            storage_override=os.environ.get(SCAN_ARTIFACTS_STORAGE_ENV),
+            root_override=os.environ.get(SCAN_ARTIFACTS_ROOT_ENV),
+            gcs_bucket_override=os.environ.get(SCAN_ARTIFACTS_GCS_BUCKET_ENV),
+        )
 
         self.pricing_registry = PricingProviderRegistry()
         self.pricing_registry.register(ScrydexProvider())
         self.pricing_registry.register(PriceChartingProvider())
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "scan_artifact_store_config",
+                "databasePath": str(self.database_path),
+                "scanArtifactUploads": self._scan_artifact_uploads_state(),
+            }
+        )
 
     def refresh_index(self) -> None:
         self.index = load_index(self.connection)
@@ -407,6 +447,76 @@ class SpotlightScanService:
         )
         self.connection.commit()
         return self._live_pricing_state()
+
+    def _scan_artifact_uploads_record(self) -> dict[str, Any] | None:
+        return runtime_setting(self.connection, SCAN_ARTIFACT_UPLOADS_SETTING_KEY)
+
+    def _scan_artifact_uploads_state(self) -> dict[str, Any]:
+        record = self._scan_artifact_uploads_record()
+        payload = (record or {}).get("value") if isinstance(record, dict) else {}
+        if not isinstance(payload, dict):
+            payload = {}
+
+        if "enabled" in payload:
+            enabled = bool(payload.get("enabled") is True)
+            source = "runtime_setting"
+            set_at = str(payload.get("setAt") or (record or {}).get("updatedAt") or "").strip() or None
+            note = str(payload.get("note") or "").strip() or None
+        else:
+            enabled = _env_flag(SCAN_ARTIFACT_UPLOADS_ENABLED_ENV, default=False)
+            source = "env_default"
+            set_at = None
+            note = None
+
+        return {
+            "enabled": enabled,
+            "source": source,
+            "setAt": set_at,
+            "note": note,
+            **self.artifact_store.debug_status(),
+            "gcsBucketConfigured": bool(str(os.environ.get(SCAN_ARTIFACTS_GCS_BUCKET_ENV) or "").strip()),
+        }
+
+    def _scan_artifact_uploads_enabled(self) -> bool:
+        return bool(self._scan_artifact_uploads_state().get("enabled"))
+
+    def scan_artifact_status(self) -> dict[str, Any]:
+        artifact_row = self.connection.execute(
+            """
+            SELECT uploaded_at
+            FROM scan_artifacts
+            WHERE upload_status = 'uploaded'
+            ORDER BY uploaded_at DESC, scan_id DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        stored_artifact_count = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM scan_artifacts"
+        ).fetchone()["count"]
+        return {
+            "scanArtifactUploads": self._scan_artifact_uploads_state(),
+            "storedArtifactCount": int(stored_artifact_count or 0),
+            "latestUploadedAt": artifact_row["uploaded_at"] if artifact_row else None,
+        }
+
+    def set_scan_artifact_uploads_mode(
+        self,
+        *,
+        enabled: bool,
+        note: str | None = None,
+    ) -> dict[str, Any]:
+        now = datetime.now(timezone.utc)
+        upsert_runtime_setting(
+            self.connection,
+            key=SCAN_ARTIFACT_UPLOADS_SETTING_KEY,
+            value={
+                "enabled": bool(enabled),
+                "setAt": now.isoformat(),
+                "note": str(note or "").strip() or None,
+            },
+        )
+        self.connection.commit()
+        return self._scan_artifact_uploads_state()
 
     @staticmethod
     def _pricing_refreshed_at(pricing: dict[str, Any] | None) -> datetime | None:
@@ -671,6 +781,451 @@ class SpotlightScanService:
         return pricing
 
     @staticmethod
+    def _history_primary_price_value(point: dict[str, Any] | None) -> float | None:
+        if not point:
+            return None
+        for key in ("market", "mid", "low", "high"):
+            value = point.get(key)
+            if isinstance(value, (int, float)):
+                return float(value)
+        return None
+
+    @staticmethod
+    def _history_display_condition_label(condition: str) -> str:
+        normalized = str(condition or "").strip().upper()
+        mapping = {
+            "NM": "NM",
+            "LP": "LP",
+            "MP": "MP",
+            "HP": "HP",
+            "DM": "DM",
+        }
+        return mapping.get(normalized, normalized or "Unknown")
+
+    def _history_is_fresh(self, updated_at: str | None) -> bool:
+        parsed = self._coerce_utc_datetime(updated_at)
+        if parsed is None:
+            return False
+        return datetime.now(timezone.utc) - parsed <= timedelta(hours=24)
+
+    def _raw_history_variants(self, card_id: str) -> list[str]:
+        rows = self.connection.execute(
+            """
+            SELECT variant, MAX(price_date) AS latest_date
+            FROM card_price_history_daily
+            WHERE card_id = ? AND pricing_mode = ? AND provider = ? AND variant IS NOT NULL AND variant != ''
+            GROUP BY variant
+            ORDER BY latest_date DESC, variant ASC
+            """,
+            (card_id, "raw", SCRYDEX_PROVIDER),
+        ).fetchall()
+        return [str(row["variant"]) for row in rows if str(row["variant"] or "").strip()]
+
+    def _raw_history_conditions(self, card_id: str, variant: str | None) -> list[str]:
+        if not variant:
+            return []
+        rows = self.connection.execute(
+            """
+            SELECT condition, MAX(price_date) AS latest_date
+            FROM card_price_history_daily
+            WHERE card_id = ? AND pricing_mode = ? AND provider = ? AND variant = ? AND condition IS NOT NULL AND condition != ''
+            GROUP BY condition
+            ORDER BY latest_date DESC, condition ASC
+            """,
+            (card_id, "raw", SCRYDEX_PROVIDER, variant),
+        ).fetchall()
+        return [str(row["condition"]).upper() for row in rows if str(row["condition"] or "").strip()]
+
+    def _raw_history_condition_options(self, card_id: str, variant: str | None) -> list[dict[str, Any]]:
+        if not variant:
+            return []
+        rows = self.connection.execute(
+            """
+            SELECT condition, market_price, mid_price, low_price, high_price, price_date, updated_at
+            FROM card_price_history_daily
+            WHERE card_id = ? AND pricing_mode = ? AND provider = ? AND variant = ? AND condition IS NOT NULL AND condition != ''
+            ORDER BY price_date DESC, updated_at DESC
+            """,
+            (card_id, "raw", SCRYDEX_PROVIDER, variant),
+        ).fetchall()
+        options: list[dict[str, Any]] = []
+        seen: set[str] = set()
+        for row in rows:
+            code = str(row["condition"] or "").strip().upper()
+            if not code or code in seen:
+                continue
+            seen.add(code)
+            current_price = None
+            for key in ("market_price", "mid_price", "low_price", "high_price"):
+                value = row[key]
+                if isinstance(value, (int, float)):
+                    current_price = float(value)
+                    break
+            options.append(
+                {
+                    "id": code,
+                    "label": self._history_display_condition_label(code),
+                    "currentPrice": current_price,
+                }
+            )
+        return options
+
+    def _history_variant_query_key(
+        self,
+        card_id: str,
+        *,
+        selected_variant: str | None,
+        pricing_summary: dict[str, Any] | None,
+    ) -> str | None:
+        payload = (pricing_summary or {}).get("payload") if isinstance(pricing_summary, dict) else {}
+        if isinstance(payload, dict):
+            summary_variant = str((pricing_summary or {}).get("variant") or "").strip()
+            summary_variant_key = str(payload.get("variantKey") or payload.get("variant") or "").strip()
+            if selected_variant and selected_variant == summary_variant and summary_variant_key:
+                return summary_variant_key
+        if selected_variant:
+            row = self.connection.execute(
+                """
+                SELECT source_payload_json
+                FROM card_price_history_daily
+                WHERE card_id = ? AND pricing_mode = ? AND provider = ? AND variant = ?
+                ORDER BY updated_at DESC
+                LIMIT 1
+                """,
+                (card_id, "raw", SCRYDEX_PROVIDER, selected_variant),
+            ).fetchone()
+            if row is not None:
+                payload = json.loads(str(row["source_payload_json"] or "{}"))
+                variant_key = str(payload.get("variantKey") or payload.get("variant") or "").strip()
+                if variant_key:
+                    return variant_key
+        return None
+
+    def _selected_raw_history_variant(
+        self,
+        card_id: str,
+        *,
+        requested_variant: str | None,
+        pricing_summary: dict[str, Any] | None,
+    ) -> str | None:
+        available_variants = self._raw_history_variants(card_id)
+        requested = str(requested_variant or "").strip() or None
+        if requested and requested in available_variants:
+            return requested
+        pricing_variant = str((pricing_summary or {}).get("variant") or "").strip() or None
+        if pricing_variant and pricing_variant in available_variants:
+            return pricing_variant
+        payload = (pricing_summary or {}).get("payload") if isinstance(pricing_summary, dict) else {}
+        pricing_variant_key = str((payload or {}).get("variantKey") or (payload or {}).get("variant") or "").strip()
+        pricing_variant_label = (
+            re.sub(r"\s+", " ", re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", pricing_variant_key)).strip().title()
+            if pricing_variant_key
+            else None
+        )
+        if pricing_variant_label and pricing_variant_label in available_variants:
+            return pricing_variant_label
+        if requested and not available_variants:
+            return requested
+        if pricing_variant_label and not available_variants:
+            return pricing_variant_label
+        if pricing_variant and not available_variants:
+            return pricing_variant
+        return available_variants[0] if available_variants else None
+
+    def _selected_raw_history_condition(
+        self,
+        card_id: str,
+        *,
+        variant: str | None,
+        requested_condition: str | None,
+    ) -> str | None:
+        available_conditions = self._raw_history_conditions(card_id, variant)
+        requested = str(requested_condition or "").strip().upper() or None
+        if requested and requested in available_conditions:
+            return requested
+        for candidate in ("NM", "LP", "MP", "HP", "DM"):
+            if candidate in available_conditions:
+                return candidate
+        return available_conditions[0] if available_conditions else None
+
+    def _history_delta_payload(self, points: list[dict[str, Any]], days: int) -> dict[str, Any] | None:
+        if len(points) < 2:
+            return None
+        latest_point = points[-1]
+        latest_price = self._history_primary_price_value(latest_point)
+        latest_date = self._coerce_utc_datetime(f"{latest_point.get('date')}T00:00:00+00:00")
+        if latest_price is None or latest_date is None:
+            return None
+        target_date = latest_date - timedelta(days=days)
+        baseline_point = None
+        for point in points:
+            point_date = self._coerce_utc_datetime(f"{point.get('date')}T00:00:00+00:00")
+            if point_date is None:
+                continue
+            if point_date <= target_date:
+                baseline_point = point
+        if baseline_point is None:
+            baseline_point = points[0]
+        baseline_price = self._history_primary_price_value(baseline_point)
+        if baseline_price is None:
+            return None
+        price_change = latest_price - baseline_price
+        percent_change = None if baseline_price == 0 else (price_change / baseline_price) * 100.0
+        return {
+            "days": days,
+            "priceChange": round(price_change, 4),
+            "percentChange": round(percent_change, 4) if percent_change is not None else None,
+        }
+
+    def _history_points_payload(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        points = [
+            {
+                "date": str(row.get("date") or ""),
+                "market": row.get("market"),
+                "low": row.get("low"),
+                "mid": row.get("mid"),
+                "high": row.get("high"),
+            }
+            for row in reversed(rows)
+            if str(row.get("date") or "").strip()
+        ]
+        return points
+
+    def _backfill_market_history_if_needed(
+        self,
+        card_id: str,
+        *,
+        pricing_context: PricingContext,
+        days: int,
+        selected_variant: str | None,
+        pricing_summary: dict[str, Any] | None,
+        history_is_fresh: bool,
+    ) -> None:
+        if history_is_fresh or not self._live_pricing_enabled():
+            return
+        if pricing_context.is_graded:
+            if not pricing_context.grader or not pricing_context.grade:
+                return
+            payload = fetch_scrydex_price_history(
+                card_id,
+                days=days,
+                company=pricing_context.grader,
+                grade=pricing_context.grade,
+            )
+            persist_scrydex_price_history_payload(self.connection, card_id=card_id, payload=payload)
+            return
+
+        variant_key = self._history_variant_query_key(
+            card_id,
+            selected_variant=selected_variant,
+            pricing_summary=pricing_summary,
+        )
+        payload = fetch_scrydex_price_history(
+            card_id,
+            days=days,
+            variant=variant_key,
+        )
+        persist_scrydex_price_history_payload(self.connection, card_id=card_id, payload=payload)
+
+    def card_market_history(
+        self,
+        card_id: str,
+        *,
+        days: int = 30,
+        grader: str | None = None,
+        grade: str | None = None,
+        cert_number: str | None = None,
+        preferred_variant: str | None = None,
+        condition: str | None = None,
+    ) -> dict[str, Any] | None:
+        pricing_context = (
+            self._slab_pricing_context(
+                grader=grader,
+                grade=grade,
+                cert_number=cert_number,
+                preferred_variant=preferred_variant,
+            )
+            if grader or grade
+            else self._raw_pricing_context()
+        )
+        card = card_by_id(self.connection, card_id)
+        if card is None:
+            return None
+
+        days = max(7, min(int(days), 90))
+        pricing_summary = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
+
+        if pricing_context.is_graded:
+            selected_variant = str(preferred_variant or (pricing_summary or {}).get("variant") or "").strip() or None
+            history_updated_at = latest_price_history_update_for_context(
+                self.connection,
+                card_id=card_id,
+                pricing_mode="graded",
+                provider=SCRYDEX_PROVIDER,
+                grader=pricing_context.grader,
+                grade=pricing_context.grade,
+            )
+            self._backfill_market_history_if_needed(
+                card_id,
+                pricing_context=pricing_context,
+                days=days,
+                selected_variant=selected_variant,
+                pricing_summary=pricing_summary,
+                history_is_fresh=self._history_is_fresh(history_updated_at),
+            )
+            rows = price_history_rows_for_card(
+                self.connection,
+                card_id,
+                pricing_mode="graded",
+                provider=SCRYDEX_PROVIDER,
+                days=days,
+                variant=selected_variant,
+                grader=pricing_context.grader,
+                grade=pricing_context.grade,
+            )
+            if not rows and selected_variant is not None:
+                rows = price_history_rows_for_card(
+                    self.connection,
+                    card_id,
+                    pricing_mode="graded",
+                    provider=SCRYDEX_PROVIDER,
+                    days=days,
+                    grader=pricing_context.grader,
+                    grade=pricing_context.grade,
+                )
+            available_variants_rows = self.connection.execute(
+                """
+                SELECT variant, MAX(price_date) AS latest_date
+                FROM card_price_history_daily
+                WHERE card_id = ? AND pricing_mode = ? AND provider = ? AND grader = ? AND grade = ?
+                GROUP BY variant
+                ORDER BY latest_date DESC, variant ASC
+                """,
+                (card_id, "graded", SCRYDEX_PROVIDER, pricing_context.grader, pricing_context.grade),
+            ).fetchall()
+            available_variants = [
+                {"id": str(row["variant"]), "label": str(row["variant"])}
+                for row in available_variants_rows
+                if str(row["variant"] or "").strip()
+            ]
+            if selected_variant is None and available_variants:
+                selected_variant = str(available_variants[0]["id"])
+                rows = price_history_rows_for_card(
+                    self.connection,
+                    card_id,
+                    pricing_mode="graded",
+                    provider=SCRYDEX_PROVIDER,
+                    days=days,
+                    variant=selected_variant,
+                    grader=pricing_context.grader,
+                    grade=pricing_context.grade,
+                )
+            points = self._history_points_payload(rows)
+            latest_point = points[-1] if points else None
+            current_price = self._history_primary_price_value(latest_point) or self._primary_price_value(pricing_summary)
+            currency_code = str((rows[0].get("currencyCode") if rows else None) or (pricing_summary or {}).get("currencyCode") or "USD")
+            refreshed_at = history_updated_at or ((pricing_summary or {}).get("refreshedAt") if isinstance(pricing_summary, dict) else None)
+            return {
+                "cardID": card_id,
+                "pricingMode": "graded",
+                "currencyCode": currency_code,
+                "currentPrice": current_price,
+                "currentDate": latest_point.get("date") if latest_point else None,
+                "points": points,
+                "availableVariants": available_variants,
+                "availableConditions": [],
+                "selectedVariant": selected_variant,
+                "selectedCondition": None,
+                "deltas": {
+                    "days7": self._history_delta_payload(points, 7),
+                    "days14": self._history_delta_payload(points, 14),
+                    "days30": self._history_delta_payload(points, 30),
+                },
+                "source": SCRYDEX_PROVIDER,
+                "isFresh": self._history_is_fresh(refreshed_at),
+                "refreshedAt": refreshed_at,
+                "livePricingEnabled": self._live_pricing_enabled(),
+            }
+
+        selected_variant = self._selected_raw_history_variant(
+            card_id,
+            requested_variant=preferred_variant,
+            pricing_summary=pricing_summary,
+        )
+        history_updated_at = latest_price_history_update_for_context(
+            self.connection,
+            card_id=card_id,
+            pricing_mode="raw",
+            provider=SCRYDEX_PROVIDER,
+            variant=selected_variant,
+        )
+        self._backfill_market_history_if_needed(
+            card_id,
+            pricing_context=pricing_context,
+            days=days,
+            selected_variant=selected_variant,
+            pricing_summary=pricing_summary,
+            history_is_fresh=self._history_is_fresh(history_updated_at),
+        )
+        selected_variant = self._selected_raw_history_variant(
+            card_id,
+            requested_variant=preferred_variant,
+            pricing_summary=pricing_summary,
+        )
+        selected_condition = self._selected_raw_history_condition(
+            card_id,
+            variant=selected_variant,
+            requested_condition=condition,
+        )
+        rows = price_history_rows_for_card(
+            self.connection,
+            card_id,
+            pricing_mode="raw",
+            provider=SCRYDEX_PROVIDER,
+            days=days,
+            variant=selected_variant,
+            condition=selected_condition,
+        )
+        available_variants = [
+            {"id": variant_name, "label": variant_name}
+            for variant_name in self._raw_history_variants(card_id)
+        ]
+        available_conditions = self._raw_history_condition_options(card_id, selected_variant)
+        points = self._history_points_payload(rows)
+        latest_point = points[-1] if points else None
+        current_price = self._history_primary_price_value(latest_point) or self._primary_price_value(pricing_summary)
+        currency_code = str((rows[0].get("currencyCode") if rows else None) or (pricing_summary or {}).get("currencyCode") or "USD")
+        refreshed_at = latest_price_history_update_for_context(
+            self.connection,
+            card_id=card_id,
+            pricing_mode="raw",
+            provider=SCRYDEX_PROVIDER,
+            variant=selected_variant,
+            condition=selected_condition,
+        ) or ((pricing_summary or {}).get("refreshedAt") if isinstance(pricing_summary, dict) else None)
+        return {
+            "cardID": card_id,
+            "pricingMode": "raw",
+            "currencyCode": currency_code,
+            "currentPrice": current_price,
+            "currentDate": latest_point.get("date") if latest_point else None,
+            "points": points,
+            "availableVariants": available_variants,
+            "availableConditions": available_conditions,
+            "selectedVariant": selected_variant,
+            "selectedCondition": selected_condition,
+            "deltas": {
+                "days7": self._history_delta_payload(points, 7),
+                "days14": self._history_delta_payload(points, 14),
+                "days30": self._history_delta_payload(points, 30),
+            },
+            "source": SCRYDEX_PROVIDER,
+            "isFresh": self._history_is_fresh(refreshed_at),
+            "refreshedAt": refreshed_at,
+            "livePricingEnabled": self._live_pricing_enabled(),
+        }
+
+    @staticmethod
     def _should_use_scrydex_japanese_raw(evidence: RawEvidence) -> bool:
         return raw_evidence_looks_japanese(evidence)
 
@@ -802,6 +1357,13 @@ class SpotlightScanService:
         if cleaned.isdigit():
             return str(int(cleaned)) if cleaned.strip("0") else "0"
         return cleaned
+
+    @staticmethod
+    def _normalized_deck_card_condition(value: object) -> str | None:
+        normalized = str(value or "").strip().lower()
+        if not normalized:
+            return None
+        return normalized if normalized in DECK_CARD_CONDITIONS else None
 
     @staticmethod
     def _slab_query_tokens(value: str) -> list[str]:
@@ -1725,6 +2287,7 @@ class SpotlightScanService:
             ],
             "manualScrydexMirror": self._manual_scrydex_mirror_status(),
             "livePricing": self._live_pricing_state(),
+            "scanArtifactUploads": self._scan_artifact_uploads_state(),
             "cardShowMode": self._card_show_mode_state(),
         }
         if prewarm_visual:
@@ -1783,6 +2346,7 @@ class SpotlightScanService:
             "experimentalResolverModes": ["psa_slab"],
             "manualScrydexMirror": self._manual_scrydex_mirror_status(),
             "livePricing": self._live_pricing_state(),
+            "scanArtifactUploads": self._scan_artifact_uploads_state(),
             "cardShowMode": self._card_show_mode_state(),
             "scrydexRequestStats": scrydex_request_stats_snapshot(),
             "scrydexFullCatalogSync": scrydex_full_sync,
@@ -3833,11 +4397,19 @@ class SpotlightScanService:
                 matcher_source,
                 matcher_version,
                 created_at,
+                predicted_card_id,
                 selected_card_id,
+                selected_rank,
+                was_top_prediction,
+                selection_source,
+                confirmed_card_id,
+                confirmation_source,
+                deck_entry_id,
                 confidence,
                 review_disposition,
                 resolver_mode,
-                resolver_path
+                resolver_path,
+                confirmed_at
             FROM scan_events
             WHERE scan_id = ?
             LIMIT 1
@@ -3848,6 +4420,25 @@ class SpotlightScanService:
         request_payload = json.loads(existing_event["request_json"] or "{}") if existing_event else {}
         response_payload = json.loads(existing_event["response_json"] or "{}") if existing_event else {}
         feedback_selected_card_id = payload.get("selectedCardID") or (existing_event["selected_card_id"] if existing_event else None)
+        predicted_card_id = (
+            str(existing_event["predicted_card_id"] or "").strip()
+            if existing_event
+            else ""
+        ) or self._predicted_card_id(response_payload)
+        selected_rank = self._selected_rank_from_feedback(
+            payload,
+            response_payload,
+            selected_card_id=feedback_selected_card_id,
+        )
+        selection_source = self._selection_source_from_feedback(payload)
+        was_top_prediction = payload.get("wasTopPrediction")
+        if not isinstance(was_top_prediction, bool):
+            if selected_rank is not None:
+                was_top_prediction = selected_rank == 1
+            elif existing_event is not None:
+                was_top_prediction = bool(existing_event["was_top_prediction"] == 1)
+            else:
+                was_top_prediction = None
 
         upsert_scan_event(
             self.connection,
@@ -3857,13 +4448,21 @@ class SpotlightScanService:
             matcher_source=(response_payload.get("matcherSource") or (existing_event["matcher_source"] if existing_event else None) or "remoteHybrid"),
             matcher_version=(response_payload.get("matcherVersion") or (existing_event["matcher_version"] if existing_event else None) or MATCHER_VERSION),
             created_at=(existing_event["created_at"] if existing_event else payload.get("submittedAt", utc_now())),
+            predicted_card_id=predicted_card_id,
             selected_card_id=feedback_selected_card_id,
+            selected_rank=selected_rank if selected_rank is not None else (existing_event["selected_rank"] if existing_event else None),
+            was_top_prediction=was_top_prediction,
+            selection_source=selection_source if selection_source != "unknown" else ((existing_event["selection_source"] if existing_event else None) or "unknown"),
+            confirmed_card_id=(existing_event["confirmed_card_id"] if existing_event else None),
+            confirmation_source=(existing_event["confirmation_source"] if existing_event else None),
+            deck_entry_id=(existing_event["deck_entry_id"] if existing_event else None),
             confidence=(response_payload.get("confidence") or (existing_event["confidence"] if existing_event else None)),
             review_disposition=(response_payload.get("reviewDisposition") or (existing_event["review_disposition"] if existing_event else None)),
             correction_type=payload["correctionType"],
             resolver_mode=(response_payload.get("resolverMode") or (existing_event["resolver_mode"] if existing_event else None)),
             resolver_path=(response_payload.get("resolverPath") or (existing_event["resolver_path"] if existing_event else None)),
             completed_at=payload["submittedAt"],
+            confirmed_at=(existing_event["confirmed_at"] if existing_event else None),
         )
         self.connection.commit()
 
@@ -3877,9 +4476,423 @@ class SpotlightScanService:
             persisted_payload["image"] = persisted_image_payload
         return persisted_payload
 
+    @staticmethod
+    def _predicted_card_id(response_payload: dict[str, Any]) -> str | None:
+        top_candidates = response_payload.get("topCandidates") or []
+        if isinstance(top_candidates, list) and top_candidates:
+            top_candidate = top_candidates[0] or {}
+            candidate_id = str(top_candidate.get("id") or "").strip()
+            if candidate_id:
+                return candidate_id
+        return None
+
+    @staticmethod
+    def _selection_source_from_feedback(payload: dict[str, Any]) -> str:
+        explicit_value = str(payload.get("selectionSource") or "").strip().lower()
+        if explicit_value in {"top", "alternate", "manual_search", "abandoned", "unknown"}:
+            return explicit_value
+
+        correction_type = str(payload.get("correctionType") or "").strip()
+        if correction_type == "acceptedTop":
+            return "top"
+        if correction_type == "choseAlternative":
+            return "alternate"
+        if correction_type == "manualSearch":
+            return "manual_search"
+        if correction_type == "abandoned":
+            return "abandoned"
+        return "unknown"
+
+    @staticmethod
+    def _selected_rank_from_feedback(
+        payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        *,
+        selected_card_id: str | None,
+    ) -> int | None:
+        explicit_rank = payload.get("selectedRank")
+        if isinstance(explicit_rank, int) and explicit_rank >= 1:
+            return explicit_rank
+        if isinstance(explicit_rank, str) and explicit_rank.strip().isdigit():
+            return int(explicit_rank.strip())
+
+        normalized_selected_card_id = str(selected_card_id or "").strip()
+        top_candidates = response_payload.get("topCandidates") or []
+        if normalized_selected_card_id and isinstance(top_candidates, list):
+            for index, candidate in enumerate(top_candidates, start=1):
+                if str((candidate or {}).get("id") or "").strip() == normalized_selected_card_id:
+                    return index
+
+        was_top_prediction = payload.get("wasTopPrediction")
+        if was_top_prediction is True and normalized_selected_card_id:
+            return 1
+        return None
+
+    @staticmethod
+    def _decode_scan_image_payload(payload: dict[str, Any], *, field_name: str) -> tuple[bytes, int | None, int | None]:
+        image_payload = payload.get(field_name)
+        if not isinstance(image_payload, dict):
+            raise ValueError(f"{field_name} must be an object")
+        encoded = str(image_payload.get("jpegBase64") or "").strip()
+        if not encoded:
+            raise ValueError(f"{field_name}.jpegBase64 is required")
+        try:
+            raw_bytes = base64.b64decode(encoded, validate=True)
+        except Exception as exc:  # noqa: BLE001
+            raise ValueError(f"{field_name}.jpegBase64 is invalid") from exc
+        width_value = image_payload.get("width")
+        height_value = image_payload.get("height")
+        width = int(width_value) if isinstance(width_value, int) else None
+        height = int(height_value) if isinstance(height_value, int) else None
+        return raw_bytes, width, height
+
+    def store_scan_artifacts(self, payload: dict[str, Any]) -> dict[str, Any]:
+        scan_id = str(payload.get("scanID") or "").strip()
+        if not scan_id:
+            raise ValueError("scanID is required")
+
+        scan_row = self.connection.execute(
+            "SELECT scan_id FROM scan_events WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        if scan_row is None:
+            raise FileNotFoundError("scan event not found")
+
+        if not self._scan_artifact_uploads_enabled():
+            return {
+                "scanID": scan_id,
+                "enabled": False,
+                "skipped": True,
+                "reason": "scan artifact uploads disabled",
+                "storage": self.artifact_store.storage_kind,
+            }
+
+        source_bytes, source_width, source_height = self._decode_scan_image_payload(payload, field_name="sourceImage")
+        normalized_bytes, normalized_width, normalized_height = self._decode_scan_image_payload(payload, field_name="normalizedImage")
+
+        submitted_at = str(payload.get("submittedAt") or utc_now()).strip() or utc_now()
+        try:
+            partition_datetime = datetime.fromisoformat(submitted_at.replace("Z", "+00:00"))
+        except ValueError:
+            partition_datetime = datetime.now(timezone.utc)
+        try:
+            stored = self.artifact_store.store(
+                scan_id=scan_id,
+                source_bytes=source_bytes,
+                normalized_bytes=normalized_bytes,
+                year=f"{partition_datetime.year:04d}",
+                month=f"{partition_datetime.month:02d}",
+                day=f"{partition_datetime.day:02d}",
+            )
+
+            upsert_scan_artifact(
+                self.connection,
+                scan_id=scan_id,
+                source_object_path=stored.source_object_path,
+                normalized_object_path=stored.normalized_object_path,
+                source_width=source_width,
+                source_height=source_height,
+                normalized_width=normalized_width,
+                normalized_height=normalized_height,
+                camera_zoom_factor=float(payload["cameraZoomFactor"]) if isinstance(payload.get("cameraZoomFactor"), (int, float)) else None,
+                capture_source=str(payload.get("captureSource") or "").strip() or None,
+                uploaded_at=submitted_at,
+                created_at=submitted_at,
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return {
+            "scanID": scan_id,
+            "enabled": True,
+            "storage": self.artifact_store.storage_kind,
+            "sourceObjectPath": stored.source_object_path,
+            "normalizedObjectPath": stored.normalized_object_path,
+            "uploadedAt": submitted_at,
+        }
+
+    def create_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
+        card_id = str(payload.get("cardID") or "").strip()
+        if not card_id:
+            raise ValueError("cardID is required")
+
+        scan_id = str(payload.get("sourceScanID") or "").strip() or None
+        existing_event = None
+        if scan_id:
+            existing_event = self.connection.execute(
+                """
+                SELECT request_json, response_json, matcher_source, matcher_version, created_at,
+                       selected_card_id, selected_rank, was_top_prediction, selection_source,
+                       confidence, review_disposition, correction_type, resolver_mode, resolver_path,
+                       predicted_card_id
+                FROM scan_events
+                WHERE scan_id = ?
+                LIMIT 1
+                """,
+                (scan_id,),
+            ).fetchone()
+            if existing_event is None:
+                raise FileNotFoundError("scan event not found")
+
+        slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
+        grader = str(slab_context.get("grader") or "").strip() or None
+        grade = str(slab_context.get("grade") or "").strip() or None
+        cert_number = str(slab_context.get("certNumber") or "").strip() or None
+        variant_name = str(slab_context.get("variantName") or "").strip() or None
+        condition = self._normalized_deck_card_condition(payload.get("condition"))
+        if payload.get("condition") is not None and condition is None:
+            raise ValueError("condition is invalid")
+        selection_source = str(payload.get("selectionSource") or "").strip() or "unknown"
+        selected_rank_value = payload.get("selectedRank")
+        selected_rank = int(selected_rank_value) if isinstance(selected_rank_value, int) else None
+        was_top_prediction = bool(payload.get("wasTopPrediction") is True)
+        added_at = str(payload.get("addedAt") or utc_now()).strip() or utc_now()
+
+        confirmation_source_map = {
+            "top": "add_top",
+            "alternate": "add_alternate",
+            "manual_search": "add_manual_search",
+        }
+        confirmation_source = confirmation_source_map.get(selection_source, "add_unknown")
+
+        try:
+            deck_entry_id = upsert_deck_entry(
+                self.connection,
+                card_id=card_id,
+                grader=grader,
+                grade=grade,
+                cert_number=cert_number,
+                variant_name=variant_name,
+                condition=condition,
+                added_at=added_at,
+                updated_at=added_at,
+                source_scan_id=scan_id,
+                source_confirmation_id=None,
+            )
+
+            confirmation_id = None
+            if scan_id:
+                confirmation_id = upsert_scan_confirmation(
+                    self.connection,
+                    scan_id=scan_id,
+                    confirmed_card_id=card_id,
+                    confirmation_source=confirmation_source,
+                    selected_rank=selected_rank,
+                    was_top_prediction=was_top_prediction,
+                    deck_entry_id=deck_entry_id,
+                    created_at=added_at,
+                )
+                self.connection.execute(
+                    """
+                    UPDATE deck_entries
+                    SET updated_at = ?, source_scan_id = ?, source_confirmation_id = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        added_at,
+                        scan_id,
+                        confirmation_id,
+                        deck_entry_id,
+                    ),
+                )
+                request_payload = json.loads(existing_event["request_json"] or "{}")
+                response_payload = json.loads(existing_event["response_json"] or "{}")
+                upsert_scan_event(
+                    self.connection,
+                    scan_id=scan_id,
+                    request_payload=request_payload,
+                    response_payload=response_payload,
+                    matcher_source=str(existing_event["matcher_source"] or "remoteHybrid"),
+                    matcher_version=str(existing_event["matcher_version"] or MATCHER_VERSION),
+                    created_at=str(existing_event["created_at"] or added_at),
+                    predicted_card_id=str(existing_event["predicted_card_id"] or "").strip() or self._predicted_card_id(response_payload),
+                    selected_card_id=str(existing_event["selected_card_id"] or "").strip() or card_id,
+                    selected_rank=selected_rank if selected_rank is not None else existing_event["selected_rank"],
+                    was_top_prediction=was_top_prediction if payload.get("wasTopPrediction") is not None else bool(existing_event["was_top_prediction"] == 1),
+                    selection_source=selection_source if selection_source != "unknown" else (existing_event["selection_source"] or "unknown"),
+                    confirmed_card_id=card_id,
+                    confirmation_source=confirmation_source,
+                    deck_entry_id=deck_entry_id,
+                    confidence=existing_event["confidence"],
+                    review_disposition=existing_event["review_disposition"],
+                    correction_type=existing_event["correction_type"],
+                    resolver_mode=existing_event["resolver_mode"],
+                    resolver_path=existing_event["resolver_path"],
+                    completed_at=added_at,
+                    confirmed_at=added_at,
+                )
+
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return {
+            "deckEntryID": deck_entry_id,
+            "cardID": card_id,
+            "condition": condition,
+            "confirmationID": confirmation_id,
+            "sourceScanID": scan_id,
+            "addedAt": added_at,
+        }
+
+    def update_deck_entry_condition(self, payload: dict[str, Any]) -> dict[str, Any]:
+        card_id = str(payload.get("cardID") or "").strip()
+        if not card_id:
+            raise ValueError("cardID is required")
+
+        condition = self._normalized_deck_card_condition(payload.get("condition"))
+        if condition is None:
+            if payload.get("condition") is None:
+                raise ValueError("condition is required")
+            raise ValueError("condition is invalid")
+
+        slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
+        grader = str(slab_context.get("grader") or "").strip() or None
+        grade = str(slab_context.get("grade") or "").strip() or None
+        cert_number = str(slab_context.get("certNumber") or "").strip() or None
+        variant_name = str(slab_context.get("variantName") or "").strip() or None
+        deck_entry_id = deck_entry_storage_key(
+            card_id=card_id,
+            grader=grader,
+            grade=grade,
+            cert_number=cert_number,
+            variant_name=variant_name,
+        )
+
+        updated_at = str(payload.get("updatedAt") or utc_now()).strip() or utc_now()
+        row = self.connection.execute(
+            "SELECT id FROM deck_entries WHERE id = ? LIMIT 1",
+            (deck_entry_id,),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError("deck entry not found")
+
+        self.connection.execute(
+            """
+            UPDATE deck_entries
+            SET condition = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (condition, updated_at, deck_entry_id),
+        )
+        self.connection.commit()
+        return {
+            "deckEntryID": deck_entry_id,
+            "cardID": card_id,
+            "condition": condition,
+            "updatedAt": updated_at,
+        }
+
+    def deck_entries(self, *, limit: int = 200, offset: int = 0) -> dict[str, Any]:
+        safe_limit = max(0, min(int(limit), 1000))
+        safe_offset = max(0, int(offset))
+        rows = self.connection.execute(
+            """
+            SELECT
+                id,
+                item_kind,
+                card_id,
+                grader,
+                grade,
+                cert_number,
+                variant_name,
+                condition,
+                quantity,
+                added_at,
+                updated_at,
+                source_scan_id,
+                source_confirmation_id
+            FROM deck_entries
+            ORDER BY added_at DESC, id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (safe_limit, safe_offset),
+        ).fetchall()
+
+        entries: list[dict[str, Any]] = []
+        total_value = 0.0
+        raw_count = 0
+        slab_count = 0
+
+        for row in rows:
+            card_id = str(row["card_id"] or "").strip()
+            card = card_by_id(self.connection, card_id)
+            if card is None:
+                continue
+
+            grader = str(row["grader"] or "").strip() or None
+            grade = str(row["grade"] or "").strip() or None
+            cert_number = str(row["cert_number"] or "").strip() or None
+            variant_name = str(row["variant_name"] or "").strip() or None
+            condition = self._normalized_deck_card_condition(row["condition"])
+            quantity = max(1, int(row["quantity"] or 1))
+            pricing = contextual_pricing_summary_for_card(
+                self.connection,
+                card_id,
+                grader=grader,
+                grade=grade,
+                variant=variant_name,
+            )
+
+            card_payload = self._candidate_base_payload(card, card)
+            if pricing is not None:
+                card_payload["pricing"] = pricing
+                primary_price = pricing.get("market")
+                if primary_price is None:
+                    primary_price = pricing.get("mid")
+                if primary_price is None:
+                    primary_price = pricing.get("low")
+                if primary_price is None:
+                    primary_price = pricing.get("trend")
+                if isinstance(primary_price, (int, float)):
+                    total_value += float(primary_price) * quantity
+
+            slab_context = None
+            if any([grader, grade, cert_number, variant_name]):
+                slab_context = {
+                    "grader": grader,
+                    "grade": grade,
+                    "certNumber": cert_number,
+                    "variantName": variant_name,
+                }
+                slab_count += 1
+            else:
+                raw_count += 1
+
+            entries.append(
+                {
+                    "id": row["id"],
+                    "itemKind": row["item_kind"],
+                    "card": card_payload,
+                    "slabContext": slab_context,
+                    "condition": condition,
+                    "quantity": quantity,
+                    "addedAt": row["added_at"],
+                    "updatedAt": row["updated_at"],
+                    "sourceScanID": row["source_scan_id"],
+                    "sourceConfirmationID": row["source_confirmation_id"],
+                }
+            )
+
+        return {
+            "entries": entries,
+            "summary": {
+                "count": len(entries),
+                "rawCount": raw_count,
+                "slabCount": slab_count,
+                "totalValue": round(total_value, 2),
+            },
+            "limit": safe_limit,
+            "offset": safe_offset,
+        }
+
     def _log_scan(self, request_payload: dict[str, Any], response_payload: dict[str, Any], top_candidates: list[dict[str, Any]]) -> None:
         scan_id = request_payload["scanID"]
         now = utc_now()
+        predicted_card_id = self._predicted_card_id(response_payload)
+        if predicted_card_id is None and top_candidates:
+            predicted_card_id = str(((top_candidates[0].get("candidate") or {}).get("id")) or "").strip() or None
         upsert_scan_event(
             self.connection,
             scan_id=scan_id,
@@ -3888,6 +4901,7 @@ class SpotlightScanService:
             matcher_source=response_payload["matcherSource"],
             matcher_version=response_payload["matcherVersion"],
             created_at=now,
+            predicted_card_id=predicted_card_id,
             selected_card_id=None,
             confidence=response_payload.get("confidence"),
             review_disposition=response_payload.get("reviewDisposition"),
@@ -3895,6 +4909,8 @@ class SpotlightScanService:
             resolver_path=response_payload.get("resolverPath"),
             completed_at=now,
         )
+        replace_scan_prediction_candidates(self.connection, scan_id=scan_id, candidates=top_candidates[:10])
+        replace_scan_price_observations(self.connection, scan_id=scan_id, candidates=top_candidates[:10], observed_at=now)
         self.connection.commit()
 
 
@@ -3914,14 +4930,71 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, self.service.provider_status())
             return
 
+        if parsed.path == "/api/v1/ops/scan-artifact-status":
+            self._write_json(HTTPStatus.OK, self.service.scan_artifact_status())
+            return
+
         if parsed.path == "/api/v1/ops/unmatched-scans":
             limit = int(query.get("limit", ["25"])[0])
             self._write_json(HTTPStatus.OK, self.service.unmatched_scans(limit=limit))
             return
 
+        if parsed.path == "/api/v1/deck/entries":
+            try:
+                limit = int(query.get("limit", ["200"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
+                return
+            self._write_json(HTTPStatus.OK, self.service.deck_entries(limit=limit, offset=offset))
+            return
+
         if parsed.path == "/api/v1/cards/search":
             query = parse_qs(parsed.query).get("q", [""])[0]
             self._write_json(HTTPStatus.OK, self.service.search(query))
+            return
+
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/market-history"):
+            card_id = parsed.path.removeprefix("/api/v1/cards/").removesuffix("/market-history").rstrip("/")
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+
+            query = parse_qs(parsed.query)
+            grader = query.get("grader", [""])[0].strip() or None
+            grade = query.get("grade", [""])[0].strip() or None
+            cert_number = query.get("cert", [""])[0].strip() or None
+            preferred_variant = query.get("variant", [""])[0].strip() or None
+            condition = query.get("condition", [""])[0].strip() or None
+            try:
+                days = int(query.get("days", ["30"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "days must be an integer"})
+                return
+
+            try:
+                payload = self.service.card_market_history(
+                    card_id,
+                    days=days,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=preferred_variant,
+                    condition=condition,
+                )
+            except Exception as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Market history failed: {error}"})
+                return
+
+            if payload is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
+                return
+
+            self._write_json(HTTPStatus.OK, payload)
             return
 
         if parsed.path.startswith("/api/v1/cards/"):
@@ -4077,6 +5150,16 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, summary)
             return
 
+        if parsed.path == "/api/v1/admin/scan-artifact-uploads":
+            enabled = payload.get("enabled")
+            if not isinstance(enabled, bool):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "enabled must be a boolean"})
+                return
+            note = str(payload.get("note") or "").strip() or None
+            summary = self.service.set_scan_artifact_uploads_mode(enabled=enabled, note=note)
+            self._write_json(HTTPStatus.OK, summary)
+            return
+
         if parsed.path == "/api/v1/cards/hydrate-pricing":
             raw_card_ids = payload.get("cardIDs")
             if not isinstance(raw_card_ids, list):
@@ -4152,9 +5235,57 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 )
             return
 
+        if parsed.path == "/api/v1/scan-artifacts":
+            try:
+                artifact_payload = self.service.store_scan_artifacts(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Artifact upload failed: {error}"})
+                return
+            self._write_json(HTTPStatus.ACCEPTED, artifact_payload)
+            return
+
         if parsed.path == "/api/v1/scan/feedback":
             self.service.log_feedback(payload)
             self._write_json(HTTPStatus.ACCEPTED, {"status": "accepted"})
+            return
+
+        if parsed.path == "/api/v1/deck/entries":
+            try:
+                deck_payload = self.service.create_deck_entry(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry creation failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, deck_payload)
+            return
+
+        if parsed.path == "/api/v1/deck/entries/condition":
+            try:
+                update_payload = self.service.update_deck_entry_condition(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck condition update failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, update_payload)
             return
 
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})

@@ -5,8 +5,13 @@ protocol CardMatchingService: Sendable {
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse
     func search(query: String) async -> [CardCandidate]
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail?
+    func fetchCardMarketHistory(cardID: String, slabContext: SlabContext?, days: Int, variant: String?, condition: String?) async -> CardMarketHistory?
     func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail?
     func hydrateCandidatePricing(cardIDs: [String], maxRefreshCount: Int, slabContext: SlabContext?) async -> [CardDetail]
+    func fetchDeckEntries() async -> [DeckEntryPayload]
+    func updateDeckEntryCondition(_ payload: DeckEntryConditionUpdateRequestPayload) async throws
+    func uploadScanArtifacts(_ payload: ScanArtifactUploadRequestPayload) async throws
+    func addDeckEntry(_ payload: DeckEntryCreateRequestPayload) async throws
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -127,6 +132,42 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         return await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext)
     }
 
+    func fetchCardMarketHistory(
+        cardID: String,
+        slabContext: SlabContext?,
+        days: Int,
+        variant: String?,
+        condition: String?
+    ) async -> CardMarketHistory? {
+        guard var components = URLComponents(
+            url: baseURL.appending(path: "api/v1/cards/\(cardID)/market-history"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            return nil
+        }
+        var queryItems = detailQueryItems(for: slabContext)
+        queryItems.append(URLQueryItem(name: "days", value: String(max(7, min(days, 90)))))
+        if let variant, !variant.isEmpty {
+            queryItems.append(URLQueryItem(name: "variant", value: variant))
+        }
+        if let condition, !condition.isEmpty {
+            queryItems.append(URLQueryItem(name: "condition", value: condition))
+        }
+        components.queryItems = queryItems
+        guard let endpoint = components.url else { return nil }
+
+        do {
+            let (data, response) = try await session.data(from: endpoint)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            return try decoder.decode(CardMarketHistory.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
     func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail? {
         if let refreshedDetail = try await refreshCardDetailFromServer(
             cardID: cardID,
@@ -170,6 +211,43 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             return try decoder.decode(CandidatePricingHydrationResponsePayload.self, from: data).cards
         } catch {
             return []
+        }
+    }
+
+    func fetchDeckEntries() async -> [DeckEntryPayload] {
+        let endpoint = baseURL.appending(path: "api/v1/deck/entries")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "GET"
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+
+        do {
+            let (data, response) = try await session.data(for: request)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return []
+            }
+
+            if let wrapper = try? decoder.decode(DeckEntriesResponsePayload.self, from: data) {
+                return wrapper.entries
+            }
+
+            return (try? decoder.decode([DeckEntryPayload].self, from: data)) ?? []
+        } catch {
+            return []
+        }
+    }
+
+    func updateDeckEntryCondition(_ payload: DeckEntryConditionUpdateRequestPayload) async throws {
+        let endpoint = baseURL.appending(path: "api/v1/deck/entries/condition")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: "Deck condition update failed.")
         }
     }
 
@@ -273,6 +351,34 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             _ = try await session.data(for: request)
         } catch {
             // Keep feedback best-effort so the scanner flow stays fast.
+        }
+    }
+
+    func uploadScanArtifacts(_ payload: ScanArtifactUploadRequestPayload) async throws {
+        let endpoint = baseURL.appending(path: "api/v1/scan-artifacts")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: "Artifact upload failed.")
+        }
+    }
+
+    func addDeckEntry(_ payload: DeckEntryCreateRequestPayload) async throws {
+        let endpoint = baseURL.appending(path: "api/v1/deck/entries")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: "Deck entry submission failed.")
         }
     }
 
@@ -412,6 +518,24 @@ private extension URL {
 }
 
 private extension UIImage {
+    func downscaledJPEGPayload(maxDimension: CGFloat, compressionQuality: CGFloat) -> ScanImagePayload? {
+        let longestSide = max(size.width, size.height)
+        let scale = min(1, maxDimension / max(longestSide, 1))
+        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let renderer = UIGraphicsImageRenderer(size: targetSize)
+        let resizedImage = renderer.image { _ in
+            draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+        guard let data = resizedImage.jpegData(compressionQuality: compressionQuality) else {
+            return nil
+        }
+        return ScanImagePayload(
+            jpegBase64: data.base64EncodedString(),
+            width: Int(targetSize.width.rounded()),
+            height: Int(targetSize.height.rounded())
+        )
+    }
+
     func downscaledJPEGBase64(maxDimension: CGFloat, compressionQuality: CGFloat) -> String? {
         let longestSide = max(size.width, size.height)
         let scale = min(1, maxDimension / max(longestSide, 1))

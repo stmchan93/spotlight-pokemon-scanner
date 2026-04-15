@@ -29,6 +29,7 @@ final class ScannerViewModel: ObservableObject {
     private let ocrPipeline: OCRPipelineCoordinator
     private let matcher: CardMatchingService
     private let logStore: ScanEventStore
+    private let artifactUploadsEnabled: Bool
     private var currentScanID: UUID?
     private var currentPendingItemID: UUID?
     private var currentScanStartedAt: TimeInterval?
@@ -48,12 +49,14 @@ final class ScannerViewModel: ObservableObject {
         cameraController: CameraSessionController,
         ocrPipeline: OCRPipelineCoordinator,
         matcher: CardMatchingService,
-        logStore: ScanEventStore
+        logStore: ScanEventStore,
+        artifactUploadsEnabled: Bool = true
     ) {
         self.cameraController = cameraController
         self.ocrPipeline = ocrPipeline
         self.matcher = matcher
         self.logStore = logStore
+        self.artifactUploadsEnabled = artifactUploadsEnabled
 
         self.cameraController.onImageCaptured = { [weak self] capture in
             self?.processCapturedInput(capture)
@@ -148,6 +151,22 @@ final class ScannerViewModel: ObservableObject {
         )
     }
 
+    func fetchMarketHistory(
+        cardID: String,
+        slabContext: SlabContext?,
+        days: Int = 30,
+        variant: String? = nil,
+        condition: String? = nil
+    ) async -> CardMarketHistory? {
+        await matcher.fetchCardMarketHistory(
+            cardID: cardID,
+            slabContext: slabContext,
+            days: days,
+            variant: variant,
+            condition: condition
+        )
+    }
+
     private func processCapturedInput(_ capture: ScanCaptureInput) {
         guard !isProcessing else { return }
         isCapturingPhoto = false
@@ -199,6 +218,43 @@ final class ScannerViewModel: ObservableObject {
         pushRoute(.resultDetail)
     }
 
+    func presentResultDetail(for entry: DeckCardEntry) {
+        activeAlternativesItemID = nil
+        activeResultItemID = nil
+        activeResultPreviewItem = LiveScanStackItem(
+            id: UUID(),
+            scanID: UUID(),
+            phase: .resolved,
+            card: entry.card,
+            detail: nil,
+            previewImage: nil,
+            confidence: .high,
+            matcherSource: .remoteHybrid,
+            matcherVersion: "deck_entry",
+            resolverMode: entry.slabContext == nil ? .rawCard : .psaSlab,
+            resolverPath: nil,
+            slabContext: entry.slabContext,
+            reviewDisposition: .ready,
+            reviewReason: nil,
+            addedAt: entry.addedAt,
+            isExpanded: false,
+            isRefreshingPrice: false,
+            statusMessage: entry.card.pricing?.freshnessLabel,
+            pricingContextNote: pricingContextNote(
+                for: entry.slabContext == nil ? .rawCard : .psaSlab,
+                matcherSource: .remoteHybrid,
+                slabContext: entry.slabContext,
+                pricing: entry.card.pricing
+            ),
+            performance: nil,
+            cacheStatus: nil,
+            selectedRank: nil,
+            wasTopPrediction: true,
+            selectionSource: .unknown
+        )
+        pushRoute(.resultDetail)
+    }
+
     func presentCandidateDetail(_ candidate: CardCandidate) {
         guard let context = activeAlternativesContext,
               let sourceItem = scannedItems.first(where: { $0.id == context.itemID }) else {
@@ -245,6 +301,51 @@ final class ScannerViewModel: ObservableObject {
         let correctionType = override
             ?? (candidate.id == matchResponse?.bestMatch?.id ? .acceptedTop : .choseAlternative)
         completeSelection(with: candidate, correctionType: correctionType)
+    }
+
+    func recordDeckAddition(
+        itemID: UUID,
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        condition: DeckCardCondition? = nil
+    ) {
+        guard let item = scannedItems.first(where: { $0.id == itemID }) else { return }
+
+        Task {
+            await logStore.enqueueDeckConfirmation(
+                scanID: item.scanID,
+                cardID: card.id,
+                slabContext: slabContext,
+                condition: condition,
+                selectionSource: item.selectionSource,
+                selectedRank: item.selectedRank,
+                wasTopPrediction: item.wasTopPrediction
+            )
+            await flushPendingBackendQueues()
+        }
+    }
+
+    func updatePendingDeckAdditionCondition(
+        itemID: UUID,
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        condition: DeckCardCondition
+    ) {
+        guard let item = scannedItems.first(where: { $0.id == itemID }) else { return }
+
+        Task {
+            await logStore.updatePendingDeckConfirmationCondition(
+                scanID: item.scanID,
+                cardID: card.id,
+                slabContext: slabContext,
+                condition: condition
+            )
+        }
+    }
+
+    func flushPendingBackendQueues() async {
+        await flushPendingArtifactUploads()
+        await flushPendingDeckConfirmations()
     }
 
     func updateSearchQuery(_ query: String) {
@@ -329,7 +430,10 @@ final class ScannerViewModel: ObservableObject {
             nextCandidate,
             itemID: itemID,
             response: context.response,
-            preservePhase: true
+            preservePhase: true,
+            selectedRank: context.response.topCandidates.first(where: { $0.candidate.id == nextCandidate.id })?.rank,
+            wasTopPrediction: nextCandidate.id == context.response.bestMatch?.id,
+            selectionSource: nextCandidate.id == context.response.bestMatch?.id ? .topPrediction : .alternatePrediction
         )
 
         Task {
@@ -480,7 +584,8 @@ final class ScannerViewModel: ObservableObject {
                 analysis: analysis,
                 scanID: effectiveScanID,
                 pendingItemID: effectivePendingItemID,
-                performance: performance
+                performance: performance,
+                captureSource: processedCapture.captureSource
             )
         } catch {
             print("❌ [SCAN] Error: \(error.localizedDescription)")
@@ -500,12 +605,29 @@ final class ScannerViewModel: ObservableObject {
               let itemID = currentPendingItemID ?? context?.itemID else { return }
 
         let wasTopPrediction = candidate.id == matchResponse?.bestMatch?.id
+        let selectionSource: ScanSelectionSource = switch correctionType {
+        case .acceptedTop:
+            .topPrediction
+        case .choseAlternative:
+            .alternatePrediction
+        case .manualSearch:
+            .manualSearch
+        case .abandoned:
+            .abandoned
+        }
+        let selectedRank = (matchResponse ?? context?.response)?
+            .topCandidates
+            .first(where: { $0.candidate.id == candidate.id })?
+            .rank
 
         applyCandidateToResultItem(
             candidate,
             itemID: itemID,
             response: matchResponse ?? context?.response,
-            preservePhase: false
+            preservePhase: false,
+            selectedRank: selectedRank,
+            wasTopPrediction: wasTopPrediction,
+            selectionSource: selectionSource
         )
         activeResultItemID = itemID
         if activeAlternativesItemID == itemID {
@@ -534,7 +656,10 @@ final class ScannerViewModel: ObservableObject {
         _ candidate: CardCandidate,
         itemID: UUID,
         response: ScanMatchResponse?,
-        preservePhase: Bool
+        preservePhase: Bool,
+        selectedRank: Int?,
+        wasTopPrediction: Bool,
+        selectionSource: ScanSelectionSource
     ) {
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             for index in scannedItems.indices {
@@ -548,6 +673,9 @@ final class ScannerViewModel: ObservableObject {
                 item.detail = nil
                 item.isExpanded = false
                 item.isRefreshingPrice = false
+                item.selectedRank = selectedRank
+                item.wasTopPrediction = wasTopPrediction
+                item.selectionSource = selectionSource
                 item.statusMessage = ScanTrayCalculator.initialStatusMessage(for: candidate.pricing)
                 item.slabContext = resolvedSlabContext(for: candidate, response: response)
                 item.pricingContextNote = pricingContextNote(
@@ -559,6 +687,69 @@ final class ScannerViewModel: ObservableObject {
             }
         }
 
+    }
+
+    private func flushPendingArtifactUploads() async {
+        guard artifactUploadsEnabled else { return }
+        let uploads = await logStore.pendingArtifactUploads()
+        for upload in uploads {
+            do {
+                let payload = try makeArtifactUploadPayload(from: upload)
+                try await matcher.uploadScanArtifacts(payload)
+                await logStore.markArtifactUploadAttempt(scanID: upload.scanID, uploaded: true)
+            } catch {
+                await logStore.markArtifactUploadAttempt(scanID: upload.scanID, uploaded: false)
+            }
+        }
+    }
+
+    private func flushPendingDeckConfirmations() async {
+        let confirmations = await logStore.pendingDeckConfirmations()
+        for confirmation in confirmations {
+            do {
+                try await matcher.addDeckEntry(
+                    DeckEntryCreateRequestPayload(
+                        cardID: confirmation.cardID,
+                        slabContext: confirmation.slabContext,
+                        condition: confirmation.condition,
+                        sourceScanID: confirmation.scanID,
+                        selectionSource: confirmation.selectionSource,
+                        selectedRank: confirmation.selectedRank,
+                        wasTopPrediction: confirmation.wasTopPrediction,
+                        addedAt: Date()
+                    )
+                )
+                await logStore.markDeckConfirmationAttempt(id: confirmation.id, submitted: true)
+            } catch {
+                await logStore.markDeckConfirmationAttempt(id: confirmation.id, submitted: false)
+            }
+        }
+    }
+
+    private func makeArtifactUploadPayload(from upload: PendingScanArtifactUpload) throws -> ScanArtifactUploadRequestPayload {
+        let sourceImage = try makeStoredImagePayload(fromPath: upload.sourceImagePath)
+        let normalizedImage = try makeStoredImagePayload(fromPath: upload.normalizedImagePath)
+        return ScanArtifactUploadRequestPayload(
+            scanID: upload.scanID,
+            captureSource: upload.captureSource,
+            cameraZoomFactor: upload.cameraZoomFactor,
+            sourceImage: sourceImage,
+            normalizedImage: normalizedImage,
+            submittedAt: Date()
+        )
+    }
+
+    private func makeStoredImagePayload(fromPath path: String) throws -> ScanImagePayload {
+        let fileURL = URL(fileURLWithPath: path)
+        let data = try Data(contentsOf: fileURL)
+        guard let image = UIImage(contentsOfFile: path) else {
+            throw NSError(domain: "ScanArtifactUpload", code: -1, userInfo: [NSLocalizedDescriptionKey: "Image payload missing"])
+        }
+        return ScanImagePayload(
+            jpegBase64: data.base64EncodedString(),
+            width: Int(image.size.width.rounded()),
+            height: Int(image.size.height.rounded())
+        )
     }
 
     private func abandonPendingScanIfNeeded() async {
@@ -923,7 +1114,10 @@ final class ScannerViewModel: ObservableObject {
                     isRefreshingPrice: false,
                     statusMessage: "Identifying card…",
                     pricingContextNote: nil,
-                    performance: nil
+                    performance: nil,
+                    selectedRank: nil,
+                    wasTopPrediction: false,
+                    selectionSource: .unknown
                 ),
                 at: 0
             )
@@ -969,6 +1163,9 @@ final class ScannerViewModel: ObservableObject {
             if let bestMatch = response.bestMatch {
                 item.card = bestMatch
                 item.detail = nil
+                item.selectedRank = 1
+                item.wasTopPrediction = true
+                item.selectionSource = .topPrediction
                 item.pricingContextNote = pricingContextNote(
                     for: response.resolverMode,
                     matcherSource: response.matcherSource,
@@ -1109,7 +1306,8 @@ final class ScannerViewModel: ObservableObject {
         analysis: AnalyzedCapture,
         scanID: UUID,
         pendingItemID: UUID,
-        performance: ScanPerformanceMetrics
+        performance: ScanPerformanceMetrics,
+        captureSource: ScanCaptureSource
     ) async {
         do {
             print("🔍 [SCAN] Using backend match...")
@@ -1203,7 +1401,16 @@ final class ScannerViewModel: ObservableObject {
                 item.performance = updatedPerformance
             }
 
-            await logStore.logPrediction(analysis: analysis, response: response)
+            await logStore.logPrediction(
+                analysis: analysis,
+                response: response,
+                captureSource: captureSource,
+                cameraZoomFactor: Double(cameraController.currentZoomLevel),
+                enqueueArtifactUpload: artifactUploadsEnabled
+            )
+            Task {
+                await self.flushPendingBackendQueues()
+            }
 
             if let bestMatch = response.bestMatch, shouldAutoAccept(response) {
                 completeSelection(with: bestMatch, correctionType: .acceptedTop)

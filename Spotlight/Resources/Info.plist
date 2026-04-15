@@ -45,6 +45,8 @@
 	<string>$(SPOTLIGHT_DEVICE_API_BASE_URL)</string>
 	<key>SpotlightEnvironment</key>
 	<string>$(SPOTLIGHT_ENVIRONMENT)</string>
+	<key>SpotlightScanArtifactUploadsEnabled</key>
+	<string>$(SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED)</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

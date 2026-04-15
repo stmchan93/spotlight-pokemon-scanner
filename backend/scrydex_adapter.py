@@ -13,6 +13,7 @@ from urllib.request import Request, urlopen
 
 from catalog_tools import (
     RAW_PRICING_MODE,
+    PSA_GRADE_PRICING_MODE,
     RawEvidence,
     RawSignalScores,
     _set_overlap,
@@ -20,6 +21,7 @@ from catalog_tools import (
     build_raw_retrieval_plan,
     canonicalize_collector_number,
     tokenize,
+    upsert_price_history_daily,
     upsert_price_snapshot,
     upsert_slab_price_snapshot,
 )
@@ -338,6 +340,227 @@ def _best_scrydex_raw_price(payload: dict[str, Any]) -> tuple[str, dict[str, Any
     ranked.sort(key=lambda item: item[0], reverse=True)
     _, variant_name, price = ranked[0]
     return variant_name, price
+
+
+def _scrydex_today_price_date() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def persist_scrydex_daily_history_from_card_payload(
+    connection,
+    *,
+    card_id: str,
+    payload: dict[str, Any],
+    price_date: str | None = None,
+    commit: bool = True,
+) -> dict[str, int]:
+    data = _scrydex_card_data(payload)
+    variants = data.get("variants") if isinstance(data.get("variants"), list) else []
+    normalized_price_date = str(price_date or _scrydex_today_price_date()).strip() or _scrydex_today_price_date()
+    source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}", include="prices")
+    raw_count = 0
+    graded_count = 0
+
+    for variant in variants:
+        if not isinstance(variant, dict):
+            continue
+        variant_key = str(variant.get("name") or "raw").strip() or "raw"
+        variant_label = _humanize_scrydex_variant_name(variant_key) or variant_key
+        prices = variant.get("prices") if isinstance(variant.get("prices"), list) else []
+        for price in prices:
+            if not isinstance(price, dict):
+                continue
+            price_type = str(price.get("type") or "").strip().lower()
+            currency_code = str(price.get("currency") or "USD")
+            payload_stub = {
+                "provider": SCRYDEX_PROVIDER,
+                "variantKey": variant_key,
+                "variant": variant_label,
+                "condition": price.get("condition"),
+                "company": price.get("company"),
+                "grade": price.get("grade"),
+                "isSigned": bool(price.get("is_signed")),
+                "isPerfect": bool(price.get("is_perfect")),
+                "isError": bool(price.get("is_error")),
+            }
+            if price_type == "raw":
+                condition = str(price.get("condition") or "").strip().upper() or None
+                upsert_price_history_daily(
+                    connection,
+                    card_id=card_id,
+                    pricing_mode=RAW_PRICING_MODE,
+                    provider=SCRYDEX_PROVIDER,
+                    price_date=normalized_price_date,
+                    currency_code=currency_code,
+                    variant=variant_label,
+                    condition=condition,
+                    low_price=price.get("low"),
+                    market_price=price.get("market"),
+                    mid_price=price.get("mid"),
+                    high_price=price.get("high"),
+                    source_url=source_url,
+                    payload=payload_stub,
+                )
+                raw_count += 1
+            elif price_type == "graded":
+                grader = str(price.get("company") or "").strip().upper() or None
+                grade = str(price.get("grade") or "").strip().upper() or None
+                if not grader or not grade:
+                    continue
+                upsert_price_history_daily(
+                    connection,
+                    card_id=card_id,
+                    pricing_mode=PSA_GRADE_PRICING_MODE,
+                    provider=SCRYDEX_PROVIDER,
+                    price_date=normalized_price_date,
+                    currency_code=currency_code,
+                    variant=variant_label,
+                    grader=grader,
+                    grade=grade,
+                    is_perfect=bool(price.get("is_perfect")),
+                    is_signed=bool(price.get("is_signed")),
+                    is_error=bool(price.get("is_error")),
+                    low_price=price.get("low"),
+                    market_price=price.get("market"),
+                    mid_price=price.get("mid"),
+                    high_price=price.get("high"),
+                    source_url=source_url,
+                    payload=payload_stub,
+                )
+                graded_count += 1
+
+    if commit:
+        connection.commit()
+    return {
+        "rawCount": raw_count,
+        "gradedCount": graded_count,
+    }
+
+
+def fetch_scrydex_price_history(
+    card_id: str,
+    *,
+    days: int = 30,
+    variant: str | None = None,
+    condition: str | None = None,
+    company: str | None = None,
+    grade: str | None = None,
+    is_perfect: bool | None = None,
+    is_signed: bool | None = None,
+    is_error: bool | None = None,
+    timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    params: dict[str, str] = {
+        "days": str(max(1, int(days))),
+        "page_size": str(max(30, int(days))),
+    }
+    if variant:
+        params["variant"] = str(variant)
+    if condition:
+        params["condition"] = str(condition)
+    if company:
+        params["company"] = str(company)
+    if grade:
+        params["grade"] = str(grade)
+    if is_perfect is not None:
+        params["is_perfect"] = "true" if is_perfect else "false"
+    if is_signed is not None:
+        params["is_signed"] = "true" if is_signed else "false"
+    if is_error is not None:
+        params["is_error"] = "true" if is_error else "false"
+    return scrydex_api_request(
+        f"/pokemon/v1/cards/{card_id}/price_history",
+        request_type="price_history",
+        timeout=timeout,
+        **params,
+    )
+
+
+def persist_scrydex_price_history_payload(
+    connection,
+    *,
+    card_id: str,
+    payload: dict[str, Any],
+    commit: bool = True,
+) -> int:
+    entries = payload.get("data")
+    if not isinstance(entries, list):
+        return 0
+    persisted_count = 0
+    source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}/price_history")
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        price_date = str(entry.get("date") or "").strip()
+        if not price_date:
+            continue
+        prices = entry.get("prices")
+        if not isinstance(prices, list):
+            continue
+        for price in prices:
+            if not isinstance(price, dict):
+                continue
+            price_type = str(price.get("type") or "").strip().lower()
+            variant_key = str(price.get("variant") or "raw").strip() or "raw"
+            variant_label = _humanize_scrydex_variant_name(variant_key) or variant_key
+            payload_stub = {
+                "provider": SCRYDEX_PROVIDER,
+                "variantKey": variant_key,
+                "variant": variant_label,
+                "condition": price.get("condition"),
+                "company": price.get("company"),
+                "grade": price.get("grade"),
+                "isSigned": bool(price.get("is_signed")),
+                "isPerfect": bool(price.get("is_perfect")),
+                "isError": bool(price.get("is_error")),
+            }
+            if price_type == "raw":
+                upsert_price_history_daily(
+                    connection,
+                    card_id=card_id,
+                    pricing_mode=RAW_PRICING_MODE,
+                    provider=SCRYDEX_PROVIDER,
+                    price_date=price_date,
+                    currency_code=str(price.get("currency") or "USD"),
+                    variant=variant_label,
+                    condition=str(price.get("condition") or "").strip().upper() or None,
+                    low_price=price.get("low"),
+                    market_price=price.get("market"),
+                    mid_price=price.get("mid"),
+                    high_price=price.get("high"),
+                    source_url=source_url,
+                    payload=payload_stub,
+                )
+                persisted_count += 1
+            elif price_type == "graded":
+                grader = str(price.get("company") or "").strip().upper() or None
+                grade = str(price.get("grade") or "").strip().upper() or None
+                if not grader or not grade:
+                    continue
+                upsert_price_history_daily(
+                    connection,
+                    card_id=card_id,
+                    pricing_mode=PSA_GRADE_PRICING_MODE,
+                    provider=SCRYDEX_PROVIDER,
+                    price_date=price_date,
+                    currency_code=str(price.get("currency") or "USD"),
+                    variant=variant_label,
+                    grader=grader,
+                    grade=grade,
+                    is_perfect=bool(price.get("is_perfect")),
+                    is_signed=bool(price.get("is_signed")),
+                    is_error=bool(price.get("is_error")),
+                    low_price=price.get("low"),
+                    market_price=price.get("market"),
+                    mid_price=price.get("mid"),
+                    high_price=price.get("high"),
+                    source_url=source_url,
+                    payload=payload_stub,
+                )
+                persisted_count += 1
+    if commit:
+        connection.commit()
+    return persisted_count
 
 
 def persist_scrydex_raw_snapshot(

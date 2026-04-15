@@ -47,6 +47,54 @@ Repo-specific workflow notes for future coding agents.
   - broad footer/header OCR text should not be promoted into trusted raw set evidence by default
 - The old `RawCardScanner` raw path has been deleted from app runtime. Do not recreate it.
 
+## Scan Artifact Dataset And Confirmation Rules
+
+- The scanner moat / training dataset now treats scan capture, matcher prediction, scan selection, and deck add confirmation as separate states.
+- Store two scan images for artifact capture:
+  - `source_capture`
+  - `normalized_target`
+- `source_capture` should be the real production capture image used by the app at scan time, not a synthetic zoom variant.
+- `normalized_target` is the image actually sent through OCR / matcher flow and is required for future model work.
+- Scan artifact binaries should live in a private object store / bucket. Do not make scan artifacts public.
+- Scan artifact rollout matrix:
+  - `Debug` / local dev:
+    - deck backend flow stays on
+    - scan artifact uploads default `off`
+    - if explicitly enabled for local testing, filesystem-backed local storage is acceptable
+  - `Staging` / internal dogfood:
+    - deck backend flow stays on
+    - scan artifact uploads should be `on`
+    - artifact storage should be private GCS
+  - `Release` / production:
+    - deck backend flow stays on
+    - scan artifact uploads may be `on`, but must stay behind a backend runtime kill switch
+    - production artifacts must use a different private GCS bucket than staging
+- Scan artifact runtime controls:
+  - app build-config gate: `SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED`
+  - backend env default gate: `SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED`
+  - backend runtime override: `POST /api/v1/admin/scan-artifact-uploads`
+  - backend storage selector: `SPOTLIGHT_SCAN_ARTIFACTS_STORAGE`
+  - backend private bucket: `SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET`
+- Matcher output is not ground truth:
+  - `predicted_card_id` = backend top guess at scan time
+  - `selected_card_id` = card chosen during scan review flow
+  - `confirmed_card_id` = trusted label only after explicit `Add to deck`
+- Do not collapse or overwrite those three card-id states into one field.
+- `Add to deck` is the trusted confirmation event for labeled training data.
+- Keep scan selection feedback separate from deck confirmation:
+  - scan feedback may update `selected_card_id`
+  - only add-to-deck may update `confirmed_card_id`
+- Training/export guidance:
+  - use `confirmed_card_id` rows as gold labels
+  - treat `selected_card_id` without add confirmation as weak labels only
+  - keep unlabeled artifact rows for OCR/debug/self-supervised analysis
+- Deck / collection dedupe semantics must match current app behavior:
+  - raw cards dedupe by `card_id`
+  - slabs dedupe by `card_id + grader + grade + cert + variant`
+- The backend schema is no longer only the original identity/pricing trio in practice.
+  - `cards`, `card_price_snapshots`, and `scan_events` remain the core identity/pricing spine
+  - scan artifact, candidate, price-observation, confirmation, and deck tables are now first-class supporting tables
+
 ## Current raw scan reliability state
 
 - The recent raw reliability hardening work is mostly landed.
@@ -142,6 +190,10 @@ Repo-specific workflow notes for future coding agents.
 - Provider prices are **not** blended or averaged together.
 - The tray shows one active/default provider result.
 - The architecture supports future side-by-side provider display in detail views.
+- Current SQLite runtime shape:
+  - the core card/runtime cache still centers on `cards`, `card_price_snapshots`, and `scan_events`
+  - the scan-artifact / deck-confirmation work adds additional tables for artifacts, predictions, confirmations, and deck entries
+  - do not describe the runtime as "only 3 tables" once the scan-artifact dataset lands
 - Pricing freshness rule:
   - persisted SQLite snapshot timestamps are the source of truth for the normal cached freshness window and for `isFresh`
   - live pricing is a separate explicit runtime gate, not the same thing as normal cached freshness
@@ -167,6 +219,7 @@ Repo-specific workflow notes for future coding agents.
   - when live pricing is `off`, ranks `1-10` return SQLite pricing only with no live refreshes
   - when live pricing is `on`, the matched card plus ranks `1-10` may refresh pricing live when the stored snapshot is missing or older than `1 hour`, then persist the refreshed pricing back to SQLite
   - there is no rank-1 special case in the live-pricing path
+
 - Current Scrydex mirror rule:
   - the current beta deployment is a same-host VM plus nightly Scrydex mirror against one shared SQLite file
   - run the backend and the nightly Scrydex sync on the same machine against the same SQLite file
@@ -191,16 +244,26 @@ Repo-specific workflow notes for future coding agents.
   - [backend/pricing_utils.py](/Users/stephenchan/Code/spotlight/backend/pricing_utils.py) - shared price normalization utilities
   - [backend/pricecharting_adapter.py](/Users/stephenchan/Code/spotlight/backend/pricecharting_adapter.py) - PriceCharting implementation
   - [backend/scrydex_adapter.py](/Users/stephenchan/Code/spotlight/backend/scrydex_adapter.py) - Scrydex implementation
+  - scan artifact / confirmation / deck storage should be implemented alongside:
+    - `backend/server.py`
+    - `backend/catalog_tools.py`
+    - `backend/schema.sql`
 
 ## Backend Reset Direction
 
 - The raw backend reset is active and intentionally replaced the old collector-number-first matcher:
   - old `direct_lookup`-first raw routing is removed from the active raw runtime path
   - runtime raw matching now uses evidence extraction -> title/broad retrieval -> footer rerank
-  - runtime SQLite target is simplified around:
-    - `cards`
-    - `card_price_snapshots`
-    - `scan_events`
+- runtime SQLite identity/pricing core remains:
+  - `cards`
+  - `card_price_snapshots`
+  - `scan_events`
+- scan dataset / confirmation support now layers on top of that core with:
+  - scan artifact storage
+  - scan candidate snapshots
+  - scan price observations
+  - scan confirmations
+  - deck entries
 - Current landed raw matcher baseline:
   - title/header and broader text retrieve candidates first
   - footer OCR confirms, reranks, and breaks ties later

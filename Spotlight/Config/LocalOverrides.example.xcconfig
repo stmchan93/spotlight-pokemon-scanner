@@ -9,3 +9,7 @@ SPOTLIGHT_STAGING_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.ru
 
 // Optional. Override production without editing Release.xcconfig.
 SPOTLIGHT_PRODUCTION_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.run.app/
+
+// Optional. Override scan artifact uploads for local testing.
+// Debug defaults to NO. Staging/Release default to YES.
+SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED = NO

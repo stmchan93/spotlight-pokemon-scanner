@@ -173,6 +173,10 @@ VISUAL_INDEX_NPZ_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE"
 VISUAL_INDEX_MANIFEST_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH")")"
 VISUAL_ADAPTER_CHECKPOINT_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")")"
 VISUAL_ADAPTER_METADATA_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH")")"
+SCAN_ARTIFACTS_STORAGE="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_SCAN_ARTIFACTS_STORAGE")"
+SCAN_ARTIFACTS_GCS_BUCKET="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET")"
+SCAN_ARTIFACTS_ROOT="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_SCAN_ARTIFACTS_ROOT")"
+SCAN_ARTIFACT_UPLOADS_ENABLED="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED")"
 SERVICE_NAME="spotlight-backend.service"
 SERVICE_PATH="/etc/systemd/system/$SERVICE_NAME"
 SERVICE_USER="$(id -un)"
@@ -205,6 +209,15 @@ for schedule_var in SYNC_CRON_SCHEDULE HEALTH_CRON_SCHEDULE RESOURCE_CRON_SCHEDU
   fi
 done
 
+if [ -n "$SCAN_ARTIFACTS_GCS_BUCKET" ] && [ -z "$SCAN_ARTIFACTS_STORAGE" ]; then
+  SCAN_ARTIFACTS_STORAGE="gcs"
+fi
+
+if [ "$SCAN_ARTIFACTS_STORAGE" = "gcs" ] && [ -z "$SCAN_ARTIFACTS_GCS_BUCKET" ]; then
+  echo "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET is required when SPOTLIGHT_SCAN_ARTIFACTS_STORAGE=gcs" >&2
+  exit 1
+fi
+
 mkdir -p "$LOG_DIR" "$DATA_DIR"
 
 stage_runtime_data_file \
@@ -229,16 +242,22 @@ SPOTLIGHT_PORT=8788
 SPOTLIGHT_PUBLIC_BASE_URL=$PUBLIC_BASE_URL
 EOF
 
-for override_key in \
-  SPOTLIGHT_VISUAL_INDEX_NPZ_PATH \
-  SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH \
-  SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH \
-  SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH; do
-  override_value="${!override_key:-}"
-  if [ -n "$override_value" ]; then
-    printf '%s=%s\n' "$override_key" "$override_value" >> "$RUNTIME_CONFIG_FILE"
+write_runtime_override() {
+  local env_key="$1"
+  local env_value="${2:-}"
+  if [ -n "$env_value" ]; then
+    printf '%s=%s\n' "$env_key" "$env_value" >> "$RUNTIME_CONFIG_FILE"
   fi
-done
+}
+
+write_runtime_override "SPOTLIGHT_VISUAL_INDEX_NPZ_PATH" "$VISUAL_INDEX_NPZ_PATH"
+write_runtime_override "SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH" "$VISUAL_INDEX_MANIFEST_PATH"
+write_runtime_override "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH" "$VISUAL_ADAPTER_CHECKPOINT_PATH"
+write_runtime_override "SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH" "$VISUAL_ADAPTER_METADATA_PATH"
+write_runtime_override "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED" "$SCAN_ARTIFACT_UPLOADS_ENABLED"
+write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_STORAGE" "$SCAN_ARTIFACTS_STORAGE"
+write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET" "$SCAN_ARTIFACTS_GCS_BUCKET"
+write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_ROOT" "$SCAN_ARTIFACTS_ROOT"
 
 chmod 600 "$RUNTIME_CONFIG_FILE"
 chmod +x \

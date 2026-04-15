@@ -184,6 +184,14 @@ enum CorrectionType: String, Codable, Sendable {
     case abandoned
 }
 
+enum ScanSelectionSource: String, Codable, Hashable, Sendable {
+    case topPrediction = "top"
+    case alternatePrediction = "alternate"
+    case manualSearch = "manual_search"
+    case abandoned = "abandoned"
+    case unknown = "unknown"
+}
+
 struct ScanEventLog: Codable, Identifiable, Sendable {
     let id: UUID
     let createdAt: Date
@@ -265,6 +273,9 @@ struct LiveScanStackItem: Identifiable {
     var pricingContextNote: String?
     var performance: ScanPerformanceMetrics?
     var cacheStatus: CacheStatus?
+    var selectedRank: Int?
+    var wasTopPrediction: Bool
+    var selectionSource: ScanSelectionSource
 
     var displayCard: CardCandidate? {
         detail?.card ?? card

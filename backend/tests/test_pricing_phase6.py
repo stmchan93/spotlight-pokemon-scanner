@@ -21,6 +21,7 @@ from catalog_tools import (  # noqa: E402
     RAW_PRICING_MODE,
     apply_schema,
     connect,
+    upsert_price_history_daily,
     start_provider_sync_run,
     update_provider_sync_run,
     upsert_card,
@@ -29,7 +30,11 @@ from catalog_tools import (  # noqa: E402
     upsert_slab_price_snapshot,
     utc_now,
 )
-from scrydex_adapter import persist_scrydex_all_graded_snapshots, reset_scrydex_request_stats  # noqa: E402
+from scrydex_adapter import (  # noqa: E402
+    persist_scrydex_all_graded_snapshots,
+    persist_scrydex_daily_history_from_card_payload,
+    reset_scrydex_request_stats,
+)
 from server import PricingLoadPolicy, SpotlightScanService, _load_backend_env_file  # noqa: E402
 from sync_scrydex_catalog import sync_scrydex_catalog  # noqa: E402
 
@@ -189,7 +194,11 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(provider_status["experimentalResolverModes"], ["psa_slab"])
         self.assertIn("scrydexRequestStats", provider_status)
         self.assertIn("livePricing", provider_status)
+        self.assertIn("scanArtifactUploads", provider_status)
         self.assertFalse(provider_status["livePricing"]["enabled"])
+        self.assertEqual(provider_status["scanArtifactUploads"]["storage"], "filesystem")
+        self.assertIsNone(provider_status["scanArtifactUploads"]["activeBucketName"])
+        self.assertTrue(provider_status["scanArtifactUploads"]["filesystemRoot"].endswith("backend/data/scan-artifacts"))
         self.assertEqual(cache_status["rawSnapshots"]["count"], 1)
         self.assertEqual(cache_status["slabSnapshots"]["count"], 1)
 
@@ -1364,6 +1373,260 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(payload["refreshedCount"], 0)
         self.assertEqual(payload["returnedCount"], 1)
         self.assertEqual(payload["cards"][0]["card"]["id"], "base1-4")
+
+    def test_persist_scrydex_daily_history_from_card_payload_writes_raw_and_graded_rows(self) -> None:
+        counts = persist_scrydex_daily_history_from_card_payload(
+            self.connection,
+            card_id="base1-4",
+            payload={
+                "data": {
+                    "variants": [
+                        {
+                            "name": "holofoil",
+                            "prices": [
+                                {
+                                    "type": "raw",
+                                    "condition": "NM",
+                                    "currency": "USD",
+                                    "low": 100.0,
+                                    "market": 120.0,
+                                    "mid": 115.0,
+                                    "high": 140.0,
+                                },
+                                {
+                                    "type": "graded",
+                                    "company": "PSA",
+                                    "grade": "9",
+                                    "currency": "USD",
+                                    "low": 900.0,
+                                    "market": 1000.0,
+                                    "mid": 980.0,
+                                    "high": 1100.0,
+                                },
+                            ],
+                        }
+                    ]
+                }
+            },
+            price_date="2026-04-14",
+            commit=False,
+        )
+        self.connection.commit()
+
+        row_count = self.connection.execute(
+            "SELECT COUNT(*) AS count FROM card_price_history_daily WHERE card_id = ?",
+            ("base1-4",),
+        ).fetchone()["count"]
+        raw_row = self.connection.execute(
+            """
+            SELECT pricing_mode, variant, condition, market_price
+            FROM card_price_history_daily
+            WHERE card_id = ? AND pricing_mode = ?
+            """,
+            ("base1-4", RAW_PRICING_MODE),
+        ).fetchone()
+        graded_row = self.connection.execute(
+            """
+            SELECT pricing_mode, grader, grade, market_price
+            FROM card_price_history_daily
+            WHERE card_id = ? AND pricing_mode = ?
+            """,
+            ("base1-4", PSA_GRADE_PRICING_MODE),
+        ).fetchone()
+
+        self.assertEqual(counts, {"rawCount": 1, "gradedCount": 1})
+        self.assertEqual(row_count, 2)
+        self.assertEqual(raw_row["variant"], "Holofoil")
+        self.assertEqual(raw_row["condition"], "NM")
+        self.assertEqual(raw_row["market_price"], 120.0)
+        self.assertEqual(graded_row["grader"], "PSA")
+        self.assertEqual(graded_row["grade"], "9")
+        self.assertEqual(graded_row["market_price"], 1000.0)
+
+    def test_card_market_history_returns_raw_points_and_deltas_from_sqlite(self) -> None:
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-01",
+            currency_code="USD",
+            variant="Holofoil",
+            condition="NM",
+            low_price=9.0,
+            market_price=10.0,
+            mid_price=10.0,
+            high_price=11.0,
+            payload={"provider": "scrydex", "variantKey": "holofoil"},
+        )
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-07",
+            currency_code="USD",
+            variant="Holofoil",
+            condition="NM",
+            low_price=11.0,
+            market_price=12.0,
+            mid_price=12.0,
+            high_price=13.0,
+            payload={"provider": "scrydex", "variantKey": "holofoil"},
+        )
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-14",
+            currency_code="USD",
+            variant="Holofoil",
+            condition="NM",
+            low_price=14.0,
+            market_price=15.0,
+            mid_price=15.0,
+            high_price=16.0,
+            payload={"provider": "scrydex", "variantKey": "holofoil"},
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.card_market_history("base1-4", days=30)
+        finally:
+            service.connection.close()
+
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload["pricingMode"], "raw")
+        self.assertEqual(payload["selectedVariant"], "Holofoil")
+        self.assertEqual(payload["selectedCondition"], "NM")
+        self.assertEqual(len(payload["points"]), 3)
+        self.assertEqual(payload["points"][0]["date"], "2026-04-01")
+        self.assertEqual(payload["points"][-1]["date"], "2026-04-14")
+        self.assertEqual(payload["currentPrice"], 15.0)
+        self.assertEqual(payload["availableConditions"], [{"id": "NM", "label": "NM", "currentPrice": 15.0}])
+        self.assertAlmostEqual(payload["deltas"]["days7"]["priceChange"], 3.0)
+        self.assertAlmostEqual(payload["deltas"]["days7"]["percentChange"], 25.0)
+        self.assertAlmostEqual(payload["deltas"]["days30"]["priceChange"], 5.0)
+        self.assertAlmostEqual(payload["deltas"]["days30"]["percentChange"], 50.0)
+
+    def test_card_market_history_returns_graded_points_from_sqlite(self) -> None:
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-01",
+            currency_code="USD",
+            variant="Holofoil",
+            grader="PSA",
+            grade="10",
+            low_price=900.0,
+            market_price=950.0,
+            mid_price=950.0,
+            high_price=1000.0,
+            payload={"provider": "scrydex", "variantKey": "holofoil"},
+        )
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-14",
+            currency_code="USD",
+            variant="Holofoil",
+            grader="PSA",
+            grade="10",
+            low_price=1080.0,
+            market_price=1125.0,
+            mid_price=1125.0,
+            high_price=1180.0,
+            payload={"provider": "scrydex", "variantKey": "holofoil"},
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.card_market_history("base1-4", days=30, grader="PSA", grade="10")
+        finally:
+            service.connection.close()
+
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload["pricingMode"], "graded")
+        self.assertEqual(payload["selectedVariant"], "Holofoil")
+        self.assertEqual(len(payload["points"]), 2)
+        self.assertEqual(payload["currentPrice"], 1125.0)
+        self.assertEqual(payload["availableConditions"], [])
+        self.assertAlmostEqual(payload["deltas"]["days30"]["priceChange"], 175.0)
+
+    def test_card_market_history_skips_live_backfill_when_live_pricing_is_disabled(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            with patch("server.fetch_scrydex_price_history", side_effect=AssertionError("live history fetch should not run")):
+                payload = service.card_market_history("base1-4", days=30)
+        finally:
+            service.connection.close()
+
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        self.assertEqual(payload["points"], [])
+        self.assertFalse(payload["livePricingEnabled"])
+
+    def test_card_market_history_backfills_when_live_pricing_is_enabled(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            service.set_live_pricing_mode(enabled=True)
+            with patch(
+                "server.fetch_scrydex_price_history",
+                return_value={
+                    "data": [
+                        {
+                            "date": "2026-04-07",
+                            "prices": [
+                                {
+                                    "type": "raw",
+                                    "variant": "holofoil",
+                                    "condition": "NM",
+                                    "currency": "USD",
+                                    "low": 11.0,
+                                    "market": 12.0,
+                                    "mid": 12.0,
+                                    "high": 13.0,
+                                }
+                            ],
+                        },
+                        {
+                            "date": "2026-04-14",
+                            "prices": [
+                                {
+                                    "type": "raw",
+                                    "variant": "holofoil",
+                                    "condition": "NM",
+                                    "currency": "USD",
+                                    "low": 14.0,
+                                    "market": 15.0,
+                                    "mid": 15.0,
+                                    "high": 16.0,
+                                }
+                            ],
+                        },
+                    ]
+                },
+            ) as fetch_history:
+                payload = service.card_market_history("base1-4", days=30)
+        finally:
+            service.connection.close()
+
+        self.assertIsNotNone(payload)
+        assert payload is not None
+        fetch_history.assert_called_once()
+        self.assertEqual(payload["selectedVariant"], "Holofoil")
+        self.assertEqual(payload["selectedCondition"], "NM")
+        self.assertEqual(len(payload["points"]), 2)
+        self.assertEqual(payload["currentPrice"], 15.0)
 
     @staticmethod
     def _import_without_dotenv(name, globals=None, locals=None, fromlist=(), level=0):

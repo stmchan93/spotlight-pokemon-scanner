@@ -11,9 +11,14 @@ struct ReticleBoundsKey: PreferenceKey {
 
 struct ScannerView: View {
     @ObservedObject var viewModel: ScannerViewModel
+    @ObservedObject var collectionStore: CollectionStore
+    let onExitScanner: (() -> Void)?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isTrayExpanded = false
     @State private var reticleBounds: CGRect = .zero
+    @State private var addTooltipItemID: UUID?
+    @State private var seenAddTooltipItemIDs: Set<UUID> = []
+    @State private var traySwipeOffsets: [UUID: CGFloat] = [:]
 
     private var activePendingItem: LiveScanStackItem? {
         viewModel.scannedItems.first(where: { $0.phase == .pending })
@@ -59,6 +64,7 @@ struct ScannerView: View {
         }
         .onAppear {
             viewModel.startScannerSession()
+            maybeShowAddTooltip()
         }
         .onDisappear {
             viewModel.stopScannerSession()
@@ -79,6 +85,9 @@ struct ScannerView: View {
                     selectedPhotoItem = nil
                 }
             }
+        }
+        .onChange(of: viewModel.visibleScannedItems.map(\.id)) { _, _ in
+            maybeShowAddTooltip()
         }
     }
 
@@ -102,8 +111,13 @@ struct ScannerView: View {
             )
             .ignoresSafeArea()
 
+            GeometryReader { proxy in
+                tapAnywhereCaptureLayer(containerProxy: proxy)
+            }
+
             // Dark overlay with reticle cutout (Rare Candy style)
             darkOverlayWithCutout
+                .allowsHitTesting(false)
 
             scanningReticle
         }
@@ -138,6 +152,18 @@ struct ScannerView: View {
 
     private var topBar: some View {
         HStack(alignment: .top, spacing: 14) {
+            if let onExitScanner {
+                Button(action: onExitScanner) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .background(Color.white.opacity(0.1))
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
             Text("Spotlight")
                 .font(.system(size: 30, weight: .bold, design: .rounded))
                 .foregroundStyle(.white)
@@ -210,16 +236,7 @@ struct ScannerView: View {
                         .onPreferenceChange(ReticleBoundsKey.self) { bounds in
                             reticleBounds = bounds
                         }
-                        .onTapGesture {
-                            // Only capture if camera is ready and not already processing
-                            guard cameraIsInteractive, !scanInteractionLocked else { return }
-                            let fallbackReticleRect = resolvedReticleCaptureRect(
-                                preferred: reticleBounds,
-                                containerFrame: geo.frame(in: .global),
-                                layout: layout
-                            )
-                            viewModel.capturePhoto(reticleRect: fallbackReticleRect)
-                        }
+                        .allowsHitTesting(false)
 
                     cameraControls
                         .padding(.top, layout.controlsTopSpacing)
@@ -230,6 +247,30 @@ struct ScannerView: View {
 
                 Spacer()
             }
+        }
+    }
+
+    @ViewBuilder
+    private func tapAnywhereCaptureLayer(containerProxy: GeometryProxy) -> some View {
+        if cameraIsInteractive {
+            let layout = ScannerReticleLayout.make(
+                containerSize: containerProxy.size,
+                safeAreaTop: containerProxy.safeAreaInsets.top,
+                safeAreaBottom: containerProxy.safeAreaInsets.bottom,
+                mode: viewModel.scannerPresentationMode
+            )
+
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    guard !scanInteractionLocked else { return }
+                    let fallbackReticleRect = resolvedReticleCaptureRect(
+                        preferred: reticleBounds,
+                        containerFrame: containerProxy.frame(in: .global),
+                        layout: layout
+                    )
+                    viewModel.capturePhoto(reticleRect: fallbackReticleRect)
+                }
         }
     }
 
@@ -448,63 +489,215 @@ struct ScannerView: View {
     private func compactCardRow(_ item: LiveScanStackItem) -> some View {
         let detailAction = rowAction(for: item)
         let cycleState = viewModel.candidateCycleState(for: item.id)
+        let collectionState = collectionState(for: item)
+        let swipeOffset = traySwipeOffsets[item.id] ?? 0
 
-        return HStack(alignment: .center, spacing: 12) {
-            StackItemThumbnail(
-                item: item,
-                cycleState: cycleState,
-                onPrimaryTap: detailAction,
-                onCycleTap: cycleState == nil ? nil : { viewModel.cycleCandidate(for: item.id) }
-            )
-                .frame(width: 50, height: 70)
+        return ZStack(alignment: .leading) {
+            trayRemovalBackground(revealedWidth: swipeOffset) {
+                withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                    traySwipeOffsets[item.id] = nil
+                }
+                viewModel.removeStackItem(item.id)
+            }
 
             HStack(alignment: .center, spacing: 12) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(primaryTitle(for: item))
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .lineLimit(2)
+                StackItemThumbnail(
+                    item: item,
+                    cycleState: cycleState,
+                    onPrimaryTap: detailAction,
+                    onCycleTap: cycleState == nil ? nil : { viewModel.cycleCandidate(for: item.id) }
+                )
+                    .frame(width: 50, height: 70)
 
-                    if let secondaryTitle = secondaryTitle(for: item) {
-                        Text(secondaryTitle)
-                            .font(.system(size: 12))
-                            .foregroundStyle(.white.opacity(0.7))
+                HStack(alignment: .center, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 3) {
+                        Text(primaryTitle(for: item))
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(.white)
                             .lineLimit(2)
+
+                        if let secondaryTitle = secondaryTitle(for: item) {
+                            Text(secondaryTitle)
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.7))
+                                .lineLimit(2)
+                        }
+
+                        if let tertiaryLine = tertiaryLine(for: item) {
+                            Text(tertiaryLine)
+                                .font(.system(size: 11))
+                                .foregroundStyle(.white.opacity(0.6))
+                                .lineLimit(1)
+                        }
                     }
 
-                    if let tertiaryLine = tertiaryLine(for: item) {
-                        Text(tertiaryLine)
-                            .font(.system(size: 11))
-                            .foregroundStyle(.white.opacity(0.6))
-                            .lineLimit(1)
+                    Spacer(minLength: 8)
+
+                    if let pricing = item.pricing, let primaryPrice = pricing.primaryDisplayPrice {
+                        VStack(alignment: .trailing, spacing: 2) {
+                            Text(pricing.primaryLabel.uppercased())
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundStyle(.white.opacity(0.5))
+
+                            Text(formattedPrice(primaryPrice, currencyCode: pricing.currencyCode))
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                        }
+                    } else if item.phase == .pending {
+                        ProgressView()
+                            .tint(.white)
                     }
                 }
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    detailAction?()
+                }
 
-                Spacer(minLength: 8)
-
-                if let pricing = item.pricing, let primaryPrice = pricing.primaryDisplayPrice {
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(pricing.primaryLabel.uppercased())
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.5))
-
-                        Text(formattedPrice(primaryPrice, currencyCode: pricing.currencyCode))
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                    }
-                } else if item.phase == .pending {
-                    ProgressView()
-                        .tint(.white)
+                if let collectionState {
+                    trayCollectionAction(item: item, state: collectionState)
                 }
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                detailAction?()
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .background(Color.black.opacity(0.9))
+            .offset(x: swipeOffset)
+        }
+        .clipped()
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 16)
+                .onChanged { value in
+                    let translation = clampedTrayDismissOffset(value.translation.width)
+                    guard translation >= 0 else { return }
+                    traySwipeOffsets[item.id] = translation
+                }
+                .onEnded { value in
+                    let translation = clampedTrayDismissOffset(value.translation.width)
+                    if shouldRevealTrayItemDeleteAction(forSwipeOffset: translation) {
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                            traySwipeOffsets[item.id] = 132
+                        }
+                    } else {
+                        withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                            traySwipeOffsets[item.id] = 0
+                        }
+                    }
+                }
+        )
+    }
+
+    private func trayRemovalBackground(revealedWidth: CGFloat, onRemove: @escaping () -> Void) -> some View {
+        Button(role: .destructive, action: onRemove) {
+            HStack(spacing: 10) {
+                Image(systemName: "trash.fill")
+                    .font(.system(size: 17, weight: .bold))
+                Text("Remove")
+                    .font(.system(size: 13, weight: .bold))
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .padding(.leading, 18)
+            .background(
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.70, green: 0.18, blue: 0.18),
+                        Color(red: 0.49, green: 0.08, blue: 0.08)
+                    ],
+                    startPoint: .leading,
+                    endPoint: .trailing
+                )
+            )
+        }
+        .buttonStyle(.plain)
+        .allowsHitTesting(revealedWidth >= 44)
+        .opacity(revealedWidth > 8 ? 1 : 0)
+    }
+
+    private func collectionState(for item: LiveScanStackItem) -> TrayCollectionState? {
+        guard item.phase == .resolved || item.phase == .needsReview,
+              let card = item.displayCard else {
+            return nil
+        }
+
+        return TrayCollectionState(
+            card: card,
+            slabContext: item.slabContext,
+            quantity: collectionStore.quantity(card: card, slabContext: item.slabContext)
+        )
+    }
+
+    private func trayCollectionAction(item: LiveScanStackItem, state: TrayCollectionState) -> some View {
+        VStack(spacing: 4) {
+            if state.quantity > 0 {
+                Text("QTY \(state.quantity)")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.white.opacity(0.14))
+                    .clipShape(Capsule())
+            }
+
+            Button {
+                addCardToDeck(item: item, card: state.card, slabContext: state.slabContext)
+            } label: {
+                Image(systemName: "plus.square.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .foregroundStyle(Color(red: 0.74, green: 0.94, blue: 0.33))
+            }
+            .buttonStyle(.plain)
+
+            Text("ADD")
+                .font(.system(size: 11, weight: .bold))
+                .foregroundStyle(Color(red: 0.74, green: 0.94, blue: 0.33))
+        }
+        .frame(width: 58)
+        .overlay(alignment: .topTrailing) {
+            if addTooltipItemID == item.id {
+                Text("Add to Portfolio")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.black)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .background(Color.white)
+                    .clipShape(Capsule())
+                    .shadow(color: .black.opacity(0.22), radius: 12, y: 8)
+                    .offset(x: -4, y: -42)
+                    .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
-        .background(Color.black.opacity(0.9))
+    }
+
+    private func addCardToDeck(item: LiveScanStackItem, card: CardCandidate, slabContext: SlabContext?) {
+        let appliedCondition: DeckCardCondition = .nearMint
+        let quantity = collectionStore.add(card: card, slabContext: slabContext, condition: appliedCondition)
+        viewModel.recordDeckAddition(itemID: item.id, card: card, slabContext: slabContext, condition: appliedCondition)
+        addTooltipItemID = nil
+        let message = "\(card.name) added to portfolio • Qty \(quantity)"
+        viewModel.showBannerMessage(message)
+    }
+
+    private func maybeShowAddTooltip() {
+        guard addTooltipItemID == nil else {
+            return
+        }
+
+        guard let item = viewModel.visibleScannedItems.first(where: {
+            ($0.phase == .resolved || $0.phase == .needsReview)
+                && collectionState(for: $0)?.quantity == 0
+                && !seenAddTooltipItemIDs.contains($0.id)
+        }) else {
+            return
+        }
+
+        seenAddTooltipItemIDs.insert(item.id)
+        addTooltipItemID = item.id
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2))
+            if addTooltipItemID == item.id {
+                addTooltipItemID = nil
+            }
+        }
     }
 
     private var emptyTrayState: some View {
@@ -533,7 +726,7 @@ struct ScannerView: View {
             RoundedRectangle(cornerRadius: 22, style: .continuous)
                 .stroke(Color.white.opacity(0.05), lineWidth: 1)
         )
-        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
             Button(role: .destructive) {
                 viewModel.removeStackItem(item.id)
             } label: {
@@ -1053,6 +1246,20 @@ private struct TopBarIconButton: View {
             .background(Color.black.opacity(0.4))
             .clipShape(Circle())
     }
+}
+
+func clampedTrayDismissOffset(_ translationWidth: CGFloat) -> CGFloat {
+    max(0, min(translationWidth, 180))
+}
+
+func shouldRevealTrayItemDeleteAction(forSwipeOffset offset: CGFloat) -> Bool {
+    offset >= 92
+}
+
+private struct TrayCollectionState {
+    let card: CardCandidate
+    let slabContext: SlabContext?
+    let quantity: Int
 }
 
 private struct StackItemThumbnail: View {

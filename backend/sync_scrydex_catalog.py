@@ -21,6 +21,7 @@ from scrydex_adapter import (
     SCRYDEX_PROVIDER,
     fetch_scrydex_cards_page,
     map_scrydex_catalog_card,
+    persist_scrydex_daily_history_from_card_payload,
     persist_scrydex_all_graded_snapshots,
     persist_scrydex_raw_snapshot,
     scrydex_credentials,
@@ -116,6 +117,12 @@ def sync_scrydex_catalog(
                 if persist_scrydex_raw_snapshot(connection, str(mapped_card["id"]), payload, commit=False) is not None:
                     totals["rawSnapshotsUpserted"] += 1
                 totals["gradedSnapshotsUpserted"] += persist_scrydex_all_graded_snapshots(
+                    connection,
+                    card_id=str(mapped_card["id"]),
+                    payload=payload,
+                    commit=False,
+                )
+                persist_scrydex_daily_history_from_card_payload(
                     connection,
                     card_id=str(mapped_card["id"]),
                     payload=payload,

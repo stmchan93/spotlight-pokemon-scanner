@@ -27,8 +27,20 @@ func testSlabReticleUsesFullPSABox() {
         mode: .slab
     )
 
-    requireNear(slab.width, raw.width, tolerance: 0.01, "slab reticle should keep the same width as raw")
+    requireNear(slab.width, raw.width, tolerance: 0.01, "raw and slab should share the committed width baseline")
     require(slab.height > raw.height, "slab reticle should be taller than raw")
+}
+
+func testRawReticleMatchesPhoneBaselineSize() {
+    let raw = ScannerReticleLayout.make(
+        containerSize: CGSize(width: 390, height: 844),
+        safeAreaTop: 59,
+        safeAreaBottom: 34,
+        mode: .raw
+    )
+
+    requireNear(raw.width, 304.04, tolerance: 0.2, "raw reticle width should match the committed phone baseline")
+    requireNear(raw.height, 424.69, tolerance: 0.2, "raw reticle height should match the committed phone baseline")
 }
 
 func testSlabModeKeepsTopAnchorStableAndPushesControlsLower() {
@@ -97,13 +109,55 @@ func testReticleLayoutPreservesBottomControlAndTraySpacing() {
     }
 }
 
+func testResolvedReticleCaptureRectUsesMeasuredReticleBoundsWhenValid() {
+    let preferred = CGRect(x: 24, y: 140, width: 300, height: 420)
+    let resolved = resolvedReticleCaptureRect(
+        preferred: preferred,
+        containerFrame: CGRect(x: 0, y: 0, width: 390, height: 844),
+        layout: ScannerReticleLayout(
+            width: 327.6,
+            height: 457.28,
+            topSpacing: 137,
+            controlsTopSpacing: 16,
+            controlsHeight: 36,
+            bottomClearance: 152
+        )
+    )
+
+    require(resolved.equalTo(preferred), "capture rect should reuse measured reticle bounds when available")
+}
+
+func testResolvedReticleCaptureRectFallsBackToLayoutFrameWhenBoundsMissing() {
+    let layout = ScannerReticleLayout(
+        width: 327.6,
+        height: 457.28,
+        topSpacing: 137,
+        controlsTopSpacing: 16,
+        controlsHeight: 36,
+        bottomClearance: 152
+    )
+    let resolved = resolvedReticleCaptureRect(
+        preferred: .zero,
+        containerFrame: CGRect(x: 0, y: 0, width: 390, height: 844),
+        layout: layout
+    )
+
+    requireNear(resolved.origin.x, 31.2, tolerance: 0.2, "fallback capture rect should stay horizontally centered")
+    requireNear(resolved.origin.y, 137, tolerance: 0.2, "fallback capture rect should align to the reticle top spacing")
+    requireNear(resolved.width, layout.width, tolerance: 0.01, "fallback capture rect should keep the layout width")
+    requireNear(resolved.height, layout.height, tolerance: 0.01, "fallback capture rect should keep the layout height")
+}
+
 @main
 struct ScannerReticleLayoutTestRunner {
     static func main() {
         testSlabReticleUsesFullPSABox()
+        testRawReticleMatchesPhoneBaselineSize()
         testSlabModeKeepsTopAnchorStableAndPushesControlsLower()
         testRawAndSlabAspectRatiosMatchTargets()
         testReticleLayoutPreservesBottomControlAndTraySpacing()
+        testResolvedReticleCaptureRectUsesMeasuredReticleBoundsWhenValid()
+        testResolvedReticleCaptureRectFallsBackToLayoutFrameWhenBoundsMissing()
         print("scanner_reticle_layout_tests: PASS")
     }
 }

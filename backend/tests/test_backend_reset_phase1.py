@@ -905,7 +905,11 @@ class BackendResetPhase1Tests(unittest.TestCase):
             response_payload={"resolverMode": "raw_card", "confidence": "medium"},
             matcher_source="remoteHybrid",
             matcher_version="phase1-test",
+            predicted_card_id="gym1-60",
             selected_card_id="gym1-60",
+            selected_rank=1,
+            was_top_prediction=True,
+            selection_source="top",
             confidence="medium",
             review_disposition="ready",
             resolver_mode="raw_card",
@@ -926,10 +930,308 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
         self.assertIsNotNone(row)
         assert row is not None
+        self.assertEqual(row["predicted_card_id"], "gym1-60")
         self.assertEqual(row["selected_card_id"], "gym1-60")
+        self.assertEqual(row["selected_rank"], 1)
+        self.assertEqual(row["was_top_prediction"], 1)
+        self.assertEqual(row["selection_source"], "top")
         self.assertEqual(row["confidence"], "medium")
         self.assertEqual(row["resolver_mode"], "raw_card")
         self.assertEqual(row["resolver_path"], "phase1_foundation")
+
+    def test_apply_schema_additive_scan_dataset_changes_do_not_reset_existing_rows(self) -> None:
+        tempdir = tempfile.TemporaryDirectory()
+        database_path = Path(tempdir.name) / "legacy-runtime.sqlite"
+        connection = connect(database_path)
+        connection.executescript(
+            """
+            CREATE TABLE cards (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                set_name TEXT NOT NULL,
+                number TEXT NOT NULL,
+                rarity TEXT NOT NULL,
+                variant TEXT NOT NULL,
+                language TEXT NOT NULL,
+                source_provider TEXT,
+                source_record_id TEXT,
+                set_id TEXT,
+                set_series TEXT,
+                set_ptcgo_code TEXT,
+                set_release_date TEXT,
+                supertype TEXT,
+                subtypes_json TEXT NOT NULL DEFAULT '[]',
+                types_json TEXT NOT NULL DEFAULT '[]',
+                artist TEXT,
+                regulation_mark TEXT,
+                national_pokedex_numbers_json TEXT NOT NULL DEFAULT '[]',
+                image_url TEXT,
+                image_small_url TEXT,
+                source_payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE scan_events (
+                scan_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                resolver_mode TEXT,
+                resolver_path TEXT,
+                request_json TEXT NOT NULL,
+                response_json TEXT NOT NULL,
+                matcher_source TEXT,
+                matcher_version TEXT,
+                selected_card_id TEXT,
+                confidence TEXT,
+                review_disposition TEXT,
+                correction_type TEXT,
+                completed_at TEXT
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO cards (
+                id, name, set_name, number, rarity, variant, language, source_provider,
+                source_record_id, set_id, set_series, set_ptcgo_code, set_release_date,
+                supertype, subtypes_json, types_json, artist, regulation_mark,
+                national_pokedex_numbers_json, image_url, image_small_url, source_payload_json,
+                created_at, updated_at
+            )
+            VALUES (
+                'gym1-60', 'Sabrina''s Slowbro', 'Gym Heroes', '60/132', 'Common', 'Raw', 'English',
+                'scrydex', 'gym1-60', 'gym1', 'Gym', NULL, '2000-08-14',
+                'Pokémon', '[]', '[]', 'Ken Sugimori', NULL,
+                '[]', NULL, NULL, '{}',
+                '2026-04-09T00:00:00Z', '2026-04-09T00:00:00Z'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO scan_events (
+                scan_id, created_at, resolver_mode, resolver_path, request_json, response_json,
+                matcher_source, matcher_version, selected_card_id, confidence, review_disposition,
+                correction_type, completed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "legacy-scan-1",
+                "2026-04-09T00:10:00Z",
+                "raw_card",
+                "visual_fallback",
+                "{}",
+                "{}",
+                "remoteHybrid",
+                "phase1-test",
+                "gym1-60",
+                "medium",
+                "ready",
+                "acceptedTop",
+                "2026-04-09T00:10:00Z",
+            ),
+        )
+        connection.commit()
+
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+
+        row = connection.execute(
+            "SELECT scan_id, selected_card_id, predicted_card_id, confirmed_card_id FROM scan_events WHERE scan_id = ?",
+            ("legacy-scan-1",),
+        ).fetchone()
+        tables = {
+            result["name"]
+            for result in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('scan_artifacts', 'scan_prediction_candidates', 'scan_price_observations', 'scan_confirmations', 'deck_entries')"
+            ).fetchall()
+        }
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["scan_id"], "legacy-scan-1")
+        self.assertEqual(row["selected_card_id"], "gym1-60")
+        self.assertIsNone(row["predicted_card_id"])
+        self.assertIsNone(row["confirmed_card_id"])
+        self.assertEqual(
+            tables,
+            {
+                "scan_artifacts",
+                "scan_prediction_candidates",
+                "scan_price_observations",
+                "scan_confirmations",
+                "deck_entries",
+            },
+        )
+        connection.close()
+        tempdir.cleanup()
+
+    def test_apply_schema_backfills_deck_entry_quantity_from_confirmations(self) -> None:
+        tempdir = tempfile.TemporaryDirectory()
+        database_path = Path(tempdir.name) / "legacy-runtime.sqlite"
+        connection = connect(database_path)
+        connection.executescript(
+            """
+            CREATE TABLE cards (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                set_name TEXT NOT NULL,
+                number TEXT NOT NULL,
+                rarity TEXT NOT NULL,
+                variant TEXT NOT NULL,
+                language TEXT NOT NULL,
+                source_provider TEXT,
+                source_record_id TEXT,
+                set_id TEXT,
+                set_series TEXT,
+                set_ptcgo_code TEXT,
+                set_release_date TEXT,
+                supertype TEXT,
+                subtypes_json TEXT NOT NULL DEFAULT '[]',
+                types_json TEXT NOT NULL DEFAULT '[]',
+                artist TEXT,
+                regulation_mark TEXT,
+                national_pokedex_numbers_json TEXT NOT NULL DEFAULT '[]',
+                image_url TEXT,
+                image_small_url TEXT,
+                source_payload_json TEXT NOT NULL DEFAULT '{}',
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            );
+            CREATE TABLE scan_events (
+                scan_id TEXT PRIMARY KEY,
+                created_at TEXT NOT NULL,
+                resolver_mode TEXT,
+                resolver_path TEXT,
+                request_json TEXT NOT NULL,
+                response_json TEXT NOT NULL,
+                matcher_source TEXT,
+                matcher_version TEXT,
+                selected_card_id TEXT,
+                confidence TEXT,
+                review_disposition TEXT,
+                correction_type TEXT,
+                completed_at TEXT
+            );
+            CREATE TABLE deck_entries (
+                id TEXT PRIMARY KEY,
+                item_kind TEXT NOT NULL,
+                card_id TEXT NOT NULL,
+                grader TEXT,
+                grade TEXT,
+                cert_number TEXT,
+                variant_name TEXT,
+                added_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL,
+                source_scan_id TEXT,
+                source_confirmation_id TEXT
+            );
+            CREATE TABLE scan_confirmations (
+                id TEXT PRIMARY KEY,
+                scan_id TEXT NOT NULL,
+                confirmed_card_id TEXT NOT NULL,
+                confirmation_source TEXT NOT NULL,
+                selected_rank INTEGER,
+                was_top_prediction INTEGER NOT NULL,
+                deck_entry_id TEXT,
+                created_at TEXT NOT NULL
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO cards (
+                id, name, set_name, number, rarity, variant, language, source_provider,
+                source_record_id, set_id, set_series, set_ptcgo_code, set_release_date,
+                supertype, subtypes_json, types_json, artist, regulation_mark,
+                national_pokedex_numbers_json, image_url, image_small_url, source_payload_json,
+                created_at, updated_at
+            )
+            VALUES (
+                'base5-14', 'Dark Weezing', 'Team Rocket', '14/82', 'Rare Holo', 'Raw', 'English',
+                'scrydex', 'base5-14', 'base5', 'Team Rocket', NULL, '2000-04-24',
+                'Pokémon', '[]', '[]', 'Kagemaru Himeno', NULL,
+                '[]', NULL, NULL, '{}',
+                '2026-04-14T00:00:00Z', '2026-04-14T00:00:00Z'
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO deck_entries (
+                id, item_kind, card_id, grader, grade, cert_number, variant_name,
+                added_at, updated_at, source_scan_id, source_confirmation_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                "raw|base5-14",
+                "raw",
+                "base5-14",
+                None,
+                None,
+                None,
+                None,
+                "2026-04-14T23:57:12Z",
+                "2026-04-15T00:34:52Z",
+                "scan-newest",
+                "confirmation-newest",
+            ),
+        )
+        connection.executemany(
+            """
+            INSERT INTO scan_confirmations (
+                id, scan_id, confirmed_card_id, confirmation_source, selected_rank,
+                was_top_prediction, deck_entry_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            [
+                (
+                    "confirmation-oldest",
+                    "scan-oldest",
+                    "base5-14",
+                    "add_alternate",
+                    3,
+                    0,
+                    "raw|base5-14",
+                    "2026-04-14T23:57:12Z",
+                ),
+                (
+                    "confirmation-middle",
+                    "scan-middle",
+                    "base5-14",
+                    "add_top",
+                    1,
+                    1,
+                    "raw|base5-14",
+                    "2026-04-15T00:21:09Z",
+                ),
+                (
+                    "confirmation-newest",
+                    "scan-newest",
+                    "base5-14",
+                    "add_top",
+                    1,
+                    1,
+                    "raw|base5-14",
+                    "2026-04-15T00:34:52Z",
+                ),
+            ],
+        )
+        connection.commit()
+
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+
+        row = connection.execute(
+            "SELECT quantity FROM deck_entries WHERE id = ?",
+            ("raw|base5-14",),
+        ).fetchone()
+
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["quantity"], 3)
+        connection.close()
+        tempdir.cleanup()
 
     def test_service_card_detail_reads_phase1_card_shape(self) -> None:
         upsert_catalog_card(

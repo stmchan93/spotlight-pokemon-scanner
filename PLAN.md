@@ -20,6 +20,21 @@ Date: 2026-04-13
   - set evidence becomes badge-first and typed (`text | icon | unknown`)
   - broad OCR junk such as `p270` must not become trusted set evidence
   - Scrydex becomes the target raw identity/reference/pricing provider lane
+- The new scan-artifact + deck-confirmation workstream is now active:
+  - scans should persist private source and normalized artifacts
+  - scan predictions are not trusted labels
+  - `Add to deck` is the confirmation event that turns a scan into a labeled example
+  - the deck data model should align with the current add semantics already used by the app
+  - the current app-local JSON deck store should remain transitional until the SQL-backed deck flow is in place
+  - environment defaults should now be:
+    - `Debug` => local backend, deck flow on, scan artifact uploads off by default
+    - `Staging` => internal backend, deck flow on, scan artifact uploads on to a private staging bucket
+    - `Release` => production backend, deck flow on, scan artifact uploads on-capable behind a backend kill switch and a separate production bucket
+- The implementation order for the scan-artifact / deck-confirmation workstream is:
+  - schema and doc updates
+  - backend artifact upload + deck confirmation endpoints
+  - app upload/retry queues and add-confirmation wiring
+  - later migration off the local JSON deck store if desired
 - The revised implementation order is now:
   - Phase 0 proof-of-concept on live normalized images
   - then full reference index buildout
@@ -30,10 +45,21 @@ Date: 2026-04-13
   - then deletion/cleanup
 - Treat the current backend runtime as:
   - raw-only
-  - 3-table SQLite (`cards`, `card_price_snapshots`, `scan_events`)
+  - identity/pricing core SQLite (`cards`, `card_price_snapshots`, `scan_events`)
   - Scrydex-first for raw identity/reference/pricing
   - PriceCharting preserved as a thin non-active shell
   - legacy raw helper files/tests are deleted; only historical deletion notes remain
+- The next scanner-data / moat workstream now adds first-class supporting tables for:
+  - scan artifacts
+  - scan prediction candidates
+  - scan price observations
+  - scan confirmations
+  - deck entries
+- Trusted scan labels should come from explicit `Add to deck`, not from the initial matcher result.
+- Preserve these states distinctly:
+  - `predicted_card_id`
+  - `selected_card_id`
+  - `confirmed_card_id`
 - Current pricing-cache operating decision:
   - the current live beta remains Cloud Run plus on-demand Scrydex with per-instance SQLite caching
   - the same-machine SQLite mirror and nightly full Scrydex sync remain implemented in-repo but are not the live deployment path yet
@@ -153,6 +179,54 @@ Date: 2026-04-13
 
 ## Current milestone status
 
+### Milestone: Scan artifact dataset + deck-backed confirmation
+
+Status: `planned`
+
+- Goal:
+  - build a private scan artifact moat for future training, QA, and price-observation analysis
+  - link trusted labels to explicit `Add to deck` actions instead of matcher guesses
+- Store per scan:
+  - `source_capture`
+  - `normalized_target`
+  - OCR / request metadata
+  - prediction snapshot
+  - top candidates
+  - prices shown at scan time
+- Trust model:
+  - scan-time matcher output is prediction only
+  - scan-review choice is selection state only
+  - `Add to deck` is the trusted confirmation event
+- Planned implementation phases:
+  - Phase 1:
+    - schema and docs updates
+    - add deck SQL table to the repo
+    - add scan artifact / candidate / confirmation tables
+  - Phase 2:
+    - backend scan-artifact upload endpoint
+    - private object-store / bucket wiring with env-configurable storage
+  - Phase 3:
+    - backend `Add to deck` endpoint that also writes scan confirmation linkage
+    - preserve predicted vs selected vs confirmed card IDs separately
+  - Phase 4:
+    - app local retry queues for artifact uploads and add confirmations
+    - do not block scan UX or add UX on network success
+  - Phase 5:
+    - optional migration off the current app-local JSON deck store to backend-backed deck reads
+  - Phase 6:
+    - environment/runtime rollout controls
+    - app `Debug` defaults artifact uploads off
+    - app `Staging` and `Release` default artifact uploads on
+    - backend artifact uploads respect env defaults plus a runtime admin kill switch
+    - staging and production use separate private GCS buckets
+- Deck identity/dedupe rule:
+  - raw entries dedupe by `card_id`
+  - slab entries dedupe by `card_id + grader + grade + cert + variant`
+- Training/export rule:
+  - gold labels come from confirmed add events only
+  - selected-without-add rows are weak labels
+  - unlabeled scan artifacts remain valuable for OCR/debug/self-supervised work
+
 ### Milestone 1: Raw backend reset
 
 Status: `done`
@@ -254,11 +328,10 @@ Status: `active`
     - `v003-b8` remains the last PokemonTCG-backed checkpoint
     - `v004-scrydex-b8` plus matcher shortlist improvements is now the active backend visual model through the stable alias artifacts
     - env vars remain available for candidate comparison or rollback
- - the next linked migration slice is now:
-   - typed raw set-badge evidence
-   - junk set-hint suppression
-   - Scrydex-first raw provider migration
-   - see [docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-set-badge-scrydex-first-migration-spec-2026-04-12.md)
+- the next linked migration slice is now:
+  - typed raw set-badge evidence
+  - junk set-hint suppression
+  - Scrydex-first raw provider migration
 
 ### Milestone 1c: Raw scan reliability and candidate UX hardening
 

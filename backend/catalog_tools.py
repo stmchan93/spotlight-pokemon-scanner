@@ -251,6 +251,96 @@ def _table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
     return row is not None
 
 
+def _card_exists(connection: sqlite3.Connection, card_id: str) -> bool:
+    normalized_card_id = str(card_id or "").strip()
+    if not normalized_card_id:
+        return False
+    row = connection.execute(
+        "SELECT 1 FROM cards WHERE id = ? LIMIT 1",
+        (normalized_card_id,),
+    ).fetchone()
+    return row is not None
+
+
+def _add_column_if_missing(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    column_sql: str,
+) -> None:
+    if not _table_exists(connection, table_name):
+        return
+    if column_name in _table_columns(connection, table_name):
+        return
+    connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+
+
+def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
+    # Additive scan/dataset schema changes must not trigger the destructive reset path.
+    scan_event_columns = {
+        "predicted_card_id": "TEXT",
+        "selected_rank": "INTEGER",
+        "was_top_prediction": "INTEGER",
+        "selection_source": "TEXT",
+        "confirmed_card_id": "TEXT",
+        "confirmation_source": "TEXT",
+        "deck_entry_id": "TEXT",
+        "confirmed_at": "TEXT",
+    }
+    for column_name, column_sql in scan_event_columns.items():
+        _add_column_if_missing(connection, "scan_events", column_name, column_sql)
+
+    _add_column_if_missing(connection, "deck_entries", "quantity", "INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(connection, "deck_entries", "condition", "TEXT")
+    _backfill_deck_entry_quantities(connection)
+
+
+def _backfill_deck_entry_quantities(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "deck_entries"):
+        return
+    if "quantity" not in _table_columns(connection, "deck_entries"):
+        return
+
+    connection.execute(
+        """
+        UPDATE deck_entries
+        SET quantity = 1
+        WHERE quantity IS NULL OR quantity < 1
+        """
+    )
+
+    if not _table_exists(connection, "scan_confirmations"):
+        return
+
+    rows = connection.execute(
+        """
+        SELECT
+            deck_entry_id,
+            COUNT(*) AS confirmation_count
+        FROM scan_confirmations
+        WHERE deck_entry_id IS NOT NULL
+          AND TRIM(deck_entry_id) != ''
+        GROUP BY deck_entry_id
+        """
+    ).fetchall()
+    for row in rows:
+        deck_entry_id = str(row["deck_entry_id"] or "").strip()
+        if not deck_entry_id:
+            continue
+        confirmation_count = max(1, int(row["confirmation_count"] or 0))
+        connection.execute(
+            """
+            UPDATE deck_entries
+            SET quantity = CASE
+                WHEN quantity IS NULL OR quantity < ? THEN ?
+                ELSE quantity
+            END
+            WHERE id = ?
+            """,
+            (confirmation_count, confirmation_count, deck_entry_id),
+        )
+
+
 def _normalized_alias_text(value: object) -> str:
     text = str(value or "").strip()
     if not text:
@@ -547,6 +637,7 @@ def _reset_runtime_schema(connection: sqlite3.Connection) -> None:
 def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
     if not _runtime_schema_is_compatible(connection):
         _reset_runtime_schema(connection)
+    _apply_additive_runtime_migrations(connection)
     connection.executescript(schema_path.read_text())
     _backfill_missing_card_title_aliases(connection)
     connection.commit()
@@ -1347,6 +1438,206 @@ def upsert_price_snapshot(
     )
 
 
+def upsert_price_history_daily(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    pricing_mode: str,
+    provider: str,
+    price_date: str,
+    currency_code: str,
+    variant: str | None = None,
+    condition: str | None = None,
+    grader: str | None = None,
+    grade: str | None = None,
+    is_perfect: bool = False,
+    is_signed: bool = False,
+    is_error: bool = False,
+    low_price: float | None = None,
+    market_price: float | None = None,
+    mid_price: float | None = None,
+    high_price: float | None = None,
+    source_url: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> None:
+    history_id = ":".join(
+        [
+            card_id,
+            pricing_mode,
+            provider,
+            price_date,
+            (variant or "").strip(),
+            (condition or "").strip(),
+            (grader or "").strip(),
+            (grade or "").strip(),
+            "1" if is_perfect else "0",
+            "1" if is_signed else "0",
+            "1" if is_error else "0",
+        ]
+    )
+    connection.execute(
+        """
+        INSERT INTO card_price_history_daily (
+            id, card_id, pricing_mode, provider, price_date, currency_code, variant, condition,
+            grader, grade, is_perfect, is_signed, is_error, low_price, market_price, mid_price,
+            high_price, source_url, source_payload_json, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            currency_code=excluded.currency_code,
+            low_price=excluded.low_price,
+            market_price=excluded.market_price,
+            mid_price=excluded.mid_price,
+            high_price=excluded.high_price,
+            source_url=excluded.source_url,
+            source_payload_json=excluded.source_payload_json,
+            updated_at=excluded.updated_at
+        """,
+        (
+            history_id,
+            card_id,
+            pricing_mode,
+            provider,
+            price_date,
+            currency_code,
+            variant,
+            condition,
+            grader,
+            grade,
+            1 if is_perfect else 0,
+            1 if is_signed else 0,
+            1 if is_error else 0,
+            low_price,
+            market_price,
+            mid_price,
+            high_price,
+            source_url,
+            json.dumps(payload or {}),
+            utc_now(),
+        ),
+    )
+
+
+def price_history_rows_for_card(
+    connection: sqlite3.Connection,
+    card_id: str,
+    *,
+    pricing_mode: str,
+    provider: str,
+    days: int,
+    variant: str | None = None,
+    condition: str | None = None,
+    grader: str | None = None,
+    grade: str | None = None,
+    is_perfect: bool | None = None,
+    is_signed: bool | None = None,
+    is_error: bool | None = None,
+) -> list[dict[str, Any]]:
+    query = """
+        SELECT *
+        FROM card_price_history_daily
+        WHERE card_id = ? AND pricing_mode = ? AND provider = ?
+    """
+    params: list[Any] = [card_id, pricing_mode, provider]
+    if variant is not None:
+        query += " AND variant = ?"
+        params.append(variant)
+    if condition is not None:
+        query += " AND condition = ?"
+        params.append(condition)
+    if grader is not None:
+        query += " AND grader = ?"
+        params.append(grader)
+    if grade is not None:
+        query += " AND grade = ?"
+        params.append(grade)
+    if is_perfect is not None:
+        query += " AND is_perfect = ?"
+        params.append(1 if is_perfect else 0)
+    if is_signed is not None:
+        query += " AND is_signed = ?"
+        params.append(1 if is_signed else 0)
+    if is_error is not None:
+        query += " AND is_error = ?"
+        params.append(1 if is_error else 0)
+    query += " ORDER BY price_date DESC LIMIT ?"
+    params.append(max(1, int(days)))
+    rows = connection.execute(query, params).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "cardID": row["card_id"],
+            "pricingMode": row["pricing_mode"],
+            "provider": row["provider"],
+            "date": row["price_date"],
+            "currencyCode": row["currency_code"],
+            "variant": row["variant"],
+            "condition": row["condition"],
+            "grader": row["grader"],
+            "grade": row["grade"],
+            "isPerfect": bool(row["is_perfect"]),
+            "isSigned": bool(row["is_signed"]),
+            "isError": bool(row["is_error"]),
+            "low": row["low_price"],
+            "market": row["market_price"],
+            "mid": row["mid_price"],
+            "high": row["high_price"],
+            "sourceURL": row["source_url"],
+            "payload": _json_load(row["source_payload_json"], {}),
+            "updatedAt": row["updated_at"],
+        }
+        for row in rows
+    ]
+
+
+def latest_price_history_update_for_context(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    pricing_mode: str,
+    provider: str,
+    variant: str | None = None,
+    condition: str | None = None,
+    grader: str | None = None,
+    grade: str | None = None,
+    is_perfect: bool | None = None,
+    is_signed: bool | None = None,
+    is_error: bool | None = None,
+) -> str | None:
+    query = """
+        SELECT updated_at
+        FROM card_price_history_daily
+        WHERE card_id = ? AND pricing_mode = ? AND provider = ?
+    """
+    params: list[Any] = [card_id, pricing_mode, provider]
+    if variant is not None:
+        query += " AND variant = ?"
+        params.append(variant)
+    if condition is not None:
+        query += " AND condition = ?"
+        params.append(condition)
+    if grader is not None:
+        query += " AND grader = ?"
+        params.append(grader)
+    if grade is not None:
+        query += " AND grade = ?"
+        params.append(grade)
+    if is_perfect is not None:
+        query += " AND is_perfect = ?"
+        params.append(1 if is_perfect else 0)
+    if is_signed is not None:
+        query += " AND is_signed = ?"
+        params.append(1 if is_signed else 0)
+    if is_error is not None:
+        query += " AND is_error = ?"
+        params.append(1 if is_error else 0)
+    query += " ORDER BY updated_at DESC LIMIT 1"
+    row = connection.execute(query, params).fetchone()
+    if row is None:
+        return None
+    return str(row["updated_at"] or "").strip() or None
+
+
 def upsert_fx_rate_snapshot(
     connection: sqlite3.Connection,
     *,
@@ -1622,22 +1913,32 @@ def upsert_scan_event(
     matcher_source: str,
     matcher_version: str,
     created_at: str | None = None,
+    predicted_card_id: str | None = None,
     selected_card_id: str | None = None,
+    selected_rank: int | None = None,
+    was_top_prediction: bool | None = None,
+    selection_source: str | None = None,
+    confirmed_card_id: str | None = None,
+    confirmation_source: str | None = None,
+    deck_entry_id: str | None = None,
     confidence: str | None = None,
     review_disposition: str | None = None,
     correction_type: str | None = None,
     resolver_mode: str | None = None,
     resolver_path: str | None = None,
     completed_at: str | None = None,
+    confirmed_at: str | None = None,
 ) -> None:
     connection.execute(
         """
         INSERT INTO scan_events (
             scan_id, created_at, resolver_mode, resolver_path,
             request_json, response_json, matcher_source, matcher_version,
-            selected_card_id, confidence, review_disposition, correction_type, completed_at
+            predicted_card_id, selected_card_id, selected_rank, was_top_prediction,
+            selection_source, confirmed_card_id, confirmation_source, deck_entry_id,
+            confidence, review_disposition, correction_type, completed_at, confirmed_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(scan_id) DO UPDATE SET
             resolver_mode=excluded.resolver_mode,
             resolver_path=excluded.resolver_path,
@@ -1645,11 +1946,19 @@ def upsert_scan_event(
             response_json=excluded.response_json,
             matcher_source=excluded.matcher_source,
             matcher_version=excluded.matcher_version,
+            predicted_card_id=excluded.predicted_card_id,
             selected_card_id=excluded.selected_card_id,
+            selected_rank=excluded.selected_rank,
+            was_top_prediction=excluded.was_top_prediction,
+            selection_source=excluded.selection_source,
+            confirmed_card_id=excluded.confirmed_card_id,
+            confirmation_source=excluded.confirmation_source,
+            deck_entry_id=excluded.deck_entry_id,
             confidence=excluded.confidence,
             review_disposition=excluded.review_disposition,
             correction_type=excluded.correction_type,
-            completed_at=excluded.completed_at
+            completed_at=excluded.completed_at,
+            confirmed_at=excluded.confirmed_at
         """,
         (
             scan_id,
@@ -1660,13 +1969,284 @@ def upsert_scan_event(
             json.dumps(response_payload or {}),
             matcher_source,
             matcher_version,
+            predicted_card_id,
             selected_card_id,
+            selected_rank,
+            None if was_top_prediction is None else (1 if was_top_prediction else 0),
+            selection_source,
+            confirmed_card_id,
+            confirmation_source,
+            deck_entry_id,
             confidence,
             review_disposition,
             correction_type,
             completed_at,
+            confirmed_at,
         ),
     )
+
+
+def replace_scan_prediction_candidates(
+    connection: sqlite3.Connection,
+    *,
+    scan_id: str,
+    candidates: list[dict[str, Any]],
+) -> None:
+    if not _table_exists(connection, "scan_prediction_candidates"):
+        return
+
+    connection.execute("DELETE FROM scan_prediction_candidates WHERE scan_id = ?", (scan_id,))
+    for rank, candidate in enumerate(candidates, start=1):
+        candidate_payload = candidate.get("candidate") or {}
+        card_id = str(candidate_payload.get("id") or "").strip()
+        if not _card_exists(connection, card_id):
+            continue
+        connection.execute(
+            """
+            INSERT INTO scan_prediction_candidates (
+                scan_id, rank, card_id, final_score, candidate_json
+            )
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (
+                scan_id,
+                rank,
+                card_id,
+                float(candidate.get("finalScore") or 0.0),
+                json.dumps(candidate),
+            ),
+        )
+
+
+def replace_scan_price_observations(
+    connection: sqlite3.Connection,
+    *,
+    scan_id: str,
+    candidates: list[dict[str, Any]],
+    observed_at: str | None = None,
+) -> None:
+    if not _table_exists(connection, "scan_price_observations"):
+        return
+
+    connection.execute("DELETE FROM scan_price_observations WHERE scan_id = ?", (scan_id,))
+    recorded_at = observed_at or utc_now()
+    for rank, candidate in enumerate(candidates, start=1):
+        candidate_payload = candidate.get("candidate") or {}
+        card_id = str(candidate_payload.get("id") or "").strip()
+        if not _card_exists(connection, card_id):
+            continue
+        pricing = candidate_payload.get("pricing") or {}
+        connection.execute(
+            """
+            INSERT INTO scan_price_observations (
+                scan_id, rank, card_id, pricing_source, pricing_mode, grader, grade,
+                variant, currency_code, low_price, market_price, mid_price, high_price,
+                trend_price, source_updated_at, snapshot_updated_at, observed_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                scan_id,
+                rank,
+                card_id,
+                pricing.get("source"),
+                pricing.get("pricingMode"),
+                pricing.get("grader"),
+                pricing.get("grade"),
+                pricing.get("variant"),
+                pricing.get("currencyCode"),
+                pricing.get("low"),
+                pricing.get("market"),
+                pricing.get("mid"),
+                pricing.get("high"),
+                pricing.get("trend"),
+                pricing.get("updatedAt") or pricing.get("sourceUpdatedAt"),
+                pricing.get("refreshedAt"),
+                recorded_at,
+            ),
+        )
+
+
+def upsert_scan_artifact(
+    connection: sqlite3.Connection,
+    *,
+    scan_id: str,
+    source_object_path: str,
+    normalized_object_path: str,
+    source_width: int | None = None,
+    source_height: int | None = None,
+    normalized_width: int | None = None,
+    normalized_height: int | None = None,
+    camera_zoom_factor: float | None = None,
+    capture_source: str | None = None,
+    upload_status: str = "uploaded",
+    uploaded_at: str | None = None,
+    artifact_version: str = "v1",
+    created_at: str | None = None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO scan_artifacts (
+            scan_id, source_object_path, normalized_object_path, source_width, source_height,
+            normalized_width, normalized_height, camera_zoom_factor, capture_source,
+            upload_status, uploaded_at, artifact_version, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(scan_id) DO UPDATE SET
+            source_object_path=excluded.source_object_path,
+            normalized_object_path=excluded.normalized_object_path,
+            source_width=excluded.source_width,
+            source_height=excluded.source_height,
+            normalized_width=excluded.normalized_width,
+            normalized_height=excluded.normalized_height,
+            camera_zoom_factor=excluded.camera_zoom_factor,
+            capture_source=excluded.capture_source,
+            upload_status=excluded.upload_status,
+            uploaded_at=excluded.uploaded_at,
+            artifact_version=excluded.artifact_version
+        """,
+        (
+            scan_id,
+            source_object_path,
+            normalized_object_path,
+            source_width,
+            source_height,
+            normalized_width,
+            normalized_height,
+            camera_zoom_factor,
+            capture_source,
+            upload_status,
+            uploaded_at or utc_now(),
+            artifact_version,
+            created_at or utc_now(),
+        ),
+    )
+
+
+def deck_entry_storage_key(
+    *,
+    card_id: str,
+    grader: str | None = None,
+    grade: str | None = None,
+    cert_number: str | None = None,
+    variant_name: str | None = None,
+) -> str:
+    normalized_card_id = str(card_id or "").strip()
+    if not any(str(value or "").strip() for value in (grader, grade, cert_number, variant_name)):
+        return f"raw|{normalized_card_id}"
+    return "|".join(
+        [
+            "slab",
+            normalized_card_id,
+            str(grader or "").strip(),
+            str(grade or "").strip(),
+            str(cert_number or "").strip(),
+            str(variant_name or "").strip(),
+        ]
+    )
+
+
+def upsert_deck_entry(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    grader: str | None = None,
+    grade: str | None = None,
+    cert_number: str | None = None,
+    variant_name: str | None = None,
+    condition: str | None = None,
+    quantity: int = 1,
+    added_at: str | None = None,
+    updated_at: str | None = None,
+    source_scan_id: str | None = None,
+    source_confirmation_id: str | None = None,
+) -> str:
+    deck_entry_id = deck_entry_storage_key(
+        card_id=card_id,
+        grader=grader,
+        grade=grade,
+        cert_number=cert_number,
+        variant_name=variant_name,
+    )
+    item_kind = "slab" if deck_entry_id.startswith("slab|") else "raw"
+    normalized_quantity = max(1, int(quantity))
+    connection.execute(
+        """
+        INSERT INTO deck_entries (
+            id, item_kind, card_id, grader, grade, cert_number, variant_name,
+            condition, quantity, added_at, updated_at, source_scan_id, source_confirmation_id
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            card_id=excluded.card_id,
+            grader=excluded.grader,
+            grade=excluded.grade,
+            cert_number=excluded.cert_number,
+            variant_name=excluded.variant_name,
+            condition=COALESCE(excluded.condition, deck_entries.condition),
+            quantity=deck_entries.quantity + excluded.quantity,
+            updated_at=excluded.updated_at,
+            source_scan_id=excluded.source_scan_id,
+            source_confirmation_id=excluded.source_confirmation_id
+        """,
+        (
+            deck_entry_id,
+            item_kind,
+            card_id,
+            grader,
+            grade,
+            cert_number,
+            variant_name,
+            str(condition or "").strip() or None,
+            normalized_quantity,
+            added_at or utc_now(),
+            updated_at or utc_now(),
+            source_scan_id,
+            source_confirmation_id,
+        ),
+    )
+    return deck_entry_id
+
+
+def upsert_scan_confirmation(
+    connection: sqlite3.Connection,
+    *,
+    scan_id: str,
+    confirmed_card_id: str,
+    confirmation_source: str,
+    selected_rank: int | None = None,
+    was_top_prediction: bool = False,
+    deck_entry_id: str | None = None,
+    created_at: str | None = None,
+) -> str:
+    confirmation_id = scan_id
+    connection.execute(
+        """
+        INSERT INTO scan_confirmations (
+            id, scan_id, confirmed_card_id, confirmation_source,
+            selected_rank, was_top_prediction, deck_entry_id, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            confirmed_card_id=excluded.confirmed_card_id,
+            confirmation_source=excluded.confirmation_source,
+            selected_rank=excluded.selected_rank,
+            was_top_prediction=excluded.was_top_prediction,
+            deck_entry_id=excluded.deck_entry_id,
+            created_at=excluded.created_at
+        """,
+        (
+            confirmation_id,
+            scan_id,
+            confirmed_card_id,
+            confirmation_source,
+            selected_rank,
+            1 if was_top_prediction else 0,
+            deck_entry_id,
+            created_at or utc_now(),
+        ),
+    )
+    return confirmation_id
 
 
 def upsert_catalog_card(
