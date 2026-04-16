@@ -801,7 +801,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(card["imageSmallURL"], "https://images.example/gym1-60-small.png")
         self.assertEqual(snapshot["provider"], "tcgplayer")
         self.assertEqual(snapshot["market"], 2.5)
-        self.assertEqual(snapshot["variant"], "normal")
+        self.assertEqual(snapshot["variant"], "Normal")
 
     def test_price_summary_and_slab_snapshot_write_primary_snapshot_table(self) -> None:
         upsert_card(
@@ -889,12 +889,9 @@ class BackendResetPhase1Tests(unittest.TestCase):
                 """
             ).fetchall()
         }
-        self.assertEqual(raw_snapshot["provider"], "tcgplayer")
         self.assertEqual(raw_snapshot["market"], 150.0)
-        self.assertEqual(graded_snapshot["provider"], "scrydex")
         self.assertEqual(graded_snapshot["grade"], "9")
         self.assertEqual(graded_summary["market"], 1000.0)
-        self.assertEqual(graded_summary["provider"], "scrydex")
         self.assertEqual(legacy_tables, set())
 
     def test_upsert_scan_event_records_phase1_fields(self) -> None:
@@ -1042,7 +1039,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         tables = {
             result["name"]
             for result in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('scan_artifacts', 'scan_prediction_candidates', 'scan_price_observations', 'scan_confirmations', 'deck_entries')"
+                "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('scan_artifacts', 'scan_prediction_candidates', 'scan_price_observations', 'scan_confirmations', 'deck_entries', 'sale_events', 'deck_entry_events')"
             ).fetchall()
         }
 
@@ -1060,6 +1057,8 @@ class BackendResetPhase1Tests(unittest.TestCase):
                 "scan_price_observations",
                 "scan_confirmations",
                 "deck_entries",
+                "sale_events",
+                "deck_entry_events",
             },
         )
         connection.close()
@@ -1226,10 +1225,24 @@ class BackendResetPhase1Tests(unittest.TestCase):
             "SELECT quantity FROM deck_entries WHERE id = ?",
             ("raw|base5-14",),
         ).fetchone()
+        event_row = connection.execute(
+            """
+            SELECT event_kind, quantity_delta, created_at
+            FROM deck_entry_events
+            WHERE deck_entry_id = ?
+            ORDER BY created_at ASC, id ASC
+            LIMIT 1
+            """,
+            ("raw|base5-14",),
+        ).fetchone()
 
         self.assertIsNotNone(row)
+        self.assertIsNotNone(event_row)
         assert row is not None
+        assert event_row is not None
         self.assertEqual(row["quantity"], 3)
+        self.assertEqual(event_row["event_kind"], "seed")
+        self.assertEqual(event_row["quantity_delta"], 3)
         connection.close()
         tempdir.cleanup()
 
@@ -1682,7 +1695,7 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(snapshot["provider"], "scrydex")
         self.assertEqual(snapshot["currencyCode"], "JPY")
         self.assertEqual(snapshot["market"], 2550.0)
-        self.assertEqual(snapshot["variant"], "holofoil")
+        self.assertEqual(snapshot["variant"], "Holofoil")
 
     def test_refresh_card_pricing_uses_scrydex_provider_for_scrydex_raw_cards(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -1838,8 +1851,8 @@ class BackendResetPhase1Tests(unittest.TestCase):
             payload={"provider": "scrydex"},
         )
         service.connection.execute(
-            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ? AND grader = ? AND grade = ?",
-            ("2026-04-10T00:00:00+00:00", "m2a_ja-232", "PSA", "9"),
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ?",
+            ("2026-04-10T00:00:00+00:00", "m2a_ja-232"),
         )
         service.connection.commit()
         service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
@@ -2363,8 +2376,8 @@ class BackendResetPhase1Tests(unittest.TestCase):
             payload={"provider": "scrydex"},
         )
         service.connection.execute(
-            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ? AND grader = ? AND grade = ?",
-            ("2026-04-10T00:00:00+00:00", "pgo-10", "PSA", "7"),
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ?",
+            ("2026-04-10T00:00:00+00:00", "pgo-10"),
         )
         service.connection.commit()
         service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
@@ -2561,8 +2574,8 @@ class BackendResetPhase1Tests(unittest.TestCase):
             payload={"provider": "scrydex"},
         )
         self.connection.execute(
-            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ? AND grader = ? AND grade = ?",
-            ("2026-04-10T00:00:00+00:00", "slab-low-1", str(evidence.grader or ""), str(evidence.grade or "")),
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ?",
+            ("2026-04-10T00:00:00+00:00", "slab-low-1"),
         )
         self.connection.commit()
         service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]
@@ -2652,8 +2665,8 @@ class BackendResetPhase1Tests(unittest.TestCase):
             payload={"provider": "scrydex"},
         )
         self.connection.execute(
-            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ? AND grader = ? AND grade = ?",
-            ("2026-04-10T00:00:00+00:00", "slab-high-1", str(evidence.grader or ""), str(evidence.grade or "")),
+            "UPDATE card_price_snapshots SET updated_at = ? WHERE card_id = ?",
+            ("2026-04-10T00:00:00+00:00", "slab-high-1"),
         )
         self.connection.commit()
         service._refresh_card_pricing_for_context = Mock(return_value={  # type: ignore[method-assign]

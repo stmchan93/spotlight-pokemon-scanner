@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,12 +24,13 @@ from scrydex_adapter import (
     fetch_scrydex_cards_page,
     map_scrydex_catalog_card,
     persist_scrydex_daily_history_from_card_payload,
-    persist_scrydex_all_graded_snapshots,
     persist_scrydex_raw_snapshot,
     scrydex_credentials,
 )
 
 load_backend_env_file(Path(__file__).resolve().parent / ".env")
+
+SQLITE_LOCK_RETRY_DELAYS_SECONDS = (2.0, 5.0, 10.0)
 
 
 def cli_value(flag: str) -> str | None:
@@ -44,7 +47,12 @@ def cli_int_value(flag: str, default: int) -> int:
     return int(value) if value is not None else default
 
 
-def sync_scrydex_catalog(
+def _is_sqlite_lock_error(exc: BaseException) -> bool:
+    message = str(exc).lower()
+    return "database is locked" in message or "database schema is locked" in message
+
+
+def _sync_scrydex_catalog_once(
     *,
     database_path: Path,
     repo_root: Path,
@@ -54,7 +62,7 @@ def sync_scrydex_catalog(
     scheduled_for: str | None = None,
 ) -> dict[str, Any]:
     backend_root = Path(__file__).resolve().parent
-    connection = connect(database_path)
+    connection = connect(database_path, timeout_seconds=30.0, busy_timeout_ms=30_000)
     apply_schema(connection, backend_root / "schema.sql")
 
     credentials = scrydex_credentials()
@@ -114,20 +122,16 @@ def sync_scrydex_catalog(
                     refresh_embeddings=False,
                 )
                 totals["cardsUpserted"] += 1
+                counts = persist_scrydex_daily_history_from_card_payload(
+                    connection,
+                    card_id=str(mapped_card["id"]),
+                    payload=payload,
+                    commit=False,
+                )
                 if persist_scrydex_raw_snapshot(connection, str(mapped_card["id"]), payload, commit=False) is not None:
                     totals["rawSnapshotsUpserted"] += 1
-                totals["gradedSnapshotsUpserted"] += persist_scrydex_all_graded_snapshots(
-                    connection,
-                    card_id=str(mapped_card["id"]),
-                    payload=payload,
-                    commit=False,
-                )
-                persist_scrydex_daily_history_from_card_payload(
-                    connection,
-                    card_id=str(mapped_card["id"]),
-                    payload=payload,
-                    commit=False,
-                )
+                if counts.get("gradedCount"):
+                    totals["gradedSnapshotsUpserted"] += 1
 
             connection.commit()
             update_provider_sync_run(
@@ -192,6 +196,59 @@ def sync_scrydex_catalog(
         raise
     finally:
         connection.close()
+
+
+def sync_scrydex_catalog(
+    *,
+    database_path: Path,
+    repo_root: Path,
+    page_size: int = 100,
+    language: str | None = None,
+    max_pages: int | None = None,
+    scheduled_for: str | None = None,
+) -> dict[str, Any]:
+    for attempt, delay_seconds in enumerate((0.0, *SQLITE_LOCK_RETRY_DELAYS_SECONDS), start=1):
+        if delay_seconds > 0:
+            print(
+                json.dumps(
+                    {
+                        "event": "scrydex_sync_retry_wait",
+                        "attempt": attempt,
+                        "delaySeconds": delay_seconds,
+                        "reason": "sqlite_lock",
+                        "databasePath": str(database_path),
+                    }
+                ),
+                file=sys.stderr,
+            )
+            time.sleep(delay_seconds)
+
+        try:
+            return _sync_scrydex_catalog_once(
+                database_path=database_path,
+                repo_root=repo_root,
+                page_size=page_size,
+                language=language,
+                max_pages=max_pages,
+                scheduled_for=scheduled_for,
+            )
+        except sqlite3.OperationalError as exc:
+            if not _is_sqlite_lock_error(exc) or attempt > len(SQLITE_LOCK_RETRY_DELAYS_SECONDS):
+                raise
+            print(
+                json.dumps(
+                    {
+                        "event": "scrydex_sync_retry",
+                        "attempt": attempt,
+                        "reason": "sqlite_lock",
+                        "errorText": str(exc),
+                        "databasePath": str(database_path),
+                    }
+                ),
+                file=sys.stderr,
+            )
+
+    raise RuntimeError("unreachable")
 
 
 def main() -> None:

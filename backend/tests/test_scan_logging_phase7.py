@@ -15,7 +15,7 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import apply_schema, connect, upsert_card_price_summary, upsert_deck_entry, upsert_slab_price_snapshot  # noqa: E402
+from catalog_tools import apply_schema, connect, upsert_card_price_summary, upsert_deck_entry, upsert_price_history_daily, upsert_slab_price_snapshot  # noqa: E402
 from scan_artifact_store import (  # noqa: E402
     GoogleCloudScanArtifactStore,
     SCAN_ARTIFACTS_ROOT_ENV,
@@ -200,6 +200,27 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         ).fetchall()
         self.assertEqual([(row["rank"], row["card_id"]) for row in candidate_rows], [(1, "obf-223")])
         self.assertEqual([(row["rank"], row["card_id"]) for row in price_rows], [(1, "obf-223")])
+
+    def test_emit_structured_log_omits_sqlite_connection_repr(self) -> None:
+        with patch("builtins.print") as print_mock:
+            self.service._emit_structured_log(  # noqa: SLF001
+                {
+                    "event": "scan_match",
+                    "debug": {
+                        "connection": self.service.connection,
+                    },
+                }
+            )
+
+        logged_payload = print_mock.call_args.args[0]
+        self.assertNotIn("<sqlite3.Connection object", logged_payload)
+        self.assertEqual(
+            json.loads(logged_payload),
+            {
+                "event": "scan_match",
+                "debug": {},
+            },
+        )
 
     def test_log_feedback_updates_scan_event_without_clobbering_request_response(self) -> None:
         request_payload = {
@@ -630,6 +651,565 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(entries[1]["quantity"], 1)
         self.assertIsNone(entries[1]["slabContext"])
         self.assertEqual(entries[1]["card"]["pricing"]["market"], 2.5)
+
+    def test_record_sale_decrements_quantity_and_hides_inactive_entries(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_card_price_summary(
+            self.service.connection,
+            card_id="gym1-60",
+            source="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=1.0,
+            market_price=2.5,
+            mid_price=2.0,
+            high_price=3.0,
+            direct_low_price=1.5,
+            trend_price=2.25,
+            source_updated_at="2026-04-14T19:00:00Z",
+            source_url="https://prices.example/gym1-60",
+            payload={"source": "scrydex"},
+        )
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="gym1-60",
+            quantity=1,
+            added_at="2026-04-14T20:00:00Z",
+            updated_at="2026-04-14T20:00:00Z",
+        )
+        self.service.connection.commit()
+
+        sale_payload = self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T20:00:00Z",
+                "unitPrice": 3.5,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "note": "show floor",
+            }
+        )
+
+        deck_row = self.service.connection.execute(
+            "SELECT quantity FROM deck_entries WHERE id = ? LIMIT 1",
+            ("raw|gym1-60",),
+        ).fetchone()
+        sale_row = self.service.connection.execute(
+            "SELECT * FROM sale_events WHERE id = ? LIMIT 1",
+            (sale_payload["saleID"],),
+        ).fetchone()
+        event_row = self.service.connection.execute(
+            "SELECT * FROM deck_entry_events WHERE sale_id = ? LIMIT 1",
+            (sale_payload["saleID"],),
+        ).fetchone()
+
+        self.assertIsNotNone(deck_row)
+        self.assertIsNotNone(sale_row)
+        self.assertIsNotNone(event_row)
+        assert deck_row is not None
+        assert sale_row is not None
+        assert event_row is not None
+        self.assertEqual(deck_row["quantity"], 0)
+        self.assertEqual(sale_row["card_id"], "gym1-60")
+        self.assertEqual(sale_row["quantity"], 1)
+        self.assertEqual(float(sale_row["cost_basis_total"] or 0.0), 0.0)
+        self.assertEqual(event_row["event_kind"], "sale")
+        self.assertEqual(event_row["quantity_delta"], -1)
+        self.assertEqual(len(self.service.deck_entries(limit=10)["entries"]), 0)
+        inactive_payload = self.service.deck_entries(limit=10, include_inactive=True)
+        self.assertEqual(len(inactive_payload["entries"]), 1)
+        self.assertEqual(inactive_payload["entries"][0]["quantity"], 0)
+        self.assertEqual(inactive_payload["summary"]["count"], 1)
+
+    def test_apply_schema_keeps_sold_entries_inactive(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="gym1-60",
+            quantity=1,
+            added_at="2026-04-14T20:00:00Z",
+            updated_at="2026-04-14T20:00:00Z",
+        )
+        self.service.connection.commit()
+
+        self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T20:00:00Z",
+                "unitPrice": 3.5,
+                "currencyCode": "USD",
+            }
+        )
+
+        apply_schema(self.service.connection, BACKEND_ROOT / "schema.sql")
+
+        deck_row = self.service.connection.execute(
+            "SELECT quantity FROM deck_entries WHERE id = ? LIMIT 1",
+            ("raw|gym1-60",),
+        ).fetchone()
+        active_payload = self.service.deck_entries(limit=10)
+        inactive_payload = self.service.deck_entries(limit=10, include_inactive=True)
+
+        self.assertIsNotNone(deck_row)
+        assert deck_row is not None
+        self.assertEqual(deck_row["quantity"], 0)
+        self.assertEqual(len(active_payload["entries"]), 0)
+        self.assertEqual(len(inactive_payload["entries"]), 1)
+        self.assertEqual(inactive_payload["entries"][0]["quantity"], 0)
+
+    def test_deck_history_aggregates_daily_collection_value_from_ledger_and_price_history(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_price_history_daily(
+            self.service.connection,
+            card_id="gym1-60",
+            pricing_mode="raw",
+            provider="scrydex",
+            price_date="2026-04-14",
+            currency_code="USD",
+            variant="Normal",
+            condition="NM",
+            low_price=9.0,
+            market_price=10.0,
+            mid_price=10.0,
+            high_price=11.0,
+            source_url="https://prices.example/gym1-60/2026-04-14",
+            payload={"source": "scrydex"},
+        )
+        upsert_price_history_daily(
+            self.service.connection,
+            card_id="gym1-60",
+            pricing_mode="raw",
+            provider="scrydex",
+            price_date="2026-04-15",
+            currency_code="USD",
+            variant="Normal",
+            condition="NM",
+            low_price=11.0,
+            market_price=12.0,
+            mid_price=12.0,
+            high_price=13.0,
+            source_url="https://prices.example/gym1-60/2026-04-15",
+            payload={"source": "scrydex"},
+        )
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="gym1-60",
+            quantity=1,
+            condition="near_mint",
+            unit_price=8.0,
+            currency_code="USD",
+            event_kind="buy",
+            added_at="2026-04-14T09:00:00Z",
+            updated_at="2026-04-14T09:00:00Z",
+        )
+        self.service.connection.commit()
+
+        self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T10:00:00Z",
+                "unitPrice": 11.0,
+                "currencyCode": "USD",
+            }
+        )
+
+        history = self.service.deck_history(days=2, range_label="ALL")
+
+        points_by_date = {point["date"]: point for point in history["points"]}
+        self.assertIn("2026-04-14", points_by_date)
+        self.assertIn("2026-04-15", points_by_date)
+        self.assertAlmostEqual(points_by_date["2026-04-14"]["totalValue"], 10.0, places=2)
+        self.assertAlmostEqual(points_by_date["2026-04-15"]["totalValue"], 0.0, places=2)
+        self.assertAlmostEqual(points_by_date["2026-04-14"]["costBasisValue"], 8.0, places=2)
+        self.assertAlmostEqual(points_by_date["2026-04-15"]["costBasisValue"], 0.0, places=2)
+        self.assertEqual(points_by_date["2026-04-14"]["pricedCardCount"], 1)
+        self.assertEqual(points_by_date["2026-04-15"]["pricedCardCount"], 0)
+        self.assertEqual(history["coverage"]["pricedCardCount"], 0)
+        self.assertEqual(history["coverage"]["excludedCardCount"], 0)
+        self.assertEqual(history["summary"]["currentValue"], 0.0)
+        self.assertEqual(history["summary"]["startValue"], 10.0)
+        self.assertEqual(history["summary"]["deltaValue"], -10.0)
+        self.assertEqual(history["summary"]["currentCostBasisValue"], 0.0)
+        self.assertEqual(history["summary"]["startCostBasisValue"], 8.0)
+
+    def test_record_buy_and_portfolio_ledger_return_real_summary(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_card_price_summary(
+            self.service.connection,
+            card_id="gym1-60",
+            source="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=1.0,
+            market_price=12.5,
+            mid_price=12.0,
+            high_price=13.0,
+            direct_low_price=1.5,
+            trend_price=12.25,
+            source_updated_at="2026-04-14T19:00:00Z",
+            source_url="https://prices.example/gym1-60",
+            payload={"source": "scrydex"},
+        )
+
+        buy_payload = self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 2,
+                "unitPrice": 6.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+            }
+        )
+        sale_payload = self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T20:00:00Z",
+                "unitPrice": 10.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "note": "binder deal",
+            }
+        )
+
+        ledger = self.service.portfolio_ledger(days=7)
+
+        self.assertEqual(buy_payload["quantityAdded"], 2)
+        self.assertEqual(sale_payload["remainingQuantity"], 1)
+        self.assertEqual(ledger["summary"]["revenue"], 10.0)
+        self.assertEqual(ledger["summary"]["spend"], 12.0)
+        self.assertEqual(ledger["summary"]["grossProfit"], 4.0)
+        self.assertEqual(ledger["summary"]["inventoryCount"], 1)
+        self.assertEqual(len(ledger["transactions"]), 2)
+        self.assertEqual([entry["kind"] for entry in ledger["transactions"]], ["sell", "buy"])
+
+    def test_update_portfolio_buy_price_updates_transaction_and_remaining_cost_basis(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+
+        buy_payload = self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 2,
+                "unitPrice": 6.0,
+                "currencyCode": "USD",
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+            }
+        )
+        self.assertEqual(buy_payload["quantityAdded"], 2)
+
+        buy_row = self.service.connection.execute(
+            """
+            SELECT id
+            FROM deck_entry_events
+            WHERE deck_entry_id = ?
+              AND event_kind = 'buy'
+            LIMIT 1
+            """,
+            ("raw|gym1-60",),
+        ).fetchone()
+        assert buy_row is not None
+
+        update_payload = self.service.update_portfolio_buy_price(
+            str(buy_row["id"]),
+            {
+                "unitPrice": 8.0,
+                "currencyCode": "USD",
+                "updatedAt": "2026-04-16T12:00:00Z",
+            },
+        )
+
+        updated_buy_row = self.service.connection.execute(
+            "SELECT unit_price, total_price, currency_code FROM deck_entry_events WHERE id = ? LIMIT 1",
+            (str(buy_row["id"]),),
+        ).fetchone()
+        deck_row = self.service.connection.execute(
+            "SELECT cost_basis_total, cost_basis_currency_code FROM deck_entries WHERE id = ? LIMIT 1",
+            ("raw|gym1-60",),
+        ).fetchone()
+        ledger = self.service.portfolio_ledger(days=7)
+
+        assert updated_buy_row is not None
+        assert deck_row is not None
+        self.assertAlmostEqual(float(updated_buy_row["unit_price"] or 0.0), 8.0, places=2)
+        self.assertAlmostEqual(float(updated_buy_row["total_price"] or 0.0), 16.0, places=2)
+        self.assertAlmostEqual(float(deck_row["cost_basis_total"] or 0.0), 16.0, places=2)
+        self.assertEqual(deck_row["cost_basis_currency_code"], "USD")
+        self.assertAlmostEqual(update_payload["costBasisTotal"], 16.0, places=2)
+        self.assertAlmostEqual(ledger["summary"]["spend"], 16.0, places=2)
+        self.assertAlmostEqual(ledger["transactions"][0]["unitPrice"], 8.0, places=2)
+
+    def test_update_portfolio_sale_price_updates_transaction_and_ledger_summary(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 2,
+                "unitPrice": 6.0,
+                "currencyCode": "USD",
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+            }
+        )
+        sale_payload = self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T20:00:00Z",
+                "unitPrice": 10.0,
+                "currencyCode": "USD",
+            }
+        )
+
+        update_payload = self.service.update_portfolio_sale_price(
+            str(sale_payload["saleID"]),
+            {
+                "unitPrice": 12.5,
+                "currencyCode": "USD",
+                "updatedAt": "2026-04-16T12:00:00Z",
+            },
+        )
+
+        sale_row = self.service.connection.execute(
+            "SELECT unit_price, total_price, currency_code FROM sale_events WHERE id = ? LIMIT 1",
+            (str(sale_payload["saleID"]),),
+        ).fetchone()
+        event_row = self.service.connection.execute(
+            "SELECT unit_price, total_price, currency_code FROM deck_entry_events WHERE sale_id = ? LIMIT 1",
+            (str(sale_payload["saleID"]),),
+        ).fetchone()
+        ledger = self.service.portfolio_ledger(days=7)
+
+        assert sale_row is not None
+        assert event_row is not None
+        self.assertAlmostEqual(float(sale_row["unit_price"] or 0.0), 12.5, places=2)
+        self.assertAlmostEqual(float(sale_row["total_price"] or 0.0), 12.5, places=2)
+        self.assertAlmostEqual(float(event_row["unit_price"] or 0.0), 12.5, places=2)
+        self.assertAlmostEqual(float(event_row["total_price"] or 0.0), 12.5, places=2)
+        self.assertAlmostEqual(update_payload["totalPrice"], 12.5, places=2)
+        self.assertAlmostEqual(ledger["summary"]["revenue"], 12.5, places=2)
+        self.assertAlmostEqual(ledger["summary"]["grossProfit"], 6.5, places=2)
+        self.assertAlmostEqual(ledger["transactions"][0]["unitPrice"], 12.5, places=2)
+
+    def test_update_portfolio_sale_price_accepts_linked_sale_event_row_id(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 2,
+                "unitPrice": 6.0,
+                "currencyCode": "USD",
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+            }
+        )
+        sale_payload = self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T20:00:00Z",
+                "unitPrice": 10.0,
+                "currencyCode": "USD",
+            }
+        )
+        event_row = self.service.connection.execute(
+            """
+            SELECT id, sale_id
+            FROM deck_entry_events
+            WHERE sale_id = ?
+              AND event_kind = 'sale'
+            LIMIT 1
+            """,
+            (str(sale_payload["saleID"]),),
+        ).fetchone()
+
+        assert event_row is not None
+
+        update_payload = self.service.update_portfolio_sale_price(
+            str(event_row["id"]),
+            {
+                "unitPrice": 13.25,
+                "currencyCode": "USD",
+                "updatedAt": "2026-04-16T12:00:00Z",
+            },
+        )
+
+        sale_row = self.service.connection.execute(
+            "SELECT unit_price, total_price FROM sale_events WHERE id = ? LIMIT 1",
+            (str(sale_payload["saleID"]),),
+        ).fetchone()
+        linked_event_row = self.service.connection.execute(
+            "SELECT unit_price, total_price FROM deck_entry_events WHERE id = ? LIMIT 1",
+            (str(event_row["id"]),),
+        ).fetchone()
+
+        assert sale_row is not None
+        assert linked_event_row is not None
+        self.assertEqual(update_payload["transactionID"], str(sale_payload["saleID"]))
+        self.assertAlmostEqual(float(sale_row["unit_price"] or 0.0), 13.25, places=2)
+        self.assertAlmostEqual(float(sale_row["total_price"] or 0.0), 13.25, places=2)
+        self.assertAlmostEqual(float(linked_event_row["unit_price"] or 0.0), 13.25, places=2)
+        self.assertAlmostEqual(float(linked_event_row["total_price"] or 0.0), 13.25, places=2)
+
+    def test_portfolio_ledger_daily_series_buckets_by_timezone(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_card_price_summary(
+            self.service.connection,
+            card_id="gym1-60",
+            source="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=1.0,
+            market_price=12.5,
+            mid_price=12.0,
+            high_price=13.0,
+            direct_low_price=1.5,
+            trend_price=12.25,
+            source_updated_at="2026-04-14T19:00:00Z",
+            source_url="https://prices.example/gym1-60",
+            payload={"source": "scrydex"},
+        )
+
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 12.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-15T06:30:00Z",
+                "condition": "near_mint",
+            }
+        )
+        self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T08:30:00Z",
+                "unitPrice": 18.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "note": "tz bucket check",
+            }
+        )
+
+        ledger = self.service.portfolio_ledger(days=2, range_label="ALL", time_zone_name="America/Los_Angeles")
+        daily_by_date = {point["date"]: point for point in ledger["dailySeries"]}
+
+        self.assertIn("2026-04-14", daily_by_date)
+        self.assertIn("2026-04-15", daily_by_date)
+        self.assertAlmostEqual(daily_by_date["2026-04-14"]["spend"], 12.0, places=2)
+        self.assertAlmostEqual(daily_by_date["2026-04-14"]["revenue"], 0.0, places=2)
+        self.assertEqual(daily_by_date["2026-04-14"]["buyCount"], 1)
+        self.assertEqual(daily_by_date["2026-04-14"]["sellCount"], 0)
+        self.assertAlmostEqual(daily_by_date["2026-04-15"]["revenue"], 18.0, places=2)
+        self.assertAlmostEqual(daily_by_date["2026-04-15"]["spend"], 0.0, places=2)
+        self.assertAlmostEqual(daily_by_date["2026-04-15"]["realizedProfit"], 6.0, places=2)
+        self.assertEqual(daily_by_date["2026-04-15"]["buyCount"], 0)
+        self.assertEqual(daily_by_date["2026-04-15"]["sellCount"], 1)
+
+    def test_portfolio_ledger_range_labels_override_day_window_size(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 12.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-15T06:30:00Z",
+                "condition": "near_mint",
+            }
+        )
+
+        ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
+        ledger_30d = self.service.portfolio_ledger(days=365, range_label="30D", time_zone_name="UTC")
+        ledger_90d = self.service.portfolio_ledger(days=365, range_label="90D", time_zone_name="UTC")
+        ledger_all = self.service.portfolio_ledger(days=365, range_label="ALL", time_zone_name="UTC")
+
+        self.assertEqual(len(ledger_7d["dailySeries"]), 7)
+        self.assertEqual(len(ledger_30d["dailySeries"]), 30)
+        self.assertEqual(len(ledger_90d["dailySeries"]), 90)
+        self.assertGreaterEqual(len(ledger_all["dailySeries"]), 1)
+        self.assertEqual(ledger_all["dailySeries"][0]["date"], "2026-04-15")
+        self.assertAlmostEqual(ledger_all["dailySeries"][0]["spend"], 12.0, places=2)
+        self.assertEqual(ledger_all["dailySeries"][0]["buyCount"], 1)
+
+    def test_deck_history_buckets_by_timezone(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_price_history_daily(
+            self.service.connection,
+            card_id="gym1-60",
+            pricing_mode="raw",
+            provider="scrydex",
+            price_date="2026-04-14",
+            currency_code="USD",
+            variant="Normal",
+            condition="NM",
+            low_price=9.0,
+            market_price=10.0,
+            mid_price=10.0,
+            high_price=11.0,
+            source_url="https://prices.example/gym1-60/2026-04-14",
+            payload={"source": "scrydex"},
+        )
+        upsert_price_history_daily(
+            self.service.connection,
+            card_id="gym1-60",
+            pricing_mode="raw",
+            provider="scrydex",
+            price_date="2026-04-15",
+            currency_code="USD",
+            variant="Normal",
+            condition="NM",
+            low_price=11.0,
+            market_price=12.0,
+            mid_price=12.0,
+            high_price=13.0,
+            source_url="https://prices.example/gym1-60/2026-04-15",
+            payload={"source": "scrydex"},
+        )
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="gym1-60",
+            quantity=1,
+            condition="near_mint",
+            unit_price=8.0,
+            currency_code="USD",
+            event_kind="buy",
+            added_at="2026-04-15T06:30:00Z",
+            updated_at="2026-04-15T06:30:00Z",
+        )
+        self.service.connection.commit()
+
+        self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T08:30:00Z",
+                "unitPrice": 18.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "note": "tz bucket check",
+            }
+        )
+
+        history = self.service.deck_history(days=2, range_label="ALL", time_zone_name="America/Los_Angeles")
+        points_by_date = {point["date"]: point for point in history["points"]}
+
+        self.assertIn("2026-04-14", points_by_date)
+        self.assertIn("2026-04-15", points_by_date)
+        self.assertAlmostEqual(points_by_date["2026-04-14"]["totalValue"], 10.0, places=2)
+        self.assertAlmostEqual(points_by_date["2026-04-15"]["totalValue"], 0.0, places=2)
+        self.assertEqual(points_by_date["2026-04-14"]["pricedCardCount"], 1)
+        self.assertEqual(points_by_date["2026-04-15"]["pricedCardCount"], 0)
 
     def test_deck_entries_total_value_respects_quantity(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")

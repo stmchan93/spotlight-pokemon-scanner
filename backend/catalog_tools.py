@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from difflib import SequenceMatcher
@@ -24,6 +25,13 @@ RAW_ROUTE_TITLE_COLLECTOR = "title_collector"
 RAW_ROUTE_TITLE_ONLY = "title_only"
 RAW_ROUTE_COLLECTOR_ONLY = "collector_only"
 RAW_ROUTE_BROAD_TEXT_FALLBACK = "broad_text_fallback"
+
+DEFAULT_RAW_CONDITION_CODE = "NM"
+DEFAULT_RAW_VARIANT_PREFERENCE = (
+    "normal",
+    "holofoil",
+    "reverseholofoil",
+)
 
 
 @dataclass(frozen=True)
@@ -231,9 +239,15 @@ def utc_now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def connect(database_path: Path | str) -> sqlite3.Connection:
-    connection = sqlite3.connect(str(database_path))
+def connect(
+    database_path: Path | str,
+    *,
+    timeout_seconds: float = 5.0,
+    busy_timeout_ms: int | None = None,
+) -> sqlite3.Connection:
+    connection = sqlite3.connect(str(database_path), timeout=timeout_seconds)
     connection.row_factory = sqlite3.Row
+    connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms or int(timeout_seconds * 1000)}")
     connection.execute("PRAGMA foreign_keys = ON")
     return connection
 
@@ -291,8 +305,215 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
         _add_column_if_missing(connection, "scan_events", column_name, column_sql)
 
     _add_column_if_missing(connection, "deck_entries", "quantity", "INTEGER NOT NULL DEFAULT 1")
+    _add_column_if_missing(connection, "deck_entries", "cost_basis_total", "REAL NOT NULL DEFAULT 0")
+    _add_column_if_missing(connection, "deck_entries", "cost_basis_currency_code", "TEXT")
     _add_column_if_missing(connection, "deck_entries", "condition", "TEXT")
+    _add_column_if_missing(connection, "sale_events", "cost_basis_total", "REAL")
+    _add_column_if_missing(connection, "sale_events", "cost_basis_unit_price", "REAL")
+    _add_column_if_missing(connection, "deck_entry_events", "unit_price", "REAL")
+    _add_column_if_missing(connection, "deck_entry_events", "total_price", "REAL")
+    _add_column_if_missing(connection, "deck_entry_events", "currency_code", "TEXT")
+    _add_column_if_missing(connection, "deck_entry_events", "payment_method", "TEXT")
     _backfill_deck_entry_quantities(connection)
+
+
+def _rebuild_pricing_tables_if_needed(connection: sqlite3.Connection) -> None:
+    required_snapshot_columns = {
+        "card_id",
+        "provider",
+        "display_currency_code",
+        "default_raw_variant",
+        "default_raw_condition",
+        "default_raw_low_price",
+        "default_raw_market_price",
+        "default_raw_mid_price",
+        "default_raw_high_price",
+        "default_raw_direct_low_price",
+        "default_raw_trend_price",
+        "raw_contexts_json",
+        "graded_contexts_json",
+        "source_url",
+        "source_updated_at",
+        "source_payload_json",
+        "updated_at",
+    }
+    required_history_columns = {
+        "card_id",
+        "provider",
+        "price_date",
+        "display_currency_code",
+        "default_raw_variant",
+        "default_raw_condition",
+        "default_raw_low_price",
+        "default_raw_market_price",
+        "default_raw_mid_price",
+        "default_raw_high_price",
+        "default_raw_direct_low_price",
+        "default_raw_trend_price",
+        "raw_contexts_json",
+        "graded_contexts_json",
+        "source_url",
+        "source_payload_json",
+        "updated_at",
+    }
+
+    rebuild_snapshot = _table_exists(connection, "card_price_snapshots") and not required_snapshot_columns.issubset(
+        _table_columns(connection, "card_price_snapshots")
+    )
+    rebuild_history = _table_exists(connection, "card_price_history_daily") and not required_history_columns.issubset(
+        _table_columns(connection, "card_price_history_daily")
+    )
+
+    if not rebuild_snapshot and not rebuild_history:
+        return
+
+    previous_fk_state = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        if rebuild_snapshot:
+            connection.execute("DROP TABLE IF EXISTS card_price_snapshots")
+        if rebuild_history:
+            connection.execute("DROP TABLE IF EXISTS card_price_history_daily")
+    finally:
+        connection.execute(f"PRAGMA foreign_keys = {previous_fk_state}")
+    connection.commit()
+
+
+def _create_inventory_ledger_tables(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS sale_events (
+            id TEXT PRIMARY KEY,
+            deck_entry_id TEXT NOT NULL REFERENCES deck_entries(id) ON DELETE CASCADE,
+            card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            quantity INTEGER NOT NULL DEFAULT 1,
+            unit_price REAL,
+            total_price REAL,
+            currency_code TEXT,
+            payment_method TEXT,
+            cost_basis_total REAL,
+            cost_basis_unit_price REAL,
+            sale_source TEXT NOT NULL DEFAULT 'manual',
+            show_session_id TEXT,
+            note TEXT,
+            sold_at TEXT NOT NULL,
+            source_scan_id TEXT REFERENCES scan_events(scan_id),
+            source_confirmation_id TEXT REFERENCES scan_confirmations(id),
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    _add_column_if_missing(connection, "sale_events", "show_session_id", "TEXT")
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS deck_entry_events (
+            id TEXT PRIMARY KEY,
+            deck_entry_id TEXT NOT NULL REFERENCES deck_entries(id) ON DELETE CASCADE,
+            card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            event_kind TEXT NOT NULL,
+            quantity_delta INTEGER NOT NULL DEFAULT 0,
+            unit_price REAL,
+            total_price REAL,
+            currency_code TEXT,
+            payment_method TEXT,
+            condition TEXT,
+            grader TEXT,
+            grade TEXT,
+            cert_number TEXT,
+            variant_name TEXT,
+            sale_id TEXT REFERENCES sale_events(id) ON DELETE CASCADE,
+            source_scan_id TEXT REFERENCES scan_events(scan_id),
+            source_confirmation_id TEXT REFERENCES scan_confirmations(id),
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_deck_entries_quantity
+            ON deck_entries(quantity, added_at DESC, id DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_sale_events_deck_entry_id
+            ON sale_events(deck_entry_id, sold_at DESC, created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_sale_events_sold_at
+            ON sale_events(sold_at DESC, created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_deck_entry_events_deck_entry_id
+            ON deck_entry_events(deck_entry_id, created_at DESC, id DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_deck_entry_events_created_at
+            ON deck_entry_events(created_at DESC, id DESC)
+        """
+    )
+
+
+def _seed_deck_entry_events_from_existing_rows(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "deck_entries") or not _table_exists(connection, "deck_entry_events"):
+        return
+
+    previous_fk_state = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        rows = connection.execute(
+            """
+            SELECT
+                id,
+                card_id,
+                grader,
+                grade,
+                cert_number,
+                variant_name,
+                condition,
+                quantity,
+                added_at,
+                source_scan_id,
+                source_confirmation_id
+            FROM deck_entries
+            WHERE quantity IS NOT NULL AND quantity > 0
+            ORDER BY added_at ASC, id ASC
+            """
+        ).fetchall()
+        for row in rows:
+            deck_entry_id = str(row["id"] or "").strip()
+            if not deck_entry_id:
+                continue
+            existing = connection.execute(
+                "SELECT 1 FROM deck_entry_events WHERE deck_entry_id = ? LIMIT 1",
+                (deck_entry_id,),
+            ).fetchone()
+            if existing is not None:
+                continue
+            append_deck_entry_event(
+                connection,
+                deck_entry_id=deck_entry_id,
+                card_id=str(row["card_id"] or "").strip(),
+                event_kind="seed",
+                quantity_delta=max(0, int(row["quantity"] or 0)),
+                condition=str(row["condition"] or "").strip() or None,
+                grader=str(row["grader"] or "").strip() or None,
+                grade=str(row["grade"] or "").strip() or None,
+                cert_number=str(row["cert_number"] or "").strip() or None,
+                variant_name=str(row["variant_name"] or "").strip() or None,
+                source_scan_id=str(row["source_scan_id"] or "").strip() or None,
+                source_confirmation_id=str(row["source_confirmation_id"] or "").strip() or None,
+                created_at=str(row["added_at"] or "").strip() or utc_now(),
+                event_id=f"seed:{deck_entry_id}",
+            )
+    finally:
+        connection.execute(f"PRAGMA foreign_keys = {'ON' if previous_fk_state else 'OFF'}")
 
 
 def _backfill_deck_entry_quantities(connection: sqlite3.Connection) -> None:
@@ -305,7 +526,7 @@ def _backfill_deck_entry_quantities(connection: sqlite3.Connection) -> None:
         """
         UPDATE deck_entries
         SET quantity = 1
-        WHERE quantity IS NULL OR quantity < 1
+        WHERE quantity IS NULL
         """
     )
 
@@ -332,12 +553,43 @@ def _backfill_deck_entry_quantities(connection: sqlite3.Connection) -> None:
             """
             UPDATE deck_entries
             SET quantity = CASE
-                WHEN quantity IS NULL OR quantity < ? THEN ?
+                WHEN quantity IS NULL THEN ?
                 ELSE quantity
             END
             WHERE id = ?
             """,
-            (confirmation_count, confirmation_count, deck_entry_id),
+            (confirmation_count, deck_entry_id),
+        )
+
+
+def _reconcile_deck_entry_quantities_from_events(connection: sqlite3.Connection) -> None:
+    if not _table_exists(connection, "deck_entries") or not _table_exists(connection, "deck_entry_events"):
+        return
+    if "quantity" not in _table_columns(connection, "deck_entries"):
+        return
+
+    rows = connection.execute(
+        """
+        SELECT
+            deck_entry_id,
+            COALESCE(SUM(quantity_delta), 0) AS computed_quantity
+        FROM deck_entry_events
+        GROUP BY deck_entry_id
+        """
+    ).fetchall()
+
+    for row in rows:
+        deck_entry_id = str(row["deck_entry_id"] or "").strip()
+        if not deck_entry_id:
+            continue
+        computed_quantity = max(0, int(row["computed_quantity"] or 0))
+        connection.execute(
+            """
+            UPDATE deck_entries
+            SET quantity = ?
+            WHERE id = ?
+            """,
+            (computed_quantity, deck_entry_id),
         )
 
 
@@ -535,22 +787,40 @@ def _runtime_schema_is_compatible(connection: sqlite3.Connection) -> bool:
         "updated_at",
     }
     required_snapshot_columns = {
-        "id",
         "card_id",
-        "pricing_mode",
         "provider",
-        "grader",
-        "grade",
-        "variant",
-        "currency_code",
-        "low_price",
-        "market_price",
-        "mid_price",
-        "high_price",
-        "direct_low_price",
-        "trend_price",
+        "display_currency_code",
+        "default_raw_variant",
+        "default_raw_condition",
+        "default_raw_low_price",
+        "default_raw_market_price",
+        "default_raw_mid_price",
+        "default_raw_high_price",
+        "default_raw_direct_low_price",
+        "default_raw_trend_price",
+        "raw_contexts_json",
+        "graded_contexts_json",
         "source_url",
         "source_updated_at",
+        "source_payload_json",
+        "updated_at",
+    }
+    required_history_columns = {
+        "card_id",
+        "provider",
+        "price_date",
+        "display_currency_code",
+        "default_raw_variant",
+        "default_raw_condition",
+        "default_raw_low_price",
+        "default_raw_market_price",
+        "default_raw_mid_price",
+        "default_raw_high_price",
+        "default_raw_direct_low_price",
+        "default_raw_trend_price",
+        "raw_contexts_json",
+        "graded_contexts_json",
+        "source_url",
         "source_payload_json",
         "updated_at",
     }
@@ -603,6 +873,11 @@ def _runtime_schema_is_compatible(connection: sqlite3.Connection) -> bool:
         if not required_snapshot_columns.issubset(snapshot_columns):
             return False
 
+    if "card_price_history_daily" in tables:
+        history_columns = _table_columns(connection, "card_price_history_daily")
+        if not required_history_columns.issubset(history_columns):
+            return False
+
     if "fx_rate_snapshots" in tables:
         fx_columns = _table_columns(connection, "fx_rate_snapshots")
         if not required_fx_columns.issubset(fx_columns):
@@ -635,10 +910,14 @@ def _reset_runtime_schema(connection: sqlite3.Connection) -> None:
 
 
 def apply_schema(connection: sqlite3.Connection, schema_path: Path) -> None:
+    _rebuild_pricing_tables_if_needed(connection)
     if not _runtime_schema_is_compatible(connection):
         _reset_runtime_schema(connection)
     _apply_additive_runtime_migrations(connection)
     connection.executescript(schema_path.read_text())
+    _create_inventory_ledger_tables(connection)
+    _seed_deck_entry_events_from_existing_rows(connection)
+    _reconcile_deck_entry_quantities_from_events(connection)
     _backfill_missing_card_title_aliases(connection)
     connection.commit()
 
@@ -959,6 +1238,427 @@ def _json_load(value: Any, default: Any) -> Any:
         return json.loads(value)
     except (TypeError, json.JSONDecodeError):
         return default
+
+
+DEFAULT_RAW_CONDITION = "NM"
+DEFAULT_RAW_VARIANT = "Normal"
+RAW_VARIANT_PRIORITY = ("Normal", "Holofoil", "Reverse Holofoil")
+RAW_CONDITION_PRIORITY = ("NM", "LP", "MP", "HP", "DM")
+
+
+def _normalized_variant_label(value: str | None) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return DEFAULT_RAW_VARIANT
+    normalized_key = re.sub(r"[^a-z0-9]+", "", text.lower())
+    if normalized_key in {"", "raw", "normal", "standard"}:
+        return DEFAULT_RAW_VARIANT
+    if normalized_key == "holofoil":
+        return "Holofoil"
+    if normalized_key == "reverseholofoil":
+        return "Reverse Holofoil"
+    text = re.sub(r"([a-z0-9])([A-Z])", r"\1 \2", text)
+    text = re.sub(r"[_-]+", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text.title() or DEFAULT_RAW_VARIANT
+
+
+def _normalized_condition_code(value: str | None) -> str:
+    return str(value or DEFAULT_RAW_CONDITION).strip().upper() or DEFAULT_RAW_CONDITION
+
+
+def _empty_raw_contexts() -> dict[str, Any]:
+    return {"variants": {}}
+
+
+def _empty_graded_contexts() -> dict[str, Any]:
+    return {"graders": {}}
+
+
+def _raw_contexts_payload(value: Any) -> dict[str, Any]:
+    payload = _json_load(value, _empty_raw_contexts())
+    if not isinstance(payload, dict):
+        return _empty_raw_contexts()
+    variants = payload.get("variants")
+    if not isinstance(variants, dict):
+        payload["variants"] = {}
+    return payload
+
+
+def _graded_contexts_payload(value: Any) -> dict[str, Any]:
+    payload = _json_load(value, _empty_graded_contexts())
+    if not isinstance(payload, dict):
+        return _empty_graded_contexts()
+    graders = payload.get("graders")
+    if not isinstance(graders, dict):
+        payload["graders"] = {}
+    return payload
+
+
+def _price_summary_payload(
+    *,
+    provider: str | None = None,
+    currency_code: str,
+    low_price: float | None,
+    market_price: float | None,
+    mid_price: float | None,
+    high_price: float | None,
+    direct_low_price: float | None = None,
+    trend_price: float | None = None,
+    source_url: str | None = None,
+    source_updated_at: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    return {
+        "provider": str(provider or "").strip() or None,
+        "currencyCode": str(currency_code or "USD"),
+        "low": low_price,
+        "market": market_price,
+        "mid": mid_price,
+        "high": high_price,
+        "directLow": direct_low_price,
+        "trend": trend_price,
+        "sourceURL": str(source_url or "").strip() or None,
+        "sourceUpdatedAt": str(source_updated_at or "").strip() or None,
+        "payload": dict(payload or {}),
+    }
+
+
+def _upsert_raw_context_entry(
+    raw_contexts: dict[str, Any],
+    *,
+    variant: str | None,
+    condition: str | None,
+    provider: str | None = None,
+    currency_code: str,
+    low_price: float | None,
+    market_price: float | None,
+    mid_price: float | None,
+    high_price: float | None,
+    direct_low_price: float | None = None,
+    trend_price: float | None = None,
+    source_url: str | None = None,
+    source_updated_at: str | None = None,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    variant_label = _normalized_variant_label(variant)
+    condition_code = _normalized_condition_code(condition)
+    variants = raw_contexts.setdefault("variants", {})
+    variant_bucket = variants.setdefault(
+        variant_label,
+        {
+            "variant": variant_label,
+            "variantKey": str((payload or {}).get("variantKey") or variant_label).strip() or variant_label,
+            "conditions": {},
+        },
+    )
+    conditions = variant_bucket.setdefault("conditions", {})
+    entry = _price_summary_payload(
+        provider=provider,
+        currency_code=currency_code,
+        low_price=low_price,
+        market_price=market_price,
+        mid_price=mid_price,
+        high_price=high_price,
+        direct_low_price=direct_low_price,
+        trend_price=trend_price,
+        source_url=source_url,
+        source_updated_at=source_updated_at,
+        payload=payload,
+    )
+    entry["condition"] = condition_code
+    entry["variant"] = variant_label
+    conditions[condition_code] = entry
+    if payload and payload.get("variantKey"):
+        variant_bucket["variantKey"] = str(payload.get("variantKey")).strip() or variant_bucket.get("variantKey")
+    return entry
+
+
+def _graded_entry_key(entry: dict[str, Any]) -> tuple[str, int, int, int]:
+    return (
+        _normalized_variant_label(entry.get("variant")),
+        1 if bool(entry.get("isPerfect")) else 0,
+        1 if bool(entry.get("isSigned")) else 0,
+        1 if bool(entry.get("isError")) else 0,
+    )
+
+
+def _upsert_graded_context_entry(
+    graded_contexts: dict[str, Any],
+    *,
+    grader: str,
+    grade: str,
+    variant: str | None,
+    provider: str | None = None,
+    currency_code: str,
+    low_price: float | None,
+    market_price: float | None,
+    mid_price: float | None,
+    high_price: float | None,
+    direct_low_price: float | None = None,
+    trend_price: float | None = None,
+    source_url: str | None = None,
+    source_updated_at: str | None = None,
+    is_perfect: bool = False,
+    is_signed: bool = False,
+    is_error: bool = False,
+    payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    grader_key = str(grader or "").strip().upper()
+    grade_key = str(grade or "").strip().upper()
+    if not grader_key or not grade_key:
+        raise ValueError("grader and grade are required for graded pricing contexts")
+    graders = graded_contexts.setdefault("graders", {})
+    grade_bucket = graders.setdefault(grader_key, {}).setdefault(grade_key, [])
+    entry = _price_summary_payload(
+        provider=provider,
+        currency_code=currency_code,
+        low_price=low_price,
+        market_price=market_price,
+        mid_price=mid_price,
+        high_price=high_price,
+        direct_low_price=direct_low_price,
+        trend_price=trend_price,
+        source_url=source_url,
+        source_updated_at=source_updated_at,
+        payload=payload,
+    )
+    entry.update(
+        {
+            "grader": grader_key,
+            "grade": grade_key,
+            "variant": _normalized_variant_label(variant),
+            "isPerfect": bool(is_perfect),
+            "isSigned": bool(is_signed),
+            "isError": bool(is_error),
+        }
+    )
+    key = _graded_entry_key(entry)
+    replaced = False
+    for index, existing in enumerate(list(grade_bucket)):
+        if not isinstance(existing, dict):
+            continue
+        if _graded_entry_key(existing) == key:
+            grade_bucket[index] = entry
+            replaced = True
+            break
+    if not replaced:
+        grade_bucket.append(entry)
+    return entry
+
+
+def _raw_context_variants(raw_contexts: dict[str, Any]) -> list[str]:
+    variants = raw_contexts.get("variants")
+    if not isinstance(variants, dict):
+        return []
+    return [variant for variant in variants.keys() if str(variant).strip()]
+
+
+def _raw_context_conditions(raw_contexts: dict[str, Any], variant: str | None) -> list[str]:
+    variants = raw_contexts.get("variants")
+    if not isinstance(variants, dict):
+        return []
+    variant_bucket = variants.get(_normalized_variant_label(variant))
+    if not isinstance(variant_bucket, dict):
+        return []
+    conditions = variant_bucket.get("conditions")
+    if not isinstance(conditions, dict):
+        return []
+    return [str(condition).upper() for condition in conditions.keys() if str(condition).strip()]
+
+
+def _raw_context_entry(
+    raw_contexts: dict[str, Any],
+    *,
+    variant: str | None,
+    condition: str | None,
+) -> dict[str, Any] | None:
+    variants = raw_contexts.get("variants")
+    if not isinstance(variants, dict):
+        return None
+    variant_bucket = variants.get(_normalized_variant_label(variant))
+    if not isinstance(variant_bucket, dict):
+        return None
+    conditions = variant_bucket.get("conditions")
+    if not isinstance(conditions, dict):
+        return None
+    resolved_condition = _normalized_condition_code(condition)
+    entry = conditions.get(resolved_condition)
+    return entry if isinstance(entry, dict) else None
+
+
+def _resolve_default_raw_context(raw_contexts: dict[str, Any]) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    variants = _raw_context_variants(raw_contexts)
+    if not variants:
+        return None, None, None
+
+    def variant_rank(label: str) -> tuple[int, str]:
+        try:
+            return (RAW_VARIANT_PRIORITY.index(label), label)
+        except ValueError:
+            return (len(RAW_VARIANT_PRIORITY), label)
+
+    ordered_variants = sorted(variants, key=variant_rank)
+    for preferred_condition in RAW_CONDITION_PRIORITY:
+        for variant in ordered_variants:
+            entry = _raw_context_entry(raw_contexts, variant=variant, condition=preferred_condition)
+            if entry is not None:
+                return variant, preferred_condition, entry
+    first_variant = ordered_variants[0]
+    conditions = _raw_context_conditions(raw_contexts, first_variant)
+    if not conditions:
+        return first_variant, None, None
+    entry = _raw_context_entry(raw_contexts, variant=first_variant, condition=conditions[0])
+    return first_variant, conditions[0], entry
+
+
+def _default_display_currency_code(
+    *,
+    raw_contexts: dict[str, Any],
+    graded_contexts: dict[str, Any],
+    fallback: str | None = None,
+) -> str:
+    _, _, raw_entry = _resolve_default_raw_context(raw_contexts)
+    if raw_entry is not None:
+        return str(raw_entry.get("currencyCode") or "USD")
+    graders = graded_contexts.get("graders")
+    if isinstance(graders, dict):
+        for grade_map in graders.values():
+            if not isinstance(grade_map, dict):
+                continue
+            for entries in grade_map.values():
+                if not isinstance(entries, list):
+                    continue
+                for entry in entries:
+                    if isinstance(entry, dict) and str(entry.get("currencyCode") or "").strip():
+                        return str(entry.get("currencyCode"))
+    return str(fallback or "USD")
+
+
+def _coerce_price_summary_from_entry(entry: dict[str, Any] | None) -> dict[str, Any] | None:
+    if not isinstance(entry, dict):
+        return None
+    return {
+        "currencyCode": entry.get("currencyCode"),
+        "low": entry.get("low"),
+        "market": entry.get("market"),
+        "mid": entry.get("mid"),
+        "high": entry.get("high"),
+        "directLow": entry.get("directLow"),
+        "trend": entry.get("trend"),
+        "payload": dict(entry.get("payload") or {}),
+    }
+
+
+def _resolve_raw_context_summary(
+    raw_contexts: dict[str, Any],
+    *,
+    variant: str | None = None,
+    condition: str | None = None,
+) -> tuple[str | None, str | None, dict[str, Any] | None]:
+    resolved_variant = _normalized_variant_label(variant) if variant else None
+    resolved_condition = _normalized_condition_code(condition) if condition else None
+    entry = _raw_context_entry(raw_contexts, variant=resolved_variant, condition=resolved_condition) if resolved_variant else None
+    if entry is None and resolved_variant:
+        for candidate in RAW_CONDITION_PRIORITY:
+            entry = _raw_context_entry(raw_contexts, variant=resolved_variant, condition=candidate)
+            if entry is not None:
+                resolved_condition = candidate
+                break
+    if entry is not None:
+        return resolved_variant, resolved_condition, _coerce_price_summary_from_entry(entry)
+    default_variant, default_condition, default_entry = _resolve_default_raw_context(raw_contexts)
+    return default_variant, default_condition, _coerce_price_summary_from_entry(default_entry)
+
+
+def _default_raw_field_values(raw_contexts: dict[str, Any]) -> dict[str, Any]:
+    variant, condition, entry = _resolve_default_raw_context(raw_contexts)
+    summary = _coerce_price_summary_from_entry(entry) or {}
+    return {
+        "defaultRawVariant": variant,
+        "defaultRawCondition": condition or DEFAULT_RAW_CONDITION,
+        "defaultRawLowPrice": summary.get("low"),
+        "defaultRawMarketPrice": summary.get("market"),
+        "defaultRawMidPrice": summary.get("mid"),
+        "defaultRawHighPrice": summary.get("high"),
+        "defaultRawDirectLowPrice": summary.get("directLow"),
+        "defaultRawTrendPrice": summary.get("trend"),
+    }
+
+
+def _resolve_graded_context_entry(
+    graded_contexts: dict[str, Any],
+    *,
+    grader: str | None,
+    grade: str | None,
+    variant: str | None = None,
+) -> dict[str, Any] | None:
+    grader_key = str(grader or "").strip().upper()
+    grade_key = str(grade or "").strip().upper()
+    if not grader_key or not grade_key:
+        return None
+    graders = graded_contexts.get("graders")
+    if not isinstance(graders, dict):
+        return None
+    grade_map = graders.get(grader_key)
+    if not isinstance(grade_map, dict):
+        return None
+    entries = grade_map.get(grade_key)
+    if not isinstance(entries, list):
+        return None
+    resolved_variant = _normalized_variant_label(variant) if variant else None
+    preferred = []
+    fallback = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        is_special = any(bool(entry.get(flag)) for flag in ("isPerfect", "isSigned", "isError"))
+        entry_variant = _normalized_variant_label(entry.get("variant"))
+        if resolved_variant:
+            if entry_variant == resolved_variant and not is_special:
+                return entry
+            if entry_variant == resolved_variant:
+                preferred.append(entry)
+        elif not is_special:
+            fallback.append(entry)
+        else:
+            preferred.append(entry)
+    if preferred:
+        return preferred[0]
+    if fallback:
+        return fallback[0]
+    return None
+
+
+def _graded_variants_for_context(
+    graded_contexts: dict[str, Any],
+    *,
+    grader: str | None,
+    grade: str | None,
+) -> list[str]:
+    grader_key = str(grader or "").strip().upper()
+    grade_key = str(grade or "").strip().upper()
+    if not grader_key or not grade_key:
+        return []
+    graders = graded_contexts.get("graders")
+    if not isinstance(graders, dict):
+        return []
+    grade_map = graders.get(grader_key)
+    if not isinstance(grade_map, dict):
+        return []
+    entries = grade_map.get(grade_key)
+    if not isinstance(entries, list):
+        return []
+    seen: set[str] = set()
+    variants: list[str] = []
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        label = _normalized_variant_label(entry.get("variant"))
+        if label and label not in seen:
+            seen.add(label)
+            variants.append(label)
+    return variants
 
 
 def canonicalize_collector_number(value: str) -> str:
@@ -1377,9 +2077,23 @@ def upsert_price_snapshot(
     connection: sqlite3.Connection,
     *,
     card_id: str,
-    pricing_mode: str,
     provider: str,
-    currency_code: str,
+    display_currency_code: str | None = None,
+    raw_contexts: dict[str, Any] | None = None,
+    graded_contexts: dict[str, Any] | None = None,
+    default_raw_variant: str | None = None,
+    default_raw_condition: str | None = None,
+    default_raw_low_price: float | None = None,
+    default_raw_market_price: float | None = None,
+    default_raw_mid_price: float | None = None,
+    default_raw_high_price: float | None = None,
+    default_raw_direct_low_price: float | None = None,
+    default_raw_trend_price: float | None = None,
+    source_url: str | None = None,
+    source_updated_at: str | None = None,
+    payload: dict[str, Any] | None = None,
+    pricing_mode: str | None = None,
+    currency_code: str | None = None,
     grader: str | None = None,
     grade: str | None = None,
     variant: str | None = None,
@@ -1389,47 +2103,121 @@ def upsert_price_snapshot(
     high_price: float | None = None,
     direct_low_price: float | None = None,
     trend_price: float | None = None,
-    source_url: str | None = None,
-    source_updated_at: str | None = None,
-    payload: dict[str, Any] | None = None,
+    condition: str | None = None,
+    is_perfect: bool = False,
+    is_signed: bool = False,
+    is_error: bool = False,
 ) -> None:
-    snapshot_id = f"{card_id}:{pricing_mode}:{provider}:{grader or ''}:{grade or ''}:{variant or ''}"
+    existing_row = connection.execute(
+        """
+        SELECT *
+        FROM card_price_snapshots
+        WHERE card_id = ?
+        LIMIT 1
+        """,
+        (card_id,),
+    ).fetchone()
+    merged_raw_contexts = _raw_contexts_payload(existing_row["raw_contexts_json"] if existing_row is not None else None)
+    merged_graded_contexts = _graded_contexts_payload(existing_row["graded_contexts_json"] if existing_row is not None else None)
+
+    if raw_contexts is not None:
+        merged_raw_contexts = _raw_contexts_payload(json.dumps(raw_contexts))
+    elif pricing_mode == RAW_PRICING_MODE:
+        _upsert_raw_context_entry(
+            merged_raw_contexts,
+            variant=variant,
+            condition=condition or DEFAULT_RAW_CONDITION,
+            currency_code=str(currency_code or display_currency_code or "USD"),
+            low_price=low_price,
+            market_price=market_price,
+            mid_price=mid_price,
+            high_price=high_price,
+            direct_low_price=direct_low_price,
+            trend_price=trend_price,
+            payload=payload,
+        )
+
+    if graded_contexts is not None:
+        merged_graded_contexts = _graded_contexts_payload(json.dumps(graded_contexts))
+    elif pricing_mode == PSA_GRADE_PRICING_MODE and grader and grade:
+        _upsert_graded_context_entry(
+            merged_graded_contexts,
+            grader=grader,
+            grade=grade,
+            variant=variant,
+            currency_code=str(currency_code or display_currency_code or "USD"),
+            low_price=low_price,
+            market_price=market_price,
+            mid_price=mid_price,
+            high_price=high_price,
+            direct_low_price=direct_low_price,
+            trend_price=trend_price,
+            is_perfect=is_perfect,
+            is_signed=is_signed,
+            is_error=is_error,
+            payload=payload,
+        )
+
+    default_fields = _default_raw_field_values(merged_raw_contexts)
+    has_existing_raw_contexts = bool(_raw_context_variants(merged_raw_contexts))
+    graded_only_merge = graded_contexts is not None or (pricing_mode == PSA_GRADE_PRICING_MODE and grader and grade)
+    resolved_provider = provider
+    if existing_row is not None and graded_only_merge and has_existing_raw_contexts:
+        existing_provider = str(existing_row["provider"] or "").strip()
+        if existing_provider:
+            resolved_provider = existing_provider
+    resolved_currency_code = str(
+        display_currency_code
+        or _default_display_currency_code(
+            raw_contexts=merged_raw_contexts,
+            graded_contexts=merged_graded_contexts,
+            fallback=existing_row["display_currency_code"] if existing_row is not None else currency_code,
+        )
+        or "USD"
+    )
     connection.execute(
         """
         INSERT INTO card_price_snapshots (
-            id, card_id, pricing_mode, provider, grader, grade, variant, currency_code,
-            low_price, market_price, mid_price, high_price, direct_low_price, trend_price,
+            card_id, provider, display_currency_code,
+            default_raw_variant, default_raw_condition,
+            default_raw_low_price, default_raw_market_price, default_raw_mid_price, default_raw_high_price,
+            default_raw_direct_low_price, default_raw_trend_price,
+            raw_contexts_json, graded_contexts_json,
             source_url, source_updated_at, source_payload_json, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            currency_code=excluded.currency_code,
-            low_price=excluded.low_price,
-            market_price=excluded.market_price,
-            mid_price=excluded.mid_price,
-            high_price=excluded.high_price,
-            direct_low_price=excluded.direct_low_price,
-            trend_price=excluded.trend_price,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(card_id) DO UPDATE SET
+            provider=excluded.provider,
+            display_currency_code=excluded.display_currency_code,
+            default_raw_variant=excluded.default_raw_variant,
+            default_raw_condition=excluded.default_raw_condition,
+            default_raw_low_price=excluded.default_raw_low_price,
+            default_raw_market_price=excluded.default_raw_market_price,
+            default_raw_mid_price=excluded.default_raw_mid_price,
+            default_raw_high_price=excluded.default_raw_high_price,
+            default_raw_direct_low_price=excluded.default_raw_direct_low_price,
+            default_raw_trend_price=excluded.default_raw_trend_price,
+            raw_contexts_json=excluded.raw_contexts_json,
+            graded_contexts_json=excluded.graded_contexts_json,
             source_url=excluded.source_url,
             source_updated_at=excluded.source_updated_at,
             source_payload_json=excluded.source_payload_json,
             updated_at=excluded.updated_at
         """,
         (
-            snapshot_id,
             card_id,
-            pricing_mode,
-            provider,
-            grader,
-            grade,
-            variant,
-            currency_code,
-            low_price,
-            market_price,
-            mid_price,
-            high_price,
-            direct_low_price,
-            trend_price,
+            resolved_provider,
+            resolved_currency_code,
+            default_raw_variant or default_fields["defaultRawVariant"],
+            default_raw_condition or default_fields["defaultRawCondition"],
+            default_raw_low_price if default_raw_low_price is not None else default_fields["defaultRawLowPrice"],
+            default_raw_market_price if default_raw_market_price is not None else default_fields["defaultRawMarketPrice"],
+            default_raw_mid_price if default_raw_mid_price is not None else default_fields["defaultRawMidPrice"],
+            default_raw_high_price if default_raw_high_price is not None else default_fields["defaultRawHighPrice"],
+            default_raw_direct_low_price if default_raw_direct_low_price is not None else default_fields["defaultRawDirectLowPrice"],
+            default_raw_trend_price if default_raw_trend_price is not None else default_fields["defaultRawTrendPrice"],
+            json.dumps(merged_raw_contexts),
+            json.dumps(merged_graded_contexts),
             source_url,
             source_updated_at,
             json.dumps(payload or {}),
@@ -1442,10 +2230,23 @@ def upsert_price_history_daily(
     connection: sqlite3.Connection,
     *,
     card_id: str,
-    pricing_mode: str,
     provider: str,
     price_date: str,
-    currency_code: str,
+    display_currency_code: str | None = None,
+    raw_contexts: dict[str, Any] | None = None,
+    graded_contexts: dict[str, Any] | None = None,
+    default_raw_variant: str | None = None,
+    default_raw_condition: str | None = None,
+    default_raw_low_price: float | None = None,
+    default_raw_market_price: float | None = None,
+    default_raw_mid_price: float | None = None,
+    default_raw_high_price: float | None = None,
+    default_raw_direct_low_price: float | None = None,
+    default_raw_trend_price: float | None = None,
+    source_url: str | None = None,
+    payload: dict[str, Any] | None = None,
+    pricing_mode: str | None = None,
+    currency_code: str | None = None,
     variant: str | None = None,
     condition: str | None = None,
     grader: str | None = None,
@@ -1457,60 +2258,119 @@ def upsert_price_history_daily(
     market_price: float | None = None,
     mid_price: float | None = None,
     high_price: float | None = None,
-    source_url: str | None = None,
-    payload: dict[str, Any] | None = None,
+    direct_low_price: float | None = None,
+    trend_price: float | None = None,
 ) -> None:
-    history_id = ":".join(
-        [
-            card_id,
-            pricing_mode,
-            provider,
-            price_date,
-            (variant or "").strip(),
-            (condition or "").strip(),
-            (grader or "").strip(),
-            (grade or "").strip(),
-            "1" if is_perfect else "0",
-            "1" if is_signed else "0",
-            "1" if is_error else "0",
-        ]
+    existing_row = connection.execute(
+        """
+        SELECT *
+        FROM card_price_history_daily
+        WHERE card_id = ? AND price_date = ?
+        LIMIT 1
+        """,
+        (card_id, price_date),
+    ).fetchone()
+    merged_raw_contexts = _raw_contexts_payload(existing_row["raw_contexts_json"] if existing_row is not None else None)
+    merged_graded_contexts = _graded_contexts_payload(existing_row["graded_contexts_json"] if existing_row is not None else None)
+
+    if raw_contexts is not None:
+        merged_raw_contexts = _raw_contexts_payload(json.dumps(raw_contexts))
+    elif pricing_mode == RAW_PRICING_MODE:
+        _upsert_raw_context_entry(
+            merged_raw_contexts,
+            variant=variant,
+            condition=condition or DEFAULT_RAW_CONDITION,
+            currency_code=str(currency_code or display_currency_code or "USD"),
+            low_price=low_price,
+            market_price=market_price,
+            mid_price=mid_price,
+            high_price=high_price,
+            direct_low_price=direct_low_price,
+            trend_price=trend_price,
+            payload=payload,
+        )
+
+    if graded_contexts is not None:
+        merged_graded_contexts = _graded_contexts_payload(json.dumps(graded_contexts))
+    elif pricing_mode == PSA_GRADE_PRICING_MODE and grader and grade:
+        _upsert_graded_context_entry(
+            merged_graded_contexts,
+            grader=grader,
+            grade=grade,
+            variant=variant,
+            currency_code=str(currency_code or display_currency_code or "USD"),
+            low_price=low_price,
+            market_price=market_price,
+            mid_price=mid_price,
+            high_price=high_price,
+            direct_low_price=direct_low_price,
+            trend_price=trend_price,
+            is_perfect=is_perfect,
+            is_signed=is_signed,
+            is_error=is_error,
+            payload=payload,
+        )
+
+    default_fields = _default_raw_field_values(merged_raw_contexts)
+    has_existing_raw_contexts = bool(_raw_context_variants(merged_raw_contexts))
+    graded_only_merge = graded_contexts is not None or (pricing_mode == PSA_GRADE_PRICING_MODE and grader and grade)
+    resolved_provider = provider
+    if existing_row is not None and graded_only_merge and has_existing_raw_contexts:
+        existing_provider = str(existing_row["provider"] or "").strip()
+        if existing_provider:
+            resolved_provider = existing_provider
+    resolved_currency_code = str(
+        display_currency_code
+        or _default_display_currency_code(
+            raw_contexts=merged_raw_contexts,
+            graded_contexts=merged_graded_contexts,
+            fallback=existing_row["display_currency_code"] if existing_row is not None else currency_code,
+        )
+        or "USD"
     )
     connection.execute(
         """
         INSERT INTO card_price_history_daily (
-            id, card_id, pricing_mode, provider, price_date, currency_code, variant, condition,
-            grader, grade, is_perfect, is_signed, is_error, low_price, market_price, mid_price,
-            high_price, source_url, source_payload_json, updated_at
+            card_id, provider, price_date, display_currency_code,
+            default_raw_variant, default_raw_condition,
+            default_raw_low_price, default_raw_market_price, default_raw_mid_price, default_raw_high_price,
+            default_raw_direct_low_price, default_raw_trend_price,
+            raw_contexts_json, graded_contexts_json,
+            source_url, source_payload_json, updated_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            currency_code=excluded.currency_code,
-            low_price=excluded.low_price,
-            market_price=excluded.market_price,
-            mid_price=excluded.mid_price,
-            high_price=excluded.high_price,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(card_id, price_date) DO UPDATE SET
+            provider=excluded.provider,
+            display_currency_code=excluded.display_currency_code,
+            default_raw_variant=excluded.default_raw_variant,
+            default_raw_condition=excluded.default_raw_condition,
+            default_raw_low_price=excluded.default_raw_low_price,
+            default_raw_market_price=excluded.default_raw_market_price,
+            default_raw_mid_price=excluded.default_raw_mid_price,
+            default_raw_high_price=excluded.default_raw_high_price,
+            default_raw_direct_low_price=excluded.default_raw_direct_low_price,
+            default_raw_trend_price=excluded.default_raw_trend_price,
+            raw_contexts_json=excluded.raw_contexts_json,
+            graded_contexts_json=excluded.graded_contexts_json,
             source_url=excluded.source_url,
             source_payload_json=excluded.source_payload_json,
             updated_at=excluded.updated_at
         """,
         (
-            history_id,
             card_id,
-            pricing_mode,
-            provider,
+            resolved_provider,
             price_date,
-            currency_code,
-            variant,
-            condition,
-            grader,
-            grade,
-            1 if is_perfect else 0,
-            1 if is_signed else 0,
-            1 if is_error else 0,
-            low_price,
-            market_price,
-            mid_price,
-            high_price,
+            resolved_currency_code,
+            default_raw_variant or default_fields["defaultRawVariant"],
+            default_raw_condition or default_fields["defaultRawCondition"],
+            default_raw_low_price if default_raw_low_price is not None else default_fields["defaultRawLowPrice"],
+            default_raw_market_price if default_raw_market_price is not None else default_fields["defaultRawMarketPrice"],
+            default_raw_mid_price if default_raw_mid_price is not None else default_fields["defaultRawMidPrice"],
+            default_raw_high_price if default_raw_high_price is not None else default_fields["defaultRawHighPrice"],
+            default_raw_direct_low_price if default_raw_direct_low_price is not None else default_fields["defaultRawDirectLowPrice"],
+            default_raw_trend_price if default_raw_trend_price is not None else default_fields["defaultRawTrendPrice"],
+            json.dumps(merged_raw_contexts),
+            json.dumps(merged_graded_contexts),
             source_url,
             json.dumps(payload or {}),
             utc_now(),
@@ -1522,9 +2382,9 @@ def price_history_rows_for_card(
     connection: sqlite3.Connection,
     card_id: str,
     *,
-    pricing_mode: str,
     provider: str,
     days: int,
+    pricing_mode: str | None = None,
     variant: str | None = None,
     condition: str | None = None,
     grader: str | None = None,
@@ -1536,66 +2396,70 @@ def price_history_rows_for_card(
     query = """
         SELECT *
         FROM card_price_history_daily
-        WHERE card_id = ? AND pricing_mode = ? AND provider = ?
+        WHERE card_id = ? AND provider = ?
     """
-    params: list[Any] = [card_id, pricing_mode, provider]
-    if variant is not None:
-        query += " AND variant = ?"
-        params.append(variant)
-    if condition is not None:
-        query += " AND condition = ?"
-        params.append(condition)
-    if grader is not None:
-        query += " AND grader = ?"
-        params.append(grader)
-    if grade is not None:
-        query += " AND grade = ?"
-        params.append(grade)
-    if is_perfect is not None:
-        query += " AND is_perfect = ?"
-        params.append(1 if is_perfect else 0)
-    if is_signed is not None:
-        query += " AND is_signed = ?"
-        params.append(1 if is_signed else 0)
-    if is_error is not None:
-        query += " AND is_error = ?"
-        params.append(1 if is_error else 0)
+    params: list[Any] = [card_id, provider]
     query += " ORDER BY price_date DESC LIMIT ?"
     params.append(max(1, int(days)))
     rows = connection.execute(query, params).fetchall()
-    return [
-        {
-            "id": row["id"],
-            "cardID": row["card_id"],
-            "pricingMode": row["pricing_mode"],
-            "provider": row["provider"],
-            "date": row["price_date"],
-            "currencyCode": row["currency_code"],
-            "variant": row["variant"],
-            "condition": row["condition"],
-            "grader": row["grader"],
-            "grade": row["grade"],
-            "isPerfect": bool(row["is_perfect"]),
-            "isSigned": bool(row["is_signed"]),
-            "isError": bool(row["is_error"]),
-            "low": row["low_price"],
-            "market": row["market_price"],
-            "mid": row["mid_price"],
-            "high": row["high_price"],
-            "sourceURL": row["source_url"],
-            "payload": _json_load(row["source_payload_json"], {}),
-            "updatedAt": row["updated_at"],
-        }
-        for row in rows
-    ]
+    resolved_rows: list[dict[str, Any]] = []
+    for row in rows:
+        raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
+        graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
+        summary: dict[str, Any] | None = None
+        resolved_variant: str | None = None
+        resolved_condition: str | None = None
+        resolved_mode = pricing_mode or (PSA_GRADE_PRICING_MODE if grader or grade else RAW_PRICING_MODE)
+        if resolved_mode == PSA_GRADE_PRICING_MODE:
+            entry = _resolve_graded_context_entry(
+                graded_contexts,
+                grader=grader,
+                grade=grade,
+                variant=variant,
+            )
+            summary = _coerce_price_summary_from_entry(entry)
+            resolved_variant = _normalized_variant_label(entry.get("variant")) if isinstance(entry, dict) else variant
+        else:
+            resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
+                raw_contexts,
+                variant=variant,
+                condition=condition,
+            )
+        if summary is None:
+            continue
+        resolved_rows.append(
+            {
+                "id": f"{row['card_id']}:{row['price_date']}",
+                "cardID": row["card_id"],
+                "pricingMode": resolved_mode,
+                "provider": row["provider"],
+                "date": row["price_date"],
+                "currencyCode": summary.get("currencyCode") or row["display_currency_code"],
+                "variant": resolved_variant,
+                "condition": resolved_condition,
+                "grader": str(grader or "").strip().upper() or None,
+                "grade": str(grade or "").strip().upper() or None,
+                "isPerfect": bool(is_perfect),
+                "isSigned": bool(is_signed),
+                "isError": bool(is_error),
+                "low": summary.get("low"),
+                "market": summary.get("market"),
+                "mid": summary.get("mid"),
+                "high": summary.get("high"),
+                "sourceURL": row["source_url"],
+                "payload": summary.get("payload") or {},
+                "updatedAt": row["updated_at"],
+            }
+        )
+    return resolved_rows
 
 
 def latest_price_history_update_for_context(
     connection: sqlite3.Connection,
     *,
     card_id: str,
-    pricing_mode: str,
     provider: str,
+    pricing_mode: str | None = None,
     variant: str | None = None,
     condition: str | None = None,
     grader: str | None = None,
@@ -1605,37 +2469,82 @@ def latest_price_history_update_for_context(
     is_error: bool | None = None,
 ) -> str | None:
     query = """
-        SELECT updated_at
+        SELECT *
         FROM card_price_history_daily
-        WHERE card_id = ? AND pricing_mode = ? AND provider = ?
+        WHERE card_id = ? AND provider = ?
     """
-    params: list[Any] = [card_id, pricing_mode, provider]
-    if variant is not None:
-        query += " AND variant = ?"
-        params.append(variant)
-    if condition is not None:
-        query += " AND condition = ?"
-        params.append(condition)
-    if grader is not None:
-        query += " AND grader = ?"
-        params.append(grader)
-    if grade is not None:
-        query += " AND grade = ?"
-        params.append(grade)
-    if is_perfect is not None:
-        query += " AND is_perfect = ?"
-        params.append(1 if is_perfect else 0)
-    if is_signed is not None:
-        query += " AND is_signed = ?"
-        params.append(1 if is_signed else 0)
-    if is_error is not None:
-        query += " AND is_error = ?"
-        params.append(1 if is_error else 0)
-    query += " ORDER BY updated_at DESC LIMIT 1"
-    row = connection.execute(query, params).fetchone()
-    if row is None:
-        return None
-    return str(row["updated_at"] or "").strip() or None
+    params: list[Any] = [card_id, provider]
+    query += " ORDER BY price_date DESC, updated_at DESC"
+    rows = connection.execute(query, params).fetchall()
+    resolved_mode = pricing_mode or (PSA_GRADE_PRICING_MODE if grader or grade else RAW_PRICING_MODE)
+    for row in rows:
+        if resolved_mode == PSA_GRADE_PRICING_MODE:
+            entry = _resolve_graded_context_entry(
+                _graded_contexts_payload(row["graded_contexts_json"]),
+                grader=grader,
+                grade=grade,
+                variant=variant,
+            )
+            if entry is None:
+                continue
+            if is_perfect is not None and bool(entry.get("isPerfect")) != bool(is_perfect):
+                continue
+            if is_signed is not None and bool(entry.get("isSigned")) != bool(is_signed):
+                continue
+            if is_error is not None and bool(entry.get("isError")) != bool(is_error):
+                continue
+        else:
+            _, _, summary = _resolve_raw_context_summary(
+                _raw_contexts_payload(row["raw_contexts_json"]),
+                variant=variant,
+                condition=condition,
+            )
+            if summary is None:
+                continue
+        return str(row["updated_at"] or "").strip() or None
+    return None
+
+
+def price_snapshot_row(connection: sqlite3.Connection, card_id: str) -> sqlite3.Row | None:
+    return connection.execute(
+        """
+        SELECT *
+        FROM card_price_snapshots
+        WHERE card_id = ?
+        LIMIT 1
+        """,
+        (card_id,),
+    ).fetchone()
+
+
+def latest_price_history_row_for_card(
+    connection: sqlite3.Connection,
+    card_id: str,
+    *,
+    provider: str,
+    as_of_date: str | None = None,
+) -> sqlite3.Row | None:
+    if as_of_date:
+        return connection.execute(
+            """
+            SELECT *
+            FROM card_price_history_daily
+            WHERE card_id = ? AND provider = ? AND price_date <= ?
+            ORDER BY price_date DESC, updated_at DESC
+            LIMIT 1
+            """,
+            (card_id, provider, as_of_date),
+        ).fetchone()
+    return connection.execute(
+        """
+        SELECT *
+        FROM card_price_history_daily
+        WHERE card_id = ? AND provider = ?
+        ORDER BY price_date DESC, updated_at DESC
+        LIMIT 1
+        """,
+        (card_id, provider),
+    ).fetchone()
 
 
 def upsert_fx_rate_snapshot(
@@ -1729,20 +2638,9 @@ def price_snapshot_for_card(
     query = """
         SELECT *
         FROM card_price_snapshots
-        WHERE card_id = ? AND pricing_mode = ?
+        WHERE card_id = ?
     """
-    params: list[Any] = [card_id, pricing_mode]
-    if grader is not None:
-        query += " AND grader = ?"
-        params.append(grader)
-    if grade is not None:
-        query += " AND grade = ?"
-        params.append(grade)
-    if variant is not None:
-        query += " AND variant = ?"
-        params.append(variant)
-    query += " ORDER BY updated_at DESC LIMIT 1"
-    row = connection.execute(query, params).fetchone()
+    row = connection.execute(query, (card_id,)).fetchone()
     if row is None:
         return None
     updated_at = row["updated_at"]
@@ -1753,37 +2651,69 @@ def price_snapshot_for_card(
             is_fresh = datetime.now(timezone.utc) - refreshed <= timedelta(hours=24)
         except ValueError:
             is_fresh = False
+    raw_contexts = _raw_contexts_payload(row["raw_contexts_json"])
+    graded_contexts = _graded_contexts_payload(row["graded_contexts_json"])
     payload = _json_load(row["source_payload_json"], {})
-    pricing_mode = row["pricing_mode"]
+    summary: dict[str, Any] | None = None
+    resolved_variant: str | None = None
+    resolved_payload: dict[str, Any] = {}
+    if pricing_mode == PSA_GRADE_PRICING_MODE:
+        entry = _resolve_graded_context_entry(graded_contexts, grader=grader, grade=grade, variant=variant)
+        summary = _coerce_price_summary_from_entry(entry)
+        if summary is None:
+            return None
+        resolved_variant = _normalized_variant_label(entry.get("variant")) if isinstance(entry, dict) else variant
+        resolved_payload = summary.get("payload") or {}
+        resolved_condition = None
+    else:
+        resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
+            raw_contexts,
+            variant=variant or row["default_raw_variant"],
+            condition=DEFAULT_RAW_CONDITION,
+        )
+        if summary is None and row["default_raw_market_price"] is not None:
+            summary = {
+                "currencyCode": row["display_currency_code"],
+                "low": row["default_raw_low_price"],
+                "market": row["default_raw_market_price"],
+                "mid": row["default_raw_mid_price"],
+                "high": row["default_raw_high_price"],
+                "directLow": row["default_raw_direct_low_price"],
+                "trend": row["default_raw_trend_price"],
+                "payload": {},
+            }
+            resolved_condition = row["default_raw_condition"]
+        resolved_payload = summary.get("payload") or {}
+        variant = resolved_variant
     return {
-        "id": row["id"],
+        "id": row["card_id"],
         "cardID": row["card_id"],
         "pricingMode": "psa_grade_estimate" if pricing_mode == PSA_GRADE_PRICING_MODE else pricing_mode,
         "provider": row["provider"],
         "source": row["provider"],
-        "grader": row["grader"],
-        "grade": row["grade"],
-        "variant": row["variant"],
-        "currencyCode": row["currency_code"],
-        "low": row["low_price"],
-        "market": row["market_price"],
-        "mid": row["mid_price"],
-        "high": row["high_price"],
-        "directLow": row["direct_low_price"],
-        "trend": row["trend_price"],
+        "grader": str(grader or "").strip().upper() or None,
+        "grade": str(grade or "").strip().upper() or None,
+        "variant": resolved_variant if pricing_mode == PSA_GRADE_PRICING_MODE else (variant or row["default_raw_variant"]),
+        "currencyCode": summary.get("currencyCode") or row["display_currency_code"],
+        "low": summary.get("low"),
+        "market": summary.get("market"),
+        "mid": summary.get("mid"),
+        "high": summary.get("high"),
+        "directLow": summary.get("directLow"),
+        "trend": summary.get("trend"),
         "sourceURL": row["source_url"],
         "updatedAt": row["source_updated_at"],
         "refreshedAt": row["updated_at"],
-        "pricingTier": payload.get("pricingTier"),
-        "confidenceLabel": payload.get("confidenceLabel"),
-        "confidenceLevel": payload.get("confidenceLevel"),
-        "compCount": payload.get("compCount"),
-        "recentCompCount": payload.get("recentCompCount"),
-        "lastSoldPrice": payload.get("lastSalePrice"),
-        "lastSoldAt": payload.get("lastSaleDate"),
-        "bucketKey": payload.get("bucketKey"),
-        "methodologySummary": payload.get("summary"),
-        "payload": payload,
+        "pricingTier": resolved_payload.get("pricingTier") if resolved_payload else payload.get("pricingTier"),
+        "confidenceLabel": resolved_payload.get("confidenceLabel") if resolved_payload else payload.get("confidenceLabel"),
+        "confidenceLevel": resolved_payload.get("confidenceLevel") if resolved_payload else payload.get("confidenceLevel"),
+        "compCount": resolved_payload.get("compCount") if resolved_payload else payload.get("compCount"),
+        "recentCompCount": resolved_payload.get("recentCompCount") if resolved_payload else payload.get("recentCompCount"),
+        "lastSoldPrice": resolved_payload.get("lastSalePrice") if resolved_payload else payload.get("lastSalePrice"),
+        "lastSoldAt": resolved_payload.get("lastSaleDate") if resolved_payload else payload.get("lastSaleDate"),
+        "bucketKey": resolved_payload.get("bucketKey") if resolved_payload else payload.get("bucketKey"),
+        "methodologySummary": resolved_payload.get("summary") if resolved_payload else payload.get("summary"),
+        "payload": resolved_payload if resolved_payload else payload,
         "isFresh": is_fresh,
     }
 
@@ -1831,10 +2761,11 @@ def upsert_card_price_summary(
     upsert_price_snapshot(
         connection,
         card_id=card_id,
-        pricing_mode=RAW_PRICING_MODE,
         provider=source,
+        pricing_mode=RAW_PRICING_MODE,
         currency_code=currency_code,
         variant=variant,
+        condition=DEFAULT_RAW_CONDITION,
         low_price=low_price,
         market_price=market_price,
         mid_price=mid_price,
@@ -1889,16 +2820,19 @@ def upsert_slab_price_snapshot(
     upsert_price_snapshot(
         connection,
         card_id=card_id,
-        pricing_mode=PSA_GRADE_PRICING_MODE,
         provider=source,
+        pricing_mode=PSA_GRADE_PRICING_MODE,
         grader=grader,
         grade=grade,
-        variant=variant or f"{grader} {grade}",
+        variant=variant or DEFAULT_RAW_VARIANT,
         currency_code=currency_code,
         low_price=low_price,
         market_price=market_price,
         mid_price=mid_price,
         high_price=high_price,
+        is_perfect=bool(snapshot_payload.get("isPerfect")),
+        is_signed=bool(snapshot_payload.get("isSigned")),
+        is_error=bool(snapshot_payload.get("isError")),
         source_url=source_url,
         payload=snapshot_payload,
     )
@@ -2146,6 +3080,194 @@ def deck_entry_storage_key(
     )
 
 
+def append_deck_entry_event(
+    connection: sqlite3.Connection,
+    *,
+    deck_entry_id: str,
+    card_id: str,
+    event_kind: str,
+    quantity_delta: int = 0,
+    unit_price: float | None = None,
+    total_price: float | None = None,
+    currency_code: str | None = None,
+    payment_method: str | None = None,
+    condition: str | None = None,
+    grader: str | None = None,
+    grade: str | None = None,
+    cert_number: str | None = None,
+    variant_name: str | None = None,
+    sale_id: str | None = None,
+    source_scan_id: str | None = None,
+    source_confirmation_id: str | None = None,
+    created_at: str | None = None,
+    event_id: str | None = None,
+) -> str | None:
+    if not _table_exists(connection, "deck_entry_events"):
+        return None
+
+    normalized_event_id = str(event_id or "").strip() or f"{event_kind}:{uuid.uuid4().hex}"
+    connection.execute(
+        """
+        INSERT INTO deck_entry_events (
+            id, deck_entry_id, card_id, event_kind, quantity_delta, unit_price,
+            total_price, currency_code, payment_method, condition,
+            grader, grade, cert_number, variant_name, sale_id,
+            source_scan_id, source_confirmation_id, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(id) DO UPDATE SET
+            deck_entry_id=excluded.deck_entry_id,
+            card_id=excluded.card_id,
+            event_kind=excluded.event_kind,
+            quantity_delta=excluded.quantity_delta,
+            unit_price=excluded.unit_price,
+            total_price=excluded.total_price,
+            currency_code=excluded.currency_code,
+            payment_method=excluded.payment_method,
+            condition=excluded.condition,
+            grader=excluded.grader,
+            grade=excluded.grade,
+            cert_number=excluded.cert_number,
+            variant_name=excluded.variant_name,
+            sale_id=excluded.sale_id,
+            source_scan_id=excluded.source_scan_id,
+            source_confirmation_id=excluded.source_confirmation_id,
+            created_at=excluded.created_at
+        """,
+        (
+            normalized_event_id,
+            deck_entry_id,
+            card_id,
+            event_kind,
+            int(quantity_delta or 0),
+            None if unit_price is None else float(unit_price),
+            None if total_price is None else float(total_price),
+            str(currency_code or "").strip() or None,
+            str(payment_method or "").strip() or None,
+            str(condition or "").strip() or None,
+            str(grader or "").strip() or None,
+            str(grade or "").strip() or None,
+            str(cert_number or "").strip() or None,
+            str(variant_name or "").strip() or None,
+            str(sale_id or "").strip() or None,
+            str(source_scan_id or "").strip() or None,
+            str(source_confirmation_id or "").strip() or None,
+            created_at or utc_now(),
+        ),
+    )
+    return normalized_event_id
+
+
+def record_sale_event(
+    connection: sqlite3.Connection,
+    *,
+    deck_entry_id: str,
+    card_id: str,
+    quantity: int = 1,
+    unit_price: float | None = None,
+    currency_code: str | None = None,
+    payment_method: str | None = None,
+    sale_source: str = "manual",
+    show_session_id: str | None = None,
+    note: str | None = None,
+    sold_at: str | None = None,
+    source_scan_id: str | None = None,
+    source_confirmation_id: str | None = None,
+) -> str | None:
+    if not _table_exists(connection, "sale_events"):
+        return None
+
+    row = connection.execute(
+        """
+        SELECT quantity, cost_basis_total, condition, grader, grade, cert_number, variant_name
+        FROM deck_entries
+        WHERE id = ?
+        LIMIT 1
+        """,
+        (deck_entry_id,),
+    ).fetchone()
+    if row is None:
+        return None
+
+    current_quantity = max(0, int(row["quantity"] or 0))
+    normalized_quantity = max(1, int(quantity))
+    if normalized_quantity > current_quantity:
+        raise ValueError("sale quantity exceeds deck quantity")
+
+    current_cost_basis_total = float(row["cost_basis_total"] or 0.0)
+    cost_basis_unit_price = None
+    cost_basis_total = 0.0
+    if current_quantity > 0 and current_cost_basis_total > 0:
+        cost_basis_unit_price = current_cost_basis_total / float(current_quantity)
+        cost_basis_total = round(cost_basis_unit_price * normalized_quantity, 2)
+    remaining_cost_basis_total = round(max(0.0, current_cost_basis_total - cost_basis_total), 2)
+    sale_id = f"sale:{uuid.uuid4().hex}"
+    normalized_sold_at = sold_at or utc_now()
+    normalized_unit_price = None if unit_price is None else float(unit_price)
+    total_price = None if normalized_unit_price is None else normalized_unit_price * normalized_quantity
+    connection.execute(
+        """
+        INSERT INTO sale_events (
+            id, deck_entry_id, card_id, quantity, unit_price, total_price,
+            currency_code, payment_method, cost_basis_total, cost_basis_unit_price,
+            sale_source, show_session_id, note, sold_at,
+            source_scan_id, source_confirmation_id, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            sale_id,
+            deck_entry_id,
+            card_id,
+            normalized_quantity,
+            normalized_unit_price,
+            total_price,
+            str(currency_code or "").strip() or None,
+            str(payment_method or "").strip() or None,
+            cost_basis_total if cost_basis_total > 0 else 0.0,
+            cost_basis_unit_price,
+            str(sale_source or "manual").strip() or "manual",
+            str(show_session_id or "").strip() or None,
+            str(note or "").strip() or None,
+            normalized_sold_at,
+            str(source_scan_id or "").strip() or None,
+            str(source_confirmation_id or "").strip() or None,
+            utc_now(),
+        ),
+    )
+    connection.execute(
+        """
+        UPDATE deck_entries
+        SET quantity = quantity - ?,
+            cost_basis_total = ?,
+            updated_at = ?
+        WHERE id = ?
+        """,
+        (
+            normalized_quantity,
+            remaining_cost_basis_total,
+            normalized_sold_at,
+            deck_entry_id,
+        ),
+    )
+    append_deck_entry_event(
+        connection,
+        deck_entry_id=deck_entry_id,
+        card_id=card_id,
+        event_kind="sale",
+        quantity_delta=-normalized_quantity,
+        total_price=total_price,
+        unit_price=normalized_unit_price,
+        currency_code=currency_code,
+        payment_method=payment_method,
+        sale_id=sale_id,
+        source_scan_id=source_scan_id,
+        source_confirmation_id=source_confirmation_id,
+        created_at=normalized_sold_at,
+    )
+    return sale_id
+
+
 def upsert_deck_entry(
     connection: sqlite3.Connection,
     *,
@@ -2156,10 +3278,14 @@ def upsert_deck_entry(
     variant_name: str | None = None,
     condition: str | None = None,
     quantity: int = 1,
+    unit_price: float | None = None,
+    currency_code: str | None = None,
+    payment_method: str | None = None,
     added_at: str | None = None,
     updated_at: str | None = None,
     source_scan_id: str | None = None,
     source_confirmation_id: str | None = None,
+    event_kind: str = "add",
 ) -> str:
     deck_entry_id = deck_entry_storage_key(
         card_id=card_id,
@@ -2170,13 +3296,15 @@ def upsert_deck_entry(
     )
     item_kind = "slab" if deck_entry_id.startswith("slab|") else "raw"
     normalized_quantity = max(1, int(quantity))
+    cost_basis_total = 0.0 if unit_price is None else round(float(unit_price) * normalized_quantity, 2)
     connection.execute(
         """
         INSERT INTO deck_entries (
             id, item_kind, card_id, grader, grade, cert_number, variant_name,
-            condition, quantity, added_at, updated_at, source_scan_id, source_confirmation_id
+            condition, quantity, cost_basis_total, cost_basis_currency_code,
+            added_at, updated_at, source_scan_id, source_confirmation_id
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
             card_id=excluded.card_id,
             grader=excluded.grader,
@@ -2185,6 +3313,8 @@ def upsert_deck_entry(
             variant_name=excluded.variant_name,
             condition=COALESCE(excluded.condition, deck_entries.condition),
             quantity=deck_entries.quantity + excluded.quantity,
+            cost_basis_total=round(COALESCE(deck_entries.cost_basis_total, 0) + COALESCE(excluded.cost_basis_total, 0), 2),
+            cost_basis_currency_code=COALESCE(excluded.cost_basis_currency_code, deck_entries.cost_basis_currency_code),
             updated_at=excluded.updated_at,
             source_scan_id=excluded.source_scan_id,
             source_confirmation_id=excluded.source_confirmation_id
@@ -2199,11 +3329,32 @@ def upsert_deck_entry(
             variant_name,
             str(condition or "").strip() or None,
             normalized_quantity,
+            cost_basis_total,
+            str(currency_code or "").strip() or None,
             added_at or utc_now(),
             updated_at or utc_now(),
             source_scan_id,
             source_confirmation_id,
         ),
+    )
+    append_deck_entry_event(
+        connection,
+        deck_entry_id=deck_entry_id,
+        card_id=str(card_id or "").strip(),
+        event_kind=event_kind,
+        quantity_delta=normalized_quantity,
+        unit_price=unit_price,
+        total_price=cost_basis_total if cost_basis_total > 0 else None,
+        currency_code=currency_code,
+        payment_method=payment_method,
+        condition=str(condition or "").strip() or None,
+        grader=grader,
+        grade=grade,
+        cert_number=cert_number,
+        variant_name=variant_name,
+        source_scan_id=source_scan_id,
+        source_confirmation_id=source_confirmation_id,
+        created_at=added_at or utc_now(),
     )
     return deck_entry_id
 

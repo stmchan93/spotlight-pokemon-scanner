@@ -167,6 +167,18 @@ final class ScannerViewModel: ObservableObject {
         )
     }
 
+    func fetchGradedCardComps(
+        cardID: String,
+        slabContext: SlabContext?,
+        selectedGrade: String?
+    ) async -> GradedCardComps? {
+        await matcher.fetchGradedCardComps(
+            cardID: cardID,
+            slabContext: slabContext,
+            selectedGrade: selectedGrade
+        )
+    }
+
     private func processCapturedInput(_ capture: ScanCaptureInput) {
         guard !isProcessing else { return }
         isCapturingPhoto = false
@@ -250,7 +262,11 @@ final class ScannerViewModel: ObservableObject {
             cacheStatus: nil,
             selectedRank: nil,
             wasTopPrediction: true,
-            selectionSource: .unknown
+            selectionSource: .unknown,
+            availableVariants: [],
+            selectedVariant: nil,
+            variantPricingOverride: nil,
+            isLoadingVariants: false
         )
         pushRoute(.resultDetail)
     }
@@ -274,6 +290,10 @@ final class ScannerViewModel: ObservableObject {
             slabContext: previewItem.slabContext,
             pricing: candidate.pricing
         )
+        previewItem.availableVariants = []
+        previewItem.selectedVariant = nil
+        previewItem.variantPricingOverride = nil
+        previewItem.isLoadingVariants = false
 
         activeResultItemID = context.itemID
         activeResultPreviewItem = previewItem
@@ -366,9 +386,20 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func removeStackItem(_ itemID: UUID) {
-        let removedActiveAlternatives = activeAlternativesItemID == itemID
-        let removedActiveResult = activeResultItemID == itemID
-        alternativesContexts.removeValue(forKey: itemID)
+        removeStackItems([itemID])
+    }
+
+    func removeStackItems(_ itemIDs: [UUID]) {
+        let itemIDSet = Set(itemIDs)
+        guard !itemIDSet.isEmpty else { return }
+
+        let removedActiveAlternatives = activeAlternativesItemID.map(itemIDSet.contains) ?? false
+        let removedActiveResult = activeResultItemID.map(itemIDSet.contains) ?? false
+
+        for itemID in itemIDSet {
+            alternativesContexts.removeValue(forKey: itemID)
+        }
+
         if removedActiveAlternatives {
             activeAlternativesItemID = nil
         }
@@ -376,9 +407,11 @@ final class ScannerViewModel: ObservableObject {
             activeResultItemID = nil
             activeResultPreviewItem = nil
         }
+
         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
-            scannedItems.removeAll { $0.id == itemID }
+            scannedItems.removeAll { itemIDSet.contains($0.id) }
         }
+
         if removedActiveAlternatives || removedActiveResult {
             resetRouteToScanner()
         } else {
@@ -451,6 +484,86 @@ final class ScannerViewModel: ObservableObject {
 
         Task {
             await refreshPricing(for: itemID, cardID: cardID, initiatedByUser: true)
+        }
+    }
+
+    func loadTrayVariantsIfNeeded(for itemID: UUID) {
+        guard let item = scannedItems.first(where: { $0.id == itemID }),
+              supportsTrayVariantSelection(for: item),
+              item.availableVariants.isEmpty,
+              !item.isLoadingVariants,
+              let cardID = item.displayCard?.id else {
+            return
+        }
+
+        let fallbackPricing = item.basePricing
+        let selectedVariant = normalizedTrayVariant(item.selectedVariant ?? fallbackPricing?.variant)
+        updateStackItem(id: itemID) { item in
+            item.isLoadingVariants = true
+        }
+
+        Task {
+            let history = await fetchMarketHistory(
+                cardID: cardID,
+                slabContext: nil,
+                days: 30,
+                variant: selectedVariant,
+                condition: "NM"
+            )
+            await MainActor.run {
+                self.applyTrayVariantHistory(
+                    history,
+                    to: itemID,
+                    cardID: cardID,
+                    fallbackPricing: fallbackPricing,
+                    requestedVariant: selectedVariant,
+                    restoreVariantOnFailure: selectedVariant
+                )
+            }
+        }
+    }
+
+    func selectTrayVariant(_ variantID: String, for itemID: UUID) {
+        guard let item = scannedItems.first(where: { $0.id == itemID }),
+              supportsTrayVariantSelection(for: item),
+              !item.isLoadingVariants,
+              let cardID = item.displayCard?.id,
+              let requestedVariant = normalizedTrayVariant(variantID) else {
+            return
+        }
+
+        let fallbackPricing = item.basePricing
+        let previousVariant = normalizedTrayVariant(item.selectedVariant ?? fallbackPricing?.variant)
+        let existingOptions = item.availableVariants
+
+        if requestedVariant == previousVariant && item.variantPricingOverride != nil {
+            return
+        }
+
+        updateStackItem(id: itemID) { item in
+            item.selectedVariant = requestedVariant
+            item.isLoadingVariants = true
+        }
+
+        Task {
+            let history = await fetchMarketHistory(
+                cardID: cardID,
+                slabContext: nil,
+                days: 30,
+                variant: requestedVariant,
+                condition: "NM"
+            )
+            await MainActor.run {
+                self.applyTrayVariantHistory(
+                    history,
+                    to: itemID,
+                    cardID: cardID,
+                    fallbackPricing: fallbackPricing,
+                    requestedVariant: requestedVariant,
+                    restoreVariantOnFailure: previousVariant,
+                    existingOptions: existingOptions
+                )
+            }
         }
     }
 
@@ -684,6 +797,10 @@ final class ScannerViewModel: ObservableObject {
                     slabContext: response?.slabContext,
                     pricing: candidate.pricing
                 )
+                item.availableVariants = []
+                item.selectedVariant = nil
+                item.variantPricingOverride = nil
+                item.isLoadingVariants = false
             }
         }
 
@@ -886,6 +1003,92 @@ final class ScannerViewModel: ObservableObject {
     private func updateStackItem(id itemID: UUID, mutate: (inout LiveScanStackItem) -> Void) {
         guard let index = scannedItems.firstIndex(where: { $0.id == itemID }) else { return }
         mutate(&scannedItems[index])
+    }
+
+    private func supportsTrayVariantSelection(for item: LiveScanStackItem) -> Bool {
+        (item.phase == .resolved || item.phase == .needsReview)
+            && item.resolverMode == .rawCard
+            && item.slabContext == nil
+            && item.displayCard != nil
+    }
+
+    private func normalizedTrayVariant(_ variant: String?) -> String? {
+        let normalized = variant?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? nil : normalized
+    }
+
+    private func applyTrayVariantHistory(
+        _ history: CardMarketHistory?,
+        to itemID: UUID,
+        cardID: String,
+        fallbackPricing: CardPricingSummary?,
+        requestedVariant: String?,
+        restoreVariantOnFailure: String?,
+        existingOptions: [MarketHistoryOption] = []
+    ) {
+        guard let index = scannedItems.firstIndex(where: { $0.id == itemID }),
+              scannedItems[index].displayCard?.id == cardID else {
+            return
+        }
+
+        scannedItems[index].isLoadingVariants = false
+
+        guard let history else {
+            scannedItems[index].availableVariants = existingOptions
+            scannedItems[index].selectedVariant = restoreVariantOnFailure
+            scannedItems[index].statusMessage = scannedItems[index].pricing?.freshnessLabel ?? scannedItems[index].statusMessage
+            return
+        }
+
+        let resolvedVariant = normalizedTrayVariant(history.selectedVariant ?? requestedVariant ?? restoreVariantOnFailure)
+        scannedItems[index].availableVariants = history.availableVariants
+        scannedItems[index].selectedVariant = resolvedVariant
+        scannedItems[index].variantPricingOverride = trayVariantPricingOverride(
+            from: history,
+            fallbackPricing: fallbackPricing,
+            selectedVariant: resolvedVariant
+        )
+        scannedItems[index].statusMessage = scannedItems[index].pricing?.freshnessLabel ?? scannedItems[index].statusMessage
+    }
+
+    private func trayVariantPricingOverride(
+        from history: CardMarketHistory,
+        fallbackPricing: CardPricingSummary?,
+        selectedVariant: String?
+    ) -> CardPricingSummary? {
+        if let fallbackPricing {
+            return fallbackPricing.applyingMarketHistory(history, fallbackVariant: selectedVariant)
+        }
+
+        return CardPricingSummary(
+            source: history.source,
+            currencyCode: history.currencyCode,
+            variant: selectedVariant,
+            low: history.latestRenderablePoint?.low,
+            market: history.primaryDisplayPrice,
+            mid: history.latestRenderablePoint?.mid,
+            high: history.latestRenderablePoint?.high,
+            directLow: nil,
+            trend: nil,
+            updatedAt: nil,
+            refreshedAt: history.refreshedAt,
+            sourceURL: nil,
+            pricingMode: history.pricingMode,
+            snapshotAgeHours: nil,
+            freshnessWindowHours: nil,
+            isFresh: history.isFresh,
+            grader: nil,
+            grade: nil,
+            pricingTier: nil,
+            confidenceLabel: nil,
+            confidenceLevel: nil,
+            compCount: nil,
+            recentCompCount: nil,
+            lastSoldPrice: nil,
+            lastSoldAt: nil,
+            bucketKey: nil,
+            methodologySummary: nil
+        )
     }
 
     private func refreshPricing(for itemID: UUID, cardID: String, initiatedByUser: Bool) async {
@@ -1117,7 +1320,11 @@ final class ScannerViewModel: ObservableObject {
                     performance: nil,
                     selectedRank: nil,
                     wasTopPrediction: false,
-                    selectionSource: .unknown
+                    selectionSource: .unknown,
+                    availableVariants: [],
+                    selectedVariant: nil,
+                    variantPricingOverride: nil,
+                    isLoadingVariants: false
                 ),
                 at: 0
             )
@@ -1172,6 +1379,10 @@ final class ScannerViewModel: ObservableObject {
                     slabContext: response.slabContext,
                     pricing: bestMatch.pricing
                 )
+                item.availableVariants = []
+                item.selectedVariant = nil
+                item.variantPricingOverride = nil
+                item.isLoadingVariants = false
             }
         }
     }

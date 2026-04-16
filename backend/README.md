@@ -51,7 +51,7 @@ The backend is always live-only. It does not support seeded catalog startup anym
 For the current beta stage, the recommended hosted path is one Linux VM with:
 - one backend process
 - one SQLite file
-- one daily Scrydex sync at `3:00 AM`
+- one daily Scrydex sync at `3:00 AM America/Los_Angeles`
 
 Run this on the VM after cloning the repo:
 
@@ -68,7 +68,7 @@ What it does:
 - runs one initial full sync unless `SPOTLIGHT_SKIP_INITIAL_SYNC=1`
 - installs user `crontab` entries for:
   - `@reboot` backend start
-  - `0 3 * * *` Scrydex sync
+  - a minute-level scheduler wrapper that evaluates the desired local timezone and fires the Scrydex sync at `3:00 AM America/Los_Angeles`
 - starts the backend immediately on `0.0.0.0:8788`
 
 Useful follow-ups on the VM:

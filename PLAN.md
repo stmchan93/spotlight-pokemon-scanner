@@ -12,6 +12,7 @@ Date: 2026-04-13
 - The current OCR rewrite / rollout source of truth is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 - The earlier OCR simplification / performance implementation record is [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
 - The current slab rebuild implementation source of truth is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
+- The current inventory / ledger / portfolio source of truth is [docs/inventory-portfolio-selling-spec-2026-04-15.md](/Users/stephenchan/Code/spotlight/docs/inventory-portfolio-selling-spec-2026-04-15.md).
 - The raw backend reset has now landed.
 - The next raw identity direction is now:
   - visual matching first
@@ -56,6 +57,14 @@ Date: 2026-04-13
   - scan confirmations
   - deck entries
 - Trusted scan labels should come from explicit `Add to deck`, not from the initial matcher result.
+- The next inventory / ledger / portfolio workstream should treat:
+  - inventory as the primary current-state model
+  - ledger as the append-only record of buys, sells, and adjustments
+  - deals as the user-facing transaction records
+  - buy / sell / cost basis as the MVP financial vocabulary
+  - the portfolio chart as collection-value-only
+  - cash / realized profit as separate follow-on metrics, not part of the v1 chart
+  - pop report, eBay comps, and a single-square scanner as deferred unless already trivial
 - Preserve these states distinctly:
   - `predicted_card_id`
   - `selected_card_id`
@@ -69,6 +78,22 @@ Date: 2026-04-13
   - live provider fallback remains available for stale/missing/manual-refresh cases
 - Treat the old slab/sync/cache backend modules as deleted legacy state, not as code to revive.
 - Treat the current raw OCR rewrite path as the live implementation. Refine it incrementally, but do not reintroduce the deleted salvage-style normalization branch.
+
+## Current inventory / ledger planning override
+
+- The MVP product model is now:
+  - inventory = current owned cards
+  - ledger = append-only buys, sells, and adjustments
+  - deals = user-facing transaction records
+  - buy / sell / cost basis = the MVP financial vocabulary
+  - portfolio = collection value over time
+- The MVP should not be framed around shows as the primary product concept.
+- Pop report, eBay comps, and a single-square scanner are deferred unless they are already trivial to surface.
+- The first shipping inventory slice should keep:
+  - current deck/inventory snapshot reads
+  - explicit buy and sell records
+  - append-only ledger history
+  - collection-value-only portfolio history
 
 ## Current OCR planning override
 

@@ -90,6 +90,13 @@ private struct RawOCRRegressionScorecard: Codable {
 
 final class RawOCRRegressionSuiteTests: XCTestCase {
     private let fileManager = FileManager.default
+    private static let regressionBucketCount = 10
+    private static let cleanupEnvironmentKey = "RAW_OCR_REGRESSION_CLEANUP"
+    private let minimumProcessedFixtureCount = 60
+    private let minimumExactCollectorPassRate = 0.50
+    private let minimumSetHintPassCount = 5
+    private let minimumTitlePassCount = 20
+    private let minimumBackendRecoverablePassRate = 0.30
 
     private var repoRoot: URL {
         URL(fileURLWithPath: #filePath)
@@ -101,47 +108,202 @@ final class RawOCRRegressionSuiteTests: XCTestCase {
         repoRoot.appendingPathComponent("qa/raw-footer-layout-check", isDirectory: true)
     }
 
-    func testRawFooterLayoutCheckFixturesEmitRegressionBaseline() async throws {
-        let fixtureDirectories = try fileManager.contentsOfDirectory(
+    override class func setUp() {
+        super.setUp()
+        guard shouldCleanupGeneratedRegressionOutputs else { return }
+        cleanupGeneratedRegressionOutputs()
+    }
+
+    private static func cleanupGeneratedRegressionOutputs() {
+        let fileManager = FileManager.default
+        let root = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("qa/raw-footer-layout-check", isDirectory: true)
+
+        let discoveredDirectories = try? fileManager.contentsOfDirectory(
+            at: root,
+            includingPropertiesForKeys: [.isDirectoryKey],
+            options: [.skipsHiddenFiles]
+        )
+        let fixtureDirectories = (discoveredDirectories ?? [])
+            .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+
+        for directory in fixtureDirectories {
+            try? fileManager.removeItem(at: directory.appendingPathComponent("raw_ocr_regression_result.json"))
+        }
+
+        try? fileManager.removeItem(at: root.appendingPathComponent("raw_ocr_regression_scorecard.json"))
+        for bucketIndex in 0..<regressionBucketCount {
+            let bucketName = String(format: "bucket_%02d", bucketIndex + 1)
+            try? fileManager.removeItem(
+                at: root.appendingPathComponent("raw_ocr_regression_scorecard_\(bucketName).json")
+            )
+        }
+    }
+
+    private static var shouldCleanupGeneratedRegressionOutputs: Bool {
+        let value = ProcessInfo.processInfo.environment[cleanupEnvironmentKey]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+
+        switch value {
+        case nil, "", "1", "true", "yes":
+            return true
+        default:
+            return false
+        }
+    }
+
+    func testRawFooterLayoutCheckBucket01EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 0)
+    }
+
+    func testRawFooterLayoutCheckBucket02EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 1)
+    }
+
+    func testRawFooterLayoutCheckBucket03EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 2)
+    }
+
+    func testRawFooterLayoutCheckBucket04EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 3)
+    }
+
+    func testRawFooterLayoutCheckBucket05EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 4)
+    }
+
+    func testRawFooterLayoutCheckBucket06EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 5)
+    }
+
+    func testRawFooterLayoutCheckBucket07EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 6)
+    }
+
+    func testRawFooterLayoutCheckBucket08EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 7)
+    }
+
+    func testRawFooterLayoutCheckBucket09EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 8)
+    }
+
+    func testRawFooterLayoutCheckBucket10EmitRegressionBaseline() async throws {
+        try await runRegressionBucket(bucketIndex: 9)
+    }
+
+    func testRawFooterLayoutCheckBucket99AggregateScorecardMeetsThresholds() throws {
+        let fixtureDirectories = try regressionFixtureDirectories()
+        let scoreEntries = try fixtureDirectories.compactMap(loadGeneratedScoreEntry)
+
+        XCTAssertEqual(
+            scoreEntries.count,
+            fixtureDirectories.count,
+            "expected all raw OCR regression buckets to generate fresh result files before aggregate scoring"
+        )
+
+        let scorecard = makeScorecard(from: scoreEntries)
+        assertScorecardThresholds(scorecard)
+
+        try writeJSON(
+            scorecard,
+            to: rawRegressionRoot.appendingPathComponent("raw_ocr_regression_scorecard.json")
+        )
+    }
+
+    private func runRegressionBucket(bucketIndex: Int) async throws {
+        let buckets = try regressionBuckets()
+        XCTAssertLessThan(bucketIndex, buckets.count, "requested OCR regression bucket outside available corpus")
+
+        let fixtureDirectories = buckets[bucketIndex]
+        XCTAssertFalse(fixtureDirectories.isEmpty, "expected raw OCR regression bucket fixtures")
+
+        var scoreEntries: [RawOCRRegressionScoreEntry] = []
+
+        for directory in fixtureDirectories {
+            if let scoreEntry = try await processFixture(at: directory) {
+                scoreEntries.append(scoreEntry)
+            }
+        }
+
+        XCTAssertEqual(
+            scoreEntries.count,
+            fixtureDirectories.count,
+            "expected bucket \(bucketIndex + 1) to process every assigned OCR fixture"
+        )
+
+        let scorecard = makeScorecard(from: scoreEntries)
+        let bucketName = String(format: "bucket_%02d", bucketIndex + 1)
+        try writeJSON(
+            scorecard,
+            to: rawRegressionRoot.appendingPathComponent("raw_ocr_regression_scorecard_\(bucketName).json")
+        )
+    }
+
+    private func regressionFixtureDirectories() throws -> [URL] {
+        try fileManager.contentsOfDirectory(
             at: rawRegressionRoot,
             includingPropertiesForKeys: [.isDirectoryKey],
             options: [.skipsHiddenFiles]
         )
             .filter { (try? $0.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true }
+            .filter {
+                fileManager.fileExists(atPath: $0.appendingPathComponent("truth.json").path) &&
+                fileManager.fileExists(atPath: $0.appendingPathComponent("source_scan.jpg").path)
+            }
             .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    }
 
-        XCTAssertFalse(fixtureDirectories.isEmpty, "expected raw OCR regression fixtures")
+    private func regressionBuckets() throws -> [[URL]] {
+        let fixtureDirectories = try regressionFixtureDirectories()
+        let chunkSize = max(
+            1,
+            Int(ceil(Double(fixtureDirectories.count) / Double(Self.regressionBucketCount)))
+        )
 
-        var scoreEntries: [RawOCRRegressionScoreEntry] = []
+        return stride(from: 0, to: fixtureDirectories.count, by: chunkSize).map { startIndex in
+            Array(fixtureDirectories[startIndex..<min(startIndex + chunkSize, fixtureDirectories.count)])
+        }
+    }
 
-        for directory in fixtureDirectories {
-            let truthURL = directory.appendingPathComponent("truth.json")
-            let sourceImageURL = directory.appendingPathComponent("source_scan.jpg")
-            guard fileManager.fileExists(atPath: truthURL.path),
-                  fileManager.fileExists(atPath: sourceImageURL.path) else {
-                continue
-            }
-            guard let sourceImage = UIImage(contentsOfFile: sourceImageURL.path) else {
-                XCTFail("unable to load source image for \(directory.lastPathComponent)")
-                continue
-            }
+    private func processFixture(at directory: URL) async throws -> RawOCRRegressionScoreEntry? {
+        let truthURL = directory.appendingPathComponent("truth.json")
+        let sourceImageURL = directory.appendingPathComponent("source_scan.jpg")
 
-            let truth = try decodeTruth(at: truthURL)
-            let debugSnapshot = try await analyzeFixture(sourceImage: sourceImage)
-            let result = makeFixtureResult(
-                fixtureName: directory.lastPathComponent,
-                sourceImageName: sourceImageURL.lastPathComponent,
-                truth: truth,
-                debugSnapshot: debugSnapshot
-            )
-
-            try writeJSON(result, to: directory.appendingPathComponent("raw_ocr_regression_result.json"))
-            scoreEntries.append(makeScoreEntry(from: result))
+        guard let sourceImage = UIImage(contentsOfFile: sourceImageURL.path) else {
+            XCTFail("unable to load source image for \(directory.lastPathComponent)")
+            return nil
         }
 
-        let processedFixtureCount = scoreEntries.count
-        XCTAssertGreaterThan(processedFixtureCount, 0, "expected at least one raw OCR regression fixture")
+        let truth = try decodeTruth(at: truthURL)
+        let debugSnapshot = try await analyzeFixture(sourceImage: sourceImage)
+        let result = makeFixtureResult(
+            fixtureName: directory.lastPathComponent,
+            sourceImageName: sourceImageURL.lastPathComponent,
+            truth: truth,
+            debugSnapshot: debugSnapshot
+        )
 
+        try writeJSON(result, to: directory.appendingPathComponent("raw_ocr_regression_result.json"))
+        return makeScoreEntry(from: result)
+    }
+
+    private func loadGeneratedScoreEntry(from directory: URL) throws -> RawOCRRegressionScoreEntry? {
+        let resultURL = directory.appendingPathComponent("raw_ocr_regression_result.json")
+        guard fileManager.fileExists(atPath: resultURL.path) else {
+            return nil
+        }
+
+        let data = try Data(contentsOf: resultURL)
+        let result = try JSONDecoder().decode(RawOCRRegressionFixtureResult.self, from: data)
+        return makeScoreEntry(from: result)
+    }
+
+    private func makeScorecard(from scoreEntries: [RawOCRRegressionScoreEntry]) -> RawOCRRegressionScorecard {
+        let processedFixtureCount = scoreEntries.count
         let exactCollectorPassCount = scoreEntries.filter(\.exactCollectorPass).count
         let setHintEligibleFixtureCount = scoreEntries.filter { $0.expectedSetCode != nil }.count
         let setHintPassCount = scoreEntries.filter { $0.setHintPass == true }.count
@@ -151,7 +313,7 @@ final class RawOCRRegressionSuiteTests: XCTestCase {
 
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
-        let scorecard = RawOCRRegressionScorecard(
+        return RawOCRRegressionScorecard(
             generatedAt: formatter.string(from: Date()),
             processedFixtureCount: processedFixtureCount,
             exactCollectorPassCount: exactCollectorPassCount,
@@ -170,10 +332,34 @@ final class RawOCRRegressionSuiteTests: XCTestCase {
             ),
             fixtures: scoreEntries
         )
+    }
 
-        try writeJSON(
-            scorecard,
-            to: rawRegressionRoot.appendingPathComponent("raw_ocr_regression_scorecard.json")
+    private func assertScorecardThresholds(_ scorecard: RawOCRRegressionScorecard) {
+        XCTAssertGreaterThan(scorecard.processedFixtureCount, 0, "expected at least one raw OCR regression fixture")
+        XCTAssertGreaterThanOrEqual(
+            scorecard.processedFixtureCount,
+            minimumProcessedFixtureCount,
+            "expected to process the full raw OCR regression corpus"
+        )
+        XCTAssertGreaterThanOrEqual(
+            scorecard.exactCollectorPassRate,
+            minimumExactCollectorPassRate,
+            "exact collector OCR pass rate regressed"
+        )
+        XCTAssertGreaterThanOrEqual(
+            scorecard.titlePassCount,
+            minimumTitlePassCount,
+            "title OCR recovery regressed"
+        )
+        XCTAssertGreaterThanOrEqual(
+            scorecard.backendRecoverablePassRate,
+            minimumBackendRecoverablePassRate,
+            "backend-recoverable OCR pass rate regressed"
+        )
+        XCTAssertGreaterThanOrEqual(
+            scorecard.setHintPassCount,
+            minimumSetHintPassCount,
+            "set hint OCR coverage regressed"
         )
     }
 

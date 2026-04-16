@@ -19,12 +19,14 @@
 		BA0000000000000000000009 /* ScannerViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000A /* ScannerViewModel.swift */; };
 		BA000000000000000000000A /* ScannerRootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000B /* ScannerRootView.swift */; };
 		BA000000000000000000000B /* ScannerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000C /* ScannerView.swift */; };
+		BA000000000000000000000C /* PortfolioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000020 /* PortfolioView.swift */; };
 		BA000000000000000000000D /* AlternateMatchesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000E /* AlternateMatchesView.swift */; };
 		BA000000000000000000000E /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000F /* CameraPreviewView.swift */; };
 		BA000000000000000000000F /* ScannerAPIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000011 /* ScannerAPIModels.swift */; };
 		BA0000000000000000000010 /* ScanTrayLogic.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000012 /* ScanTrayLogic.swift */; };
 		BA0000000000000000000011 /* SlabLabelParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000018 /* SlabLabelParsing.swift */; };
 		BA0000000000000000000012 /* ScanResultDetailView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000019 /* ScanResultDetailView.swift */; };
+		BA0000000000000000000013 /* ShowsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000021 /* ShowsView.swift */; };
 		BBC123450000000000000001 /* CardIdentifierParsing.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000001 /* CardIdentifierParsing.swift */; };
 		BBC123450000000000000002 /* ScannerReticleLayout.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000002 /* ScannerReticleLayout.swift */; };
 		BBC123450000000000000003 /* ScanPipelineTypes.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000003 /* ScanPipelineTypes.swift */; };
@@ -46,6 +48,14 @@
 		DA0000000000000000000003 /* RawOCRRegressionSuiteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */; };
 		DA0000000000000000000004 /* ScanReliabilityHeuristicsTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000005 /* ScanReliabilityHeuristicsTests.swift */; };
 		DA0000000000000000000005 /* ScanCaptureInputTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000006 /* ScanCaptureInputTests.swift */; };
+		DA0000000000000000000006 /* OCRTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000007 /* OCRTestSupport.swift */; };
+		DA0000000000000000000007 /* TargetSelectionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000008 /* TargetSelectionTests.swift */; };
+		DA0000000000000000000008 /* PerspectiveNormalizationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000009 /* PerspectiveNormalizationTests.swift */; };
+		DA0000000000000000000009 /* DeckPortfolioTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB000000000000000000000A /* DeckPortfolioTests.swift */; };
+		DA000000000000000000000A /* ScanArtifactQueueTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB000000000000000000000B /* ScanArtifactQueueTests.swift */; };
+		DA000000000000000000000B /* ScanTrayAndNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB000000000000000000000C /* ScanTrayAndNavigationTests.swift */; };
+		DA000000000000000000000C /* ShowSellStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB000000000000000000000D /* ShowSellStateTests.swift */; };
+		DA000000000000000000000D /* ScanTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB000000000000000000000E /* ScanTestSupport.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -77,6 +87,7 @@
 		FA000000000000000000000A /* ScannerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerViewModel.swift; sourceTree = "<group>"; };
 		FA000000000000000000000B /* ScannerRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerRootView.swift; sourceTree = "<group>"; };
 		FA000000000000000000000C /* ScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerView.swift; sourceTree = "<group>"; };
+		FA0000000000000000000020 /* PortfolioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioView.swift; sourceTree = "<group>"; };
 		FA000000000000000000000E /* AlternateMatchesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlternateMatchesView.swift; sourceTree = "<group>"; };
 		FA000000000000000000000F /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
 		FA0000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -89,6 +100,7 @@
 		FA0000000000000000000017 /* LocalOverrides.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalOverrides.example.xcconfig; sourceTree = "<group>"; };
 		FA0000000000000000000018 /* SlabLabelParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlabLabelParsing.swift; sourceTree = "<group>"; };
 		FA0000000000000000000019 /* ScanResultDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanResultDetailView.swift; sourceTree = "<group>"; };
+		FA0000000000000000000021 /* ShowsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowsView.swift; sourceTree = "<group>"; };
 		FFC123450000000000000001 /* CardIdentifierParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardIdentifierParsing.swift; sourceTree = "<group>"; };
 		FFC123450000000000000002 /* ScannerReticleLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerReticleLayout.swift; sourceTree = "<group>"; };
 		FFC123450000000000000003 /* ScanPipelineTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanPipelineTypes.swift; sourceTree = "<group>"; };
@@ -106,6 +118,14 @@
 		FFC12345000000000000000F /* RawConfidenceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawConfidenceModel.swift; sourceTree = "<group>"; };
 		DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRRewriteStage1FixtureTests.swift; sourceTree = "<group>"; };
 		DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawOCRRegressionSuiteTests.swift; sourceTree = "<group>"; };
+		DB0000000000000000000007 /* OCRTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRTestSupport.swift; sourceTree = "<group>"; };
+		DB0000000000000000000008 /* TargetSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetSelectionTests.swift; sourceTree = "<group>"; };
+		DB0000000000000000000009 /* PerspectiveNormalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectiveNormalizationTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000A /* DeckPortfolioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckPortfolioTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000B /* ScanArtifactQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanArtifactQueueTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000C /* ScanTrayAndNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanTrayAndNavigationTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000D /* ShowSellStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSellStateTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000E /* ScanTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanTestSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -234,6 +254,8 @@
 			children = (
 				FA000000000000000000000B /* ScannerRootView.swift */,
 				FA000000000000000000000C /* ScannerView.swift */,
+				FA0000000000000000000020 /* PortfolioView.swift */,
+				FA0000000000000000000021 /* ShowsView.swift */,
 				FFC123450000000000000002 /* ScannerReticleLayout.swift */,
 				FA000000000000000000000E /* AlternateMatchesView.swift */,
 				FA0000000000000000000019 /* ScanResultDetailView.swift */,
@@ -271,6 +293,14 @@
 				DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */,
 				DB0000000000000000000005 /* ScanReliabilityHeuristicsTests.swift */,
 				DB0000000000000000000006 /* ScanCaptureInputTests.swift */,
+				DB0000000000000000000007 /* OCRTestSupport.swift */,
+				DB0000000000000000000008 /* TargetSelectionTests.swift */,
+				DB0000000000000000000009 /* PerspectiveNormalizationTests.swift */,
+				DB000000000000000000000A /* DeckPortfolioTests.swift */,
+				DB000000000000000000000B /* ScanArtifactQueueTests.swift */,
+				DB000000000000000000000C /* ScanTrayAndNavigationTests.swift */,
+				DB000000000000000000000D /* ShowSellStateTests.swift */,
+				DB000000000000000000000E /* ScanTestSupport.swift */,
 			);
 			path = SpotlightTests;
 			sourceTree = "<group>";
@@ -399,6 +429,8 @@
 				BBC123450000000000000007 /* TargetSelection.swift in Sources */,
 				BA000000000000000000000A /* ScannerRootView.swift in Sources */,
 				BA000000000000000000000B /* ScannerView.swift in Sources */,
+				BA000000000000000000000C /* PortfolioView.swift in Sources */,
+				BA0000000000000000000013 /* ShowsView.swift in Sources */,
 				BBC123450000000000000002 /* ScannerReticleLayout.swift in Sources */,
 				BA000000000000000000000D /* AlternateMatchesView.swift in Sources */,
 				BA0000000000000000000012 /* ScanResultDetailView.swift in Sources */,
@@ -418,6 +450,14 @@
 				DA0000000000000000000003 /* RawOCRRegressionSuiteTests.swift in Sources */,
 				DA0000000000000000000004 /* ScanReliabilityHeuristicsTests.swift in Sources */,
 				DA0000000000000000000005 /* ScanCaptureInputTests.swift in Sources */,
+				DA0000000000000000000006 /* OCRTestSupport.swift in Sources */,
+				DA0000000000000000000007 /* TargetSelectionTests.swift in Sources */,
+				DA0000000000000000000008 /* PerspectiveNormalizationTests.swift in Sources */,
+				DA0000000000000000000009 /* DeckPortfolioTests.swift in Sources */,
+				DA000000000000000000000A /* ScanArtifactQueueTests.swift in Sources */,
+				DA000000000000000000000B /* ScanTrayAndNavigationTests.swift in Sources */,
+				DA000000000000000000000C /* ShowSellStateTests.swift in Sources */,
+				DA000000000000000000000D /* ScanTestSupport.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

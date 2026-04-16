@@ -21,12 +21,33 @@ raise SystemExit("No available iPhone simulator found")
 PY
 )"
 
-xcodebuild \
-  -project Spotlight.xcodeproj \
-  -scheme Spotlight \
-  -configuration Debug \
-  -destination "platform=iOS Simulator,name=${destination_device_name}" \
-  -derivedDataPath .derivedData \
-  CODE_SIGNING_ALLOWED=NO \
-  test \
-  -only-testing:SpotlightTests/RawOCRRegressionSuiteTests/testRawFooterLayoutCheckFixturesEmitRegressionBaseline
+run_bucket() {
+  local cleanup_flag="$1"
+  local selector="$2"
+
+  RAW_OCR_REGRESSION_CLEANUP="${cleanup_flag}" \
+  xcodebuild \
+    -project Spotlight.xcodeproj \
+    -scheme Spotlight \
+    -configuration Debug \
+    -destination "platform=iOS Simulator,name=${destination_device_name}" \
+    -derivedDataPath .derivedData \
+    CODE_SIGNING_ALLOWED=NO \
+    test \
+    -only-testing:"${selector}"
+}
+
+for bucket in $(seq -w 1 10); do
+  cleanup_flag=0
+  if [[ "${bucket}" == "01" ]]; then
+    cleanup_flag=1
+  fi
+
+  run_bucket \
+    "${cleanup_flag}" \
+    "SpotlightTests/RawOCRRegressionSuiteTests/testRawFooterLayoutCheckBucket${bucket}EmitRegressionBaseline"
+done
+
+run_bucket \
+  0 \
+  "SpotlightTests/RawOCRRegressionSuiteTests/testRawFooterLayoutCheckBucket99AggregateScorecardMeetsThresholds"

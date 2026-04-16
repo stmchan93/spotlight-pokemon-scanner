@@ -276,13 +276,21 @@ struct LiveScanStackItem: Identifiable {
     var selectedRank: Int?
     var wasTopPrediction: Bool
     var selectionSource: ScanSelectionSource
+    var availableVariants: [MarketHistoryOption] = []
+    var selectedVariant: String? = nil
+    var variantPricingOverride: CardPricingSummary? = nil
+    var isLoadingVariants: Bool = false
 
     var displayCard: CardCandidate? {
         detail?.card ?? card
     }
 
-    var pricing: CardPricingSummary? {
+    var basePricing: CardPricingSummary? {
         detail?.pricing ?? card?.pricing
+    }
+
+    var pricing: CardPricingSummary? {
+        variantPricingOverride ?? basePricing
     }
 
     var metricInput: ScanTrayMetricInput {

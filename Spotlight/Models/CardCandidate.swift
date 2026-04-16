@@ -231,6 +231,44 @@ struct CardPricingSummary: Codable, Hashable, Sendable {
     }
 }
 
+extension CardPricingSummary {
+    func applyingMarketHistory(
+        _ history: CardMarketHistory,
+        fallbackVariant: String? = nil
+    ) -> CardPricingSummary {
+        let latestPoint = history.latestRenderablePoint
+        return CardPricingSummary(
+            source: history.source,
+            currencyCode: history.currencyCode,
+            variant: history.selectedVariant ?? fallbackVariant ?? variant,
+            low: latestPoint?.low,
+            market: history.primaryDisplayPrice,
+            mid: latestPoint?.mid,
+            high: latestPoint?.high,
+            directLow: directLow,
+            trend: trend,
+            updatedAt: updatedAt,
+            refreshedAt: history.refreshedAt ?? refreshedAt,
+            sourceURL: sourceURL,
+            pricingMode: history.pricingMode,
+            snapshotAgeHours: nil,
+            freshnessWindowHours: freshnessWindowHours,
+            isFresh: history.isFresh,
+            grader: grader,
+            grade: grade,
+            pricingTier: pricingTier,
+            confidenceLabel: confidenceLabel,
+            confidenceLevel: confidenceLevel,
+            compCount: compCount,
+            recentCompCount: recentCompCount,
+            lastSoldPrice: lastSoldPrice,
+            lastSoldAt: lastSoldAt,
+            bucketKey: bucketKey,
+            methodologySummary: methodologySummary
+        )
+    }
+}
+
 enum PricingFreshnessTone: Equatable {
     case fresh
     case recent
@@ -311,6 +349,441 @@ struct CardMarketHistory: Codable, Hashable, Sendable {
     let isFresh: Bool
     let refreshedAt: String?
     let livePricingEnabled: Bool
+
+    var latestRenderablePoint: MarketHistoryPoint? {
+        points.last(where: { $0.primaryValue != nil })
+    }
+
+    var primaryDisplayPrice: Double? {
+        currentPrice ?? latestRenderablePoint?.primaryValue
+    }
+
+    var hasRenderablePoints: Bool {
+        latestRenderablePoint != nil
+    }
+}
+
+struct GradedCardCompsGradeOption: Codable, Hashable, Sendable, Identifiable {
+    let id: String
+    let label: String
+    let count: Int?
+    let isSelected: Bool?
+
+    var displayLabel: String {
+        label.isEmpty ? id : label
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case label
+        case count
+        case isSelected
+    }
+
+    private enum AlternateCodingKeys: String, CodingKey {
+        case grade
+        case gradeID = "grade_id"
+        case gradeTabID = "grade_tab_id"
+        case value
+        case title
+        case transactionCount = "transaction_count"
+        case selected
+    }
+
+    init(
+        id: String,
+        label: String,
+        count: Int? = nil,
+        isSelected: Bool? = nil
+    ) {
+        self.id = id
+        self.label = label
+        self.count = count
+        self.isSelected = isSelected
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let alternateContainer = try decoder.container(keyedBy: AlternateCodingKeys.self)
+
+        let primaryID = try container.decodeIfPresent(String.self, forKey: .id)
+        let gradeID = try alternateContainer.decodeIfPresent(String.self, forKey: .grade)
+        let alternateGradeID = try alternateContainer.decodeIfPresent(String.self, forKey: .gradeID)
+        let gradeTabID = try alternateContainer.decodeIfPresent(String.self, forKey: .gradeTabID)
+        let valueID = try alternateContainer.decodeIfPresent(String.self, forKey: .value)
+        let resolvedID = primaryID
+            ?? gradeID
+            ?? alternateGradeID
+            ?? gradeTabID
+            ?? valueID
+            ?? ""
+
+        let primaryLabel = try container.decodeIfPresent(String.self, forKey: .label)
+        let titleLabel = try alternateContainer.decodeIfPresent(String.self, forKey: .title)
+        let fallbackLabel = resolvedID.isEmpty ? "Unknown grade" : resolvedID
+        let resolvedLabel = primaryLabel ?? titleLabel ?? fallbackLabel
+
+        id = resolvedID.isEmpty ? resolvedLabel : resolvedID
+        label = resolvedLabel
+        let primaryCount = try container.decodeIfPresent(Int.self, forKey: .count)
+        let alternateCount = try alternateContainer.decodeIfPresent(Int.self, forKey: .transactionCount)
+        count = primaryCount ?? alternateCount
+
+        let primarySelected = try container.decodeIfPresent(Bool.self, forKey: .isSelected)
+        let alternateSelected = try alternateContainer.decodeIfPresent(Bool.self, forKey: .selected)
+        isSelected = primarySelected ?? alternateSelected
+    }
+}
+
+struct GradedCardCompsTransaction: Codable, Hashable, Sendable, Identifiable {
+    private struct PricePayload: Codable, Hashable, Sendable {
+        let amount: Double?
+        let currencyCode: String?
+        let display: String?
+
+        private enum CodingKeys: String, CodingKey {
+            case amount
+            case currencyCode
+            case display
+        }
+
+        private enum AlternateCodingKeys: String, CodingKey {
+            case currencyCodeSnake = "currency_code"
+        }
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let alternateContainer = try decoder.container(keyedBy: AlternateCodingKeys.self)
+            amount = try container.decodeIfPresent(Double.self, forKey: .amount)
+            currencyCode = try container.decodeIfPresent(String.self, forKey: .currencyCode)
+                ?? alternateContainer.decodeIfPresent(String.self, forKey: .currencyCodeSnake)
+            display = try container.decodeIfPresent(String.self, forKey: .display)
+        }
+    }
+
+    let id: String
+    let title: String
+    let price: Double?
+    let currencyCode: String
+    let soldAt: Date?
+    let grade: String?
+    let saleType: String?
+    let listingURL: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case title
+        case price
+        case currencyCode
+        case soldAt
+        case grade
+        case saleType
+        case listingURL
+    }
+
+    private enum AlternateCodingKeys: String, CodingKey {
+        case transactionID = "transaction_id"
+        case listingID = "listing_id"
+        case saleID = "sale_id"
+        case listingTitle = "listing_title"
+        case itemTitle = "item_title"
+        case name
+        case salePrice = "sale_price"
+        case soldPrice = "sold_price"
+        case amount
+        case value
+        case currencyCodeSnake = "currency_code"
+        case soldAtSnake = "sold_at"
+        case occurredAt = "occurred_at"
+        case date
+        case gradeLabel = "grade_label"
+        case saleTypeSnake = "sale_type"
+        case transactionType = "transaction_type"
+        case listingType = "listing_type"
+        case type
+        case listingURLSnake = "listing_url"
+        case link
+        case url
+    }
+
+    init(
+        id: String,
+        title: String,
+        price: Double?,
+        currencyCode: String = "USD",
+        soldAt: Date?,
+        grade: String? = nil,
+        saleType: String? = nil,
+        listingURL: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.price = price
+        self.currencyCode = currencyCode
+        self.soldAt = soldAt
+        self.grade = grade
+        self.saleType = saleType
+        self.listingURL = listingURL
+    }
+
+    private static func parseDate(_ value: String?) -> Date? {
+        guard let value = value?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+
+        let isoDateTimeFormatter = ISO8601DateFormatter()
+        isoDateTimeFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        isoDateTimeFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        let isoDateFormatter = ISO8601DateFormatter()
+        isoDateFormatter.formatOptions = [.withInternetDateTime]
+        isoDateFormatter.timeZone = TimeZone(secondsFromGMT: 0)
+
+        if let parsed = isoDateTimeFormatter.date(from: value) ?? isoDateFormatter.date(from: value) {
+            return parsed
+        }
+
+        for format in ["yyyy-MM-dd", "MMM d, yyyy", "MMMM d, yyyy", "M/d/yyyy", "M/d/yy"] {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(secondsFromGMT: 0)
+            formatter.dateFormat = format
+            if let parsed = formatter.date(from: value) {
+                return parsed
+            }
+        }
+
+        return nil
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let alternateContainer = try decoder.container(keyedBy: AlternateCodingKeys.self)
+
+        let primaryTitle = try container.decodeIfPresent(String.self, forKey: .title)
+        let listingTitle = try alternateContainer.decodeIfPresent(String.self, forKey: .listingTitle)
+        let itemTitle = try alternateContainer.decodeIfPresent(String.self, forKey: .itemTitle)
+        let nameTitle = try alternateContainer.decodeIfPresent(String.self, forKey: .name)
+        let resolvedTitle = primaryTitle ?? listingTitle ?? itemTitle ?? nameTitle ?? "Recent sale"
+
+        let primaryPrice = (try? container.decodeIfPresent(Double.self, forKey: .price)) ?? nil
+        let nestedPrice = (try? container.decodeIfPresent(PricePayload.self, forKey: .price)) ?? nil
+        let salePrice = try alternateContainer.decodeIfPresent(Double.self, forKey: .salePrice)
+        let soldPrice = try alternateContainer.decodeIfPresent(Double.self, forKey: .soldPrice)
+        let amountPrice = try alternateContainer.decodeIfPresent(Double.self, forKey: .amount)
+        let valuePrice = try alternateContainer.decodeIfPresent(Double.self, forKey: .value)
+        let resolvedPrice = primaryPrice ?? nestedPrice?.amount ?? salePrice ?? soldPrice ?? amountPrice ?? valuePrice
+
+        let primaryCurrencyCode = try container.decodeIfPresent(String.self, forKey: .currencyCode)
+        let alternateCurrencyCode = try alternateContainer.decodeIfPresent(String.self, forKey: .currencyCodeSnake)
+        let resolvedCurrencyCode = primaryCurrencyCode ?? nestedPrice?.currencyCode ?? alternateCurrencyCode ?? "USD"
+
+        let primarySoldAt = (try? container.decodeIfPresent(Date.self, forKey: .soldAt)) ?? nil
+        let primarySoldAtString = try container.decodeIfPresent(String.self, forKey: .soldAt)
+        let snakeSoldAt = (try? alternateContainer.decodeIfPresent(Date.self, forKey: .soldAtSnake)) ?? nil
+        let snakeSoldAtString = try alternateContainer.decodeIfPresent(String.self, forKey: .soldAtSnake)
+        let occurredAt = (try? alternateContainer.decodeIfPresent(Date.self, forKey: .occurredAt)) ?? nil
+        let occurredAtString = try alternateContainer.decodeIfPresent(String.self, forKey: .occurredAt)
+        let dateSoldAt = (try? alternateContainer.decodeIfPresent(Date.self, forKey: .date)) ?? nil
+        let dateSoldAtString = try alternateContainer.decodeIfPresent(String.self, forKey: .date)
+        let resolvedSoldAt = primarySoldAt
+            ?? Self.parseDate(primarySoldAtString)
+            ?? snakeSoldAt
+            ?? Self.parseDate(snakeSoldAtString)
+            ?? occurredAt
+            ?? Self.parseDate(occurredAtString)
+            ?? dateSoldAt
+            ?? Self.parseDate(dateSoldAtString)
+
+        let primaryGrade = try container.decodeIfPresent(String.self, forKey: .grade)
+        let alternateGrade = try alternateContainer.decodeIfPresent(String.self, forKey: .gradeLabel)
+        let resolvedGrade = primaryGrade ?? alternateGrade
+
+        let primarySaleType = try container.decodeIfPresent(String.self, forKey: .saleType)
+        let snakeSaleType = try alternateContainer.decodeIfPresent(String.self, forKey: .saleTypeSnake)
+        let transactionType = try alternateContainer.decodeIfPresent(String.self, forKey: .transactionType)
+        let listingType = try alternateContainer.decodeIfPresent(String.self, forKey: .listingType)
+        let genericType = try alternateContainer.decodeIfPresent(String.self, forKey: .type)
+        let resolvedSaleType = primarySaleType ?? snakeSaleType ?? transactionType ?? listingType ?? genericType
+
+        let primaryListingURL = try container.decodeIfPresent(String.self, forKey: .listingURL)
+        let snakeListingURL = try alternateContainer.decodeIfPresent(String.self, forKey: .listingURLSnake)
+        let directLink = try alternateContainer.decodeIfPresent(String.self, forKey: .link)
+        let alternateURL = try alternateContainer.decodeIfPresent(String.self, forKey: .url)
+        let resolvedListingURL = primaryListingURL ?? snakeListingURL ?? directLink ?? alternateURL
+
+        let primaryID = try container.decodeIfPresent(String.self, forKey: .id)
+        let transactionID = try alternateContainer.decodeIfPresent(String.self, forKey: .transactionID)
+        let listingID = try alternateContainer.decodeIfPresent(String.self, forKey: .listingID)
+        let saleID = try alternateContainer.decodeIfPresent(String.self, forKey: .saleID)
+        let fallbackID = "\(resolvedTitle)|\(resolvedSoldAt?.timeIntervalSinceReferenceDate ?? 0)|\(resolvedPrice ?? 0)"
+        let resolvedID = primaryID ?? transactionID ?? listingID ?? saleID ?? fallbackID
+
+        id = resolvedID
+        title = resolvedTitle
+        price = resolvedPrice
+        currencyCode = resolvedCurrencyCode
+        soldAt = resolvedSoldAt
+        grade = resolvedGrade
+        saleType = resolvedSaleType
+        listingURL = resolvedListingURL
+    }
+}
+
+struct GradedCardComps: Decodable, Hashable, Sendable {
+    let cardID: String
+    let grader: String?
+    let selectedGrade: String?
+    let gradeOptions: [GradedCardCompsGradeOption]
+    let transactions: [GradedCardCompsTransaction]
+    let currencyCode: String?
+    let statusReason: String?
+    let unavailableReason: String?
+    let errorMessage: String?
+    let isFresh: Bool?
+    let refreshedAt: String?
+    let searchURL: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case cardID
+        case grader
+        case selectedGrade
+        case gradeOptions
+        case transactions
+        case currencyCode
+        case statusReason
+        case unavailableReason
+        case error
+        case isFresh
+        case refreshedAt
+        case searchURL
+    }
+
+    private enum AlternateCodingKeys: String, CodingKey {
+        case cardIDSnake = "card_id"
+        case graderProvider = "grade_provider"
+        case provider
+        case selectedGradeSnake = "selected_grade"
+        case selectedGradeID = "selected_grade_id"
+        case availableGradeOptions
+        case gradeTabs = "grade_tabs"
+        case gradeTabsCamel = "gradeTabs"
+        case tabs
+        case recentTransactions = "recent_transactions"
+        case recentTransactionsCamel = "recentTransactions"
+        case recentSales = "recent_sales"
+        case recentSalesCamel = "recentSales"
+        case sales
+        case currencyCodeSnake = "currency_code"
+        case unavailableReasonSnake = "unavailable_reason"
+        case statusReason
+        case message
+        case statusMessage = "status_message"
+        case searchURLSnake = "search_url"
+        case isFreshSnake = "is_fresh"
+        case refreshedAtSnake = "refreshed_at"
+    }
+
+    private struct ErrorPayload: Codable, Hashable, Sendable {
+        let message: String?
+    }
+
+    init(
+        cardID: String,
+        grader: String? = nil,
+        selectedGrade: String? = nil,
+        gradeOptions: [GradedCardCompsGradeOption] = [],
+        transactions: [GradedCardCompsTransaction] = [],
+        currencyCode: String? = nil,
+        statusReason: String? = nil,
+        unavailableReason: String? = nil,
+        errorMessage: String? = nil,
+        isFresh: Bool? = nil,
+        refreshedAt: String? = nil,
+        searchURL: String? = nil
+    ) {
+        self.cardID = cardID
+        self.grader = grader
+        self.selectedGrade = selectedGrade
+        self.gradeOptions = gradeOptions
+        self.transactions = transactions
+        self.currencyCode = currencyCode
+        self.statusReason = statusReason
+        self.unavailableReason = unavailableReason
+        self.errorMessage = errorMessage
+        self.isFresh = isFresh
+        self.refreshedAt = refreshedAt
+        self.searchURL = searchURL
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let alternateContainer = try decoder.container(keyedBy: AlternateCodingKeys.self)
+
+        let primaryCardID = try container.decodeIfPresent(String.self, forKey: .cardID)
+        let alternateCardID = try alternateContainer.decodeIfPresent(String.self, forKey: .cardIDSnake)
+        cardID = primaryCardID ?? alternateCardID ?? ""
+
+        let primaryGrader = try container.decodeIfPresent(String.self, forKey: .grader)
+        let providerGrader = try alternateContainer.decodeIfPresent(String.self, forKey: .graderProvider)
+        let alternateProvider = try alternateContainer.decodeIfPresent(String.self, forKey: .provider)
+        grader = primaryGrader ?? providerGrader ?? alternateProvider
+
+        let primarySelectedGrade = try container.decodeIfPresent(String.self, forKey: .selectedGrade)
+        let snakeSelectedGrade = try alternateContainer.decodeIfPresent(String.self, forKey: .selectedGradeSnake)
+        let alternateSelectedGrade = try alternateContainer.decodeIfPresent(String.self, forKey: .selectedGradeID)
+        selectedGrade = primarySelectedGrade ?? snakeSelectedGrade ?? alternateSelectedGrade
+
+        let primaryGradeOptions = try container.decodeIfPresent([GradedCardCompsGradeOption].self, forKey: .gradeOptions)
+        let availableGradeOptions = try alternateContainer.decodeIfPresent([GradedCardCompsGradeOption].self, forKey: .availableGradeOptions)
+        let snakeGradeOptions = try alternateContainer.decodeIfPresent([GradedCardCompsGradeOption].self, forKey: .gradeTabs)
+        let camelGradeOptions = try alternateContainer.decodeIfPresent([GradedCardCompsGradeOption].self, forKey: .gradeTabsCamel)
+        let tabGradeOptions = try alternateContainer.decodeIfPresent([GradedCardCompsGradeOption].self, forKey: .tabs)
+        gradeOptions = primaryGradeOptions ?? availableGradeOptions ?? snakeGradeOptions ?? camelGradeOptions ?? tabGradeOptions ?? []
+
+        let primaryTransactions = try container.decodeIfPresent([GradedCardCompsTransaction].self, forKey: .transactions)
+        let recentTransactions = try alternateContainer.decodeIfPresent([GradedCardCompsTransaction].self, forKey: .recentTransactions)
+        let recentTransactionsCamel = try alternateContainer.decodeIfPresent([GradedCardCompsTransaction].self, forKey: .recentTransactionsCamel)
+        let recentSales = try alternateContainer.decodeIfPresent([GradedCardCompsTransaction].self, forKey: .recentSales)
+        let recentSalesCamel = try alternateContainer.decodeIfPresent([GradedCardCompsTransaction].self, forKey: .recentSalesCamel)
+        let sales = try alternateContainer.decodeIfPresent([GradedCardCompsTransaction].self, forKey: .sales)
+        transactions = primaryTransactions ?? recentTransactions ?? recentTransactionsCamel ?? recentSales ?? recentSalesCamel ?? sales ?? []
+
+        let primaryCurrencyCode = try container.decodeIfPresent(String.self, forKey: .currencyCode)
+        let alternateCurrencyCode = try alternateContainer.decodeIfPresent(String.self, forKey: .currencyCodeSnake)
+        currencyCode = primaryCurrencyCode ?? alternateCurrencyCode
+
+        let primaryStatusReason = try container.decodeIfPresent(String.self, forKey: .statusReason)
+        let alternateStatusReason = try alternateContainer.decodeIfPresent(String.self, forKey: .statusReason)
+        statusReason = primaryStatusReason ?? alternateStatusReason
+
+        let errorPayload = try container.decodeIfPresent(ErrorPayload.self, forKey: .error)
+        errorMessage = errorPayload?.message
+
+        let primaryUnavailableReason = try container.decodeIfPresent(String.self, forKey: .unavailableReason)
+        let snakeUnavailableReason = try alternateContainer.decodeIfPresent(String.self, forKey: .unavailableReasonSnake)
+        let messageUnavailableReason = try alternateContainer.decodeIfPresent(String.self, forKey: .message)
+        let legacyStatusUnavailableReason = try alternateContainer.decodeIfPresent(String.self, forKey: .statusMessage)
+        unavailableReason = primaryUnavailableReason
+            ?? snakeUnavailableReason
+            ?? errorMessage
+            ?? messageUnavailableReason
+            ?? legacyStatusUnavailableReason
+            ?? statusReason
+
+        let primaryIsFresh = try container.decodeIfPresent(Bool.self, forKey: .isFresh)
+        let alternateIsFresh = try alternateContainer.decodeIfPresent(Bool.self, forKey: .isFreshSnake)
+        isFresh = primaryIsFresh ?? alternateIsFresh
+
+        let primaryRefreshedAt = try container.decodeIfPresent(String.self, forKey: .refreshedAt)
+        let alternateRefreshedAt = try alternateContainer.decodeIfPresent(String.self, forKey: .refreshedAtSnake)
+        refreshedAt = primaryRefreshedAt ?? alternateRefreshedAt
+
+        let primarySearchURL = try container.decodeIfPresent(String.self, forKey: .searchURL)
+        let alternateSearchURL = try alternateContainer.decodeIfPresent(String.self, forKey: .searchURLSnake)
+        searchURL = primarySearchURL ?? alternateSearchURL
+    }
 }
 
 struct CardCandidate: Identifiable, Codable, Hashable, Sendable {

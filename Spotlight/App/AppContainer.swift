@@ -6,6 +6,8 @@ struct DeckCardEntry: Identifiable, Codable, Hashable {
     let slabContext: SlabContext?
     let condition: DeckCardCondition?
     let quantity: Int
+    let costBasisTotal: Double
+    let costBasisCurrencyCode: String?
     let addedAt: Date
 
     var primaryPrice: Double? {
@@ -17,6 +19,13 @@ struct DeckCardEntry: Identifiable, Codable, Hashable {
             return nil
         }
         return primaryPrice * Double(quantity)
+    }
+
+    var costBasisPerUnit: Double? {
+        guard quantity > 0, costBasisTotal > 0 else {
+            return nil
+        }
+        return costBasisTotal / Double(quantity)
     }
 
     var searchIndexText: String {
@@ -38,9 +47,28 @@ struct DeckCardEntry: Identifiable, Codable, Hashable {
     }
 }
 
+struct PortfolioSaleBatchLineRequest: Hashable {
+    let card: CardCandidate
+    let slabContext: SlabContext?
+    let quantity: Int
+    let unitPrice: Double
+    let currencyCode: String
+    let paymentMethod: String?
+    let soldAt: Date
+    let showSessionID: String?
+    let note: String?
+    let sourceScanID: UUID?
+}
+
 @MainActor
 final class CollectionStore: ObservableObject {
     @Published private(set) var entries: [DeckCardEntry] = []
+    @Published private(set) var portfolioHistory: PortfolioHistory?
+    @Published private(set) var selectedPortfolioHistoryRange: PortfolioHistoryRange = .days30
+    @Published private(set) var isLoadingPortfolioHistory = false
+    @Published private(set) var portfolioLedger: PortfolioLedger?
+    @Published private(set) var selectedPortfolioLedgerRange: PortfolioHistoryRange = .days30
+    @Published private(set) var isLoadingPortfolioLedger = false
 
     private let matcher: (any CardMatchingService)?
     private var backendEntriesByID: [String: DeckCardEntry] = [:]
@@ -63,22 +91,36 @@ final class CollectionStore: ObservableObject {
     }
 
     var totalCardCount: Int {
-        entries.reduce(0) { $0 + max(1, $1.quantity) }
+        entries.reduce(0) { $0 + max(0, $1.quantity) }
+    }
+
+    var totalCostBasis: Double {
+        entries.reduce(0) { $0 + max(0, $1.costBasisTotal) }
     }
 
     func refreshFromBackend() async {
         guard let matcher else { return }
 
-        let backendEntries: [DeckCardEntry] = await matcher.fetchDeckEntries().map { payload in
+        guard let payloads = await matcher.fetchDeckEntries() else {
+            return
+        }
+
+        let backendEntries: [DeckCardEntry] = payloads.compactMap { payload in
             let entryID = payload.id.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                 ? Self.storageKey(cardID: payload.card.id, slabContext: payload.slabContext)
                 : payload.id
+            let quantity = max(0, payload.quantity)
+            guard quantity > 0 else {
+                return nil
+            }
             return DeckCardEntry(
                 id: entryID,
                 card: payload.card,
                 slabContext: payload.slabContext,
                 condition: payload.condition,
-                quantity: max(1, payload.quantity),
+                quantity: quantity,
+                costBasisTotal: payload.costBasisTotal,
+                costBasisCurrencyCode: payload.costBasisCurrencyCode,
                 addedAt: payload.addedAt
             )
         }
@@ -95,6 +137,35 @@ final class CollectionStore: ObservableObject {
         rebuildEntries()
     }
 
+    func refreshPortfolioHistory(range: PortfolioHistoryRange? = nil) async {
+        guard let matcher else { return }
+        let targetRange = range ?? selectedPortfolioHistoryRange
+        selectedPortfolioHistoryRange = targetRange
+        isLoadingPortfolioHistory = true
+        defer { isLoadingPortfolioHistory = false }
+        if let history = await matcher.fetchPortfolioHistory(range: targetRange) {
+            portfolioHistory = history
+        }
+    }
+
+    func refreshPortfolioLedger(range: PortfolioHistoryRange? = nil) async {
+        guard let matcher else { return }
+        let targetRange = range ?? selectedPortfolioLedgerRange
+        selectedPortfolioLedgerRange = targetRange
+        isLoadingPortfolioLedger = true
+        defer { isLoadingPortfolioLedger = false }
+        if let ledger = await matcher.fetchPortfolioLedger(range: targetRange) {
+            portfolioLedger = ledger
+        }
+    }
+
+    func refreshDashboardData() async {
+        async let entriesRefresh: Void = refreshFromBackend()
+        async let historyRefresh: Void = refreshPortfolioHistory()
+        async let ledgerRefresh: Void = refreshPortfolioLedger()
+        _ = await (entriesRefresh, historyRefresh, ledgerRefresh)
+    }
+
     func add(card: CardCandidate, slabContext: SlabContext?, condition: DeckCardCondition? = nil) -> Int {
         let key = Self.storageKey(cardID: card.id, slabContext: slabContext)
         let backendEntry = backendEntriesByID[key]
@@ -107,6 +178,8 @@ final class CollectionStore: ObservableObject {
             slabContext: slabContext,
             condition: condition ?? optimisticEntry?.condition ?? backendEntry?.condition,
             quantity: nextQuantity,
+            costBasisTotal: optimisticEntry?.costBasisTotal ?? backendEntry?.costBasisTotal ?? 0,
+            costBasisCurrencyCode: optimisticEntry?.costBasisCurrencyCode ?? backendEntry?.costBasisCurrencyCode,
             addedAt: backendEntry?.addedAt ?? optimisticEntry?.addedAt ?? Date()
         )
         rebuildEntries()
@@ -155,6 +228,8 @@ final class CollectionStore: ObservableObject {
             slabContext: slabContext,
             condition: nil,
             quantity: max(1, quantityFallback),
+            costBasisTotal: 0,
+            costBasisCurrencyCode: card.pricing?.currencyCode,
             addedAt: Date()
         )
     }
@@ -166,6 +241,15 @@ final class CollectionStore: ObservableObject {
 
     func condition(card: CardCandidate, slabContext: SlabContext?) -> DeckCardCondition? {
         condition(cardID: card.id, slabContext: slabContext)
+    }
+
+    func purchasePrice(cardID: String, slabContext: SlabContext?) -> Double? {
+        let key = Self.storageKey(cardID: cardID, slabContext: slabContext)
+        return optimisticEntriesByID[key]?.costBasisPerUnit ?? backendEntriesByID[key]?.costBasisPerUnit
+    }
+
+    func purchasePrice(card: CardCandidate, slabContext: SlabContext?) -> Double? {
+        purchasePrice(cardID: card.id, slabContext: slabContext)
     }
 
     @discardableResult
@@ -186,6 +270,8 @@ final class CollectionStore: ObservableObject {
             slabContext: slabContext,
             condition: condition,
             quantity: quantity,
+            costBasisTotal: existingEntry?.costBasisTotal ?? 0,
+            costBasisCurrencyCode: existingEntry?.costBasisCurrencyCode,
             addedAt: existingEntry?.addedAt ?? Date()
         )
         rebuildEntries()
@@ -213,6 +299,195 @@ final class CollectionStore: ObservableObject {
         }
     }
 
+    func setPurchasePrice(
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        unitPrice: Double,
+        currencyCode: String = "USD"
+    ) {
+        let key = Self.storageKey(cardID: card.id, slabContext: slabContext)
+        guard let existingEntry = optimisticEntriesByID[key] ?? backendEntriesByID[key] else {
+            return
+        }
+
+        let quantity = max(1, existingEntry.quantity)
+        optimisticEntriesByID[key] = DeckCardEntry(
+            id: key,
+            card: card,
+            slabContext: slabContext,
+            condition: existingEntry.condition,
+            quantity: quantity,
+            costBasisTotal: round(unitPrice * Double(quantity) * 100) / 100,
+            costBasisCurrencyCode: currencyCode,
+            addedAt: existingEntry.addedAt
+        )
+        rebuildEntries()
+    }
+
+    func syncPurchasePrice(
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        unitPrice: Double,
+        currencyCode: String = "USD"
+    ) async {
+        guard let matcher else { return }
+        do {
+            try await matcher.updateDeckEntryPurchasePrice(
+                DeckEntryPurchasePriceUpdateRequestPayload(
+                    cardID: card.id,
+                    slabContext: slabContext,
+                    unitPrice: unitPrice,
+                    currencyCode: currencyCode,
+                    updatedAt: Date()
+                )
+            )
+            await refreshFromBackend()
+        } catch {
+            // Keep the optimistic purchase price locally; refresh will reconcile once backend succeeds later.
+        }
+    }
+
+    func recordSale(
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        quantity: Int,
+        unitPrice: Double,
+        currencyCode: String = "USD",
+        paymentMethod: String?,
+        soldAt: Date,
+        showSessionID: String?,
+        note: String?,
+        sourceScanID: UUID? = nil
+    ) async throws -> PortfolioSaleCreateResponsePayload {
+        guard let matcher else {
+            throw MatcherError.server(message: "Sale service unavailable.")
+        }
+        let payload = PortfolioSaleCreateRequestPayload(
+            cardID: card.id,
+            slabContext: slabContext,
+            quantity: max(1, quantity),
+            unitPrice: unitPrice,
+            currencyCode: currencyCode,
+            paymentMethod: paymentMethod,
+            soldAt: soldAt,
+            showSessionID: showSessionID,
+            note: note,
+            sourceScanID: sourceScanID
+        )
+        let response = try await matcher.createPortfolioSale(payload)
+        applySaleResponse(
+            response,
+            fallbackCard: card,
+            fallbackSlabContext: slabContext
+        )
+        await refreshDashboardData()
+        return response
+    }
+
+    func recordSalesBatch(
+        _ lines: [PortfolioSaleBatchLineRequest]
+    ) async throws -> [PortfolioSaleCreateResponsePayload] {
+        guard let matcher else {
+            throw MatcherError.server(message: "Sale service unavailable.")
+        }
+
+        var responses: [PortfolioSaleCreateResponsePayload] = []
+        responses.reserveCapacity(lines.count)
+
+        for line in lines {
+            let payload = PortfolioSaleCreateRequestPayload(
+                cardID: line.card.id,
+                slabContext: line.slabContext,
+                quantity: max(1, line.quantity),
+                unitPrice: line.unitPrice,
+                currencyCode: line.currencyCode,
+                paymentMethod: line.paymentMethod,
+                soldAt: line.soldAt,
+                showSessionID: line.showSessionID,
+                note: line.note,
+                sourceScanID: line.sourceScanID
+            )
+            let response = try await matcher.createPortfolioSale(payload)
+            applySaleResponse(
+                response,
+                fallbackCard: line.card,
+                fallbackSlabContext: line.slabContext
+            )
+            responses.append(response)
+        }
+
+        await refreshDashboardData()
+        return responses
+    }
+
+    func recordBuy(
+        card: CardCandidate,
+        slabContext: SlabContext?,
+        condition: DeckCardCondition?,
+        quantity: Int,
+        unitPrice: Double,
+        currencyCode: String = "USD",
+        paymentMethod: String?,
+        boughtAt: Date,
+        sourceScanID: UUID? = nil
+    ) async throws -> PortfolioBuyCreateResponsePayload {
+        guard let matcher else {
+            throw MatcherError.server(message: "Buy service unavailable.")
+        }
+        let payload = PortfolioBuyCreateRequestPayload(
+            cardID: card.id,
+            slabContext: slabContext,
+            condition: condition,
+            quantity: max(1, quantity),
+            unitPrice: unitPrice,
+            currencyCode: currencyCode,
+            paymentMethod: paymentMethod,
+            boughtAt: boughtAt,
+            sourceScanID: sourceScanID
+        )
+        let response = try await matcher.createPortfolioBuy(payload)
+        await refreshDashboardData()
+        return response
+    }
+
+    func updatePortfolioBuyTransactionPrice(
+        transactionID: String,
+        unitPrice: Double,
+        currencyCode: String = "USD"
+    ) async throws {
+        guard let matcher else {
+            throw MatcherError.server(message: "Buy service unavailable.")
+        }
+        try await matcher.updatePortfolioBuyPrice(
+            transactionID: transactionID,
+            payload: PortfolioTransactionPriceUpdateRequestPayload(
+                unitPrice: unitPrice,
+                currencyCode: currencyCode,
+                updatedAt: Date()
+            )
+        )
+        await refreshDashboardData()
+    }
+
+    func updatePortfolioSaleTransactionPrice(
+        transactionID: String,
+        unitPrice: Double,
+        currencyCode: String = "USD"
+    ) async throws {
+        guard let matcher else {
+            throw MatcherError.server(message: "Sale service unavailable.")
+        }
+        try await matcher.updatePortfolioSalePrice(
+            transactionID: transactionID,
+            payload: PortfolioTransactionPriceUpdateRequestPayload(
+                unitPrice: unitPrice,
+                currencyCode: currencyCode,
+                updatedAt: Date()
+            )
+        )
+        await refreshDashboardData()
+    }
+
     func searchResults(for query: String) -> [DeckCardEntry] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else {
@@ -232,6 +507,54 @@ final class CollectionStore: ObservableObject {
             }
             return lhs.addedAt > rhs.addedAt
         }
+    }
+
+    private func applySaleResponse(
+        _ response: PortfolioSaleCreateResponsePayload,
+        fallbackCard: CardCandidate,
+        fallbackSlabContext: SlabContext?
+    ) {
+        let normalizedDeckEntryID = response.deckEntryID.trimmingCharacters(in: .whitespacesAndNewlines)
+        let entryID = normalizedDeckEntryID.isEmpty
+            ? Self.storageKey(cardID: fallbackCard.id, slabContext: fallbackSlabContext)
+            : normalizedDeckEntryID
+
+        let remainingQuantity = max(0, response.remainingQuantity)
+        guard let existingEntry = optimisticEntriesByID[entryID] ?? backendEntriesByID[entryID] else {
+            if remainingQuantity <= 0 {
+                optimisticEntriesByID.removeValue(forKey: entryID)
+                backendEntriesByID.removeValue(forKey: entryID)
+                rebuildEntries()
+            }
+            return
+        }
+
+        if remainingQuantity <= 0 {
+            optimisticEntriesByID.removeValue(forKey: entryID)
+            backendEntriesByID.removeValue(forKey: entryID)
+        } else {
+            let updatedCostBasisTotal: Double
+            if let costBasisPerUnit = existingEntry.costBasisPerUnit {
+                updatedCostBasisTotal = round(costBasisPerUnit * Double(remainingQuantity) * 100) / 100
+            } else {
+                updatedCostBasisTotal = 0
+            }
+
+            let updatedEntry = DeckCardEntry(
+                id: entryID,
+                card: existingEntry.card,
+                slabContext: existingEntry.slabContext,
+                condition: existingEntry.condition,
+                quantity: remainingQuantity,
+                costBasisTotal: updatedCostBasisTotal,
+                costBasisCurrencyCode: existingEntry.costBasisCurrencyCode,
+                addedAt: existingEntry.addedAt
+            )
+            optimisticEntriesByID[entryID] = updatedEntry
+            backendEntriesByID[entryID] = updatedEntry
+        }
+
+        rebuildEntries()
     }
 
     private static func storageKey(cardID: String, slabContext: SlabContext?) -> String {
@@ -269,11 +592,19 @@ final class CollectionStore: ObservableObject {
 
 @MainActor
 final class AppContainer: ObservableObject {
+    enum CollectionRefreshScope {
+        case entries
+        case dashboard
+    }
+
     let scannerViewModel: ScannerViewModel
     let collectionStore: CollectionStore
     private let remoteMatcher: RemoteScanMatchingService
     private var hasPrimedLocalNetworkPermission = false
     private var isPrimingLocalNetworkPermission = false
+    private var activeCollectionRefreshScope: CollectionRefreshScope?
+    private var pendingCollectionRefreshScope: CollectionRefreshScope?
+    private var lastCompletedCollectionRefreshAt: Date?
 
     init() {
         let cameraController = CameraSessionController()
@@ -304,7 +635,7 @@ final class AppContainer: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             await self.scannerViewModel.flushPendingBackendQueues()
-            await self.collectionStore.refreshFromBackend()
+            self.refreshCollectionStoreFromBackend(scope: .dashboard)
         }
 
         print("🔍 [OCR] Pipeline route: raw_rewrite_live")
@@ -333,9 +664,46 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    func refreshCollectionStoreFromBackend() {
+    func refreshCollectionStoreFromBackend(
+        scope: CollectionRefreshScope = .dashboard,
+        minimumInterval: TimeInterval = 0
+    ) {
+        let now = Date()
+        if minimumInterval > 0,
+           let lastCompletedCollectionRefreshAt,
+           now.timeIntervalSince(lastCompletedCollectionRefreshAt) < minimumInterval {
+            return
+        }
+
+        if let activeCollectionRefreshScope {
+            let highestQueuedScope = Self.mergedCollectionRefreshScope(
+                activeCollectionRefreshScope,
+                pendingCollectionRefreshScope
+            ) ?? activeCollectionRefreshScope
+            if Self.collectionRefreshScope(highestQueuedScope, covers: scope) {
+                return
+            }
+            pendingCollectionRefreshScope = Self.mergedCollectionRefreshScope(
+                pendingCollectionRefreshScope,
+                scope
+            )
+            return
+        }
+
+        activeCollectionRefreshScope = scope
         Task { [weak self] in
-            await self?.collectionStore.refreshFromBackend()
+            guard let self else { return }
+            await self.performCollectionRefresh(scope: scope)
+            await MainActor.run {
+                self.lastCompletedCollectionRefreshAt = Date()
+                self.activeCollectionRefreshScope = nil
+
+                guard let pendingScope = self.pendingCollectionRefreshScope else {
+                    return
+                }
+                self.pendingCollectionRefreshScope = nil
+                self.refreshCollectionStoreFromBackend(scope: pendingScope)
+            }
         }
     }
 
@@ -352,6 +720,43 @@ final class AppContainer: ObservableObject {
                     self?.hasPrimedLocalNetworkPermission = true
                 }
             }
+        }
+    }
+
+    private func performCollectionRefresh(scope: CollectionRefreshScope) async {
+        switch scope {
+        case .entries:
+            await collectionStore.refreshFromBackend()
+        case .dashboard:
+            await collectionStore.refreshDashboardData()
+        }
+    }
+
+    private static func mergedCollectionRefreshScope(
+        _ lhs: CollectionRefreshScope?,
+        _ rhs: CollectionRefreshScope?
+    ) -> CollectionRefreshScope? {
+        switch (lhs, rhs) {
+        case (.dashboard, _), (_, .dashboard):
+            return .dashboard
+        case (.entries, .entries):
+            return .entries
+        case let (value?, nil), let (nil, value?):
+            return value
+        case (nil, nil):
+            return nil
+        }
+    }
+
+    private static func collectionRefreshScope(
+        _ scope: CollectionRefreshScope,
+        covers requestedScope: CollectionRefreshScope
+    ) -> Bool {
+        switch (scope, requestedScope) {
+        case (.dashboard, _), (.entries, .entries):
+            return true
+        case (.entries, .dashboard):
+            return false
         }
     }
 

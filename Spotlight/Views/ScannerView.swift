@@ -29,6 +29,50 @@ struct ScannerView: View {
         viewModel.isCapturingPhoto || viewModel.isProcessing
     }
 
+    private var batchSellDraft: ShowSellBatchDraft? {
+        var groupedSources: [String: (entry: DeckCardEntry, itemIDs: [UUID], scannedCount: Int)] = [:]
+        var orderedKeys: [String] = []
+
+        for item in viewModel.visibleScannedItems {
+            guard let source = batchSellSource(for: item) else { continue }
+
+            if var existing = groupedSources[source.entry.id] {
+                existing.itemIDs.append(source.itemID)
+                existing.scannedCount += 1
+                groupedSources[source.entry.id] = existing
+            } else {
+                orderedKeys.append(source.entry.id)
+                groupedSources[source.entry.id] = (
+                    entry: source.entry,
+                    itemIDs: [source.itemID],
+                    scannedCount: 1
+                )
+            }
+        }
+
+        let lines = orderedKeys.compactMap { key -> ShowSellBatchLineDraft? in
+            guard let grouped = groupedSources[key] else { return nil }
+            let quantityLimit = min(grouped.scannedCount, grouped.entry.quantity)
+            guard quantityLimit > 0 else { return nil }
+
+            return ShowSellBatchLineDraft(
+                id: key,
+                entry: grouped.entry,
+                sourceItemIDs: grouped.itemIDs,
+                scannedCount: grouped.scannedCount,
+                quantityLimit: quantityLimit,
+                suggestedUnitPrice: grouped.entry.primaryPrice ?? grouped.entry.card.pricing?.market ?? 0
+            )
+        }
+
+        guard !lines.isEmpty else { return nil }
+        return ShowSellBatchDraft(
+            title: "Sell cards",
+            subtitle: nil,
+            lines: lines
+        )
+    }
+
     var body: some View {
         GeometryReader { proxy in
             ZStack {
@@ -38,6 +82,10 @@ struct ScannerView: View {
                     topBar
                         .padding(.horizontal, 16)
                         .padding(.top, max(proxy.safeAreaInsets.top, 14))
+
+                    scannerStatusCard
+                        .padding(.horizontal, 16)
+                        .padding(.top, 20)
 
                     Spacer(minLength: 0)
 
@@ -95,6 +143,21 @@ struct ScannerView: View {
     private var cameraIsInteractive: Bool {
         viewModel.cameraController.authorizationState == .authorized
             && viewModel.cameraController.isSessionConfigured
+    }
+
+    @ViewBuilder
+    private var scannerStatusCard: some View {
+        switch viewModel.cameraController.authorizationState {
+        case .authorized where !cameraIsInteractive:
+            loadingScannerState
+        case .denied, .unavailable:
+            VStack(alignment: .leading, spacing: 14) {
+                unavailableState
+                unavailableControlBar
+            }
+        default:
+            EmptyView()
+        }
     }
 
     private var scanInteractionLocked: Bool {
@@ -376,6 +439,29 @@ struct ScannerView: View {
         )
     }
 
+    private var loadingScannerState: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                ProgressView()
+                    .tint(.white)
+
+                Text("Starting camera…")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+
+            Text("The live preview is waking up. You can still import a photo while the camera connects.")
+                .font(.subheadline)
+                .foregroundStyle(Color.white.opacity(0.72))
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .fill(Color.white.opacity(0.07))
+        )
+    }
+
     private var unavailableControlBar: some View {
         HStack(spacing: 14) {
             PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
@@ -454,14 +540,33 @@ struct ScannerView: View {
 
                 Spacer()
 
-                // Running total
-                Text(viewModel.totalValueText)
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(Color(red: 0.35, green: 0.45, blue: 0.35))
-                    .clipShape(Capsule())
+                HStack(spacing: 8) {
+                    Text(viewModel.totalValueText)
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .background(Color(red: 0.35, green: 0.45, blue: 0.35))
+                        .clipShape(Capsule())
+
+                    if let batchSellDraft {
+                        Button {
+                            showsState.presentSellBatch(
+                                lines: batchSellDraft.lines,
+                                title: batchSellDraft.title,
+                                subtitle: batchSellDraft.subtitle
+                            )
+                        } label: {
+                            Image(systemName: "dollarsign")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                                .frame(width: 36, height: 36)
+                                .background(Color(red: 0.23, green: 0.45, blue: 0.95))
+                                .clipShape(Circle())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -491,25 +596,11 @@ struct ScannerView: View {
         let detailAction = rowAction(for: item)
         let cycleState = viewModel.candidateCycleState(for: item.id)
         let collectionState = collectionState(for: item)
-        let sellEntry = sellEntry(for: item, collectionState: collectionState)
         let swipeOffset = traySwipeOffsets[item.id] ?? 0
 
         return ZStack {
             trayActionBackground(
                 revealedWidth: swipeOffset,
-                sellEntry: sellEntry,
-                onSell: {
-                    guard let sellEntry else { return }
-                    withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
-                        traySwipeOffsets[item.id] = 0
-                    }
-                    showsState.presentSell(
-                        entry: sellEntry,
-                        title: "Sell Card",
-                        subtitle: nil,
-                        quantityLimit: 1
-                    )
-                },
                 onRemove: {
                     withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
                         traySwipeOffsets[item.id] = nil
@@ -541,12 +632,7 @@ struct ScannerView: View {
                                 .lineLimit(2)
                         }
 
-                        if let tertiaryLine = tertiaryLine(for: item) {
-                            Text(tertiaryLine)
-                                .font(.system(size: 11))
-                                .foregroundStyle(.white.opacity(0.6))
-                                .lineLimit(1)
-                        }
+                        compactRowSupplementaryLine(for: item)
                     }
 
                     Spacer(minLength: 8)
@@ -584,26 +670,20 @@ struct ScannerView: View {
         .frame(maxWidth: .infinity)
         .contentShape(Rectangle())
         .clipped()
+        .task(id: item.id) {
+            viewModel.loadTrayVariantsIfNeeded(for: item.id)
+        }
         .highPriorityGesture(
             DragGesture(minimumDistance: 16)
                 .onChanged { value in
-                    let translation = clampedTrayDismissOffset(
-                        value.translation.width,
-                        hasSellAction: sellEntry != nil
-                    )
+                    let translation = clampedTrayDismissOffset(value.translation.width)
                     traySwipeOffsets[item.id] = translation
                 }
                 .onEnded { value in
-                    let translation = clampedTrayDismissOffset(
-                        value.translation.width,
-                        hasSellAction: sellEntry != nil
-                    )
-                    if shouldRevealTrayItemAction(forSwipeOffset: translation, hasSellAction: sellEntry != nil) {
+                    let translation = clampedTrayDismissOffset(value.translation.width)
+                    if shouldRevealTrayItemAction(forSwipeOffset: translation) {
                         withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
-                            traySwipeOffsets[item.id] = trayActionRevealWidth(
-                                forSwipeOffset: translation,
-                                hasSellAction: sellEntry != nil
-                            )
+                            traySwipeOffsets[item.id] = trayActionRevealWidth(forSwipeOffset: translation)
                         }
                     } else {
                         withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
@@ -614,10 +694,118 @@ struct ScannerView: View {
         )
     }
 
+    @ViewBuilder
+    private func compactRowSupplementaryLine(for item: LiveScanStackItem) -> some View {
+        if shouldShowVariantLoadingState(for: item) {
+            trayVariantChipLabel(title: "VARIANT: Loading…", showsChevron: false, isLoading: true)
+        } else if shouldShowTrayVariantPicker(for: item) {
+            trayVariantMenu(for: item)
+        } else if let tertiaryLine = tertiaryLine(for: item) {
+            Text(tertiaryLine)
+                .font(.system(size: 11))
+                .foregroundStyle(.white.opacity(0.6))
+                .lineLimit(1)
+        }
+    }
+
+    private func shouldShowVariantLoadingState(for item: LiveScanStackItem) -> Bool {
+        (item.phase == .resolved || item.phase == .needsReview)
+            && item.resolverMode == .rawCard
+            && item.slabContext == nil
+            && item.isLoadingVariants
+            && item.availableVariants.isEmpty
+    }
+
+    private func shouldShowTrayVariantPicker(for item: LiveScanStackItem) -> Bool {
+        (item.phase == .resolved || item.phase == .needsReview)
+            && item.resolverMode == .rawCard
+            && item.slabContext == nil
+            && item.availableVariants.count > 1
+    }
+
+    private func trayVariantMenu(for item: LiveScanStackItem) -> some View {
+        Menu {
+            ForEach(item.availableVariants) { option in
+                Button {
+                    viewModel.selectTrayVariant(option.id, for: item.id)
+                } label: {
+                    HStack {
+                        Text(option.label)
+                        if trayVariantIsSelected(option, item: item) {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            trayVariantChipLabel(
+                title: "VARIANT: \(trayVariantLabel(for: item))",
+                showsChevron: true,
+                isLoading: item.isLoadingVariants
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func trayVariantChipLabel(
+        title: String,
+        showsChevron: Bool,
+        isLoading: Bool
+    ) -> some View {
+        HStack(spacing: 6) {
+            if isLoading {
+                ProgressView()
+                    .scaleEffect(0.7)
+                    .tint(Color(red: 0.74, green: 0.94, blue: 0.33))
+            }
+
+            Text(title)
+                .font(.system(size: 10, weight: .bold))
+                .lineLimit(1)
+
+            if showsChevron {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+            }
+        }
+        .foregroundStyle(Color(red: 0.74, green: 0.94, blue: 0.33))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color.white.opacity(0.08))
+        .clipShape(Capsule())
+    }
+
+    private func trayVariantLabel(for item: LiveScanStackItem) -> String {
+        let selectedVariant = item.selectedVariant?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let selectedVariant,
+           let option = item.availableVariants.first(where: { $0.id == selectedVariant || $0.label == selectedVariant }) {
+            return option.label
+        }
+        if let selectedVariant, !selectedVariant.isEmpty {
+            return selectedVariant
+        }
+        if let pricingVariant = item.basePricing?.variant?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !pricingVariant.isEmpty {
+            return pricingVariant
+        }
+        return "Select"
+    }
+
+    private func trayVariantIsSelected(_ option: MarketHistoryOption, item: LiveScanStackItem) -> Bool {
+        let selectedVariant = item.selectedVariant?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let selectedVariant, !selectedVariant.isEmpty {
+            return option.id == selectedVariant || option.label == selectedVariant
+        }
+        if let pricingVariant = item.basePricing?.variant?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !pricingVariant.isEmpty {
+            return option.id == pricingVariant || option.label == pricingVariant
+        }
+        return false
+    }
+
     private func trayActionBackground(
         revealedWidth: CGFloat,
-        sellEntry: DeckCardEntry?,
-        onSell: @escaping () -> Void,
         onRemove: @escaping () -> Void
     ) -> some View {
         ZStack {
@@ -648,59 +836,10 @@ struct ScannerView: View {
                 .allowsHitTesting(leadingTrayActionButtonsAreInteractive(forRevealedWidth: revealedWidth))
 
                 Spacer(minLength: 0)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-
-            if sellEntry != nil {
-                HStack(spacing: 0) {
-                    Spacer(minLength: 0)
-
-                    Button(action: onSell) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "dollarsign.circle.fill")
-                                .font(.system(size: 16, weight: .bold))
-                            Text("Sell")
-                                .font(.system(size: 13, weight: .bold))
-                        }
-                        .foregroundStyle(.black)
-                        .frame(width: 104)
-                        .frame(maxHeight: .infinity)
-                        .background(
-                            LinearGradient(
-                                colors: [
-                                    Color(red: 0.58, green: 0.74, blue: 0.22),
-                                    Color(red: 0.79, green: 0.92, blue: 0.36)
-                                ],
-                                startPoint: .leading,
-                                endPoint: .trailing
-                            )
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .opacity(trailingTrayActionBackgroundOpacity(forRevealedWidth: revealedWidth))
-                    .allowsHitTesting(trailingTrayActionButtonsAreInteractive(forRevealedWidth: revealedWidth))
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .trailing)
-            }
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
-    private func sellEntry(
-        for item: LiveScanStackItem,
-        collectionState: TrayCollectionState?
-    ) -> DeckCardEntry? {
-        guard showsState.activeShow != nil,
-              let collectionState,
-              collectionState.quantity > 0 else {
-            return nil
-        }
-
-        return collectionStore.previewEntry(
-            card: collectionState.card,
-            slabContext: collectionState.slabContext,
-            quantityFallback: collectionState.quantity
-        )
     }
 
     private func collectionState(for item: LiveScanStackItem) -> TrayCollectionState? {
@@ -744,7 +883,7 @@ struct ScannerView: View {
         .frame(width: 58)
         .overlay(alignment: .topTrailing) {
             if addTooltipItemID == item.id {
-                Text("Add to Portfolio")
+                Text("Add to Inventory")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundStyle(.black)
                     .padding(.horizontal, 14)
@@ -758,12 +897,26 @@ struct ScannerView: View {
         }
     }
 
+    private func batchSellSource(for item: LiveScanStackItem) -> (itemID: UUID, entry: DeckCardEntry)? {
+        guard let collectionState = collectionState(for: item),
+              collectionState.quantity > 0 else {
+            return nil
+        }
+
+        let entry = collectionStore.previewEntry(
+            card: collectionState.card,
+            slabContext: collectionState.slabContext,
+            quantityFallback: collectionState.quantity
+        )
+        return (item.id, entry)
+    }
+
     private func addCardToDeck(item: LiveScanStackItem, card: CardCandidate, slabContext: SlabContext?) {
         let appliedCondition: DeckCardCondition = .nearMint
         let quantity = collectionStore.add(card: card, slabContext: slabContext, condition: appliedCondition)
         viewModel.recordDeckAddition(itemID: item.id, card: card, slabContext: slabContext, condition: appliedCondition)
         addTooltipItemID = nil
-        let message = "\(card.name) added to portfolio • Qty \(quantity)"
+        let message = "\(card.name) added to inventory • Qty \(quantity)"
         viewModel.showBannerMessage(message)
     }
 
@@ -1058,25 +1211,6 @@ struct ScannerView: View {
             }
 
             HStack(spacing: 10) {
-                if let sellEntry = sellEntry(for: item, collectionState: collectionState(for: item)) {
-                    Button {
-                        showsState.presentSell(
-                            entry: sellEntry,
-                            title: "Sell Card",
-                            subtitle: nil,
-                            quantityLimit: 1
-                        )
-                    } label: {
-                        Text("Sell")
-                            .font(.subheadline.weight(.semibold))
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 10)
-                            .background(Color(red: 0.79, green: 0.92, blue: 0.36))
-                            .foregroundStyle(.black)
-                            .clipShape(Capsule())
-                    }
-                }
-
                 Button {
                     viewModel.refreshPricing(for: item.id)
                 } label: {
@@ -1358,46 +1492,25 @@ private struct TopBarIconButton: View {
     }
 }
 
-func clampedTrayDismissOffset(_ translationWidth: CGFloat, hasSellAction: Bool) -> CGFloat {
+func clampedTrayDismissOffset(_ translationWidth: CGFloat) -> CGFloat {
     let maxLeadingReveal: CGFloat = 120
-    let maxTrailingReveal: CGFloat = hasSellAction ? 104 : 0
-    return min(max(translationWidth, -maxTrailingReveal), maxLeadingReveal)
+    return min(max(translationWidth, 0), maxLeadingReveal)
 }
 
-func shouldRevealTrayItemAction(forSwipeOffset offset: CGFloat, hasSellAction: Bool) -> Bool {
-    if offset > 0 {
-        return offset >= 72
-    }
-    if offset < 0 {
-        return hasSellAction && offset <= -64
-    }
-    return false
+func shouldRevealTrayItemAction(forSwipeOffset offset: CGFloat) -> Bool {
+    offset >= 72
 }
 
-func trayActionRevealWidth(forSwipeOffset offset: CGFloat, hasSellAction: Bool) -> CGFloat {
-    if offset > 0 {
-        return 120
-    }
-    if offset < 0, hasSellAction {
-        return -104
-    }
-    return 0
+func trayActionRevealWidth(forSwipeOffset offset: CGFloat) -> CGFloat {
+    offset > 0 ? 120 : 0
 }
 
 func leadingTrayActionBackgroundOpacity(forRevealedWidth revealedWidth: CGFloat) -> Double {
     revealedWidth > 8 ? 1 : 0
 }
 
-func trailingTrayActionBackgroundOpacity(forRevealedWidth revealedWidth: CGFloat) -> Double {
-    revealedWidth < -8 ? 1 : 0
-}
-
 func leadingTrayActionButtonsAreInteractive(forRevealedWidth revealedWidth: CGFloat) -> Bool {
     revealedWidth >= 44
-}
-
-func trailingTrayActionButtonsAreInteractive(forRevealedWidth revealedWidth: CGFloat) -> Bool {
-    revealedWidth <= -44
 }
 
 private struct TrayCollectionState {

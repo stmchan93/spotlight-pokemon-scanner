@@ -54,6 +54,15 @@ Use this slab rebuild implementation spec when slab work resumes:
 
 - scanner UI remains intact
 - raw scan UX remains active
+- backend-backed inventory/deck persistence is now landed for:
+  - add to inventory
+  - quantity
+  - condition
+  - inventory browsing/search/sort
+- current inventory / ledger UI remains mostly mock/presentation state:
+  - no persisted buy/sell ledger yet
+  - no truthful portfolio-history endpoint yet
+  - no cost-basis tracking yet
 - backend now always returns a best raw candidate for valid raw scans
 - low-confidence raw scans still return a best guess plus review state
 - raw OCR runtime now uses the rewrite path while slab OCR still uses the legacy slab path
@@ -219,6 +228,8 @@ Use this slab rebuild implementation spec when slab work resumes:
     - visual retrieval first
     - OCR rerank second
 - the shipped app path still keeps slab matching feature-flagged off by default
+- the current planned source of truth for the next inventory / ledger / portfolio layer is:
+  - [inventory-portfolio-selling-spec-2026-04-15.md](/Users/stephenchan/Code/spotlight/docs/inventory-portfolio-selling-spec-2026-04-15.md)
 - slab rebuild groundwork is now landed:
   - experimental resolver paths:
     - `psa_cert_barcode`

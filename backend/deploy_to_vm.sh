@@ -246,7 +246,7 @@ write_runtime_override() {
   local env_key="$1"
   local env_value="${2:-}"
   if [ -n "$env_value" ]; then
-    printf '%s=%s\n' "$env_key" "$env_value" >> "$RUNTIME_CONFIG_FILE"
+    printf '%s=%q\n' "$env_key" "$env_value" >> "$RUNTIME_CONFIG_FILE"
   fi
 }
 
@@ -258,6 +258,10 @@ write_runtime_override "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED" "$SCAN_ARTIFACT
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_STORAGE" "$SCAN_ARTIFACTS_STORAGE"
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET" "$SCAN_ARTIFACTS_GCS_BUCKET"
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_ROOT" "$SCAN_ARTIFACTS_ROOT"
+write_runtime_override "SPOTLIGHT_VM_SYNC_CRON" "$SYNC_CRON_SCHEDULE"
+write_runtime_override "SPOTLIGHT_VM_SYNC_CRON_TZ" "$SYNC_CRON_TIMEZONE"
+write_runtime_override "SPOTLIGHT_SYNC_LOCK_FILE" "$SYNC_LOCK_FILE"
+write_runtime_override "SPOTLIGHT_SYNC_LOG_FILE" "$SYNC_LOG_FILE"
 
 chmod 600 "$RUNTIME_CONFIG_FILE"
 chmod +x \
@@ -265,6 +269,7 @@ chmod +x \
   "$SCRIPT_DIR/run_backend_vm_forever.sh" \
   "$SCRIPT_DIR/run_vm_prewarm_visual.sh" \
   "$SCRIPT_DIR/run_sync_vm.sh" \
+  "$SCRIPT_DIR/run_sync_vm_scheduled.sh" \
   "$SCRIPT_DIR/run_vm_health_check.sh" \
   "$SCRIPT_DIR/run_vm_resource_snapshot.sh"
 
@@ -303,8 +308,7 @@ fi
 
 CRON_BEGIN="# BEGIN spotlight-backend-vm"
 CRON_END="# END spotlight-backend-vm"
-SYNC_TZ_LINE="CRON_TZ=$SYNC_CRON_TIMEZONE"
-SYNC_LINE="$SYNC_CRON_SCHEDULE cd $REPO_ROOT && $FLOCK_BIN -n $SYNC_LOCK_FILE $SCRIPT_DIR/run_sync_vm.sh >> $SYNC_LOG_FILE 2>&1"
+SYNC_LINE="* * * * * cd $REPO_ROOT && $SCRIPT_DIR/run_sync_vm_scheduled.sh"
 HEALTH_LINE="$HEALTH_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_health_check.sh >> $HEALTH_MONITOR_LOG_FILE 2>&1"
 RESOURCE_LINE="$RESOURCE_CRON_SCHEDULE cd $REPO_ROOT && $SCRIPT_DIR/run_vm_resource_snapshot.sh >> $RESOURCE_MONITOR_LOG_FILE 2>&1"
 
@@ -338,7 +342,6 @@ PY
 {
   cat "$CURRENT_CRONTAB"
   echo "$CRON_BEGIN"
-  echo "$SYNC_TZ_LINE"
   echo "$SYNC_LINE"
   echo "$HEALTH_LINE"
   echo "$RESOURCE_LINE"
@@ -360,7 +363,7 @@ echo "  Backend log: $LOG_DIR/backend.log"
 echo "  Sync log: $SYNC_LOG_FILE"
 echo "  Health monitor log: $HEALTH_MONITOR_LOG_FILE"
 echo "  Resource monitor log: $RESOURCE_MONITOR_LOG_FILE"
-echo "  Sync cron: $SYNC_CRON_SCHEDULE timezone=$SYNC_CRON_TIMEZONE"
+echo "  Sync schedule: $SYNC_CRON_SCHEDULE timezone=$SYNC_CRON_TIMEZONE (minute scheduler wrapper)"
 echo "  Health cron: $HEALTH_CRON_SCHEDULE"
 echo "  Resource cron: $RESOURCE_CRON_SCHEDULE"
 echo "  Backend bind: $BACKEND_HOST:8788"

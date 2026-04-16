@@ -10,8 +10,9 @@ struct CameraPreviewView: UIViewRepresentable {
         print("📸 [PREVIEW] Creating preview view")
         let view = PreviewView()
         view.previewLayer.session = session
-        // Use resizeAspect to show full camera feed (matches captured photo)
-        view.previewLayer.videoGravity = .resizeAspect
+        // Fill the scanner viewport so the camera doesn't collapse into a
+        // letterboxed black shell while preserving preview-layer coordinate conversion.
+        view.previewLayer.videoGravity = .resizeAspectFill
         view.backgroundColor = .black
         print("📸 [PREVIEW] Preview layer session: \(session), running: \(session.isRunning)")
         print("📸 [PREVIEW] Preview layer connection: \(String(describing: view.previewLayer.connection))")

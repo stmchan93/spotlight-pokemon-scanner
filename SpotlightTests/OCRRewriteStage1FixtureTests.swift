@@ -330,11 +330,15 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
 
         let pipeline = RawPipeline()
         var completedFixtureNames: [String] = []
+        let rawFixtures = manifests.compactMap { manifestURL -> (URL, OCRRewriteFixtureManifest)? in
+            guard let fixture = try? decodeFixtureManifest(at: manifestURL),
+                  fixture.selectedMode == "raw" else {
+                return nil
+            }
+            return (manifestURL, fixture)
+        }
 
-        for manifestURL in manifests {
-            let fixture = try decodeFixtureManifest(at: manifestURL)
-            guard fixture.selectedMode == "raw" else { continue }
-
+        for (manifestURL, fixture) in rawFixtures {
             let sourceImageURL = manifestURL.deletingLastPathComponent().appendingPathComponent(fixture.sourceImage)
             XCTAssertTrue(fileManager.fileExists(atPath: sourceImageURL.path), "missing source image for \(fixture.fixtureName)")
             guard let sourceImage = UIImage(contentsOfFile: sourceImageURL.path) else {
@@ -357,6 +361,10 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
             )
 
             XCTAssertEqual(analyzed.ocrAnalysis?.pipelineVersion, .rewriteV1)
+            assertRewriteFixtureExpectations(
+                fixture: fixture,
+                analyzed: analyzed
+            )
             let rawEvidence = analyzed.ocrAnalysis?.rawEvidence
 
             let outputDirectory = outputRoot.appendingPathComponent(fixture.fixtureName, isDirectory: true)
@@ -391,6 +399,12 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
             completedFixtureNames.append(fixture.fixtureName)
         }
 
+        XCTAssertEqual(
+            completedFixtureNames.count,
+            rawFixtures.count,
+            "expected every raw fixture to complete rewrite analysis"
+        )
+
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime]
         let index = OCRRewriteFixtureExecutionIndex(
@@ -399,6 +413,65 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
             fixtures: completedFixtureNames
         )
         try writeJSON(index, to: outputRoot.appendingPathComponent("index.json"))
+    }
+
+    private func assertRewriteFixtureExpectations(
+        fixture: OCRRewriteFixtureManifest,
+        analyzed: AnalyzedCapture
+    ) {
+        let rawEvidence = analyzed.ocrAnalysis?.rawEvidence
+        XCTAssertEqual(analyzed.ocrAnalysis?.selectedMode, .raw, "expected raw mode for \(fixture.fixtureName)")
+        XCTAssertNotNil(analyzed.ocrAnalysis?.normalizedTarget, "expected normalized target for \(fixture.fixtureName)")
+        XCTAssertTrue(
+            OCRTestSupport.normalizedTitleMatches(
+                rawEvidence?.titleTextPrimary,
+                expected: fixture.expects.cardName
+            ),
+            "expected OCR title to recover card name for \(fixture.fixtureName)"
+        )
+
+        if let expectedCollector = fixture.expects.collectorNumber {
+            XCTAssertEqual(
+                normalizedComparable(analyzed.collectorNumber),
+                normalizedComparable(expectedCollector),
+                "expected collector number to match manifest for \(fixture.fixtureName)"
+            )
+        }
+
+        if let setCodeHint = fixture.expects.setCodeHint {
+            XCTAssertTrue(
+                setHintTokensMatch(analyzed.setHintTokens, expectedSetCodeHint: setCodeHint),
+                "expected set hint tokens to match manifest for \(fixture.fixtureName)"
+            )
+        }
+
+        switch fixture.expects.confidenceBucket {
+        case "high":
+            XCTAssertGreaterThanOrEqual(
+                analyzed.cropConfidence,
+                0.55,
+                "high-confidence fixture unexpectedly fell below the acceptance gate for \(fixture.fixtureName)"
+            )
+        case "low":
+            XCTAssertLessThan(
+                analyzed.cropConfidence,
+                0.60,
+                "low-confidence fixture unexpectedly crossed the high-confidence threshold for \(fixture.fixtureName)"
+            )
+        default:
+            break
+        }
+
+        if fixture.expects.preserveLowConfidenceEvidence {
+            XCTAssertTrue(
+                (rawEvidence?.titleTextPrimary?.isEmpty == false) ||
+                (rawEvidence?.collectorNumberExact?.isEmpty == false) ||
+                !(rawEvidence?.setHints.isEmpty ?? true),
+                "expected low-confidence OCR evidence to be preserved for \(fixture.fixtureName)"
+            )
+        }
+
+        XCTAssertFalse(analyzed.warnings.contains(where: { $0.contains("invalid") }), "unexpected invalid warning in \(fixture.fixtureName)")
     }
 
     func testRawFooterLayoutCheckFixturesEmitRuntimeSelectionSummary() async throws {
@@ -572,6 +645,24 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         try encoder.encode(value).write(to: url, options: .atomic)
+    }
+
+    private func setHintTokensMatch(_ actualHints: [String], expectedSetCodeHint: String) -> Bool {
+        let normalizedExpected = normalizedComparable(expectedSetCodeHint)
+        let normalizedHints = actualHints.map(normalizedComparable)
+        return normalizedHints.contains { hint in
+            hint == normalizedExpected || hint.contains(normalizedExpected) || normalizedExpected.contains(hint)
+        }
+    }
+
+    private func normalizedComparable(_ text: String?) -> String {
+        guard let text else { return "" }
+        return text
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .lowercased()
+            .replacingOccurrences(of: #"[^a-z0-9]+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     private func copySelectionArtifacts(scanID: UUID, into directory: URL) throws {

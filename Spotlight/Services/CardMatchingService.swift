@@ -6,12 +6,20 @@ protocol CardMatchingService: Sendable {
     func search(query: String) async -> [CardCandidate]
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail?
     func fetchCardMarketHistory(cardID: String, slabContext: SlabContext?, days: Int, variant: String?, condition: String?) async -> CardMarketHistory?
+    func fetchGradedCardComps(cardID: String, slabContext: SlabContext?, selectedGrade: String?) async -> GradedCardComps?
+    func fetchPortfolioHistory(range: PortfolioHistoryRange) async -> PortfolioHistory?
+    func fetchPortfolioLedger(range: PortfolioHistoryRange) async -> PortfolioLedger?
     func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail?
     func hydrateCandidatePricing(cardIDs: [String], maxRefreshCount: Int, slabContext: SlabContext?) async -> [CardDetail]
-    func fetchDeckEntries() async -> [DeckEntryPayload]
+    func fetchDeckEntries() async -> [DeckEntryPayload]?
     func updateDeckEntryCondition(_ payload: DeckEntryConditionUpdateRequestPayload) async throws
+    func updateDeckEntryPurchasePrice(_ payload: DeckEntryPurchasePriceUpdateRequestPayload) async throws
+    func updatePortfolioBuyPrice(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload) async throws
+    func updatePortfolioSalePrice(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload) async throws
     func uploadScanArtifacts(_ payload: ScanArtifactUploadRequestPayload) async throws
     func addDeckEntry(_ payload: DeckEntryCreateRequestPayload) async throws
+    func createPortfolioBuy(_ payload: PortfolioBuyCreateRequestPayload) async throws -> PortfolioBuyCreateResponsePayload
+    func createPortfolioSale(_ payload: PortfolioSaleCreateRequestPayload) async throws -> PortfolioSaleCreateResponsePayload
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -168,6 +176,99 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         }
     }
 
+    func fetchGradedCardComps(
+        cardID: String,
+        slabContext: SlabContext?,
+        selectedGrade: String?
+    ) async -> GradedCardComps? {
+        guard !cardID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return nil
+        }
+
+        let endpointPaths = [
+            "api/v1/cards/\(cardID)/ebay-listings",
+            "api/v1/cards/\(cardID)/graded-comps",
+            "api/v1/cards/\(cardID)/ebay-comps",
+            "api/v1/cards/\(cardID)/comps"
+        ]
+
+        for path in endpointPaths {
+            if let payload = await fetchGradedCardCompsFromServer(
+                path: path,
+                slabContext: slabContext,
+                selectedGrade: selectedGrade
+            ) {
+                return payload
+            }
+        }
+
+        guard await importCatalogCard(cardID: cardID) else {
+            return nil
+        }
+
+        for path in endpointPaths {
+            if let payload = await fetchGradedCardCompsFromServer(
+                path: path,
+                slabContext: slabContext,
+                selectedGrade: selectedGrade
+            ) {
+                return payload
+            }
+        }
+
+        return nil
+    }
+
+    func fetchPortfolioHistory(range: PortfolioHistoryRange) async -> PortfolioHistory? {
+        guard var components = URLComponents(
+            url: baseURL.appending(path: "api/v1/portfolio/history"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            return nil
+        }
+        components.queryItems = [
+            URLQueryItem(name: "range", value: range.rawValue),
+            URLQueryItem(name: "timeZone", value: TimeZone.current.identifier),
+        ]
+        guard let endpoint = components.url else { return nil }
+
+        do {
+            let (data, response) = try await session.data(from: endpoint)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            return try decoder.decode(PortfolioHistory.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    func fetchPortfolioLedger(range: PortfolioHistoryRange) async -> PortfolioLedger? {
+        guard var components = URLComponents(
+            url: baseURL.appending(path: "api/v1/portfolio/ledger"),
+            resolvingAgainstBaseURL: false
+        ) else {
+            return nil
+        }
+        components.queryItems = [
+            URLQueryItem(name: "range", value: range.rawValue),
+            URLQueryItem(name: "timeZone", value: TimeZone.current.identifier),
+        ]
+        guard let endpoint = components.url else { return nil }
+
+        do {
+            let (data, response) = try await session.data(from: endpoint)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return nil
+            }
+            return try decoder.decode(PortfolioLedger.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
     func refreshCardDetail(cardID: String, slabContext: SlabContext?, forceRefresh: Bool) async throws -> CardDetail? {
         if let refreshedDetail = try await refreshCardDetailFromServer(
             cardID: cardID,
@@ -214,7 +315,7 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         }
     }
 
-    func fetchDeckEntries() async -> [DeckEntryPayload] {
+    func fetchDeckEntries() async -> [DeckEntryPayload]? {
         let endpoint = baseURL.appending(path: "api/v1/deck/entries")
         var request = URLRequest(url: endpoint)
         request.httpMethod = "GET"
@@ -224,16 +325,16 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             let (data, response) = try await session.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse,
                   (200..<300).contains(httpResponse.statusCode) else {
-                return []
+                return nil
             }
 
             if let wrapper = try? decoder.decode(DeckEntriesResponsePayload.self, from: data) {
                 return wrapper.entries
             }
 
-            return (try? decoder.decode([DeckEntryPayload].self, from: data)) ?? []
+            return try? decoder.decode([DeckEntryPayload].self, from: data)
         } catch {
-            return []
+            return nil
         }
     }
 
@@ -248,6 +349,50 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         guard let httpResponse = response as? HTTPURLResponse,
               (200..<300).contains(httpResponse.statusCode) else {
             throw MatcherError.server(message: "Deck condition update failed.")
+        }
+    }
+
+    func updateDeckEntryPurchasePrice(_ payload: DeckEntryPurchasePriceUpdateRequestPayload) async throws {
+        let endpoint = baseURL.appending(path: "api/v1/deck/entries/purchase-price")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (_, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: "Deck purchase price update failed.")
+        }
+    }
+
+    func updatePortfolioBuyPrice(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload) async throws {
+        let encodedID = transactionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? transactionID
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/buys/\(encodedID)/price")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: serverErrorMessage(from: data, fallback: "Buy price update failed."))
+        }
+    }
+
+    func updatePortfolioSalePrice(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload) async throws {
+        let encodedID = transactionID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? transactionID
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/sales/\(encodedID)/price")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: serverErrorMessage(from: data, fallback: "Sale price update failed."))
         }
     }
 
@@ -269,6 +414,44 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         } catch {
             return nil
         }
+    }
+
+    private func fetchGradedCardCompsFromServer(
+        path: String,
+        slabContext: SlabContext?,
+        selectedGrade: String?
+    ) async -> GradedCardComps? {
+        guard let endpoint = gradedCompsEndpointURL(
+            path: path,
+            slabContext: slabContext,
+            selectedGrade: selectedGrade
+        ) else {
+            return nil
+        }
+
+        do {
+            let (data, response) = try await session.data(from: endpoint)
+            guard let httpResponse = response as? HTTPURLResponse,
+                  (200..<300).contains(httpResponse.statusCode) else {
+                return nil
+            }
+
+            return try decoder.decode(GradedCardComps.self, from: data)
+        } catch {
+            return nil
+        }
+    }
+
+    func gradedCompsEndpointURL(
+        path: String,
+        slabContext: SlabContext?,
+        selectedGrade: String?
+    ) -> URL? {
+        guard var components = URLComponents(url: baseURL.appending(path: path), resolvingAgainstBaseURL: false) else {
+            return nil
+        }
+        components.queryItems = gradedCompsQueryItems(for: slabContext, selectedGrade: selectedGrade)
+        return components.url
     }
 
     private func refreshCardDetailFromServer(
@@ -382,6 +565,38 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         }
     }
 
+    func createPortfolioSale(_ payload: PortfolioSaleCreateRequestPayload) async throws -> PortfolioSaleCreateResponsePayload {
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/sales")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? "Sale submission failed."
+            throw MatcherError.server(message: message)
+        }
+        return try decoder.decode(PortfolioSaleCreateResponsePayload.self, from: data)
+    }
+
+    func createPortfolioBuy(_ payload: PortfolioBuyCreateRequestPayload) async throws -> PortfolioBuyCreateResponsePayload {
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/buys")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? "Buy submission failed."
+            throw MatcherError.server(message: message)
+        }
+        return try decoder.decode(PortfolioBuyCreateResponsePayload.self, from: data)
+    }
+
     private func makePayload(analysis: AnalyzedCapture) -> ScanMatchRequestPayload {
         ScanMatchRequestPayload(
             scanID: analysis.scanID,
@@ -463,6 +678,24 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         return decoded
     }
 
+    private func serverErrorMessage(from data: Data, fallback: String) -> String {
+        if let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+           let error = object["error"] as? String {
+            let trimmed = error.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty {
+                return trimmed
+            }
+        }
+
+        if let message = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !message.isEmpty {
+            return message
+        }
+
+        return fallback
+    }
+
     private func detailQueryItems(for slabContext: SlabContext?, forceRefresh: Bool = false) -> [URLQueryItem] {
         var items: [URLQueryItem] = []
         if let slabContext {
@@ -479,6 +712,15 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         }
         if forceRefresh {
             items.append(URLQueryItem(name: "forceRefresh", value: "1"))
+        }
+        return items
+    }
+
+    private func gradedCompsQueryItems(for slabContext: SlabContext?, selectedGrade: String?) -> [URLQueryItem] {
+        var items = detailQueryItems(for: slabContext)
+        if let selectedGrade = selectedGrade?.trimmingCharacters(in: .whitespacesAndNewlines), !selectedGrade.isEmpty {
+            items.removeAll { $0.name == "grade" }
+            items.append(URLQueryItem(name: "grade", value: selectedGrade))
         }
         return items
     }
