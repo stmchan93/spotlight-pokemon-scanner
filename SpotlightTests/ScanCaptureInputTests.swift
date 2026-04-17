@@ -104,7 +104,9 @@ final class ScanMatchResponseTests: XCTestCase {
             slabContext: nil,
             reviewDisposition: .ready,
             reviewReason: nil,
-            performance: nil
+            performance: nil,
+            isProvisional: nil,
+            matchStage: nil
         )
 
         let hydratedSecond = CardDetail(
@@ -128,6 +130,49 @@ final class ScanMatchResponseTests: XCTestCase {
         XCTAssertEqual(merged.topCandidates[1].candidate.pricing, freshPricing)
         XCTAssertNil(merged.topCandidates[2].candidate.pricing)
         XCTAssertEqual(merged.topCandidates[1].finalScore, response.topCandidates[1].finalScore)
+    }
+
+    func testProvisionalMatchDoesNotAutoAccept() {
+        let provisionalStage = ScanMatchStage(rawValue: "visual_start")!
+        let response = makeMatchResponse(
+            confidence: .high,
+            reviewDisposition: .ready,
+            resolverMode: .rawCard
+        ).marking(provisional: true, stage: provisionalStage)
+
+        XCTAssertTrue(response.isProvisional == true)
+        XCTAssertEqual(response.matchStage?.rawValue, provisionalStage.rawValue)
+        XCTAssertFalse(shouldAutoAccept(response))
+    }
+
+    func testMergingCandidateDetailsPreservesStageFlags() {
+        let provisionalStage = ScanMatchStage(rawValue: "visual_start")!
+        let response = makeMatchResponse(
+            confidence: .medium,
+            reviewDisposition: .needsReview,
+            resolverMode: .rawCard
+        ).marking(provisional: true, stage: provisionalStage)
+
+        let hydrated = CardDetail(
+            card: makeCandidate(id: "gym1-60", pricing: makePricing(market: 18, isFresh: true)),
+            slabContext: nil,
+            source: "scrydex",
+            sourceRecordID: "gym1-60",
+            setID: nil,
+            setSeries: nil,
+            setReleaseDate: nil,
+            supertype: nil,
+            artist: nil,
+            regulationMark: nil,
+            imageSmallURL: nil,
+            imageLargeURL: nil
+        )
+
+        let merged = response.mergingCandidateDetails([hydrated])
+
+        XCTAssertTrue(merged.isProvisional == true)
+        XCTAssertEqual(merged.matchStage?.rawValue, provisionalStage.rawValue)
+        XCTAssertEqual(merged.bestMatch?.pricing?.market, 18)
     }
 
     private func makeCandidate(id: String, pricing: CardPricingSummary?) -> CardCandidate {

@@ -49,6 +49,13 @@ enum ResolverMode: String, Codable, Hashable, Sendable {
     case unknownFallback = "unknown_fallback"
 }
 
+enum ScanMatchStage: String, Codable, Hashable, Sendable {
+    case visual = "visual"
+    case reranked = "reranked"
+    case final = "final"
+    case oneShot = "one_shot"
+}
+
 extension ResolverMode {
     var runtimeRawResolverMode: RawResolverMode? {
         switch self {
@@ -125,6 +132,57 @@ struct ScanMatchResponse: Codable, Hashable, Sendable {
     let reviewDisposition: ReviewDisposition?
     let reviewReason: String?
     let performance: ScanMatchPerformance?
+    let isProvisional: Bool?
+    let matchStage: ScanMatchStage?
+
+    init(
+        scanID: UUID,
+        topCandidates: [ScoredCandidate],
+        confidence: MatchConfidence,
+        ambiguityFlags: [String],
+        matcherSource: MatcherSource,
+        matcherVersion: String,
+        resolverMode: ResolverMode,
+        resolverPath: ResolverPath?,
+        slabContext: SlabContext?,
+        reviewDisposition: ReviewDisposition?,
+        reviewReason: String?,
+        performance: ScanMatchPerformance?,
+        isProvisional: Bool? = nil,
+        matchStage: ScanMatchStage? = nil
+    ) {
+        self.scanID = scanID
+        self.topCandidates = topCandidates
+        self.confidence = confidence
+        self.ambiguityFlags = ambiguityFlags
+        self.matcherSource = matcherSource
+        self.matcherVersion = matcherVersion
+        self.resolverMode = resolverMode
+        self.resolverPath = resolverPath
+        self.slabContext = slabContext
+        self.reviewDisposition = reviewDisposition
+        self.reviewReason = reviewReason
+        self.performance = performance
+        self.isProvisional = isProvisional
+        self.matchStage = matchStage
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case scanID
+        case topCandidates
+        case confidence
+        case ambiguityFlags
+        case matcherSource
+        case matcherVersion
+        case resolverMode
+        case resolverPath
+        case slabContext
+        case reviewDisposition
+        case reviewReason
+        case performance
+        case isProvisional
+        case matchStage = "matchingStage"
+    }
 
     var bestMatch: CardCandidate? {
         topCandidates.first?.candidate
@@ -132,6 +190,28 @@ struct ScanMatchResponse: Codable, Hashable, Sendable {
 
     var alternateMatches: [CardCandidate] {
         Array(topCandidates.dropFirst()).map(\.candidate)
+    }
+
+    func marking(
+        provisional: Bool,
+        stage: ScanMatchStage
+    ) -> ScanMatchResponse {
+        ScanMatchResponse(
+            scanID: scanID,
+            topCandidates: topCandidates,
+            confidence: confidence,
+            ambiguityFlags: ambiguityFlags,
+            matcherSource: matcherSource,
+            matcherVersion: matcherVersion,
+            resolverMode: resolverMode,
+            resolverPath: resolverPath,
+            slabContext: slabContext,
+            reviewDisposition: reviewDisposition,
+            reviewReason: reviewReason,
+            performance: performance,
+            isProvisional: provisional,
+            matchStage: stage
+        )
     }
 }
 
@@ -166,7 +246,9 @@ extension ScanMatchResponse {
             slabContext: slabContext,
             reviewDisposition: reviewDisposition,
             reviewReason: reviewReason,
-            performance: performance
+            performance: performance,
+            isProvisional: isProvisional,
+            matchStage: matchStage
         )
     }
 }
@@ -255,6 +337,7 @@ struct LiveScanStackItem: Identifiable {
     let id: UUID
     let scanID: UUID
     var phase: LiveScanStackItemPhase
+    var isProvisional: Bool = false
     var card: CardCandidate?
     var detail: CardDetail?
     var previewImage: UIImage?

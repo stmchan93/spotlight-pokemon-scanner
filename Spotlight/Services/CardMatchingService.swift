@@ -3,6 +3,8 @@ import UIKit
 
 protocol CardMatchingService: Sendable {
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse
+    func matchVisualStart(payload: ScanVisualStartRequestPayload) async throws -> ScanMatchResponse
+    func matchRerank(payload: ScanRerankRequestPayload) async throws -> ScanMatchResponse
     func search(query: String) async -> [CardCandidate]
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail?
     func fetchCardMarketHistory(cardID: String, slabContext: SlabContext?, days: Int, variant: String?, condition: String?) async -> CardMarketHistory?
@@ -100,8 +102,30 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
     }
 
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
-        let payload = makePayload(analysis: analysis)
-        return try await performMatch(payload: payload)
+        let payload = makeFullPayload(payload: makeRerankPayload(analysis: analysis))
+        return try await performMatch(
+            payload: payload,
+            endpointPath: "api/v1/scan/match",
+            stage: "one_shot"
+        )
+    }
+
+    func matchVisualStart(payload: ScanVisualStartRequestPayload) async throws -> ScanMatchResponse {
+        let fullPayload = makeFullPayload(payload: payload)
+        return try await performMatch(
+            payload: fullPayload,
+            endpointPath: "api/v1/scan/visual-match",
+            stage: "visual_start"
+        )
+    }
+
+    func matchRerank(payload: ScanRerankRequestPayload) async throws -> ScanMatchResponse {
+        let fullPayload = makeFullPayload(payload: payload)
+        return try await performMatch(
+            payload: fullPayload,
+            endpointPath: "api/v1/scan/rerank",
+            stage: "rerank"
+        )
     }
 
     func search(query: String) async -> [CardCandidate] {
@@ -597,8 +621,8 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         return try decoder.decode(PortfolioBuyCreateResponsePayload.self, from: data)
     }
 
-    private func makePayload(analysis: AnalyzedCapture) -> ScanMatchRequestPayload {
-        ScanMatchRequestPayload(
+    private func makeRerankPayload(analysis: AnalyzedCapture) -> ScanRerankRequestPayload {
+        ScanRerankRequestPayload(
             scanID: analysis.scanID,
             capturedAt: Date(),
             clientContext: .current(),
@@ -631,8 +655,72 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         )
     }
 
-    private func performMatch(payload: ScanMatchRequestPayload) async throws -> ScanMatchResponse {
-        let endpoint = baseURL.appending(path: "api/v1/scan/match")
+    private func makeFullPayload(payload: ScanVisualStartRequestPayload) -> ScanMatchRequestPayload {
+        ScanMatchRequestPayload(
+            scanID: payload.scanID,
+            capturedAt: payload.capturedAt,
+            clientContext: payload.clientContext,
+            image: payload.image,
+            recognizedTokens: [],
+            collectorNumber: nil,
+            setHintTokens: [],
+            setBadgeHint: nil,
+            promoCodeHint: nil,
+            slabGrader: nil,
+            slabGrade: nil,
+            slabCertNumber: nil,
+            slabBarcodePayloads: [],
+            slabGraderConfidence: nil,
+            slabGradeConfidence: nil,
+            slabCertConfidence: nil,
+            slabCardNumberRaw: nil,
+            slabParsedLabelText: [],
+            slabClassifierReasons: [],
+            slabRecommendedLookupPath: nil,
+            resolverModeHint: payload.resolverModeHint,
+            rawResolverMode: payload.rawResolverMode,
+            cropConfidence: payload.cropConfidence,
+            warnings: payload.warnings,
+            ocrAnalysis: nil
+        )
+    }
+
+    private func makeFullPayload(payload: ScanRerankRequestPayload) -> ScanMatchRequestPayload {
+        ScanMatchRequestPayload(
+            scanID: payload.scanID,
+            capturedAt: payload.capturedAt,
+            clientContext: payload.clientContext,
+            image: payload.image,
+            recognizedTokens: payload.recognizedTokens,
+            collectorNumber: payload.collectorNumber,
+            setHintTokens: payload.setHintTokens,
+            setBadgeHint: payload.setBadgeHint,
+            promoCodeHint: payload.promoCodeHint,
+            slabGrader: payload.slabGrader,
+            slabGrade: payload.slabGrade,
+            slabCertNumber: payload.slabCertNumber,
+            slabBarcodePayloads: payload.slabBarcodePayloads,
+            slabGraderConfidence: payload.slabGraderConfidence,
+            slabGradeConfidence: payload.slabGradeConfidence,
+            slabCertConfidence: payload.slabCertConfidence,
+            slabCardNumberRaw: payload.slabCardNumberRaw,
+            slabParsedLabelText: payload.slabParsedLabelText,
+            slabClassifierReasons: payload.slabClassifierReasons,
+            slabRecommendedLookupPath: payload.slabRecommendedLookupPath,
+            resolverModeHint: payload.resolverModeHint,
+            rawResolverMode: payload.rawResolverMode,
+            cropConfidence: payload.cropConfidence,
+            warnings: payload.warnings,
+            ocrAnalysis: payload.ocrAnalysis
+        )
+    }
+
+    private func performMatch(
+        payload: ScanMatchRequestPayload,
+        endpointPath: String,
+        stage: String
+    ) async throws -> ScanMatchResponse {
+        let endpoint = baseURL.appending(path: endpointPath)
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -640,6 +728,7 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
 
         print(
             "🌐 [MATCH] POST \(endpoint.path): "
+            + "stage=\(stage) "
             + "scanID=\(payload.scanID.uuidString) "
             + "mode=\(payload.resolverModeHint.rawValue) "
             + "rawResolver=\(payload.rawResolverMode?.rawValue ?? "n/a") "
@@ -666,9 +755,23 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             throw MatcherError.server(message: message)
         }
 
-        let decoded = try decoder.decode(ScanMatchResponse.self, from: data)
+        let decoded: ScanMatchResponse
+        do {
+            decoded = try decoder.decode(ScanMatchResponse.self, from: data)
+        } catch {
+            let body = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+            print(
+                "❌ [MATCH] Decode failed: "
+                + "stage=\(stage) "
+                + "scanID=\(payload.scanID.uuidString) "
+                + "error=\(error.localizedDescription) "
+                + "body=\(body.prefix(1200))"
+            )
+            throw error
+        }
         print(
             "🌐 [MATCH] Decoded response: "
+            + "stage=\(stage) "
             + "scanID=\(decoded.scanID.uuidString) "
             + "confidence=\(decoded.confidence.rawValue) "
             + "resolverPath=\(decoded.resolverPath?.rawValue ?? "n/a") "
@@ -759,7 +862,7 @@ private extension URL {
     }
 }
 
-private extension UIImage {
+extension UIImage {
     func downscaledJPEGPayload(maxDimension: CGFloat, compressionQuality: CGFloat) -> ScanImagePayload? {
         let longestSide = max(size.width, size.height)
         let scale = min(1, maxDimension / max(longestSide, 1))

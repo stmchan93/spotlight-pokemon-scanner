@@ -821,6 +821,7 @@ struct ScannerView: View {
 
     private func collectionState(for item: LiveScanStackItem) -> TrayCollectionState? {
         guard item.phase == .resolved || item.phase == .needsReview,
+              !item.isProvisional,
               let card = item.displayCard else {
             return nil
         }

@@ -905,4 +905,5 @@ enum MatchConfidence: String, Codable, Hashable, Sendable {
 enum MatcherSource: String, Codable, Hashable, Sendable {
     case remotePrototype
     case remoteHybrid
+    case visualIndex
 }

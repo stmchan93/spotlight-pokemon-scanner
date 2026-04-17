@@ -101,6 +101,45 @@ struct ScanMatchRequestPayload: Codable, Hashable, Sendable {
     let ocrAnalysis: OCRAnalysisEnvelope?
 }
 
+struct ScanVisualStartRequestPayload: Codable, Hashable, Sendable {
+    let scanID: UUID
+    let capturedAt: Date
+    let clientContext: ScanClientContext
+    let image: ScanImagePayload
+    let resolverModeHint: ResolverMode
+    let rawResolverMode: RawResolverMode?
+    let cropConfidence: Double
+    let warnings: [String]
+}
+
+struct ScanRerankRequestPayload: Codable, Hashable, Sendable {
+    let scanID: UUID
+    let capturedAt: Date
+    let clientContext: ScanClientContext
+    let image: ScanImagePayload
+    let recognizedTokens: [RecognizedToken]
+    let collectorNumber: String?
+    let setHintTokens: [String]
+    let setBadgeHint: OCRSetBadgeHint?
+    let promoCodeHint: String?
+    let slabGrader: String?
+    let slabGrade: String?
+    let slabCertNumber: String?
+    let slabBarcodePayloads: [String]
+    let slabGraderConfidence: Double?
+    let slabGradeConfidence: Double?
+    let slabCertConfidence: Double?
+    let slabCardNumberRaw: String?
+    let slabParsedLabelText: [String]
+    let slabClassifierReasons: [String]
+    let slabRecommendedLookupPath: SlabRecommendedLookupPath?
+    let resolverModeHint: ResolverMode
+    let rawResolverMode: RawResolverMode?
+    let cropConfidence: Double
+    let warnings: [String]
+    let ocrAnalysis: OCRAnalysisEnvelope?
+}
+
 struct SearchResultsPayload: Codable, Hashable, Sendable {
     let results: [CardCandidate]
 }

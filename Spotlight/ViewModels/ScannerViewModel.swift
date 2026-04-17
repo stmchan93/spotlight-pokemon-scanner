@@ -632,16 +632,72 @@ final class ScannerViewModel: ObservableObject {
         }
         isProcessing = true
 
+        var preparedTargetSelection: OCRTargetSelectionResult?
+        var preparedTargetSelectionMs: Double?
+        var visualStartTask: Task<(response: ScanMatchResponse?, durationMs: Double), Never>?
+
         do {
             print("🔍 [SCAN] Starting Vision analysis...")
             let analysisStarted = Date().timeIntervalSinceReferenceDate
             let tapToAnalysisStartMs = (analysisStarted - effectiveScanStartedAt) * 1000
             print("⏱️ [SCAN] Tap to OCR start: \(tapToAnalysisStartMs)ms")
+            let ocrPipeline = self.ocrPipeline
+
+            if resolverMode == .rawCard {
+                let targetSelectionStartedAt = Date().timeIntervalSinceReferenceDate
+                let targetSelection = try await ocrPipeline.prepareRawTargetSelection(
+                    scanID: effectiveScanID,
+                    capture: processedCapture
+                )
+                let targetSelectionMs = (Date().timeIntervalSinceReferenceDate - targetSelectionStartedAt) * 1000
+                preparedTargetSelection = targetSelection
+                preparedTargetSelectionMs = targetSelectionMs
+
+                let visualPayload = makeVisualStartPayload(
+                    scanID: effectiveScanID,
+                    resolverMode: resolverMode,
+                    targetSelection: targetSelection
+                )
+                let visualRequestStartedAt = Date().timeIntervalSinceReferenceDate
+                print(
+                    "🌐 [MATCH] Starting visual phase: "
+                    + "scanID=\(effectiveScanID.uuidString) "
+                    + "targetSelectionMs=\(Int(targetSelectionMs.rounded())) "
+                    + "crop=\(String(format: "%.2f", targetSelection.selectionConfidence)) "
+                    + "warnings=\(visualPayload.warnings)"
+                )
+                visualStartTask = Task.detached(priority: .userInitiated) { [matcher = self.matcher] in
+                    do {
+                        let response = try await matcher.matchVisualStart(payload: visualPayload)
+                        let durationMs = (Date().timeIntervalSinceReferenceDate - visualRequestStartedAt) * 1000
+                        return (response, durationMs)
+                    } catch is CancellationError {
+                        return (nil, (Date().timeIntervalSinceReferenceDate - visualRequestStartedAt) * 1000)
+                    } catch {
+                        print("⚠️ [SCAN] Visual start failed: \(error.localizedDescription)")
+                        return (nil, (Date().timeIntervalSinceReferenceDate - visualRequestStartedAt) * 1000)
+                    }
+                }
+            }
 
             // Add timeout to prevent indefinite hanging on complex images
+            let preparedTargetSelectionForTask = preparedTargetSelection
+            let preparedTargetSelectionMsForTask = preparedTargetSelectionMs
             let analysis = try await withThrowingTaskGroup(of: AnalyzedCapture.self) { group in
-                group.addTask {
-                    try await self.ocrPipeline.analyze(
+                group.addTask { [ocrPipeline, resolverMode, effectiveScanID, processedCapture, preparedTargetSelectionForTask, preparedTargetSelectionMsForTask] in
+                    if resolverMode == .rawCard,
+                       let targetSelection = preparedTargetSelectionForTask,
+                       let targetSelectionMs = preparedTargetSelectionMsForTask {
+                        return try await ocrPipeline.analyzePreparedRawScan(
+                            scanID: effectiveScanID,
+                            capture: processedCapture,
+                            targetSelection: targetSelection,
+                            resolverModeHint: resolverMode,
+                            targetSelectionMs: targetSelectionMs
+                        )
+                    }
+
+                    return try await ocrPipeline.analyze(
                         scanID: effectiveScanID,
                         capture: processedCapture,
                         resolverModeHint: resolverMode
@@ -662,6 +718,14 @@ final class ScannerViewModel: ObservableObject {
 
             let analysisMs = (Date().timeIntervalSinceReferenceDate - analysisStarted) * 1000
             print("✅ [SCAN] Vision analysis completed in \(analysisMs)ms")
+            if let preparedTargetSelectionMs {
+                print(
+                    "⏱️ [SCAN] Raw pipeline front-half: "
+                    + "scanID=\(effectiveScanID.uuidString) "
+                    + "targetSelectionMs=\(Int(preparedTargetSelectionMs.rounded())) "
+                    + "ocrOnlyMs=\(Int(max(0, analysisMs - preparedTargetSelectionMs).rounded()))"
+                )
+            }
             logOCRSummary(
                 analysis,
                 captureSource: processedCapture.captureSource,
@@ -675,6 +739,7 @@ final class ScannerViewModel: ObservableObject {
                     item.statusMessage = "Trying a sharper capture…"
                 }
                 isProcessing = false
+                visualStartTask?.cancel()
                 let didStartRetry = cameraController.capturePhoto(
                     scanID: effectiveScanID,
                     reticleRect: reticleRect,
@@ -701,10 +766,12 @@ final class ScannerViewModel: ObservableObject {
                 scanID: effectiveScanID,
                 pendingItemID: effectivePendingItemID,
                 performance: performance,
-                captureSource: processedCapture.captureSource
+                captureSource: processedCapture.captureSource,
+                visualStartTask: visualStartTask
             )
         } catch {
             print("❌ [SCAN] Error: \(error.localizedDescription)")
+            visualStartTask?.cancel()
             errorMessage = error.localizedDescription
             markPendingScanFailed(itemID: effectivePendingItemID, message: "Could not identify card")
             resetPendingScanState()
@@ -1371,23 +1438,24 @@ final class ScannerViewModel: ObservableObject {
         }
     }
 
-    private func applyAnalysis(_ analysis: AnalyzedCapture, response: ScanMatchResponse, to itemID: UUID) {
+    private func applyAnalysis(response: ScanMatchResponse, to itemID: UUID, provisional: Bool = false) {
         updateStackItem(id: itemID) { item in
             // Keep existing thumbnail, don't replace with full-res image
+            item.isProvisional = provisional
             item.confidence = response.confidence
             item.matcherSource = response.matcherSource
             item.matcherVersion = response.matcherVersion
             item.resolverMode = response.resolverMode
             item.resolverPath = response.resolverPath
             item.slabContext = response.slabContext
-            item.reviewDisposition = response.reviewDisposition ?? .ready
-            item.reviewReason = response.reviewReason
+            item.reviewDisposition = provisional ? .needsReview : response.reviewDisposition ?? .ready
+            item.reviewReason = provisional ? (response.reviewReason ?? "Confirming card text…") : response.reviewReason
             if let bestMatch = response.bestMatch {
                 item.card = bestMatch
                 item.detail = nil
-                item.selectedRank = 1
-                item.wasTopPrediction = true
-                item.selectionSource = .topPrediction
+                item.selectedRank = provisional ? response.topCandidates.first?.rank : 1
+                item.wasTopPrediction = !provisional
+                item.selectionSource = provisional ? .unknown : .topPrediction
                 item.pricingContextNote = pricingContextNote(
                     for: response.resolverMode,
                     matcherSource: response.matcherSource,
@@ -1399,11 +1467,17 @@ final class ScannerViewModel: ObservableObject {
                 item.variantPricingOverride = nil
                 item.isLoadingVariants = false
             }
+            if provisional {
+                item.phase = .needsReview
+                item.statusMessage = response.reviewReason ?? "Confirming card text…"
+                item.isRefreshingPrice = false
+            }
         }
     }
 
     private func markPendingScanFailed(itemID: UUID, message: String) {
         updateStackItem(id: itemID) { item in
+            item.isProvisional = false
             item.phase = .failed
             item.statusMessage = message
             item.isRefreshingPrice = false
@@ -1528,12 +1602,79 @@ final class ScannerViewModel: ObservableObject {
         )
     }
 
+    private func makeRerankPayload(from analysis: AnalyzedCapture) -> ScanRerankRequestPayload {
+        ScanRerankRequestPayload(
+            scanID: analysis.scanID,
+            capturedAt: Date(),
+            clientContext: .current(),
+            image: scanImagePayload(for: analysis.normalizedImage),
+            recognizedTokens: analysis.recognizedTokens,
+            collectorNumber: analysis.collectorNumber,
+            setHintTokens: analysis.setHintTokens,
+            setBadgeHint: analysis.setBadgeHint,
+            promoCodeHint: analysis.promoCodeHint,
+            slabGrader: analysis.slabGrader,
+            slabGrade: analysis.slabGrade,
+            slabCertNumber: analysis.slabCertNumber,
+            slabBarcodePayloads: analysis.slabBarcodePayloads,
+            slabGraderConfidence: analysis.slabGraderConfidence,
+            slabGradeConfidence: analysis.slabGradeConfidence,
+            slabCertConfidence: analysis.slabCertConfidence,
+            slabCardNumberRaw: analysis.slabCardNumberRaw,
+            slabParsedLabelText: analysis.slabParsedLabelText,
+            slabClassifierReasons: analysis.slabClassifierReasons,
+            slabRecommendedLookupPath: analysis.slabRecommendedLookupPath,
+            resolverModeHint: analysis.resolverModeHint,
+            rawResolverMode: analysis.resolverModeHint.runtimeRawResolverMode,
+            cropConfidence: analysis.cropConfidence,
+            warnings: analysis.warnings,
+            ocrAnalysis: analysis.ocrAnalysis
+        )
+    }
+
+    private func makeVisualStartPayload(
+        scanID: UUID,
+        resolverMode: ResolverMode,
+        targetSelection: OCRTargetSelectionResult
+    ) -> ScanVisualStartRequestPayload {
+        var warnings = buildLegacyModeSanitySignals(
+            selectedMode: resolverMode.ocrSelectedMode,
+            targetSelection: targetSelection
+        ).warnings
+        if let normalizationReason = targetSelection.normalizationReason,
+           !normalizationReason.isEmpty {
+            warnings.append(normalizationReason)
+        }
+
+        let dedupedWarnings = Array(NSOrderedSet(array: warnings)) as? [String] ?? warnings
+        return ScanVisualStartRequestPayload(
+            scanID: scanID,
+            capturedAt: Date(),
+            clientContext: .current(),
+            image: scanImagePayload(for: targetSelection.normalizedImage),
+            resolverModeHint: resolverMode,
+            rawResolverMode: .visual,
+            cropConfidence: targetSelection.selectionConfidence,
+            warnings: dedupedWarnings
+        )
+    }
+
+    private func scanImagePayload(for image: UIImage) -> ScanImagePayload {
+        image.downscaledJPEGPayload(maxDimension: 960, compressionQuality: 0.72)
+            ?? ScanImagePayload(
+                jpegBase64: nil,
+                width: Int(image.size.width.rounded()),
+                height: Int(image.size.height.rounded())
+            )
+    }
+
     private func fallbackToBackendMatch(
         analysis: AnalyzedCapture,
         scanID: UUID,
         pendingItemID: UUID,
         performance: ScanPerformanceMetrics,
-        captureSource: ScanCaptureSource
+        captureSource: ScanCaptureSource,
+        visualStartTask: Task<(response: ScanMatchResponse?, durationMs: Double), Never>? = nil
     ) async {
         do {
             print("🔍 [SCAN] Using backend match...")
@@ -1570,12 +1711,79 @@ final class ScannerViewModel: ObservableObject {
                 )
             )
             let matchStarted = Date().timeIntervalSinceReferenceDate
-            let response = try await matcher.match(analysis: analysis)
+            let rerankPayload = makeRerankPayload(from: analysis)
+            let response: ScanMatchResponse
+            let matchStage: ScanMatchStage
+            var visualStageRoundTripMs: Double?
+            var visualStageServerMs: Double?
+            var visualStageTransportMs: Double?
+            var visualWaitAfterOCRMs: Double?
+            var resolutionRoundTripMs: Double?
+            if analysis.resolverModeHint == .rawCard,
+               let visualStartTask {
+                let visualWaitStartedAt = Date().timeIntervalSinceReferenceDate
+                let visualStartOutcome = await visualStartTask.value
+                visualWaitAfterOCRMs = (Date().timeIntervalSinceReferenceDate - visualWaitStartedAt) * 1000
+                let visualStartResponse = visualStartOutcome.response
+                visualStageRoundTripMs = visualStartOutcome.durationMs
+                visualStageServerMs = visualStartResponse?.performance?.serverProcessingMs
+                visualStageTransportMs = zipOptional(visualStageRoundTripMs, visualStageServerMs).map { roundTripMs, serverMs in
+                    max(0, roundTripMs - serverMs)
+                }
+                print(
+                    "🌐 [MATCH] Visual phase outcome: "
+                    + "scanID=\(scanID.uuidString) "
+                    + "durationMs=\(Int(visualStartOutcome.durationMs.rounded())) "
+                    + "available=\(visualStartResponse != nil ? "yes" : "no")"
+                )
+                if visualStartResponse != nil {
+                    do {
+                        print("🌐 [MATCH] Using cached visual shortlist for rerank")
+                        let resolutionStartedAt = Date().timeIntervalSinceReferenceDate
+                        response = try await matcher.matchRerank(payload: rerankPayload)
+                        resolutionRoundTripMs = (Date().timeIntervalSinceReferenceDate - resolutionStartedAt) * 1000
+                        matchStage = .reranked
+                    } catch {
+                        print("⚠️ [SCAN] Rerank match failed, falling back to one-shot match: \(error.localizedDescription)")
+                        let resolutionStartedAt = Date().timeIntervalSinceReferenceDate
+                        response = try await matcher.match(analysis: analysis)
+                        resolutionRoundTripMs = (Date().timeIntervalSinceReferenceDate - resolutionStartedAt) * 1000
+                        matchStage = .oneShot
+                    }
+                } else {
+                    print("⚠️ [SCAN] Visual start unavailable, falling back to one-shot match")
+                    let resolutionStartedAt = Date().timeIntervalSinceReferenceDate
+                    response = try await matcher.match(analysis: analysis)
+                    resolutionRoundTripMs = (Date().timeIntervalSinceReferenceDate - resolutionStartedAt) * 1000
+                    matchStage = .oneShot
+                }
+            } else {
+                let resolutionStartedAt = Date().timeIntervalSinceReferenceDate
+                response = try await matcher.match(analysis: analysis)
+                resolutionRoundTripMs = (Date().timeIntervalSinceReferenceDate - resolutionStartedAt) * 1000
+                matchStage = .oneShot
+            }
             let matchMs = (Date().timeIntervalSinceReferenceDate - matchStarted) * 1000
             let serverProcessingMs = response.performance?.serverProcessingMs
             let networkOverheadMs = serverProcessingMs.map { max(0, matchMs - $0) }
             print("✅ [SCAN] Backend match completed in \(matchMs)ms")
-            logBackendResponseSummary(response, matchMs: matchMs)
+            let resolutionTransportMs = zipOptional(resolutionRoundTripMs, serverProcessingMs).map { roundTripMs, serverMs in
+                max(0, roundTripMs - serverMs)
+            }
+            print(
+                "⏱️ [MATCH] Split timings: "
+                + "scanID=\(scanID.uuidString) "
+                + "stage=\(matchStage.rawValue) "
+                + "waitAfterOCRMs=\(formatTiming(visualWaitAfterOCRMs)) "
+                + "visualRoundTripMs=\(formatTiming(visualStageRoundTripMs)) "
+                + "visualServerMs=\(formatTiming(visualStageServerMs)) "
+                + "visualTransportMs=\(formatTiming(visualStageTransportMs)) "
+                + "resolutionRoundTripMs=\(formatTiming(resolutionRoundTripMs)) "
+                + "resolutionServerMs=\(formatTiming(serverProcessingMs)) "
+                + "resolutionTransportMs=\(formatTiming(resolutionTransportMs))"
+            )
+            let finalResponse = response.marking(provisional: false, stage: matchStage)
+            logBackendResponseSummary(finalResponse, matchMs: matchMs)
             ScanStageArtifactWriter.recordFinalDecisionArtifact(
                 scanID: scanID,
                 stage: "frontend_backend_response",
@@ -1584,15 +1792,15 @@ final class ScannerViewModel: ObservableObject {
                     matchMs: matchMs,
                     serverProcessingMs: serverProcessingMs,
                     networkOverheadMs: networkOverheadMs,
-                    scrydexRequestCount: response.performance?.scrydexRequestCount,
-                    scrydexRequestTypes: response.performance?.scrydexRequestTypes,
-                    confidence: response.confidence.rawValue,
-                    resolverMode: response.resolverMode.rawValue,
-                    resolverPath: response.resolverPath?.rawValue,
-                    reviewDisposition: response.reviewDisposition?.rawValue,
-                    reviewReason: response.reviewReason,
-                    ambiguityFlags: response.ambiguityFlags,
-                    topCandidates: response.topCandidates.prefix(3).map { scored in
+                    scrydexRequestCount: finalResponse.performance?.scrydexRequestCount,
+                    scrydexRequestTypes: finalResponse.performance?.scrydexRequestTypes,
+                    confidence: finalResponse.confidence.rawValue,
+                    resolverMode: finalResponse.resolverMode.rawValue,
+                    resolverPath: finalResponse.resolverPath?.rawValue,
+                    reviewDisposition: finalResponse.reviewDisposition?.rawValue,
+                    reviewReason: finalResponse.reviewReason,
+                    ambiguityFlags: finalResponse.ambiguityFlags,
+                    topCandidates: finalResponse.topCandidates.prefix(3).map { scored in
                         FrontendBackendCandidateArtifact(
                             id: scored.candidate.id,
                             name: scored.candidate.name,
@@ -1603,7 +1811,7 @@ final class ScannerViewModel: ObservableObject {
                     }
                 )
             )
-            if let bestMatch = response.bestMatch {
+            if let bestMatch = finalResponse.bestMatch {
                 logPricingSnapshot(prefix: "Backend best match", card: bestMatch)
             }
 
@@ -1614,14 +1822,14 @@ final class ScannerViewModel: ObservableObject {
             )
 
             analyzedCapture = analysis
-            matchResponse = response
-            applyAnalysis(analysis, response: response, to: pendingItemID)
+            matchResponse = finalResponse
+            applyAnalysis(response: finalResponse, to: pendingItemID)
             alternativesContexts[pendingItemID] = ScanAlternativesContext(
                 itemID: pendingItemID,
                 scanID: scanID,
                 previewImage: scannedItems.first(where: { $0.id == pendingItemID })?.previewImage,
                 analysis: analysis,
-                response: response
+                response: finalResponse
             )
             updateStackItem(id: pendingItemID) { item in
                 item.performance = updatedPerformance
@@ -1629,7 +1837,7 @@ final class ScannerViewModel: ObservableObject {
 
             await logStore.logPrediction(
                 analysis: analysis,
-                response: response,
+                response: finalResponse,
                 captureSource: captureSource,
                 cameraZoomFactor: Double(cameraController.currentZoomLevel),
                 enqueueArtifactUpload: artifactUploadsEnabled
@@ -1638,29 +1846,29 @@ final class ScannerViewModel: ObservableObject {
                 await self.flushPendingBackendQueues()
             }
 
-            if let bestMatch = response.bestMatch, shouldAutoAccept(response) {
+            if let bestMatch = finalResponse.bestMatch, shouldAutoAccept(finalResponse) {
                 completeSelection(with: bestMatch, correctionType: .acceptedTop)
-            } else if response.bestMatch != nil {
+            } else if finalResponse.bestMatch != nil {
                 updateStackItem(id: pendingItemID) { item in
-                    let disposition = response.reviewDisposition ?? .needsReview
-                    item.phase = matchedStackPhase(for: response)
+                    let disposition = finalResponse.reviewDisposition ?? .needsReview
+                    item.phase = matchedStackPhase(for: finalResponse)
                     item.reviewDisposition = disposition
-                    item.reviewReason = response.reviewReason
+                    item.reviewReason = finalResponse.reviewReason
                     if item.phase == .resolved {
                         item.statusMessage = ScanTrayCalculator.initialStatusMessage(for: item.pricing)
                     } else {
-                        item.statusMessage = response.reviewReason ?? "Could not identify the card strongly enough."
+                        item.statusMessage = finalResponse.reviewReason ?? "Could not identify the card strongly enough."
                     }
                     item.isRefreshingPrice = false
                 }
                 resetPendingScanState()
             } else {
                 updateStackItem(id: pendingItemID) { item in
-                    let disposition = response.reviewDisposition ?? .ready
+                    let disposition = finalResponse.reviewDisposition ?? .ready
                     item.phase = (disposition == .unsupported) ? .unsupported : .failed
                     item.reviewDisposition = disposition
-                    item.reviewReason = response.reviewReason
-                    item.statusMessage = response.reviewReason ?? "No matching cards found"
+                    item.reviewReason = finalResponse.reviewReason
+                    item.statusMessage = finalResponse.reviewReason ?? "No matching cards found"
                     item.isRefreshingPrice = false
                 }
                 resetPendingScanState()
@@ -1692,6 +1900,8 @@ final class ScannerViewModel: ObservableObject {
         print(
             "🌐 [MATCH] Response: "
             + "matchMs=\(Int(matchMs.rounded())) "
+            + "stage=\(response.matchStage?.rawValue ?? "n/a") "
+            + "provisional=\(response.isProvisional == true ? "yes" : "no") "
             + "confidence=\(response.confidence.rawValue) "
             + "resolverMode=\(response.resolverMode.rawValue) "
             + "resolverPath=\(response.resolverPath?.rawValue ?? "n/a") "
@@ -1724,7 +1934,20 @@ final class ScannerViewModel: ObservableObject {
     }
 }
 
+private func zipOptional<T, U>(_ lhs: T?, _ rhs: U?) -> (T, U)? {
+    guard let lhs, let rhs else { return nil }
+    return (lhs, rhs)
+}
+
+private func formatTiming(_ value: Double?) -> String {
+    guard let value else { return "n/a" }
+    return String(Int(value.rounded()))
+}
+
 func shouldAutoAccept(_ response: ScanMatchResponse) -> Bool {
+    guard response.isProvisional != true else {
+        return false
+    }
     guard response.resolverMode == .rawCard else {
         return false
     }
@@ -1737,7 +1960,10 @@ func shouldAutoAccept(_ response: ScanMatchResponse) -> Bool {
     }
 }
 
-func matchedStackPhase(for response: ScanMatchResponse) -> LiveScanStackItemPhase {
+func matchedStackPhase(for response: ScanMatchResponse, provisional: Bool = false) -> LiveScanStackItemPhase {
+    if provisional {
+        return .needsReview
+    }
     let disposition = response.reviewDisposition ?? .needsReview
     if disposition == .unsupported {
         return .unsupported

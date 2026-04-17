@@ -58,7 +58,7 @@ struct OCRTargetCandidateSummary: Codable {
     let geometryKind: OCRTargetGeometryKind
 }
 
-struct OCRTargetSelectionResult {
+struct OCRTargetSelectionResult: @unchecked Sendable {
     let normalizedImage: UIImage
     let normalizedContentRect: OCRNormalizedRect?
     let selectionConfidence: Double

@@ -803,6 +803,7 @@ struct ScanResultDetailView: View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 12) {
                 Button {
+                    guard !item.isProvisional else { return }
                     let previewEntry = collectionStore.previewEntry(
                         card: card,
                         slabContext: item.slabContext,
@@ -838,6 +839,7 @@ struct ScanResultDetailView: View {
                         minHeight: 56
                     )
                 )
+                .disabled(item.isProvisional)
 
                 Button {
                     openMarketplaceURL(

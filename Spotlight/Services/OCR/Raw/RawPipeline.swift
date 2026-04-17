@@ -72,12 +72,59 @@ actor RawPipeline {
         let pipelineStartedAt = Date().timeIntervalSinceReferenceDate
 
         let targetSelectionStartedAt = Date().timeIntervalSinceReferenceDate
-        let targetSelection = try selectOCRInput(
+        let targetSelection = try prepareTargetSelection(
+            scanID: scanID,
+            capture: capture
+        )
+        let targetSelectionMs = (Date().timeIntervalSinceReferenceDate - targetSelectionStartedAt) * 1000
+        return try await analyzePreparedDebug(
+            scanID: scanID,
+            capture: capture,
+            targetSelection: targetSelection,
+            resolverModeHint: resolverModeHint,
+            targetSelectionMs: targetSelectionMs,
+            pipelineStartedAt: pipelineStartedAt
+        )
+    }
+
+    func prepareTargetSelection(
+        scanID: UUID,
+        capture: ScanCaptureInput
+    ) throws -> OCRTargetSelectionResult {
+        try selectOCRInput(
             scanID: scanID,
             capture: capture,
             mode: .rawCard
         )
-        let targetSelectionMs = (Date().timeIntervalSinceReferenceDate - targetSelectionStartedAt) * 1000
+    }
+
+    func analyzePrepared(
+        scanID: UUID,
+        capture: ScanCaptureInput,
+        targetSelection: OCRTargetSelectionResult,
+        resolverModeHint: ResolverMode = .rawCard,
+        targetSelectionMs: Double
+    ) async throws -> AnalyzedCapture {
+        let snapshot = try await analyzePreparedDebug(
+            scanID: scanID,
+            capture: capture,
+            targetSelection: targetSelection,
+            resolverModeHint: resolverModeHint,
+            targetSelectionMs: targetSelectionMs,
+            pipelineStartedAt: Date().timeIntervalSinceReferenceDate
+        )
+        RawPipeline.logTimingBreakdown(scanID: scanID, timings: snapshot.timings)
+        return snapshot.analyzedCapture
+    }
+
+    private func analyzePreparedDebug(
+        scanID: UUID,
+        capture: ScanCaptureInput,
+        targetSelection: OCRTargetSelectionResult,
+        resolverModeHint: ResolverMode,
+        targetSelectionMs: Double,
+        pipelineStartedAt: TimeInterval
+    ) async throws -> RawPipelineDebugSnapshot {
         let normalizedOriginal = capture.originalImage.normalizedOrientation()
 
         guard let workingCGImage = targetSelection.normalizedImage.cgImage else {

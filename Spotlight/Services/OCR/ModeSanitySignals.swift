@@ -33,6 +33,32 @@ actor OCRPipelineCoordinator {
             )
         }
     }
+
+    func prepareRawTargetSelection(
+        scanID: UUID,
+        capture: ScanCaptureInput
+    ) async throws -> OCRTargetSelectionResult {
+        try await rawRewritePipeline.prepareTargetSelection(
+            scanID: scanID,
+            capture: capture
+        )
+    }
+
+    func analyzePreparedRawScan(
+        scanID: UUID,
+        capture: ScanCaptureInput,
+        targetSelection: OCRTargetSelectionResult,
+        resolverModeHint: ResolverMode,
+        targetSelectionMs: Double
+    ) async throws -> AnalyzedCapture {
+        try await rawRewritePipeline.analyzePrepared(
+            scanID: scanID,
+            capture: capture,
+            targetSelection: targetSelection,
+            resolverModeHint: resolverModeHint,
+            targetSelectionMs: targetSelectionMs
+        )
+    }
 }
 
 func buildLegacyNormalizedTarget(

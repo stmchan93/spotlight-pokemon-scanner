@@ -141,7 +141,9 @@ func makeMatchResponse(
         slabContext: nil,
         reviewDisposition: reviewDisposition,
         reviewReason: nil,
-        performance: nil
+        performance: nil,
+        isProvisional: nil,
+        matchStage: nil
     )
 }
 
@@ -229,6 +231,14 @@ func makeScanStackItem(
 
 private actor StubCardMatchingService: CardMatchingService {
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
+        throw MatcherError.noCandidates
+    }
+
+    func matchVisualStart(payload: ScanVisualStartRequestPayload) async throws -> ScanMatchResponse {
+        throw MatcherError.noCandidates
+    }
+
+    func matchRerank(payload: ScanRerankRequestPayload) async throws -> ScanMatchResponse {
         throw MatcherError.noCandidates
     }
 
@@ -351,6 +361,14 @@ actor RecordingCardMatchingService: CardMatchingService {
     )
 
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
+        throw MatcherError.noCandidates
+    }
+
+    func matchVisualStart(payload: ScanVisualStartRequestPayload) async throws -> ScanMatchResponse {
+        throw MatcherError.noCandidates
+    }
+
+    func matchRerank(payload: ScanRerankRequestPayload) async throws -> ScanMatchResponse {
         throw MatcherError.noCandidates
     }
 

@@ -263,6 +263,17 @@ class CandidateEncodingItem:
     scored_fields: dict[str, Any] | None = None
 
 
+@dataclass
+class PendingVisualScan:
+    scan_id: str
+    created_at: float
+    request_payload: dict[str, Any]
+    visual_matches: list[Any]
+    visual_debug: dict[str, Any]
+    requested_top_k: int
+    visual_match_ms: float
+
+
 class SpotlightScanService:
     def __init__(self, database_path: Path, repo_root: Path) -> None:
         self.database_path = database_path
@@ -271,6 +282,8 @@ class SpotlightScanService:
         self.index = load_index(self.connection)
         self._card_lookup_cache: dict[str, dict[str, Any] | None] = {}
         self._raw_visual_matcher: Any | None = None
+        self._pending_visual_scans: dict[str, PendingVisualScan] = {}
+        self._pending_visual_scan_ttl_seconds: float = 90.0
         self.artifact_store = build_scan_artifact_store(
             repo_root=repo_root,
             storage_override=os.environ.get(SCAN_ARTIFACTS_STORAGE_ENV),
@@ -300,6 +313,157 @@ class SpotlightScanService:
 
             self._raw_visual_matcher = RawVisualMatcher(repo_root=self.repo_root)
         return self._raw_visual_matcher
+
+    def _prune_pending_visual_scans(self) -> None:
+        cutoff = perf_counter() - self._pending_visual_scan_ttl_seconds
+        for scan_id, pending in list(self._pending_visual_scans.items()):
+            if pending.created_at < cutoff:
+                self._pending_visual_scans.pop(scan_id, None)
+
+    def _store_pending_visual_scan(
+        self,
+        *,
+        scan_id: str,
+        request_payload: dict[str, Any],
+        visual_matches: list[Any],
+        visual_debug: dict[str, Any],
+        requested_top_k: int,
+        visual_match_ms: float,
+    ) -> None:
+        scan_id = str(scan_id or "").strip()
+        if not scan_id:
+            return
+        self._prune_pending_visual_scans()
+        pending = PendingVisualScan(
+            scan_id=scan_id,
+            created_at=perf_counter(),
+            request_payload=dict(request_payload or {}),
+            visual_matches=list(visual_matches),
+            visual_debug=dict(visual_debug or {}),
+            requested_top_k=max(1, int(requested_top_k)),
+            visual_match_ms=float(visual_match_ms),
+        )
+        self._pending_visual_scans[scan_id] = pending
+        top_candidate_id = ""
+        if pending.visual_matches:
+            top_candidate_id = str(getattr(pending.visual_matches[0].entry, "card_id", "") or "")
+        print(
+            "[SCAN CACHE] Stored visual shortlist: "
+            f"scanID={scan_id} "
+            f"topK={pending.requested_top_k} "
+            f"matches={len(pending.visual_matches)} "
+            f"visualMatchMs={pending.visual_match_ms:.1f} "
+            f"top1={top_candidate_id or '<none>'}"
+        )
+
+    def _pending_visual_scan(self, scan_id: str) -> PendingVisualScan | None:
+        scan_id = str(scan_id or "").strip()
+        if not scan_id:
+            return None
+        self._prune_pending_visual_scans()
+        pending = self._pending_visual_scans.get(scan_id)
+        if pending is None:
+            print(f"[SCAN CACHE] Missed visual shortlist: scanID={scan_id}")
+            return None
+        age_ms = (perf_counter() - pending.created_at) * 1000.0
+        print(
+            "[SCAN CACHE] Reusing visual shortlist: "
+            f"scanID={scan_id} "
+            f"ageMs={age_ms:.1f} "
+            f"matches={len(pending.visual_matches)} "
+            f"visualMatchMs={pending.visual_match_ms:.1f}"
+        )
+        return pending
+
+    def _clear_pending_visual_scan(self, scan_id: str) -> None:
+        scan_id = str(scan_id or "").strip()
+        if scan_id:
+            self._pending_visual_scans.pop(scan_id, None)
+
+    def _run_raw_visual_phase(
+        self,
+        payload: dict[str, Any],
+        *,
+        requested_top_k: int,
+    ) -> tuple[list[Any], dict[str, Any], float]:
+        started_at = perf_counter()
+        matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=requested_top_k)
+        visual_match_ms = (perf_counter() - started_at) * 1000.0
+        return list(matches), dict(debug or {}), visual_match_ms
+
+    def _build_raw_visual_only_response(
+        self,
+        payload: dict[str, Any],
+        *,
+        matches: list[Any],
+        debug: dict[str, Any],
+        visual_match_ms: float,
+        api_key: str | None = None,
+        is_provisional: bool = False,
+        finalize_response: bool = True,
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+        ranked_matches = [self._visual_match_summary(match) for match in matches]
+        confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
+        review_disposition = "ready" if confidence != "low" else "needs_review"
+        pricing_policy = self._scan_candidate_pricing_policy(
+            refresh_top_candidate_stale=True,
+            refresh_top_candidate_missing=True,
+            force_show_mode_top_candidate_refresh=True,
+        )
+        response_build_started_at = perf_counter()
+        encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
+            [
+                CandidateEncodingItem(
+                    card=self._visual_candidate_stub(match.entry),
+                    image_score=float(summary["similarity"]),
+                    collector_number_score=0.0,
+                    name_score=0.0,
+                    final_score=float(summary["similarity"]),
+                    reasons=("visual_similarity",),
+                    scored_fields={"visualScore": round(float(summary["similarity"]), 4)},
+                )
+                for match, summary in zip(matches[:10], ranked_matches[:10], strict=True)
+            ],
+            pricing_context=self._raw_pricing_context(),
+            pricing_policy=pricing_policy,
+            trigger_source="scan_match_raw",
+            api_key=api_key,
+        )
+
+        response = {
+            "scanID": payload["scanID"],
+            "topCandidates": encoded_candidates,
+            "confidence": confidence,
+            "ambiguityFlags": ambiguity_flags,
+            "matcherSource": "visualIndex",
+            "matcherVersion": MATCHER_VERSION,
+            "resolverMode": "raw_card",
+            "resolverPath": "visual_only_index",
+            "slabContext": None,
+            "reviewDisposition": review_disposition,
+            "reviewReason": None if confidence != "low" else "Visual-only candidates are ambiguous.",
+            "rawDecisionDebug": {
+                "visualOnly": {
+                    **debug,
+                    "candidateCount": len(ranked_matches),
+                    "topCandidates": ranked_matches[:10],
+                    "isProvisional": is_provisional,
+                }
+            },
+            "isProvisional": is_provisional,
+            "matchingStage": "visual" if is_provisional else "final",
+        }
+        self._record_backend_timing(
+            response,
+            visualMatchMs=round(float(visual_match_ms), 3),
+            candidateEncodeMs=encode_debug.get("candidateEncodeMs"),
+            encodedCandidateCount=encode_debug.get("encodedCandidateCount"),
+            candidateTimings=encode_debug.get("candidateTimings"),
+            responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
+        )
+        if finalize_response:
+            self._finalize_scan_response(payload, response, scored_candidates)
+        return response, scored_candidates, ranked_matches
 
     def _prewarm_raw_visual_runtime(self) -> dict[str, Any]:
         started_at = perf_counter()
@@ -4559,7 +4723,7 @@ class SpotlightScanService:
         api_key: str | None = None,
     ) -> dict[str, Any]:
         try:
-            matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=10)
+            matches, debug, visual_match_ms = self._run_raw_visual_phase(payload, requested_top_k=10)
         except Exception as exc:
             response = self._unsupported_match_response(
                 payload,
@@ -4572,93 +4736,31 @@ class SpotlightScanService:
             response["matcherSource"] = "visualIndex"
             self._finalize_scan_response(payload, response, [])
             return response
-
-        ranked_matches = [self._visual_match_summary(match) for match in matches]
-        confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
-        review_disposition = "ready" if confidence != "low" else "needs_review"
-        pricing_policy = self._scan_candidate_pricing_policy(
-            refresh_top_candidate_stale=True,
-            refresh_top_candidate_missing=True,
-            force_show_mode_top_candidate_refresh=True,
-        )
-        response_build_started_at = perf_counter()
-        encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
-            [
-                CandidateEncodingItem(
-                    card=self._visual_candidate_stub(match.entry),
-                    image_score=float(summary["similarity"]),
-                    collector_number_score=0.0,
-                    name_score=0.0,
-                    final_score=float(summary["similarity"]),
-                    reasons=("visual_similarity",),
-                    scored_fields={"visualScore": round(float(summary["similarity"]), 4)},
-                )
-                for match, summary in zip(matches[:10], ranked_matches[:10], strict=True)
-            ],
-            pricing_context=self._raw_pricing_context(),
-            pricing_policy=pricing_policy,
-            trigger_source="scan_match_raw",
+        response, _, _ = self._build_raw_visual_only_response(
+            payload,
+            matches=matches,
+            debug=debug,
+            visual_match_ms=visual_match_ms,
             api_key=api_key,
+            is_provisional=False,
         )
-
-        response = {
-            "scanID": payload["scanID"],
-            "topCandidates": encoded_candidates,
-            "confidence": confidence,
-            "ambiguityFlags": ambiguity_flags,
-            "matcherSource": "visualIndex",
-            "matcherVersion": MATCHER_VERSION,
-            "resolverMode": "raw_card",
-            "resolverPath": "visual_only_index",
-            "slabContext": None,
-            "reviewDisposition": review_disposition,
-            "reviewReason": None if confidence != "low" else "Visual-only candidates are ambiguous.",
-            "rawDecisionDebug": {
-                "visualOnly": {
-                    **debug,
-                    "candidateCount": len(ranked_matches),
-                    "topCandidates": ranked_matches[:10],
-                }
-            },
-        }
-        self._record_backend_timing(
-            response,
-            candidateEncodeMs=encode_debug.get("candidateEncodeMs"),
-            encodedCandidateCount=encode_debug.get("encodedCandidateCount"),
-            candidateTimings=encode_debug.get("candidateTimings"),
-            responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
-        )
-        self._finalize_scan_response(payload, response, scored_candidates)
         return response
 
-    def _resolve_raw_candidates_visual_hybrid(
+    def _resolve_raw_candidates_visual_hybrid_from_matches(
         self,
         payload: dict[str, Any],
         *,
+        matches: list[Any],
+        debug: dict[str, Any],
+        requested_top_k: int,
         api_key: str | None = None,
+        visual_match_ms: float | None = None,
+        visual_phase_source: str = "live",
     ) -> dict[str, Any]:
         evidence_started_at = perf_counter()
         evidence = build_raw_evidence(payload)
         signals = score_raw_signals(evidence)
         evidence_ms = (perf_counter() - evidence_started_at) * 1000.0
-
-        requested_top_k = self._visual_hybrid_top_k(payload, evidence)
-        visual_match_started_at = perf_counter()
-        try:
-            matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=requested_top_k)
-        except Exception as exc:
-            response = self._unsupported_match_response(
-                payload,
-                resolver_mode="raw_card",
-                resolver_path="visual_hybrid_unavailable",
-                review_reason="Visual+OCR resolver could not run.",
-                ambiguity_flags=[f"Visual+OCR resolver unavailable: {exc}"],
-                raw_decision_debug={"visualHybrid": {"error": str(exc)}},
-            )
-            response["matcherSource"] = "visualIndex"
-            self._finalize_scan_response(payload, response, [])
-            return response
-        visual_match_ms = (perf_counter() - visual_match_started_at) * 1000.0
 
         visual_matches = [self._visual_match_summary(match) for match in matches]
         badge_image_scores: dict[str, dict[str, Any]] = {}
@@ -4668,10 +4770,10 @@ class SpotlightScanService:
             {
                 **self._visual_candidate_stub(match.entry),
                 "_visualSimilarity": float(summary.get("similarity") or 0.0),
-                "_visualSimilaritySource": "visual_index",
+                "_visualSimilaritySource": visual_phase_source,
                 "_retrievalScoreHint": round(float(summary.get("similarity") or 0.0) * 100.0, 4),
                 "_cachePresence": False,
-                "_retrievalRoutes": ["visual_index"],
+                "_retrievalRoutes": [visual_phase_source],
             }
             for match, summary in zip(matches, visual_matches, strict=True)
         ]
@@ -4761,6 +4863,7 @@ class SpotlightScanService:
                 "candidateCount": len(visual_matches),
                 "requestedTopK": requested_top_k,
                 "retrievalStrategy": "fallback_local_rescue" if used_local_ocr_rescue else "standard_visual_hybrid",
+                "visualPhaseSource": visual_phase_source,
                 "localOCRCandidateCount": len(local_ocr_candidates),
                 "localOCRCandidates": [
                     {
@@ -4779,7 +4882,7 @@ class SpotlightScanService:
                 "topVisualCandidates": visual_matches[:10],
                 "phaseTimings": {
                     "buildRawEvidenceMs": round(evidence_ms, 3),
-                    "visualMatchMs": round(visual_match_ms, 3),
+                    "visualMatchMs": round(float(visual_match_ms or 0.0), 3),
                     "badgeMatchMs": round(badge_match_ms, 3),
                     "rerankDecisionMs": round(rerank_decision_ms, 3),
                 },
@@ -4810,6 +4913,193 @@ class SpotlightScanService:
         )
         response, top_candidates = self._build_raw_match_response(payload, decision, api_key=api_key)
         self._finalize_scan_response(payload, response, top_candidates)
+        return response
+
+    def _resolve_raw_candidates_visual_hybrid(
+        self,
+        payload: dict[str, Any],
+        *,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
+        evidence_started_at = perf_counter()
+        evidence = build_raw_evidence(payload)
+        signals = score_raw_signals(evidence)
+        evidence_ms = (perf_counter() - evidence_started_at) * 1000.0
+
+        requested_top_k = self._visual_hybrid_top_k(payload, evidence)
+        visual_match_started_at = perf_counter()
+        try:
+            matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=requested_top_k)
+        except Exception as exc:
+            response = self._unsupported_match_response(
+                payload,
+                resolver_mode="raw_card",
+                resolver_path="visual_hybrid_unavailable",
+                review_reason="Visual+OCR resolver could not run.",
+                ambiguity_flags=[f"Visual+OCR resolver unavailable: {exc}"],
+                raw_decision_debug={"visualHybrid": {"error": str(exc)}},
+            )
+            response["matcherSource"] = "visualIndex"
+            self._finalize_scan_response(payload, response, [])
+            return response
+        visual_match_ms = (perf_counter() - visual_match_started_at) * 1000.0
+        return self._resolve_raw_candidates_visual_hybrid_from_matches(
+            payload,
+            matches=list(matches),
+            debug=dict(debug or {}),
+            requested_top_k=requested_top_k,
+            api_key=api_key,
+            visual_match_ms=visual_match_ms,
+            visual_phase_source="live",
+        )
+
+    def visual_match_scan(
+        self,
+        payload: dict[str, Any],
+        *,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
+        self._emit_structured_log(self._scan_request_log_payload(payload))
+        scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
+        scan_id = str(payload.get("scanID") or "")
+        match_started = perf_counter()
+        try:
+            matches, debug, visual_match_ms = self._run_raw_visual_phase(payload, requested_top_k=10)
+        except Exception as exc:
+            response = self._unsupported_match_response(
+                payload,
+                resolver_mode="raw_card",
+                resolver_path="visual_only_unavailable",
+                review_reason="Visual-only resolver could not run.",
+                ambiguity_flags=[f"Visual-only resolver unavailable: {exc}"],
+                raw_decision_debug={"visualOnly": {"error": str(exc)}},
+            )
+            response["matcherSource"] = "visualIndex"
+            response["isProvisional"] = True
+            response["matchingStage"] = "visual"
+            self._log_scrydex_match_usage(
+                scan_id,
+                before_total=scrydex_before_total,
+                started_at=match_started,
+                response=response,
+            )
+            return response
+
+        response, _, _ = self._build_raw_visual_only_response(
+            payload,
+            matches=matches,
+            debug=debug,
+            visual_match_ms=visual_match_ms,
+            api_key=api_key,
+            is_provisional=True,
+            finalize_response=False,
+        )
+        self._store_pending_visual_scan(
+            scan_id=scan_id,
+            request_payload=payload,
+            visual_matches=matches,
+            visual_debug=debug,
+            requested_top_k=10,
+            visual_match_ms=visual_match_ms,
+        )
+        print(
+            "[SCAN CACHE] Visual phase ready for rerank: "
+            f"scanID={scan_id} "
+            f"visualMatchMs={visual_match_ms:.1f} "
+            f"resolverPath={response.get('resolverPath') or '<none>'} "
+            f"provisional={bool(response.get('isProvisional'))}"
+        )
+        self._log_scrydex_match_usage(
+            scan_id,
+            before_total=scrydex_before_total,
+            started_at=match_started,
+            response=response,
+        )
+        return response
+
+    def rerank_visual_match(
+        self,
+        payload: dict[str, Any],
+        *,
+        api_key: str | None = None,
+    ) -> dict[str, Any]:
+        self._emit_structured_log(self._scan_request_log_payload(payload))
+        scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
+        scan_id = str(payload.get("scanID") or "")
+        match_started = perf_counter()
+        cache_lookup_started_at = perf_counter()
+        pending = self._pending_visual_scan(scan_id)
+        cache_lookup_ms = (perf_counter() - cache_lookup_started_at) * 1000.0
+        if pending is None:
+            print(f"[SCAN CACHE] Cache unavailable for rerank, falling back live: scanID={scan_id}")
+            return self.match_scan(payload)
+        cache_clear_started_at = perf_counter()
+        self._clear_pending_visual_scan(scan_id)
+        cache_clear_ms = (perf_counter() - cache_clear_started_at) * 1000.0
+
+        try:
+            resolve_started_at = perf_counter()
+            response = self._resolve_raw_candidates_visual_hybrid_from_matches(
+                payload,
+                matches=list(pending.visual_matches),
+                debug=dict(pending.visual_debug or {}),
+                requested_top_k=pending.requested_top_k,
+                api_key=api_key,
+                visual_match_ms=pending.visual_match_ms,
+                visual_phase_source="cached",
+            )
+            resolve_ms = (perf_counter() - resolve_started_at) * 1000.0
+        except Exception as exc:
+            print(f"[SCAN CACHE] Cached rerank failed, returning unavailable response: scanID={scan_id} error={exc}")
+            response = self._unsupported_match_response(
+                payload,
+                resolver_mode="raw_card",
+                resolver_path="visual_hybrid_unavailable",
+                review_reason="Visual+OCR resolver could not run.",
+                ambiguity_flags=[f"Visual+OCR resolver unavailable: {exc}"],
+                raw_decision_debug={"visualHybrid": {"error": str(exc)}},
+            )
+            response["matcherSource"] = "visualIndex"
+            self._finalize_scan_response(payload, response, [])
+            self._record_backend_timing(
+                response,
+                cacheLookupMs=cache_lookup_ms,
+                cacheClearMs=cache_clear_ms,
+                rerankResolveMs=None,
+                rerankServiceTotalMs=(perf_counter() - match_started) * 1000.0,
+            )
+            self._log_scrydex_match_usage(
+                scan_id,
+                before_total=scrydex_before_total,
+                started_at=match_started,
+                response=response,
+            )
+            return response
+
+        response["isProvisional"] = False
+        response["matchingStage"] = "reranked"
+        self._record_backend_timing(
+            response,
+            cacheLookupMs=cache_lookup_ms,
+            cacheClearMs=cache_clear_ms,
+            rerankResolveMs=resolve_ms,
+            rerankServiceTotalMs=(perf_counter() - match_started) * 1000.0,
+        )
+        print(
+            "[SCAN CACHE] Cached rerank completed: "
+            f"scanID={scan_id} "
+            f"resolverPath={response.get('resolverPath') or '<none>'} "
+            f"confidence={response.get('confidence') or '<none>'} "
+            f"cacheLookupMs={cache_lookup_ms:.1f} "
+            f"cacheClearMs={cache_clear_ms:.1f} "
+            f"resolveMs={resolve_ms:.1f}"
+        )
+        self._log_scrydex_match_usage(
+            scan_id,
+            before_total=scrydex_before_total,
+            started_at=match_started,
+            response=response,
+        )
         return response
 
     def _slab_resolution_log_payload(
@@ -6889,17 +7179,69 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/scan/match":
+            request_started_at = perf_counter()
             try:
-                self._write_json(HTTPStatus.OK, self.service.match_scan(payload))
+                self._write_json_timed(
+                    HTTPStatus.OK,
+                    self.service.match_scan(payload),
+                    label="scan_match",
+                    started_at=request_started_at,
+                )
             except Exception as error:
                 traceback.print_exc()
                 self.service._emit_structured_log(self.service._scan_error_log_payload(payload, error))
-                self._write_json(
+                self._write_json_timed(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {
                         "error": "Scan match failed",
                         "errorType": type(error).__name__,
                     },
+                    label="scan_match",
+                    started_at=request_started_at,
+                )
+            return
+
+        if parsed.path == "/api/v1/scan/visual-match":
+            request_started_at = perf_counter()
+            try:
+                self._write_json_timed(
+                    HTTPStatus.OK,
+                    self.service.visual_match_scan(payload),
+                    label="scan_visual_match",
+                    started_at=request_started_at,
+                )
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json_timed(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "error": "Visual scan match failed",
+                        "errorType": type(error).__name__,
+                    },
+                    label="scan_visual_match",
+                    started_at=request_started_at,
+                )
+            return
+
+        if parsed.path == "/api/v1/scan/rerank":
+            request_started_at = perf_counter()
+            try:
+                self._write_json_timed(
+                    HTTPStatus.OK,
+                    self.service.rerank_visual_match(payload),
+                    label="scan_rerank",
+                    started_at=request_started_at,
+                )
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json_timed(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {
+                        "error": "Scan rerank failed",
+                        "errorType": type(error).__name__,
+                    },
+                    label="scan_rerank",
+                    started_at=request_started_at,
                 )
             return
 
@@ -6996,6 +7338,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _write_json_timed(
+        self,
+        status: HTTPStatus,
+        payload: dict[str, Any],
+        *,
+        label: str,
+        started_at: float,
+    ) -> None:
+        write_started_at = perf_counter()
+        self._write_json(status, payload)
+        write_ms = (perf_counter() - write_started_at) * 1000.0
+        total_ms = (perf_counter() - started_at) * 1000.0
+        print(
+            "[HTTP PERF] "
+            f"label={label} "
+            f"status={status.value} "
+            f"writeJsonMs={write_ms:.1f} "
+            f"totalMs={total_ms:.1f}"
+        )
 
 
 def cli_value(flag: str) -> str | None:
