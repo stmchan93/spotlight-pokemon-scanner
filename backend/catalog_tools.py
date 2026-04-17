@@ -1142,6 +1142,35 @@ def tokenize(text: str) -> list[str]:
     return re.findall(r"[^\W_]+", text.lower(), flags=re.UNICODE)
 
 
+def _contains_japanese_text(value: str) -> bool:
+    return bool(re.search(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff\uff66-\uff9f]", value or ""))
+
+
+def _raw_evidence_looks_japanese(evidence: RawEvidence) -> bool:
+    return any(
+        _contains_japanese_text(text)
+        for text in [
+            evidence.title_text_primary,
+            evidence.title_text_secondary,
+            evidence.footer_band_text,
+            evidence.recognized_text,
+        ]
+        if text
+    )
+
+
+def _candidate_looks_japanese(card: dict[str, Any]) -> bool:
+    language = str(card.get("language") or "").strip().lower()
+    set_id = str(card.get("setID") or "").strip().lower()
+    card_id = str(card.get("id") or "").strip().lower()
+    return (
+        language.startswith("ja")
+        or language == "japanese"
+        or set_id.endswith("_ja")
+        or "_ja-" in card_id
+    )
+
+
 def _strip_leading_hiragana_noise(value: str) -> str:
     trimmed = re.sub(r"^[\u3041-\u3096]{1,3}(?=[\u30a0-\u30ff\u3400-\u4dbf\u4e00-\u9fff])", "", value)
     return trimmed if len(trimmed) >= 2 else value
@@ -2708,6 +2737,8 @@ def price_snapshot_for_card(
                 "payload": {},
             }
             resolved_condition = row["default_raw_condition"]
+        if summary is None:
+            return None
         resolved_payload = summary.get("payload") or {}
         variant = resolved_variant
     return {
@@ -3907,6 +3938,46 @@ def _has_strong_hybrid_corroboration(breakdown: RawCandidateScoreBreakdown) -> b
     return False
 
 
+def _local_ocr_rescue_visual_score_cap(
+    candidate: dict[str, Any],
+    breakdown: RawCandidateScoreBreakdown,
+    signals: RawSignalScores,
+) -> float | None:
+    if str(candidate.get("_visualSimilaritySource") or "") != "local_ocr_rescue":
+        return None
+    if signals.title_signal < 35:
+        return None
+    if breakdown.title_overlap_score > 0.0 or breakdown.set_overlap_score > 0.0:
+        return None
+    if breakdown.collector_exact_score > 0.0 and breakdown.footer_text_support_score <= 0.0:
+        return 55.0
+    if breakdown.collector_partial_score > 0.0:
+        return 45.0
+    return None
+
+
+def _language_mismatch_visual_score_cap(
+    candidate: dict[str, Any],
+    breakdown: RawCandidateScoreBreakdown,
+    evidence: RawEvidence,
+) -> float | None:
+    if not _raw_evidence_looks_japanese(evidence):
+        return None
+    if _candidate_looks_japanese(candidate):
+        return None
+    if any(
+        [
+            breakdown.title_overlap_score > 0.0,
+            breakdown.set_overlap_score > 0.0,
+            breakdown.collector_exact_score > 0.0,
+            breakdown.collector_partial_score > 0.0,
+            breakdown.footer_text_support_score > 0.0,
+        ]
+    ):
+        return None
+    return 45.0
+
+
 def _cap_hybrid_resolution_breakdown(
     breakdown: RawCandidateScoreBreakdown,
     retrieval_total: float,
@@ -4013,6 +4084,12 @@ def rank_visual_hybrid_candidates(
             resolution_score,
             evidence,
         )
+        local_rescue_visual_cap = _local_ocr_rescue_visual_score_cap(candidate, breakdown, signals)
+        if local_rescue_visual_cap is not None:
+            visual_score = min(visual_score, local_rescue_visual_cap)
+        language_mismatch_visual_cap = _language_mismatch_visual_score_cap(candidate, breakdown, evidence)
+        if language_mismatch_visual_cap is not None:
+            visual_score = min(visual_score, language_mismatch_visual_cap)
         protection_applied = False
         if (
             leader_protection_active
@@ -4039,6 +4116,10 @@ def rank_visual_hybrid_candidates(
         reason_tokens = ["visual_similarity", *reasons]
         if set_confidence_multiplier < 1.0:
             reason_tokens.append("set_confidence_dampened")
+        if local_rescue_visual_cap is not None:
+            reason_tokens.append("local_ocr_rescue_dampened")
+        if language_mismatch_visual_cap is not None:
+            reason_tokens.append("language_mismatch_dampened")
         if protection_applied:
             reason_tokens.append("visual_leader_protected")
         ranked.append(

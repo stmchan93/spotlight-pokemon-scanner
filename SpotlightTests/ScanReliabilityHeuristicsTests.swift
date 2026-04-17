@@ -321,7 +321,34 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         XCTAssertFalse(model.shouldSkipTightFooterPasses(after: [broadPass]))
     }
 
-    func testExactReticleFallbackStrongLoweredHeaderSkipsWideHeaderPass() {
+    func testSetBadgeTightPlansUseFastSingleShotOCRWhileCollectorPlansMayRetry() {
+        let planner = RawROIPlanner()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: false,
+            targetQualityScore: 0.92,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: nil,
+            warnings: []
+        )
+        let routing = RawFooterRoutingContext.none
+        let plans = planner.stage1TightPlan(for: sceneTraits, routing: routing)
+
+        guard let setBadgePlan = plans.first(where: { $0.footerRole == .setBadge }),
+              let collectorPlan = plans.first(where: { $0.footerRole == .collector }) else {
+            XCTFail("missing footer plans")
+            return
+        }
+
+        XCTAssertEqual(setBadgePlan.recognitionLevel, .fast)
+        XCTAssertFalse(setBadgePlan.shouldRetryAggressively)
+        XCTAssertTrue(setBadgePlan.aggressiveRetryLanguageAttempts.isEmpty)
+        XCTAssertEqual(collectorPlan.recognitionLevel, .accurate)
+        XCTAssertTrue(collectorPlan.shouldRetryAggressively)
+        XCTAssertEqual(collectorPlan.aggressiveRetryLanguageAttempts.count, 2)
+    }
+
+    func testExactReticleFallbackStrongLoweredHeaderKeepsWideHeaderPass() {
         let model = RawConfidenceModel()
         let sceneTraits = RawSceneTraits(
             holderLikely: false,
@@ -343,7 +370,79 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
             ]
         )
 
-        XCTAssertTrue(
+        XCTAssertFalse(
+            model.shouldSkipWideHeaderPassAfterLowered(
+                passResults: [loweredPass],
+                sceneTraits: sceneTraits,
+                stage1Assessment: RawStageAssessment(
+                    titleTextPrimary: nil,
+                    titleConfidenceScore: 0,
+                    collectorNumberExact: "185/132",
+                    setHintTokens: [],
+                    shouldEscalate: true,
+                    reasons: []
+                )
+            )
+        )
+    }
+
+    func testExactReticleFallbackShortLoweredHeaderWithExactCollectorKeepsWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: true,
+            targetQualityScore: 0.40,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: "exact_reticle_fallback",
+            warnings: ["Target selection used fallback crop"]
+        )
+        let loweredPass = RawOCRPassResult(
+            kind: .headerWide,
+            label: "12_raw_header_wide_lowered",
+            normalizedRect: OCRNormalizedRect(x: 0.06, y: 0.05, width: 0.88, height: 0.22),
+            text: "Test",
+            tokens: [
+                RecognizedToken(text: "Test", confidence: 0.18)
+            ]
+        )
+
+        XCTAssertFalse(
+            model.shouldSkipWideHeaderPassAfterLowered(
+                passResults: [loweredPass],
+                sceneTraits: sceneTraits,
+                stage1Assessment: RawStageAssessment(
+                    titleTextPrimary: nil,
+                    titleConfidenceScore: 0,
+                    collectorNumberExact: "185/132",
+                    setHintTokens: [],
+                    shouldEscalate: true,
+                    reasons: []
+                )
+            )
+        )
+    }
+
+    func testExactReticleFallbackJapaneseLoweredHeaderWithExactCollectorKeepsWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: true,
+            targetQualityScore: 0.40,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: "exact_reticle_fallback",
+            warnings: ["Target selection used fallback crop"]
+        )
+        let loweredPass = RawOCRPassResult(
+            kind: .headerWide,
+            label: "12_raw_header_wide_lowered",
+            normalizedRect: OCRNormalizedRect(x: 0.06, y: 0.05, width: 0.88, height: 0.22),
+            text: "ポケモンカード",
+            tokens: [
+                RecognizedToken(text: "ポケモンカード", confidence: 0.31)
+            ]
+        )
+
+        XCTAssertFalse(
             model.shouldSkipWideHeaderPassAfterLowered(
                 passResults: [loweredPass],
                 sceneTraits: sceneTraits,
@@ -395,6 +494,78 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         )
     }
 
+    func testExactReticleFallbackModerateLoweredHeaderWithExactCollectorKeepsWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: true,
+            targetQualityScore: 0.40,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: "exact_reticle_fallback",
+            warnings: ["Target selection used fallback crop"]
+        )
+        let loweredPass = RawOCRPassResult(
+            kind: .headerWide,
+            label: "12_raw_header_wide_lowered",
+            normalizedRect: OCRNormalizedRect(x: 0.06, y: 0.05, width: 0.88, height: 0.22),
+            text: "Lugia",
+            tokens: [
+                RecognizedToken(text: "Lugia", confidence: 0.30)
+            ]
+        )
+
+        XCTAssertFalse(
+            model.shouldSkipWideHeaderPassAfterLowered(
+                passResults: [loweredPass],
+                sceneTraits: sceneTraits,
+                stage1Assessment: RawStageAssessment(
+                    titleTextPrimary: nil,
+                    titleConfidenceScore: 0,
+                    collectorNumberExact: "113/123",
+                    setHintTokens: [],
+                    shouldEscalate: true,
+                    reasons: []
+                )
+            )
+        )
+    }
+
+    func testExactReticleFallbackModerateLoweredHeaderWithoutExactCollectorKeepsWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: true,
+            targetQualityScore: 0.40,
+            normalizedContentRect: OCRNormalizedRect(x: 0, y: 0, width: 1, height: 1),
+            normalizationReason: "exact_reticle_fallback",
+            warnings: ["Target selection used fallback crop"]
+        )
+        let loweredPass = RawOCRPassResult(
+            kind: .headerWide,
+            label: "12_raw_header_wide_lowered",
+            normalizedRect: OCRNormalizedRect(x: 0.06, y: 0.05, width: 0.88, height: 0.22),
+            text: "Lugia",
+            tokens: [
+                RecognizedToken(text: "Lugia", confidence: 0.30)
+            ]
+        )
+
+        XCTAssertFalse(
+            model.shouldSkipWideHeaderPassAfterLowered(
+                passResults: [loweredPass],
+                sceneTraits: sceneTraits,
+                stage1Assessment: RawStageAssessment(
+                    titleTextPrimary: nil,
+                    titleConfidenceScore: 0,
+                    collectorNumberExact: nil,
+                    setHintTokens: [],
+                    shouldEscalate: true,
+                    reasons: []
+                )
+            )
+        )
+    }
+
     func testNonFallbackNeverSkipsWideHeaderPassFromLoweredResult() {
         let model = RawConfidenceModel()
         let sceneTraits = RawSceneTraits(
@@ -430,6 +601,58 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
                 )
             )
         )
+    }
+
+    func testHighQualityNonFallbackWithoutFooterAnchorKeepsFullWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: false,
+            targetQualityScore: 0.94,
+            normalizationReason: "basic_perspective_canonicalization",
+            warnings: []
+        )
+
+        let decision = model.wideHeaderDecisionBeforeFullPass(
+            sceneTraits: sceneTraits,
+            stage1Assessment: RawStageAssessment(
+                titleTextPrimary: nil,
+                titleConfidenceScore: 0,
+                collectorNumberExact: nil,
+                setHintTokens: [],
+                shouldEscalate: true,
+                reasons: ["collector_signal_weak", "title_signal_weak", "set_signal_weak"]
+            )
+        )
+
+        XCTAssertFalse(decision.shouldSkipWidePass)
+        XCTAssertEqual(decision.reasons, ["nonfallback_keeps_full_header"])
+    }
+
+    func testHighQualityNonFallbackWithExactCollectorKeepsFullWideHeaderPass() {
+        let model = RawConfidenceModel()
+        let sceneTraits = RawSceneTraits(
+            holderLikely: false,
+            usedFallback: false,
+            targetQualityScore: 0.83,
+            normalizationReason: "basic_perspective_canonicalization",
+            warnings: []
+        )
+
+        let decision = model.wideHeaderDecisionBeforeFullPass(
+            sceneTraits: sceneTraits,
+            stage1Assessment: RawStageAssessment(
+                titleTextPrimary: nil,
+                titleConfidenceScore: 0,
+                collectorNumberExact: "185/132",
+                setHintTokens: [],
+                shouldEscalate: true,
+                reasons: ["title_signal_weak", "set_signal_weak"]
+            )
+        )
+
+        XCTAssertFalse(decision.shouldSkipWidePass)
+        XCTAssertEqual(decision.reasons, ["stage1_exact_collector_keeps_full_header"])
     }
 
     func testExactReticleFallbackJapaneseTitleWithoutSetHintKeepsWideHeaderPass() {

@@ -714,6 +714,63 @@ class PricingPhase6Tests(unittest.TestCase):
         finally:
             service.connection.close()
 
+    def test_raw_candidate_payload_handles_missing_raw_price_summary_without_crashing(self) -> None:
+        upsert_price_snapshot(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+            provider="scrydex",
+            currency_code="USD",
+            variant="normal",
+            market_price=120.0,
+            source_url="https://prices.example/base1-4",
+            payload={"provider": "scrydex"},
+        )
+        self.connection.execute(
+            """
+            UPDATE card_price_snapshots
+            SET raw_contexts_json = ?,
+                default_raw_low_price = NULL,
+                default_raw_market_price = NULL,
+                default_raw_mid_price = NULL,
+                default_raw_high_price = NULL,
+                default_raw_direct_low_price = NULL,
+                default_raw_trend_price = NULL
+            WHERE card_id = ?
+            """,
+            (json.dumps({"variants": {}}), "base1-4"),
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        candidate = {
+            "id": "base1-4",
+            "name": "Charizard",
+            "setName": "Base Set",
+            "number": "4/102",
+            "rarity": "Rare Holo",
+            "variant": "Raw",
+            "language": "English",
+        }
+
+        try:
+            snapshot = price_snapshot_for_card(
+                service.connection,
+                "base1-4",
+                pricing_mode=RAW_PRICING_MODE,
+            )
+            payload = service._candidate_payload(
+                candidate,
+                pricing_context=service._raw_pricing_context(),
+                trigger_source="scan_match_raw",
+            )
+        finally:
+            service.connection.close()
+
+        self.assertIsNone(snapshot)
+        self.assertEqual(payload["id"], "base1-4")
+        self.assertIsNone(payload.get("pricing"))
+
     def test_hydrate_raw_candidate_pricing_refreshes_only_missing_or_stale_candidates_up_to_budget(self) -> None:
         upsert_card(
             self.connection,

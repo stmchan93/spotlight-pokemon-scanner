@@ -11,6 +11,7 @@ Date: 2026-04-13
 - The current backend latency / network-call refactor pre-implementation source of truth is [docs/backend-latency-refactor-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/backend-latency-refactor-spec-2026-04-10.md).
 - The current OCR rewrite / rollout source of truth is [docs/ocr-architecture-rewrite-spec-2026-04-09.md](/Users/stephenchan/Code/spotlight/docs/ocr-architecture-rewrite-spec-2026-04-09.md).
 - The earlier OCR simplification / performance implementation record is [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
+- The low-risk fallback OCR cost-control execution checklist is [docs/fallback-ocr-cost-control-checklist-2026-04-17.md](/Users/stephenchan/Code/spotlight/docs/fallback-ocr-cost-control-checklist-2026-04-17.md).
 - The current slab rebuild implementation source of truth is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
 - The current inventory / ledger / portfolio source of truth is [docs/inventory-portfolio-selling-spec-2026-04-15.md](/Users/stephenchan/Code/spotlight/docs/inventory-portfolio-selling-spec-2026-04-15.md).
 - The current app design-system scaffold and migration source of truth is [docs/looty-ui-design-system-plan-2026-04-16.md](/Users/stephenchan/Code/spotlight/docs/looty-ui-design-system-plan-2026-04-16.md).

@@ -19,6 +19,12 @@ struct RawPipelineTimingArtifact: Codable {
     let totalMs: Double
     let fastRejectReason: String?
     let passTimings: [RawOCRPassTimingArtifact]
+    let stage2WideHeaderSkippedAfterLowered: Bool?
+    let stage2DecisionReasons: [String]
+    let stage2CandidatePassLabels: [String]
+    let stage2ExecutedPassLabels: [String]
+    let stage2LoweredMs: Double?
+    let stage2RemainingMs: Double?
 }
 
 struct RawPipelineDebugSnapshot {
@@ -149,7 +155,13 @@ actor RawPipeline {
                 synthesisMs: synthesisMs,
                 totalMs: (Date().timeIntervalSinceReferenceDate - pipelineStartedAt) * 1000,
                 fastRejectReason: "target_selection_small_card_fast_reject",
-                passTimings: []
+                passTimings: [],
+                stage2WideHeaderSkippedAfterLowered: nil,
+                stage2DecisionReasons: [],
+                stage2CandidatePassLabels: [],
+                stage2ExecutedPassLabels: [],
+                stage2LoweredMs: nil,
+                stage2RemainingMs: nil
             )
             let analyzedCapture = AnalyzedCapture(
                 scanID: scanID,
@@ -243,8 +255,39 @@ actor RawPipeline {
         let stage2StartedAt = Date().timeIntervalSinceReferenceDate
         var stage2Plans: [RawROIPlanItem] = []
         var stage2PassResults: [RawOCRPassResult] = []
+        var stage2WideHeaderSkippedAfterLowered: Bool?
+        var stage2DecisionReasons: [String] = []
+        let stage2CandidatePassLabels = stage2CandidatePlans.map(\.label)
+        var stage2ExecutedPassLabels: [String] = []
+        var stage2LoweredMs: Double?
+        var stage2RemainingMs: Double?
         if !stage2CandidatePlans.isEmpty {
-            if sceneTraits.isExactReticleFallback,
+            if !sceneTraits.isExactReticleFallback {
+                let wideHeaderDecision = confidenceModel.wideHeaderDecisionBeforeFullPass(
+                    sceneTraits: sceneTraits,
+                    stage1Assessment: stage1Assessment
+                )
+                stage2DecisionReasons = wideHeaderDecision.reasons
+                print(
+                    "⏱️ [OCR GATE] "
+                    + "scanID=\(scanID.uuidString) "
+                    + "skipWideHeader=\(wideHeaderDecision.shouldSkipWidePass ? "yes" : "no") "
+                    + "reasons=\(wideHeaderDecision.reasons) "
+                    + "collectorExact=\(quotedStage2DecisionField(stage1Assessment.collectorNumberExact)) "
+                    + "setHints=\(stage1Assessment.setHintTokens) "
+                    + "targetQuality=\(String(format: "%.2f", sceneTraits.targetQualityScore))"
+                )
+
+                if !wideHeaderDecision.shouldSkipWidePass {
+                    stage2Plans = stage2CandidatePlans
+                    stage2PassResults = try await passRunner.run(
+                        scanID: scanID,
+                        in: workingCGImage,
+                        plans: stage2Plans
+                    )
+                    stage2ExecutedPassLabels = stage2Plans.map(\.label)
+                }
+            } else if sceneTraits.isExactReticleFallback,
                let loweredIndex = stage2CandidatePlans.firstIndex(where: { $0.label == "12_raw_header_wide_lowered" }) {
                 let loweredPlan = stage2CandidatePlans[loweredIndex]
                 let loweredPassBatch = try await passRunner.run(
@@ -254,12 +297,29 @@ actor RawPipeline {
                 )
                 stage2Plans.append(loweredPlan)
                 stage2PassResults.append(contentsOf: loweredPassBatch)
+                stage2ExecutedPassLabels = stage2Plans.map(\.label)
+                stage2LoweredMs = loweredPassBatch.reduce(0) { $0 + $1.durationMs }
 
-                if !confidenceModel.shouldSkipWideHeaderPassAfterLowered(
+                let wideHeaderDecision = confidenceModel.wideHeaderDecisionAfterLowered(
                     passResults: loweredPassBatch,
                     sceneTraits: sceneTraits,
                     stage1Assessment: stage1Assessment
-                ) {
+                )
+                stage2WideHeaderSkippedAfterLowered = wideHeaderDecision.shouldSkipWidePass
+                stage2DecisionReasons = wideHeaderDecision.reasons
+                print(
+                    "⏱️ [OCR GATE] "
+                    + "scanID=\(scanID.uuidString) "
+                    + "skipWideHeader=\(wideHeaderDecision.shouldSkipWidePass ? "yes" : "no") "
+                    + "reasons=\(wideHeaderDecision.reasons) "
+                    + "title=\(quotedStage2DecisionField(wideHeaderDecision.titleTextPrimary)) "
+                    + "titleScore=\(String(format: "%.2f", wideHeaderDecision.titleConfidenceScore)) "
+                    + "titleLength=\(wideHeaderDecision.titleLength) "
+                    + "collectorExact=\(quotedStage2DecisionField(stage1Assessment.collectorNumberExact)) "
+                    + "targetQuality=\(String(format: "%.2f", sceneTraits.targetQualityScore))"
+                )
+
+                if !wideHeaderDecision.shouldSkipWidePass {
                     let remainingPlans = stage2CandidatePlans.enumerated()
                         .filter { $0.offset != loweredIndex }
                         .map(\.element)
@@ -271,6 +331,8 @@ actor RawPipeline {
                         )
                         stage2Plans.append(contentsOf: remainingPlans)
                         stage2PassResults.append(contentsOf: remainingPassBatch)
+                        stage2ExecutedPassLabels = stage2Plans.map(\.label)
+                        stage2RemainingMs = remainingPassBatch.reduce(0) { $0 + $1.durationMs }
                     }
                 }
             } else {
@@ -280,9 +342,21 @@ actor RawPipeline {
                     in: workingCGImage,
                     plans: stage2Plans
                 )
+                stage2ExecutedPassLabels = stage2Plans.map(\.label)
             }
         }
         let stage2Ms = stage2Plans.isEmpty ? 0 : (Date().timeIntervalSinceReferenceDate - stage2StartedAt) * 1000
+        if !stage2CandidatePassLabels.isEmpty {
+            print(
+                "⏱️ [OCR GATE] "
+                + "scanID=\(scanID.uuidString) "
+                + "candidatePasses=\(stage2CandidatePassLabels) "
+                + "executedPasses=\(stage2ExecutedPassLabels) "
+                + "loweredMs=\(formattedOCRGateMs(stage2LoweredMs)) "
+                + "remainingMs=\(formattedOCRGateMs(stage2RemainingMs)) "
+                + "stage2TotalMs=\(Int(stage2Ms.rounded()))"
+            )
+        }
         let allPassResults = stage1PassResults + stage2PassResults
         let synthesisStartedAt = Date().timeIntervalSinceReferenceDate
         let synthesized = synthesizer.synthesize(
@@ -314,7 +388,13 @@ actor RawPipeline {
                     usedAggressiveRetry: result.usedAggressiveRetry,
                     tokenCount: result.tokens.count
                 )
-            }
+            },
+            stage2WideHeaderSkippedAfterLowered: stage2WideHeaderSkippedAfterLowered,
+            stage2DecisionReasons: stage2DecisionReasons,
+            stage2CandidatePassLabels: stage2CandidatePassLabels,
+            stage2ExecutedPassLabels: stage2ExecutedPassLabels,
+            stage2LoweredMs: stage2LoweredMs,
+            stage2RemainingMs: stage2RemainingMs
         )
 
         let analyzedCapture = AnalyzedCapture(
@@ -382,7 +462,12 @@ extension RawPipeline {
             + "stage2Ms=\(Int(timings.stage2Ms.rounded())) "
             + "synthesisMs=\(Int(timings.synthesisMs.rounded())) "
             + "totalMs=\(Int(timings.totalMs.rounded())) "
-            + "fastReject=\(timings.fastRejectReason ?? "none")"
+            + "fastReject=\(timings.fastRejectReason ?? "none") "
+            + "stage2SkipWideHeader=\(timings.stage2WideHeaderSkippedAfterLowered.map { $0 ? "yes" : "no" } ?? "n/a") "
+            + "stage2CandidatePasses=\(timings.stage2CandidatePassLabels) "
+            + "stage2ExecutedPasses=\(timings.stage2ExecutedPassLabels) "
+            + "stage2LoweredMs=\(formattedOCRGateMs(timings.stage2LoweredMs)) "
+            + "stage2RemainingMs=\(formattedOCRGateMs(timings.stage2RemainingMs))"
         )
 
         if !timings.passTimings.isEmpty {
@@ -394,10 +479,23 @@ extension RawPipeline {
                 .joined(separator: ", ")
             print("⏱️ [OCR PERF] passes=\(passSummary)")
         }
+        if !timings.stage2DecisionReasons.isEmpty {
+            print("⏱️ [OCR PERF] stage2DecisionReasons=\(timings.stage2DecisionReasons)")
+        }
     }
 }
 
 func shouldFastRejectWeakRawTargetSelection(_ targetSelection: OCRTargetSelectionResult) -> Bool {
     _ = targetSelection
     return false
+}
+
+private func quotedStage2DecisionField(_ value: String?) -> String {
+    guard let value, !value.isEmpty else { return "\"\"" }
+    return "\"\(value)\""
+}
+
+private func formattedOCRGateMs(_ value: Double?) -> String {
+    guard let value else { return "n/a" }
+    return String(Int(value.rounded()))
 }

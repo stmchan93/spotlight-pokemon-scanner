@@ -66,6 +66,13 @@ private struct RawFooterLayoutRuntimeSummary: Codable {
     let setConfidenceReasons: [String]
     let footerRouting: RawFooterRoutingContext
     let stage1AssessmentReasons: [String]
+    let stage2WideHeaderSkippedAfterLowered: Bool?
+    let stage2DecisionReasons: [String]
+    let stage2CandidatePassLabels: [String]
+    let stage2ExecutedPassLabels: [String]
+    let stage2LoweredMs: Double?
+    let stage2RemainingMs: Double?
+    let stage2TotalMs: Double
     let passSummaries: [RawFooterLayoutRuntimePassSummary]
     let warnings: [String]
 }
@@ -734,6 +741,13 @@ final class OCRRewriteStage2FixtureTests: XCTestCase {
             setConfidenceReasons: rawEvidence?.setConfidence?.reasons ?? [],
             footerRouting: debugSnapshot.footerRouting,
             stage1AssessmentReasons: debugSnapshot.stage1Assessment.reasons,
+            stage2WideHeaderSkippedAfterLowered: debugSnapshot.timings.stage2WideHeaderSkippedAfterLowered,
+            stage2DecisionReasons: debugSnapshot.timings.stage2DecisionReasons,
+            stage2CandidatePassLabels: debugSnapshot.timings.stage2CandidatePassLabels,
+            stage2ExecutedPassLabels: debugSnapshot.timings.stage2ExecutedPassLabels,
+            stage2LoweredMs: debugSnapshot.timings.stage2LoweredMs,
+            stage2RemainingMs: debugSnapshot.timings.stage2RemainingMs,
+            stage2TotalMs: debugSnapshot.timings.stage2Ms,
             passSummaries: debugSnapshot.allPassResults.map { result in
                 RawFooterLayoutRuntimePassSummary(
                     label: result.label,

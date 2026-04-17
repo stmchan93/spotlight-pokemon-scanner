@@ -116,7 +116,7 @@ actor RawOCRPassRunner {
         )
 
         if tokens.isEmpty,
-           shouldRetryAggressiveFooterOCR(for: plan),
+           plan.shouldRetryAggressively,
            let aggressivelyPreprocessed = preprocessAggressivelyForFooterOCR(regionImage),
            let aggressivelyUpscaled = upscale(
                 aggressivelyPreprocessed,
@@ -131,7 +131,7 @@ actor RawOCRPassRunner {
                 )
             }
 
-            for languages in aggressiveRecognitionLanguageAttempts(for: plan) {
+            for languages in plan.aggressiveRetryLanguageAttempts {
                 recognitionRequestCount += 1
                 let aggressiveTokens = try recognizeTokens(
                     in: aggressivelyUpscaled,
@@ -299,28 +299,6 @@ actor RawOCRPassRunner {
 
         let context = CIContext(options: [.useSoftwareRenderer: false])
         return context.createCGImage(sharpened, from: sharpened.extent)
-    }
-
-    private func shouldRetryAggressiveFooterOCR(for plan: RawROIPlanItem) -> Bool {
-        switch plan.kind {
-        case .footerBandWide, .footerLeft, .footerRight, .footerMetadata:
-            return true
-        case .headerWide:
-            return false
-        }
-    }
-
-    private func aggressiveRecognitionLanguageAttempts(for plan: RawROIPlanItem) -> [[String]] {
-        switch plan.kind {
-        case .footerBandWide, .footerLeft, .footerRight, .footerMetadata:
-            return [
-                ["en-US"],
-                ["ja-JP"],
-                plan.recognitionLanguages
-            ]
-        case .headerWide:
-            return [plan.recognitionLanguages]
-        }
     }
 
     private func preferredRecognizedTextCandidate(

@@ -39,6 +39,14 @@ struct RawEvidenceConfidenceSummary: Codable, Hashable, Sendable {
     let overallScore: Double
 }
 
+struct RawWideHeaderDecision: Codable, Hashable, Sendable {
+    let shouldSkipWidePass: Bool
+    let reasons: [String]
+    let titleTextPrimary: String?
+    let titleConfidenceScore: Double
+    let titleLength: Int
+}
+
 struct RawConfidenceModel {
     private enum SetHintMatchKind: String, Codable, Hashable, Sendable {
         case exact
@@ -175,22 +183,103 @@ struct RawConfidenceModel {
         sceneTraits: RawSceneTraits,
         stage1Assessment: RawStageAssessment
     ) -> Bool {
-        guard sceneTraits.isExactReticleFallback else { return false }
+        wideHeaderDecisionAfterLowered(
+            passResults: passResults,
+            sceneTraits: sceneTraits,
+            stage1Assessment: stage1Assessment
+        ).shouldSkipWidePass
+    }
 
-        let loweredPassResults = passResults.filter { $0.label == "12_raw_header_wide_lowered" }
-        guard !loweredPassResults.isEmpty else { return false }
-
-        let title = resolveTitleEvidence(from: loweredPassResults)
-        let titleText = title.primaryText ?? ""
-        let titleScore = title.confidence?.score ?? 0
-        let titleLength = titleText.count
-
-        if stage1Assessment.setHintTokens.isEmpty, containsJapaneseText(titleText) {
-            return false
+    func wideHeaderDecisionBeforeFullPass(
+        sceneTraits: RawSceneTraits,
+        stage1Assessment: RawStageAssessment
+    ) -> RawWideHeaderDecision {
+        guard !sceneTraits.isExactReticleFallback else {
+            return RawWideHeaderDecision(
+                shouldSkipWidePass: false,
+                reasons: ["exact_reticle_fallback_requires_lowered_probe"],
+                titleTextPrimary: nil,
+                titleConfidenceScore: 0,
+                titleLength: 0
+            )
         }
 
-        return titleScore >= tuning.minimumTitleConfidenceForStrongSignal &&
-            titleLength >= tuning.minimumTitleLengthForStrongSignal
+        if sceneTraits.holderLikely {
+            return RawWideHeaderDecision(
+                shouldSkipWidePass: false,
+                reasons: ["holder_scene_keeps_full_header"],
+                titleTextPrimary: nil,
+                titleConfidenceScore: 0,
+                titleLength: 0
+            )
+        }
+
+        if stage1Assessment.collectorNumberExact != nil {
+            return RawWideHeaderDecision(
+                shouldSkipWidePass: false,
+                reasons: ["stage1_exact_collector_keeps_full_header"],
+                titleTextPrimary: nil,
+                titleConfidenceScore: 0,
+                titleLength: 0
+            )
+        }
+
+        if !stage1Assessment.setHintTokens.isEmpty {
+            return RawWideHeaderDecision(
+                shouldSkipWidePass: false,
+                reasons: ["stage1_set_hint_keeps_full_header"],
+                titleTextPrimary: nil,
+                titleConfidenceScore: 0,
+                titleLength: 0
+            )
+        }
+
+        return RawWideHeaderDecision(
+            shouldSkipWidePass: false,
+            reasons: ["nonfallback_keeps_full_header"],
+            titleTextPrimary: nil,
+            titleConfidenceScore: 0,
+            titleLength: 0
+        )
+    }
+
+    func wideHeaderDecisionAfterLowered(
+        passResults: [RawOCRPassResult],
+        sceneTraits: RawSceneTraits,
+        stage1Assessment: RawStageAssessment
+    ) -> RawWideHeaderDecision {
+        guard sceneTraits.isExactReticleFallback else {
+            return RawWideHeaderDecision(
+                shouldSkipWidePass: false,
+                reasons: ["non_exact_reticle_fallback"],
+                titleTextPrimary: nil,
+                titleConfidenceScore: 0,
+                titleLength: 0
+            )
+        }
+
+        let loweredPassResults = passResults.filter { $0.label == "12_raw_header_wide_lowered" }
+        guard !loweredPassResults.isEmpty else {
+            return RawWideHeaderDecision(
+                shouldSkipWidePass: false,
+                reasons: ["lowered_header_missing"],
+                titleTextPrimary: nil,
+                titleConfidenceScore: 0,
+                titleLength: 0
+            )
+        }
+
+        let title = resolveTitleEvidence(from: loweredPassResults)
+        let titleScore = title.confidence?.score ?? 0
+        let titleLength = (title.primaryText ?? "").count
+
+        return RawWideHeaderDecision(
+            shouldSkipWidePass: false,
+            reasons: ["fallback_keeps_full_header_for_accuracy"],
+            titleTextPrimary: title.primaryText,
+            titleConfidenceScore: titleScore,
+            titleLength: titleLength
+        )
     }
 
     func shouldRetryWithStillPhoto(
@@ -843,17 +932,6 @@ struct RawConfidenceModel {
         let union = headerTokens.union(nameplateTokens)
         guard !union.isEmpty else { return nil }
         return Double(overlap.count) / Double(union.count)
-    }
-
-    private func containsJapaneseText(_ text: String) -> Bool {
-        text.unicodeScalars.contains { scalar in
-            switch scalar.value {
-            case 0x3040...0x30FF, 0x3400...0x4DBF, 0x4E00...0x9FFF, 0xFF66...0xFF9F:
-                return true
-            default:
-                return false
-            }
-        }
     }
 
     private func normalizedCollectorIdentifier(_ value: String?) -> String {

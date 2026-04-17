@@ -873,6 +873,7 @@ class SpotlightScanService:
             for entry in recent_entries
         ]
         server_processing_ms = max(0.0, (perf_counter() - started_at) * 1000.0)
+        matching_stage = str(response.get("matchingStage") or "").strip() or "unknown"
         response["performance"] = {
             "serverProcessingMs": round(server_processing_ms, 3),
             "scrydexRequestCount": delta,
@@ -882,6 +883,11 @@ class SpotlightScanService:
         phase_timings = visual_hybrid_debug.get("phaseTimings") or {}
         matcher_timings = visual_hybrid_debug.get("timings") or {}
         backend_timings = response.get("backendTimingDebug") or {}
+        backend_timing_summary = {
+            key: round(float(value), 3)
+            for key, value in backend_timings.items()
+            if isinstance(value, (int, float))
+        }
         if phase_timings or matcher_timings:
             response["performance"]["phaseTimings"] = phase_timings
             response["performance"]["matcherTimings"] = matcher_timings
@@ -890,6 +896,7 @@ class SpotlightScanService:
         print(
             "[MATCH PERF] "
             f"scan={scan_id} "
+            f"stage={matching_stage} "
             f"resolverPath={response.get('resolverPath') or 'unknown'} "
             f"confidence={response.get('confidence') or 'unknown'} "
             f"serverMs={server_processing_ms:.1f} "
@@ -897,6 +904,13 @@ class SpotlightScanService:
             f"types={types or ['none']} "
             f"details={details or []}"
         )
+        if backend_timing_summary:
+            print(
+                "[MATCH PERF TIMING] "
+                f"scan={scan_id} "
+                f"stage={matching_stage} "
+                f"backend={backend_timing_summary}"
+            )
         if phase_timings or matcher_timings or backend_timings:
             print(
                 "[MATCH PERF DETAIL] "
@@ -3840,6 +3854,19 @@ class SpotlightScanService:
             return True
         return False
 
+    @staticmethod
+    def _has_meaningful_local_ocr_rescue_signal(evidence: RawEvidence) -> bool:
+        return any(
+            [
+                bool(str(evidence.title_text_primary or "").strip()),
+                bool(str(evidence.title_text_secondary or "").strip()),
+                bool(str(evidence.collector_number_exact or "").strip()),
+                bool(str(evidence.collector_number_partial or "").strip()),
+                bool(evidence.trusted_set_hint_tokens),
+                bool(evidence.set_hint_tokens),
+            ]
+        )
+
     @classmethod
     def _visual_hybrid_top_k(
         cls,
@@ -4402,11 +4429,21 @@ class SpotlightScanService:
         refresh_pricing_if_stale: bool = False,
         refresh_pricing_if_missing: bool = False,
         force_show_mode_refresh: bool = False,
+        card_show_mode_active: bool | None = None,
+        timing_output: dict[str, float] | None = None,
     ) -> dict[str, Any]:
+        candidate_started_at = perf_counter()
+        ensure_cached_started_at = perf_counter()
         resolved_card = self._ensure_raw_card_cached(card, trigger_source) if ensure_cached else card
+        ensure_cached_ms = (perf_counter() - ensure_cached_started_at) * 1000.0
         card_id = str(resolved_card.get("id") or "").strip()
+        pricing_lookup_started_at = perf_counter()
         pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context) if card_id else None
-        card_show_mode_active = self._card_show_mode_active()
+        pricing_lookup_ms = (perf_counter() - pricing_lookup_started_at) * 1000.0
+        pricing_refresh_ms = 0.0
+        candidate_build_started_at = perf_counter()
+        if card_show_mode_active is None:
+            card_show_mode_active = self._card_show_mode_active()
         pricing_missing = pricing is None
         pricing_stale = pricing is not None and not self._pricing_within_live_refresh_window(pricing)
         should_force_show_mode_refresh = card_show_mode_active and force_show_mode_refresh
@@ -4421,19 +4458,33 @@ class SpotlightScanService:
         )
 
         if should_refresh:
+            refresh_started_at = perf_counter()
             refreshed_detail = self._refresh_card_pricing_for_context(
                 card_id,
                 pricing_context=pricing_context,
                 api_key=api_key,
                 force_refresh=should_force_show_mode_refresh,
             )
+            pricing_refresh_ms = (perf_counter() - refresh_started_at) * 1000.0
             pricing = ((refreshed_detail or {}).get("card", {}) or {}).get("pricing") if isinstance(refreshed_detail, dict) else None
             if pricing is None:
+                fallback_started_at = perf_counter()
                 pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
+                pricing_lookup_ms += (perf_counter() - fallback_started_at) * 1000.0
 
         candidate = self._candidate_base_payload(resolved_card, card)
         if pricing is not None:
             candidate["pricing"] = pricing
+        if timing_output is not None:
+            timing_output.update(
+                {
+                    "ensureCachedMs": round(ensure_cached_ms, 3),
+                    "pricingLookupMs": round(pricing_lookup_ms, 3),
+                    "pricingRefreshMs": round(pricing_refresh_ms, 3),
+                    "candidateBuildMs": round((perf_counter() - candidate_build_started_at) * 1000.0, 3),
+                    "candidatePayloadMs": round((perf_counter() - candidate_started_at) * 1000.0, 3),
+                }
+            )
         return candidate
 
     def _scan_candidate_pricing_policy(
@@ -4467,10 +4518,14 @@ class SpotlightScanService:
         encoded_candidates: list[dict[str, Any]] = []
         scored_candidates: list[dict[str, Any]] = []
         candidate_timings: list[dict[str, Any]] = []
+        candidate_hydration_ms = 0.0
+        candidate_hydration_max_ms = 0.0
+        card_show_mode_active = self._card_show_mode_active()
 
         for index, item in enumerate(items[:pricing_policy.limit], start=1):
             pricing_rule = pricing_policy.rule_for_rank(index)
             candidate_started_at = perf_counter()
+            candidate_timing: dict[str, float] = {}
             candidate_payload = self._candidate_payload(
                 item.card,
                 pricing_context=pricing_context,
@@ -4480,7 +4535,12 @@ class SpotlightScanService:
                 refresh_pricing_if_stale=pricing_rule.refresh_stale,
                 refresh_pricing_if_missing=pricing_rule.refresh_missing,
                 force_show_mode_refresh=pricing_rule.force_show_mode_refresh,
+                card_show_mode_active=card_show_mode_active,
+                timing_output=candidate_timing,
             )
+            candidate_payload_ms = float(candidate_timing.get("candidatePayloadMs") or (perf_counter() - candidate_started_at) * 1000.0)
+            candidate_hydration_ms += candidate_payload_ms
+            candidate_hydration_max_ms = max(candidate_hydration_max_ms, candidate_payload_ms)
             scored_entry = {
                 "card": item.card,
                 "candidate": candidate_payload,
@@ -4508,6 +4568,11 @@ class SpotlightScanService:
                     "refreshStale": pricing_rule.refresh_stale,
                     "refreshMissing": pricing_rule.refresh_missing,
                     "forceShowModeRefresh": pricing_rule.force_show_mode_refresh,
+                    "ensureCachedMs": candidate_timing.get("ensureCachedMs"),
+                    "pricingLookupMs": candidate_timing.get("pricingLookupMs"),
+                    "pricingRefreshMs": candidate_timing.get("pricingRefreshMs"),
+                    "candidateBuildMs": candidate_timing.get("candidateBuildMs"),
+                    "candidatePayloadMs": candidate_timing.get("candidatePayloadMs"),
                     "totalMs": round((perf_counter() - candidate_started_at) * 1000.0, 3),
                 }
             )
@@ -4517,6 +4582,9 @@ class SpotlightScanService:
             scored_candidates,
             {
                 "candidateEncodeMs": round((perf_counter() - encode_started_at) * 1000.0, 3),
+                "candidateHydrationMs": round(candidate_hydration_ms, 3),
+                "candidateHydrationMaxMs": round(candidate_hydration_max_ms, 3),
+                "candidateHydrationCount": len(candidate_timings),
                 "encodedCandidateCount": len(encoded_candidates),
                 "candidateTimings": candidate_timings,
             },
@@ -4573,6 +4641,7 @@ class SpotlightScanService:
             response["ambiguityDebug"] = decision.debug_payload.get("ambiguity")
             self._record_backend_timing(
                 response,
+                responseAssemblyMs=(perf_counter() - response_build_started_at) * 1000.0,
                 responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
             )
             return response, []
@@ -4619,12 +4688,17 @@ class SpotlightScanService:
             "reviewReason": decision.review_reason,
             "rawDecisionDebug": decision.debug_payload,
         }
+        response_assembly_ms = (perf_counter() - response_build_started_at) * 1000.0
         self._record_backend_timing(
             response,
             candidateEncodeMs=encode_debug.get("candidateEncodeMs"),
+            candidateHydrationMs=encode_debug.get("candidateHydrationMs"),
+            candidateHydrationMaxMs=encode_debug.get("candidateHydrationMaxMs"),
+            candidateHydrationCount=encode_debug.get("candidateHydrationCount"),
             encodedCandidateCount=encode_debug.get("encodedCandidateCount"),
             candidateTimings=encode_debug.get("candidateTimings"),
-            responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
+            responseAssemblyMs=response_assembly_ms,
+            responseBuildMs=response_assembly_ms,
         )
         return response, scored_candidates
 
@@ -4777,19 +4851,28 @@ class SpotlightScanService:
             }
             for match, summary in zip(matches, visual_matches, strict=True)
         ]
-        used_local_ocr_rescue = self._should_expand_visual_hybrid_pool(payload, evidence)
+        expand_visual_pool = self._should_expand_visual_hybrid_pool(payload, evidence)
+        used_local_ocr_rescue = expand_visual_pool and self._has_meaningful_local_ocr_rescue_signal(evidence)
         local_ocr_candidates: list[dict[str, Any]] = []
+        local_ocr_rescue_ms = 0.0
+        candidate_merge_ms = 0.0
         if used_local_ocr_rescue:
+            local_ocr_rescue_started_at = perf_counter()
             local_ocr_candidates = self._search_local_visual_manifest_ocr_candidates(
                 evidence,
                 signals,
                 limit=24,
             )
+            local_ocr_rescue_ms = (perf_counter() - local_ocr_rescue_started_at) * 1000.0
             if local_ocr_candidates:
+                merge_started_at = perf_counter()
                 visual_candidates = merge_raw_candidate_pools([visual_candidates, local_ocr_candidates])
+                candidate_merge_ms = (perf_counter() - merge_started_at) * 1000.0
 
-        rerank_started_at = perf_counter()
+        decision_started_at = perf_counter()
         ranked_matches, weights = rank_visual_hybrid_candidates(visual_candidates, evidence, signals)
+        decision_rank_ms = (perf_counter() - decision_started_at) * 1000.0
+        finalize_started_at = perf_counter()
         decision = finalize_raw_decision(ranked_matches, evidence, signals)
         if self._should_fail_closed_for_retake(payload, evidence, signals, decision):
             decision = RawDecisionResult(
@@ -4812,7 +4895,8 @@ class SpotlightScanService:
                 selected_card_id=None,
                 debug_payload=decision.debug_payload,
             )
-        rerank_decision_ms = (perf_counter() - rerank_started_at) * 1000.0
+        decision_finalize_ms = (perf_counter() - finalize_started_at) * 1000.0
+        rerank_decision_ms = decision_rank_ms + decision_finalize_ms
         top_matches_debug = [
             {
                 "id": match.card.get("id"),
@@ -4864,6 +4948,9 @@ class SpotlightScanService:
                 "requestedTopK": requested_top_k,
                 "retrievalStrategy": "fallback_local_rescue" if used_local_ocr_rescue else "standard_visual_hybrid",
                 "visualPhaseSource": visual_phase_source,
+                "localOCRRescueEligible": expand_visual_pool,
+                "localOCRRescueUsed": used_local_ocr_rescue,
+                "localOCRRescueSkippedReason": "weak_ocr_signal" if expand_visual_pool and not used_local_ocr_rescue else None,
                 "localOCRCandidateCount": len(local_ocr_candidates),
                 "localOCRCandidates": [
                     {
@@ -4883,6 +4970,10 @@ class SpotlightScanService:
                 "phaseTimings": {
                     "buildRawEvidenceMs": round(evidence_ms, 3),
                     "visualMatchMs": round(float(visual_match_ms or 0.0), 3),
+                    "localOCRRescueMs": round(local_ocr_rescue_ms, 3),
+                    "candidateMergeMs": round(candidate_merge_ms, 3),
+                    "decisionRankMs": round(decision_rank_ms, 3),
+                    "decisionFinalizeMs": round(decision_finalize_ms, 3),
                     "badgeMatchMs": round(badge_match_ms, 3),
                     "rerankDecisionMs": round(rerank_decision_ms, 3),
                 },
@@ -7404,6 +7495,15 @@ def main() -> None:
     )
 
     SpotlightRequestHandler.service = SpotlightScanService(database_path, repo_root)
+    startup_visual_runtime = SpotlightRequestHandler.service._prewarm_raw_visual_runtime()
+    SpotlightRequestHandler.service._emit_structured_log(
+        {
+            "severity": "INFO",
+            "event": "visual_runtime_prewarm",
+            "source": "startup",
+            **startup_visual_runtime,
+        }
+    )
     server = HTTPServer((config.host, config.port), SpotlightRequestHandler)
     print(f"Looty scan service listening on http://{config.host}:{config.port}", flush=True)
     try:

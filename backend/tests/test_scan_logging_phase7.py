@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from time import perf_counter
 from unittest.mock import patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -22,7 +23,7 @@ from scan_artifact_store import (  # noqa: E402
     SCAN_ARTIFACTS_STORAGE_ENV,
     build_scan_artifact_store,
 )
-from server import SpotlightScanService  # noqa: E402
+from server import CandidateEncodingItem, PricingLoadPolicy, SpotlightScanService  # noqa: E402
 
 
 class FakeGCSBlob:
@@ -200,6 +201,117 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         ).fetchall()
         self.assertEqual([(row["rank"], row["card_id"]) for row in candidate_rows], [(1, "obf-223")])
         self.assertEqual([(row["rank"], row["card_id"]) for row in price_rows], [(1, "obf-223")])
+
+    def test_encode_top_candidates_caches_show_mode_lookup_and_exposes_hydration_timings(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_card_price_summary(
+            self.service.connection,
+            card_id="gym1-60",
+            source="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=1.0,
+            market_price=2.5,
+            mid_price=2.0,
+            high_price=3.0,
+            direct_low_price=1.5,
+            trend_price=2.25,
+            source_updated_at="2026-04-14T19:00:00Z",
+            source_url="https://prices.example/gym1-60",
+            payload={"source": "scrydex"},
+        )
+        items = [
+            CandidateEncodingItem(
+                card={"id": "gym1-60", "name": "Sabrina's Slowbro"},
+                image_score=0.9,
+                collector_number_score=0.8,
+                name_score=0.7,
+                final_score=0.95,
+                reasons=("title_overlap",),
+            ),
+            CandidateEncodingItem(
+                card={"id": "gym1-60", "name": "Sabrina's Slowbro"},
+                image_score=0.8,
+                collector_number_score=0.7,
+                name_score=0.6,
+                final_score=0.85,
+                reasons=("collector_exact",),
+            ),
+        ]
+
+        with patch.object(self.service, "_card_show_mode_active", wraps=self.service._card_show_mode_active) as show_mode_mock:
+            encoded_candidates, scored_candidates, encode_debug = self.service._encode_top_candidates(
+                items,
+                pricing_context=self.service._raw_pricing_context(),
+                pricing_policy=PricingLoadPolicy.top_ten_cached_only(),
+                trigger_source="scan_match_raw",
+            )
+
+        self.assertEqual(show_mode_mock.call_count, 1)
+        self.assertEqual(len(encoded_candidates), 2)
+        self.assertEqual(len(scored_candidates), 2)
+        self.assertIn("candidateHydrationMs", encode_debug)
+        self.assertIn("candidateHydrationMaxMs", encode_debug)
+        self.assertEqual(encode_debug["candidateHydrationCount"], 2)
+        self.assertEqual(len(encode_debug["candidateTimings"]), 2)
+        self.assertIn("ensureCachedMs", encode_debug["candidateTimings"][0])
+        self.assertIn("pricingLookupMs", encode_debug["candidateTimings"][0])
+        self.assertIn("candidatePayloadMs", encode_debug["candidateTimings"][0])
+
+    def test_log_scrydex_match_usage_includes_cached_rerank_timing_summary(self) -> None:
+        response_payload = {
+            "scanID": "scan-phase7-rerank",
+            "confidence": "medium",
+            "resolverPath": "visual_hybrid_index",
+            "matchingStage": "reranked",
+            "rawDecisionDebug": {
+                "visualHybrid": {
+                    "phaseTimings": {
+                        "buildRawEvidenceMs": 4.25,
+                        "visualMatchMs": 87.5,
+                        "badgeMatchMs": 12.0,
+                        "rerankDecisionMs": 3.75,
+                    },
+                    "timings": {
+                        "imageDecodeMs": 5.0,
+                        "ensureRuntimeMs": 2.0,
+                        "embeddingMs": 8.5,
+                        "indexSearchMs": 9.0,
+                        "matchPayloadMs": 24.5,
+                    },
+                }
+            },
+            "backendTimingDebug": {
+                "cacheLookupMs": 1.25,
+                "cacheClearMs": 0.25,
+                "rerankResolveMs": 18.5,
+                "rerankServiceTotalMs": 20.0,
+                "candidateHydrationMs": 42.5,
+                "candidateHydrationMaxMs": 21.5,
+                "responseAssemblyMs": 4.0,
+            },
+        }
+
+        with (
+            patch("server.scrydex_request_stats_snapshot", return_value={"total": 9, "recent": []}),
+            patch("builtins.print") as print_mock,
+        ):
+            SpotlightScanService._log_scrydex_match_usage(  # noqa: SLF001
+                "scan-phase7-rerank",
+                before_total=9,
+                started_at=perf_counter(),
+                response=response_payload,
+            )
+
+        logged_lines = "\n".join(str(call.args[0]) for call in print_mock.call_args_list)
+        self.assertIn("[MATCH PERF] scan=scan-phase7-rerank stage=reranked", logged_lines)
+        self.assertIn("[MATCH PERF TIMING] scan=scan-phase7-rerank stage=reranked", logged_lines)
+        self.assertIn("cacheLookupMs", logged_lines)
+        self.assertIn("rerankResolveMs", logged_lines)
+        self.assertIn("candidateHydrationMs", logged_lines)
+        self.assertIn("responseAssemblyMs", logged_lines)
+        self.assertIn("backendTimings", response_payload["performance"])
+        self.assertEqual(response_payload["performance"]["scrydexRequestCount"], 0)
 
     def test_emit_structured_log_omits_sqlite_connection_repr(self) -> None:
         with patch("builtins.print") as print_mock:

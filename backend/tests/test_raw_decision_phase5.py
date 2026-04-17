@@ -5,6 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -142,6 +143,99 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         self.connection.close()
         self.tempdir.cleanup()
 
+    @staticmethod
+    def _logged_exact_fallback_payload(
+        *,
+        title_text_primary: str,
+        collector_number_exact: str,
+        crop_confidence: float = 0.58,
+    ) -> dict[str, object]:
+        payload = raw_payload(
+            title_text_primary=title_text_primary,
+            collector_number_exact=collector_number_exact,
+            crop_confidence=crop_confidence,
+        )
+        payload["ocrAnalysis"]["normalizedTarget"] = {
+            "usedFallback": True,
+            "targetQuality": {
+                "overallScore": crop_confidence,
+                "reasons": [
+                    "fallback",
+                    "normalization:exact_reticle_fallback",
+                ],
+            },
+        }
+        return payload
+
+    @staticmethod
+    def _visual_match_entry(
+        *,
+        card_id: str,
+        name: str,
+        number: str,
+        set_id: str,
+        set_name: str,
+        similarity: float,
+        set_series: str = "Test Series",
+        set_ptcgo_code: str | None = None,
+        language: str = "English",
+        source_payload: dict[str, object] | None = None,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            row_index=0,
+            similarity=similarity,
+            entry={
+                "providerCardId": card_id,
+                "name": name,
+                "collectorNumber": number,
+                "setId": set_id,
+                "setName": set_name,
+                "setSeries": set_series,
+                "setPtcgoCode": set_ptcgo_code or set_id.upper(),
+                "sourceProvider": "scrydex",
+                "sourceRecordID": card_id,
+                "imageUrl": f"https://images.example/{card_id}-large.png",
+                "language": language,
+                "sourcePayload": source_payload or {"id": card_id, "name": name},
+            },
+        )
+
+    def _logged_local_ocr_rescue_candidate(
+        self,
+        *,
+        card_id: str,
+        name: str,
+        number: str,
+        set_id: str,
+        set_name: str,
+        pseudo_similarity: float = 0.80,
+        resolution_score: float = 38.0,
+    ) -> dict[str, object]:
+        candidate = self.service._visual_candidate_stub(  # noqa: SLF001
+            {
+                "providerCardId": card_id,
+                "name": name,
+                "collectorNumber": number,
+                "setId": set_id,
+                "setName": set_name,
+                "setSeries": "Test Series",
+                "setPtcgoCode": set_id.upper(),
+                "sourceProvider": "scrydex",
+                "sourceRecordID": card_id,
+                "imageUrl": f"https://images.example/{card_id}-large.png",
+                "language": "English",
+                "sourcePayload": {"id": card_id, "name": name},
+            }
+        )
+        candidate["_visualSimilarity"] = pseudo_similarity
+        candidate["_visualSimilaritySource"] = "local_ocr_rescue"
+        candidate["_retrievalScoreHint"] = round(pseudo_similarity * 100.0, 4)
+        candidate["_cachePresence"] = False
+        candidate["_retrievalRoutes"] = ["local_visual_manifest_ocr"]
+        candidate["_ocrRescueReasons"] = ["collector_exact"]
+        candidate["_ocrRescueResolutionScore"] = resolution_score
+        return candidate
+
     def test_raw_match_scan_returns_best_candidate_when_footer_is_weak_but_title_and_set_are_strong(self) -> None:
         response = self.service.match_scan(
             raw_payload(
@@ -163,6 +257,260 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         payload = raw_payload(raw_resolver_mode=None)
 
         self.assertEqual(self.service._raw_resolver_strategy(payload), "hybrid")
+
+    def test_local_ocr_rescue_requires_meaningful_signal(self) -> None:
+        weak_evidence = build_raw_evidence(
+            raw_payload(
+                recognized_tokens=["5"],
+                crop_confidence=0.52,
+            )
+        )
+        strong_evidence = build_raw_evidence(
+            raw_payload(
+                title_text_primary="Slowpoke",
+                crop_confidence=0.52,
+            )
+        )
+
+        self.assertFalse(self.service._has_meaningful_local_ocr_rescue_signal(weak_evidence))  # noqa: SLF001
+        self.assertTrue(self.service._has_meaningful_local_ocr_rescue_signal(strong_evidence))  # noqa: SLF001
+
+    def test_local_ocr_rescue_stays_disabled_for_exact_fallback_when_only_denominator_noise_exists(self) -> None:
+        payload = raw_payload(
+            recognized_tokens=["5"],
+            crop_confidence=0.52,
+        )
+        payload["ocrAnalysis"]["normalizedTarget"] = {
+            "targetQuality": {
+                "reasons": ["normalization:exact_reticle_fallback"],
+            }
+        }
+        evidence = build_raw_evidence(payload)
+
+        self.assertTrue(self.service._should_expand_visual_hybrid_pool(payload, evidence))  # noqa: SLF001
+        self.assertFalse(self.service._has_meaningful_local_ocr_rescue_signal(evidence))  # noqa: SLF001
+
+    def test_visual_hybrid_logged_647d_keeps_same_number_visual_candidate_over_number_only_local_rescue(self) -> None:
+        for card in (
+            catalog_card(
+                card_id="m2a_ja-232",
+                name="Mega Dragonite ex",
+                set_name="MEGAドリームex",
+                number="232/193",
+                set_id="m2a_ja",
+                language="Japanese",
+            ),
+            catalog_card(
+                card_id="sv8a_ja-232",
+                name="Amarys",
+                set_name="テラスタルフェスex",
+                number="232/187",
+                set_id="sv8a_ja",
+                language="Japanese",
+            ),
+            catalog_card(
+                card_id="me2pt5-266",
+                name="Ethan's Ho-Oh ex",
+                set_name="Ascended Rivals",
+                number="266/182",
+                set_id="me2pt5",
+            ),
+        ):
+            upsert_catalog_card(self.connection, card, REPO_ROOT, "2026-04-17T03:01:49Z", refresh_embeddings=False)
+        self.connection.commit()
+
+        payload = self._logged_exact_fallback_payload(
+            title_text_primary="AOーEALRRく 1税 ガ",
+            collector_number_exact="232/193",
+        )
+        matches = [
+            self._visual_match_entry(
+                card_id="me2pt5-266",
+                name="Ethan's Ho-Oh ex",
+                number="266/182",
+                set_id="me2pt5",
+                set_name="Ascended Rivals",
+                similarity=0.84,
+            ),
+            self._visual_match_entry(
+                card_id="m2a_ja-232",
+                name="Mega Dragonite ex",
+                number="232/193",
+                set_id="m2a_ja",
+                set_name="MEGAドリームex",
+                similarity=0.61,
+                language="Japanese",
+            ),
+        ]
+        rescue_candidate = self._logged_local_ocr_rescue_candidate(
+            card_id="sv8a_ja-232",
+            name="Amarys",
+            number="232/187",
+            set_id="sv8a_ja",
+            set_name="テラスタルフェスex",
+            pseudo_similarity=0.80,
+        )
+
+        with patch.object(self.service, "_search_local_visual_manifest_ocr_candidates", return_value=[rescue_candidate]):
+            response = self.service._resolve_raw_candidates_visual_hybrid_from_matches(  # noqa: SLF001
+                payload,
+                matches=matches,
+                debug={"timings": {}},
+                requested_top_k=10,
+                visual_match_ms=125.0,
+                visual_phase_source="logged_regression_test",
+            )
+
+        self.assertEqual(response["resolverPath"], "visual_hybrid_index")
+        self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["retrievalStrategy"], "fallback_local_rescue")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "m2a_ja-232")
+        self.assertNotEqual(response["topCandidates"][0]["candidate"]["id"], "sv8a_ja-232")
+
+    def test_visual_hybrid_logged_c905_prefers_slowpoke_over_same_number_local_rescue(self) -> None:
+        for card in (
+            catalog_card(
+                card_id="sv1-204",
+                name="Slowpoke",
+                set_name="Scarlet & Violet",
+                number="204/198",
+                set_id="sv1",
+            ),
+            catalog_card(
+                card_id="swsh6-204",
+                name="Shadow Rider Calyrex VMAX",
+                set_name="Chilling Reign",
+                number="204/198",
+                set_id="swsh6",
+            ),
+            catalog_card(
+                card_id="sm12-269",
+                name="Misty & Lorelei",
+                set_name="Cosmic Eclipse",
+                number="269/236",
+                set_id="sm12",
+            ),
+        ):
+            upsert_catalog_card(self.connection, card, REPO_ROOT, "2026-04-17T03:02:39Z", refresh_embeddings=False)
+        self.connection.commit()
+
+        payload = self._logged_exact_fallback_payload(
+            title_text_primary="BASIC Slowpoke m70 T",
+            collector_number_exact="204/198",
+        )
+        matches = [
+            self._visual_match_entry(
+                card_id="sm12-269",
+                name="Misty & Lorelei",
+                number="269/236",
+                set_id="sm12",
+                set_name="Cosmic Eclipse",
+                similarity=0.84,
+            ),
+            self._visual_match_entry(
+                card_id="sv1-204",
+                name="Slowpoke",
+                number="204/198",
+                set_id="sv1",
+                set_name="Scarlet & Violet",
+                similarity=0.72,
+            ),
+        ]
+        rescue_candidate = self._logged_local_ocr_rescue_candidate(
+            card_id="swsh6-204",
+            name="Shadow Rider Calyrex VMAX",
+            number="204/198",
+            set_id="swsh6",
+            set_name="Chilling Reign",
+            pseudo_similarity=0.80,
+        )
+
+        with patch.object(self.service, "_search_local_visual_manifest_ocr_candidates", return_value=[rescue_candidate]):
+            response = self.service._resolve_raw_candidates_visual_hybrid_from_matches(  # noqa: SLF001
+                payload,
+                matches=matches,
+                debug={"timings": {}},
+                requested_top_k=10,
+                visual_match_ms=125.0,
+                visual_phase_source="logged_regression_test",
+            )
+
+        self.assertEqual(response["resolverPath"], "visual_hybrid_index")
+        self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["retrievalStrategy"], "fallback_local_rescue")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "sv1-204")
+        self.assertNotEqual(response["topCandidates"][0]["candidate"]["id"], "swsh6-204")
+
+    def test_visual_hybrid_logged_98804_prefers_magby_over_same_number_local_rescue(self) -> None:
+        for card in (
+            catalog_card(
+                card_id="sv4-186",
+                name="Magby",
+                set_name="Paradox Rift",
+                number="186/182",
+                set_id="sv4",
+            ),
+            catalog_card(
+                card_id="sv10-186",
+                name="Crustle",
+                set_name="Destined Rivals",
+                number="186/182",
+                set_id="sv10",
+            ),
+            catalog_card(
+                card_id="swshp-SWSH133",
+                name="Flareon",
+                set_name="SWSH Promos",
+                number="SWSH133",
+                set_id="swshp",
+            ),
+        ):
+            upsert_catalog_card(self.connection, card, REPO_ROOT, "2026-04-17T03:02:53Z", refresh_embeddings=False)
+        self.connection.commit()
+
+        payload = self._logged_exact_fallback_payload(
+            title_text_primary="BASIC Magby m30",
+            collector_number_exact="186/182",
+        )
+        matches = [
+            self._visual_match_entry(
+                card_id="swshp-SWSH133",
+                name="Flareon",
+                number="SWSH133",
+                set_id="swshp",
+                set_name="SWSH Promos",
+                similarity=0.83,
+            ),
+            self._visual_match_entry(
+                card_id="sv4-186",
+                name="Magby",
+                number="186/182",
+                set_id="sv4",
+                set_name="Paradox Rift",
+                similarity=0.71,
+            ),
+        ]
+        rescue_candidate = self._logged_local_ocr_rescue_candidate(
+            card_id="sv10-186",
+            name="Crustle",
+            number="186/182",
+            set_id="sv10",
+            set_name="Destined Rivals",
+            pseudo_similarity=0.80,
+        )
+
+        with patch.object(self.service, "_search_local_visual_manifest_ocr_candidates", return_value=[rescue_candidate]):
+            response = self.service._resolve_raw_candidates_visual_hybrid_from_matches(  # noqa: SLF001
+                payload,
+                matches=matches,
+                debug={"timings": {}},
+                requested_top_k=10,
+                visual_match_ms=125.0,
+                visual_phase_source="logged_regression_test",
+            )
+
+        self.assertEqual(response["resolverPath"], "visual_hybrid_index")
+        self.assertEqual(response["rawDecisionDebug"]["visualHybrid"]["retrievalStrategy"], "fallback_local_rescue")
+        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "sv4-186")
+        self.assertNotEqual(response["topCandidates"][0]["candidate"]["id"], "sv10-186")
 
     def test_footer_collector_reranks_between_same_name_candidates(self) -> None:
         response = self.service.match_scan(

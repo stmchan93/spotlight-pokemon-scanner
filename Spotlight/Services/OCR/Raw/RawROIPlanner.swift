@@ -89,6 +89,27 @@ struct RawROIPlanItem: Codable, Hashable, Sendable {
             height: normalizedRect.height
         )
     }
+
+    var shouldRetryAggressively: Bool {
+        switch kind {
+        case .footerBandWide:
+            return true
+        case .footerMetadata:
+            return footerRole == .collector
+        case .footerLeft, .footerRight:
+            return footerRole == .collector
+        case .headerWide:
+            return false
+        }
+    }
+
+    var aggressiveRetryLanguageAttempts: [[String]] {
+        guard shouldRetryAggressively else { return [] }
+        return [
+            ["en-US"],
+            ["ja-JP"]
+        ]
+    }
 }
 
 struct RawROIPlanner {
@@ -158,6 +179,7 @@ struct RawROIPlanner {
                     minimumTextHeight: 0.001,
                     upscaleFactor: 4.8,
                     preprocessing: footerNeedsBoost ? .contrastBoosted : .none,
+                    recognitionLevel: .fast,
                     usesLanguageCorrection: false,
                     recognitionLanguages: ["ja-JP", "en-US"],
                     footerFamily: family,
@@ -244,10 +266,10 @@ struct RawROIPlanner {
             label: label,
             normalizedRect: mapCardRelativeRect(rect, sceneTraits: sceneTraits),
             minimumTextHeight: 0.008,
-            upscaleFactor: isLoweredFallbackPass ? 1.8 : (sceneTraits.holderLikely ? 3.0 : 2.6),
+            upscaleFactor: isLoweredFallbackPass ? 2.2 : (sceneTraits.holderLikely ? 3.0 : 2.6),
             preprocessing: sceneTraits.holderLikely ? .contrastBoosted : .none,
-            recognitionLevel: isLoweredFallbackPass ? .fast : .accurate,
-            usesLanguageCorrection: isLoweredFallbackPass ? false : true,
+            recognitionLevel: .accurate,
+            usesLanguageCorrection: !isLoweredFallbackPass,
             recognitionLanguages: ["ja-JP", "en-US"]
         )
     }
