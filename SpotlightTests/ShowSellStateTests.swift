@@ -206,4 +206,25 @@ final class ShowSellStateTests: XCTestCase {
             .review(trayTitle: "SELLING…")
         )
     }
+
+    func testClampedDiscountInputTextCapsPercentAtOneHundred() {
+        XCTAssertEqual(
+            clampedDiscountInputText("125", maximum: 100, maximumFractionDigits: 2),
+            "100"
+        )
+    }
+
+    func testClampedDiscountInputTextCapsDollarOffAtListPrice() {
+        XCTAssertEqual(
+            clampedDiscountInputText("25", maximum: 18.95, maximumFractionDigits: 2),
+            "18.95"
+        )
+    }
+
+    func testClampedDiscountInputTextPreservesValidDiscountInput() {
+        XCTAssertEqual(
+            clampedDiscountInputText("12.5", maximum: 100, maximumFractionDigits: 2),
+            "12.5"
+        )
+    }
 }

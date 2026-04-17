@@ -11,8 +11,69 @@ private func dismissDetailKeyboard() {
 #endif
 }
 
+#if canImport(UIKit)
+actor CardArtworkPipeline {
+    static let shared = CardArtworkPipeline()
+
+    private let cache = NSCache<NSString, UIImage>()
+    private var inflightTasks: [String: Task<UIImage?, Never>] = [:]
+
+    private init() {
+        cache.countLimit = 256
+    }
+
+    func cachedImage(for urlString: String) -> UIImage? {
+        return cache.object(forKey: urlString as NSString)
+    }
+
+    func prefetch(urlStrings: [String]) {
+        for urlString in urlStrings {
+            Task {
+                _ = await loadImage(from: urlString)
+            }
+        }
+    }
+
+    func loadImage(from urlString: String) async -> UIImage? {
+        if let cachedImage = cachedImage(for: urlString) {
+            return cachedImage
+        }
+
+        if let existingTask = inflightTasks[urlString] {
+            return await existingTask.value
+        }
+
+        let task = Task.detached(priority: .utility) { () -> UIImage? in
+            guard let url = URL(string: urlString) else { return nil }
+            var request = URLRequest(url: url)
+            request.cachePolicy = .returnCacheDataElseLoad
+            do {
+                let (data, response) = try await URLSession.shared.data(for: request)
+                guard let httpResponse = response as? HTTPURLResponse,
+                      (200..<300).contains(httpResponse.statusCode),
+                      let image = UIImage(data: data) else {
+                    return nil
+                }
+                return image
+            } catch {
+                return nil
+            }
+        }
+        inflightTasks[urlString] = task
+
+        let image = await task.value
+        inflightTasks.removeValue(forKey: urlString)
+        if let image {
+            cache.setObject(image, forKey: urlString as NSString)
+        }
+        return image
+    }
+}
+#endif
+
 struct ScanResultDetailView: View {
     @Environment(\.openURL) private var openURL
+    @Environment(\.lootyTheme) private var theme
     @ObservedObject var viewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
     @ObservedObject var showsState: ShowsMockState
@@ -29,10 +90,11 @@ struct ScanResultDetailView: View {
     @State private var gradedCompsStatusMessage: String?
     @State private var gradedCompsRequestKey: String?
 
-    private let limeAccent = Color(red: 0.78, green: 0.92, blue: 0.47)
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let panelBackground = Color(red: 0.12, green: 0.12, blue: 0.16)
-    private let secondaryPanelBackground = Color(red: 0.16, green: 0.16, blue: 0.20)
+    private var limeAccent: Color { theme.colors.brand }
+    private var inkBackground: Color { theme.colors.canvas }
+    private var panelBackground: Color { theme.colors.surface }
+    private var secondaryPanelBackground: Color { theme.colors.canvasElevated }
+    private var infoAccent: Color { theme.colors.info }
     private static let chartInputDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -171,6 +233,9 @@ struct ScanResultDetailView: View {
                 .task(id: gradedCompsLoadKey) {
                     await loadGradedCompsIfNeeded(card: card, item: item)
                 }
+                .onDisappear {
+                    spotlightFlowLog("Detail disappeared cardID=\(card.id) itemID=\(item.id)")
+                }
             } else {
                 VStack(spacing: 16) {
                     Text("Result unavailable")
@@ -178,18 +243,20 @@ struct ScanResultDetailView: View {
                         .foregroundStyle(.white)
 
                     Button("Back") {
+                        spotlightFlowLog("Detail back tapped from unavailable state route=\(String(describing: viewModel.route))")
                         viewModel.dismissResultDetail()
                     }
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.black)
-                    .padding(.horizontal, 18)
-                    .padding(.vertical, 12)
-                    .background(Color(red: 0.78, green: 0.92, blue: 0.47))
-                    .clipShape(Capsule())
+                    .buttonStyle(
+                        LootyFilledButtonStyle(
+                            fill: limeAccent,
+                            foreground: theme.colors.textInverse,
+                            cornerRadius: 999,
+                            minHeight: 44
+                        )
+                    )
                 }
             }
         }
-        .ignoresSafeArea(.keyboard, edges: .bottom)
     }
 
     private var background: some View {
@@ -208,7 +275,7 @@ struct ScanResultDetailView: View {
             .ignoresSafeArea()
 
             Circle()
-                .fill(Color(red: 0.58, green: 0.72, blue: 0.32).opacity(0.09))
+                .fill(limeAccent.opacity(0.09))
                 .frame(width: 320, height: 320)
                 .blur(radius: 48)
                 .offset(x: 0, y: -250)
@@ -218,6 +285,7 @@ struct ScanResultDetailView: View {
     private func header(card: CardCandidate) -> some View {
         HStack(spacing: 12) {
             Button {
+                spotlightFlowLog("Detail back tapped cardID=\(card.id) itemID=\(item?.id.uuidString ?? "nil") route=\(String(describing: viewModel.route))")
                 viewModel.dismissResultDetail()
             } label: {
                 Image(systemName: "chevron.left")
@@ -264,7 +332,7 @@ struct ScanResultDetailView: View {
                     if let pricing {
                         Text(formattedPrice(pricing.primaryDisplayPrice ?? 0, currencyCode: pricing.currencyCode))
                             .font(.system(size: 26, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.colors.textPrimary)
                             .opacity(pricing.primaryDisplayPrice == nil ? 0 : 1)
                     }
 
@@ -397,13 +465,13 @@ struct ScanResultDetailView: View {
     }
 
     private func chip(_ title: String, background: Color) -> some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.white.opacity(0.82))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(background)
-            .clipShape(Capsule())
+        LootyPill(
+            title: title,
+            fill: background,
+            foreground: theme.colors.textPrimary.opacity(0.82),
+            stroke: background.opacity(0),
+            font: theme.typography.caption
+        )
     }
 
     private func purchasePriceSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
@@ -437,13 +505,13 @@ struct ScanResultDetailView: View {
                     Spacer()
 
                     if persistedCondition != nil {
-                        Text(displayedCondition.shortLabel)
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 5)
-                            .background(limeAccent)
-                            .clipShape(Capsule())
+                        LootyPill(
+                            title: displayedCondition.shortLabel,
+                            isSelected: true,
+                            fill: limeAccent,
+                            foreground: theme.colors.textInverse,
+                            stroke: limeAccent
+                        )
                     }
                 }
 
@@ -749,21 +817,27 @@ struct ScanResultDetailView: View {
                     HStack {
                         Label("ADD TO COLLECTION", systemImage: "books.vertical.fill")
                             .font(.headline.weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.colors.textPrimary)
                         Spacer()
                         if portfolioQuantity > 0 {
-                            Text("OWN \(portfolioQuantity)")
-                                .font(.caption.weight(.bold))
-                                .foregroundStyle(.white.opacity(0.76))
+                            LootyPill(
+                                title: "OWN \(portfolioQuantity)",
+                                fill: theme.colors.surfaceMuted,
+                                foreground: theme.colors.textPrimary.opacity(0.82),
+                                stroke: theme.colors.outlineSubtle
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .padding(.horizontal, 18)
-                    .background(panelBackground)
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    LootyFilledButtonStyle(
+                        fill: panelBackground,
+                        foreground: theme.colors.textPrimary,
+                        cornerRadius: 18,
+                        minHeight: 56
+                    )
+                )
 
                 Button {
                     openMarketplaceURL(
@@ -785,12 +859,15 @@ struct ScanResultDetailView: View {
                             .foregroundStyle(.white.opacity(0.82))
                     }
                     .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .padding(.horizontal, 18)
-                    .background(Color(red: 0.33, green: 0.35, blue: 0.95))
-                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    LootyFilledButtonStyle(
+                        fill: infoAccent,
+                        foreground: .white,
+                        cornerRadius: 18,
+                        minHeight: 56
+                    )
+                )
             }
         }
     }
@@ -905,13 +982,17 @@ struct ScanResultDetailView: View {
                                     .font(.subheadline.weight(.bold))
                                 Spacer()
                             }
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 14)
-                            .frame(height: 40)
-                            .background(limeAccent)
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .foregroundStyle(theme.colors.textInverse)
+                            .frame(maxWidth: .infinity)
                         }
-                        .buttonStyle(.plain)
+                        .buttonStyle(
+                            LootyFilledButtonStyle(
+                                fill: limeAccent,
+                                foreground: theme.colors.textInverse,
+                                cornerRadius: 14,
+                                minHeight: 40
+                            )
+                        )
                         .padding(.top, 10)
                     }
 
@@ -1061,7 +1142,7 @@ struct ScanResultDetailView: View {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(formattedPrice(primaryPrice, currencyCode: pricing.currencyCode))
                         .font(.system(size: 42, weight: .bold, design: .rounded))
-                        .foregroundStyle(Color(red: 0.32, green: 0.90, blue: 0.53))
+                        .foregroundStyle(theme.colors.success)
 
                     if let spreadText = pricing.spreadText {
                         detailRow("Range", spreadText)
@@ -1075,7 +1156,7 @@ struct ScanResultDetailView: View {
             } else {
                 Text("Market value is unavailable.")
                     .font(.subheadline)
-                    .foregroundStyle(Color.white.opacity(0.68))
+                    .foregroundStyle(theme.colors.textSecondary)
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
@@ -1122,7 +1203,7 @@ struct ScanResultDetailView: View {
                 let absolutePercent = abs(delta.percentChange ?? 0)
                 Text("\(prefix)\(formattedPrice(absolutePrice, currencyCode: currencyCode)) (\(String(format: "%.2f", absolutePercent))%)")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(positive ? Color(red: 0.32, green: 0.90, blue: 0.53) : Color(red: 0.94, green: 0.46, blue: 0.46))
+                    .foregroundStyle(positive ? theme.colors.success : theme.colors.danger)
                 Text(title)
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(0.58))
@@ -1285,11 +1366,11 @@ struct ScanResultDetailView: View {
 
     private func historyPriceTint(_ history: CardMarketHistory) -> Color {
         guard let days30 = history.deltas.days30?.priceChange else {
-            return Color(red: 0.32, green: 0.90, blue: 0.53)
+            return theme.colors.success
         }
         return days30 >= 0
-            ? Color(red: 0.32, green: 0.90, blue: 0.53)
-            : Color(red: 0.94, green: 0.46, blue: 0.46)
+            ? theme.colors.success
+            : theme.colors.danger
     }
 
     private func chartDate(for value: String) -> Date? {
@@ -1906,6 +1987,15 @@ private struct PurchasePriceCard: View {
             guard !isSaving, focusedPurchasePriceIndex == nil else { return }
             syncDraft()
         }
+        .onChange(of: focusedPurchasePriceIndex) { _, newValue in
+            print("🟢 FOCUS STATE CHANGED to \(String(describing: newValue)): \(Date()) [PurchasePriceCard]")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            print("🔵 KEYBOARD WILL SHOW: \(Date()) [PurchasePriceCard]")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+            print("🔴 KEYBOARD DID SHOW: \(Date()) [PurchasePriceCard]")
+        }
     }
 
     private func syncDraft() {
@@ -1989,6 +2079,11 @@ private struct PurchasePriceCard: View {
                     .stroke(Color.white.opacity(0.08), lineWidth: 1)
             )
             .focused($focusedPurchasePriceIndex, equals: index)
+            .simultaneousGesture(
+                TapGesture().onEnded {
+                    print("🟡 TAP RECEIVED: \(Date()) [PurchasePriceCard]")
+                }
+            )
     }
 
     private func savePurchasePrice() {
@@ -2021,29 +2116,27 @@ struct CardArtworkView: View {
     let fallbackTitle: String
     var cornerRadius: CGFloat = 20
     var contentMode: ContentMode = .fit
+    @State private var loadedImage: UIImage?
+
+    private var normalizedURLString: String? {
+        let trimmed = urlString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : trimmed
+    }
 
     var body: some View {
         Group {
-            if let urlString, let url = URL(string: urlString) {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let image):
-                        image
-                            .resizable()
-                            .aspectRatio(contentMode: contentMode)
-                    case .failure(_):
-                        fallback
-                    case .empty:
-                        fallback
-                    @unknown default:
-                        fallback
-                    }
-                }
+            if let loadedImage {
+                Image(uiImage: loadedImage)
+                    .resizable()
+                    .aspectRatio(contentMode: contentMode)
             } else {
                 fallback
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
+        .task(id: normalizedURLString) {
+            await loadImageIfNeeded()
+        }
     }
 
     private var fallback: some View {
@@ -2054,5 +2147,24 @@ struct CardArtworkView: View {
                     .font(.system(size: 48, weight: .bold, design: .rounded))
                     .foregroundStyle(Color.white.opacity(0.78))
             )
+    }
+
+    @MainActor
+    private func loadImageIfNeeded() async {
+        guard let normalizedURLString else {
+            loadedImage = nil
+            return
+        }
+
+#if canImport(UIKit)
+        if let cachedImage = await CardArtworkPipeline.shared.cachedImage(for: normalizedURLString) {
+            loadedImage = cachedImage
+            return
+        }
+
+        loadedImage = await CardArtworkPipeline.shared.loadImage(from: normalizedURLString)
+#else
+        loadedImage = nil
+#endif
     }
 }

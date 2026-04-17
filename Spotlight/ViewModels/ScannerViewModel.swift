@@ -225,12 +225,14 @@ final class ScannerViewModel: ObservableObject {
 
     func presentResultDetail(for itemID: UUID) {
         guard scannedItems.contains(where: { $0.id == itemID }) else { return }
+        spotlightFlowLog("ScannerViewModel presentResultDetail scannedItem itemID=\(itemID)")
         activeResultPreviewItem = nil
         activeResultItemID = itemID
         pushRoute(.resultDetail)
     }
 
     func presentResultDetail(for entry: DeckCardEntry) {
+        spotlightFlowLog("ScannerViewModel presentResultDetail deckEntry id=\(entry.id) cardID=\(entry.card.id)")
         activeAlternativesItemID = nil
         activeResultItemID = nil
         activeResultPreviewItem = LiveScanStackItem(
@@ -314,6 +316,7 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func dismissResultDetail() {
+        spotlightFlowLog("ScannerViewModel dismissResultDetail route=\(String(describing: route)) activeResultItem=\(activeResultItemID?.uuidString ?? "nil") previewItem=\(activeResultPreviewItem?.id.uuidString ?? "nil")")
         popRoute()
     }
 
@@ -902,21 +905,33 @@ final class ScannerViewModel: ObservableObject {
     }
 
     private func pushRoute(_ nextRoute: ScannerRoute) {
-        navigationState.push(nextRoute)
-        route = navigationState.currentRoute
-        syncNavigationStateForCurrentRoute()
+        let previousRoute = navigationState.currentRoute
+        withAnimation(.easeInOut(duration: 0.18)) {
+            navigationState.push(nextRoute)
+            route = navigationState.currentRoute
+            syncNavigationStateForCurrentRoute()
+        }
+        spotlightFlowLog("ScannerRoute push \(String(describing: previousRoute)) -> \(String(describing: route))")
     }
 
     private func popRoute() {
-        navigationState.pop()
-        route = navigationState.currentRoute
-        syncNavigationStateForCurrentRoute()
+        let previousRoute = navigationState.currentRoute
+        withAnimation(.easeInOut(duration: 0.18)) {
+            navigationState.pop()
+            route = navigationState.currentRoute
+            syncNavigationStateForCurrentRoute()
+        }
+        spotlightFlowLog("ScannerRoute pop \(String(describing: previousRoute)) -> \(String(describing: route))")
     }
 
     private func resetRouteToScanner() {
-        navigationState.resetToScanner()
-        route = navigationState.currentRoute
-        syncNavigationStateForCurrentRoute()
+        let previousRoute = navigationState.currentRoute
+        withAnimation(.easeInOut(duration: 0.18)) {
+            navigationState.resetToScanner()
+            route = navigationState.currentRoute
+            syncNavigationStateForCurrentRoute()
+        }
+        spotlightFlowLog("ScannerRoute reset \(String(describing: previousRoute)) -> \(String(describing: route))")
     }
 
     private func syncNavigationStateForCurrentRoute() {

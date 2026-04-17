@@ -32,7 +32,9 @@ from catalog_tools import (
     _raw_contexts_payload,
     _resolve_graded_context_entry,
     _resolve_raw_context_summary,
+    DEFAULT_RAW_CONDITION,
     MATCHER_VERSION,
+    RAW_PRICING_MODE,
     RawDecisionResult,
     RawEvidence,
     RawRetrievalPlan,
@@ -42,6 +44,7 @@ from catalog_tools import (
     build_raw_retrieval_plan,
     canonicalize_collector_number,
     card_by_id,
+    cards_by_ids,
     append_deck_entry_event,
     connect,
     contextual_pricing_summary_for_card,
@@ -817,7 +820,16 @@ class SpotlightScanService:
         card_id: str,
         *,
         pricing_context: PricingContext,
+        snapshot_row: sqlite3.Row | None = None,
     ) -> dict[str, Any] | None:
+        if snapshot_row is not None:
+            pricing = self._pricing_summary_from_snapshot_row(
+                snapshot_row,
+                pricing_context=pricing_context,
+            )
+            if pricing is not None:
+                return pricing
+
         pricing = contextual_pricing_summary_for_card(
             self.connection,
             card_id,
@@ -846,6 +858,147 @@ class SpotlightScanService:
         ):
             return None
         return pricing
+
+    def _pricing_summary_from_snapshot_row(
+        self,
+        snapshot_row: sqlite3.Row,
+        *,
+        pricing_context: PricingContext,
+    ) -> dict[str, Any] | None:
+        updated_at = snapshot_row["updated_at"]
+        is_fresh = False
+        if updated_at:
+            try:
+                refreshed = datetime.fromisoformat(str(updated_at))
+                is_fresh = datetime.now(timezone.utc) - refreshed <= timedelta(hours=24)
+            except ValueError:
+                is_fresh = False
+
+        raw_contexts = _raw_contexts_payload(snapshot_row["raw_contexts_json"])
+        graded_contexts = _graded_contexts_payload(snapshot_row["graded_contexts_json"])
+
+        payload: dict[str, Any] = {}
+        source_payload_raw = snapshot_row["source_payload_json"]
+        if source_payload_raw:
+            try:
+                decoded_payload = json.loads(source_payload_raw)
+                if isinstance(decoded_payload, dict):
+                    payload = decoded_payload
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {}
+
+        summary: dict[str, Any] | None = None
+        resolved_payload: dict[str, Any] = {}
+        resolved_variant: str | None = None
+
+        if pricing_context.is_graded:
+            entry = _resolve_graded_context_entry(
+                graded_contexts,
+                grader=pricing_context.grader,
+                grade=pricing_context.grade,
+                variant=pricing_context.preferred_variant,
+            )
+            summary = _coerce_price_summary_from_entry(entry)
+            if summary is None:
+                entry = _resolve_graded_context_entry(
+                    graded_contexts,
+                    grader=pricing_context.grader,
+                    grade=pricing_context.grade,
+                    variant=None,
+                )
+                summary = _coerce_price_summary_from_entry(entry)
+            if summary is None:
+                return None
+            resolved_variant = (
+                str(entry.get("variant") or "").strip() or pricing_context.preferred_variant
+                if isinstance(entry, dict)
+                else pricing_context.preferred_variant
+            )
+            resolved_payload = summary.get("payload") or {}
+        else:
+            resolved_variant, _, summary = _resolve_raw_context_summary(
+                raw_contexts,
+                variant=pricing_context.preferred_variant or snapshot_row["default_raw_variant"],
+                condition=DEFAULT_RAW_CONDITION,
+            )
+            if summary is None and snapshot_row["default_raw_market_price"] is not None:
+                summary = {
+                    "currencyCode": snapshot_row["display_currency_code"],
+                    "low": snapshot_row["default_raw_low_price"],
+                    "market": snapshot_row["default_raw_market_price"],
+                    "mid": snapshot_row["default_raw_mid_price"],
+                    "high": snapshot_row["default_raw_high_price"],
+                    "directLow": snapshot_row["default_raw_direct_low_price"],
+                    "trend": snapshot_row["default_raw_trend_price"],
+                    "payload": {},
+                }
+            if summary is None:
+                return None
+            resolved_payload = summary.get("payload") or {}
+
+        pricing = {
+            "id": snapshot_row["card_id"],
+            "cardID": snapshot_row["card_id"],
+            "pricingMode": "psa_grade_estimate" if pricing_context.is_graded else RAW_PRICING_MODE,
+            "provider": snapshot_row["provider"],
+            "source": snapshot_row["provider"],
+            "grader": pricing_context.grader,
+            "grade": pricing_context.grade,
+            "variant": resolved_variant if pricing_context.is_graded else (resolved_variant or snapshot_row["default_raw_variant"]),
+            "currencyCode": summary.get("currencyCode") or snapshot_row["display_currency_code"],
+            "low": summary.get("low"),
+            "market": summary.get("market"),
+            "mid": summary.get("mid"),
+            "high": summary.get("high"),
+            "directLow": summary.get("directLow"),
+            "trend": summary.get("trend"),
+            "sourceURL": snapshot_row["source_url"],
+            "updatedAt": snapshot_row["source_updated_at"],
+            "refreshedAt": snapshot_row["updated_at"],
+            "pricingTier": resolved_payload.get("pricingTier") if resolved_payload else payload.get("pricingTier"),
+            "confidenceLabel": resolved_payload.get("confidenceLabel") if resolved_payload else payload.get("confidenceLabel"),
+            "confidenceLevel": resolved_payload.get("confidenceLevel") if resolved_payload else payload.get("confidenceLevel"),
+            "compCount": resolved_payload.get("compCount") if resolved_payload else payload.get("compCount"),
+            "recentCompCount": resolved_payload.get("recentCompCount") if resolved_payload else payload.get("recentCompCount"),
+            "lastSoldPrice": resolved_payload.get("lastSalePrice") if resolved_payload else payload.get("lastSalePrice"),
+            "lastSoldAt": resolved_payload.get("lastSaleDate") if resolved_payload else payload.get("lastSaleDate"),
+            "bucketKey": resolved_payload.get("bucketKey") if resolved_payload else payload.get("bucketKey"),
+            "methodologySummary": resolved_payload.get("summary") if resolved_payload else payload.get("summary"),
+            "payload": resolved_payload if resolved_payload else payload,
+            "isFresh": is_fresh,
+        }
+        pricing = decorate_pricing_summary_with_fx(self.connection, pricing)
+        if (
+            pricing_context.is_graded
+            and pricing is not None
+            and pricing.get("variant")
+            and not self._slab_variant_matches(
+                pricing.get("variant"),
+                preferred_variant=pricing_context.preferred_variant,
+                variant_hints=pricing_context.variant_hints,
+            )
+        ):
+            return None
+        return pricing
+
+    def _price_snapshot_rows_by_card_id(self, card_ids: list[str]) -> dict[str, sqlite3.Row]:
+        normalized_ids = [str(card_id or "").strip() for card_id in card_ids if str(card_id or "").strip()]
+        if not normalized_ids:
+            return {}
+        placeholders = ",".join("?" for _ in normalized_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT *
+            FROM card_price_snapshots
+            WHERE card_id IN ({placeholders})
+            """,
+            normalized_ids,
+        ).fetchall()
+        return {
+            str(row["card_id"] or "").strip(): row
+            for row in rows
+            if str(row["card_id"] or "").strip()
+        }
 
     @staticmethod
     def _history_primary_price_value(point: dict[str, Any] | None) -> float | None:
@@ -1861,10 +2014,14 @@ class SpotlightScanService:
             """,
             (start_dt, end_dt),
         ).fetchall()
+        cards_by_id_map = cards_by_ids(
+            self.connection,
+            [str(row["card_id"] or "").strip() for row in [*buy_rows, *sale_rows]],
+        )
 
         def _payload_for_transaction_row(row: sqlite3.Row) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
             card_id = str(row["card_id"] or "").strip()
-            card = card_by_id(self.connection, card_id)
+            card = cards_by_id_map.get(card_id)
             if card is None:
                 return None, None
             card_payload = self._candidate_base_payload(card, card)
@@ -6128,6 +6285,13 @@ class SpotlightScanService:
             """.format(where_clause=where_clause),
             (safe_limit, safe_offset),
         ).fetchall()
+        cards_by_id_map = cards_by_ids(
+            self.connection,
+            [str(row["card_id"] or "").strip() for row in rows],
+        )
+        price_snapshot_rows = self._price_snapshot_rows_by_card_id(
+            [str(row["card_id"] or "").strip() for row in rows]
+        )
 
         entries: list[dict[str, Any]] = []
         total_value = 0.0
@@ -6137,7 +6301,7 @@ class SpotlightScanService:
 
         for row in rows:
             card_id = str(row["card_id"] or "").strip()
-            card = card_by_id(self.connection, card_id)
+            card = cards_by_id_map.get(card_id)
             if card is None:
                 continue
 
@@ -6163,6 +6327,7 @@ class SpotlightScanService:
             pricing = self._display_pricing_summary_for_context(
                 card_id,
                 pricing_context=pricing_context,
+                snapshot_row=price_snapshot_rows.get(card_id),
             )
 
             card_payload = self._candidate_base_payload(card, card)

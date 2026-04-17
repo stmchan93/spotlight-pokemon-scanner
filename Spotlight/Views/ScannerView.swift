@@ -149,7 +149,7 @@ struct ScannerView: View {
     private var scannerStatusCard: some View {
         switch viewModel.cameraController.authorizationState {
         case .authorized where !cameraIsInteractive:
-            loadingScannerState
+            EmptyView()
         case .denied, .unavailable:
             VStack(alignment: .leading, spacing: 14) {
                 unavailableState
@@ -436,29 +436,6 @@ struct ScannerView: View {
         .background(
             RoundedRectangle(cornerRadius: 28, style: .continuous)
                 .fill(Color.white.opacity(0.06))
-        )
-    }
-
-    private var loadingScannerState: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack(spacing: 10) {
-                ProgressView()
-                    .tint(.white)
-
-                Text("Starting camera…")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
-            }
-
-            Text("The live preview is waking up. You can still import a photo while the camera connects.")
-                .font(.subheadline)
-                .foregroundStyle(Color.white.opacity(0.72))
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(20)
-        .background(
-            RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color.white.opacity(0.07))
         )
     }
 

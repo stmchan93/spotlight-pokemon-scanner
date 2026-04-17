@@ -180,6 +180,32 @@ func filteredPortfolioEntries(
     }
 }
 
+func portfolioArtworkURLsToPrefetch(
+    _ entries: [DeckCardEntry],
+    limit: Int = 18
+) -> [URL] {
+    guard limit > 0 else { return [] }
+
+    var urls: [URL] = []
+    var seenURLs: Set<URL> = []
+
+    for entry in entries {
+        let rawURLString = (entry.card.imageSmallURL ?? entry.card.imageLargeURL)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let rawURLString,
+              let url = URL(string: rawURLString),
+              seenURLs.insert(url).inserted else {
+            continue
+        }
+        urls.append(url)
+        if urls.count >= limit {
+            break
+        }
+    }
+
+    return urls
+}
+
 func portfolioHistoryLineSeries(for history: PortfolioHistory?) -> [PortfolioHistoryLineSeries] {
     let points = usablePortfolioHistoryPoints(history)
     guard !points.isEmpty else { return [] }
@@ -334,6 +360,7 @@ func portfolioResolvedCalculatorPrice(
 }
 
 struct PortfolioValueChartCard: View {
+    @Environment(\.lootyTheme) private var theme
     let history: PortfolioHistory?
     let fallbackCurrentValue: Double
     let isLoading: Bool
@@ -342,10 +369,10 @@ struct PortfolioValueChartCard: View {
 
     @State private var selectedPointIndex: Int?
 
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let surfaceBackground = Color(red: 0.10, green: 0.09, blue: 0.14)
-    private let fieldBackground = Color(red: 0.15, green: 0.13, blue: 0.19)
-    private let limeAccent = Color(red: 0.79, green: 0.92, blue: 0.36)
+    private var inkBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var limeAccent: Color { theme.colors.brand }
 
     private var visiblePoints: [PortfolioHistoryPoint] { usablePortfolioHistoryPoints(history) }
     private var visibleSeries: [PortfolioHistoryLineSeries] { portfolioHistoryLineSeries(for: history) }
@@ -414,11 +441,11 @@ struct PortfolioValueChartCard: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(Color(red: 0.06, green: 0.07, blue: 0.09))
+                .fill(theme.colors.canvas.opacity(0.92))
         )
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.05), lineWidth: 1)
+                .stroke(theme.colors.outlineSubtle.opacity(0.6), lineWidth: 1)
         )
     }
 
@@ -431,14 +458,14 @@ struct PortfolioValueChartCard: View {
             HStack(spacing: 10) {
                 Text(displayedDateLabel)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.64))
+                    .foregroundStyle(theme.colors.textSecondary.opacity(0.9))
 
                 if let rangeDelta,
                    let rangeDeltaPercent {
                     let positive = rangeDelta >= 0
                     Text("\(positive ? "+" : "-")\(formattedPrice(abs(rangeDelta), currencyCode: displayCurrencyCode)) • \(String(format: "%.2f", abs(rangeDeltaPercent)))%")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(positive ? Color(red: 0.32, green: 0.90, blue: 0.53) : Color(red: 0.95, green: 0.46, blue: 0.46))
+                        .foregroundStyle(positive ? theme.colors.success : theme.colors.danger)
                 }
             }
         }
@@ -558,7 +585,7 @@ struct PortfolioValueChartCard: View {
                         : "Your inventory chart will appear after pricing snapshots build up.")
             )
                 .font(.footnote.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.56))
+                .foregroundStyle(theme.colors.textSecondary.opacity(0.8))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
         }
@@ -569,7 +596,7 @@ struct PortfolioValueChartCard: View {
             ForEach(0..<4, id: \.self) { index in
                 Spacer()
                 Rectangle()
-                    .fill(Color.white.opacity(index == 3 ? 0.05 : 0.035))
+                    .fill(theme.colors.outlineSubtle.opacity(index == 3 ? 0.62 : 0.42))
                     .frame(height: 1)
             }
         }
@@ -637,7 +664,7 @@ struct PortfolioValueChartCard: View {
     private func selectionOverlay(point: CGPoint, size: CGSize) -> some View {
         return ZStack {
             Rectangle()
-                .fill(Color.white.opacity(0.20))
+                .fill(theme.colors.textPrimary.opacity(0.20))
                 .frame(width: 1)
                 .position(x: point.x, y: size.height / 2)
 
@@ -660,7 +687,7 @@ struct PortfolioValueChartCard: View {
                 } label: {
                     Text(option.displayLabel)
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(selectedRange == option ? .black : .white.opacity(0.82))
+                        .foregroundStyle(selectedRange == option ? theme.colors.textInverse : theme.colors.textPrimary.opacity(0.82))
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
                         .frame(maxWidth: .infinity)
@@ -671,7 +698,7 @@ struct PortfolioValueChartCard: View {
             }
         }
         .padding(5)
-        .background(Color.white.opacity(0.05))
+        .background(theme.colors.surfaceMuted)
         .clipShape(Capsule())
     }
 
@@ -802,9 +829,11 @@ private extension Array {
 }
 
 struct PortfolioSurfaceView: View {
+    @Environment(\.lootyTheme) private var theme
     let onSelectEntry: (DeckCardEntry) -> Void
     @ObservedObject var collectionStore: CollectionStore
     let isVisible: Bool
+    let onEnsureEntries: () -> Void
     let onOpenScanner: () -> Void
     let onOpenLedger: () -> Void
     @State private var searchQuery = ""
@@ -816,11 +845,11 @@ struct PortfolioSurfaceView: View {
     @State private var selectedEntryIDs: Set<String> = []
     @State private var isShowingBatchSellPreview = false
 
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let surfaceBackground = Color(red: 0.10, green: 0.09, blue: 0.14)
-    private let fieldBackground = Color(red: 0.15, green: 0.13, blue: 0.19)
-    private let limeAccent = Color(red: 0.79, green: 0.92, blue: 0.36)
-    private let outline = Color.white.opacity(0.08)
+    private var inkBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var limeAccent: Color { theme.colors.brand }
+    private var outline: Color { theme.colors.outlineSubtle }
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -886,12 +915,21 @@ struct PortfolioSurfaceView: View {
                 }
             }
             .refreshable {
-                await collectionStore.refreshDashboardData()
+                async let entriesRefresh: Void = collectionStore.refreshFromBackend()
+                async let historyRefresh: Void = collectionStore.refreshPortfolioHistory()
+                _ = await (entriesRefresh, historyRefresh)
             }
             .onChange(of: isVisible, initial: true) { _, visible in
+                spotlightFlowLog("Portfolio isVisible -> \(visible) entries=\(collectionStore.entries.count) displayed=\(displayedEntries.count) historyLoaded=\(collectionStore.portfolioHistory != nil)")
                 guard visible else { return }
+                if collectionStore.entries.isEmpty {
+                    spotlightFlowLog("Portfolio requesting ensured entries because store is empty")
+                    onEnsureEntries()
+                }
                 scheduleDisplayedEntriesRefresh()
-                if collectionStore.portfolioHistory == nil {
+                if collectionStore.portfolioHistory == nil,
+                   !collectionStore.isLoadingPortfolioHistory {
+                    spotlightFlowLog("Portfolio requesting history load on first visibility")
                     Task {
                         await collectionStore.refreshPortfolioHistory()
                     }
@@ -910,6 +948,8 @@ struct PortfolioSurfaceView: View {
                 scheduleDisplayedEntriesRefresh()
             }
             .onChange(of: collectionStore.entries, initial: true) { _, _ in
+                spotlightFlowLog("Portfolio store entries changed count=\(collectionStore.entries.count) visible=\(isVisible)")
+                prefetchArtwork(for: collectionStore.entries)
                 guard isVisible else { return }
                 scheduleDisplayedEntriesRefresh()
             }
@@ -1046,13 +1086,11 @@ struct PortfolioSurfaceView: View {
 
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text(collectionStore.entries.isEmpty ? "No cards in your inventory yet" : "No cards match that search")
+            Text(emptyStateTitle)
                 .font(.headline.weight(.semibold))
                 .foregroundStyle(.white)
 
-            Text(collectionStore.entries.isEmpty
-                ? "Scan a card, tap ADD TO INVENTORY, and it will appear here."
-                : "Try a different name, set, card number, or raw/graded filter.")
+            Text(emptyStateMessage)
                 .font(.subheadline)
                 .foregroundStyle(.white.opacity(0.62))
         }
@@ -1227,14 +1265,14 @@ struct PortfolioSurfaceView: View {
                     isShowingBatchSellPreview = true
                 } label: {
                     Text("Sell selected")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(selectedEntries.isEmpty ? .white.opacity(0.40) : .black)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(selectedEntries.isEmpty ? fieldBackground : limeAccent)
-                        .clipShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    LootyFilledButtonStyle(
+                        fill: selectedEntries.isEmpty ? fieldBackground : limeAccent,
+                        foreground: selectedEntries.isEmpty ? theme.colors.textPrimary.opacity(0.40) : theme.colors.textInverse,
+                        cornerRadius: theme.radius.pill
+                    )
+                )
                 .disabled(selectedEntries.isEmpty)
             }
             .padding(.horizontal, 18)
@@ -1305,6 +1343,8 @@ struct PortfolioSurfaceView: View {
         let query = searchQuery
         let filter = inventoryFilter
         let sort = sortOption
+        let startedAt = ProcessInfo.processInfo.systemUptime
+        spotlightFlowLog("Portfolio scheduleDisplayedEntriesRefresh id=\(refreshID) entries=\(entries.count) query=\(query) filter=\(filter.rawValue) sort=\(sort.rawValue)")
 
         DispatchQueue.global(qos: .userInitiated).async {
             let refreshedEntries = sortedPortfolioEntries(
@@ -1319,8 +1359,45 @@ struct PortfolioSurfaceView: View {
             DispatchQueue.main.async {
                 guard refreshID == displayedEntriesRefreshID else { return }
                 displayedEntries = refreshedEntries
+                prefetchArtwork(for: refreshedEntries)
+                let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+                spotlightFlowLog("Portfolio displayedEntries ready id=\(refreshID) displayed=\(refreshedEntries.count) elapsed=\(String(format: "%.3f", elapsed))s")
             }
         }
+    }
+
+    private func prefetchArtwork(for entries: [DeckCardEntry]) {
+        let urls = entries
+            .prefix(18)
+            .compactMap { entry in
+                let urlString = entry.card.imageSmallURL ?? entry.card.imageLargeURL
+                let trimmed = urlString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                return trimmed.isEmpty ? nil : trimmed
+            }
+        guard !urls.isEmpty else { return }
+#if canImport(UIKit)
+        Task {
+            await CardArtworkPipeline.shared.prefetch(urlStrings: urls)
+        }
+#endif
+    }
+
+    private var emptyStateTitle: String {
+        if collectionStore.isLoadingEntries && collectionStore.entries.isEmpty {
+            return "Loading your inventory..."
+        }
+        return collectionStore.entries.isEmpty
+            ? "No cards in your inventory yet"
+            : "No cards match that search"
+    }
+
+    private var emptyStateMessage: String {
+        if collectionStore.isLoadingEntries && collectionStore.entries.isEmpty {
+            return "Fetching your deck entries and artwork."
+        }
+        return collectionStore.entries.isEmpty
+            ? "Scan a card, tap ADD TO INVENTORY, and it will appear here."
+            : "Try a different name, set, card number, or raw/graded filter."
     }
 
     private var currentMarketValue: Double {
@@ -1343,12 +1420,13 @@ struct PortfolioBatchSellPreviewSheet: View {
     let summary: PortfolioBatchSelectionSummary
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.lootyTheme) private var theme
 
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let surfaceBackground = Color(red: 0.10, green: 0.09, blue: 0.14)
-    private let fieldBackground = Color(red: 0.15, green: 0.13, blue: 0.19)
-    private let limeAccent = Color(red: 0.79, green: 0.92, blue: 0.36)
-    private let outline = Color.white.opacity(0.08)
+    private var inkBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var limeAccent: Color { theme.colors.brand }
+    private var outline: Color { theme.colors.outlineSubtle }
 
     var body: some View {
         NavigationStack {
@@ -1379,12 +1457,7 @@ struct PortfolioBatchSellPreviewSheet: View {
                                 .foregroundStyle(.white.opacity(0.68))
                         }
                         .padding(16)
-                        .background(surfaceBackground)
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .stroke(outline, lineWidth: 1)
-                        )
+                        .lootySurface(.dark, padding: 16, cornerRadius: 20)
                     }
                     .padding(.horizontal, 20)
                     .padding(.top, 18)
@@ -1401,14 +1474,15 @@ struct PortfolioBatchSellPreviewSheet: View {
                         dismiss()
                     } label: {
                         Text("Continue later")
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(.black)
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 15)
-                            .background(limeAccent)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(
+                        LootyFilledButtonStyle(
+                            fill: limeAccent,
+                            foreground: theme.colors.textInverse,
+                            cornerRadius: 16,
+                            minHeight: 52
+                        )
+                    )
                     .padding(.horizontal, 20)
                     .padding(.top, 14)
                     .padding(.bottom, 12)
@@ -1510,6 +1584,7 @@ struct PortfolioBatchSellPreviewSheet: View {
 }
 
 struct PortfolioPricingCalculatorCard: View {
+    @Environment(\.lootyTheme) private var theme
     let currencyCode: String
 
     @State private var marketPriceText = ""
@@ -1518,11 +1593,11 @@ struct PortfolioPricingCalculatorCard: View {
     @State private var dollarOffText = ""
     @State private var activePreset: PortfolioPriceCalculatorPreset = .eightyPercent
 
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let surfaceBackground = Color(red: 0.10, green: 0.09, blue: 0.14)
-    private let fieldBackground = Color(red: 0.15, green: 0.13, blue: 0.19)
-    private let limeAccent = Color(red: 0.79, green: 0.92, blue: 0.36)
-    private let outline = Color.white.opacity(0.08)
+    private var inkBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var limeAccent: Color { theme.colors.brand }
+    private var outline: Color { theme.colors.outlineSubtle }
 
     private var marketPrice: Double { Double(marketPriceText) ?? 0 }
     private var listPrice: Double { Double(listPriceText) ?? 0 }
@@ -1549,11 +1624,11 @@ struct PortfolioPricingCalculatorCard: View {
                 Text("QUICK PRICING")
                     .font(.caption2.weight(.bold))
                     .tracking(0.8)
-                    .foregroundStyle(.white.opacity(0.52))
+                    .foregroundStyle(theme.colors.textSecondary.opacity(0.76))
 
                 Text("Market, list, % off, $ off, and an 80% quick target")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.82))
+                    .foregroundStyle(theme.colors.textPrimary.opacity(0.82))
             }
 
             VStack(spacing: 12) {

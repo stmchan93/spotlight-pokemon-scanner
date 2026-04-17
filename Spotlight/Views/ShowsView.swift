@@ -70,6 +70,250 @@ private func dismissKeyboard() {
 #endif
 }
 
+private func interactionUptimeString() -> String {
+    String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
+}
+
+private func textFieldInstanceID(_ textField: UITextField) -> String {
+    String(describing: Unmanaged.passUnretained(textField).toOpaque())
+}
+
+private func scheduleMainThreadPing(label: String, context: String) {
+    let scheduledAt = ProcessInfo.processInfo.systemUptime
+    DispatchQueue.global(qos: .userInitiated).asyncAfter(deadline: .now() + 0.05) {
+        DispatchQueue.main.async {
+            let executedAt = ProcessInfo.processInfo.systemUptime
+            let delayMs = (executedAt - scheduledAt) * 1000
+            let scheduledAtText = String(format: "%.6f", scheduledAt)
+            let executedAtText = String(format: "%.6f", executedAt)
+            let delayMsText = String(format: "%.1f", delayMs)
+            print("⚫ MAIN THREAD PING \(label): scheduled=\(scheduledAtText) executed=\(executedAtText) delayMs=\(delayMsText) [\(context)]")
+        }
+    }
+}
+
+func formattedEditableNumericText(_ value: Double, maximumFractionDigits: Int = 2) -> String {
+    let formatter = NumberFormatter()
+    formatter.numberStyle = .decimal
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.minimumFractionDigits = 0
+    formatter.maximumFractionDigits = maximumFractionDigits
+    return formatter.string(from: NSNumber(value: value)) ?? String(value)
+}
+
+func clampedDiscountInputText(_ text: String, maximum: Double, maximumFractionDigits: Int = 2) -> String {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty, let value = Double(trimmed) else {
+        return text
+    }
+
+    let clampedValue = min(max(0, value), max(0, maximum))
+    guard abs(clampedValue - value) > 0.000_001 else {
+        return text
+    }
+
+    return formattedEditableNumericText(clampedValue, maximumFractionDigits: maximumFractionDigits)
+}
+
+#if canImport(UIKit)
+private struct UIKitDecimalTextField: UIViewRepresentable {
+    @Binding var text: String
+    let placeholder: String
+    let alignment: NSTextAlignment
+    let font: UIFont
+    let textColor: UIColor
+    let traceContext: String
+    let onTapReceived: (() -> Void)?
+    let onEditingBegan: (() -> Void)?
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(parent: self)
+    }
+
+    func makeUIView(context: Context) -> TapLoggingTextField {
+        let textField = TapLoggingTextField(frame: .zero)
+        let fieldID = textFieldInstanceID(textField)
+        textField.delegate = context.coordinator
+        textField.keyboardType = .decimalPad
+        textField.autocorrectionType = .no
+        textField.spellCheckingType = .no
+        textField.autocapitalizationType = .none
+        textField.borderStyle = .none
+        textField.backgroundColor = .clear
+        textField.textAlignment = alignment
+        textField.font = font
+        textField.textColor = textColor
+        textField.placeholder = placeholder
+        textField.text = text
+        textField.addTarget(context.coordinator, action: #selector(Coordinator.touchDown(_:)), for: .touchDown)
+        textField.addTarget(context.coordinator, action: #selector(Coordinator.textDidChange(_:)), for: .editingChanged)
+        textField.addTarget(context.coordinator, action: #selector(Coordinator.editingDidBegin(_:)), for: .editingDidBegin)
+        textField.onTapReceived = {
+            context.coordinator.parent.onTapReceived?()
+        }
+        textField.inputAccessoryView = context.coordinator.makeDoneAccessory()
+        textField.traceContext = traceContext
+        textField.instanceID = fieldID
+        print("🔶 MAKE UI VIEW id=\(fieldID) text=\(text) placeholder=\(placeholder) [\(traceContext)]")
+        return textField
+    }
+
+    func updateUIView(_ uiView: TapLoggingTextField, context: Context) {
+        context.coordinator.parent = self
+        let previousText = uiView.text ?? ""
+        let previousPlaceholder = uiView.placeholder ?? ""
+        if uiView.text != text {
+            uiView.text = text
+        }
+        uiView.placeholder = placeholder
+        uiView.textAlignment = alignment
+        uiView.font = font
+        uiView.textColor = textColor
+        uiView.traceContext = traceContext
+        uiView.instanceID = textFieldInstanceID(uiView)
+        uiView.onTapReceived = {
+            context.coordinator.parent.onTapReceived?()
+        }
+        print(
+            "🔷 UPDATE UI VIEW id=\(uiView.instanceID) textChanged=\(previousText != text) " +
+            "placeholderChanged=\(previousPlaceholder != placeholder) text=\(text) placeholder=\(placeholder) [\(traceContext)]"
+        )
+    }
+
+    final class Coordinator: NSObject, UITextFieldDelegate {
+        var parent: UIKitDecimalTextField
+        weak var activeTextField: UITextField?
+
+        init(parent: UIKitDecimalTextField) {
+            self.parent = parent
+        }
+
+        func makeDoneAccessory() -> UIView {
+            let accessory = KeyboardDoneAccessoryView(
+                buttonColor: .link,
+                backgroundColor: UIColor.systemBackground,
+                actionTarget: self,
+                action: #selector(doneButtonTapped)
+            )
+            return accessory
+        }
+
+        @objc func touchDown(_ textField: UITextField) {
+            let context = (textField as? TapLoggingTextField)?.traceContext ?? parent.traceContext
+            let fieldID = textFieldInstanceID(textField)
+            print("⚪ TOUCH DOWN: uptime=\(interactionUptimeString()) id=\(fieldID) [\(context)]")
+            scheduleMainThreadPing(label: "after-touchDown", context: context)
+        }
+
+        @objc func textDidChange(_ textField: UITextField) {
+            parent.text = textField.text ?? ""
+        }
+
+        @objc func editingDidBegin(_ textField: UITextField) {
+            let context = (textField as? TapLoggingTextField)?.traceContext ?? parent.traceContext
+            let fieldID = textFieldInstanceID(textField)
+            print("🟧 EDITING DID BEGIN CONTROL EVENT: uptime=\(interactionUptimeString()) id=\(fieldID) [\(context)]")
+            parent.onEditingBegan?()
+        }
+
+        func textFieldShouldBeginEditing(_ textField: UITextField) -> Bool {
+            let context = (textField as? TapLoggingTextField)?.traceContext ?? parent.traceContext
+            let fieldID = textFieldInstanceID(textField)
+            print("🟤 SHOULD BEGIN EDITING: uptime=\(interactionUptimeString()) id=\(fieldID) [\(context)]")
+            scheduleMainThreadPing(label: "after-shouldBeginEditing", context: context)
+            return true
+        }
+
+        func textFieldDidBeginEditing(_ textField: UITextField) {
+            let context = (textField as? TapLoggingTextField)?.traceContext ?? parent.traceContext
+            let fieldID = textFieldInstanceID(textField)
+            activeTextField = textField
+            print("🟪 DID BEGIN EDITING DELEGATE: uptime=\(interactionUptimeString()) id=\(fieldID) [\(context)]")
+        }
+
+        func textFieldDidEndEditing(_ textField: UITextField) {
+            if activeTextField === textField {
+                activeTextField = nil
+            }
+        }
+
+        @objc private func doneButtonTapped() {
+            activeTextField?.resignFirstResponder()
+        }
+    }
+
+    final class TapLoggingTextField: UITextField {
+        var traceContext: String = "UIKitDecimalTextField"
+        var instanceID: String = "unknown"
+        var onTapReceived: (() -> Void)?
+
+        override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+            print("🟠 TOUCHES BEGAN: uptime=\(interactionUptimeString()) id=\(instanceID) [\(traceContext)]")
+            scheduleMainThreadPing(label: "after-touchesBegan", context: traceContext)
+            DispatchQueue.main.async {
+                print("🟤 NEXT MAIN RUNLOOP AFTER TAP: uptime=\(interactionUptimeString()) id=\(self.instanceID) [\(self.traceContext)]")
+            }
+            onTapReceived?()
+            super.touchesBegan(touches, with: event)
+        }
+
+        override func becomeFirstResponder() -> Bool {
+            print("🟣 BECOME FIRST RESPONDER START: uptime=\(interactionUptimeString()) id=\(instanceID) [\(traceContext)]")
+            scheduleMainThreadPing(label: "after-becomeFirstResponder-start", context: traceContext)
+            let result = super.becomeFirstResponder()
+            print("🟣 BECOME FIRST RESPONDER END result=\(result): uptime=\(interactionUptimeString()) id=\(instanceID) [\(traceContext)]")
+            return result
+        }
+
+        deinit {
+            print("🧹 DEINIT UI VIEW id=\(instanceID) [\(traceContext)]")
+        }
+    }
+
+    final class KeyboardDoneAccessoryView: UIView {
+        init(buttonColor: UIColor, backgroundColor: UIColor, actionTarget: Any?, action: Selector) {
+            super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 52))
+            self.backgroundColor = backgroundColor
+            autoresizingMask = [.flexibleWidth, .flexibleHeight]
+
+            let divider = UIView()
+            divider.translatesAutoresizingMaskIntoConstraints = false
+            divider.backgroundColor = UIColor.separator.withAlphaComponent(0.35)
+
+            let button = UIButton(type: .system)
+            button.translatesAutoresizingMaskIntoConstraints = false
+            button.setTitle("Done", for: .normal)
+            button.setTitleColor(buttonColor, for: .normal)
+            button.tintColor = buttonColor
+            button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+            button.addTarget(actionTarget, action: action, for: .touchUpInside)
+
+            addSubview(divider)
+            addSubview(button)
+
+            NSLayoutConstraint.activate([
+                divider.topAnchor.constraint(equalTo: topAnchor),
+                divider.leadingAnchor.constraint(equalTo: leadingAnchor),
+                divider.trailingAnchor.constraint(equalTo: trailingAnchor),
+                divider.heightAnchor.constraint(equalToConstant: 1),
+
+                button.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -16),
+                button.centerYAnchor.constraint(equalTo: centerYAnchor)
+            ])
+        }
+
+        @available(*, unavailable)
+        required init?(coder: NSCoder) {
+            fatalError("init(coder:) has not been implemented")
+        }
+
+        override var intrinsicContentSize: CGSize {
+            CGSize(width: UIView.noIntrinsicMetric, height: 52)
+        }
+    }
+}
+#endif
+
 func visibleTransactionNote(_ transaction: PortfolioLedgerTransaction) -> String? {
     guard let note = transaction.note?.trimmingCharacters(in: .whitespacesAndNewlines),
           !note.isEmpty else {
@@ -92,17 +336,19 @@ struct LedgerTransactionPriceEditorSheet: View {
     let onSave: (Double) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.lootyTheme) private var theme
     @State private var priceText: String
     @State private var isSubmitting = false
     @State private var errorMessage: String?
+    @State private var isPriceFieldFocused = false
 
-    private let pageBackground = Color.white
-    private let surfaceBackground = Color(red: 0.96, green: 0.97, blue: 0.98)
-    private let fieldBackground = Color.white
-    private let outline = Color.black.opacity(0.08)
-    private let accent = Color(red: 0.10, green: 0.86, blue: 0.06)
-    private let primaryText = Color(red: 0.09, green: 0.10, blue: 0.12)
-    private let secondaryText = Color(red: 0.45, green: 0.48, blue: 0.53)
+    private var pageBackground: Color { theme.colors.pageLight }
+    private var surfaceBackground: Color { theme.colors.surfaceLight }
+    private var fieldBackground: Color { theme.colors.fieldLight }
+    private var outline: Color { theme.colors.outlineLight }
+    private var accent: Color { theme.colors.success }
+    private var primaryText: Color { theme.colors.textInverse }
+    private var secondaryText: Color { theme.colors.textSecondaryInverse }
 
     init(
         transaction: PortfolioLedgerTransaction,
@@ -147,24 +393,34 @@ struct LedgerTransactionPriceEditorSheet: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(primaryText)
 
-                        TextField("0.00", text: $priceText)
-                            .keyboardType(.decimalPad)
-                            .font(.system(size: 26, weight: .bold, design: .rounded))
-                            .foregroundStyle(primaryText)
-                            .padding(.horizontal, 16)
-                            .frame(height: 58)
-                            .background(fieldBackground)
-                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                    .stroke(outline, lineWidth: 1)
-                            )
-                            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        UIKitDecimalTextField(
+                            text: $priceText,
+                            placeholder: "0.00",
+                            alignment: .left,
+                            font: .systemFont(ofSize: 26, weight: .bold),
+                            textColor: UIColor(primaryText),
+                            traceContext: "LedgerTransactionPriceEditorSheet",
+                            onTapReceived: {
+                                print("🟡 TAP RECEIVED: \(Date()) [LedgerTransactionPriceEditorSheet]")
+                            },
+                            onEditingBegan: {
+                                isPriceFieldFocused = true
+                            }
+                        )
+                        .padding(.horizontal, 16)
+                        .frame(height: 58)
+                        .background(fieldBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(outline, lineWidth: 1)
+                        )
+                        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Color(red: 0.96, green: 0.52, blue: 0.52))
+                                .foregroundStyle(theme.colors.danger)
                         }
                     }
                     .padding(24)
@@ -194,14 +450,15 @@ struct LedgerTransactionPriceEditorSheet: View {
                         submit()
                     } label: {
                         Text(isSubmitting ? "SAVING…" : "Save price")
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 56)
-                            .background(accent)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(
+                        LootyFilledButtonStyle(
+                            fill: accent,
+                            foreground: theme.colors.textInverse,
+                            cornerRadius: 18,
+                            minHeight: 56
+                        )
+                    )
                     .disabled(isSubmitting)
                     .padding(.horizontal, 20)
                     .padding(.top, 14)
@@ -212,6 +469,15 @@ struct LedgerTransactionPriceEditorSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .onChange(of: isPriceFieldFocused) { _, newValue in
+            print("🟢 FOCUS STATE CHANGED to \(newValue): \(Date()) [LedgerTransactionPriceEditorSheet]")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            print("🔵 KEYBOARD WILL SHOW: \(Date()) [LedgerTransactionPriceEditorSheet]")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+            print("🔴 KEYBOARD DID SHOW: \(Date()) [LedgerTransactionPriceEditorSheet]")
+        }
     }
 
     private func submit() {
@@ -241,16 +507,17 @@ struct DashboardView: View {
     let onOpenPortfolio: () -> Void
     let onOpenScanner: () -> Void
 
+    @Environment(\.lootyTheme) private var theme
     @State private var selectedOverviewIndex: Int?
     @State private var editingTransaction: PortfolioLedgerTransaction?
 
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let surfaceBackground = Color(red: 0.10, green: 0.09, blue: 0.14)
-    private let fieldBackground = Color(red: 0.15, green: 0.13, blue: 0.19)
-    private let limeAccent = Color(red: 0.79, green: 0.92, blue: 0.36)
-    private let tealAccent = Color(red: 0.32, green: 0.90, blue: 0.53)
-    private let orangeAccent = Color(red: 0.95, green: 0.62, blue: 0.30)
-    private let outline = Color.white.opacity(0.08)
+    private var inkBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var limeAccent: Color { theme.colors.brand }
+    private var tealAccent: Color { theme.colors.success }
+    private var orangeAccent: Color { theme.colors.warning }
+    private var outline: Color { theme.colors.outlineSubtle }
 
     private var ledger: PortfolioLedger? { collectionStore.portfolioLedger }
     private var history: PortfolioHistory? { collectionStore.portfolioHistory }
@@ -412,12 +679,12 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Dashboard")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .font(theme.typography.display)
+                    .foregroundStyle(theme.colors.textPrimary)
 
                 Text("Track inventory value, spend, revenue, and realized profit over time.")
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(theme.colors.textSecondary)
             }
         }
     }
@@ -432,7 +699,7 @@ struct DashboardView: View {
                 } label: {
                     Text(option.displayLabel)
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(collectionStore.selectedPortfolioLedgerRange == option ? .black : .white.opacity(0.82))
+                        .foregroundStyle(collectionStore.selectedPortfolioLedgerRange == option ? theme.colors.textInverse : theme.colors.textPrimary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .frame(maxWidth: .infinity)
@@ -443,7 +710,7 @@ struct DashboardView: View {
             }
         }
         .padding(5)
-        .background(Color.white.opacity(0.05))
+        .background(theme.colors.surfaceMuted)
         .clipShape(Capsule())
     }
 
@@ -451,13 +718,13 @@ struct DashboardView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Summary")
                 .font(.headline.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                 dashboardMetricCard("Inventory Value", value: formattedCurrency(inventoryValue, currencyCode: ledger?.currencyCode ?? "USD"), subtitle: "Current mark-to-market", accent: limeAccent)
                 dashboardMetricCard("Cost Basis", value: formattedCurrency(costBasisValue, currencyCode: ledger?.currencyCode ?? "USD"), subtitle: "Buy-in cost basis", accent: orangeAccent)
-                dashboardMetricCard("Unrealized P&L", value: formattedSignedCurrency(unrealizedProfit, currencyCode: ledger?.currencyCode ?? "USD"), subtitle: "Inventory value minus cost", accent: unrealizedProfit >= 0 ? tealAccent : Color(red: 0.95, green: 0.46, blue: 0.46))
-                dashboardMetricCard("Realized Profit", value: formattedSignedCurrency(realizedProfit, currencyCode: ledger?.currencyCode ?? "USD"), subtitle: "Closed trades", accent: realizedProfit >= 0 ? tealAccent : Color(red: 0.95, green: 0.46, blue: 0.46))
+                dashboardMetricCard("Unrealized P&L", value: formattedSignedCurrency(unrealizedProfit, currencyCode: ledger?.currencyCode ?? "USD"), subtitle: "Inventory value minus cost", accent: unrealizedProfit >= 0 ? tealAccent : theme.colors.danger)
+                dashboardMetricCard("Realized Profit", value: formattedSignedCurrency(realizedProfit, currencyCode: ledger?.currencyCode ?? "USD"), subtitle: "Closed trades", accent: realizedProfit >= 0 ? tealAccent : theme.colors.danger)
                 dashboardMetricCard("Revenue", value: formattedCurrency(revenue, currencyCode: ledger?.currencyCode ?? "USD"), subtitle: "Sell-side gross", accent: tealAccent)
                 dashboardMetricCard("Spend", value: formattedCurrency(spend, currencyCode: ledger?.currencyCode ?? "USD"), subtitle: "Inventory cost", accent: orangeAccent)
             }
@@ -470,17 +737,17 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Overview")
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
                     Text(selectedOverviewDateLabel)
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.58))
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
 
                 Spacer()
 
                 if collectionStore.isLoadingPortfolioLedger || collectionStore.isLoadingPortfolioHistory {
                     ProgressView()
-                        .tint(.white.opacity(0.72))
+                        .tint(theme.colors.textSecondary)
                 }
             }
 
@@ -755,11 +1022,11 @@ struct DashboardView: View {
             HStack {
                 Text("Latest transactions")
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.colors.textPrimary)
                 Spacer()
                 if collectionStore.isLoadingPortfolioLedger {
                     ProgressView()
-                        .tint(.white.opacity(0.72))
+                        .tint(theme.colors.textSecondary)
                 }
             }
 
@@ -773,10 +1040,10 @@ struct DashboardView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("No transactions yet")
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
                     Text("Buys and sells will appear here as soon as you start moving inventory.")
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.62))
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(16)
@@ -795,10 +1062,10 @@ struct DashboardView: View {
             Text(title.uppercased())
                 .font(.caption2.weight(.bold))
                 .tracking(0.8)
-                .foregroundStyle(.white.opacity(0.5))
+                .foregroundStyle(theme.colors.textSecondary)
             Text(value)
                 .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
             Text(subtitle)
                 .font(.caption2.weight(.semibold))
                 .foregroundStyle(.white.opacity(0.56))
@@ -833,21 +1100,21 @@ struct DashboardView: View {
                    let grade = transaction.slabContext?.grade {
                     Text("\(grader) \(grade)")
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.68))
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
 
                 Text(transaction.card.name)
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.colors.textPrimary)
 
                 Text("#\(transaction.card.number) • \(transaction.card.setName)")
                     .font(.caption)
-                    .foregroundStyle(.white.opacity(0.58))
+                    .foregroundStyle(theme.colors.textSecondary)
 
                 if let note = visibleTransactionNote(transaction) {
                     Text(note)
                         .font(.caption)
-                        .foregroundStyle(.white.opacity(0.52))
+                        .foregroundStyle(theme.colors.textSecondary)
                         .lineLimit(2)
                 }
             }
@@ -857,7 +1124,7 @@ struct DashboardView: View {
             VStack(alignment: .trailing, spacing: 6) {
                 Text(formattedCurrency(transaction.totalPrice, currencyCode: transaction.currencyCode))
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(transaction.kind == .sell ? limeAccent : .white)
+                    .foregroundStyle(transaction.kind == .sell ? limeAccent : theme.colors.textPrimary)
 
                 if let profitLabel = transactionProfitLabel(transaction) {
                     Text(profitLabel)
@@ -867,7 +1134,7 @@ struct DashboardView: View {
 
                 Text(formattedOccurredAt(transaction.occurredAt))
                     .font(.caption2.weight(.medium))
-                    .foregroundStyle(.white.opacity(0.52))
+                    .foregroundStyle(theme.colors.textSecondary)
                     .multilineTextAlignment(.trailing)
 
                 Image(systemName: "pencil")
@@ -908,10 +1175,10 @@ struct DashboardView: View {
         guard let costBasisTotal = transaction.costBasisTotal,
               costBasisTotal > 0,
               let grossProfit = transaction.grossProfit else {
-            return .white.opacity(0.56)
+            return theme.colors.textSecondary
         }
 
-        return grossProfit >= 0 ? tealAccent : Color(red: 0.95, green: 0.46, blue: 0.46)
+        return grossProfit >= 0 ? tealAccent : theme.colors.danger
     }
 
     private func dashboardDate(from dayString: String) -> Date? {
@@ -944,15 +1211,17 @@ struct LedgerView: View {
     let onOpenPortfolio: () -> Void
     let onOpenScanner: () -> Void
 
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let surfaceBackground = Color(red: 0.10, green: 0.09, blue: 0.14)
-    private let fieldBackground = Color(red: 0.15, green: 0.13, blue: 0.19)
-    private let limeAccent = Color(red: 0.79, green: 0.92, blue: 0.36)
-    private let outline = Color.white.opacity(0.08)
-    private let revenueAccent = Color(red: 0.32, green: 0.90, blue: 0.53)
-    private let spendAccent = Color(red: 0.95, green: 0.62, blue: 0.30)
-    private let profitAccent = Color(red: 0.48, green: 0.74, blue: 0.96)
-    private let costBasisAccent = Color(red: 0.86, green: 0.84, blue: 0.95)
+    @Environment(\.lootyTheme) private var theme
+
+    private var inkBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var limeAccent: Color { theme.colors.brand }
+    private var outline: Color { theme.colors.outlineSubtle }
+    private var revenueAccent: Color { theme.colors.success }
+    private var spendAccent: Color { theme.colors.warning }
+    private var profitAccent: Color { theme.colors.info }
+    private var costBasisAccent: Color { theme.colors.textSecondary }
 
     @State private var selectedChartMode: PortfolioDashboardChartMode = .inventory
 
@@ -1044,12 +1313,12 @@ struct LedgerView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text("Dashboard")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .font(theme.typography.display)
+                .foregroundStyle(theme.colors.textPrimary)
 
             Text("Analytics for inventory value, trading performance, and day-to-day activity.")
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.62))
+                .foregroundStyle(theme.colors.textSecondary)
         }
     }
 
@@ -1057,13 +1326,13 @@ struct LedgerView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Summary")
                 .font(.headline.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
 
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
-                ledgerMetricCard("Revenue", value: formattedCurrency(summary?.revenue ?? 0, currencyCode: ledger?.currencyCode ?? "USD"), accent: Color(red: 0.32, green: 0.90, blue: 0.53))
-                ledgerMetricCard("Spend", value: formattedCurrency(summary?.spend ?? 0, currencyCode: ledger?.currencyCode ?? "USD"), accent: Color(red: 0.95, green: 0.62, blue: 0.30))
+                ledgerMetricCard("Revenue", value: formattedCurrency(summary?.revenue ?? 0, currencyCode: ledger?.currencyCode ?? "USD"), accent: revenueAccent)
+                ledgerMetricCard("Spend", value: formattedCurrency(summary?.spend ?? 0, currencyCode: ledger?.currencyCode ?? "USD"), accent: spendAccent)
                 ledgerMetricCard("Gross Profit", value: formattedCurrency(summary?.grossProfit ?? 0, currencyCode: ledger?.currencyCode ?? "USD"), accent: limeAccent)
-                ledgerMetricCard("Inventory Value", value: formattedCurrency(summary?.inventoryValue ?? collectionStore.totalValue, currencyCode: ledger?.currencyCode ?? "USD"), accent: Color.white)
+                ledgerMetricCard("Inventory Value", value: formattedCurrency(summary?.inventoryValue ?? collectionStore.totalValue, currencyCode: ledger?.currencyCode ?? "USD"), accent: theme.colors.textPrimary)
             }
 
             activitySummaryStrip
@@ -1074,13 +1343,13 @@ struct LedgerView: View {
         HStack(spacing: 12) {
             Label(activitySummaryText, systemImage: "calendar.badge.clock")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.78))
+                .foregroundStyle(theme.colors.textSecondary)
 
             Spacer(minLength: 0)
 
             Label(inventorySummaryText, systemImage: "square.stack.3d.up.fill")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.66))
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .padding(.horizontal, 14)
         .padding(.vertical, 12)
@@ -1106,7 +1375,7 @@ struct LedgerView: View {
                 } label: {
                     Text(option.displayLabel)
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(collectionStore.selectedPortfolioLedgerRange == option ? .black : .white.opacity(0.82))
+                        .foregroundStyle(collectionStore.selectedPortfolioLedgerRange == option ? theme.colors.textInverse : theme.colors.textPrimary)
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                         .frame(maxWidth: .infinity)
@@ -1117,7 +1386,7 @@ struct LedgerView: View {
             }
         }
         .padding(5)
-        .background(Color.white.opacity(0.05))
+        .background(theme.colors.surfaceMuted)
         .clipShape(Capsule())
     }
 
@@ -1292,10 +1561,10 @@ struct LedgerView: View {
         guard let costBasisTotal = transaction.costBasisTotal,
               costBasisTotal > 0,
               let grossProfit = transaction.grossProfit else {
-            return .white.opacity(0.56)
+            return theme.colors.textSecondary
         }
 
-        return grossProfit >= 0 ? Color(red: 0.32, green: 0.90, blue: 0.53) : Color(red: 0.95, green: 0.46, blue: 0.46)
+        return grossProfit >= 0 ? revenueAccent : theme.colors.danger
     }
 
     private func formattedOccurredAt(_ occurredAt: Date) -> String {
@@ -1484,13 +1753,13 @@ enum ShowActivityKind {
     var tint: Color {
         switch self {
         case .sale:
-            return Color(red: 0.30, green: 0.88, blue: 0.54)
+            return LootyTheme.default.colors.success
         case .buy:
-            return Color(red: 0.94, green: 0.64, blue: 0.28)
+            return LootyTheme.default.colors.warning
         case .trade:
-            return Color(red: 0.48, green: 0.74, blue: 0.96)
+            return LootyTheme.default.colors.info
         case .expense:
-            return Color(red: 0.91, green: 0.39, blue: 0.41)
+            return LootyTheme.default.colors.danger
         }
     }
 
@@ -1602,11 +1871,13 @@ struct ShowsView: View {
     let onOpenPortfolio: () -> Void
     let onOpenScanner: () -> Void
 
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let surfaceBackground = Color(red: 0.10, green: 0.09, blue: 0.14)
-    private let fieldBackground = Color(red: 0.15, green: 0.13, blue: 0.19)
-    private let limeAccent = Color(red: 0.79, green: 0.92, blue: 0.36)
-    private let outline = Color.white.opacity(0.08)
+    @Environment(\.lootyTheme) private var theme
+
+    private var inkBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var limeAccent: Color { theme.colors.brand }
+    private var outline: Color { theme.colors.outlineSubtle }
 
     private var previewEntry: DeckCardEntry {
         collectionStore.entries.first ?? DeckCardEntry(
@@ -1698,12 +1969,12 @@ struct ShowsView: View {
         HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Shows")
-                    .font(.system(size: 28, weight: .bold, design: .rounded))
-                    .foregroundStyle(.white)
+                    .font(theme.typography.display)
+                    .foregroundStyle(theme.colors.textPrimary)
 
                 Text("Run your show session from one place: sell fast, keep the ledger tight, and track every deal.")
                     .font(.subheadline)
-                    .foregroundStyle(.white.opacity(0.64))
+                    .foregroundStyle(theme.colors.textSecondary)
             }
 
             Spacer()
@@ -1711,7 +1982,7 @@ struct ShowsView: View {
             VStack(alignment: .trailing, spacing: 8) {
                 Text("EARLY")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(theme.colors.textInverse)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(limeAccent)
@@ -1725,7 +1996,7 @@ struct ShowsView: View {
                     }
                 }
                 .font(.caption.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
                 .padding(.horizontal, 12)
                 .padding(.vertical, 8)
                 .background(fieldBackground)
@@ -1740,7 +2011,7 @@ struct ShowsView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("ACTIVE SESSION")
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(.black)
+                        .foregroundStyle(theme.colors.textInverse)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 6)
                         .background(limeAccent)
@@ -1748,11 +2019,11 @@ struct ShowsView: View {
 
                     Text(show.title)
                         .font(.system(size: 24, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
 
                     Text("\(show.location) • \(show.dateLabel)")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.74))
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
 
                 Spacer()
@@ -1760,10 +2031,10 @@ struct ShowsView: View {
                 VStack(alignment: .trailing, spacing: 6) {
                     Text(formattedPrice(show.grossSales))
                         .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
                     Text("gross sales")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.54))
+                        .foregroundStyle(theme.colors.textSecondary)
                 }
             }
 
@@ -1781,7 +2052,7 @@ struct ShowsView: View {
 
             Text("Every sale from Portfolio or the scan tray can attach to this session so your show ledger stays clean.")
                 .font(.footnote)
-                .foregroundStyle(.white.opacity(0.66))
+                .foregroundStyle(theme.colors.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .padding(18)
@@ -1790,8 +2061,8 @@ struct ShowsView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.12, green: 0.12, blue: 0.16),
-                            Color(red: 0.08, green: 0.09, blue: 0.11)
+                            theme.colors.canvasElevated,
+                            theme.colors.canvas
                         ],
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
@@ -1810,10 +2081,10 @@ struct ShowsView: View {
             Text(title)
         }
         .font(.caption.weight(.semibold))
-        .foregroundStyle(.white.opacity(0.84))
+        .foregroundStyle(theme.colors.textPrimary)
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .background(Color.white.opacity(0.06))
+        .background(theme.colors.surfaceMuted)
         .clipShape(Capsule())
     }
 
@@ -1823,17 +2094,17 @@ struct ShowsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Today's pace")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.56))
+                        .foregroundStyle(theme.colors.textSecondary)
                     Text(formattedPrice(show.grossSales))
                         .font(.system(size: 30, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
                 }
 
                 Spacer()
 
                 Text("Live")
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.black)
+                    .foregroundStyle(theme.colors.textInverse)
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(limeAccent)
@@ -1852,10 +2123,10 @@ struct ShowsView: View {
         VStack(alignment: .leading, spacing: 4) {
             Text(value)
                 .font(.system(size: 18, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
             Text(label)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.58))
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(14)
@@ -1871,14 +2142,14 @@ struct ShowsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Fast actions")
                 .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
 
             VStack(spacing: 12) {
                 showActionCard(
                     title: "Sell from scan",
                     subtitle: "Tap a fresh scan, confirm price and payment, and write it to this session.",
                     icon: "arrowshape.left.fill",
-                    tint: Color(red: 0.30, green: 0.88, blue: 0.54)
+                    tint: theme.colors.success
                 ) {
                     state.presentSell(
                         entry: previewEntry,
@@ -1891,7 +2162,7 @@ struct ShowsView: View {
                     title: "Sell from portfolio",
                     subtitle: "Open a card you already own and record the final sold price in one step.",
                     icon: "dollarsign.circle.fill",
-                    tint: Color(red: 0.96, green: 0.72, blue: 0.32)
+                    tint: theme.colors.warning
                 ) {
                     state.presentSell(
                         entry: previewEntry,
@@ -1903,7 +2174,7 @@ struct ShowsView: View {
                     title: "Trade builder",
                     subtitle: "Track cards out, cards in, and optional cash delta on one ticket.",
                     icon: "arrow.left.arrow.right.circle.fill",
-                    tint: Color(red: 0.48, green: 0.74, blue: 0.96)
+                    tint: theme.colors.info
                 ) {
                     state.presentTrade(previewEntry: previewEntry)
                 }
@@ -1932,10 +2203,10 @@ struct ShowsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
                     Text(subtitle)
                         .font(.subheadline)
-                        .foregroundStyle(.white.opacity(0.64))
+                        .foregroundStyle(theme.colors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
@@ -1943,7 +2214,7 @@ struct ShowsView: View {
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.white.opacity(0.44))
+                    .foregroundStyle(theme.colors.textSecondary)
             }
             .padding(16)
             .background(surfaceBackground)
@@ -1960,7 +2231,7 @@ struct ShowsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Recent activity")
                 .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
 
             VStack(spacing: 12) {
                 ForEach(show.activities) { activity in
@@ -1977,14 +2248,14 @@ struct ShowsView: View {
                         VStack(alignment: .leading, spacing: 4) {
                             Text(activity.title)
                                 .font(.subheadline.weight(.bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.colors.textPrimary)
                             Text(activity.subtitle)
                                 .font(.caption)
-                                .foregroundStyle(.white.opacity(0.62))
+                                .foregroundStyle(theme.colors.textSecondary)
                             if let note = activity.note {
                                 Text(note)
                                     .font(.caption2)
-                                    .foregroundStyle(.white.opacity(0.48))
+                                    .foregroundStyle(theme.colors.textSecondary)
                             }
                         }
 
@@ -2010,21 +2281,23 @@ struct ShowsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("No active show")
                 .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
 
             Text("Start show mode before the event and keep every sale, trade, and buy attached to one session ledger.")
                 .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.66))
+                .foregroundStyle(theme.colors.textSecondary)
 
             Button("Start show") {
                 state.startSampleShow()
             }
-            .font(.headline.weight(.semibold))
-            .foregroundStyle(.black)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .background(limeAccent)
-            .clipShape(Capsule())
+            .buttonStyle(
+                LootyFilledButtonStyle(
+                    fill: limeAccent,
+                    foreground: theme.colors.textInverse,
+                    cornerRadius: 18,
+                    minHeight: 48
+                )
+            )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
@@ -2040,7 +2313,7 @@ struct ShowsView: View {
         VStack(alignment: .leading, spacing: 14) {
             Text("Past shows")
                 .font(.title3.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
 
             VStack(spacing: 12) {
                 ForEach(state.recentShows.filter { state.activeShow?.id != $0.id }) { show in
@@ -2049,10 +2322,10 @@ struct ShowsView: View {
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(show.title)
                                     .font(.headline.weight(.bold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(theme.colors.textPrimary)
                                 Text("\(show.location) • \(show.dateLabel)")
                                     .font(.caption)
-                                    .foregroundStyle(.white.opacity(0.60))
+                                    .foregroundStyle(theme.colors.textSecondary)
                             }
                             Spacer()
                             Text(formattedPrice(show.netCash))
@@ -2082,10 +2355,10 @@ struct ShowsView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(value)
                 .font(.subheadline.weight(.bold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
             Text(label)
                 .font(.caption2.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.54))
+                .foregroundStyle(theme.colors.textSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -2109,6 +2382,7 @@ struct ShowSellPreviewSheet: View {
     let onConfirm: (ShowSellSubmission) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.lootyTheme) private var theme
     @State private var quantity = 1
     @State private var listPriceText: String
     @State private var percentOffText = ""
@@ -2117,15 +2391,15 @@ struct ShowSellPreviewSheet: View {
     @State private var isReviewingSale = false
     @State private var errorMessage: String?
     @State private var swipeProgress: CGFloat = 0
-    @FocusState private var focusedField: SellInputField?
+    @State private var focusedField: SellInputField?
 
-    private let pageBackground = Color.white
-    private let surfaceBackground = Color(red: 0.96, green: 0.97, blue: 0.98)
-    private let fieldBackground = Color.white
-    private let actionAccent = Color(red: 0.10, green: 0.86, blue: 0.06)
-    private let primaryText = Color(red: 0.09, green: 0.10, blue: 0.12)
-    private let secondaryText = Color(red: 0.45, green: 0.48, blue: 0.53)
-    private let outline = Color.black.opacity(0.08)
+    private var pageBackground: Color { theme.colors.pageLight }
+    private var surfaceBackground: Color { theme.colors.surfaceLight }
+    private var fieldBackground: Color { theme.colors.fieldLight }
+    private var actionAccent: Color { theme.colors.success }
+    private var primaryText: Color { theme.colors.textInverse }
+    private var secondaryText: Color { theme.colors.textSecondaryInverse }
+    private var outline: Color { theme.colors.outlineLight }
     private let swipeThreshold: CGFloat = 118
     private let actionHeight: CGFloat = 92
     private let swipeVisualTravel: CGFloat = 68
@@ -2210,9 +2484,10 @@ struct ShowSellPreviewSheet: View {
         Binding(
             get: { percentOffText },
             set: { newValue in
-                guard newValue != percentOffText else { return }
-                percentOffText = newValue
-                if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let clampedValue = clampedDiscountInputText(newValue, maximum: 100, maximumFractionDigits: 2)
+                guard clampedValue != percentOffText else { return }
+                percentOffText = clampedValue
+                if !clampedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     dollarOffText = ""
                 }
                 invalidateReviewedSaleForValueChange()
@@ -2224,9 +2499,10 @@ struct ShowSellPreviewSheet: View {
         Binding(
             get: { dollarOffText },
             set: { newValue in
-                guard newValue != dollarOffText else { return }
-                dollarOffText = newValue
-                if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let clampedValue = clampedDiscountInputText(newValue, maximum: listingPrice, maximumFractionDigits: 2)
+                guard clampedValue != dollarOffText else { return }
+                dollarOffText = clampedValue
+                if !clampedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     percentOffText = ""
                 }
                 invalidateReviewedSaleForValueChange()
@@ -2240,6 +2516,7 @@ struct ShowSellPreviewSheet: View {
             set: { newValue in
                 guard newValue != listPriceText else { return }
                 listPriceText = newValue
+                dollarOffText = clampedDiscountInputText(dollarOffText, maximum: listingPrice, maximumFractionDigits: 2)
                 invalidateReviewedSaleForValueChange()
             }
         )
@@ -2248,32 +2525,33 @@ struct ShowSellPreviewSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                pageBackground.ignoresSafeArea()
-
-                VStack(alignment: .leading, spacing: 16) {
-                    sellSurface
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color(red: 0.96, green: 0.52, blue: 0.52))
-                            .padding(.horizontal, 2)
+                pageBackground
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        clearInputFocus()
                     }
 
-                    Spacer(minLength: 0)
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 16) {
+                        sellSurface
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(theme.colors.danger)
+                                .padding(.horizontal, 2)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 22)
+                    .padding(.bottom, 118)
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 22)
-                .padding(.bottom, 118)
+                .scrollDismissesKeyboard(.interactively)
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                clearInputFocus()
-            }
-            .overlay(alignment: .bottom) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 editBottomActionBar
             }
-            .ignoresSafeArea(.keyboard, edges: .bottom)
             .toolbarBackground(pageBackground, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2292,14 +2570,6 @@ struct ShowSellPreviewSheet: View {
                         .foregroundStyle(primaryText)
                 }
 
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        clearInputFocus()
-                    }
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(actionAccent)
-                }
             }
             .navigationDestination(isPresented: $isReviewingSale) {
                 reviewPage
@@ -2307,6 +2577,15 @@ struct ShowSellPreviewSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .onChange(of: focusedField) { _, newValue in
+            print("🟢 FOCUS STATE CHANGED to \(String(describing: newValue)): \(Date()) [ShowSellPreviewSheet]")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            print("🔵 KEYBOARD WILL SHOW: \(Date()) [ShowSellPreviewSheet]")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+            print("🔴 KEYBOARD DID SHOW: \(Date()) [ShowSellPreviewSheet]")
+        }
     }
 
     private var sellSurface: some View {
@@ -2339,9 +2618,9 @@ struct ShowSellPreviewSheet: View {
                 compactValueField(
                     text: listPriceBinding,
                     placeholder: "0.00",
-                    width: 136
+                    width: 136,
+                    focus: .listPrice
                 )
-                .focused($focusedField, equals: .listPrice)
             }
 
             divider
@@ -2397,7 +2676,7 @@ struct ShowSellPreviewSheet: View {
                     if let errorMessage {
                         Text(errorMessage)
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color(red: 0.96, green: 0.52, blue: 0.52))
+                            .foregroundStyle(theme.colors.danger)
                             .padding(.horizontal, 2)
                     }
                 }
@@ -2483,16 +2762,19 @@ struct ShowSellPreviewSheet: View {
                     switch uiState {
                     case .edit(let buttonTitle):
                         Text(buttonTitle)
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 58)
-                            .background(actionAccent)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .frame(maxWidth: .infinity)
                     case .review:
                         EmptyView()
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    LootyFilledButtonStyle(
+                        fill: actionAccent,
+                        foreground: theme.colors.textInverse,
+                        cornerRadius: 18,
+                        minHeight: 58
+                    )
+                )
                 .disabled(isSubmitting)
                 .opacity(isSubmitting ? 0.78 : 1)
                 .padding(.horizontal, 20)
@@ -2521,7 +2803,7 @@ struct ShowSellPreviewSheet: View {
                     EmptyView()
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(theme.colors.textInverse)
             .frame(maxWidth: .infinity, minHeight: actionHeight)
             .background(actionAccent)
             .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
@@ -2662,15 +2944,23 @@ struct ShowSellPreviewSheet: View {
     private func compactValueField(
         text: Binding<String>,
         placeholder: String,
-        width: CGFloat?
+        width: CGFloat?,
+        focus: SellInputField
     ) -> some View {
-        TextField(placeholder, text: text)
-            .keyboardType(.decimalPad)
-            .textInputAutocapitalization(.never)
-            .disableAutocorrection(true)
-            .multilineTextAlignment(width == nil ? .leading : .trailing)
-            .font(.title3.weight(.bold))
-            .foregroundStyle(primaryText)
+        UIKitDecimalTextField(
+            text: text,
+            placeholder: placeholder,
+            alignment: width == nil ? .left : .right,
+            font: .systemFont(ofSize: 22, weight: .bold),
+            textColor: UIColor(primaryText),
+            traceContext: "ShowSellPreviewSheet",
+            onTapReceived: {
+                print("🟡 TAP RECEIVED: \(Date()) [ShowSellPreviewSheet]")
+            },
+            onEditingBegan: {
+                focusedField = focus
+            }
+        )
             .padding(.horizontal, 14)
             .frame(maxWidth: width == nil ? .infinity : width, minHeight: 54, maxHeight: 54)
             .background(fieldBackground)
@@ -2696,9 +2986,9 @@ struct ShowSellPreviewSheet: View {
             compactValueField(
                 text: text,
                 placeholder: placeholder,
-                width: nil
+                width: nil,
+                focus: focus
             )
-            .focused($focusedField, equals: focus)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -2806,6 +3096,7 @@ struct ShowSellBatchPreviewSheet: View {
     let onConfirm: (ShowSellBatchSubmission) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.lootyTheme) private var theme
     @State private var quantitiesByLineID: [String: Int]
     @State private var listPriceTextByLineID: [String: String]
     @State private var percentOffTextByLineID: [String: String]
@@ -2814,15 +3105,15 @@ struct ShowSellBatchPreviewSheet: View {
     @State private var isReviewingSale = false
     @State private var errorMessage: String?
     @State private var swipeProgress: CGFloat = 0
-    @FocusState private var focusedField: BatchSellInputField?
+    @State private var focusedField: BatchSellInputField?
 
-    private let pageBackground = Color.white
-    private let surfaceBackground = Color(red: 0.96, green: 0.97, blue: 0.98)
-    private let fieldBackground = Color.white
-    private let actionAccent = Color(red: 0.10, green: 0.86, blue: 0.06)
-    private let primaryText = Color(red: 0.09, green: 0.10, blue: 0.12)
-    private let secondaryText = Color(red: 0.45, green: 0.48, blue: 0.53)
-    private let outline = Color.black.opacity(0.08)
+    private var pageBackground: Color { theme.colors.pageLight }
+    private var surfaceBackground: Color { theme.colors.surfaceLight }
+    private var fieldBackground: Color { theme.colors.fieldLight }
+    private var actionAccent: Color { theme.colors.success }
+    private var primaryText: Color { theme.colors.textInverse }
+    private var secondaryText: Color { theme.colors.textSecondaryInverse }
+    private var outline: Color { theme.colors.outlineLight }
     private let swipeThreshold: CGFloat = 118
     private let actionHeight: CGFloat = 92
     private let swipeVisualTravel: CGFloat = 68
@@ -2888,14 +3179,19 @@ struct ShowSellBatchPreviewSheet: View {
     var body: some View {
         NavigationStack {
             ZStack {
-                pageBackground.ignoresSafeArea()
+                pageBackground
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        clearInputFocus()
+                    }
 
-                VStack(spacing: 16) {
-                    batchSummaryHero
-                        .padding(.horizontal, 20)
-                        .padding(.top, 22)
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 16) {
+                        batchSummaryHero
+                            .padding(.horizontal, 20)
+                            .padding(.top, 22)
 
-                    ScrollView(showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 12) {
                             ForEach(draft.lines) { line in
                                 batchLineCard(line)
@@ -2904,7 +3200,7 @@ struct ShowSellBatchPreviewSheet: View {
                             if let errorMessage {
                                 Text(errorMessage)
                                     .font(.footnote.weight(.semibold))
-                                    .foregroundStyle(Color(red: 0.96, green: 0.52, blue: 0.52))
+                                    .foregroundStyle(theme.colors.danger)
                                     .padding(.horizontal, 2)
                             }
                         }
@@ -2912,15 +3208,11 @@ struct ShowSellBatchPreviewSheet: View {
                         .padding(.bottom, 118)
                     }
                 }
+                .scrollDismissesKeyboard(.interactively)
             }
-            .contentShape(Rectangle())
-            .onTapGesture {
-                clearInputFocus()
-            }
-            .overlay(alignment: .bottom) {
+            .safeAreaInset(edge: .bottom, spacing: 0) {
                 editBottomActionBar
             }
-            .ignoresSafeArea(.keyboard, edges: .bottom)
             .toolbarBackground(pageBackground, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -2939,14 +3231,6 @@ struct ShowSellBatchPreviewSheet: View {
                         .foregroundStyle(primaryText)
                 }
 
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") {
-                        clearInputFocus()
-                    }
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(actionAccent)
-                }
             }
             .navigationDestination(isPresented: $isReviewingSale) {
                 reviewPage
@@ -2954,6 +3238,15 @@ struct ShowSellBatchPreviewSheet: View {
         }
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
+        .onChange(of: focusedField) { _, newValue in
+            print("🟢 FOCUS STATE CHANGED to \(String(describing: newValue)): \(Date()) [ShowSellBatchPreviewSheet]")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
+            print("🔵 KEYBOARD WILL SHOW: \(Date()) [ShowSellBatchPreviewSheet]")
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
+            print("🔴 KEYBOARD DID SHOW: \(Date()) [ShowSellBatchPreviewSheet]")
+        }
     }
 
     private func batchLineCard(_ line: ShowSellBatchLineDraft) -> some View {
@@ -2980,9 +3273,9 @@ struct ShowSellBatchPreviewSheet: View {
                 compactValueField(
                     text: listPriceBinding(for: line),
                     placeholder: "0.00",
-                    width: 136
+                    width: 136,
+                    focus: .listPrice(line.id)
                 )
-                .focused($focusedField, equals: .listPrice(line.id))
             }
 
             divider
@@ -3124,6 +3417,9 @@ struct ShowSellBatchPreviewSheet: View {
             get: { listPriceTextByLineID[line.id] ?? "" },
             set: { newValue in
                 listPriceTextByLineID[line.id] = newValue
+                let maximum = resolvedListPrice(for: line)
+                let existingDollarOff = dollarOffTextByLineID[line.id] ?? ""
+                dollarOffTextByLineID[line.id] = clampedDiscountInputText(existingDollarOff, maximum: maximum, maximumFractionDigits: 2)
                 invalidateReviewedSaleForValueChange()
             }
         )
@@ -3150,9 +3446,10 @@ struct ShowSellBatchPreviewSheet: View {
                 percentOffTextByLineID[line.id] ?? ""
             },
             set: { newValue in
-                guard newValue != (percentOffTextByLineID[line.id] ?? "") else { return }
-                percentOffTextByLineID[line.id] = newValue
-                if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let clampedValue = clampedDiscountInputText(newValue, maximum: 100, maximumFractionDigits: 2)
+                guard clampedValue != (percentOffTextByLineID[line.id] ?? "") else { return }
+                percentOffTextByLineID[line.id] = clampedValue
+                if !clampedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     dollarOffTextByLineID[line.id] = ""
                 }
                 invalidateReviewedSaleForValueChange()
@@ -3166,9 +3463,14 @@ struct ShowSellBatchPreviewSheet: View {
                 dollarOffTextByLineID[line.id] ?? ""
             },
             set: { newValue in
-                guard newValue != (dollarOffTextByLineID[line.id] ?? "") else { return }
-                dollarOffTextByLineID[line.id] = newValue
-                if !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                let clampedValue = clampedDiscountInputText(
+                    newValue,
+                    maximum: resolvedListPrice(for: line),
+                    maximumFractionDigits: 2
+                )
+                guard clampedValue != (dollarOffTextByLineID[line.id] ?? "") else { return }
+                dollarOffTextByLineID[line.id] = clampedValue
+                if !clampedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     percentOffTextByLineID[line.id] = ""
                 }
                 invalidateReviewedSaleForValueChange()
@@ -3259,7 +3561,7 @@ struct ShowSellBatchPreviewSheet: View {
                     if let errorMessage {
                         Text(errorMessage)
                             .font(.footnote.weight(.semibold))
-                            .foregroundStyle(Color(red: 0.96, green: 0.52, blue: 0.52))
+                            .foregroundStyle(theme.colors.danger)
                             .padding(.horizontal, 2)
                     }
                 }
@@ -3394,13 +3696,13 @@ struct ShowSellBatchPreviewSheet: View {
     }
 
     private func batchDetailChip(_ label: String) -> some View {
-        Text(label)
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(primaryText.opacity(0.82))
-            .padding(.horizontal, 8)
-            .padding(.vertical, 5)
-            .background(fieldBackground)
-            .clipShape(Capsule())
+        LootyPill(
+            title: label,
+            fill: fieldBackground,
+            foreground: primaryText.opacity(0.82),
+            stroke: outline.opacity(0.6),
+            font: theme.typography.micro
+        )
     }
 
     private var divider: some View {
@@ -3426,15 +3728,23 @@ struct ShowSellBatchPreviewSheet: View {
     private func compactValueField(
         text: Binding<String>,
         placeholder: String,
-        width: CGFloat?
+        width: CGFloat?,
+        focus: BatchSellInputField
     ) -> some View {
-        TextField(placeholder, text: text)
-            .keyboardType(.decimalPad)
-            .textInputAutocapitalization(.never)
-            .disableAutocorrection(true)
-            .multilineTextAlignment(width == nil ? .leading : .trailing)
-            .font(.title3.weight(.bold))
-            .foregroundStyle(primaryText)
+        UIKitDecimalTextField(
+            text: text,
+            placeholder: placeholder,
+            alignment: width == nil ? .left : .right,
+            font: .systemFont(ofSize: 22, weight: .bold),
+            textColor: UIColor(primaryText),
+            traceContext: "ShowSellBatchPreviewSheet",
+            onTapReceived: {
+                print("🟡 TAP RECEIVED: \(Date()) [ShowSellBatchPreviewSheet]")
+            },
+            onEditingBegan: {
+                focusedField = focus
+            }
+        )
             .padding(.horizontal, 14)
             .frame(maxWidth: width == nil ? .infinity : width, minHeight: 54, maxHeight: 54)
             .background(fieldBackground)
@@ -3460,9 +3770,9 @@ struct ShowSellBatchPreviewSheet: View {
             compactValueField(
                 text: text,
                 placeholder: placeholder,
-                width: nil
+                width: nil,
+                focus: focus
             )
-            .focused($focusedField, equals: focus)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -3505,16 +3815,19 @@ struct ShowSellBatchPreviewSheet: View {
                     switch uiState {
                     case .edit(let buttonTitle):
                         Text(buttonTitle)
-                            .font(.headline.weight(.bold))
-                            .foregroundStyle(.white)
-                            .frame(maxWidth: .infinity, minHeight: 58)
-                            .background(actionAccent)
-                            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                            .frame(maxWidth: .infinity)
                     case .review:
                         EmptyView()
                     }
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    LootyFilledButtonStyle(
+                        fill: actionAccent,
+                        foreground: theme.colors.textInverse,
+                        cornerRadius: 18,
+                        minHeight: 58
+                    )
+                )
                 .disabled(isSubmitting)
                 .opacity(isSubmitting ? 0.78 : 1)
                 .padding(.horizontal, 20)
@@ -3542,7 +3855,7 @@ struct ShowSellBatchPreviewSheet: View {
                     EmptyView()
                 }
             }
-            .foregroundStyle(.white)
+            .foregroundStyle(theme.colors.textInverse)
             .frame(maxWidth: .infinity, minHeight: actionHeight)
             .background(actionAccent)
             .offset(y: -min(swipeProgress * 0.10, 8))
@@ -3683,19 +3996,20 @@ struct ShowBuyPreviewSheet: View {
     let onConfirm: (ShowBuySubmission) async throws -> Void
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.lootyTheme) private var theme
     @State private var quantity: Int
     @State private var buyPriceText: String
     @State private var selectedCondition: DeckCardCondition = .nearMint
     @State private var isSubmitting = false
     @State private var errorMessage: String?
 
-    private let pageBackground = Color(red: 0.05, green: 0.05, blue: 0.08)
-    private let surfaceBackground = Color(red: 0.10, green: 0.10, blue: 0.14)
-    private let fieldBackground = Color(red: 0.16, green: 0.16, blue: 0.21)
-    private let actionAccent = Color(red: 0.34, green: 0.36, blue: 0.96)
-    private let primaryText = Color.white
-    private let secondaryText = Color.white.opacity(0.62)
-    private let outline = Color.white.opacity(0.08)
+    private var pageBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var actionAccent: Color { theme.colors.info }
+    private var primaryText: Color { theme.colors.textPrimary }
+    private var secondaryText: Color { theme.colors.textSecondary }
+    private var outline: Color { theme.colors.outlineSubtle }
 
     init(
         draft: ShowBuyDraft,
@@ -3767,7 +4081,7 @@ struct ShowBuyPreviewSheet: View {
                         if let errorMessage {
                             Text(errorMessage)
                                 .font(.footnote.weight(.semibold))
-                                .foregroundStyle(Color(red: 0.96, green: 0.52, blue: 0.52))
+                                .foregroundStyle(theme.colors.danger)
                                 .padding(.horizontal, 2)
                         }
                     }
@@ -3875,13 +4189,16 @@ struct ShowBuyPreviewSheet: View {
                     submitBuy()
                 } label: {
                     Text(isSubmitting ? "ADDING…" : "Add to collection")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity, minHeight: 56)
-                        .background(actionAccent)
-                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                        .frame(maxWidth: .infinity)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(
+                    LootyFilledButtonStyle(
+                        fill: actionAccent,
+                        foreground: theme.colors.textInverse,
+                        cornerRadius: 20,
+                        minHeight: 56
+                    )
+                )
                 .disabled(isSubmitting)
                 .opacity(isSubmitting ? 0.82 : 1)
             }
@@ -3972,17 +4289,14 @@ struct ShowBuyPreviewSheet: View {
     }
 
     private func selectionPill(title: String, isSelected: Bool) -> some View {
-        Text(title)
-            .font(.caption.weight(.bold))
-            .foregroundStyle(isSelected ? .white : primaryText.opacity(0.78))
-            .padding(.horizontal, 14)
-            .padding(.vertical, 10)
-            .background(isSelected ? actionAccent : fieldBackground)
-            .clipShape(Capsule())
-            .overlay(
-                Capsule()
-                    .stroke(isSelected ? Color.clear : outline, lineWidth: 1)
-            )
+        LootyPill(
+            title: title,
+            isSelected: isSelected,
+            fill: isSelected ? actionAccent : fieldBackground,
+            foreground: isSelected ? .white : primaryText.opacity(0.78),
+            stroke: isSelected ? actionAccent : outline,
+            font: theme.typography.caption
+        )
     }
 
     private func valueChip(_ value: String) -> some View {
@@ -4067,6 +4381,7 @@ struct ShowTradePreviewSheet: View {
     let draft: ShowTradeDraft
 
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.lootyTheme) private var theme
     @State private var cashDeltaText = "40"
     @State private var note = "Umbreon V trade-up"
 
@@ -4085,12 +4400,12 @@ struct ShowTradePreviewSheet: View {
                     tradeColumn(
                         title: "You gave",
                         cards: [draft.previewEntry.card.name, "Umbreon V #95"],
-                        tint: Color(red: 0.91, green: 0.39, blue: 0.41)
+                        tint: theme.colors.danger
                     )
                     tradeColumn(
                         title: "You got",
                         cards: ["Blastoise ex #009", "Cash"],
-                        tint: Color(red: 0.30, green: 0.88, blue: 0.54)
+                        tint: theme.colors.success
                     )
                 }
 
@@ -4115,13 +4430,15 @@ struct ShowTradePreviewSheet: View {
                     dismiss()
                 } label: {
                     Text("COMPLETE TRADE")
-                        .font(.headline.weight(.bold))
-                        .foregroundStyle(.black)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 14)
-                        .background(Color(red: 0.79, green: 0.92, blue: 0.36))
-                        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
+                .buttonStyle(
+                    LootyFilledButtonStyle(
+                        fill: theme.colors.brand,
+                        foreground: theme.colors.textInverse,
+                        cornerRadius: 16,
+                        minHeight: 52
+                    )
+                )
 
                 Spacer(minLength: 0)
             }

@@ -125,10 +125,18 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     }
 
     func stopSession() {
+        spotlightFlowLog("Camera stopSession requested authorized=\(authorizationState == .authorized) configured=\(isSessionConfigured)")
         sessionQueue.async { [weak self] in
             guard let self else { return }
-            guard self.session.isRunning else { return }
+            guard self.session.isRunning else {
+                spotlightFlowLog("Camera stopSession skipped; session not running")
+                return
+            }
+            let startedAt = ProcessInfo.processInfo.systemUptime
+            spotlightFlowLog("Camera session stop begin")
             self.session.stopRunning()
+            let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+            spotlightFlowLog("Camera session stop end elapsed=\(String(format: "%.3f", elapsed))s")
         }
     }
 

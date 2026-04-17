@@ -63,6 +63,7 @@ struct PortfolioSaleBatchLineRequest: Hashable {
 @MainActor
 final class CollectionStore: ObservableObject {
     @Published private(set) var entries: [DeckCardEntry] = []
+    @Published private(set) var isLoadingEntries = false
     @Published private(set) var portfolioHistory: PortfolioHistory?
     @Published private(set) var selectedPortfolioHistoryRange: PortfolioHistoryRange = .days30
     @Published private(set) var isLoadingPortfolioHistory = false
@@ -100,6 +101,8 @@ final class CollectionStore: ObservableObject {
 
     func refreshFromBackend() async {
         guard let matcher else { return }
+        isLoadingEntries = true
+        defer { isLoadingEntries = false }
 
         guard let payloads = await matcher.fetchDeckEntries() else {
             return
@@ -164,6 +167,12 @@ final class CollectionStore: ObservableObject {
         async let historyRefresh: Void = refreshPortfolioHistory()
         async let ledgerRefresh: Void = refreshPortfolioLedger()
         _ = await (entriesRefresh, historyRefresh, ledgerRefresh)
+    }
+
+    func refreshPortfolioData() async {
+        async let entriesRefresh: Void = refreshFromBackend()
+        async let historyRefresh: Void = refreshPortfolioHistory()
+        _ = await (entriesRefresh, historyRefresh)
     }
 
     func add(card: CardCandidate, slabContext: SlabContext?, condition: DeckCardCondition? = nil) -> Int {
@@ -602,9 +611,11 @@ final class AppContainer: ObservableObject {
     private let remoteMatcher: RemoteScanMatchingService
     private var hasPrimedLocalNetworkPermission = false
     private var isPrimingLocalNetworkPermission = false
+    private var localNetworkPrimingTask: Task<Void, Never>?
     private var activeCollectionRefreshScope: CollectionRefreshScope?
     private var pendingCollectionRefreshScope: CollectionRefreshScope?
     private var lastCompletedCollectionRefreshAt: Date?
+    private var hasStartedInitialCollectionLoad = false
 
     init() {
         let cameraController = CameraSessionController()
@@ -635,7 +646,6 @@ final class AppContainer: ObservableObject {
         Task { [weak self] in
             guard let self else { return }
             await self.scannerViewModel.flushPendingBackendQueues()
-            self.refreshCollectionStoreFromBackend(scope: .dashboard)
         }
 
         print("🔍 [OCR] Pipeline route: raw_rewrite_live")
@@ -707,20 +717,61 @@ final class AppContainer: ObservableObject {
         }
     }
 
-    func primeLocalNetworkPermissionIfNeeded() {
-        guard !hasPrimedLocalNetworkPermission, !isPrimingLocalNetworkPermission else { return }
-        isPrimingLocalNetworkPermission = true
+    func beginInitialCollectionLoadIfNeeded() {
+        guard !hasStartedInitialCollectionLoad else { return }
+        hasStartedInitialCollectionLoad = true
+        refreshCollectionStoreAfterWarmup(scope: .entries)
+    }
 
-        Task(priority: .utility) { [weak self, remoteMatcher] in
-            try? await Task.sleep(for: .milliseconds(600))
+    func handleAppDidBecomeActive() {
+        refreshCollectionStoreAfterWarmup(scope: .entries, minimumInterval: 15)
+    }
+
+    func refreshCollectionStoreAfterWarmup(
+        scope: CollectionRefreshScope = .entries,
+        minimumInterval: TimeInterval = 0
+    ) {
+        Task { [weak self] in
+            guard let self else { return }
+            await self.ensureLocalNetworkPermissionPrimedIfNeeded()
+            await MainActor.run {
+                self.refreshCollectionStoreFromBackend(
+                    scope: scope,
+                    minimumInterval: minimumInterval
+                )
+            }
+        }
+    }
+
+    func primeLocalNetworkPermissionIfNeeded() {
+        Task { [weak self] in
+            await self?.ensureLocalNetworkPermissionPrimedIfNeeded()
+        }
+    }
+
+    private func ensureLocalNetworkPermissionPrimedIfNeeded() async {
+        if hasPrimedLocalNetworkPermission {
+            return
+        }
+
+        if let localNetworkPrimingTask {
+            await localNetworkPrimingTask.value
+            return
+        }
+
+        isPrimingLocalNetworkPermission = true
+        let task = Task(priority: .utility) { [weak self, remoteMatcher] in
             let didPrime = await remoteMatcher.primeLocalNetworkPermissionIfNeeded()
             await MainActor.run {
                 self?.isPrimingLocalNetworkPermission = false
+                self?.localNetworkPrimingTask = nil
                 if didPrime {
                     self?.hasPrimedLocalNetworkPermission = true
                 }
             }
         }
+        localNetworkPrimingTask = task
+        await task.value
     }
 
     private func performCollectionRefresh(scope: CollectionRefreshScope) async {

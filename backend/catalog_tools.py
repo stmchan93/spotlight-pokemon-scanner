@@ -2043,6 +2043,31 @@ def card_by_id(connection: sqlite3.Connection, card_id: str) -> dict[str, Any] |
     return _card_row_to_dict(row, title_aliases=alias_map.get(card_id, ()))
 
 
+def cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str]) -> dict[str, dict[str, Any]]:
+    normalized_ids: list[str] = []
+    seen_ids: set[str] = set()
+    for raw_card_id in card_ids:
+        card_id = str(raw_card_id or "").strip()
+        if not card_id or card_id in seen_ids:
+            continue
+        seen_ids.add(card_id)
+        normalized_ids.append(card_id)
+
+    if not normalized_ids:
+        return {}
+
+    placeholders = ",".join("?" for _ in normalized_ids)
+    rows = connection.execute(
+        f"SELECT * FROM cards WHERE id IN ({placeholders})",
+        tuple(normalized_ids),
+    ).fetchall()
+    alias_map = _card_title_aliases_by_card_ids(connection, normalized_ids)
+    return {
+        str(row["id"]): _card_row_to_dict(row, title_aliases=alias_map.get(str(row["id"]), ()))
+        for row in rows
+    }
+
+
 def search_cards(connection: sqlite3.Connection, query: str, limit: int = 25) -> list[dict[str, Any]]:
     tokens = tokenize(query)
     scored: list[tuple[float, dict[str, Any]]] = []

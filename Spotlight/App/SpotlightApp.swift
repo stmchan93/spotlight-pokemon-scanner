@@ -1,9 +1,18 @@
+import Foundation
 import SwiftUI
 
 enum AppRuntime {
     static var isRunningTests: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
     }
+}
+
+func spotlightFlowLog(_ message: @autoclosure () -> String) {
+#if DEBUG
+    let uptime = String(format: "%.3f", ProcessInfo.processInfo.systemUptime)
+    let thread = Thread.isMainThread ? "main" : "bg"
+    print("🧭 [FLOW \(uptime)s \(thread)] \(message())")
+#endif
 }
 
 enum AppShellTab {
@@ -55,6 +64,7 @@ private struct SpotlightRootView: View {
                 LiveAppRootView()
             }
         }
+        .lootyTheme(.default)
         .preferredColorScheme(.dark)
     }
 }
@@ -66,16 +76,17 @@ private struct LiveAppRootView: View {
     var body: some View {
         AppShellView(
             scannerViewModel: container.scannerViewModel,
-            collectionStore: container.collectionStore
+            collectionStore: container.collectionStore,
+            onEnsurePortfolioEntries: {
+                container.refreshCollectionStoreAfterWarmup(scope: .entries)
+            }
         )
         .onAppear {
-            container.primeLocalNetworkPermissionIfNeeded()
-            container.refreshCollectionStoreFromBackend(scope: .dashboard)
+            container.beginInitialCollectionLoadIfNeeded()
         }
         .onChange(of: scenePhase) { _, newPhase in
             guard newPhase == .active else { return }
-            container.primeLocalNetworkPermissionIfNeeded()
-            container.refreshCollectionStoreFromBackend(scope: .entries, minimumInterval: 15)
+            container.handleAppDidBecomeActive()
         }
     }
 }
@@ -91,15 +102,24 @@ private struct TestHostPlaceholderView: View {
 struct AppShellView: View {
     @ObservedObject var scannerViewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
+    let onEnsurePortfolioEntries: () -> Void
     @State private var shellState = AppShellState()
     @StateObject private var dealFlowState = ShowsMockState()
 
+    private var isPresentingDealFlow: Bool {
+        dealFlowState.presentedFlow != nil
+    }
+
     private var showingScannerDetail: Bool {
-        shellState.selectedTab == .scan && appShellUsesSharedDetailOverlay(selectedTab: shellState.selectedTab, route: scannerViewModel.route)
+        !isPresentingDealFlow &&
+        shellState.selectedTab == .scan &&
+        appShellUsesSharedDetailOverlay(selectedTab: shellState.selectedTab, route: scannerViewModel.route)
     }
 
     private var showingPortfolioDetail: Bool {
-        shellState.selectedTab == .portfolio && appShellUsesSharedDetailOverlay(selectedTab: shellState.selectedTab, route: scannerViewModel.route)
+        !isPresentingDealFlow &&
+        shellState.selectedTab == .portfolio &&
+        appShellUsesSharedDetailOverlay(selectedTab: shellState.selectedTab, route: scannerViewModel.route)
     }
 
     private var showingSharedDetail: Bool {
@@ -110,16 +130,20 @@ struct AppShellView: View {
         ZStack {
             PortfolioSurfaceView(
                 onSelectEntry: { entry in
+                    spotlightFlowLog("Portfolio entry tapped id=\(entry.id) cardID=\(entry.card.id)")
                     scannerViewModel.presentResultDetail(for: entry)
                 },
                 collectionStore: collectionStore,
                 isVisible: shellState.selectedTab == .portfolio,
+                onEnsureEntries: onEnsurePortfolioEntries,
                 onOpenScanner: {
+                    spotlightFlowLog("AppShell openScanner requested from portfolio")
                     withAnimation(.easeInOut(duration: 0.18)) {
                         shellState.openScanner()
                     }
                 },
                 onOpenLedger: {
+                    spotlightFlowLog("AppShell openLedger requested from portfolio")
                     withAnimation(.easeInOut(duration: 0.18)) {
                         shellState.openLedger()
                     }
@@ -134,7 +158,9 @@ struct AppShellView: View {
                     viewModel: scannerViewModel,
                     collectionStore: collectionStore,
                     dealFlowState: dealFlowState,
+                    showsInlineDetail: false,
                     onExitScanner: {
+                        spotlightFlowLog("AppShell exitScanner requested from scanner")
                         withAnimation(.easeInOut(duration: 0.18)) {
                             shellState.exitScanner()
                         }
@@ -242,6 +268,14 @@ struct AppShellView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: shellState.selectedTab)
-        .animation(.easeInOut(duration: 0.24), value: scannerViewModel.route)
+        .onChange(of: shellState.selectedTab, initial: true) { oldValue, newValue in
+            spotlightFlowLog("AppShell selectedTab \(String(describing: oldValue)) -> \(String(describing: newValue)), route=\(String(describing: scannerViewModel.route)), sharedDetail=\(showingSharedDetail)")
+        }
+        .onChange(of: scannerViewModel.route, initial: true) { oldValue, newValue in
+            spotlightFlowLog("AppShell route \(String(describing: oldValue)) -> \(String(describing: newValue)), tab=\(String(describing: shellState.selectedTab)), portfolioDetail=\(showingPortfolioDetail), scannerDetail=\(showingScannerDetail)")
+        }
+        .onChange(of: showingSharedDetail, initial: true) { oldValue, newValue in
+            spotlightFlowLog("AppShell sharedDetail \(oldValue) -> \(newValue), tab=\(String(describing: shellState.selectedTab)), route=\(String(describing: scannerViewModel.route))")
+        }
     }
 }

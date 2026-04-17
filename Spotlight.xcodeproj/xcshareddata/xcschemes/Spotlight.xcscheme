@@ -84,7 +84,7 @@
       </EnvironmentVariables>
    </LaunchAction>
    <ProfileAction
-      buildConfiguration = "Staging"
+      buildConfiguration = "Debug"
       shouldUseLaunchSchemeArgsEnv = "YES"
       savedToolIdentifier = ""
       useCustomWorkingDirectory = "NO"

@@ -4,7 +4,13 @@ struct ScannerRootView: View {
     @ObservedObject var viewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
     @ObservedObject var dealFlowState: ShowsMockState
+    @Environment(\.lootyTheme) private var theme
+    var showsInlineDetail: Bool = true
     let onExitScanner: (() -> Void)?
+
+    private var shouldKeepCameraRunning: Bool {
+        viewModel.route == .scanner && dealFlowState.presentedFlow == nil
+    }
 
     var body: some View {
         ZStack {
@@ -18,7 +24,7 @@ struct ScannerRootView: View {
             )
             .transition(.opacity)
 
-            if viewModel.route == .resultDetail {
+            if showsInlineDetail && viewModel.route == .resultDetail {
                 ScanResultDetailView(
                     viewModel: viewModel,
                     collectionStore: collectionStore,
@@ -36,34 +42,49 @@ struct ScannerRootView: View {
                 VStack {
                     Spacer()
                     Text(bannerMessage)
-                        .font(.headline)
-                        .foregroundStyle(.black)
-                        .padding(.horizontal, 18)
-                        .padding(.vertical, 12)
-                        .background(Color(red: 0.47, green: 0.84, blue: 0.68))
+                        .font(theme.typography.headline)
+                        .foregroundStyle(theme.colors.textInverse)
+                        .padding(.horizontal, theme.spacing.lg)
+                        .padding(.vertical, theme.spacing.sm)
+                        .background(theme.colors.success)
                         .clipShape(Capsule())
-                        .padding(.bottom, 28)
+                        .padding(.bottom, theme.spacing.xxl)
                 }
                 .transition(.opacity)
             }
         }
         .animation(.easeInOut(duration: 0.24), value: viewModel.route)
         .animation(.easeInOut(duration: 0.2), value: viewModel.bannerMessage)
+        .onAppear {
+            syncScannerSession()
+        }
+        .onChange(of: viewModel.route) { _, _ in
+            syncScannerSession()
+        }
+        .onChange(of: dealFlowState.presentedFlow != nil) { _, _ in
+            syncScannerSession()
+        }
+    }
+
+    private func syncScannerSession() {
+        spotlightFlowLog("ScannerRoot syncScannerSession shouldKeepCameraRunning=\(shouldKeepCameraRunning) route=\(String(describing: viewModel.route)) dealFlowPresented=\(dealFlowState.presentedFlow != nil)")
+        if shouldKeepCameraRunning {
+            viewModel.startScannerSession()
+        } else {
+            viewModel.stopScannerSession()
+        }
     }
 }
 
 struct AppShellBottomBar: View {
+    @Environment(\.lootyTheme) private var theme
     let selectedTab: AppShellTab
     let onOpenPortfolio: () -> Void
     let onOpenScanner: () -> Void
     let onOpenLedger: () -> Void
 
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
-    private let outline = Color.white.opacity(0.08)
-    private let limeAccent = Color(red: 0.79, green: 0.92, blue: 0.36)
-
     var body: some View {
-        HStack(alignment: .center, spacing: 18) {
+        HStack(alignment: .center, spacing: theme.spacing.lg - 2) {
             shellTabItem(
                 systemName: "square.stack.fill",
                 title: "Portfolio",
@@ -72,20 +93,20 @@ struct AppShellBottomBar: View {
             )
 
             Button(action: onOpenScanner) {
-                VStack(spacing: 6) {
+                VStack(spacing: theme.spacing.xxs) {
                     ZStack {
-                        RoundedRectangle(cornerRadius: 13, style: .continuous)
-                            .fill(selectedTab == .scan ? limeAccent : Color.white.opacity(0.10))
+                        RoundedRectangle(cornerRadius: theme.radius.md - 1, style: .continuous)
+                            .fill(selectedTab == .scan ? theme.colors.brand : theme.colors.field)
                             .frame(width: 52, height: 52)
 
                         Image(systemName: "camera.viewfinder")
                             .font(.system(size: 20, weight: .bold))
-                            .foregroundStyle(selectedTab == .scan ? .black : .white)
+                            .foregroundStyle(selectedTab == .scan ? theme.colors.textInverse : theme.colors.textPrimary)
                     }
 
                     Text("Scan")
-                        .font(.caption2.weight(.bold))
-                        .foregroundStyle(selectedTab == .scan ? .white : .white.opacity(0.70))
+                        .font(theme.typography.micro)
+                        .foregroundStyle(selectedTab == .scan ? theme.colors.textPrimary : theme.colors.textSecondary)
                 }
                 .frame(maxWidth: .infinity)
             }
@@ -98,15 +119,15 @@ struct AppShellBottomBar: View {
                 action: onOpenLedger
             )
         }
-        .padding(.horizontal, 28)
-        .padding(.top, 6)
-        .padding(.bottom, 4)
+        .padding(.horizontal, theme.spacing.xxl)
+        .padding(.top, theme.spacing.xxs)
+        .padding(.bottom, theme.spacing.xxxs)
         .background(
             Rectangle()
-                .fill(inkBackground.opacity(0.98))
+                .fill(theme.colors.canvas.opacity(0.98))
                 .overlay(alignment: .top) {
                     Rectangle()
-                        .fill(outline)
+                        .fill(theme.colors.outlineSubtle)
                         .frame(height: 1)
                 }
                 .ignoresSafeArea(edges: .bottom)
@@ -120,14 +141,14 @@ struct AppShellBottomBar: View {
         action: @escaping () -> Void
     ) -> some View {
         Button(action: action) {
-            VStack(spacing: 6) {
+            VStack(spacing: theme.spacing.xxs) {
                 Image(systemName: systemName)
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundStyle(isSelected ? .white : .white.opacity(0.52))
+                    .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary.opacity(0.74))
 
                 Text(title)
-                    .font(.caption2.weight(.semibold))
-                    .foregroundStyle(isSelected ? .white : .white.opacity(0.52))
+                    .font(theme.typography.caption)
+                    .foregroundStyle(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary.opacity(0.74))
             }
             .frame(maxWidth: .infinity)
         }

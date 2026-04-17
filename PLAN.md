@@ -13,6 +13,7 @@ Date: 2026-04-13
 - The earlier OCR simplification / performance implementation record is [docs/ocr-simplification-performance-implementation-spec-2026-04-10.md](/Users/stephenchan/Code/spotlight/docs/ocr-simplification-performance-implementation-spec-2026-04-10.md).
 - The current slab rebuild implementation source of truth is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
 - The current inventory / ledger / portfolio source of truth is [docs/inventory-portfolio-selling-spec-2026-04-15.md](/Users/stephenchan/Code/spotlight/docs/inventory-portfolio-selling-spec-2026-04-15.md).
+- The current app design-system scaffold and migration source of truth is [docs/looty-ui-design-system-plan-2026-04-16.md](/Users/stephenchan/Code/spotlight/docs/looty-ui-design-system-plan-2026-04-16.md).
 - The raw backend reset has now landed.
 - The next raw identity direction is now:
   - visual matching first
