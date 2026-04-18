@@ -333,6 +333,26 @@ struct ScanCaptureInput: @unchecked Sendable {
     }
 }
 
+enum ScanJobStatus: String, Codable, Hashable, Sendable {
+    case pending
+    case resolved
+    case failed
+}
+
+struct ScanJob: Identifiable {
+    let id: UUID
+    var scanID: UUID
+    var status: ScanJobStatus
+    var capturedImage: UIImage?
+    var captureInput: ScanCaptureInput?
+    var analysis: AnalyzedCapture?
+    var result: ScanMatchResponse?
+    var errorMessage: String?
+    var startedAt: TimeInterval
+    var reticleRect: CGRect?
+    var dedupFingerprint: String?
+}
+
 struct LiveScanStackItem: Identifiable {
     let id: UUID
     let scanID: UUID

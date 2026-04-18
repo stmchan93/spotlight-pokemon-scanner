@@ -7,10 +7,11 @@ import re
 import sqlite3
 import sys
 import traceback
+import threading
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import perf_counter
 from typing import Any
@@ -146,6 +147,10 @@ class ServerConfig:
     port: int = 8787
 
 
+class SpotlightThreadingHTTPServer(ThreadingHTTPServer):
+    daemon_threads = True
+
+
 @dataclass(frozen=True)
 class SlabMatchEvidence:
     title_text_primary: str
@@ -278,8 +283,13 @@ class SpotlightScanService:
     def __init__(self, database_path: Path, repo_root: Path) -> None:
         self.database_path = database_path
         self.repo_root = repo_root
-        self.connection = connect(database_path)
-        self.index = load_index(self.connection)
+        self._thread_local = threading.local()
+        self._state_lock = threading.RLock()
+        bootstrap_connection = connect(database_path)
+        try:
+            self.index = load_index(bootstrap_connection)
+        finally:
+            bootstrap_connection.close()
         self._card_lookup_cache: dict[str, dict[str, Any] | None] = {}
         self._raw_visual_matcher: Any | None = None
         self._pending_visual_scans: dict[str, PendingVisualScan] = {}
@@ -303,22 +313,41 @@ class SpotlightScanService:
             }
         )
 
+    @property
+    def connection(self) -> sqlite3.Connection:
+        connection = getattr(self._thread_local, "connection", None)
+        if connection is None:
+            connection = connect(self.database_path)
+            self._thread_local.connection = connection
+        return connection
+
+    def _new_connection(self) -> sqlite3.Connection:
+        return connect(self.database_path)
+
     def refresh_index(self) -> None:
-        self.index = load_index(self.connection)
-        self._card_lookup_cache.clear()
+        connection = self._new_connection()
+        try:
+            index = load_index(connection)
+        finally:
+            connection.close()
+        with self._state_lock:
+            self.index = index
+            self._card_lookup_cache.clear()
 
     def _raw_visual_matcher_instance(self) -> Any:
-        if self._raw_visual_matcher is None:
-            from raw_visual_matcher import RawVisualMatcher
+        with self._state_lock:
+            if self._raw_visual_matcher is None:
+                from raw_visual_matcher import RawVisualMatcher
 
-            self._raw_visual_matcher = RawVisualMatcher(repo_root=self.repo_root)
-        return self._raw_visual_matcher
+                self._raw_visual_matcher = RawVisualMatcher(repo_root=self.repo_root)
+            return self._raw_visual_matcher
 
     def _prune_pending_visual_scans(self) -> None:
         cutoff = perf_counter() - self._pending_visual_scan_ttl_seconds
-        for scan_id, pending in list(self._pending_visual_scans.items()):
-            if pending.created_at < cutoff:
-                self._pending_visual_scans.pop(scan_id, None)
+        with self._state_lock:
+            for scan_id, pending in list(self._pending_visual_scans.items()):
+                if pending.created_at < cutoff:
+                    self._pending_visual_scans.pop(scan_id, None)
 
     def _store_pending_visual_scan(
         self,
@@ -333,7 +362,6 @@ class SpotlightScanService:
         scan_id = str(scan_id or "").strip()
         if not scan_id:
             return
-        self._prune_pending_visual_scans()
         pending = PendingVisualScan(
             scan_id=scan_id,
             created_at=perf_counter(),
@@ -343,7 +371,9 @@ class SpotlightScanService:
             requested_top_k=max(1, int(requested_top_k)),
             visual_match_ms=float(visual_match_ms),
         )
-        self._pending_visual_scans[scan_id] = pending
+        with self._state_lock:
+            self._prune_pending_visual_scans()
+            self._pending_visual_scans[scan_id] = pending
         top_candidate_id = ""
         if pending.visual_matches:
             top_candidate_id = str(getattr(pending.visual_matches[0].entry, "card_id", "") or "")
@@ -360,8 +390,29 @@ class SpotlightScanService:
         scan_id = str(scan_id or "").strip()
         if not scan_id:
             return None
-        self._prune_pending_visual_scans()
-        pending = self._pending_visual_scans.get(scan_id)
+        with self._state_lock:
+            self._prune_pending_visual_scans()
+            pending = self._pending_visual_scans.get(scan_id)
+        if pending is None:
+            print(f"[SCAN CACHE] Missed visual shortlist: scanID={scan_id}")
+            return None
+        age_ms = (perf_counter() - pending.created_at) * 1000.0
+        print(
+            "[SCAN CACHE] Reusing visual shortlist: "
+            f"scanID={scan_id} "
+            f"ageMs={age_ms:.1f} "
+            f"matches={len(pending.visual_matches)} "
+            f"visualMatchMs={pending.visual_match_ms:.1f}"
+        )
+        return pending
+
+    def _take_pending_visual_scan(self, scan_id: str) -> PendingVisualScan | None:
+        scan_id = str(scan_id or "").strip()
+        if not scan_id:
+            return None
+        with self._state_lock:
+            self._prune_pending_visual_scans()
+            pending = self._pending_visual_scans.pop(scan_id, None)
         if pending is None:
             print(f"[SCAN CACHE] Missed visual shortlist: scanID={scan_id}")
             return None
@@ -378,7 +429,8 @@ class SpotlightScanService:
     def _clear_pending_visual_scan(self, scan_id: str) -> None:
         scan_id = str(scan_id or "").strip()
         if scan_id:
-            self._pending_visual_scans.pop(scan_id, None)
+            with self._state_lock:
+                self._pending_visual_scans.pop(scan_id, None)
 
     def _run_raw_visual_phase(
         self,
@@ -3784,9 +3836,18 @@ class SpotlightScanService:
         normalized_card_id = str(card_id or "").strip()
         if not normalized_card_id:
             return None
-        if normalized_card_id not in self._card_lookup_cache:
-            self._card_lookup_cache[normalized_card_id] = card_by_id(self.connection, normalized_card_id)
-        return self._card_lookup_cache[normalized_card_id]
+        sentinel = object()
+        with self._state_lock:
+            cached_card = self._card_lookup_cache.get(normalized_card_id, sentinel)
+        if cached_card is not sentinel:
+            return cached_card
+        card = card_by_id(self.connection, normalized_card_id)
+        with self._state_lock:
+            existing_card = self._card_lookup_cache.get(normalized_card_id, sentinel)
+            if existing_card is sentinel:
+                self._card_lookup_cache[normalized_card_id] = card
+                return card
+            return existing_card
 
     @staticmethod
     def _entry_title_aliases(entry: dict[str, Any]) -> tuple[str, ...]:
@@ -5119,14 +5180,12 @@ class SpotlightScanService:
         scan_id = str(payload.get("scanID") or "")
         match_started = perf_counter()
         cache_lookup_started_at = perf_counter()
-        pending = self._pending_visual_scan(scan_id)
+        pending = self._take_pending_visual_scan(scan_id)
         cache_lookup_ms = (perf_counter() - cache_lookup_started_at) * 1000.0
         if pending is None:
             print(f"[SCAN CACHE] Cache unavailable for rerank, falling back live: scanID={scan_id}")
             return self.match_scan(payload)
-        cache_clear_started_at = perf_counter()
-        self._clear_pending_visual_scan(scan_id)
-        cache_clear_ms = (perf_counter() - cache_clear_started_at) * 1000.0
+        cache_clear_ms = 0.0
 
         try:
             resolve_started_at = perf_counter()
@@ -7504,7 +7563,7 @@ def main() -> None:
             **startup_visual_runtime,
         }
     )
-    server = HTTPServer((config.host, config.port), SpotlightRequestHandler)
+    server = SpotlightThreadingHTTPServer((config.host, config.port), SpotlightRequestHandler)
     print(f"Looty scan service listening on http://{config.host}:{config.port}", flush=True)
     try:
         server.serve_forever()

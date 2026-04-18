@@ -619,15 +619,15 @@ final class AppContainer: ObservableObject {
 
     init() {
         let cameraController = CameraSessionController()
-        let rawRewritePipeline = RawPipeline()
-        let slabAnalyzer = SlabScanner(config: .init(
-            labelOCR: .default,
-            debug: .disabled
-        ))
-        let ocrPipeline = OCRPipelineCoordinator(
-            rawRewritePipeline: rawRewritePipeline,
-            slabAnalyzer: slabAnalyzer
-        )
+        let ocrPipelineFactory: @Sendable () -> OCRPipelineCoordinator = {
+            OCRPipelineCoordinator(
+                rawRewritePipeline: RawPipeline(),
+                slabAnalyzer: SlabScanner(config: .init(
+                    labelOCR: .default,
+                    debug: .disabled
+                ))
+            )
+        }
         let remoteBaseURL = Self.resolveBackendBaseURL()
         let remoteMatcher = RemoteScanMatchingService(baseURL: remoteBaseURL)
         self.remoteMatcher = remoteMatcher
@@ -637,7 +637,7 @@ final class AppContainer: ObservableObject {
 
         scannerViewModel = ScannerViewModel(
             cameraController: cameraController,
-            ocrPipeline: ocrPipeline,
+            ocrPipelineFactory: ocrPipelineFactory,
             matcher: remoteMatcher,
             logStore: logStore,
             artifactUploadsEnabled: artifactUploadsEnabled

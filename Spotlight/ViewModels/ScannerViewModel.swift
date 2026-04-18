@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import UIKit
+import CryptoKit
 
 private struct ScanAlternativesContext {
     let itemID: UUID
@@ -12,6 +13,8 @@ private struct ScanAlternativesContext {
 
 @MainActor
 final class ScannerViewModel: ObservableObject {
+    typealias OCRPipelineFactory = @Sendable () -> OCRPipelineCoordinator
+
     @Published var route: ScannerRoute = .scanner
     @Published var isCapturingPhoto = false
     @Published var isProcessing = false
@@ -21,24 +24,27 @@ final class ScannerViewModel: ObservableObject {
     @Published var matchResponse: ScanMatchResponse?
     @Published var searchQuery = ""
     @Published var searchResults: [CardCandidate] = []
+    @Published var scanJobs: [ScanJob] = []
     @Published var scannedItems: [LiveScanStackItem] = []
     @Published var scannerPresentationMode: ScannerPresentationMode = .raw
 
     let cameraController: CameraSessionController
 
-    private let ocrPipeline: OCRPipelineCoordinator
+    private let ocrPipelineFactory: OCRPipelineFactory
     private let matcher: CardMatchingService
     private let logStore: ScanEventStore
     private let artifactUploadsEnabled: Bool
-    private var currentScanID: UUID?
-    private var currentPendingItemID: UUID?
-    private var currentScanStartedAt: TimeInterval?
-    private var currentReticleRect: CGRect?
     private var hasShownPhotoSaveFailureBanner = false
     private var alternativesContexts: [UUID: ScanAlternativesContext] = [:]
     private var activeAlternativesItemID: UUID?
     private var activeResultItemID: UUID?
     private var activeResultPreviewItem: LiveScanStackItem?
+    private var scanTasks: [UUID: Task<Void, Never>] = [:]
+    private var activeCaptureJobIDs = Set<UUID>()
+    private var activeProcessingJobIDs = Set<UUID>()
+    private var recentScanFingerprints: [String: Date] = [:]
+    private let duplicateScanCooldownSeconds: TimeInterval = 0.9
+    private let maxRetainedScanCount = 20
 
     private var selectedResolverMode: ResolverMode {
         scannerPresentationMode == .slab ? .psaSlab : .rawCard
@@ -47,22 +53,22 @@ final class ScannerViewModel: ObservableObject {
 
     init(
         cameraController: CameraSessionController,
-        ocrPipeline: OCRPipelineCoordinator,
+        ocrPipelineFactory: @escaping OCRPipelineFactory,
         matcher: CardMatchingService,
         logStore: ScanEventStore,
         artifactUploadsEnabled: Bool = true
     ) {
         self.cameraController = cameraController
-        self.ocrPipeline = ocrPipeline
+        self.ocrPipelineFactory = ocrPipelineFactory
         self.matcher = matcher
         self.logStore = logStore
         self.artifactUploadsEnabled = artifactUploadsEnabled
 
-        self.cameraController.onImageCaptured = { [weak self] capture in
-            self?.processCapturedInput(capture)
+        self.cameraController.onImageCapturedForRequest = { [weak self] result in
+            self?.processCapturedInput(scanID: result.scanID, capture: result.captureInput)
         }
-        self.cameraController.onCaptureFailed = { [weak self] message in
-            self?.handleCaptureFailure(message)
+        self.cameraController.onCaptureFailedForRequest = { [weak self] failure in
+            self?.handleCaptureFailure(scanID: failure.scanID, message: failure.message)
         }
         self.cameraController.onCaptureSavedToPhotoLibrary = { [weak self] success, message in
             self?.handlePhotoLibrarySaveResult(success: success, message: message)
@@ -74,10 +80,7 @@ final class ScannerViewModel: ObservableObject {
     }
 
     var visibleScannedItems: [LiveScanStackItem] {
-        if isCapturingPhoto || isProcessing {
-            return scannedItems
-        }
-        return scannedItems.filter { $0.phase != .pending }
+        scannedItems
     }
 
     var trayMetrics: ScanTrayMetrics {
@@ -100,20 +103,30 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func capturePhoto(reticleRect: CGRect) {
-        guard !isProcessing, !isCapturingPhoto else { return }
         guard isValidReticleCaptureRect(reticleRect) else {
             errorMessage = "Scanner overlay is still loading. Try again."
             return
         }
         errorMessage = nil
-        resetRouteToScanner()
-        currentReticleRect = reticleRect
 
         let scanID = UUID()
         let pendingItemID = enqueuePendingScan(scanID: scanID, previewImage: nil)
-        currentScanID = scanID
-        currentPendingItemID = pendingItemID
-        currentScanStartedAt = Date().timeIntervalSinceReferenceDate
+        insertScanJob(
+            ScanJob(
+                id: pendingItemID,
+                scanID: scanID,
+                status: .pending,
+                capturedImage: nil,
+                captureInput: nil,
+                analysis: nil,
+                result: nil,
+                errorMessage: nil,
+                startedAt: Date().timeIntervalSinceReferenceDate,
+                reticleRect: reticleRect,
+                dedupFingerprint: nil
+            )
+        )
+        setCaptureState(true, for: pendingItemID)
 
         // Tap-to-scan should prefer the live preview frame first so OCR starts
         // immediately. Still-photo capture remains available as a fallback or
@@ -128,10 +141,9 @@ final class ScannerViewModel: ObservableObject {
             updateStackItem(id: pendingItemID) { item in
                 item.statusMessage = "Capturing preview frame…"
             }
-            isCapturingPhoto = true
         } else {
+            setCaptureState(false, for: pendingItemID)
             markPendingScanFailed(itemID: pendingItemID, message: "Could not capture card")
-            resetPendingScanState()
             errorMessage = cameraController.lastErrorMessage ?? "Could not capture card"
         }
     }
@@ -141,14 +153,30 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func processImportedPhoto(_ image: UIImage) {
-        processCapturedInput(
-            ScanCaptureInput(
+        let scanID = UUID()
+        let capture = ScanCaptureInput(
                 originalImage: image,
                 searchImage: image,
                 fallbackImage: nil,
                 captureSource: .importedPhoto
             )
+        let pendingItemID = enqueuePendingScan(scanID: scanID, previewImage: capture.trayPreviewImage)
+        insertScanJob(
+            ScanJob(
+                id: pendingItemID,
+                scanID: scanID,
+                status: .pending,
+                capturedImage: capture.trayPreviewImage,
+                captureInput: nil,
+                analysis: nil,
+                result: nil,
+                errorMessage: nil,
+                startedAt: Date().timeIntervalSinceReferenceDate,
+                reticleRect: nil,
+                dedupFingerprint: nil
+            )
         )
+        processCapturedInput(scanID: scanID, capture: capture)
     }
 
     func fetchMarketHistory(
@@ -179,24 +207,53 @@ final class ScannerViewModel: ObservableObject {
         )
     }
 
-    private func processCapturedInput(_ capture: ScanCaptureInput) {
-        guard !isProcessing else { return }
-        isCapturingPhoto = false
-        let scanID = currentScanID ?? UUID()
-        let previewImage = capture.trayPreviewImage
-        let pendingItemID = currentPendingItemID ?? enqueuePendingScan(scanID: scanID, previewImage: previewImage)
-        currentScanID = scanID
-        currentPendingItemID = pendingItemID
-        if currentScanStartedAt == nil {
-            currentScanStartedAt = Date().timeIntervalSinceReferenceDate
+    private func processCapturedInput(scanID: UUID, capture: ScanCaptureInput) {
+        guard let job = scanJob(forScanID: scanID) else { return }
+
+        let resolverMode = selectedResolverMode
+        let preparedCapture = prepareCaptureForProcessing(capture, resolverMode: resolverMode)
+        let previewImage = preparedCapture.trayPreviewImage
+        let fingerprint = captureFingerprint(for: previewImage)
+
+        updateScanJob(id: job.id) { mutableJob in
+            mutableJob.capturedImage = previewImage
+            mutableJob.captureInput = preparedCapture
+            mutableJob.errorMessage = nil
+            if mutableJob.dedupFingerprint == nil {
+                mutableJob.dedupFingerprint = fingerprint
+            }
         }
-        Task {
-            await handleScannedCapture(
-                capture,
+        updateStackItem(id: job.id) { item in
+            if item.previewImage == nil {
+                item.previewImage = downscaleImage(previewImage, maxDimension: 300)
+            }
+            item.statusMessage = "Reading card…"
+        }
+
+        setCaptureState(false, for: job.id)
+
+        if job.captureInput == nil,
+           preparedCapture.captureSource != .importedPhoto,
+           shouldSuppressDuplicateScan(fingerprint: fingerprint, excluding: job.id) {
+            showBanner("Duplicate scan skipped")
+            markPendingScanFailed(itemID: job.id, message: "Duplicate scan skipped")
+            return
+        }
+
+        setProcessingState(true, for: job.id)
+        let startedAt = job.startedAt
+        scanTasks[job.id]?.cancel()
+        scanTasks[job.id] = Task { [weak self] in
+            guard let self else { return }
+            await self.handleScannedCapture(
+                preparedCapture,
+                jobID: job.id,
                 scanID: scanID,
-                pendingItemID: pendingItemID,
-                scanStartedAt: currentScanStartedAt
+                scanStartedAt: startedAt
             )
+            _ = await MainActor.run {
+                self.scanTasks.removeValue(forKey: job.id)
+            }
         }
     }
 
@@ -396,12 +453,21 @@ final class ScannerViewModel: ObservableObject {
         let itemIDSet = Set(itemIDs)
         guard !itemIDSet.isEmpty else { return }
 
+        for itemID in itemIDSet {
+            scanTasks[itemID]?.cancel()
+            scanTasks.removeValue(forKey: itemID)
+            activeCaptureJobIDs.remove(itemID)
+            activeProcessingJobIDs.remove(itemID)
+        }
+        syncActivityFlags()
+
         let removedActiveAlternatives = activeAlternativesItemID.map(itemIDSet.contains) ?? false
         let removedActiveResult = activeResultItemID.map(itemIDSet.contains) ?? false
 
         for itemID in itemIDSet {
             alternativesContexts.removeValue(forKey: itemID)
         }
+        scanJobs.removeAll { itemIDSet.contains($0.id) }
 
         if removedActiveAlternatives {
             activeAlternativesItemID = nil
@@ -423,12 +489,20 @@ final class ScannerViewModel: ObservableObject {
     }
 
     func clearScans() {
+        for task in scanTasks.values {
+            task.cancel()
+        }
+        scanTasks.removeAll()
+        activeCaptureJobIDs.removeAll()
+        activeProcessingJobIDs.removeAll()
+        syncActivityFlags()
         alternativesContexts.removeAll()
         activeAlternativesItemID = nil
         activeResultItemID = nil
         activeResultPreviewItem = nil
         resetRouteToScanner()
         withAnimation(.spring(response: 0.28, dampingFraction: 0.9)) {
+            scanJobs.removeAll()
             scannedItems.removeAll()
         }
     }
@@ -487,6 +561,82 @@ final class ScannerViewModel: ObservableObject {
 
         Task {
             await refreshPricing(for: itemID, cardID: cardID, initiatedByUser: true)
+        }
+    }
+
+    func retryScan(for itemID: UUID) {
+        guard let job = scanJob(id: itemID) else { return }
+
+        let retriedScanID = UUID()
+        let startedAt = Date().timeIntervalSinceReferenceDate
+        updateScanJob(id: itemID) { mutableJob in
+            mutableJob.scanID = retriedScanID
+            mutableJob.status = .pending
+            mutableJob.analysis = nil
+            mutableJob.result = nil
+            mutableJob.errorMessage = nil
+            mutableJob.startedAt = startedAt
+        }
+        alternativesContexts.removeValue(forKey: itemID)
+        updateStackItem(id: itemID) { item in
+            item.phase = .pending
+            item.isProvisional = false
+            item.card = nil
+            item.detail = nil
+            item.confidence = .medium
+            item.matcherSource = .remoteHybrid
+            item.matcherVersion = "pending"
+            item.resolverMode = .unknownFallback
+            item.resolverPath = nil
+            item.slabContext = nil
+            item.reviewDisposition = .ready
+            item.reviewReason = nil
+            item.isRefreshingPrice = false
+            item.statusMessage = "Retrying scan…"
+            item.pricingContextNote = nil
+            item.performance = nil
+            item.cacheStatus = nil
+            item.selectedRank = nil
+            item.wasTopPrediction = false
+            item.selectionSource = .unknown
+            item.availableVariants = []
+            item.selectedVariant = nil
+            item.variantPricingOverride = nil
+            item.isLoadingVariants = false
+        }
+
+        if let capture = job.captureInput {
+            setProcessingState(true, for: itemID)
+            scanTasks[itemID]?.cancel()
+            scanTasks[itemID] = Task { [weak self] in
+                guard let self else { return }
+                await self.handleScannedCapture(
+                    capture,
+                    jobID: itemID,
+                    scanID: retriedScanID,
+                    scanStartedAt: startedAt
+                )
+                _ = await MainActor.run {
+                    self.scanTasks.removeValue(forKey: itemID)
+                }
+            }
+            return
+        }
+
+        guard let reticleRect = job.reticleRect else {
+            markPendingScanFailed(itemID: itemID, message: "Capture a new frame to retry")
+            return
+        }
+
+        setCaptureState(true, for: itemID)
+        let didStartCapture = cameraController.capturePhoto(
+            scanID: retriedScanID,
+            reticleRect: reticleRect,
+            preferStillPhoto: false
+        )
+        if !didStartCapture {
+            setCaptureState(false, for: itemID)
+            markPendingScanFailed(itemID: itemID, message: "Could not capture card")
         }
     }
 
@@ -595,42 +745,25 @@ final class ScannerViewModel: ObservableObject {
 
     private func handleScannedCapture(
         _ capture: ScanCaptureInput,
-        scanID: UUID? = nil,
-        pendingItemID: UUID? = nil,
-        scanStartedAt: TimeInterval? = nil
+        jobID: UUID,
+        scanID: UUID,
+        scanStartedAt: TimeInterval
     ) async {
         print("🔍 [SCAN] Starting handleScannedCapture")
-        isCapturingPhoto = false
         errorMessage = nil
-        resetRouteToScanner()
         let resolverMode = selectedResolverMode
-
-        // Balance OCR quality vs memory usage
-        // Use a slightly larger budget for raw still-photo retries so footer OCR gains real benefit.
-        let originalMaxDimension: CGFloat = (resolverMode == .rawCard && capture.captureSource == .liveStillPhoto) ? 1800 : 1400
-        let searchMaxDimension: CGFloat = (resolverMode == .rawCard && capture.captureSource == .liveStillPhoto) ? 1600 : 1200
-        let processedCapture = ScanCaptureInput(
-            originalImage: downscaleImage(capture.originalImage, maxDimension: originalMaxDimension),
-            searchImage: downscaleImage(capture.searchImage, maxDimension: searchMaxDimension),
-            fallbackImage: capture.fallbackImage.map { downscaleImage($0, maxDimension: searchMaxDimension) },
-            captureSource: capture.captureSource
-        )
-        print("🔍 [SCAN] Downscaled search image from \(capture.searchImage.size) to \(processedCapture.searchImage.size)")
-
-        let effectiveScanID = scanID ?? currentScanID ?? UUID()
-        let previewImage = processedCapture.trayPreviewImage
-        let effectivePendingItemID = pendingItemID ?? currentPendingItemID ?? enqueuePendingScan(scanID: effectiveScanID, previewImage: previewImage)
-        let effectiveScanStartedAt = scanStartedAt ?? currentScanStartedAt ?? Date().timeIntervalSinceReferenceDate
-        currentScanID = effectiveScanID
-        currentPendingItemID = effectivePendingItemID
-        currentScanStartedAt = effectiveScanStartedAt
-        updateStackItem(id: effectivePendingItemID) { item in
+        let processedCapture = capture
+        updateScanJob(id: jobID) { job in
+            job.captureInput = processedCapture
+            job.capturedImage = processedCapture.trayPreviewImage
+            job.errorMessage = nil
+        }
+        updateStackItem(id: jobID) { item in
             if item.previewImage == nil {
-                item.previewImage = downscaleImage(previewImage, maxDimension: 300)
+                item.previewImage = downscaleImage(processedCapture.trayPreviewImage, maxDimension: 300)
             }
             item.statusMessage = "Reading card…"
         }
-        isProcessing = true
 
         var preparedTargetSelection: OCRTargetSelectionResult?
         var preparedTargetSelectionMs: Double?
@@ -639,14 +772,14 @@ final class ScannerViewModel: ObservableObject {
         do {
             print("🔍 [SCAN] Starting Vision analysis...")
             let analysisStarted = Date().timeIntervalSinceReferenceDate
-            let tapToAnalysisStartMs = (analysisStarted - effectiveScanStartedAt) * 1000
+            let tapToAnalysisStartMs = (analysisStarted - scanStartedAt) * 1000
             print("⏱️ [SCAN] Tap to OCR start: \(tapToAnalysisStartMs)ms")
-            let ocrPipeline = self.ocrPipeline
+            let ocrPipeline = ocrPipelineFactory()
 
             if resolverMode == .rawCard {
                 let targetSelectionStartedAt = Date().timeIntervalSinceReferenceDate
                 let targetSelection = try await ocrPipeline.prepareRawTargetSelection(
-                    scanID: effectiveScanID,
+                    scanID: scanID,
                     capture: processedCapture
                 )
                 let targetSelectionMs = (Date().timeIntervalSinceReferenceDate - targetSelectionStartedAt) * 1000
@@ -654,14 +787,14 @@ final class ScannerViewModel: ObservableObject {
                 preparedTargetSelectionMs = targetSelectionMs
 
                 let visualPayload = makeVisualStartPayload(
-                    scanID: effectiveScanID,
+                    scanID: scanID,
                     resolverMode: resolverMode,
                     targetSelection: targetSelection
                 )
                 let visualRequestStartedAt = Date().timeIntervalSinceReferenceDate
                 print(
                     "🌐 [MATCH] Starting visual phase: "
-                    + "scanID=\(effectiveScanID.uuidString) "
+                    + "scanID=\(scanID.uuidString) "
                     + "targetSelectionMs=\(Int(targetSelectionMs.rounded())) "
                     + "crop=\(String(format: "%.2f", targetSelection.selectionConfidence)) "
                     + "warnings=\(visualPayload.warnings)"
@@ -684,12 +817,12 @@ final class ScannerViewModel: ObservableObject {
             let preparedTargetSelectionForTask = preparedTargetSelection
             let preparedTargetSelectionMsForTask = preparedTargetSelectionMs
             let analysis = try await withThrowingTaskGroup(of: AnalyzedCapture.self) { group in
-                group.addTask { [ocrPipeline, resolverMode, effectiveScanID, processedCapture, preparedTargetSelectionForTask, preparedTargetSelectionMsForTask] in
+                group.addTask { [ocrPipeline, resolverMode, scanID, processedCapture, preparedTargetSelectionForTask, preparedTargetSelectionMsForTask] in
                     if resolverMode == .rawCard,
                        let targetSelection = preparedTargetSelectionForTask,
                        let targetSelectionMs = preparedTargetSelectionMsForTask {
                         return try await ocrPipeline.analyzePreparedRawScan(
-                            scanID: effectiveScanID,
+                            scanID: scanID,
                             capture: processedCapture,
                             targetSelection: targetSelection,
                             resolverModeHint: resolverMode,
@@ -698,7 +831,7 @@ final class ScannerViewModel: ObservableObject {
                     }
 
                     return try await ocrPipeline.analyze(
-                        scanID: effectiveScanID,
+                        scanID: scanID,
                         capture: processedCapture,
                         resolverModeHint: resolverMode
                     )
@@ -721,7 +854,7 @@ final class ScannerViewModel: ObservableObject {
             if let preparedTargetSelectionMs {
                 print(
                     "⏱️ [SCAN] Raw pipeline front-half: "
-                    + "scanID=\(effectiveScanID.uuidString) "
+                    + "scanID=\(scanID.uuidString) "
                     + "targetSelectionMs=\(Int(preparedTargetSelectionMs.rounded())) "
                     + "ocrOnlyMs=\(Int(max(0, analysisMs - preparedTargetSelectionMs).rounded()))"
                 )
@@ -733,24 +866,25 @@ final class ScannerViewModel: ObservableObject {
             )
 
             if analysis.shouldRetryWithStillPhoto,
-               let reticleRect = currentReticleRect {
+               let reticleRect = scanJob(id: jobID)?.reticleRect {
                 print("🔁 [SCAN] Retrying with still photo: \(analysis.stillPhotoRetryReason ?? "footer OCR weak")")
-                updateStackItem(id: effectivePendingItemID) { item in
+                updateStackItem(id: jobID) { item in
                     item.statusMessage = "Trying a sharper capture…"
                 }
-                isProcessing = false
+                setProcessingState(false, for: jobID)
+                setCaptureState(true, for: jobID)
                 visualStartTask?.cancel()
                 let didStartRetry = cameraController.capturePhoto(
-                    scanID: effectiveScanID,
+                    scanID: scanID,
                     reticleRect: reticleRect,
                     preferStillPhoto: true
                 )
                 if didStartRetry {
-                    isCapturingPhoto = true
                     return
                 }
                 print("⚠️ [SCAN] Still-photo retry could not start; continuing with current analysis")
-                isProcessing = true
+                setCaptureState(false, for: jobID)
+                setProcessingState(true, for: jobID)
             }
 
             print("🔍 [SCAN] Sending scan to backend matcher...")
@@ -763,8 +897,8 @@ final class ScannerViewModel: ObservableObject {
 
             await fallbackToBackendMatch(
                 analysis: analysis,
-                scanID: effectiveScanID,
-                pendingItemID: effectivePendingItemID,
+                scanID: scanID,
+                pendingItemID: jobID,
                 performance: performance,
                 captureSource: processedCapture.captureSource,
                 visualStartTask: visualStartTask
@@ -773,19 +907,18 @@ final class ScannerViewModel: ObservableObject {
             print("❌ [SCAN] Error: \(error.localizedDescription)")
             visualStartTask?.cancel()
             errorMessage = error.localizedDescription
-            markPendingScanFailed(itemID: effectivePendingItemID, message: "Could not identify card")
-            resetPendingScanState()
+            markPendingScanFailed(itemID: jobID, message: "Could not identify card")
         }
 
         print("🔍 [SCAN] Finished handleScannedCapture")
-        isCapturingPhoto = false
-        isProcessing = false
+        setCaptureState(false, for: jobID)
+        setProcessingState(false, for: jobID)
     }
 
     private func completeSelection(with candidate: CardCandidate, correctionType: CorrectionType) {
         let context = activeAlternativesContext
-        guard let scanID = currentScanID ?? context?.scanID,
-              let itemID = currentPendingItemID ?? context?.itemID else { return }
+        guard let itemID = activeResultItemID ?? context?.itemID,
+              let scanID = scanJob(id: itemID)?.scanID ?? context?.scanID else { return }
 
         let wasTopPrediction = candidate.id == matchResponse?.bestMatch?.id
         let selectionSource: ScanSelectionSource = switch correctionType {
@@ -816,7 +949,6 @@ final class ScannerViewModel: ObservableObject {
         if activeAlternativesItemID == itemID {
             activeAlternativesItemID = nil
         }
-        resetPendingScanState()
         pushRoute(.resultDetail)
 
         Task {
@@ -844,6 +976,11 @@ final class ScannerViewModel: ObservableObject {
         wasTopPrediction: Bool,
         selectionSource: ScanSelectionSource
     ) {
+        updateScanJob(id: itemID) { job in
+            job.status = .resolved
+            job.errorMessage = nil
+        }
+
         withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
             for index in scannedItems.indices {
                 scannedItems[index].isExpanded = false
@@ -940,26 +1077,6 @@ final class ScannerViewModel: ObservableObject {
     }
 
     private func abandonPendingScanIfNeeded() async {
-        guard let scanID = currentScanID,
-              let pendingItemID = currentPendingItemID else {
-            resetRouteToScanner()
-            return
-        }
-
-        await matcher.submitFeedback(
-            scanID: scanID,
-            selectedCardID: nil,
-            wasTopPrediction: false,
-            correctionType: .abandoned
-        )
-        await logStore.logSelection(
-            scanID: scanID,
-            selectedCardID: nil,
-            wasTopPrediction: false,
-            correctionType: .abandoned
-        )
-
-        removeStackItem(pendingItemID)
         resetPendingScanState()
         resetRouteToScanner()
     }
@@ -1049,26 +1166,20 @@ final class ScannerViewModel: ObservableObject {
     }
 
     private func resetPendingScanState() {
-        currentScanID = nil
-        currentPendingItemID = nil
-        currentScanStartedAt = nil
-        currentReticleRect = nil
-        if activeAlternativesItemID == nil {
-            analyzedCapture = nil
-            matchResponse = nil
-        }
         searchQuery = ""
         searchResults = []
         errorMessage = nil
     }
 
-    private func handleCaptureFailure(_ message: String) {
-        isCapturingPhoto = false
-        if let pendingItemID = currentPendingItemID {
-            markPendingScanFailed(itemID: pendingItemID, message: "Could not capture card")
+    private func handleCaptureFailure(scanID: UUID?, message: String) {
+        guard let itemID = scanID.flatMap({ scanJob(forScanID: $0)?.id }) ?? activeCaptureJobIDs.first else {
+            errorMessage = message
+            return
         }
-        resetPendingScanState()
-        resetRouteToScanner()
+
+        setCaptureState(false, for: itemID)
+        setProcessingState(false, for: itemID)
+        markPendingScanFailed(itemID: itemID, message: "Could not capture card")
         errorMessage = message
     }
 
@@ -1085,6 +1196,97 @@ final class ScannerViewModel: ObservableObject {
     private func updateStackItem(id itemID: UUID, mutate: (inout LiveScanStackItem) -> Void) {
         guard let index = scannedItems.firstIndex(where: { $0.id == itemID }) else { return }
         mutate(&scannedItems[index])
+    }
+
+    private func updateScanJob(id jobID: UUID, mutate: (inout ScanJob) -> Void) {
+        guard let index = scanJobs.firstIndex(where: { $0.id == jobID }) else { return }
+        mutate(&scanJobs[index])
+    }
+
+    private func scanJob(id jobID: UUID) -> ScanJob? {
+        scanJobs.first(where: { $0.id == jobID })
+    }
+
+    private func scanJob(forScanID scanID: UUID) -> ScanJob? {
+        scanJobs.first(where: { $0.scanID == scanID })
+    }
+
+    private func insertScanJob(_ job: ScanJob) {
+        scanJobs.insert(job, at: 0)
+        if scanJobs.count > maxRetainedScanCount {
+            scanJobs = Array(scanJobs.prefix(maxRetainedScanCount))
+        }
+        syncActivityFlags()
+    }
+
+    private func setCaptureState(_ active: Bool, for jobID: UUID) {
+        if active {
+            activeCaptureJobIDs.insert(jobID)
+        } else {
+            activeCaptureJobIDs.remove(jobID)
+        }
+        syncActivityFlags()
+    }
+
+    private func setProcessingState(_ active: Bool, for jobID: UUID) {
+        if active {
+            activeProcessingJobIDs.insert(jobID)
+        } else {
+            activeProcessingJobIDs.remove(jobID)
+        }
+        syncActivityFlags()
+    }
+
+    private func syncActivityFlags() {
+        isCapturingPhoto = !activeCaptureJobIDs.isEmpty
+        isProcessing = !activeProcessingJobIDs.isEmpty || scanJobs.contains(where: { $0.status == .pending })
+    }
+
+    private func prepareCaptureForProcessing(
+        _ capture: ScanCaptureInput,
+        resolverMode: ResolverMode
+    ) -> ScanCaptureInput {
+        let originalMaxDimension: CGFloat = (resolverMode == .rawCard && capture.captureSource == .liveStillPhoto) ? 1800 : 1400
+        let searchMaxDimension: CGFloat = (resolverMode == .rawCard && capture.captureSource == .liveStillPhoto) ? 1600 : 1200
+
+        return ScanCaptureInput(
+            originalImage: downscaleImage(capture.originalImage, maxDimension: originalMaxDimension),
+            searchImage: downscaleImage(capture.searchImage, maxDimension: searchMaxDimension),
+            fallbackImage: capture.fallbackImage.map { downscaleImage($0, maxDimension: searchMaxDimension) },
+            captureSource: capture.captureSource
+        )
+    }
+
+    private func captureFingerprint(for image: UIImage) -> String? {
+        let fingerprintImage = downscaleImage(image, maxDimension: 48)
+        guard let data = fingerprintImage.jpegData(compressionQuality: 0.35) else {
+            return nil
+        }
+        let digest = SHA256.hash(data: data)
+        return digest.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    private func shouldSuppressDuplicateScan(fingerprint: String?, excluding jobID: UUID) -> Bool {
+        guard let fingerprint, !fingerprint.isEmpty else { return false }
+
+        let now = Date()
+        recentScanFingerprints = recentScanFingerprints.filter {
+            now.timeIntervalSince($0.value) <= duplicateScanCooldownSeconds
+        }
+
+        let isDuplicate = recentScanFingerprints[fingerprint].map {
+            now.timeIntervalSince($0) <= duplicateScanCooldownSeconds
+        } ?? false
+
+        if !isDuplicate {
+            recentScanFingerprints[fingerprint] = now
+        } else {
+            updateScanJob(id: jobID) { job in
+                job.dedupFingerprint = fingerprint
+            }
+        }
+
+        return isDuplicate
     }
 
     private func supportsTrayVariantSelection(for item: LiveScanStackItem) -> Bool {
@@ -1439,6 +1641,13 @@ final class ScannerViewModel: ObservableObject {
     }
 
     private func applyAnalysis(response: ScanMatchResponse, to itemID: UUID, provisional: Bool = false) {
+        updateScanJob(id: itemID) { job in
+            job.result = response
+            job.errorMessage = nil
+            if !provisional {
+                job.status = .resolved
+            }
+        }
         updateStackItem(id: itemID) { item in
             // Keep existing thumbnail, don't replace with full-res image
             item.isProvisional = provisional
@@ -1476,6 +1685,11 @@ final class ScannerViewModel: ObservableObject {
     }
 
     private func markPendingScanFailed(itemID: UUID, message: String) {
+        alternativesContexts.removeValue(forKey: itemID)
+        updateScanJob(id: itemID) { job in
+            job.status = .failed
+            job.errorMessage = message
+        }
         updateStackItem(id: itemID) { item in
             item.isProvisional = false
             item.phase = .failed
@@ -1821,8 +2035,18 @@ final class ScannerViewModel: ObservableObject {
                 totalMs: performance.analysisMs + matchMs
             )
 
-            analyzedCapture = analysis
-            matchResponse = finalResponse
+            updateScanJob(id: pendingItemID) { job in
+                job.analysis = analysis
+                job.result = finalResponse
+                job.errorMessage = nil
+                job.status = finalResponse.bestMatch == nil && (finalResponse.reviewDisposition ?? .ready) != .unsupported
+                    ? .failed
+                    : .resolved
+            }
+            if activeAlternativesItemID == pendingItemID || activeResultItemID == pendingItemID {
+                analyzedCapture = analysis
+                matchResponse = finalResponse
+            }
             applyAnalysis(response: finalResponse, to: pendingItemID)
             alternativesContexts[pendingItemID] = ScanAlternativesContext(
                 itemID: pendingItemID,
@@ -1846,9 +2070,7 @@ final class ScannerViewModel: ObservableObject {
                 await self.flushPendingBackendQueues()
             }
 
-            if let bestMatch = finalResponse.bestMatch, shouldAutoAccept(finalResponse) {
-                completeSelection(with: bestMatch, correctionType: .acceptedTop)
-            } else if finalResponse.bestMatch != nil {
+            if finalResponse.bestMatch != nil {
                 updateStackItem(id: pendingItemID) { item in
                     let disposition = finalResponse.reviewDisposition ?? .needsReview
                     item.phase = matchedStackPhase(for: finalResponse)
@@ -1861,7 +2083,6 @@ final class ScannerViewModel: ObservableObject {
                     }
                     item.isRefreshingPrice = false
                 }
-                resetPendingScanState()
             } else {
                 updateStackItem(id: pendingItemID) { item in
                     let disposition = finalResponse.reviewDisposition ?? .ready
@@ -1871,7 +2092,6 @@ final class ScannerViewModel: ObservableObject {
                     item.statusMessage = finalResponse.reviewReason ?? "No matching cards found"
                     item.isRefreshingPrice = false
                 }
-                resetPendingScanState()
             }
         } catch {
             print("❌ [SCAN] Backend match failed: \(error.localizedDescription)")
@@ -1891,7 +2111,6 @@ final class ScannerViewModel: ObservableObject {
             )
             errorMessage = error.localizedDescription
             markPendingScanFailed(itemID: pendingItemID, message: "Could not identify card")
-            resetPendingScanState()
         }
     }
 

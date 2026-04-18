@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -340,6 +342,251 @@ class TwoPhaseScanTests(unittest.TestCase):
         handler.service.rerank_visual_match.assert_called_once_with({"scanID": "scan-phase8"})
         self.assertEqual(captured["status"], HTTPStatus.OK)
         self.assertEqual(captured["payload"], {"stage": "rerank"})
+
+    def test_concurrent_two_phase_requests_keep_cached_shortlists_isolated(self) -> None:
+        class FakeVisualMatcher:
+            def __init__(self) -> None:
+                self.calls = 0
+
+            def prewarm(self):
+                return {"available": True, "prewarmed": True}
+
+            def match_payload(self, payload: dict[str, object], *, top_k: int = 10):  # noqa: ARG002
+                self.calls += 1
+                scan_id = str(payload.get("scanID") or "")
+                scan_index = int(scan_id.rsplit("-", 1)[-1])
+                use_obf = (scan_index % 2) == 0
+                time.sleep(0.01)
+                if use_obf:
+                    primary = {
+                        "providerCardId": "obf-223",
+                        "name": "Charizard ex",
+                        "collectorNumber": "223/197",
+                        "setId": "obf",
+                        "setName": "Obsidian Flames",
+                        "setSeries": "Scarlet & Violet",
+                        "setPtcgoCode": "OBF",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "obf-223",
+                        "imageUrl": "https://images.example/obf-223-large.png",
+                        "language": "English",
+                    }
+                    secondary = {
+                        "providerCardId": "pal-223",
+                        "name": "Charizard ex",
+                        "collectorNumber": "223/193",
+                        "setId": "pal",
+                        "setName": "Paldea Evolved",
+                        "setSeries": "Scarlet & Violet",
+                        "setPtcgoCode": "PAL",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "pal-223",
+                        "imageUrl": "https://images.example/pal-223-large.png",
+                        "language": "English",
+                    }
+                else:
+                    primary = {
+                        "providerCardId": "pal-223",
+                        "name": "Charizard ex",
+                        "collectorNumber": "223/193",
+                        "setId": "pal",
+                        "setName": "Paldea Evolved",
+                        "setSeries": "Scarlet & Violet",
+                        "setPtcgoCode": "PAL",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "pal-223",
+                        "imageUrl": "https://images.example/pal-223-large.png",
+                        "language": "English",
+                    }
+                    secondary = {
+                        "providerCardId": "obf-223",
+                        "name": "Charizard ex",
+                        "collectorNumber": "223/197",
+                        "setId": "obf",
+                        "setName": "Obsidian Flames",
+                        "setSeries": "Scarlet & Violet",
+                        "setPtcgoCode": "OBF",
+                        "sourceProvider": "scrydex",
+                        "sourceRecordID": "obf-223",
+                        "imageUrl": "https://images.example/obf-223-large.png",
+                        "language": "English",
+                    }
+
+                return (
+                    [
+                        SimpleNamespace(row_index=0, similarity=0.91, entry=primary),
+                        SimpleNamespace(row_index=1, similarity=0.84, entry=secondary),
+                    ],
+                    {
+                        "source": "fake",
+                        "timings": {
+                            "imageDecodeMs": 1.0,
+                            "ensureRuntimeMs": 2.0,
+                            "embeddingMs": 3.0,
+                            "indexSearchMs": 4.0,
+                            "matchPayloadMs": 5.0,
+                        },
+                    },
+                )
+
+        matcher = FakeVisualMatcher()
+        self.service._raw_visual_matcher = matcher
+
+        scan_ids = [f"scan-phase8-{index}" for index in range(24)]
+
+        def payload_for_scan(scan_id: str) -> tuple[dict[str, object], str]:
+            scan_index = int(scan_id.rsplit("-", 1)[-1])
+            if (scan_index % 2) == 0:
+                expected_card_id = "obf-223"
+                payload = raw_payload(
+                    scan_id=scan_id,
+                    title_text_primary="Charizard ex",
+                    whole_card_text="Charizard ex",
+                    footer_band_text="OBF 223/197",
+                    collector_number_exact="223/197",
+                    set_hint_tokens=["OBF"],
+                )
+            else:
+                expected_card_id = "pal-223"
+                payload = raw_payload(
+                    scan_id=scan_id,
+                    title_text_primary="Charizard ex",
+                    whole_card_text="Charizard ex",
+                    footer_band_text="PAL 223/193",
+                    collector_number_exact="223/193",
+                    set_hint_tokens=["PAL"],
+                )
+            return payload, expected_card_id
+
+        def run_scan(scan_id: str) -> tuple[str, str, dict[str, object], dict[str, object]]:
+            payload, expected_card_id = payload_for_scan(scan_id)
+            visual_response = self.service.visual_match_scan(payload)
+            rerank_response = self.service.rerank_visual_match(payload)
+            return scan_id, expected_card_id, visual_response, rerank_response
+
+        results: list[tuple[str, str, dict[str, object], dict[str, object]]] = []
+        with ThreadPoolExecutor(max_workers=8) as executor:
+            futures = [executor.submit(run_scan, scan_id) for scan_id in scan_ids]
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        self.assertEqual(matcher.calls, len(scan_ids))
+        self.assertEqual(len(results), len(scan_ids))
+
+        for scan_id, expected_card_id, visual_response, rerank_response in results:
+            self.assertEqual(visual_response["matchingStage"], "visual")
+            self.assertTrue(visual_response["isProvisional"])
+            self.assertEqual(rerank_response["matchingStage"], "reranked")
+            self.assertFalse(rerank_response["isProvisional"])
+            self.assertEqual(rerank_response["topCandidates"][0]["candidate"]["id"], expected_card_id)
+            self.assertEqual(
+                rerank_response["rawDecisionDebug"]["visualHybrid"]["visualPhaseSource"],
+                "cached",
+            )
+            self.assertIsNone(self.service._pending_visual_scan(scan_id))
+
+    def test_duplicate_concurrent_reranks_consume_cached_shortlist_once(self) -> None:
+        class FakeVisualMatcher:
+            def prewarm(self):
+                return {"available": True, "prewarmed": True}
+
+            def match_payload(self, payload: dict[str, object], *, top_k: int = 10):  # noqa: ARG002
+                return (
+                    [
+                        SimpleNamespace(
+                            row_index=0,
+                            similarity=0.91,
+                            entry={
+                                "providerCardId": "obf-223",
+                                "name": "Charizard ex",
+                                "collectorNumber": "223/197",
+                                "setId": "obf",
+                                "setName": "Obsidian Flames",
+                                "setSeries": "Scarlet & Violet",
+                                "setPtcgoCode": "OBF",
+                                "sourceProvider": "scrydex",
+                                "sourceRecordID": "obf-223",
+                                "imageUrl": "https://images.example/obf-223-large.png",
+                                "language": "English",
+                            },
+                        )
+                    ],
+                    {
+                        "source": "fake",
+                        "timings": {
+                            "imageDecodeMs": 1.0,
+                            "ensureRuntimeMs": 2.0,
+                            "embeddingMs": 3.0,
+                            "indexSearchMs": 4.0,
+                            "matchPayloadMs": 5.0,
+                        },
+                    },
+                )
+
+        self.service._raw_visual_matcher = FakeVisualMatcher()
+        payload = raw_payload(
+            title_text_primary="Charizard ex",
+            whole_card_text="Charizard ex",
+            footer_band_text="OBF 223/197",
+            collector_number_exact="223/197",
+            set_hint_tokens=["OBF"],
+        )
+        self.service.visual_match_scan(payload)
+
+        def fake_resolve(
+            payload: dict[str, object],
+            *,
+            matches: list[object],
+            debug: dict[str, object],
+            requested_top_k: int,
+            api_key: str | None = None,
+            visual_match_ms: float,
+            visual_phase_source: str,
+        ) -> dict[str, object]:
+            time.sleep(0.02)
+            return {
+                "scanID": str(payload.get("scanID") or ""),
+                "topCandidates": [
+                    {
+                        "candidate": {
+                            "id": "obf-223",
+                            "name": "Charizard ex",
+                        }
+                    }
+                ],
+                "confidence": "medium",
+                "ambiguityFlags": [],
+                "matcherSource": "visualIndex",
+                "matcherVersion": "test",
+                "resolverMode": "raw_card",
+                "resolverPath": "visual_hybrid_index",
+                "reviewDisposition": "ready",
+                "reviewReason": None,
+                "rawDecisionDebug": {
+                    "visualHybrid": {
+                        "visualPhaseSource": visual_phase_source,
+                        "candidateCount": len(matches),
+                        "debug": debug,
+                    }
+                },
+            }
+
+        self.service._resolve_raw_candidates_visual_hybrid_from_matches = fake_resolve  # type: ignore[method-assign]
+        fallback_response = {"matchingStage": "fallback", "topCandidates": []}
+        self.service.match_scan = Mock(return_value=fallback_response)  # type: ignore[method-assign]
+
+        results: list[dict[str, object]] = []
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            futures = [executor.submit(self.service.rerank_visual_match, payload) for _ in range(2)]
+            for future in as_completed(futures):
+                results.append(future.result())
+
+        reranked_count = sum(1 for response in results if response.get("matchingStage") == "reranked")
+        fallback_count = sum(1 for response in results if response.get("matchingStage") == "fallback")
+
+        self.assertEqual(reranked_count, 1)
+        self.assertEqual(fallback_count, 1)
+        self.service.match_scan.assert_called_once_with(payload)
 
 
 if __name__ == "__main__":

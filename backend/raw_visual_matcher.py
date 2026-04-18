@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import os
+import threading
 from dataclasses import dataclass
 from pathlib import Path
 from time import perf_counter
@@ -119,6 +120,8 @@ class RawVisualMatcher:
         )
         self._encoder: RawVisualFrozenEncoder | None = None
         self._adapter = None
+        self._runtime_lock = threading.Lock()
+        self._runtime_ready = False
 
     def is_available(self) -> bool:
         return self.index.is_available()
@@ -152,15 +155,22 @@ class RawVisualMatcher:
         }
 
     def _ensure_runtime(self) -> None:
-        if self._encoder is not None:
+        if self._runtime_ready:
             return
-        self._encoder = RawVisualFrozenEncoder(model_id=self.model_id, device="auto")
-        if self.adapter_checkpoint_path and self.adapter_checkpoint_path.exists():
-            self._adapter = load_projection_adapter(
-                self.adapter_checkpoint_path,
-                embedding_dim=self._encoder.embedding_dim,
-                device=self._encoder.device,
-            )
+        with self._runtime_lock:
+            if self._runtime_ready:
+                return
+            encoder = RawVisualFrozenEncoder(model_id=self.model_id, device="auto")
+            adapter = None
+            if self.adapter_checkpoint_path and self.adapter_checkpoint_path.exists():
+                adapter = load_projection_adapter(
+                    self.adapter_checkpoint_path,
+                    embedding_dim=encoder.embedding_dim,
+                    device=encoder.device,
+                )
+            self._encoder = encoder
+            self._adapter = adapter
+            self._runtime_ready = True
 
     def _load_query_image(self, payload: dict[str, Any]):
         try:

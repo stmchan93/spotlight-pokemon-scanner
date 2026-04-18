@@ -26,7 +26,9 @@ struct ScannerView: View {
     }
 
     private var scanIsActive: Bool {
-        viewModel.isCapturingPhoto || viewModel.isProcessing
+        viewModel.isCapturingPhoto
+            || viewModel.isProcessing
+            || viewModel.visibleScannedItems.contains(where: { $0.phase == .pending })
     }
 
     private var batchSellDraft: ShowSellBatchDraft? {
@@ -161,7 +163,7 @@ struct ScannerView: View {
     }
 
     private var scanInteractionLocked: Bool {
-        viewModel.isCapturingPhoto || viewModel.isProcessing
+        !cameraIsInteractive
     }
 
     private var scannerBackdrop: some View {
@@ -467,7 +469,7 @@ struct ScannerView: View {
     }
 
     private var scanPromptSubtitle: String {
-        if viewModel.isProcessing {
+        if scanIsActive {
             return "Pending scans resolve directly inside the tray."
         }
         return "One card centered • show the bottom strip • avoid glare"
@@ -596,20 +598,24 @@ struct ScannerView: View {
                     .frame(width: 50, height: 70)
 
                 HStack(alignment: .center, spacing: 12) {
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(primaryTitle(for: item))
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(.white)
-                            .lineLimit(2)
-
-                        if let secondaryTitle = secondaryTitle(for: item) {
-                            Text(secondaryTitle)
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white.opacity(0.7))
+                    if item.phase == .pending {
+                        pendingCompactRowCopy
+                    } else {
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(primaryTitle(for: item))
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundStyle(.white)
                                 .lineLimit(2)
-                        }
 
-                        compactRowSupplementaryLine(for: item)
+                            if let secondaryTitle = secondaryTitle(for: item) {
+                                Text(secondaryTitle)
+                                    .font(.system(size: 12))
+                                    .foregroundStyle(.white.opacity(0.7))
+                                    .lineLimit(2)
+                            }
+
+                            compactRowSupplementaryLine(for: item)
+                        }
                     }
 
                     Spacer(minLength: 8)
@@ -625,8 +631,7 @@ struct ScannerView: View {
                                 .foregroundStyle(.white)
                         }
                     } else if item.phase == .pending {
-                        ProgressView()
-                            .tint(.white)
+                        pendingCompactRowValue
                     }
                 }
                 .contentShape(Rectangle())
@@ -650,25 +655,29 @@ struct ScannerView: View {
         .task(id: item.id) {
             viewModel.loadTrayVariantsIfNeeded(for: item.id)
         }
-        .highPriorityGesture(
-            DragGesture(minimumDistance: 16)
-                .onChanged { value in
-                    let translation = clampedTrayDismissOffset(value.translation.width)
-                    traySwipeOffsets[item.id] = translation
-                }
-                .onEnded { value in
-                    let translation = clampedTrayDismissOffset(value.translation.width)
-                    if shouldRevealTrayItemAction(forSwipeOffset: translation) {
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
-                            traySwipeOffsets[item.id] = trayActionRevealWidth(forSwipeOffset: translation)
-                        }
-                    } else {
-                        withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
-                            traySwipeOffsets[item.id] = 0
-                        }
+        .simultaneousGesture(traySwipeGesture(for: item.id))
+    }
+
+    private func traySwipeGesture(for itemID: UUID) -> some Gesture {
+        DragGesture(minimumDistance: 16)
+            .onChanged { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let translation = clampedTrayDismissOffset(value.translation.width)
+                traySwipeOffsets[itemID] = translation
+            }
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                let translation = clampedTrayDismissOffset(value.translation.width)
+                if shouldRevealTrayItemAction(forSwipeOffset: translation) {
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                        traySwipeOffsets[itemID] = trayActionRevealWidth(forSwipeOffset: translation)
+                    }
+                } else {
+                    withAnimation(.spring(response: 0.24, dampingFraction: 0.9)) {
+                        traySwipeOffsets[itemID] = 0
                     }
                 }
-        )
+            }
     }
 
     @ViewBuilder
@@ -683,6 +692,31 @@ struct ScannerView: View {
                 .foregroundStyle(.white.opacity(0.6))
                 .lineLimit(1)
         }
+    }
+
+    private var pendingCompactRowCopy: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            pendingPlaceholderLine(width: 136, height: 14)
+            pendingPlaceholderLine(width: 92, height: 11)
+            pendingPlaceholderLine(width: 118, height: 10)
+        }
+        .redacted(reason: .placeholder)
+    }
+
+    private var pendingCompactRowValue: some View {
+        VStack(alignment: .trailing, spacing: 6) {
+            pendingPlaceholderLine(width: 36, height: 9)
+            pendingPlaceholderLine(width: 56, height: 16)
+            ProgressView()
+                .scaleEffect(0.85)
+                .tint(.white)
+        }
+    }
+
+    private func pendingPlaceholderLine(width: CGFloat, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: height / 2, style: .continuous)
+            .fill(Color.white.opacity(0.12))
+            .frame(width: width, height: height)
     }
 
     private func shouldShowVariantLoadingState(for item: LiveScanStackItem) -> Bool {
@@ -979,7 +1013,9 @@ struct ScannerView: View {
             return { viewModel.presentResultDetail(for: item.id) }
         case .unsupported:
             return nil
-        case .pending, .failed:
+        case .failed:
+            return { viewModel.retryScan(for: item.id) }
+        case .pending:
             return nil
         }
     }
@@ -1060,7 +1096,7 @@ struct ScannerView: View {
             ProgressView()
                 .tint(.white)
         case .failed:
-            Text("Retry")
+            Text("Rescan")
                 .font(.caption.weight(.bold))
                 .foregroundStyle(Color(red: 0.93, green: 0.53, blue: 0.53))
                 .padding(.horizontal, 10)
@@ -1258,7 +1294,7 @@ struct ScannerView: View {
     private func tertiaryLine(for item: LiveScanStackItem) -> String? {
         switch item.phase {
         case .pending:
-            return viewModel.isCapturingPhoto ? "Hold steady for a moment" : nil
+            return item.statusMessage ?? (viewModel.isCapturingPhoto ? "Hold steady for a moment" : "Queued in background")
         case .failed:
             return nil
         case .unsupported:

@@ -10,6 +10,29 @@ enum CameraAuthorizationState: Equatable {
     case unavailable
 }
 
+/// Preferred multi-scan callback payload for a successful capture.
+/// Callers should key their job state by `scanID` and use the embedded
+/// `captureInput` to continue OCR / matching work for that specific scan.
+struct CameraCaptureResult: Sendable {
+    let scanID: UUID
+    let captureInput: ScanCaptureInput
+}
+
+/// Preferred multi-scan callback payload for a capture failure.
+/// Callers should mark only the job with this `scanID` as failed.
+struct CameraCaptureFailure: Sendable {
+    let scanID: UUID
+    let message: String
+}
+
+/// Preferred multi-scan callback payload for photo-library save feedback.
+/// This is request-specific so callers can attach the result to the same job row.
+struct CameraPhotoLibrarySaveResult: Sendable {
+    let scanID: UUID
+    let success: Bool
+    let message: String?
+}
+
 final class CameraSessionController: NSObject, ObservableObject, @unchecked Sendable {
     @Published private(set) var authorizationState: CameraAuthorizationState = .unknown
     @Published private(set) var isSessionConfigured = false
@@ -18,6 +41,14 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
     @Published var currentZoomLevel: CGFloat = 1.5  // Default 1.5x like Rare Candy
 
     let session = AVCaptureSession()
+    /// Preferred multi-scan hooks:
+    /// - `onImageCapturedForRequest`: use the scanID to resolve the matching job.
+    /// - `onCaptureFailedForRequest`: use the scanID to mark only that job failed.
+    /// - `onCaptureSavedToPhotoLibraryForRequest`: optional per-job photo-save feedback.
+    /// The legacy callbacks remain for single-flight compatibility.
+    var onImageCapturedForRequest: ((CameraCaptureResult) -> Void)?
+    var onCaptureFailedForRequest: ((CameraCaptureFailure) -> Void)?
+    var onCaptureSavedToPhotoLibraryForRequest: ((CameraPhotoLibrarySaveResult) -> Void)?
     var onImageCaptured: ((ScanCaptureInput) -> Void)?
     var onCaptureFailed: ((String) -> Void)?
     var onCaptureSavedToPhotoLibrary: ((Bool, String?) -> Void)?
@@ -37,8 +68,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         let searchCropRectNormalized: CGRect
     }
 
-    // Pending crop request set when user taps to scan
-    private var pendingCaptureRequest: PendingCaptureRequest?
+    private struct CapturedPreviewFrame: @unchecked Sendable {
+        let pixelBuffer: CVPixelBuffer
+    }
+
+    private let pendingRequestLock = NSLock()
+    private var pendingCaptureRequestsByScanID: [UUID: PendingCaptureRequest] = [:]
+    private var pendingScanIDsByPhotoUniqueID: [Int64: UUID] = [:]
 
     private let sessionQueue = DispatchQueue(label: "spotlight.camera.session")
     private let photoOutput = AVCapturePhotoOutput()
@@ -174,13 +210,14 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         // metadataOutputRectConverted reports coordinates in the sensor/native orientation.
         // Our decoded UIImage is upright portrait, so swap axes into portrait photo space
         // before cropping, otherwise the crop becomes a tall narrow strip.
-        pendingCaptureRequest = PendingCaptureRequest(
+        let request = PendingCaptureRequest(
             scanID: scanID,
             exactCropRectNormalized: photoRect,
             searchCropRectNormalized: searchRect
         )
+        registerPendingCaptureRequest(request)
 
-        if !preferStillPhoto, captureLatestPreviewFrame() {
+        if !preferStillPhoto, captureLatestPreviewFrame(for: request) {
             print("📸 [CAPTURE] Using latest preview pixel buffer")
             return true
         }
@@ -196,6 +233,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             print("📸 [CAPTURE] Falling back to still photo capture")
         }
 
+        registerPendingStillPhotoRequest(request, uniqueID: settings.uniqueID)
         photoOutput.capturePhoto(with: settings, delegate: self)
         return true
     }
@@ -350,23 +388,27 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         return rendered.cgImage
     }
 
-    private func captureLatestPreviewFrame() -> Bool {
+    private func captureLatestPreviewFrame(for request: PendingCaptureRequest) -> Bool {
         latestFrameLock.lock()
         let pixelBuffer = latestPreviewPixelBuffer
         latestFrameLock.unlock()
 
-        guard let pixelBuffer,
-              let request = pendingCaptureRequest else {
+        guard let pixelBuffer else {
             return false
         }
 
+        let capturedFrame = CapturedPreviewFrame(pixelBuffer: pixelBuffer)
         captureQueue.async { [weak self] in
             guard let self else { return }
-            guard let image = self.previewImage(from: pixelBuffer) else {
+            guard self.isPendingCaptureRequestActive(scanID: request.scanID) else {
+                return
+            }
+            guard let image = self.previewImage(from: capturedFrame.pixelBuffer) else {
                 DispatchQueue.main.async {
-                    let message = "Could not capture the current camera frame."
-                    self.lastErrorMessage = message
-                    self.onCaptureFailed?(message)
+                    self.reportCaptureFailure(
+                        scanID: request.scanID,
+                        message: "Could not capture the current camera frame."
+                    )
                 }
                 return
             }
@@ -377,15 +419,17 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 source: .livePreviewFrame
             )
             DispatchQueue.main.async {
-                self.pendingCaptureRequest = nil
-                guard let captureInput else {
-                    let message = "Could not prepare the captured frame."
-                    self.lastErrorMessage = message
-                    self.onCaptureFailed?(message)
+                guard self.isPendingCaptureRequestActive(scanID: request.scanID) else {
                     return
                 }
-                self.persistCapturedScan(captureInput.fallbackImage ?? captureInput.searchImage)
-                self.onImageCaptured?(captureInput)
+                guard let captureInput else {
+                    self.reportCaptureFailure(
+                        scanID: request.scanID,
+                        message: "Could not prepare the captured frame."
+                    )
+                    return
+                }
+                self.finishCapturedScan(captureInput, request: request)
             }
         }
 
@@ -524,7 +568,7 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
         return expandedRect.intersection(unitRect)
     }
 
-    private func persistCapturedScan(_ image: UIImage) {
+    private func persistCapturedScan(_ image: UIImage, request: PendingCaptureRequest) {
         guard saveCapturedScansToPhotoLibrary else { return }
 
         requestPhotoLibraryAddAuthorizationIfNeeded { [weak self] granted in
@@ -533,6 +577,13 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
                 DispatchQueue.main.async {
                     let message = "Photo library access is required to save captured scans."
                     print("⚠️ [CAPTURE] \(message)")
+                    self.onCaptureSavedToPhotoLibraryForRequest?(
+                        CameraPhotoLibrarySaveResult(
+                            scanID: request.scanID,
+                            success: false,
+                            message: message
+                        )
+                    )
                     self.onCaptureSavedToPhotoLibrary?(false, message)
                 }
                 return
@@ -543,10 +594,24 @@ final class CameraSessionController: NSObject, ObservableObject, @unchecked Send
             }) { success, error in
                 DispatchQueue.main.async {
                     if success {
+                        self.onCaptureSavedToPhotoLibraryForRequest?(
+                            CameraPhotoLibrarySaveResult(
+                                scanID: request.scanID,
+                                success: true,
+                                message: nil
+                            )
+                        )
                         return
                     } else {
                         let message = error?.localizedDescription ?? "Could not save captured scan to Photos."
                         print("❌ [CAPTURE] Failed to save captured scan: \(message)")
+                        self.onCaptureSavedToPhotoLibraryForRequest?(
+                            CameraPhotoLibrarySaveResult(
+                                scanID: request.scanID,
+                                success: false,
+                                message: message
+                            )
+                        )
                         self.onCaptureSavedToPhotoLibrary?(false, message)
                     }
                 }
@@ -596,21 +661,34 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
         didFinishProcessingPhoto photo: AVCapturePhoto,
         error: Error?
     ) {
+        let uniqueID = photo.resolvedSettings.uniqueID
         if let error {
             DispatchQueue.main.async {
-                self.lastErrorMessage = error.localizedDescription
-                self.onCaptureFailed?(error.localizedDescription)
+                self.reportCaptureFailure(
+                    uniqueID: uniqueID,
+                    message: error.localizedDescription
+                )
             }
             return
         }
 
         guard let imageData = photo.fileDataRepresentation(),
-              let image = UIImage(data: imageData),
-              let request = pendingCaptureRequest else {
+              let image = UIImage(data: imageData) else {
             DispatchQueue.main.async {
-                let message = "Could not decode the captured photo."
-                self.lastErrorMessage = message
-                self.onCaptureFailed?(message)
+                self.reportCaptureFailure(
+                    uniqueID: uniqueID,
+                    message: "Could not decode the captured photo."
+                )
+            }
+            return
+        }
+
+        guard let request = pendingCaptureRequest(forPhotoUniqueID: uniqueID) else {
+            DispatchQueue.main.async {
+                self.reportCaptureFailure(
+                    uniqueID: uniqueID,
+                    message: "Could not find the pending scan for the captured photo."
+                )
             }
             return
         }
@@ -625,17 +703,15 @@ extension CameraSessionController: AVCapturePhotoCaptureDelegate {
 
         DispatchQueue.main.async {
             guard let captureInput else {
-                let message = "Could not prepare the captured photo."
-                self.lastErrorMessage = message
-                self.onCaptureFailed?(message)
+                self.reportCaptureFailure(
+                    scanID: request.scanID,
+                    message: "Could not prepare the captured photo."
+                )
                 return
             }
-            self.persistCapturedScan(captureInput.fallbackImage ?? captureInput.searchImage)
-            self.onImageCaptured?(captureInput)
+            self.finishCapturedScan(captureInput, request: request)
         }
 
-        // Clear pending crop
-        pendingCaptureRequest = nil
     }
 
 }
@@ -654,5 +730,79 @@ extension CameraSessionController: AVCaptureVideoDataOutputSampleBufferDelegate 
         latestFrameLock.lock()
         latestPreviewPixelBuffer = pixelBuffer
         latestFrameLock.unlock()
+    }
+}
+
+private extension CameraSessionController {
+    private func registerPendingCaptureRequest(_ request: PendingCaptureRequest) {
+        pendingRequestLock.lock()
+        pendingCaptureRequestsByScanID[request.scanID] = request
+        pendingRequestLock.unlock()
+    }
+
+    private func registerPendingStillPhotoRequest(_ request: PendingCaptureRequest, uniqueID: Int64) {
+        pendingRequestLock.lock()
+        pendingCaptureRequestsByScanID[request.scanID] = request
+        pendingScanIDsByPhotoUniqueID[uniqueID] = request.scanID
+        pendingRequestLock.unlock()
+    }
+
+    private func pendingCaptureRequest(forPhotoUniqueID uniqueID: Int64) -> PendingCaptureRequest? {
+        pendingRequestLock.lock()
+        defer { pendingRequestLock.unlock() }
+        guard let scanID = pendingScanIDsByPhotoUniqueID[uniqueID] else {
+            return nil
+        }
+        return pendingCaptureRequestsByScanID[scanID]
+    }
+
+    private func isPendingCaptureRequestActive(scanID: UUID) -> Bool {
+        pendingRequestLock.lock()
+        defer { pendingRequestLock.unlock() }
+        return pendingCaptureRequestsByScanID[scanID] != nil
+    }
+
+    private func discardPendingCaptureRequest(scanID: UUID) {
+        pendingRequestLock.lock()
+        pendingCaptureRequestsByScanID.removeValue(forKey: scanID)
+        pendingScanIDsByPhotoUniqueID = Dictionary(
+            uniqueKeysWithValues: pendingScanIDsByPhotoUniqueID.filter { $0.value != scanID }
+        )
+        pendingRequestLock.unlock()
+    }
+
+    private func discardPendingCaptureRequest(uniqueID: Int64) -> UUID? {
+        pendingRequestLock.lock()
+        defer { pendingRequestLock.unlock() }
+        guard let scanID = pendingScanIDsByPhotoUniqueID.removeValue(forKey: uniqueID) else {
+            return nil
+        }
+        pendingCaptureRequestsByScanID.removeValue(forKey: scanID)
+        return scanID
+    }
+
+    private func finishCapturedScan(_ captureInput: ScanCaptureInput, request: PendingCaptureRequest) {
+        discardPendingCaptureRequest(scanID: request.scanID)
+        persistCapturedScan(captureInput.fallbackImage ?? captureInput.searchImage, request: request)
+
+        let result = CameraCaptureResult(scanID: request.scanID, captureInput: captureInput)
+        onImageCapturedForRequest?(result)
+        onImageCaptured?(captureInput)
+    }
+
+    private func reportCaptureFailure(scanID: UUID, message: String) {
+        lastErrorMessage = message
+        discardPendingCaptureRequest(scanID: scanID)
+        onCaptureFailedForRequest?(CameraCaptureFailure(scanID: scanID, message: message))
+        onCaptureFailed?(message)
+    }
+
+    private func reportCaptureFailure(uniqueID: Int64, message: String) {
+        lastErrorMessage = message
+        let scanID = discardPendingCaptureRequest(uniqueID: uniqueID)
+        if let scanID {
+            onCaptureFailedForRequest?(CameraCaptureFailure(scanID: scanID, message: message))
+        }
+        onCaptureFailed?(message)
     }
 }
