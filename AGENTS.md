@@ -47,6 +47,30 @@ Repo-specific workflow notes for future coding agents.
   - broad footer/header OCR text should not be promoted into trusted raw set evidence by default
 - The old `RawCardScanner` raw path has been deleted from app runtime. Do not recreate it.
 
+## Audience / ICP guidance
+
+- Treat these as product-default audience heuristics, not universal truths about every user.
+- Primary dealer ICP:
+  - millennial show vendor / small entrepreneur
+  - mid-to-above-average tech savvy, but not looking for enterprise workflow complexity
+  - business-minded, negotiation-oriented, fast-moving, and comfortable making pricing decisions live at a table
+  - likes polished, high-signal interfaces that feel sharp enough to show off to buyers
+  - responds better to Robinhood-style clarity and confidence than Fidelity-style density
+  - no need for visible security theater or heavy “trust and compliance” chrome in normal flows
+  - values clear totals, fast edits, clean buyer-facing presentation, and lightweight analytics over deep forensic analysis
+  - does not need dense card-value-over-time views by default unless they clearly help the active workflow
+- Secondary collector ICP:
+  - generally `20-40`
+  - career professional with disposable income and relatively stable purchasing power
+  - average tech savvy
+  - socially motivated and comfortable sharing/showing collection wins
+  - values analytics, but usually wants concise and actionable metrics rather than deep research dashboards
+- Product/UI implication defaults:
+  - optimize for speed, clarity, confidence, and social polish
+  - prefer bold, legible totals and obvious next actions
+  - avoid overbuilding enterprise POS/accounting concepts unless they materially improve the dealer-at-the-table moment
+  - prefer summary analytics and financially legible visuals over dense reporting
+
 ## Scan Artifact Dataset And Confirmation Rules
 
 - The scanner moat / training dataset now treats scan capture, matcher prediction, scan selection, and deck add confirmation as separate states.

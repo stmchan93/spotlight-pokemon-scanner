@@ -163,6 +163,18 @@ func chartDragShouldScrub(translation: CGSize) -> Bool {
     return horizontal >= vertical * 0.75
 }
 
+func portfolioSwipeShouldOpenScanner(
+    startLocation: CGPoint,
+    translation: CGSize,
+    edgeZone: CGFloat = 88,
+    minimumHorizontalTravel: CGFloat = 90
+) -> Bool {
+    guard abs(translation.width) > abs(translation.height) else { return false }
+    guard startLocation.x <= edgeZone else { return false }
+    guard translation.width >= minimumHorizontalTravel else { return false }
+    return true
+}
+
 func filteredPortfolioEntries(
     _ entries: [DeckCardEntry],
     searchQuery: String,
@@ -873,6 +885,7 @@ struct PortfolioSurfaceView: View {
                     .padding(.bottom, 104 + max(proxy.safeAreaInsets.bottom, 0))
                 }
             }
+            .highPriorityGesture(portfolioToScannerSwipeGesture)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     if isSelectionMode {
@@ -954,6 +967,17 @@ struct PortfolioSurfaceView: View {
                 scheduleDisplayedEntriesRefresh()
             }
         }
+    }
+
+    private var portfolioToScannerSwipeGesture: some Gesture {
+        return DragGesture(minimumDistance: 28)
+            .onEnded { value in
+                guard portfolioSwipeShouldOpenScanner(
+                    startLocation: value.startLocation,
+                    translation: value.translation
+                ) else { return }
+                onOpenScanner()
+            }
     }
 
     private var portfolioChartSection: some View {
@@ -1038,9 +1062,32 @@ struct PortfolioSurfaceView: View {
                     RoundedRectangle(cornerRadius: 14, style: .continuous)
                         .stroke(outline, lineWidth: 1)
                 )
+            }
 
-                sortMenu
-                inventoryFilterMenu
+            VStack(alignment: .leading, spacing: 10) {
+                portfolioControlRow(
+                    title: "Sort",
+                    chips: PortfolioSortChoice.allCases.map { option in
+                        PortfolioControlChip(
+                            title: option.compactLabel,
+                            isSelected: sortOption == option
+                        ) {
+                            sortOption = option
+                        }
+                    }
+                )
+
+                portfolioControlRow(
+                    title: "Filter",
+                    chips: PortfolioInventoryFilter.allCases.map { filter in
+                        PortfolioControlChip(
+                            title: filter.displayName,
+                            isSelected: inventoryFilter == filter
+                        ) {
+                            inventoryFilter = filter
+                        }
+                    }
+                )
             }
 
             if displayedEntries.isEmpty {
@@ -1053,35 +1100,6 @@ struct PortfolioSurfaceView: View {
                 }
             }
         }
-    }
-
-    private var inventoryFilterMenu: some View {
-        Menu {
-            ForEach(PortfolioInventoryFilter.allCases) { filter in
-                Button {
-                    inventoryFilter = filter
-                } label: {
-                    if inventoryFilter == filter {
-                        Label(filter.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(filter.displayName)
-                    }
-                }
-            }
-        } label: {
-            Image(systemName: "line.3.horizontal.decrease.circle")
-                .font(.system(size: 17, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.82))
-            .frame(width: 44, height: 44)
-            .background(fieldBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(outline, lineWidth: 1)
-            )
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Filter inventory")
     }
 
     private var emptyState: some View {
@@ -1104,33 +1122,49 @@ struct PortfolioSurfaceView: View {
         )
     }
 
-    private var sortMenu: some View {
-        Menu {
-            ForEach(PortfolioSortChoice.allCases) { option in
-                Button {
-                    sortOption = option
-                } label: {
-                    if option == sortOption {
-                        Label(option.displayName, systemImage: "checkmark")
-                    } else {
-                        Text(option.displayName)
+    private func portfolioControlRow(
+        title: String,
+        chips: [PortfolioControlChip]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.caption.weight(.bold))
+                .foregroundStyle(.white.opacity(0.42))
+                .tracking(1.0)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                        chip
                     }
                 }
             }
-        } label: {
-            Image(systemName: "arrow.up.arrow.down")
-                .font(.system(size: 16, weight: .semibold))
-            .foregroundStyle(.white.opacity(0.82))
-            .frame(width: 44, height: 44)
-            .background(fieldBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(outline, lineWidth: 1)
-            )
         }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Sort inventory")
+    }
+
+    private struct PortfolioControlChip: View {
+        let title: String
+        let isSelected: Bool
+        let action: () -> Void
+
+        @Environment(\.lootyTheme) private var theme
+
+        var body: some View {
+            Button(action: action) {
+                Text(title)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(isSelected ? theme.colors.textInverse : .white.opacity(0.86))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(isSelected ? theme.colors.brand : theme.colors.surface)
+                    .overlay(
+                        Capsule()
+                            .stroke(isSelected ? Color.clear : theme.colors.outlineSubtle, lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
     }
 
     private func portfolioCard(_ entry: DeckCardEntry) -> some View {

@@ -10,30 +10,12 @@ enum ScannerPresentationMode: String, Equatable {
     case raw
     case slab
 
-    var title: String {
-        switch self {
-        case .raw:
-            return "Scanning: Raw"
-        case .slab:
-            return "Scanning: Slab"
-        }
-    }
-
     mutating func toggle() {
         self = self == .raw ? .slab : .raw
     }
 
-    fileprivate var aspectRatio: CGFloat {
-        switch self {
-        case .raw:
-            return 88.0 / 63.0
-        case .slab:
-            return 5.375 / 3.25
-        }
-    }
-
-    fileprivate static var tallestAspectRatio: CGFloat {
-        5.375 / 3.25
+    fileprivate static var sharedFrameAspectRatio: CGFloat {
+        88.0 / 63.0
     }
 }
 
@@ -55,19 +37,20 @@ struct ScannerReticleLayout: Equatable {
         safeAreaBottom: CGFloat,
         mode: ScannerPresentationMode
     ) -> ScannerReticleLayout {
-        let topSpacing = max(safeAreaTop + 78, 128)
-        let controlsTopSpacing: CGFloat = 16
+        _ = mode
+        let topSpacing = max(safeAreaTop + 6, 64)
+        let controlsTopSpacing: CGFloat = 8
         let controlsHeight: CGFloat = 36
-        let bottomClearance = max(containerSize.height * 0.14, 118) + safeAreaBottom
+        let bottomClearance = max(containerSize.height * 0.015, 20) + safeAreaBottom
         let maxHeight = max(
             220,
             containerSize.height - topSpacing - controlsTopSpacing - controlsHeight - bottomClearance
         )
-        // Keep width stable between raw/slab modes; slab should grow by height,
-        // while an internal guide shows where the label band sits.
-        let widthFromTallestMode = maxHeight / ScannerPresentationMode.tallestAspectRatio
-        let width = min(containerSize.width * 0.84, 400, widthFromTallestMode)
-        let height = width * mode.aspectRatio
+        // Keep the same outer frame for raw and slab. Slab mode uses an
+        // internal label guide rather than resizing the reticle itself.
+        let widthFromSharedFrame = maxHeight / ScannerPresentationMode.sharedFrameAspectRatio
+        let width = min(containerSize.width, widthFromSharedFrame)
+        let height = width * ScannerPresentationMode.sharedFrameAspectRatio
 
         return ScannerReticleLayout(
             width: width,

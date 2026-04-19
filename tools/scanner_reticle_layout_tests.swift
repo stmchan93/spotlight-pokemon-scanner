@@ -12,7 +12,7 @@ func requireNear(_ lhs: CGFloat, _ rhs: CGFloat, tolerance: CGFloat, _ message: 
     require(abs(lhs - rhs) <= tolerance, message + " (\(lhs) vs \(rhs))")
 }
 
-func testSlabReticleUsesFullPSABox() {
+func testSlabReticleUsesSharedOuterFrame() {
     let container = CGSize(width: 390, height: 844)
     let raw = ScannerReticleLayout.make(
         containerSize: container,
@@ -27,8 +27,8 @@ func testSlabReticleUsesFullPSABox() {
         mode: .slab
     )
 
-    requireNear(slab.width, raw.width, tolerance: 0.01, "raw and slab should share the committed width baseline")
-    require(slab.height > raw.height, "slab reticle should be taller than raw")
+    requireNear(slab.width, raw.width, tolerance: 0.01, "raw and slab should share the same outer width")
+    requireNear(slab.height, raw.height, tolerance: 0.01, "raw and slab should share the same outer height")
 }
 
 func testRawReticleMatchesPhoneBaselineSize() {
@@ -39,11 +39,11 @@ func testRawReticleMatchesPhoneBaselineSize() {
         mode: .raw
     )
 
-    requireNear(raw.width, 304.04, tolerance: 0.2, "raw reticle width should match the committed phone baseline")
-    requireNear(raw.height, 424.69, tolerance: 0.2, "raw reticle height should match the committed phone baseline")
+    requireNear(raw.width, 390.0, tolerance: 0.2, "raw reticle width should match the committed phone baseline")
+    requireNear(raw.height, 544.76, tolerance: 0.2, "raw reticle height should match the committed phone baseline")
 }
 
-func testSlabModeKeepsTopAnchorStableAndPushesControlsLower() {
+func testSlabModeKeepsTopAnchorAndControlsStable() {
     let container = CGSize(width: 390, height: 844)
     let raw = ScannerReticleLayout.make(
         containerSize: container,
@@ -61,10 +61,10 @@ func testSlabModeKeepsTopAnchorStableAndPushesControlsLower() {
     requireNear(slab.topSpacing, raw.topSpacing, tolerance: 0.01, "top anchor should stay stable across modes")
     let rawControlsTop = raw.topSpacing + raw.height + raw.controlsTopSpacing
     let slabControlsTop = slab.topSpacing + slab.height + slab.controlsTopSpacing
-    require(slabControlsTop > rawControlsTop, "slab mode should push the controls lower than raw")
+    requireNear(slabControlsTop, rawControlsTop, tolerance: 0.01, "slab mode should not move the controls lower than raw")
 }
 
-func testRawAndSlabAspectRatiosMatchTargets() {
+func testRawAndSlabUseSharedOuterAspectRatio() {
     let container = CGSize(width: 390, height: 844)
     let raw = ScannerReticleLayout.make(
         containerSize: container,
@@ -80,7 +80,7 @@ func testRawAndSlabAspectRatiosMatchTargets() {
     )
 
     requireNear(raw.height / raw.width, 88.0 / 63.0, tolerance: 0.01, "raw reticle should match card aspect ratio")
-    requireNear(slab.height / slab.width, 5.375 / 3.25, tolerance: 0.01, "slab reticle should match slab aspect ratio")
+    requireNear(slab.height / slab.width, 88.0 / 63.0, tolerance: 0.01, "slab reticle should keep the shared outer frame aspect ratio")
 }
 
 func testReticleLayoutPreservesBottomControlAndTraySpacing() {
@@ -99,7 +99,7 @@ func testReticleLayoutPreservesBottomControlAndTraySpacing() {
     )
 
     for layout in [raw, slab] {
-        require(layout.bottomClearance >= 118 + 34, "layout should preserve generous tray clearance")
+        require(layout.bottomClearance >= 20 + 34, "layout should preserve tray clearance")
         let consumedHeight = layout.topSpacing
             + layout.height
             + layout.controlsTopSpacing
@@ -107,6 +107,17 @@ func testReticleLayoutPreservesBottomControlAndTraySpacing() {
             + layout.bottomClearance
         require(consumedHeight <= container.height + 0.5, "layout should fit within the available vertical space")
     }
+}
+
+func testRawReticleStaysFullWidthOnShorterPhoneBaseline() {
+    let raw = ScannerReticleLayout.make(
+        containerSize: CGSize(width: 390, height: 812),
+        safeAreaTop: 47,
+        safeAreaBottom: 34,
+        mode: .raw
+    )
+
+    requireNear(raw.width, 390.0, tolerance: 0.2, "raw reticle should remain full width on the shorter phone baseline")
 }
 
 func testResolvedReticleCaptureRectUsesMeasuredReticleBoundsWhenValid() {
@@ -151,11 +162,12 @@ func testResolvedReticleCaptureRectFallsBackToLayoutFrameWhenBoundsMissing() {
 @main
 struct ScannerReticleLayoutTestRunner {
     static func main() {
-        testSlabReticleUsesFullPSABox()
+        testSlabReticleUsesSharedOuterFrame()
         testRawReticleMatchesPhoneBaselineSize()
-        testSlabModeKeepsTopAnchorStableAndPushesControlsLower()
-        testRawAndSlabAspectRatiosMatchTargets()
+        testSlabModeKeepsTopAnchorAndControlsStable()
+        testRawAndSlabUseSharedOuterAspectRatio()
         testReticleLayoutPreservesBottomControlAndTraySpacing()
+        testRawReticleStaysFullWidthOnShorterPhoneBaseline()
         testResolvedReticleCaptureRectUsesMeasuredReticleBoundsWhenValid()
         testResolvedReticleCaptureRectFallsBackToLayoutFrameWhenBoundsMissing()
         print("scanner_reticle_layout_tests: PASS")

@@ -210,14 +210,14 @@ struct ScanResultDetailView: View {
                     LazyVStack(alignment: .leading, spacing: 18) {
                         header(card: card)
                         heroSection(card: card, item: item)
+                        primaryActionsSection(card: card, item: item)
                         if viewModel.hasAlternatives(for: item.id) {
                             similarCardsBanner(item: item)
                         }
-                        metadataChips(card: card, item: item)
-                        purchasePriceSection(card: card, item: item)
-                        primaryActionsSection(card: card, item: item)
-                        collectionSection(card: card, item: item)
                         marketValueSection(item: item, card: card)
+                        purchasePriceSection(card: card, item: item)
+                        collectionSection(card: card, item: item)
+                        metadataChips(card: card, item: item)
                         if shouldShowMarketplaceLinks(for: item) {
                             marketplaceLinksSection(card: card, item: item)
                         }
@@ -303,9 +303,9 @@ struct ScanResultDetailView: View {
     }
 
     private func heroSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 8) {
+                VStack(alignment: .leading, spacing: 6) {
                     if let slabBadgeTitle = slabBadgeTitle(for: item) {
                         chip(slabBadgeTitle, background: Color.white.opacity(0.08))
                     } else if portfolioQuantity > 0 {
@@ -315,7 +315,7 @@ struct ScanResultDetailView: View {
                     }
 
                     Text(card.name)
-                        .font(.system(size: 28, weight: .bold, design: .rounded))
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(2)
                         .minimumScaleFactor(0.86)
@@ -331,7 +331,7 @@ struct ScanResultDetailView: View {
                 VStack(alignment: .trailing, spacing: 8) {
                     if let pricing {
                         Text(formattedPrice(pricing.primaryDisplayPrice ?? 0, currencyCode: pricing.currencyCode))
-                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .font(.system(size: 25, weight: .bold, design: .rounded))
                             .foregroundStyle(theme.colors.textPrimary)
                             .opacity(pricing.primaryDisplayPrice == nil ? 0 : 1)
                     }
@@ -347,9 +347,9 @@ struct ScanResultDetailView: View {
 
             heroImage(card: card)
         }
-        .padding(18)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
@@ -363,7 +363,7 @@ struct ScanResultDetailView: View {
                 )
         )
         .overlay(
-            RoundedRectangle(cornerRadius: 28, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(Color.white.opacity(0.08), lineWidth: 1)
         )
     }
@@ -413,7 +413,7 @@ struct ScanResultDetailView: View {
 
     private func heroImage(card: CardCandidate) -> some View {
         ZStack {
-            RoundedRectangle(cornerRadius: 30, style: .continuous)
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(
                     LinearGradient(
                         colors: [
@@ -424,7 +424,7 @@ struct ScanResultDetailView: View {
                         endPoint: .bottom
                     )
                 )
-                .frame(height: 330)
+                .frame(height: 292)
 
             Ellipse()
                 .fill(Color.white.opacity(0.16))
@@ -434,7 +434,7 @@ struct ScanResultDetailView: View {
 
             Circle()
                 .fill(limeAccent.opacity(0.12))
-                .frame(width: 250, height: 250)
+                .frame(width: 220, height: 220)
                 .blur(radius: 32)
                 .offset(y: -8)
 
@@ -444,7 +444,7 @@ struct ScanResultDetailView: View {
                 cornerRadius: 20,
                 contentMode: .fit
             )
-                .frame(width: 220, height: 308)
+                .frame(width: 204, height: 284)
                 .shadow(color: .black.opacity(0.42), radius: 28, y: 16)
         }
     }
@@ -580,7 +580,7 @@ struct ScanResultDetailView: View {
     }
 
     private func marketplaceLinksSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: 10) {
             if let pricing {
                 Text("Pricing source: \(pricing.sourceLabel)")
                     .font(.footnote.weight(.semibold))
@@ -611,10 +611,10 @@ struct ScanResultDetailView: View {
                 )
             }
         }
-        .padding(16)
+        .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.05))
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(Color.white.opacity(0.04))
         )
     }
 
@@ -633,7 +633,7 @@ struct ScanResultDetailView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 Text(title)
-                    .font(.headline.weight(.semibold))
+                    .font(.subheadline.weight(.semibold))
                     .foregroundStyle(.white)
                     .lineLimit(1)
                     .layoutPriority(1)
@@ -651,7 +651,7 @@ struct ScanResultDetailView: View {
                     .foregroundStyle(limeAccent)
             }
             .padding(.horizontal, 14)
-            .frame(height: 54)
+            .frame(height: 48)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .fill(Color.white.opacity(0.04))
@@ -667,11 +667,11 @@ struct ScanResultDetailView: View {
             let selectedGradeID = selectedGradedCompsGradeID(for: item)
             let graderLabel = resolvedGradedCompsGraderLabel(for: item)
 
-                VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 10) {
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
                         VStack(alignment: .leading, spacing: 4) {
                         Text("Current eBay listings")
-                            .font(.title3.weight(.bold))
+                            .font(.headline.weight(.bold))
                             .foregroundStyle(.white)
 
                         Text("\(graderLabel)-focused grade tabs and current eBay listings.")
@@ -790,12 +790,12 @@ struct ScanResultDetailView: View {
                             .fill(Color.white.opacity(0.04))
                     )
                 }
-            }
-            .padding(16)
-            .background(
-                RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.05))
-            )
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.white.opacity(0.04))
+                )
         }
     }
 

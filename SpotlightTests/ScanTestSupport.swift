@@ -10,10 +10,12 @@ func makeScannerViewModel(
 ) -> ScannerViewModel {
     ScannerViewModel(
         cameraController: CameraSessionController(),
-        ocrPipeline: OCRPipelineCoordinator(
-            rawRewritePipeline: RawPipeline(),
-            slabAnalyzer: SlabScanner(config: .default)
-        ),
+        ocrPipelineFactory: {
+            OCRPipelineCoordinator(
+                rawRewritePipeline: RawPipeline(),
+                slabAnalyzer: SlabScanner(config: .default)
+            )
+        },
         matcher: matcher,
         logStore: logStore,
         artifactUploadsEnabled: artifactUploadsEnabled

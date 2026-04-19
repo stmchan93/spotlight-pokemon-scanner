@@ -52,6 +52,13 @@ Use this slab rebuild implementation spec when slab work resumes:
 
 ## Current Product State
 
+- working default ICP / audience guidance:
+  - primary dealer user is a millennial show vendor or small entrepreneurial operator
+  - this user is moderately tech savvy, business-minded, negotiation-oriented, and wants fast, polished table-side workflows
+  - UX should feel closer to Robinhood than Fidelity: high-signal, modern, confident, and easy to show buyers across the table
+  - security/compliance theater should not dominate normal product surfaces
+  - deep historical analytics are not the default value proposition; concise, decision-ready numbers matter more
+  - secondary collector user is typically `20-40`, professionally employed, has disposable income, is socially motivated, and values clear analytics without wanting overly dense detail
 - scanner UI remains intact
 - raw scan UX remains active
 - backend-backed inventory/deck persistence is now landed for:

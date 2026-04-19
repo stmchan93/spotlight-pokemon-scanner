@@ -981,7 +981,7 @@ final class ScannerViewModel: ObservableObject {
             job.errorMessage = nil
         }
 
-        withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+        withAnimation(.easeOut(duration: 0.18)) {
             for index in scannedItems.indices {
                 scannedItems[index].isExpanded = false
             }

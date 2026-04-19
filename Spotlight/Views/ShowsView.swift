@@ -2374,8 +2374,7 @@ struct ShowsView: View {
 struct ShowSellPreviewSheet: View {
     private enum SellInputField: Hashable {
         case listPrice
-        case percentOff
-        case dollarOff
+        case sellPercent
     }
 
     let draft: ShowSellDraft
@@ -2385,10 +2384,8 @@ struct ShowSellPreviewSheet: View {
     @Environment(\.lootyTheme) private var theme
     @State private var quantity = 1
     @State private var listPriceText: String
-    @State private var percentOffText = ""
-    @State private var dollarOffText = ""
+    @State private var sellPercentText = "100"
     @State private var isSubmitting = false
-    @State private var isReviewingSale = false
     @State private var errorMessage: String?
     @State private var swipeProgress: CGFloat = 0
     @State private var focusedField: SellInputField?
@@ -2400,9 +2397,10 @@ struct ShowSellPreviewSheet: View {
     private var primaryText: Color { theme.colors.textInverse }
     private var secondaryText: Color { theme.colors.textSecondaryInverse }
     private var outline: Color { theme.colors.outlineLight }
-    private let swipeThreshold: CGFloat = 118
-    private let actionHeight: CGFloat = 92
-    private let swipeVisualTravel: CGFloat = 68
+    private let swipeThreshold: CGFloat = 144
+    private let actionHeight: CGFloat = 108
+    private let swipeVisualTravel: CGFloat = 240
+    private let pageLiftDistance: CGFloat = 120
 
     init(
         draft: ShowSellDraft,
@@ -2410,12 +2408,7 @@ struct ShowSellPreviewSheet: View {
     ) {
         self.draft = draft
         self.onConfirm = onConfirm
-        let defaultPrice = draft.entry.primaryPrice ?? draft.entry.card.pricing?.market ?? draft.suggestedPrice
-        _listPriceText = State(initialValue: String(format: "%.2f", defaultPrice))
-    }
-
-    private var marketPrice: Double {
-        draft.entry.primaryPrice ?? draft.entry.card.pricing?.market ?? draft.suggestedPrice
+        _listPriceText = State(initialValue: String(format: "%.2f", max(0, draft.suggestedPrice)))
     }
 
     private var pricingCurrencyCode: String {
@@ -2431,36 +2424,23 @@ struct ShowSellPreviewSheet: View {
     }
 
     private var listingPrice: Double {
-        parsedListPrice ?? marketPrice
+        parsedListPrice ?? 0
     }
 
-    private var parsedPercentOff: Double? {
-        let normalized = percentOffText.trimmingCharacters(in: .whitespacesAndNewlines)
+    private var parsedSellPercent: Double? {
+        let normalized = sellPercentText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty, let value = Double(normalized), value >= 0 else {
             return nil
         }
         return value
     }
 
-    private var parsedDollarOff: Double? {
-        let normalized = dollarOffText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty, let value = Double(normalized), value >= 0 else {
-            return nil
-        }
-        return value
+    private var resolvedSellPercent: Double {
+        min(max(parsedSellPercent ?? 100, 0), 100)
     }
 
     private var targetSellPrice: Double {
-        if let dollarOff = parsedDollarOff {
-            return max(0, listingPrice - max(0, dollarOff))
-        }
-
-        if let percentOff = parsedPercentOff {
-            let clampedPercent = min(max(0, percentOff), 100)
-            return max(0, listingPrice * (1 - (clampedPercent / 100)))
-        }
-
-        return listingPrice
+        max(0, listingPrice * (resolvedSellPercent / 100))
     }
 
     private var grossTotal: Double {
@@ -2471,43 +2451,28 @@ struct ShowSellPreviewSheet: View {
         !isSubmitting
     }
 
-    private var hasInvalidDiscountInput: Bool {
-        let hasPercentText = !percentOffText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasDollarText = !dollarOffText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasPercentText && parsedPercentOff == nil { return true }
-        if hasDollarText && parsedDollarOff == nil { return true }
-        if hasPercentText && hasDollarText { return true }
-        return false
+    private var swipeCompletionProgress: CGFloat {
+        min(max(swipeProgress / swipeVisualTravel, 0), 1)
     }
 
-    private var percentOffBinding: Binding<String> {
+    private var releaseToSellArmed: Bool {
+        swipeProgress >= swipeThreshold
+    }
+
+    private var sellPercentBinding: Binding<String> {
         Binding(
-            get: { percentOffText },
+            get: { sellPercentText },
             set: { newValue in
                 let clampedValue = clampedDiscountInputText(newValue, maximum: 100, maximumFractionDigits: 2)
-                guard clampedValue != percentOffText else { return }
-                percentOffText = clampedValue
-                if !clampedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    dollarOffText = ""
-                }
+                guard clampedValue != sellPercentText else { return }
+                sellPercentText = clampedValue
                 invalidateReviewedSaleForValueChange()
             }
         )
     }
 
-    private var dollarOffBinding: Binding<String> {
-        Binding(
-            get: { dollarOffText },
-            set: { newValue in
-                let clampedValue = clampedDiscountInputText(newValue, maximum: listingPrice, maximumFractionDigits: 2)
-                guard clampedValue != dollarOffText else { return }
-                dollarOffText = clampedValue
-                if !clampedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    percentOffText = ""
-                }
-                invalidateReviewedSaleForValueChange()
-            }
-        )
+    private var hasInvalidPricingInput: Bool {
+        parsedListPrice == nil || parsedSellPercent == nil
     }
 
     private var listPriceBinding: Binding<String> {
@@ -2516,7 +2481,6 @@ struct ShowSellPreviewSheet: View {
             set: { newValue in
                 guard newValue != listPriceText else { return }
                 listPriceText = newValue
-                dollarOffText = clampedDiscountInputText(dollarOffText, maximum: listingPrice, maximumFractionDigits: 2)
                 invalidateReviewedSaleForValueChange()
             }
         )
@@ -2524,33 +2488,40 @@ struct ShowSellPreviewSheet: View {
 
     var body: some View {
         NavigationStack {
-            ZStack {
-                pageBackground
-                    .ignoresSafeArea()
-                    .contentShape(Rectangle())
-                    .onTapGesture {
-                        clearInputFocus()
-                    }
+            GeometryReader { proxy in
+                ZStack {
+                    sellSwipeBackdrop(containerHeight: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
 
-                ScrollView(showsIndicators: false) {
-                    VStack(alignment: .leading, spacing: 16) {
-                        sellSurface
+                    ScrollView(showsIndicators: false) {
+                        VStack(alignment: .leading, spacing: 14) {
+                            sellSurface
 
-                        if let errorMessage {
-                            Text(errorMessage)
-                                .font(.footnote.weight(.semibold))
-                                .foregroundStyle(theme.colors.danger)
-                                .padding(.horizontal, 2)
+                            if let errorMessage {
+                                Text(errorMessage)
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(theme.colors.danger)
+                                    .padding(.horizontal, 2)
+                            }
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.top, 18)
+                        .padding(.bottom, actionHeight + 28)
+                        .frame(
+                            minHeight: max(0, proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom),
+                            alignment: .top
+                        )
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.top, 22)
-                    .padding(.bottom, 118)
+                    .offset(y: -(swipeCompletionProgress * pageLiftDistance))
+                    .scaleEffect(1 - (swipeCompletionProgress * 0.03), anchor: .top)
+                    .scrollDismissesKeyboard(.interactively)
                 }
-                .scrollDismissesKeyboard(.interactively)
-            }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                editBottomActionBar
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    clearInputFocus()
+                }
+                .safeAreaInset(edge: .bottom, spacing: 0) {
+                    sellBottomActionBar
+                }
             }
             .toolbarBackground(pageBackground, for: .navigationBar)
             .toolbar {
@@ -2565,14 +2536,10 @@ struct ShowSellPreviewSheet: View {
                 }
 
                 ToolbarItem(placement: .principal) {
-                    Text("Sell order")
+                    Text(draft.title)
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(primaryText)
                 }
-
-            }
-            .navigationDestination(isPresented: $isReviewingSale) {
-                reviewPage
             }
         }
         .presentationDetents([.large])
@@ -2588,29 +2555,61 @@ struct ShowSellPreviewSheet: View {
         }
     }
 
+    private func sellSwipeBackdrop(containerHeight: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            pageBackground
+                .ignoresSafeArea()
+
+            actionAccent
+                .opacity(Double(swipeCompletionProgress))
+                .frame(height: max(0, swipeCompletionProgress * containerHeight))
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .animation(.easeOut(duration: 0.16), value: swipeProgress)
+    }
+
     private var sellSurface: some View {
         VStack(spacing: 0) {
-            VStack(spacing: 6) {
-                Text(formattedPrice(grossTotal, currencyCode: pricingCurrencyCode))
-                    .font(.system(size: 64, weight: .bold, design: .rounded))
-                    .foregroundStyle(primaryText)
-                    .minimumScaleFactor(0.6)
+            VStack(spacing: 14) {
+                CardArtworkView(
+                    urlString: draft.entry.card.imageSmallURL ?? draft.entry.card.imageLargeURL,
+                    fallbackTitle: draft.entry.card.name,
+                    cornerRadius: 22,
+                    contentMode: .fit
+                )
+                .frame(width: 120, height: 168)
+                .background(Color.black.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
 
-                Text("Sales total")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(secondaryText)
+                VStack(spacing: 6) {
+                    Text(draft.entry.card.name)
+                        .font(.title3.weight(.bold))
+                        .foregroundStyle(primaryText)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+
+                    Text("\(draft.entry.card.setName) • #\(draft.entry.card.number)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(secondaryText)
+                        .multilineTextAlignment(.center)
+                }
+
+                VStack(spacing: 6) {
+                    Text(formattedPrice(targetSellPrice, currencyCode: pricingCurrencyCode))
+                        .font(.system(size: 52, weight: .bold, design: .rounded))
+                        .foregroundStyle(primaryText)
+                        .minimumScaleFactor(0.62)
+
+                    Text(quantity == 1 ? "Sale price each" : "Sale price each • Total \(formattedPrice(grossTotal, currencyCode: pricingCurrencyCode))")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(secondaryText)
+                        .multilineTextAlignment(.center)
+                }
             }
             .frame(maxWidth: .infinity)
-            .padding(.top, 8)
-            .padding(.bottom, 14)
-
-            divider
-
-            cleanRow("Market price") {
-                Text(formattedPrice(marketPrice, currencyCode: pricingCurrencyCode))
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(primaryText)
-            }
+            .padding(.horizontal, 20)
+            .padding(.top, 20)
+            .padding(.bottom, 18)
 
             divider
 
@@ -2625,36 +2624,38 @@ struct ShowSellPreviewSheet: View {
 
             divider
 
+            cleanRow("Sell %") {
+                compactValueField(
+                    text: sellPercentBinding,
+                    placeholder: "100",
+                    width: 112,
+                    focus: .sellPercent
+                )
+            }
+
+            divider
+
             cleanRow("Quantity") {
                 quantityControl(maximum: max(1, draft.quantityLimit))
             }
 
             divider
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Discount")
-                    .font(.subheadline.weight(.semibold))
+            cleanRow("Total") {
+                Text(formattedPrice(grossTotal, currencyCode: pricingCurrencyCode))
+                    .font(.body.weight(.bold))
                     .foregroundStyle(primaryText)
-
-                HStack(spacing: 12) {
-                    discountField(
-                        title: "% off",
-                        text: percentOffBinding,
-                        placeholder: "0",
-                        focus: .percentOff
-                    )
-
-                    discountField(
-                        title: "$ off",
-                        text: dollarOffBinding,
-                        placeholder: "0.00",
-                        focus: .dollarOff
-                    )
-                }
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
 
+            divider
+
+            Text(reviewCalculationText)
+                .font(.footnote.weight(.semibold))
+                .foregroundStyle(secondaryText)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 16)
         }
         .background(surfaceBackground)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -2665,127 +2666,8 @@ struct ShowSellPreviewSheet: View {
         .padding(.bottom, 8)
     }
 
-    private var reviewPage: some View {
-        ZStack {
-            pageBackground.ignoresSafeArea()
-
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 16) {
-                    reviewSurface
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(theme.colors.danger)
-                            .padding(.horizontal, 2)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.top, 2)
-                .padding(.bottom, 118)
-            }
-            .offset(y: -min(swipeProgress * 0.18, 28))
-            .scrollDismissesKeyboard(.immediately)
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            reviewBottomActionBar
-        }
-        .toolbarBackground(pageBackground, for: .navigationBar)
-        .toolbar {
-            ToolbarItem(placement: .principal) {
-                Text("Review sale")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(primaryText)
-            }
-        }
-    }
-
-    private var reviewSurface: some View {
-        VStack(spacing: 16) {
-            VStack(spacing: 8) {
-                Text(formattedPrice(targetSellPrice, currencyCode: pricingCurrencyCode))
-                    .font(.system(size: 72, weight: .bold, design: .rounded))
-                    .foregroundStyle(primaryText)
-                    .minimumScaleFactor(0.6)
-
-                Text("Sale price each")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(secondaryText)
-
-                Text(quantity == 1 ? "Total \(formattedPrice(grossTotal, currencyCode: pricingCurrencyCode))" : "Total \(formattedPrice(grossTotal, currencyCode: pricingCurrencyCode)) for \(quantity) cards")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(primaryText.opacity(0.88))
-            }
-            .frame(maxWidth: .infinity)
-            .padding(.top, 40)
-            .padding(.bottom, 8)
-
-            VStack(alignment: .leading, spacing: 14) {
-                Text(draft.entry.card.name)
-                    .font(.headline.weight(.bold))
-                    .foregroundStyle(primaryText)
-                    .lineLimit(2)
-
-                Text(reviewCalculationText)
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(secondaryText)
-
-                divider
-
-                reviewDetailRow("List price", value: formattedPrice(listingPrice, currencyCode: pricingCurrencyCode))
-                reviewDetailRow("Discount", value: reviewDiscountLabel)
-                reviewDetailRow("Sale price", value: formattedPrice(targetSellPrice, currencyCode: pricingCurrencyCode))
-                reviewDetailRow("Quantity", value: "\(quantity)")
-                reviewDetailRow("Total", value: formattedPrice(grossTotal, currencyCode: pricingCurrencyCode))
-            }
-            .padding(20)
-            .background(surfaceBackground)
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(outline, lineWidth: 1)
-            )
-        }
-    }
-
-    private var editBottomActionBar: some View {
-        let uiState = sellOrderReviewUIState(isReviewingSale: false, isSubmitting: isSubmitting)
-        return VStack(spacing: 0) {
-            Rectangle()
-                .fill(outline)
-                .frame(height: 1)
-
-            VStack {
-                Button {
-                    reviewSale()
-                } label: {
-                    switch uiState {
-                    case .edit(let buttonTitle):
-                        Text(buttonTitle)
-                            .frame(maxWidth: .infinity)
-                    case .review:
-                        EmptyView()
-                    }
-                }
-                .buttonStyle(
-                    LootyFilledButtonStyle(
-                        fill: actionAccent,
-                        foreground: theme.colors.textInverse,
-                        cornerRadius: 18,
-                        minHeight: 58
-                    )
-                )
-                .disabled(isSubmitting)
-                .opacity(isSubmitting ? 0.78 : 1)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 14)
-            }
-            .background(pageBackground)
-        }
-    }
-
-    private var reviewBottomActionBar: some View {
-        let uiState = sellOrderReviewUIState(isReviewingSale: true, isSubmitting: isSubmitting)
+    private var sellBottomActionBar: some View {
+        let actionTitle = isSubmitting ? "SELLING…" : (releaseToSellArmed ? "Release to sell" : "Swipe up to sell")
         return VStack(spacing: 0) {
             Rectangle()
                 .fill(outline)
@@ -2794,20 +2676,13 @@ struct ShowSellPreviewSheet: View {
             VStack(spacing: 6) {
                 Image(systemName: "chevron.up")
                     .font(.system(size: 12, weight: .bold))
-
-                switch uiState {
-                case .review(let trayTitle):
-                    Text(trayTitle)
-                        .font(.headline.weight(.bold))
-                case .edit:
-                    EmptyView()
-                }
+                Text(actionTitle)
+                    .font(.headline.weight(.bold))
             }
             .foregroundStyle(theme.colors.textInverse)
             .frame(maxWidth: .infinity, minHeight: actionHeight)
             .background(actionAccent)
-            .clipShape(RoundedRectangle(cornerRadius: 0, style: .continuous))
-            .offset(y: -min(swipeProgress * 0.10, 8))
+            .offset(y: -min(swipeCompletionProgress * 18, 18))
             .opacity(isSubmitting ? 0.78 : 1)
             .contentShape(Rectangle())
             .gesture(sellSwipeGesture)
@@ -2826,7 +2701,9 @@ struct ShowSellPreviewSheet: View {
                 guard canSwipeToSubmit else { return }
                 let upwardTravel = max(0, -value.translation.height)
                 if upwardTravel >= swipeThreshold {
-                    swipeProgress = swipeVisualTravel
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.9)) {
+                        swipeProgress = swipeVisualTravel
+                    }
                     submitSale()
                 } else {
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
@@ -2836,20 +2713,10 @@ struct ShowSellPreviewSheet: View {
             }
     }
 
-    private func reviewSale() {
-        clearInputFocus()
-        guard !hasInvalidDiscountInput else {
-            errorMessage = "Use one valid discount field before reviewing."
-            return
-        }
-        errorMessage = nil
-        swipeProgress = 0
-        isReviewingSale = true
-    }
-
     private func submitSale() {
-        guard !hasInvalidDiscountInput else {
-            errorMessage = "Use one valid discount field before selling."
+        clearInputFocus()
+        guard !hasInvalidPricingInput else {
+            errorMessage = "Enter a valid list price and sell % before selling."
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                 swipeProgress = 0
             }
@@ -2933,9 +2800,13 @@ struct ShowSellPreviewSheet: View {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(disabled ? secondaryText.opacity(0.5) : primaryText)
-                .frame(width: 32, height: 32)
+                .frame(width: 38, height: 38)
                 .background(fieldBackground)
                 .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(outline, lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -3012,39 +2883,14 @@ struct ShowSellPreviewSheet: View {
         }
     }
 
-    private var reviewDiscountLabel: String {
-        if let dollarOff = parsedDollarOff {
-            return formattedPrice(dollarOff, currencyCode: pricingCurrencyCode)
-        }
-
-        if let percentOff = parsedPercentOff {
-            return formattedPercent(percentOff)
-        }
-
-        return formattedPrice(0, currencyCode: pricingCurrencyCode)
-    }
-
     private var reviewCalculationText: String {
         let base = formattedPrice(listingPrice, currencyCode: pricingCurrencyCode)
         let final = formattedPrice(targetSellPrice, currencyCode: pricingCurrencyCode)
-
-        if let dollarOff = parsedDollarOff {
-            let discount = formattedPrice(dollarOff, currencyCode: pricingCurrencyCode)
-            return "\(base) - \(discount) = \(final)"
-        }
-
-        if let percentOff = parsedPercentOff {
-            return "\(base) - \(formattedPercent(percentOff)) = \(final)"
-        }
-
-        return "List price \(base)"
+        return "\(base) × \(formattedPercent(resolvedSellPercent)) = \(final)"
     }
 
     private func invalidateReviewedSaleForValueChange() {
-        if isReviewingSale {
-            isReviewingSale = false
-            swipeProgress = 0
-        }
+        swipeProgress = 0
         if errorMessage != nil {
             errorMessage = nil
         }
@@ -3063,33 +2909,9 @@ struct ShowSellPreviewSheet: View {
 }
 
 struct ShowSellBatchPreviewSheet: View {
-    private enum SellDiscountField: String, CaseIterable {
-        case percentOff
-        case dollarOff
-
-        var title: String {
-            switch self {
-            case .percentOff:
-                return "% Off"
-            case .dollarOff:
-                return "$ Off"
-            }
-        }
-
-        var placeholder: String {
-            switch self {
-            case .percentOff:
-                return "0"
-            case .dollarOff:
-                return "0.00"
-            }
-        }
-    }
-
     private enum BatchSellInputField: Hashable {
         case listPrice(String)
-        case percentOff(String)
-        case dollarOff(String)
+        case sellPercent(String)
     }
 
     let draft: ShowSellBatchDraft
@@ -3099,10 +2921,10 @@ struct ShowSellBatchPreviewSheet: View {
     @Environment(\.lootyTheme) private var theme
     @State private var quantitiesByLineID: [String: Int]
     @State private var listPriceTextByLineID: [String: String]
-    @State private var percentOffTextByLineID: [String: String]
-    @State private var dollarOffTextByLineID: [String: String]
+    @State private var sellPercentTextByLineID: [String: String]
     @State private var isSubmitting = false
     @State private var isReviewingSale = false
+    @State private var isBuyerPresentationPresented = false
     @State private var errorMessage: String?
     @State private var swipeProgress: CGFloat = 0
     @State private var focusedField: BatchSellInputField?
@@ -3114,9 +2936,10 @@ struct ShowSellBatchPreviewSheet: View {
     private var primaryText: Color { theme.colors.textInverse }
     private var secondaryText: Color { theme.colors.textSecondaryInverse }
     private var outline: Color { theme.colors.outlineLight }
-    private let swipeThreshold: CGFloat = 118
-    private let actionHeight: CGFloat = 92
-    private let swipeVisualTravel: CGFloat = 68
+    private let swipeThreshold: CGFloat = 144
+    private let actionHeight: CGFloat = 108
+    private let swipeVisualTravel: CGFloat = 240
+    private let pageLiftDistance: CGFloat = 120
 
     init(
         draft: ShowSellBatchDraft,
@@ -3134,14 +2957,9 @@ struct ShowSellBatchPreviewSheet: View {
                 uniqueKeysWithValues: draft.lines.map { ($0.id, String(format: "%.2f", $0.suggestedUnitPrice)) }
             )
         )
-        _percentOffTextByLineID = State(
+        _sellPercentTextByLineID = State(
             initialValue: Dictionary(
-                uniqueKeysWithValues: draft.lines.map { ($0.id, "") }
-            )
-        )
-        _dollarOffTextByLineID = State(
-            initialValue: Dictionary(
-                uniqueKeysWithValues: draft.lines.map { ($0.id, "") }
+                uniqueKeysWithValues: draft.lines.map { ($0.id, "100") }
             )
         )
     }
@@ -3168,12 +2986,20 @@ struct ShowSellBatchPreviewSheet: View {
 
     private var hasInvalidActivePricing: Bool {
         activeLines.contains { line in
-            hasInvalidSelectedDiscount(for: line)
+            hasInvalidSelectedPricing(for: line)
         }
     }
 
     private var canSwipeToSubmit: Bool {
         !isSubmitting
+    }
+
+    private var swipeCompletionProgress: CGFloat {
+        min(max(swipeProgress / swipeVisualTravel, 0), 1)
+    }
+
+    private var releaseToSellArmed: Bool {
+        swipeProgress >= swipeThreshold
     }
 
     var body: some View {
@@ -3226,14 +3052,33 @@ struct ShowSellBatchPreviewSheet: View {
                 }
 
                 ToolbarItem(placement: .principal) {
-                    Text("Sell order")
+                    Text("Sell cards")
                         .font(.headline.weight(.semibold))
                         .foregroundStyle(primaryText)
                 }
 
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button {
+                        clearInputFocus()
+                        isBuyerPresentationPresented = true
+                    } label: {
+                        Text("Buyer view")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(primaryText)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(fieldBackground)
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(activeLines.isEmpty)
+                }
             }
             .navigationDestination(isPresented: $isReviewingSale) {
                 reviewPage
+            }
+            .navigationDestination(isPresented: $isBuyerPresentationPresented) {
+                buyerPresentationPage
             }
         }
         .presentationDetents([.large])
@@ -3252,6 +3097,7 @@ struct ShowSellBatchPreviewSheet: View {
     private func batchLineCard(_ line: ShowSellBatchLineDraft) -> some View {
         let currentQuantity = quantity(for: line)
         let lineCurrencyCode = line.entry.card.pricing?.currencyCode ?? "USD"
+        let lineDealTotal = Double(currentQuantity) * resolvedUnitPrice(for: line)
 
         return VStack(spacing: 0) {
             batchCardHeader(line)
@@ -3261,54 +3107,51 @@ struct ShowSellBatchPreviewSheet: View {
 
             divider
 
-            cleanRow("Market price") {
-                Text(formattedPrice(line.suggestedUnitPrice, currencyCode: lineCurrencyCode))
-                    .font(.body.weight(.bold))
-                    .foregroundStyle(primaryText)
-            }
-
-            divider
-
-            cleanRow("List price") {
-                compactValueField(
-                    text: listPriceBinding(for: line),
-                    placeholder: "0.00",
-                    width: 136,
-                    focus: .listPrice(line.id)
-                )
-            }
-
-            divider
-
-            cleanRow("Quantity") {
-                quantityControl(for: line)
-            }
-
-            divider
-
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Discount")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(primaryText)
-
-                HStack(spacing: 12) {
-                    discountField(
-                        title: "% off",
-                        text: percentOffBinding(for: line),
-                        placeholder: "0",
-                        focus: .percentOff(line.id)
-                    )
-
-                    discountField(
-                        title: "$ off",
-                        text: dollarOffBinding(for: line),
+            VStack(spacing: 0) {
+                cleanRow("List price") {
+                    compactValueField(
+                        text: listPriceBinding(for: line),
                         placeholder: "0.00",
-                        focus: .dollarOff(line.id)
+                        width: 136,
+                        focus: .listPrice(line.id)
                     )
                 }
+
+                divider
+
+                cleanRow("Sell %") {
+                    compactValueField(
+                        text: sellPercentBinding(for: line),
+                        placeholder: "100",
+                        width: 112,
+                        focus: .sellPercent(line.id)
+                    )
+                }
+
+                divider
+
+                cleanRow("Quantity") {
+                    quantityControl(for: line)
+                }
+
+                divider
+
+                cleanRow("Total") {
+                    Text(formattedPrice(lineDealTotal, currencyCode: lineCurrencyCode))
+                        .font(.body.weight(.bold))
+                        .foregroundStyle(primaryText)
+                }
+
+                divider
+
+                Text(reviewCalculationText(for: line))
+                    .font(.footnote.weight(.semibold))
+                    .foregroundStyle(secondaryText)
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 18)
+                    .padding(.vertical, 16)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 16)
         }
         .background(surfaceBackground)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -3356,16 +3199,6 @@ struct ShowSellBatchPreviewSheet: View {
         }
     }
 
-    private func quantityBinding(for line: ShowSellBatchLineDraft) -> Binding<Int> {
-        Binding(
-            get: { quantity(for: line) },
-            set: { newValue in
-                quantitiesByLineID[line.id] = min(max(0, newValue), line.quantityLimit)
-                invalidateReviewedSaleForValueChange()
-            }
-        )
-    }
-
     private func quantity(for line: ShowSellBatchLineDraft) -> Int {
         min(max(0, quantitiesByLineID[line.id] ?? line.quantityLimit), line.quantityLimit)
     }
@@ -3404,9 +3237,13 @@ struct ShowSellBatchPreviewSheet: View {
             Image(systemName: systemName)
                 .font(.system(size: 13, weight: .bold))
                 .foregroundStyle(disabled ? secondaryText.opacity(0.5) : primaryText)
-                .frame(width: 32, height: 32)
+                .frame(width: 38, height: 38)
                 .background(fieldBackground)
                 .clipShape(Circle())
+                .overlay(
+                    Circle()
+                        .stroke(outline, lineWidth: 1)
+                )
         }
         .buttonStyle(.plain)
         .disabled(disabled)
@@ -3416,10 +3253,20 @@ struct ShowSellBatchPreviewSheet: View {
         Binding(
             get: { listPriceTextByLineID[line.id] ?? "" },
             set: { newValue in
+                guard newValue != (listPriceTextByLineID[line.id] ?? "") else { return }
                 listPriceTextByLineID[line.id] = newValue
-                let maximum = resolvedListPrice(for: line)
-                let existingDollarOff = dollarOffTextByLineID[line.id] ?? ""
-                dollarOffTextByLineID[line.id] = clampedDiscountInputText(existingDollarOff, maximum: maximum, maximumFractionDigits: 2)
+                invalidateReviewedSaleForValueChange()
+            }
+        )
+    }
+
+    private func sellPercentBinding(for line: ShowSellBatchLineDraft) -> Binding<String> {
+        Binding(
+            get: { sellPercentTextByLineID[line.id] ?? "100" },
+            set: { newValue in
+                let clampedValue = clampedDiscountInputText(newValue, maximum: 100, maximumFractionDigits: 2)
+                guard clampedValue != (sellPercentTextByLineID[line.id] ?? "100") else { return }
+                sellPercentTextByLineID[line.id] = clampedValue
                 invalidateReviewedSaleForValueChange()
             }
         )
@@ -3440,46 +3287,8 @@ struct ShowSellBatchPreviewSheet: View {
         parsedListPrice(for: line) ?? max(0, line.suggestedUnitPrice)
     }
 
-    private func percentOffBinding(for line: ShowSellBatchLineDraft) -> Binding<String> {
-        Binding(
-            get: {
-                percentOffTextByLineID[line.id] ?? ""
-            },
-            set: { newValue in
-                let clampedValue = clampedDiscountInputText(newValue, maximum: 100, maximumFractionDigits: 2)
-                guard clampedValue != (percentOffTextByLineID[line.id] ?? "") else { return }
-                percentOffTextByLineID[line.id] = clampedValue
-                if !clampedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    dollarOffTextByLineID[line.id] = ""
-                }
-                invalidateReviewedSaleForValueChange()
-            }
-        )
-    }
-
-    private func dollarOffBinding(for line: ShowSellBatchLineDraft) -> Binding<String> {
-        Binding(
-            get: {
-                dollarOffTextByLineID[line.id] ?? ""
-            },
-            set: { newValue in
-                let clampedValue = clampedDiscountInputText(
-                    newValue,
-                    maximum: resolvedListPrice(for: line),
-                    maximumFractionDigits: 2
-                )
-                guard clampedValue != (dollarOffTextByLineID[line.id] ?? "") else { return }
-                dollarOffTextByLineID[line.id] = clampedValue
-                if !clampedValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                    percentOffTextByLineID[line.id] = ""
-                }
-                invalidateReviewedSaleForValueChange()
-            }
-        )
-    }
-
-    private func parsedPercentOff(for line: ShowSellBatchLineDraft) -> Double? {
-        let normalized = (percentOffTextByLineID[line.id] ?? "")
+    private func parsedSellPercent(for line: ShowSellBatchLineDraft) -> Double? {
+        let normalized = (sellPercentTextByLineID[line.id] ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty,
               let value = Double(normalized),
@@ -3489,91 +3298,226 @@ struct ShowSellBatchPreviewSheet: View {
         return value
     }
 
-    private func parsedDollarOff(for line: ShowSellBatchLineDraft) -> Double? {
-        let normalized = (dollarOffTextByLineID[line.id] ?? "")
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty,
-              let value = Double(normalized),
-              value >= 0 else {
-            return nil
-        }
-        return value
+    private func resolvedSellPercent(for line: ShowSellBatchLineDraft) -> Double {
+        min(max(parsedSellPercent(for: line) ?? 100, 0), 100)
     }
 
     private func resolvedUnitPrice(for line: ShowSellBatchLineDraft) -> Double {
-        let listPrice = resolvedListPrice(for: line)
-
-        if let dollarOff = parsedDollarOff(for: line) {
-            let clampedDollarOff = max(0, dollarOff)
-            return max(0, listPrice - clampedDollarOff)
-        }
-
-        if let percentOff = parsedPercentOff(for: line) {
-            let clampedPercent = min(max(0, percentOff), 100)
-            return max(0, listPrice * (1 - (clampedPercent / 100)))
-        }
-
-        return listPrice
+        max(0, resolvedListPrice(for: line) * (resolvedSellPercent(for: line) / 100))
     }
 
-    private func hasInvalidSelectedDiscount(for line: ShowSellBatchLineDraft) -> Bool {
-        let hasPercentText = !(percentOffTextByLineID[line.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        let hasDollarText = !(dollarOffTextByLineID[line.id] ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        if hasPercentText && parsedPercentOff(for: line) == nil { return true }
-        if hasDollarText && parsedDollarOff(for: line) == nil { return true }
-        if hasPercentText && hasDollarText { return true }
-        return false
+    private func hasInvalidSelectedPricing(for line: ShowSellBatchLineDraft) -> Bool {
+        parsedListPrice(for: line) == nil || parsedSellPercent(for: line) == nil
     }
 
     private var batchSummaryHero: some View {
-        VStack(spacing: 8) {
-            Text(formattedPrice(grossTotal, currencyCode: summaryCurrencyCode))
-                .font(.system(size: 52, weight: .bold, design: .rounded))
+        VStack(spacing: 12) {
+            VStack(spacing: 8) {
+                Text(formattedPrice(grossTotal, currencyCode: summaryCurrencyCode))
+                    .font(.system(size: 56, weight: .bold, design: .rounded))
+                    .foregroundStyle(primaryText)
+                    .minimumScaleFactor(0.6)
+
+                Text("Sell total")
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(secondaryText)
+
+                Text(activeLines.isEmpty ? "Choose cards to sell" : "\(totalSelectedQuantity) cards selected")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(primaryText.opacity(0.88))
+            }
+
+            Button {
+                clearInputFocus()
+                isBuyerPresentationPresented = true
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "person.text.rectangle")
+                        .font(.caption.weight(.bold))
+                    Text("Buyer preview")
+                        .font(.footnote.weight(.semibold))
+                }
                 .foregroundStyle(primaryText)
-                .minimumScaleFactor(0.6)
-
-            Text("Sales total")
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(secondaryText)
-
-            Text(activeLines.isEmpty ? "Choose cards to sell" : "\(totalSelectedQuantity) cards selected")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(primaryText.opacity(0.88))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+                .background(fieldBackground)
+                .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+            .disabled(activeLines.isEmpty)
         }
         .frame(maxWidth: .infinity)
         .padding(.bottom, 4)
     }
 
-    private var reviewPage: some View {
+    private var buyerPresentationPage: some View {
         ZStack {
             pageBackground.ignoresSafeArea()
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    reviewSummaryHero
+                    buyerPresentationHero
 
                     VStack(spacing: 12) {
                         ForEach(activeLines) { line in
-                            reviewLineCard(line)
+                            buyerPresentationLineCard(line)
                         }
-                    }
-
-                    if let errorMessage {
-                        Text(errorMessage)
-                            .font(.footnote.weight(.semibold))
-                            .foregroundStyle(theme.colors.danger)
-                            .padding(.horizontal, 2)
                     }
                 }
                 .padding(.horizontal, 20)
                 .padding(.top, 10)
                 .padding(.bottom, 118)
             }
-            .offset(y: -min(swipeProgress * 0.16, 18))
-            .scrollDismissesKeyboard(.immediately)
         }
-        .overlay(alignment: .bottom) {
-            reviewBottomActionBar
+        .toolbarBackground(pageBackground, for: .navigationBar)
+        .toolbar {
+            ToolbarItem(placement: .principal) {
+                Text("Buyer preview")
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(primaryText)
+            }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button("Sell cards") {
+                    isBuyerPresentationPresented = false
+                }
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(primaryText)
+            }
+        }
+    }
+
+    private var buyerPresentationHero: some View {
+        VStack(spacing: 10) {
+            Text(formattedPrice(grossTotal, currencyCode: summaryCurrencyCode))
+                .font(.system(size: 56, weight: .bold, design: .rounded))
+                .foregroundStyle(primaryText)
+                .minimumScaleFactor(0.6)
+
+            Text("What the buyer sees")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(secondaryText)
+
+            Text(activeLines.count == 1 ? "1 itemized line" : "\(activeLines.count) itemized lines")
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(primaryText.opacity(0.88))
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.top, 14)
+        .padding(.bottom, 6)
+    }
+
+    private func buyerPresentationLineCard(_ line: ShowSellBatchLineDraft) -> some View {
+        let quantity = quantity(for: line)
+        let unitPrice = resolvedUnitPrice(for: line)
+        let lineTotal = Double(quantity) * unitPrice
+        let currencyCode = line.entry.card.pricing?.currencyCode ?? "USD"
+
+        return VStack(alignment: .leading, spacing: 14) {
+            HStack(alignment: .top, spacing: 12) {
+                CardArtworkView(
+                    urlString: line.entry.card.imageSmallURL ?? line.entry.card.imageLargeURL,
+                    fallbackTitle: line.entry.card.name,
+                    cornerRadius: 14,
+                    contentMode: .fit
+                )
+                .frame(width: 52, height: 74)
+                .background(Color.black.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(line.entry.card.name)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(primaryText)
+                        .lineLimit(2)
+
+                    Text("\(line.entry.card.setName) • #\(line.entry.card.number)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(secondaryText)
+
+                    HStack(spacing: 8) {
+                        batchDetailChip("Qty \(quantity)")
+                        if let condition = line.entry.condition {
+                            batchDetailChip(condition.shortLabel)
+                        }
+                    }
+                }
+
+                Spacer(minLength: 0)
+            }
+
+            divider
+
+            HStack(alignment: .firstTextBaseline) {
+                Text(formattedPrice(unitPrice, currencyCode: currencyCode))
+                    .font(.title3.weight(.bold))
+                    .foregroundStyle(primaryText)
+
+                Spacer()
+
+                Text(formattedPrice(lineTotal, currencyCode: currencyCode))
+                    .font(.title2.weight(.bold))
+                    .foregroundStyle(primaryText)
+            }
+
+            HStack {
+                Text("Per item")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(secondaryText)
+
+                Spacer()
+
+                Text("Line total")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(secondaryText)
+            }
+        }
+        .padding(18)
+        .background(surfaceBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 24, style: .continuous)
+                .stroke(outline, lineWidth: 1)
+        )
+    }
+
+    private var reviewPage: some View {
+        GeometryReader { proxy in
+            ZStack {
+                sellSwipeBackdrop(containerHeight: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
+
+                ScrollView(showsIndicators: false) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        reviewSummaryHero
+
+                        VStack(spacing: 12) {
+                            ForEach(activeLines) { line in
+                                reviewLineCard(line)
+                            }
+                        }
+
+                        if let errorMessage {
+                            Text(errorMessage)
+                                .font(.footnote.weight(.semibold))
+                                .foregroundStyle(theme.colors.danger)
+                                .padding(.horizontal, 2)
+                        }
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 10)
+                    .padding(.bottom, actionHeight + 28)
+                    .frame(
+                        minHeight: max(0, proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom),
+                        alignment: .top
+                    )
+                }
+                .offset(y: -(swipeCompletionProgress * pageLiftDistance))
+                .scaleEffect(1 - (swipeCompletionProgress * 0.03), anchor: .top)
+                .scrollDismissesKeyboard(.immediately)
+            }
+            .overlay(alignment: .bottom) {
+                reviewBottomActionBar
+            }
         }
         .toolbarBackground(pageBackground, for: .navigationBar)
         .toolbar {
@@ -3585,6 +3529,19 @@ struct ShowSellBatchPreviewSheet: View {
         }
     }
 
+    private func sellSwipeBackdrop(containerHeight: CGFloat) -> some View {
+        ZStack(alignment: .bottom) {
+            pageBackground
+                .ignoresSafeArea()
+
+            actionAccent
+                .opacity(Double(swipeCompletionProgress))
+                .frame(height: max(0, swipeCompletionProgress * containerHeight))
+                .ignoresSafeArea(edges: .bottom)
+        }
+        .animation(.easeOut(duration: 0.16), value: swipeProgress)
+    }
+
     private var reviewSummaryHero: some View {
         VStack(spacing: 8) {
             Text(formattedPrice(grossTotal, currencyCode: summaryCurrencyCode))
@@ -3592,7 +3549,7 @@ struct ShowSellBatchPreviewSheet: View {
                 .foregroundStyle(primaryText)
                 .minimumScaleFactor(0.6)
 
-            Text("Sales total")
+            Text("Sell total")
                 .font(.subheadline.weight(.semibold))
                 .foregroundStyle(secondaryText)
 
@@ -3612,14 +3569,32 @@ struct ShowSellBatchPreviewSheet: View {
         let lineTotal = Double(currentQuantity) * unitPrice
 
         return VStack(alignment: .leading, spacing: 14) {
-            Text(line.entry.card.name)
-                .font(.headline.weight(.bold))
-                .foregroundStyle(primaryText)
-                .lineLimit(2)
+            HStack(alignment: .top, spacing: 12) {
+                CardArtworkView(
+                    urlString: line.entry.card.imageSmallURL ?? line.entry.card.imageLargeURL,
+                    fallbackTitle: line.entry.card.name,
+                    cornerRadius: 16,
+                    contentMode: .fit
+                )
+                .frame(width: 60, height: 86)
+                .background(Color.black.opacity(0.04))
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
-            Text(reviewCalculationText(for: line))
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(secondaryText)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(line.entry.card.name)
+                        .font(.headline.weight(.bold))
+                        .foregroundStyle(primaryText)
+                        .lineLimit(2)
+
+                    Text("\(line.entry.card.setName) • #\(line.entry.card.number)")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(secondaryText)
+
+                    Text(reviewCalculationText(for: line))
+                        .font(.footnote.weight(.semibold))
+                        .foregroundStyle(secondaryText)
+                }
+            }
 
             divider
 
@@ -3628,8 +3603,8 @@ struct ShowSellBatchPreviewSheet: View {
                 value: formattedPrice(resolvedListPrice(for: line), currencyCode: currencyCode)
             )
             reviewLineDetailRow(
-                "Discount",
-                value: reviewDiscountLabel(for: line)
+                "Sell %",
+                value: formattedPercent(resolvedSellPercent(for: line))
             )
             reviewLineDetailRow(
                 "Sale price",
@@ -3664,35 +3639,11 @@ struct ShowSellBatchPreviewSheet: View {
         }
     }
 
-    private func reviewDiscountLabel(for line: ShowSellBatchLineDraft) -> String {
-        let currencyCode = line.entry.card.pricing?.currencyCode ?? "USD"
-
-        if let dollarOff = parsedDollarOff(for: line) {
-            return formattedPrice(dollarOff, currencyCode: currencyCode)
-        }
-
-        if let percentOff = parsedPercentOff(for: line) {
-            return formattedPercent(percentOff)
-        }
-
-        return formattedPrice(0, currencyCode: currencyCode)
-    }
-
     private func reviewCalculationText(for line: ShowSellBatchLineDraft) -> String {
         let currencyCode = line.entry.card.pricing?.currencyCode ?? "USD"
         let base = formattedPrice(resolvedListPrice(for: line), currencyCode: currencyCode)
         let final = formattedPrice(resolvedUnitPrice(for: line), currencyCode: currencyCode)
-
-        if let dollarOff = parsedDollarOff(for: line) {
-            let discount = formattedPrice(dollarOff, currencyCode: currencyCode)
-            return "\(base) - \(discount) = \(final)"
-        }
-
-        if let percentOff = parsedPercentOff(for: line) {
-            return "\(base) - \(formattedPercent(percentOff)) = \(final)"
-        }
-
-        return "List price \(base)"
+        return "\(base) × \(formattedPercent(resolvedSellPercent(for: line))) = \(final)"
     }
 
     private func batchDetailChip(_ label: String) -> some View {
@@ -3756,54 +3707,8 @@ struct ShowSellBatchPreviewSheet: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func discountField(
-        title: String,
-        text: Binding<String>,
-        placeholder: String,
-        focus: BatchSellInputField
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(secondaryText)
-
-            compactValueField(
-                text: text,
-                placeholder: placeholder,
-                width: nil,
-                focus: focus
-            )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func pricingFieldCard(title: String, text: Binding<String>, placeholder: String) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(secondaryText)
-
-            TextField(placeholder, text: text)
-                .keyboardType(.decimalPad)
-                .textInputAutocapitalization(.never)
-                .disableAutocorrection(true)
-                .foregroundStyle(primaryText)
-                .padding(.horizontal, 12)
-                .frame(height: 42)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(fieldBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(outline, lineWidth: 1)
-                )
-        }
-        .frame(maxWidth: .infinity)
-    }
-
     private var editBottomActionBar: some View {
-        let uiState = sellOrderReviewUIState(isReviewingSale: false, isSubmitting: isSubmitting)
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             Rectangle()
                 .fill(outline)
                 .frame(height: 1)
@@ -3812,13 +3717,8 @@ struct ShowSellBatchPreviewSheet: View {
                 Button {
                     reviewSale()
                 } label: {
-                    switch uiState {
-                    case .edit(let buttonTitle):
-                        Text(buttonTitle)
-                            .frame(maxWidth: .infinity)
-                    case .review:
-                        EmptyView()
-                    }
+                    Text("Review sale")
+                        .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(
                     LootyFilledButtonStyle(
@@ -3838,7 +3738,7 @@ struct ShowSellBatchPreviewSheet: View {
     }
 
     private var reviewBottomActionBar: some View {
-        let uiState = sellOrderReviewUIState(isReviewingSale: true, isSubmitting: isSubmitting)
+        let actionTitle = isSubmitting ? "SELLING…" : (releaseToSellArmed ? "Release to sell" : "Swipe up to sell")
         return VStack(spacing: 0) {
             Rectangle()
                 .fill(outline)
@@ -3847,18 +3747,13 @@ struct ShowSellBatchPreviewSheet: View {
             VStack(spacing: 6) {
                 Image(systemName: "chevron.up")
                     .font(.system(size: 12, weight: .bold))
-                switch uiState {
-                case .review(let trayTitle):
-                    Text(trayTitle)
-                        .font(.headline.weight(.bold))
-                case .edit:
-                    EmptyView()
-                }
+                Text(actionTitle)
+                    .font(.headline.weight(.bold))
             }
             .foregroundStyle(theme.colors.textInverse)
             .frame(maxWidth: .infinity, minHeight: actionHeight)
             .background(actionAccent)
-            .offset(y: -min(swipeProgress * 0.10, 8))
+            .offset(y: -min(swipeCompletionProgress * 18, 18))
             .opacity(isSubmitting ? 0.78 : 1)
             .contentShape(Rectangle())
             .gesture(batchSellSwipeGesture)
@@ -3877,7 +3772,9 @@ struct ShowSellBatchPreviewSheet: View {
                 guard canSwipeToSubmit else { return }
                 let upwardTravel = max(0, -value.translation.height)
                 if upwardTravel >= swipeThreshold {
-                    swipeProgress = swipeVisualTravel
+                    withAnimation(.spring(response: 0.42, dampingFraction: 0.9)) {
+                        swipeProgress = swipeVisualTravel
+                    }
                     submitBatchSale()
                 } else {
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
@@ -3904,7 +3801,7 @@ struct ShowSellBatchPreviewSheet: View {
             return
         }
         guard !hasInvalidActivePricing else {
-            errorMessage = "Enter a valid discount before reviewing."
+            errorMessage = "Enter a valid list price and sell % before reviewing."
             return
         }
         errorMessage = nil
@@ -3918,6 +3815,7 @@ struct ShowSellBatchPreviewSheet: View {
     }
 
     private func submitBatchSale() {
+        clearInputFocus()
         guard !activeLines.isEmpty else {
             errorMessage = "Choose at least one scanned card to sell."
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
@@ -3926,7 +3824,7 @@ struct ShowSellBatchPreviewSheet: View {
             return
         }
         guard !hasInvalidActivePricing else {
-            errorMessage = "Enter a valid discount before selling."
+            errorMessage = "Enter a valid list price and sell % before selling."
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
                 swipeProgress = 0
             }
@@ -3968,13 +3866,6 @@ struct ShowSellBatchPreviewSheet: View {
                 }
             }
         }
-    }
-
-    private func sectionLabel(_ title: String) -> some View {
-        Text(title.uppercased())
-            .font(.caption2.weight(.bold))
-            .foregroundStyle(.white.opacity(0.56))
-            .tracking(0.7)
     }
 
     private func formattedPrice(_ value: Double, currencyCode: String = "USD") -> String {

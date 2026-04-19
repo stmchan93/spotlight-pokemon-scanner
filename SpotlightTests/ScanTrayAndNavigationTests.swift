@@ -209,4 +209,62 @@ final class ScanTrayAndNavigationTests: XCTestCase {
         XCTAssertFalse(appShellUsesSharedDetailOverlay(selectedTab: .ledger, route: .resultDetail))
         XCTAssertFalse(appShellUsesSharedDetailOverlay(selectedTab: .portfolio, route: .scanner))
     }
+
+    func testScannerSwipeShouldOpenPortfolioRequiresRightEdgeAndLeftwardTravel() {
+        XCTAssertTrue(
+            scannerSwipeShouldOpenPortfolio(
+                startLocation: CGPoint(x: 360, y: 320),
+                translation: CGSize(width: -120, height: 8),
+                containerWidth: 390
+            )
+        )
+        XCTAssertFalse(
+            scannerSwipeShouldOpenPortfolio(
+                startLocation: CGPoint(x: 200, y: 320),
+                translation: CGSize(width: -120, height: 8),
+                containerWidth: 390
+            )
+        )
+        XCTAssertFalse(
+            scannerSwipeShouldOpenPortfolio(
+                startLocation: CGPoint(x: 360, y: 320),
+                translation: CGSize(width: -40, height: 4),
+                containerWidth: 390
+            )
+        )
+        XCTAssertFalse(
+            scannerSwipeShouldOpenPortfolio(
+                startLocation: CGPoint(x: 360, y: 320),
+                translation: CGSize(width: -50, height: 120),
+                containerWidth: 390
+            )
+        )
+    }
+
+    func testPortfolioSwipeShouldOpenScannerRequiresLeftEdgeAndRightwardTravel() {
+        XCTAssertTrue(
+            portfolioSwipeShouldOpenScanner(
+                startLocation: CGPoint(x: 24, y: 300),
+                translation: CGSize(width: 120, height: 8)
+            )
+        )
+        XCTAssertFalse(
+            portfolioSwipeShouldOpenScanner(
+                startLocation: CGPoint(x: 140, y: 300),
+                translation: CGSize(width: 120, height: 8)
+            )
+        )
+        XCTAssertFalse(
+            portfolioSwipeShouldOpenScanner(
+                startLocation: CGPoint(x: 24, y: 300),
+                translation: CGSize(width: 40, height: 8)
+            )
+        )
+        XCTAssertFalse(
+            portfolioSwipeShouldOpenScanner(
+                startLocation: CGPoint(x: 24, y: 300),
+                translation: CGSize(width: 40, height: 120)
+            )
+        )
+    }
 }

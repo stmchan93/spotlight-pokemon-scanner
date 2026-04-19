@@ -9,6 +9,31 @@ struct ReticleBoundsKey: PreferenceKey {
     }
 }
 
+private struct ReticleCornerShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        let inset: CGFloat = 0.5
+        let armLength = min(rect.width, rect.height) * 0.76
+        var path = Path()
+        path.move(to: CGPoint(x: inset, y: armLength))
+        path.addLine(to: CGPoint(x: inset, y: inset))
+        path.addLine(to: CGPoint(x: armLength, y: inset))
+        return path
+    }
+}
+
+func scannerSwipeShouldOpenPortfolio(
+    startLocation: CGPoint,
+    translation: CGSize,
+    containerWidth: CGFloat,
+    edgeZone: CGFloat = 120,
+    minimumHorizontalTravel: CGFloat = 72
+) -> Bool {
+    guard abs(translation.width) > abs(translation.height) else { return false }
+    guard startLocation.x >= containerWidth - edgeZone else { return false }
+    guard translation.width <= -minimumHorizontalTravel else { return false }
+    return true
+}
+
 struct ScannerView: View {
     @ObservedObject var viewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
@@ -20,6 +45,10 @@ struct ScannerView: View {
     @State private var addTooltipItemID: UUID?
     @State private var seenAddTooltipItemIDs: Set<UUID> = []
     @State private var traySwipeOffsets: [UUID: CGFloat] = [:]
+
+    private let spotlightYellow = Color(red: 254 / 255, green: 227 / 255, blue: 51 / 255)
+    private let spotlightWhite = Color.white
+    private let spotlightBlack = Color.black
 
     private var activePendingItem: LiveScanStackItem? {
         viewModel.scannedItems.first(where: { $0.phase == .pending })
@@ -79,37 +108,23 @@ struct ScannerView: View {
         GeometryReader { proxy in
             ZStack {
                 scannerBackdrop
+                    .contentShape(Rectangle())
+                    .highPriorityGesture(scannerNavigationGesture(containerWidth: proxy.size.width))
 
                 VStack(spacing: 0) {
-                    topBar
-                        .padding(.horizontal, 16)
-                        .padding(.top, max(proxy.safeAreaInsets.top, 14))
-
                     scannerStatusCard
                         .padding(.horizontal, 16)
-                        .padding(.top, 20)
+                        .padding(.top, cameraIsInteractive ? 10 : 16)
 
                     Spacer(minLength: 0)
 
-                    // Chevron button to expand/collapse tray
-                    if !viewModel.visibleScannedItems.isEmpty {
-                        Button {
-                            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                                isTrayExpanded.toggle()
-                            }
-                        } label: {
-                            Image(systemName: isTrayExpanded ? "chevron.down" : "chevron.up")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white.opacity(0.9))
-                                .frame(width: 40, height: 40)
-                                .background(Color.black.opacity(0.5))
-                                .clipShape(Circle())
-                        }
-                        .padding(.bottom, 8)
-                    }
-
-                    compactScanTray(screenHeight: proxy.size.height)
+                    compactScanTray(
+                        screenHeight: proxy.size.height,
+                        safeAreaBottom: proxy.safeAreaInsets.bottom
+                    )
+                    .padding(.bottom, -proxy.safeAreaInsets.bottom)
                 }
+                .ignoresSafeArea(edges: .bottom)
             }
             .background(Color.black.ignoresSafeArea())
         }
@@ -216,32 +231,6 @@ struct ScannerView: View {
         }
     }
 
-    private var topBar: some View {
-        HStack(alignment: .top, spacing: 14) {
-            if let onExitScanner {
-                Button(action: onExitScanner) {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 36, height: 36)
-                        .background(Color.white.opacity(0.1))
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-            }
-
-            Text("Looty")
-                .font(.system(size: 30, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            Spacer()
-
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                TopBarIconButton(systemName: "photo.on.rectangle.angled")
-            }
-        }
-    }
-
     private var scanningReticle: some View {
         GeometryReader { geo in
             let layout = ScannerReticleLayout.make(
@@ -251,67 +240,70 @@ struct ScannerView: View {
                 mode: viewModel.scannerPresentationMode
             )
 
-            HStack(spacing: 0) {
-                Spacer()
-
-                VStack(spacing: 0) {
+            ZStack(alignment: .top) {
+                HStack(spacing: 0) {
                     Spacer()
-                        .frame(height: layout.topSpacing)
 
-                    RoundedRectangle(cornerRadius: 32, style: .continuous)
-                        .strokeBorder(
-                            scanIsActive ? Color(red: 0.72, green: 0.95, blue: 0.42) : Color.white.opacity(0.5),
-                            style: StrokeStyle(lineWidth: 2, dash: [16, 8])
-                        )
-                        .frame(width: layout.width, height: layout.height)
-                        .overlay(alignment: .topLeading) {
-                            reticleCorner
-                                .rotationEffect(.degrees(0))
-                                .offset(x: -1, y: -1)
-                        }
-                        .overlay(alignment: .topTrailing) {
-                            reticleCorner
-                                .rotationEffect(.degrees(90))
-                                .offset(x: 1, y: -1)
-                        }
-                        .overlay(alignment: .bottomTrailing) {
-                            reticleCorner
-                                .rotationEffect(.degrees(180))
-                                .offset(x: 1, y: 1)
-                        }
-                        .overlay(alignment: .bottomLeading) {
-                            reticleCorner
-                                .rotationEffect(.degrees(270))
-                                .offset(x: -1, y: 1)
-                        }
-                        .overlay {
-                            slabReticleGuides(layout: layout)
-                        }
-                        .overlay {
-                            reticleOverlayLabel
-                        }
-                        .contentShape(Rectangle())
-                        .background(
-                            GeometryReader { reticleGeo in
-                                Color.clear.preference(
-                                    key: ReticleBoundsKey.self,
-                                    value: reticleGeo.frame(in: .global)
-                                )
+                    VStack(spacing: 0) {
+                        Spacer()
+                            .frame(height: layout.topSpacing)
+
+                        RoundedRectangle(cornerRadius: 32, style: .continuous)
+                            .strokeBorder(Color.clear, lineWidth: 1)
+                            .frame(width: layout.width, height: layout.height)
+                            .overlay {
+                                slabReticleGuides(layout: layout)
                             }
-                        )
-                        .onPreferenceChange(ReticleBoundsKey.self) { bounds in
-                            reticleBounds = bounds
-                        }
-                        .allowsHitTesting(false)
+                            .overlay(alignment: .topLeading) {
+                                reticleCorner
+                                    .rotationEffect(.degrees(0))
+                                    .offset(x: 8, y: 8)
+                            }
+                            .overlay(alignment: .topTrailing) {
+                                reticleCorner
+                                    .rotationEffect(.degrees(90))
+                                    .offset(x: -8, y: 8)
+                            }
+                            .overlay(alignment: .bottomTrailing) {
+                                reticleCorner
+                                    .rotationEffect(.degrees(180))
+                                    .offset(x: -8, y: -8)
+                            }
+                            .overlay(alignment: .bottomLeading) {
+                                reticleCorner
+                                    .rotationEffect(.degrees(270))
+                                    .offset(x: 8, y: -8)
+                            }
+                            .contentShape(Rectangle())
+                            .background(
+                                GeometryReader { reticleGeo in
+                                    Color.clear.preference(
+                                        key: ReticleBoundsKey.self,
+                                        value: reticleGeo.frame(in: .global)
+                                    )
+                                }
+                            )
+                            .onPreferenceChange(ReticleBoundsKey.self) { bounds in
+                                reticleBounds = bounds
+                            }
+                            .allowsHitTesting(false)
 
-                    cameraControls
-                        .padding(.top, layout.controlsTopSpacing)
+                        cameraControls
+                            .padding(.top, layout.controlsTopSpacing)
+
+                        Spacer()
+                            .frame(minHeight: layout.bottomClearance)
+                    }
 
                     Spacer()
-                        .frame(minHeight: layout.bottomClearance)
                 }
-
-                Spacer()
+                if cameraIsInteractive {
+                    scanPrompt
+                        .position(
+                            x: geo.size.width / 2,
+                            y: max(24, max(geo.safeAreaInsets.top - 2, layout.topSpacing - 22))
+                        )
+                }
             }
         }
     }
@@ -341,44 +333,32 @@ struct ScannerView: View {
     }
 
     private var cameraControls: some View {
-        HStack(spacing: 12) {
-            zoomControls
-
-            Button {
-                withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
-                    viewModel.scannerPresentationMode.toggle()
-                }
-            } label: {
-                Text(viewModel.scannerPresentationMode.title)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 14)
-                    .frame(height: 36)
-                    .background(Color.white.opacity(0.16))
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
+        HStack(spacing: 0) {
+            scannerModeToggleButton(title: "RAW", mode: .raw)
+            scannerModeToggleButton(title: "SLABS", mode: .slab)
         }
+        .padding(4)
+        .background(Color.black.opacity(0.55))
+        .clipShape(Capsule())
     }
 
-    private var reticleCorner: some View {
-        RoundedRectangle(cornerRadius: 10, style: .continuous)
-            .fill(Color(red: 0.72, green: 0.95, blue: 0.42))  // Lime green
-            .frame(width: 42, height: 42)
-            .mask(
-                VStack(spacing: 0) {
-                    HStack(spacing: 0) {
-                        Rectangle()
-                            .frame(width: 42, height: 7)
-                        Spacer(minLength: 0)
-                    }
-                    HStack(spacing: 0) {
-                        Rectangle()
-                            .frame(width: 7)
-                        Spacer(minLength: 0)
-                    }
-                }
-            )
+    private func scannerModeToggleButton(title: String, mode: ScannerPresentationMode) -> some View {
+        let isSelected = viewModel.scannerPresentationMode == mode
+
+        return Button {
+            guard viewModel.scannerPresentationMode != mode else { return }
+            withAnimation(.spring(response: 0.24, dampingFraction: 0.88)) {
+                viewModel.scannerPresentationMode = mode
+            }
+        } label: {
+            Text(title)
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(isSelected ? spotlightBlack : spotlightWhite.opacity(0.8))
+                .frame(minWidth: 88, minHeight: 36)
+                .background(isSelected ? spotlightYellow : Color.clear)
+                .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
@@ -389,38 +369,22 @@ struct ScannerView: View {
                     .frame(height: layout.height * PSASlabGuidance.labelDividerRatio)
 
                 Rectangle()
-                    .fill(Color.white.opacity(0.38))
-                    .frame(height: 1.5)
-                    .padding(.horizontal, 18)
+                    .fill(Color.white.opacity(0.9))
+                    .frame(height: 1)
+                    .padding(.horizontal, 20)
 
                 Spacer(minLength: 0)
             }
         }
     }
 
-    private var zoomControls: some View {
-        HStack(spacing: 12) {
-            ForEach([1.5], id: \.self) { zoom in
-                Button {
-                    viewModel.cameraController.setZoomLevel(zoom)
-                } label: {
-                    Text("\(zoom, specifier: "%.1f")x")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(
-                            viewModel.cameraController.currentZoomLevel == zoom
-                                ? Color.black
-                                : Color.white.opacity(0.7)
-                        )
-                        .frame(width: 60, height: 36)
-                        .background(
-                            viewModel.cameraController.currentZoomLevel == zoom
-                                ? Color.white
-                                : Color.white.opacity(0.2)
-                        )
-                        .clipShape(Capsule())
-                }
-            }
-        }
+    private var reticleCorner: some View {
+        ReticleCornerShape()
+            .stroke(
+                Color.white,
+                style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+            )
+            .frame(width: 36, height: 36)
     }
 
     private var unavailableState: some View {
@@ -442,30 +406,16 @@ struct ScannerView: View {
     }
 
     private var unavailableControlBar: some View {
-        HStack(spacing: 14) {
-            PhotosPicker(selection: $selectedPhotoItem, matching: .images) {
-                CompactActionChip(title: "Import Photo", icon: "photo")
-            }
-
-            Spacer(minLength: 0)
-        }
+        EmptyView()
     }
 
     private var scanPrompt: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 4) {
             Text(cameraIsInteractive ? "Tap anywhere to scan" : "Import a photo to scan")
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.white)
-
-            Text(scanPromptSubtitle)
-                .font(.caption)
-                .foregroundStyle(Color.white.opacity(0.72))
-                .multilineTextAlignment(.center)
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(spotlightWhite.opacity(0.92))
         }
-        .padding(.horizontal, 18)
-        .padding(.vertical, 12)
-        .background(Color.black.opacity(0.38))
-        .clipShape(Capsule())
+        .frame(maxWidth: .infinity)
     }
 
     private var scanPromptSubtitle: String {
@@ -495,80 +445,103 @@ struct ScannerView: View {
         }
     }
 
-    private func compactScanTray(screenHeight: CGFloat) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            // Header: "Recent scans" + CLEAR | "$X.XX total"
-            HStack(alignment: .center, spacing: 8) {
-                HStack(spacing: 8) {
-                    Text("Recent scans")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundStyle(.white)
+    private func compactScanTray(screenHeight: CGFloat, safeAreaBottom: CGFloat) -> some View {
+        let visibleItemCount = viewModel.visibleScannedItems.count
+        let expandedRowCount = min(max(visibleItemCount, 1), 3)
+        let rowHeight: CGFloat = 92
+        let rowSpacing: CGFloat = 12
+        let listVerticalPadding: CGFloat = 16
+        let collapsedListHeight = rowHeight + listVerticalPadding
+        let expandedListHeight = (CGFloat(expandedRowCount) * rowHeight)
+            + (CGFloat(max(expandedRowCount - 1, 0)) * rowSpacing)
+            + listVerticalPadding
+        let trayListHeight = isTrayExpanded ? expandedListHeight : collapsedListHeight
+        let trayMaxHeight = screenHeight * 0.36
 
-                    if !viewModel.visibleScannedItems.isEmpty {
-                        Button("CLEAR") {
-                            viewModel.clearScans()
+        return VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                trayHandle
+                    .padding(.top, 6)
+                    .padding(.bottom, 4)
+                    .frame(maxWidth: .infinity)
+
+                // Header: "Recent scans" + CLEAR | "$X.XX total"
+                HStack(alignment: .center, spacing: 8) {
+                    HStack(spacing: 8) {
+                        Text("Recent scans")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+
+                        if !viewModel.visibleScannedItems.isEmpty {
+                            Button("CLEAR") {
+                                viewModel.clearScans()
+                            }
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.6))
+                            .padding(.horizontal, 10)
+                            .padding(.vertical, 5)
+                            .background(Color.white.opacity(0.15))
+                            .clipShape(Capsule())
                         }
-                        .font(.system(size: 11, weight: .bold))
-                        .foregroundStyle(.white.opacity(0.6))
-                        .padding(.horizontal, 10)
-                        .padding(.vertical, 5)
-                        .background(Color.white.opacity(0.15))
-                        .clipShape(Capsule())
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 8) {
+                        Text(viewModel.totalValueText)
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .background(Color(red: 0.35, green: 0.45, blue: 0.35))
+                            .clipShape(Capsule())
+
+                        if let batchSellDraft {
+                            batchSellCTA(batchSellDraft)
+                        }
                     }
                 }
-
-                Spacer()
-
-                HStack(spacing: 8) {
-                    Text(viewModel.totalValueText)
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(Color(red: 0.35, green: 0.45, blue: 0.35))
-                        .clipShape(Capsule())
-
-                    if let batchSellDraft {
-                        Button {
-                            showsState.presentSellBatch(
-                                lines: batchSellDraft.lines,
-                                title: batchSellDraft.title,
-                                subtitle: batchSellDraft.subtitle
-                            )
-                        } label: {
-                            Image(systemName: "dollarsign")
-                                .font(.system(size: 16, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 36, height: 36)
-                                .background(Color(red: 0.23, green: 0.45, blue: 0.95))
-                                .clipShape(Circle())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
+                .background(Color.black)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .background(Color.black.opacity(0.9))
+            .contentShape(Rectangle())
+            .simultaneousGesture(trayExpansionGesture)
 
             // Cards list (show first when collapsed, all when expanded)
             if !viewModel.visibleScannedItems.isEmpty {
                 let itemsToShow = isTrayExpanded ? viewModel.visibleScannedItems : Array(viewModel.visibleScannedItems.prefix(1))
-                let maxHeight = isTrayExpanded ? screenHeight * 0.40 : 90.0
 
                 ScrollView(showsIndicators: false) {
                     VStack(spacing: 12) {
                         ForEach(itemsToShow) { item in
                             compactCardRow(item)
+                                .transition(
+                                    .asymmetric(
+                                        insertion: .offset(y: -64).combined(with: .opacity),
+                                        removal: .opacity
+                                    )
+                                )
                         }
                     }
                     .padding(.vertical, 8)
                 }
-                .frame(maxHeight: maxHeight)
-                .background(Color.black.opacity(0.9))
+                .frame(height: min(trayListHeight, trayMaxHeight))
+                .background(Color.black)
             }
+
+            Color.black
+                .frame(height: max(safeAreaBottom, 16))
         }
-        .background(Color.black.opacity(0.9))
+        .background(Color.black)
+        .clipShape(ScannerTraySheetShape(cornerRadius: 20))
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private var trayHandle: some View {
+        Capsule()
+            .fill(Color.white.opacity(0.3))
+            .frame(width: 48, height: 5)
     }
 
     private func compactCardRow(_ item: LiveScanStackItem) -> some View {
@@ -645,7 +618,7 @@ struct ScannerView: View {
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
-            .background(Color.black.opacity(0.9))
+            .background(Color.black)
             .frame(maxWidth: .infinity, alignment: .leading)
             .offset(x: swipeOffset)
         }
@@ -907,6 +880,25 @@ struct ScannerView: View {
                     .transition(.opacity.combined(with: .scale(scale: 0.95)))
             }
         }
+    }
+
+    private func batchSellCTA(_ draft: ShowSellBatchDraft) -> some View {
+        return Button {
+            showsState.presentSellBatch(
+                lines: draft.lines,
+                title: draft.title,
+                subtitle: draft.subtitle
+            )
+        } label: {
+            Text("SELL")
+                .font(.system(size: 12, weight: .black))
+                .foregroundStyle(spotlightBlack)
+                .padding(.horizontal, 18)
+                .padding(.vertical, 10)
+                .background(spotlightYellow)
+            .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
     }
 
     private func batchSellSource(for item: LiveScanStackItem) -> (itemID: UUID, entry: DeckCardEntry)? {
@@ -1410,18 +1402,6 @@ struct ScannerView: View {
         .font(.footnote)
     }
 
-    @ViewBuilder
-    private var reticleOverlayLabel: some View {
-        if scanIsActive {
-            EmptyView()
-        } else {
-            Text("Tap Anywhere to Scan")
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(.white)
-                .shadow(color: .black.opacity(0.6), radius: 12, x: 0, y: 2)
-        }
-    }
-
     private func statusCapsule(_ label: String) -> some View {
         Text(label)
             .font(.caption2.weight(.semibold))
@@ -1473,6 +1453,34 @@ struct ScannerView: View {
             return Color(red: 0.93, green: 0.53, blue: 0.53)
         }
     }
+
+    private func scannerNavigationGesture(containerWidth: CGFloat) -> some Gesture {
+        return DragGesture(minimumDistance: 28)
+            .onEnded { value in
+                guard scannerSwipeShouldOpenPortfolio(
+                    startLocation: value.startLocation,
+                    translation: value.translation,
+                    containerWidth: containerWidth
+                ) else { return }
+                onExitScanner?()
+            }
+    }
+
+    private var trayExpansionGesture: some Gesture {
+        DragGesture(minimumDistance: 14)
+            .onEnded { value in
+                guard abs(value.translation.height) > abs(value.translation.width) else { return }
+                if value.translation.height < -28 {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                        isTrayExpanded = true
+                    }
+                } else if value.translation.height > 28 {
+                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
+                        isTrayExpanded = false
+                    }
+                }
+            }
+    }
 }
 
 private struct CompactActionChip: View {
@@ -1503,6 +1511,28 @@ private struct TopBarIconButton: View {
             .frame(width: 44, height: 44)
             .background(Color.black.opacity(0.4))
             .clipShape(Circle())
+    }
+}
+
+private struct ScannerTraySheetShape: Shape {
+    let cornerRadius: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        Path { path in
+            path.move(to: CGPoint(x: 0, y: rect.maxY))
+            path.addLine(to: CGPoint(x: 0, y: cornerRadius))
+            path.addQuadCurve(
+                to: CGPoint(x: cornerRadius, y: 0),
+                control: CGPoint(x: 0, y: 0)
+            )
+            path.addLine(to: CGPoint(x: rect.maxX - cornerRadius, y: 0))
+            path.addQuadCurve(
+                to: CGPoint(x: rect.maxX, y: cornerRadius),
+                control: CGPoint(x: rect.maxX, y: 0)
+            )
+            path.addLine(to: CGPoint(x: rect.maxX, y: rect.maxY))
+            path.closeSubpath()
+        }
     }
 }
 
@@ -1551,19 +1581,14 @@ private struct StackItemThumbnail: View {
                     }
                 }
 
-            if let cycleState, let onCycleTap {
+            if cycleState != nil, let onCycleTap {
                 Button(action: onCycleTap) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 8, weight: .bold))
-                        Text("\(cycleState.currentIndex)/\(cycleState.totalCount)")
-                            .font(.system(size: 10, weight: .bold))
-                    }
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 11, weight: .bold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 4)
+                    .frame(width: 24, height: 24)
                     .background(Color.black.opacity(0.82))
-                    .clipShape(Capsule())
+                    .clipShape(Circle())
                 }
                 .buttonStyle(.plain)
                 .padding(5)
