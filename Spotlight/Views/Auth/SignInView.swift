@@ -10,48 +10,25 @@ struct SignInView: View {
 
     var body: some View {
         ZStack {
-            LinearGradient(
-                colors: [
-                    theme.colors.canvas,
-                    theme.colors.canvasElevated,
-                    theme.colors.surface
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            theme.colors.canvas
+                .ignoresSafeArea()
 
-            ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: theme.spacing.xl) {
-                    hero
-                    credentialsCard
-                    supportCard
-                }
-                .padding(.horizontal, theme.spacing.lg)
-                .padding(.vertical, theme.spacing.xxxl)
+            VStack {
+                Spacer()
+                signInStack
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            .padding(.horizontal, theme.spacing.lg)
+            .padding(.bottom, theme.spacing.xxl)
         }
     }
 
-    private var hero: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.sm) {
-            Text("Spotlight account")
-                .font(theme.typography.display)
+    private var signInStack: some View {
+        VStack(spacing: theme.spacing.sm) {
+            Text("Sign into Loooty")
+                .font(theme.typography.title)
                 .foregroundStyle(theme.colors.textPrimary)
-
-            Text("Keep your identity ready for shows, holds, and synced inventory without changing the scanner backend yet.")
-                .font(theme.typography.body)
-                .foregroundStyle(theme.colors.textSecondary)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private var credentialsCard: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.lg) {
-            LootySectionHeader(
-                title: "Sign in",
-                subtitle: "Apple is the primary iOS path. Google stays available as a secondary provider."
-            )
+                .frame(maxWidth: .infinity, alignment: .center)
 
             SignInWithAppleButton(.continue) { request in
                 authStore.prepareAppleSignIn(request)
@@ -71,15 +48,11 @@ struct SignInView: View {
                     await authStore.signInWithGoogle()
                 }
             } label: {
-                HStack(spacing: theme.spacing.sm) {
-                    Image(systemName: "globe")
-                        .font(.headline.weight(.bold))
-                    Text("Continue with Google")
-                }
+                Text("Continue with Google")
             }
             .buttonStyle(
                 LootyFilledButtonStyle(
-                    fill: theme.colors.surfaceLight,
+                    fill: theme.colors.brand,
                     foreground: theme.colors.textInverse,
                     cornerRadius: theme.radius.md,
                     minHeight: 56
@@ -87,16 +60,6 @@ struct SignInView: View {
             )
             .disabled(signInEnabled == false)
             .opacity(signInEnabled ? 1 : 0.55)
-
-            if authStore.isBusy {
-                HStack(spacing: theme.spacing.sm) {
-                    ProgressView()
-                        .tint(theme.colors.brand)
-                    Text("Contacting Supabase…")
-                        .font(theme.typography.body)
-                        .foregroundStyle(theme.colors.textSecondary)
-                }
-            }
 
             if let configurationIssue {
                 authMessage(configurationIssue, accent: theme.colors.warning)
@@ -106,20 +69,6 @@ struct SignInView: View {
                 authMessage(errorMessage, accent: theme.colors.danger)
             }
         }
-        .lootySurface(.dark, padding: theme.spacing.lg, cornerRadius: theme.radius.xl)
-    }
-
-    private var supportCard: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.sm) {
-            Text("Phase 1 behavior")
-                .font(theme.typography.headline)
-                .foregroundStyle(theme.colors.textPrimary)
-
-            Text("Login now creates and restores a Supabase identity. Scanner, pricing, and collection APIs remain on the current Python backend until the next auth phase.")
-                .font(theme.typography.body)
-                .foregroundStyle(theme.colors.textSecondary)
-        }
-        .lootySurface(.muted, padding: theme.spacing.lg, cornerRadius: theme.radius.xl)
     }
 
     private func authMessage(_ message: String, accent: Color) -> some View {
@@ -131,6 +80,6 @@ struct SignInView: View {
                 .font(theme.typography.body)
                 .foregroundStyle(theme.colors.textSecondary)
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .center)
     }
 }
