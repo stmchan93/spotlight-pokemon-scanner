@@ -738,6 +738,49 @@ final class ScanReliabilityHeuristicsTests: XCTestCase {
         XCTAssertEqual(resolved.height, preferred.height, accuracy: 0.001)
     }
 
+    func testReticleLayoutCanTrimBottomWithoutShrinkingWidthForScannerTray() {
+        let baseline = ScannerReticleLayout.make(
+            containerSize: CGSize(width: 390, height: 844),
+            safeAreaTop: 59,
+            safeAreaBottom: 34,
+            verticalOffset: -24,
+            mode: .raw
+        )
+
+        let trayReserved = ScannerReticleLayout.make(
+            containerSize: CGSize(width: 390, height: 844),
+            safeAreaTop: 59,
+            safeAreaBottom: 34,
+            bottomTrim: 60,
+            verticalOffset: -24,
+            mode: .raw
+        )
+
+        XCTAssertEqual(trayReserved.topSpacing, baseline.topSpacing, accuracy: 0.5)
+        XCTAssertEqual(trayReserved.width, baseline.width, accuracy: 0.5)
+        XCTAssertEqual(trayReserved.height, baseline.height - 60, accuracy: 0.5)
+    }
+
+    func testScaledReticleBottomTrimAdjustsAcrossPhoneHeights() {
+        let referenceTrim = scaledReticleBottomTrim(baseTrim: 60, containerHeight: 844)
+        let smallerPhoneTrim = scaledReticleBottomTrim(baseTrim: 60, containerHeight: 780)
+        let largerPhoneTrim = scaledReticleBottomTrim(baseTrim: 60, containerHeight: 932)
+
+        XCTAssertEqual(referenceTrim, 60, accuracy: 0.5)
+        XCTAssertLessThan(smallerPhoneTrim, referenceTrim)
+        XCTAssertGreaterThan(largerPhoneTrim, referenceTrim)
+    }
+
+    func testScaledReticleCornerLiftAdjustsAcrossPhoneHeights() {
+        let referenceLift = scaledReticleCornerLift(baseLift: 44, containerHeight: 844)
+        let smallerPhoneLift = scaledReticleCornerLift(baseLift: 44, containerHeight: 780)
+        let largerPhoneLift = scaledReticleCornerLift(baseLift: 44, containerHeight: 932)
+
+        XCTAssertEqual(referenceLift, 44, accuracy: 0.5)
+        XCTAssertLessThan(smallerPhoneLift, referenceLift)
+        XCTAssertGreaterThan(largerPhoneLift, referenceLift)
+    }
+
     private func makeAnalyzedCapture(
         cropConfidence: Double,
         collectorNumber: String?,

@@ -266,14 +266,26 @@ final class RawOCRRegressionSuiteTests: XCTestCase {
 
     private func regressionBuckets() throws -> [[URL]] {
         let fixtureDirectories = try regressionFixtureDirectories()
-        let chunkSize = max(
-            1,
-            Int(ceil(Double(fixtureDirectories.count) / Double(Self.regressionBucketCount)))
-        )
-
-        return stride(from: 0, to: fixtureDirectories.count, by: chunkSize).map { startIndex in
-            Array(fixtureDirectories[startIndex..<min(startIndex + chunkSize, fixtureDirectories.count)])
+        guard fixtureDirectories.count >= Self.regressionBucketCount else {
+            XCTFail("expected at least \(Self.regressionBucketCount) fixtures to populate regression buckets")
+            return [fixtureDirectories]
         }
+
+        let baseBucketSize = fixtureDirectories.count / Self.regressionBucketCount
+        let remainder = fixtureDirectories.count % Self.regressionBucketCount
+
+        var buckets: [[URL]] = []
+        buckets.reserveCapacity(Self.regressionBucketCount)
+
+        var startIndex = 0
+        for bucketIndex in 0..<Self.regressionBucketCount {
+            let bucketSize = baseBucketSize + (bucketIndex < remainder ? 1 : 0)
+            let endIndex = startIndex + bucketSize
+            buckets.append(Array(fixtureDirectories[startIndex..<endIndex]))
+            startIndex = endIndex
+        }
+
+        return buckets
     }
 
     private func processFixture(at directory: URL) async throws -> RawOCRRegressionScoreEntry? {

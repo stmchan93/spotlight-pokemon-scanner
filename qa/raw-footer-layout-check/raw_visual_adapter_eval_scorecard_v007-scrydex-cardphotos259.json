@@ -1,0 +1,22 @@
+{
+  "generatedAt": "2026-04-20T18:19:18Z",
+  "adapterCheckpointPath": "/Users/stephenchan/Code/spotlight/backend/data/visual-models/raw_visual_adapter_v007-scrydex-cardphotos259.pt",
+  "modelId": "openai/clip-vit-base-patch32",
+  "embeddingDimension": 512,
+  "indexNpzPath": "/Users/stephenchan/Code/spotlight/backend/data/visual-index/visual_index_active_clip-vit-base-patch32.npz",
+  "indexManifestPath": "/Users/stephenchan/Code/spotlight/backend/data/visual-index/visual_index_active_manifest.json",
+  "topK": 10,
+  "providerSupportedFixtureCount": 0,
+  "providerUnsupportedFixtureCount": 0,
+  "visualTop1PassCount": 0,
+  "visualTop5ContainsTruthCount": 0,
+  "visualTop10ContainsTruthCount": 0,
+  "visualTop1PassRate": 0.0,
+  "visualTop5ContainsTruthRate": 0.0,
+  "visualTop10ContainsTruthRate": 0.0,
+  "hybridTop1PassCount": 0,
+  "hybridTop5ContainsTruthCount": 0,
+  "hybridTop1PassRate": 0.0,
+  "hybridTop5ContainsTruthRate": 0.0,
+  "entries": []
+}

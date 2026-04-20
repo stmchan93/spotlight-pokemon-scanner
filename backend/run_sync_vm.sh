@@ -28,6 +28,8 @@ set +a
 
 PYTHON_BIN="${SPOTLIGHT_VM_PYTHON:-$SCRIPT_DIR/.venv/bin/python}"
 DATABASE_PATH="${SPOTLIGHT_DATABASE_PATH:-$SCRIPT_DIR/data/spotlight_scanner.sqlite}"
+HOSTNAME_VALUE="$(hostname -s 2>/dev/null || hostname)"
+export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-sync:${HOSTNAME_VALUE}}"
 
 exec "$PYTHON_BIN" "$SCRIPT_DIR/sync_scrydex_catalog.py" \
   --database-path "$DATABASE_PATH" \

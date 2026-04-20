@@ -138,6 +138,7 @@ final class ScannerViewModel: ObservableObject {
             preferStillPhoto: preferStillPhoto
         )
         if didStartCapture {
+            AppFeedback.cameraCapture()
             updateStackItem(id: pendingItemID) { item in
                 item.statusMessage = "Capturing preview frame…"
             }

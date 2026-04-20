@@ -13,7 +13,7 @@ struct CameraPreviewView: UIViewRepresentable {
         // Fill the scanner viewport so the camera doesn't collapse into a
         // letterboxed black shell while preserving preview-layer coordinate conversion.
         view.previewLayer.videoGravity = .resizeAspectFill
-        view.backgroundColor = .black
+        view.backgroundColor = .clear
         print("📸 [PREVIEW] Preview layer session: \(session), running: \(session.isRunning)")
         print("📸 [PREVIEW] Preview layer connection: \(String(describing: view.previewLayer.connection))")
 

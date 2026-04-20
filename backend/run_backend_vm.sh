@@ -30,6 +30,8 @@ PYTHON_BIN="${SPOTLIGHT_VM_PYTHON:-$SCRIPT_DIR/.venv/bin/python}"
 DATABASE_PATH="${SPOTLIGHT_DATABASE_PATH:-$SCRIPT_DIR/data/spotlight_scanner.sqlite}"
 HOST="${SPOTLIGHT_HOST:-0.0.0.0}"
 PORT="${SPOTLIGHT_PORT:-8788}"
+HOSTNAME_VALUE="$(hostname -s 2>/dev/null || hostname)"
+export SPOTLIGHT_RUNTIME_LABEL="${SPOTLIGHT_RUNTIME_LABEL:-vm-backend:${HOSTNAME_VALUE}}"
 
 exec "$PYTHON_BIN" "$SCRIPT_DIR/server.py" \
   --database-path "$DATABASE_PATH" \

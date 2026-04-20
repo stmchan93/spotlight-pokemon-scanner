@@ -38,6 +38,8 @@ from scrydex_adapter import (  # noqa: E402
     persist_scrydex_all_graded_snapshots,
     persist_scrydex_daily_history_from_card_payload,
     reset_scrydex_request_stats,
+    scrydex_request_audit_summary,
+    store_scrydex_request_audit,
 )
 from server import PricingLoadPolicy, SpotlightScanService, _load_backend_env_file  # noqa: E402
 from sync_scrydex_catalog import sync_scrydex_catalog  # noqa: E402
@@ -333,6 +335,147 @@ class PricingPhase6Tests(unittest.TestCase):
         providers = {provider["providerId"]: provider for provider in provider_status["providers"]}
         self.assertTrue(providers["scrydex"]["fullCatalogSyncFresh"])
         self.assertIsNotNone(providers["scrydex"]["lastFullCatalogSyncAt"])
+
+    def test_scrydex_request_audit_summary_tracks_runtime_sources(self) -> None:
+        audit_db_path = Path(self.tempdir.name) / "scrydex-audit.sqlite"
+        with patch.dict(
+            os.environ,
+            {
+                "SPOTLIGHT_SCRYDEX_AUDIT_DB_PATH": str(audit_db_path),
+                "SPOTLIGHT_RUNTIME_LABEL": "local-backend:test",
+            },
+            clear=False,
+        ):
+            store_scrydex_request_audit(
+                created_at=utc_now(),
+                request_type="card_by_id",
+                path="/pokemon/v1/cards/base1-4",
+                params={"include": "prices"},
+                elapsed_ms=42.0,
+                outcome="ok",
+                result_count=1,
+            )
+        with patch.dict(
+            os.environ,
+            {
+                "SPOTLIGHT_SCRYDEX_AUDIT_DB_PATH": str(audit_db_path),
+                "SPOTLIGHT_RUNTIME_LABEL": "vm-sync:test",
+            },
+            clear=False,
+        ):
+            store_scrydex_request_audit(
+                created_at=utc_now(),
+                request_type="catalog_sync_all",
+                path="/pokemon/v1/cards",
+                params={"page_size": "100", "include": "prices"},
+                elapsed_ms=155.0,
+                outcome="ok",
+                result_count=100,
+            )
+            summary = scrydex_request_audit_summary(hours=24, recent_limit=10)
+
+        self.assertEqual(summary["todayTotal"], 2)
+        self.assertEqual(summary["last24HoursTotal"], 2)
+        runtime_counts = {
+            row["runtimeLabel"]: row["count"]
+            for row in summary["byRuntimeLabel"]
+        }
+        self.assertEqual(runtime_counts["local-backend:test"], 1)
+        self.assertEqual(runtime_counts["vm-sync:test"], 1)
+        request_type_counts = {
+            row["requestType"]: row["count"]
+            for row in summary["byRequestType"]
+        }
+        self.assertEqual(request_type_counts["card_by_id"], 1)
+        self.assertEqual(request_type_counts["catalog_sync_all"], 1)
+        self.assertEqual(summary["recent"][0]["runtimeLabel"], "vm-sync:test")
+
+    def test_provider_status_includes_scrydex_audit_summary(self) -> None:
+        audit_db_path = Path(self.tempdir.name) / "provider-status-audit.sqlite"
+        with patch.dict(
+            os.environ,
+            {
+                "SPOTLIGHT_SCRYDEX_AUDIT_DB_PATH": str(audit_db_path),
+                "SPOTLIGHT_RUNTIME_LABEL": "local-backend:test",
+            },
+            clear=False,
+        ):
+            store_scrydex_request_audit(
+                created_at=utc_now(),
+                request_type="raw_price_refresh",
+                path="/pokemon/v1/cards/base1-4",
+                params={"include": "prices"},
+                elapsed_ms=28.0,
+                outcome="ok",
+                result_count=1,
+            )
+            service = SpotlightScanService(self.database_path, REPO_ROOT)
+            try:
+                provider_status = service.provider_status()
+            finally:
+                service.connection.close()
+
+        self.assertIn("scrydexAudit", provider_status)
+        self.assertEqual(provider_status["scrydexAudit"]["todayTotal"], 1)
+        self.assertEqual(provider_status["scrydexAudit"]["byRuntimeLabel"][0]["runtimeLabel"], "local-backend:test")
+        self.assertEqual(provider_status["scrydexAudit"]["detailRetentionDays"], 30)
+
+    def test_scrydex_request_audit_rolls_up_rows_older_than_30_days(self) -> None:
+        audit_db_path = Path(self.tempdir.name) / "rollup-audit.sqlite"
+        old_created_at = (datetime.now(timezone.utc) - timedelta(days=35)).isoformat()
+        fresh_created_at = utc_now()
+
+        with patch.dict(
+            os.environ,
+            {
+                "SPOTLIGHT_SCRYDEX_AUDIT_DB_PATH": str(audit_db_path),
+                "SPOTLIGHT_RUNTIME_LABEL": "vm-sync:test",
+            },
+            clear=False,
+        ):
+            store_scrydex_request_audit(
+                created_at=old_created_at,
+                request_type="catalog_sync_all",
+                path="/pokemon/v1/cards",
+                params={"page_size": "100", "include": "prices"},
+                elapsed_ms=180.0,
+                outcome="ok",
+                result_count=100,
+            )
+            store_scrydex_request_audit(
+                created_at=fresh_created_at,
+                request_type="catalog_sync_all",
+                path="/pokemon/v1/cards",
+                params={"page_size": "100", "include": "prices"},
+                elapsed_ms=190.0,
+                outcome="ok",
+                result_count=100,
+            )
+            summary = scrydex_request_audit_summary(hours=24, recent_limit=10)
+
+        audit_connection = sqlite3.connect(audit_db_path)
+        audit_connection.row_factory = sqlite3.Row
+        try:
+            raw_rows = audit_connection.execute(
+                "SELECT COUNT(*) AS count FROM scrydex_request_audit"
+            ).fetchone()["count"]
+            rollup_rows = audit_connection.execute(
+                """
+                SELECT usage_date, runtime_label, request_type, request_count
+                FROM scrydex_daily_usage_rollups
+                """
+            ).fetchall()
+        finally:
+            audit_connection.close()
+
+        self.assertEqual(raw_rows, 1)
+        self.assertEqual(len(rollup_rows), 1)
+        self.assertEqual(rollup_rows[0]["runtime_label"], "vm-sync:test")
+        self.assertEqual(rollup_rows[0]["request_type"], "catalog_sync_all")
+        self.assertEqual(rollup_rows[0]["request_count"], 1)
+        rolled_dates = {row["usageDate"] for row in summary["dailyRollups"]}
+        self.assertIn(old_created_at[:10], rolled_dates)
+        self.assertIn(fresh_created_at[:10], rolled_dates)
 
     def test_provider_status_keeps_pricing_refresh_blocked_when_full_sync_is_stale(self) -> None:
         stale_completed_at = (datetime.now(timezone.utc) - timedelta(hours=25)).isoformat()

@@ -60,6 +60,7 @@ from pathlib import Path
 payload = json.loads(Path("/tmp/spotlight-provider-status.json").read_text())
 mirror = payload.get("manualScrydexMirror", {})
 sync = payload.get("scrydexFullCatalogSync", {})
+audit = payload.get("scrydexAudit", {})
 summary = {
     "fullCatalogSyncFresh": mirror.get("fullCatalogSyncFresh"),
     "searchesBlocked": mirror.get("searchesBlocked"),
@@ -67,6 +68,8 @@ summary = {
     "pricingRefreshBlocked": mirror.get("pricingRefreshBlocked"),
     "lastFullCatalogSyncAt": payload.get("providers", [{}])[0].get("lastFullCatalogSyncAt"),
     "lastSyncStatus": sync.get("status"),
+    "scrydexTodayTotal": audit.get("todayTotal"),
+    "scrydexRecentSources": audit.get("byRuntimeLabel", [])[:3],
 }
 print(summary)
 PY

@@ -29,6 +29,7 @@ What is intentionally removed right now:
 
 - `GET /api/v1/health`
 - `GET /api/v1/ops/provider-status`
+- `GET /api/v1/ops/scrydex-usage`
 - `GET /api/v1/ops/unmatched-scans`
 - `GET /api/v1/cards/search?q=charizard`
 - `GET /api/v1/cards/<card_id>`
@@ -65,7 +66,8 @@ What it does:
 - installs Python runtime dependencies from `backend/requirements.vm.txt`
 - writes `backend/.vm-runtime.conf`
 - validates Scrydex credentials
-- runs one initial full sync unless `SPOTLIGHT_SKIP_INITIAL_SYNC=1`
+- skips the initial full sync by default
+- only runs an initial full sync when `SPOTLIGHT_RUN_INITIAL_SYNC=1`
 - installs user `crontab` entries for:
   - `@reboot` backend start
   - a minute-level scheduler wrapper that evaluates the desired local timezone and fires the Scrydex sync at `3:00 AM America/Los_Angeles`
@@ -76,8 +78,26 @@ Useful follow-ups on the VM:
 ```bash
 curl http://127.0.0.1:8788/api/v1/health
 curl http://127.0.0.1:8788/api/v1/ops/provider-status
+curl http://127.0.0.1:8788/api/v1/ops/scrydex-usage | python3 -m json.tool
 tail -f backend/logs/backend.log
 tail -f backend/logs/scrydex_sync.log
+```
+
+Persistent Scrydex request audit:
+
+- default audit DB: `backend/data/scrydex_request_audit.sqlite`
+- override path with `SPOTLIGHT_SCRYDEX_AUDIT_DB_PATH`
+- runtime source labels come from `SPOTLIGHT_RUNTIME_LABEL`
+- raw per-request audit rows are retained for `30` days
+- rows older than `30` days are automatically rolled into daily usage rollups and pruned from the raw audit table
+- VM wrappers now default to:
+  - `vm-backend:<hostname>`
+  - `vm-sync:<hostname>`
+
+Useful local audit summary command:
+
+```bash
+python3 backend/summarize_scrydex_usage.py --hours 24 --limit 50
 ```
 
 ## Environment

@@ -100,6 +100,7 @@ from scrydex_adapter import (
     map_scrydex_catalog_card,
     persist_scrydex_price_history_payload,
     persist_scrydex_raw_snapshot,
+    scrydex_request_audit_summary,
     scrydex_request_stats_snapshot,
     search_remote_scrydex_raw_candidates,
     search_remote_scrydex_slab_candidates,
@@ -2459,7 +2460,7 @@ class SpotlightScanService:
             "boughtAt": bought_at,
         }
 
-    def record_sale(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _record_sale_without_commit(self, payload: dict[str, Any]) -> dict[str, Any]:
         deck_entry_id = str(payload.get("deckEntryID") or "").strip()
         card_id = str(payload.get("cardID") or "").strip()
         slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
@@ -2521,32 +2522,27 @@ class SpotlightScanService:
 
         source_scan_id = str(payload.get("sourceScanID") or "").strip() or None
         source_confirmation_id = str(payload.get("sourceConfirmationID") or "").strip() or None
-        try:
-            sale_id = record_sale_event(
-                self.connection,
-                deck_entry_id=deck_entry_id,
-                card_id=card_id,
-                quantity=quantity,
-                unit_price=unit_price,
-                currency_code=currency_code,
-                payment_method=payment_method,
-                sale_source=sale_source,
-                show_session_id=show_session_id,
-                note=note,
-                sold_at=sold_at,
-                source_scan_id=source_scan_id,
-                source_confirmation_id=source_confirmation_id,
-            )
-            if sale_id is None:
-                raise RuntimeError("sale events table not available")
-            remaining_row = self.connection.execute(
-                "SELECT quantity FROM deck_entries WHERE id = ? LIMIT 1",
-                (deck_entry_id,),
-            ).fetchone()
-            self.connection.commit()
-        except Exception:
-            self.connection.rollback()
-            raise
+        sale_id = record_sale_event(
+            self.connection,
+            deck_entry_id=deck_entry_id,
+            card_id=card_id,
+            quantity=quantity,
+            unit_price=unit_price,
+            currency_code=currency_code,
+            payment_method=payment_method,
+            sale_source=sale_source,
+            show_session_id=show_session_id,
+            note=note,
+            sold_at=sold_at,
+            source_scan_id=source_scan_id,
+            source_confirmation_id=source_confirmation_id,
+        )
+        if sale_id is None:
+            raise RuntimeError("sale events table not available")
+        remaining_row = self.connection.execute(
+            "SELECT quantity FROM deck_entries WHERE id = ? LIMIT 1",
+            (deck_entry_id,),
+        ).fetchone()
         return {
             "saleID": sale_id,
             "deckEntryID": deck_entry_id,
@@ -2555,6 +2551,33 @@ class SpotlightScanService:
             "soldAt": sold_at,
             "showSessionID": show_session_id,
         }
+
+    def record_sale(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            sale_payload = self._record_sale_without_commit(payload)
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return sale_payload
+
+    def record_sales_batch(self, payload: dict[str, Any]) -> dict[str, Any]:
+        sales = payload.get("sales")
+        if not isinstance(sales, list) or not sales:
+            raise ValueError("sales must be a non-empty list")
+
+        results: list[dict[str, Any]] = []
+        try:
+            for sale_payload in sales:
+                if not isinstance(sale_payload, dict):
+                    raise ValueError("each sale must be an object")
+                results.append(self._record_sale_without_commit(sale_payload))
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return {"results": results}
 
     @staticmethod
     def _should_use_scrydex_japanese_raw(evidence: RawEvidence) -> bool:
@@ -3716,9 +3739,18 @@ class SpotlightScanService:
             "scanArtifactUploads": self._scan_artifact_uploads_state(),
             "cardShowMode": self._card_show_mode_state(),
             "scrydexRequestStats": scrydex_request_stats_snapshot(),
+            "scrydexAudit": scrydex_request_audit_summary(),
             "scrydexFullCatalogSync": scrydex_full_sync,
             "scrydexFullCatalogSyncFresh": scrydex_full_sync_is_fresh,
         }
+
+    def scrydex_usage_summary(
+        self,
+        *,
+        hours: int = 24,
+        recent_limit: int = 25,
+    ) -> dict[str, Any]:
+        return scrydex_request_audit_summary(hours=hours, recent_limit=recent_limit)
 
     def cache_status(self) -> dict[str, Any]:
         rows = self.connection.execute(
@@ -3788,8 +3820,8 @@ class SpotlightScanService:
             "items": items,
         }
 
-    def search(self, query: str) -> dict[str, Any]:
-        return {"results": search_cards(self.connection, query)}
+    def search(self, query: str, *, limit: int = 20) -> dict[str, Any]:
+        return {"results": search_cards(self.connection, query, limit=limit)}
 
     def _persist_mapped_catalog_card(
         self,
@@ -6868,6 +6900,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, self.service.provider_status())
             return
 
+        if parsed.path == "/api/v1/ops/scrydex-usage":
+            try:
+                hours = int(query.get("hours", ["24"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "hours must be an integer"})
+                return
+            try:
+                limit = int(query.get("limit", ["25"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            self._write_json(
+                HTTPStatus.OK,
+                self.service.scrydex_usage_summary(hours=hours, recent_limit=limit),
+            )
+            return
+
         if parsed.path == "/api/v1/ops/scan-artifact-status":
             self._write_json(HTTPStatus.OK, self.service.scan_artifact_status())
             return
@@ -6948,8 +6997,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/cards/search":
-            query = parse_qs(parsed.query).get("q", [""])[0]
-            self._write_json(HTTPStatus.OK, self.service.search(query))
+            query_params = parse_qs(parsed.query)
+            query = query_params.get("q", [""])[0]
+            try:
+                limit = int(query_params.get("limit", ["20"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            self._write_json(HTTPStatus.OK, self.service.search(query, limit=limit))
             return
 
         ebay_listings_suffixes = ("/graded-comps", "/ebay-comps", "/comps", "/ebay-listings")
@@ -7232,6 +7287,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, hydration_payload)
             return
 
+        if parsed.path in {"/api/v1/sales/batch", "/api/v1/deck/sales/batch", "/api/v1/portfolio/sales/batch"}:
+            try:
+                sale_payload = self.service.record_sales_batch(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Batch sale recording failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, sale_payload)
+            return
+
         if parsed.path in {"/api/v1/sales", "/api/v1/deck/sales", "/api/v1/portfolio/sales"}:
             try:
                 sale_payload = self.service.record_sale(payload)
@@ -7487,7 +7558,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            print(
+                "[HTTP] Client disconnected before response write completed: "
+                f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
+            )
 
     def _write_json_timed(
         self,

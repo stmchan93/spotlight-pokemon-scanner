@@ -2,7 +2,9 @@
 // LocalOverrides.xcconfig is gitignored and is the app-side equivalent of a local .env file.
 
 // Required for physical-device debug runs against your Mac.
-SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL = http:/$()/192.168.0.225:8788/
+// Prefer your Mac's Bonjour hostname over a raw LAN IP so this keeps working across Wi-Fi changes.
+// Example: if `scutil --get LocalHostName` prints `Stephens-MacBook-Pro`, use:
+SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL = http:/$()/Stephens-MacBook-Pro.local:8788/
 
 // Optional. For now staging and production are the same backend.
 SPOTLIGHT_STAGING_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.run.app/

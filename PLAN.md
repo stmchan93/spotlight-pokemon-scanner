@@ -14,6 +14,7 @@ Date: 2026-04-13
 - The low-risk fallback OCR cost-control execution checklist is [docs/fallback-ocr-cost-control-checklist-2026-04-17.md](/Users/stephenchan/Code/spotlight/docs/fallback-ocr-cost-control-checklist-2026-04-17.md).
 - The current slab rebuild implementation source of truth is [docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md).
 - The current inventory / ledger / portfolio source of truth is [docs/inventory-portfolio-selling-spec-2026-04-15.md](/Users/stephenchan/Code/spotlight/docs/inventory-portfolio-selling-spec-2026-04-15.md).
+- The planned future collection import source of truth is [docs/collection-import-spec-2026-04-20.md](/Users/stephenchan/Code/spotlight/docs/collection-import-spec-2026-04-20.md).
 - The current app design-system scaffold and migration source of truth is [docs/looty-ui-design-system-plan-2026-04-16.md](/Users/stephenchan/Code/spotlight/docs/looty-ui-design-system-plan-2026-04-16.md).
 - The raw backend reset has now landed.
 - The next raw identity direction is now:

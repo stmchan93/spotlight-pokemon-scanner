@@ -65,7 +65,7 @@ final class CollectionStore: ObservableObject {
     @Published private(set) var entries: [DeckCardEntry] = []
     @Published private(set) var isLoadingEntries = false
     @Published private(set) var portfolioHistory: PortfolioHistory?
-    @Published private(set) var selectedPortfolioHistoryRange: PortfolioHistoryRange = .days30
+    @Published private(set) var selectedPortfolioHistoryRange: PortfolioHistoryRange = .days7
     @Published private(set) var isLoadingPortfolioHistory = false
     @Published private(set) var portfolioLedger: PortfolioLedger?
     @Published private(set) var selectedPortfolioLedgerRange: PortfolioHistoryRange = .days30
@@ -167,6 +167,12 @@ final class CollectionStore: ObservableObject {
         async let historyRefresh: Void = refreshPortfolioHistory()
         async let ledgerRefresh: Void = refreshPortfolioLedger()
         _ = await (entriesRefresh, historyRefresh, ledgerRefresh)
+    }
+
+    private func scheduleDashboardRefresh() {
+        Task { @MainActor in
+            await refreshDashboardData()
+        }
     }
 
     func refreshPortfolioData() async {
@@ -389,7 +395,7 @@ final class CollectionStore: ObservableObject {
             fallbackCard: card,
             fallbackSlabContext: slabContext
         )
-        await refreshDashboardData()
+        scheduleDashboardRefresh()
         return response
     }
 
@@ -400,11 +406,8 @@ final class CollectionStore: ObservableObject {
             throw MatcherError.server(message: "Sale service unavailable.")
         }
 
-        var responses: [PortfolioSaleCreateResponsePayload] = []
-        responses.reserveCapacity(lines.count)
-
-        for line in lines {
-            let payload = PortfolioSaleCreateRequestPayload(
+        let payloads = lines.map { line in
+            PortfolioSaleCreateRequestPayload(
                 cardID: line.card.id,
                 slabContext: line.slabContext,
                 quantity: max(1, line.quantity),
@@ -416,16 +419,21 @@ final class CollectionStore: ObservableObject {
                 note: line.note,
                 sourceScanID: line.sourceScanID
             )
-            let response = try await matcher.createPortfolioSale(payload)
+        }
+        let responses = try await matcher.createPortfolioSalesBatch(payloads)
+        guard responses.count == lines.count else {
+            throw MatcherError.invalidServerResponse
+        }
+
+        for (line, response) in zip(lines, responses) {
             applySaleResponse(
                 response,
                 fallbackCard: line.card,
                 fallbackSlabContext: line.slabContext
             )
-            responses.append(response)
         }
 
-        await refreshDashboardData()
+        scheduleDashboardRefresh()
         return responses
     }
 
@@ -503,6 +511,16 @@ final class CollectionStore: ObservableObject {
             return entries
         }
         return entries.filter { $0.searchIndexText.contains(trimmed) }
+    }
+
+    func searchCatalogCards(query: String, limit: Int = 20) async -> [CardCandidate] {
+        guard let matcher else { return [] }
+        return await matcher.search(query: query, limit: limit)
+    }
+
+    func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail? {
+        guard let matcher else { return nil }
+        return await matcher.fetchCardDetail(cardID: cardID, slabContext: slabContext)
     }
 
     private func rebuildEntries() {

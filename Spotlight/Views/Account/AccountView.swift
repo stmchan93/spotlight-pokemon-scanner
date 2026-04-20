@@ -13,10 +13,10 @@ struct AccountView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: theme.spacing.lg) {
                     identityCard
-                    providerCard
                     signOutCard
                 }
-                .padding(theme.spacing.lg)
+                .padding(.horizontal, theme.spacing.xs)
+                .padding(.vertical, theme.spacing.lg)
             }
             .background(theme.colors.canvas.ignoresSafeArea())
             .navigationTitle("Account")
@@ -56,81 +56,34 @@ struct AccountView: View {
                     }
                 }
             }
-
-            if let userID = user?.id.uuidString {
-                VStack(alignment: .leading, spacing: theme.spacing.xxxs) {
-                    Text("User ID")
-                        .font(theme.typography.caption)
-                        .foregroundStyle(theme.colors.textSecondary)
-                    Text(userID)
-                        .font(.footnote.monospaced())
-                        .foregroundStyle(theme.colors.textPrimary)
-                        .textSelection(.enabled)
-                }
-            }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .lootySurface(.dark, padding: theme.spacing.lg, cornerRadius: theme.radius.xl)
-    }
-
-    private var providerCard: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.md) {
-            Text("Connected providers")
-                .font(theme.typography.headline)
-                .foregroundStyle(theme.colors.textPrimary)
-
-            if let providers = user?.providers, providers.isEmpty == false {
-                HStack(spacing: theme.spacing.sm) {
-                    ForEach(providers, id: \.self) { provider in
-                        LootyPill(
-                            title: provider.capitalized,
-                            fill: theme.colors.surfaceMuted,
-                            foreground: theme.colors.textPrimary
-                        )
-                    }
-                }
-            } else {
-                Text("This account is currently using one provider session.")
-                    .font(theme.typography.body)
-                    .foregroundStyle(theme.colors.textSecondary)
-            }
-        }
-        .lootySurface(.muted, padding: theme.spacing.lg, cornerRadius: theme.radius.xl)
     }
 
     private var signOutCard: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.md) {
-            Text("Session")
-                .font(theme.typography.headline)
-                .foregroundStyle(theme.colors.textPrimary)
-
-            Text("Signing out removes the local Supabase session from this device. Your current scanner and pricing backend behavior stays unchanged.")
-                .font(theme.typography.body)
-                .foregroundStyle(theme.colors.textSecondary)
-
-            Button {
-                dismiss()
-                Task {
-                    await authStore.signOut()
-                }
-            } label: {
-                HStack {
-                    if authStore.isBusy {
-                        ProgressView()
-                            .tint(theme.colors.textPrimary)
-                    }
-                    Text("Sign out")
-                }
+        Button {
+            dismiss()
+            Task {
+                await authStore.signOut()
             }
-            .buttonStyle(
-                LootyFilledButtonStyle(
-                    fill: theme.colors.danger,
-                    foreground: theme.colors.textPrimary,
-                    cornerRadius: theme.radius.md,
-                    minHeight: 52
-                )
-            )
-            .disabled(authStore.isBusy)
+        } label: {
+            HStack {
+                if authStore.isBusy {
+                    ProgressView()
+                        .tint(theme.colors.textPrimary)
+                }
+                Text("Sign out")
+            }
         }
-        .lootySurface(.dark, padding: theme.spacing.lg, cornerRadius: theme.radius.xl)
+        .buttonStyle(
+            LootyFilledButtonStyle(
+                fill: theme.colors.danger,
+                foreground: theme.colors.textPrimary,
+                cornerRadius: theme.radius.md,
+                minHeight: 52
+            )
+        )
+        .disabled(authStore.isBusy)
     }
 }

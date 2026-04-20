@@ -244,8 +244,9 @@ private actor StubCardMatchingService: CardMatchingService {
         throw MatcherError.noCandidates
     }
 
-    func search(query: String) async -> [CardCandidate] {
-        []
+    func search(query: String, limit: Int) async -> [CardCandidate] {
+        _ = limit
+        return []
     }
 
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail? {
@@ -324,6 +325,10 @@ private actor StubCardMatchingService: CardMatchingService {
         throw MatcherError.server(message: "not implemented")
     }
 
+    func createPortfolioSalesBatch(_ payloads: [PortfolioSaleCreateRequestPayload]) async throws -> [PortfolioSaleCreateResponsePayload] {
+        throw MatcherError.server(message: "not implemented")
+    }
+
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -337,12 +342,16 @@ actor RecordingCardMatchingService: CardMatchingService {
     private var deckPayloads: [DeckEntryCreateRequestPayload] = []
     private var deckEntries: [DeckEntryPayload] = []
     private var shouldFailDeckEntriesFetch = false
+    private var cardDetailsByKey: [String: CardDetail] = [:]
     private var deckConditionPayloads: [DeckEntryConditionUpdateRequestPayload] = []
     private var deckPurchasePricePayloads: [DeckEntryPurchasePriceUpdateRequestPayload] = []
     private var portfolioHistory: PortfolioHistory?
     private var portfolioLedger: PortfolioLedger?
+    private var shouldBlockPortfolioHistoryFetch = false
+    private var blockedPortfolioHistoryContinuations: [CheckedContinuation<Void, Never>] = []
     private var recordedPortfolioBuyPayloads: [PortfolioBuyCreateRequestPayload] = []
     private var recordedPortfolioSalePayloads: [PortfolioSaleCreateRequestPayload] = []
+    private var recordedPortfolioSalesBatchPayloads: [[PortfolioSaleCreateRequestPayload]] = []
     private var portfolioBuyPriceUpdates: [(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload)] = []
     private var portfolioSalePriceUpdates: [(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload)] = []
     private var portfolioBuyResponse = PortfolioBuyCreateResponsePayload(
@@ -361,6 +370,7 @@ actor RecordingCardMatchingService: CardMatchingService {
         soldAt: Date(),
         showSessionID: nil
     )
+    private var portfolioSalesBatchResponse: [PortfolioSaleCreateResponsePayload]?
 
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse {
         throw MatcherError.noCandidates
@@ -374,12 +384,13 @@ actor RecordingCardMatchingService: CardMatchingService {
         throw MatcherError.noCandidates
     }
 
-    func search(query: String) async -> [CardCandidate] {
-        []
+    func search(query: String, limit: Int) async -> [CardCandidate] {
+        _ = limit
+        return []
     }
 
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail? {
-        nil
+        cardDetailsByKey[detailKey(cardID: cardID, slabContext: slabContext)]
     }
 
     func fetchCardMarketHistory(
@@ -401,7 +412,12 @@ actor RecordingCardMatchingService: CardMatchingService {
     }
 
     func fetchPortfolioHistory(range: PortfolioHistoryRange) async -> PortfolioHistory? {
-        portfolioHistory
+        if shouldBlockPortfolioHistoryFetch {
+            await withCheckedContinuation { continuation in
+                blockedPortfolioHistoryContinuations.append(continuation)
+            }
+        }
+        return portfolioHistory
     }
 
     func fetchPortfolioLedger(range: PortfolioHistoryRange) async -> PortfolioLedger? {
@@ -518,6 +534,54 @@ actor RecordingCardMatchingService: CardMatchingService {
         return portfolioSaleResponse
     }
 
+    func createPortfolioSalesBatch(_ payloads: [PortfolioSaleCreateRequestPayload]) async throws -> [PortfolioSaleCreateResponsePayload] {
+        recordedPortfolioSalesBatchPayloads.append(payloads)
+
+        let responses: [PortfolioSaleCreateResponsePayload]
+        if let portfolioSalesBatchResponse {
+            responses = portfolioSalesBatchResponse
+        } else {
+            responses = payloads.map { payload in
+                PortfolioSaleCreateResponsePayload(
+                    saleID: portfolioSaleResponse.saleID,
+                    deckEntryID: portfolioSaleResponse.deckEntryID,
+                    remainingQuantity: portfolioSaleResponse.remainingQuantity,
+                    grossTotal: round(payload.unitPrice * Double(payload.quantity) * 100) / 100,
+                    soldAt: payload.soldAt,
+                    showSessionID: payload.showSessionID
+                )
+            }
+        }
+
+        for (payload, response) in zip(payloads, responses) {
+            let normalizedDeckEntryID = response.deckEntryID.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let index = deckEntries.firstIndex(where: { entry in
+                if !normalizedDeckEntryID.isEmpty {
+                    return entry.id == normalizedDeckEntryID
+                }
+                return entry.card.id == payload.cardID && entry.slabContext == payload.slabContext
+            }) {
+                if response.remainingQuantity <= 0 {
+                    deckEntries.remove(at: index)
+                } else {
+                    let existing = deckEntries[index]
+                    deckEntries[index] = DeckEntryPayload(
+                        id: existing.id,
+                        card: existing.card,
+                        slabContext: existing.slabContext,
+                        condition: existing.condition,
+                        quantity: response.remainingQuantity,
+                        costBasisTotal: existing.costBasisTotal,
+                        costBasisCurrencyCode: existing.costBasisCurrencyCode,
+                        addedAt: existing.addedAt
+                    )
+                }
+            }
+        }
+
+        return responses
+    }
+
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -533,6 +597,10 @@ actor RecordingCardMatchingService: CardMatchingService {
         shouldFailDeckEntriesFetch = shouldFail
     }
 
+    func setCardDetail(_ detail: CardDetail, slabContext: SlabContext?) {
+        cardDetailsByKey[detailKey(cardID: detail.card.id, slabContext: slabContext)] = detail
+    }
+
     func setPortfolioHistory(_ history: PortfolioHistory?) {
         portfolioHistory = history
     }
@@ -541,12 +609,26 @@ actor RecordingCardMatchingService: CardMatchingService {
         portfolioLedger = ledger
     }
 
+    func setBlockPortfolioHistoryFetch(_ shouldBlock: Bool) {
+        shouldBlockPortfolioHistoryFetch = shouldBlock
+    }
+
+    func resumeBlockedPortfolioHistoryFetches() {
+        let continuations = blockedPortfolioHistoryContinuations
+        blockedPortfolioHistoryContinuations.removeAll()
+        continuations.forEach { $0.resume() }
+    }
+
     func setBuyResponse(_ response: PortfolioBuyCreateResponsePayload) {
         portfolioBuyResponse = response
     }
 
     func setSaleResponse(_ response: PortfolioSaleCreateResponsePayload) {
         portfolioSaleResponse = response
+    }
+
+    func setSalesBatchResponses(_ responses: [PortfolioSaleCreateResponsePayload]) {
+        portfolioSalesBatchResponse = responses
     }
 
     func uploadedArtifactPayloads() -> [ScanArtifactUploadRequestPayload] {
@@ -569,6 +651,10 @@ actor RecordingCardMatchingService: CardMatchingService {
         recordedPortfolioSalePayloads
     }
 
+    func portfolioSalesBatchPayloads() -> [[PortfolioSaleCreateRequestPayload]] {
+        recordedPortfolioSalesBatchPayloads
+    }
+
     func portfolioBuyPayloads() -> [PortfolioBuyCreateRequestPayload] {
         recordedPortfolioBuyPayloads
     }
@@ -579,5 +665,20 @@ actor RecordingCardMatchingService: CardMatchingService {
 
     func portfolioSalePriceUpdatePayloads() -> [(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload)] {
         portfolioSalePriceUpdates
+    }
+
+    private func detailKey(cardID: String, slabContext: SlabContext?) -> String {
+        let trimmedCardID = cardID.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let slabContext else {
+            return "raw|\(trimmedCardID)"
+        }
+        return [
+            "slab",
+            trimmedCardID,
+            slabContext.grader,
+            slabContext.grade ?? "",
+            slabContext.certNumber ?? "",
+            slabContext.variantName ?? "",
+        ].joined(separator: "|")
     }
 }

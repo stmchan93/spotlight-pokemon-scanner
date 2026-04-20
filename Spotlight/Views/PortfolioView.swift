@@ -129,7 +129,7 @@ struct PortfolioHistoryLineSeries: Hashable {
 
 func usablePortfolioHistoryPoints(_ history: PortfolioHistory?) -> [PortfolioHistoryPoint] {
     guard let history else { return [] }
-    return history.points.filter { $0.pricedCardCount > 0 }
+    return history.points
 }
 
 func portfolioHasUsableHistory(_ history: PortfolioHistory?) -> Bool {
@@ -137,7 +137,7 @@ func portfolioHasUsableHistory(_ history: PortfolioHistory?) -> Bool {
 }
 
 func latestPricedPortfolioHistoryPointIndex(in points: [PortfolioHistoryPoint]) -> Int? {
-    points.lastIndex(where: { $0.pricedCardCount > 0 })
+    points.indices.last
 }
 
 func resolvedPortfolioHistorySelectionIndex(
@@ -148,8 +148,7 @@ func resolvedPortfolioHistorySelectionIndex(
     guard !points.isEmpty else { return nil }
 
     if let selectedPointIndex,
-       points.indices.contains(selectedPointIndex),
-       points[selectedPointIndex].pricedCardCount > 0 {
+       points.indices.contains(selectedPointIndex) {
         return selectedPointIndex
     }
 
@@ -166,12 +165,13 @@ func chartDragShouldScrub(translation: CGSize) -> Bool {
 func portfolioSwipeShouldOpenScanner(
     startLocation: CGPoint,
     translation: CGSize,
-    minimumHorizontalTravel: CGFloat = 90,
-    edgeActivationWidth: CGFloat = 36
+    minimumHorizontalTravel: CGFloat = 56,
+    edgeActivationWidth: CGFloat = 96,
+    containerWidth: CGFloat = 390
 ) -> Bool {
-    guard startLocation.x <= edgeActivationWidth else { return false }
+    guard startLocation.x >= containerWidth - edgeActivationWidth else { return false }
     guard abs(translation.width) > abs(translation.height) else { return false }
-    guard translation.width >= minimumHorizontalTravel else { return false }
+    guard translation.width <= -minimumHorizontalTravel else { return false }
     return true
 }
 
@@ -184,6 +184,24 @@ func portfolioDragShouldBlockHorizontalPageSwipe(
     let horizontalTravel = abs(translation.width)
     guard verticalTravel >= minimumVerticalTravel else { return false }
     return verticalTravel > horizontalTravel + dominancePadding
+}
+
+func portfolioInventoryBrowserLaunchSelectionState(
+    startsInSelectionMode: Bool,
+    initialSelectedEntryID: String?
+) -> (isSelectionMode: Bool, selectedEntryIDs: Set<String>) {
+    guard startsInSelectionMode else {
+        return (false, [])
+    }
+
+    let normalizedEntryID = initialSelectedEntryID?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+
+    if let normalizedEntryID, !normalizedEntryID.isEmpty {
+        return (true, [normalizedEntryID])
+    }
+
+    return (true, [])
 }
 
 func filteredPortfolioEntries(
@@ -240,6 +258,59 @@ func portfolioHistoryLineSeries(for history: PortfolioHistory?) -> [PortfolioHis
             values: points.map { $0.marketValue ?? $0.totalValue }
         ),
     ]
+}
+
+struct PortfolioHoverDelta: Equatable {
+    let baselineValue: Double
+    let hoveredValue: Double
+    let deltaDollar: Double
+    let deltaPercent: Double
+}
+
+func portfolioRangeHoverDelta(
+    points: [PortfolioHistoryPoint],
+    hoveredIndex: Int?
+) -> PortfolioHoverDelta? {
+    guard !points.isEmpty else { return nil }
+
+    let safeIndex: Int = {
+        guard let hoveredIndex else {
+            return points.count - 1
+        }
+        return min(max(hoveredIndex, 0), points.count - 1)
+    }()
+
+    let baselineValue = points[0].marketValue ?? points[0].totalValue
+    let hoveredValue = points[safeIndex].marketValue ?? points[safeIndex].totalValue
+    let deltaDollar = ((hoveredValue - baselineValue) * 100).rounded() / 100
+    let deltaPercent: Double = {
+        guard let percentBaselineIndex = points.firstIndex(where: {
+            let value = $0.marketValue ?? $0.totalValue
+            return $0.pricedCardCount > 0 && value > 0
+        }) else {
+            return 0
+        }
+
+        guard safeIndex > percentBaselineIndex else {
+            return 0
+        }
+
+        let percentBaselineValue = points[percentBaselineIndex].marketValue
+            ?? points[percentBaselineIndex].totalValue
+        guard percentBaselineValue != 0 else {
+            return 0
+        }
+
+        let rawPercent = ((hoveredValue - percentBaselineValue) / percentBaselineValue) * 100.0
+        return (rawPercent * 10_000).rounded() / 10_000
+    }()
+
+    return PortfolioHoverDelta(
+        baselineValue: baselineValue,
+        hoveredValue: hoveredValue,
+        deltaDollar: deltaDollar,
+        deltaPercent: deltaPercent
+    )
 }
 
 func portfolioSinglePricedHistoryDisplay(
@@ -328,6 +399,29 @@ func portfolioSelectionModeShouldRemainActive(selectedIDs: Set<String>) -> Bool 
     !selectedIDs.isEmpty
 }
 
+func formattedPortfolioCardPrice(_ value: Double?, currencyCode: String = "USD") -> String {
+    guard let value else {
+        return "No price"
+    }
+    return value.formatted(.currency(code: currencyCode).precision(.fractionLength(2)))
+}
+
+func portfolioCardNumberLabel(for entry: DeckCardEntry) -> String {
+    let normalizedNumber = entry.card.number.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !normalizedNumber.isEmpty else {
+        return entry.card.setName
+    }
+    if normalizedNumber.hasPrefix("#") {
+        return normalizedNumber
+    }
+    return "#\(normalizedNumber)"
+}
+
+func formattedPortfolioTransactionTimestamp(_ transaction: PortfolioLedgerTransaction) -> String {
+    let action = transaction.kind == .sell ? "Sold" : "Bought"
+    return "\(action) on \(transaction.occurredAt.formatted(date: .abbreviated, time: .omitted))"
+}
+
 struct PortfolioBatchSelectionSummary: Equatable {
     let cardCount: Int
     let quantity: Int
@@ -359,6 +453,220 @@ func portfolioPriceAfterDollarOff(from marketPrice: Double, dollarOff: Double) -
 
 func portfolioEightyPercentPrice(from marketPrice: Double) -> Double {
     max(0, marketPrice * 0.8)
+}
+
+private struct PortfolioInventoryEntryTile: View {
+    @Environment(\.lootyTheme) private var theme
+
+    let entry: DeckCardEntry
+    let isSelectionMode: Bool
+    let isSelected: Bool
+    let onTap: () -> Void
+    let onLongPress: (() -> Void)?
+
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var outline: Color { theme.colors.outlineSubtle }
+    private var limeAccent: Color { theme.colors.brand }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            CardArtworkView(
+                urlString: entry.card.imageSmallURL ?? entry.card.imageLargeURL,
+                fallbackTitle: entry.card.name,
+                cornerRadius: 14,
+                contentMode: .fit
+            )
+            .frame(maxWidth: .infinity)
+            .frame(height: 144)
+            .background(theme.colors.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay(alignment: .topTrailing) {
+                if isSelectionMode {
+                    selectionBadge
+                        .padding(10)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(entry.card.name)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                Text(formattedPortfolioCardPrice(entry.primaryPrice, currencyCode: entry.card.pricing?.currencyCode ?? "USD"))
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(entry.primaryPrice == nil ? theme.colors.textSecondary : theme.colors.textPrimary)
+                    .lineLimit(1)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                HStack(spacing: 6) {
+                    Text(portfolioCardNumberLabel(for: entry))
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(1)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "square.stack.3d.up.fill")
+                            .font(.system(size: 9, weight: .bold))
+                        Text("\(entry.quantity)")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .foregroundStyle(theme.colors.textPrimary)
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+        .padding(8)
+        .background(isSelected ? limeAccent.opacity(0.12) : surfaceBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(isSelected ? limeAccent : outline, lineWidth: isSelected ? 1.5 : 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onTapGesture(perform: onTap)
+        .simultaneousGesture(
+            LongPressGesture(minimumDuration: 0.35)
+                .onEnded { _ in
+                    onLongPress?()
+                }
+        )
+    }
+
+    private var selectionBadge: some View {
+        ZStack {
+                Circle()
+                    .fill(isSelected ? limeAccent : theme.colors.canvas)
+                    .frame(width: 28, height: 28)
+
+                Circle()
+                    .stroke(isSelected ? limeAccent : theme.colors.outlineStrong, lineWidth: 1)
+                    .frame(width: 28, height: 28)
+
+            if isSelected {
+                Image(systemName: "checkmark")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(.black)
+            }
+        }
+    }
+}
+
+private struct PortfolioSectionHeader: View {
+    @Environment(\.lootyTheme) private var theme
+
+    let title: String
+    let subtitle: String?
+    let isExpanded: Bool
+    var trailing: AnyView? = nil
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            HStack(spacing: theme.spacing.xs) {
+                VStack(alignment: .leading, spacing: theme.spacing.xxxs) {
+                    Text(title)
+                        .font(.system(size: 26, weight: .bold, design: .rounded))
+                        .foregroundStyle(theme.colors.textPrimary)
+
+                    if let subtitle, !subtitle.isEmpty {
+                        Text(subtitle)
+                            .font(theme.typography.caption)
+                            .foregroundStyle(theme.colors.textSecondary)
+                    }
+                }
+
+                Spacer(minLength: theme.spacing.sm)
+
+                if let trailing {
+                    trailing
+                }
+
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct PortfolioLatestTransactionCard: View {
+    @Environment(\.lootyTheme) private var theme
+
+    let transaction: PortfolioLedgerTransaction
+    let onTap: () -> Void
+
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var outline: Color { theme.colors.outlineSubtle }
+    var body: some View {
+        HStack(alignment: .top, spacing: theme.spacing.sm) {
+            CardArtworkView(
+                urlString: transaction.card.imageSmallURL ?? transaction.card.imageLargeURL,
+                fallbackTitle: transaction.card.name,
+                cornerRadius: 12,
+                contentMode: .fit
+            )
+            .frame(width: 72, height: 96)
+            .background(theme.colors.surface)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+
+            VStack(alignment: .leading, spacing: theme.spacing.xxxs) {
+                if let grader = transaction.slabContext?.grader,
+                   let grade = transaction.slabContext?.grade {
+                    Text("\(grader) \(grade)")
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(theme.colors.textSecondary)
+                }
+
+                Text(transaction.card.name)
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(theme.colors.textPrimary)
+
+                Text("#\(transaction.card.number) • \(transaction.card.setName)")
+                    .font(.caption)
+                    .foregroundStyle(theme.colors.textSecondary)
+
+                if let note = visibleTransactionNote(transaction) {
+                    Text(note)
+                        .font(.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(2)
+                }
+            }
+
+            Spacer(minLength: 0)
+
+            VStack(alignment: .trailing, spacing: theme.spacing.xxxs) {
+                Text(transaction.totalPrice.formatted(.currency(code: transaction.currencyCode).precision(.fractionLength(2))))
+                    .font(.headline.weight(.bold))
+                    .foregroundStyle(theme.colors.textPrimary)
+
+                Text(formattedPortfolioTransactionTimestamp(transaction))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(theme.colors.textSecondary)
+                    .multilineTextAlignment(.trailing)
+
+                Image(systemName: "pencil")
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+        }
+        .padding(theme.spacing.sm)
+        .background(surfaceBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(outline, lineWidth: 1)
+        )
+        .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .onTapGesture(perform: onTap)
+    }
 }
 
 func portfolioResolvedCalculatorPrice(
@@ -415,9 +723,13 @@ struct PortfolioValueChartCard: View {
         return visiblePoints[resolvedSelectionIndex]
     }
 
-    private var displayedValue: Double {
+    private var displayedPointValue: Double? {
         selectedPoint?.marketValue
             ?? selectedPoint?.totalValue
+    }
+
+    private var displayedValue: Double {
+        displayedPointValue
             ?? (hasUsableHistory ? history?.summary.currentValue : nil)
             ?? fallbackCurrentValue
     }
@@ -432,27 +744,34 @@ struct PortfolioValueChartCard: View {
         return formattedDisplayDate(from: dateString)
     }
 
-    private var rangeDelta: Double? {
-        guard hasUsableHistory,
-              visiblePoints.count > 1,
-              let firstValue = visiblePoints.first?.marketValue ?? visiblePoints.first?.totalValue,
-              let lastValue = visiblePoints.last?.marketValue ?? visiblePoints.last?.totalValue else {
-            return nil
-        }
-        return ((lastValue - firstValue) * 100).rounded() / 100
+    private var hoverDelta: PortfolioHoverDelta? {
+        portfolioRangeHoverDelta(
+            points: visiblePoints,
+            hoveredIndex: resolvedSelectionIndex
+        )
     }
 
-    private var rangeDeltaPercent: Double? {
-        guard let rangeDelta,
-              let firstValue = visiblePoints.first?.marketValue ?? visiblePoints.first?.totalValue,
-              firstValue != 0 else {
-            return nil
-        }
-        return (((rangeDelta / firstValue) * 100.0) * 10_000).rounded() / 10_000
+    private var displayedDelta: Double? {
+        hoverDelta?.deltaDollar
+    }
+
+    private var displayedDeltaPercent: Double? {
+        hoverDelta?.deltaPercent
     }
 
     private var displayCurrencyCode: String {
         history?.currencyCode ?? "USD"
+    }
+
+    private var displayedDeltaLabel: String? {
+        guard let displayedDelta else { return nil }
+        let positive = displayedDelta >= 0
+        let sign = positive ? "+" : "-"
+        let deltaText = "\(sign)\(formattedPrice(abs(displayedDelta), currencyCode: displayCurrencyCode))"
+        if let displayedDeltaPercent {
+            return "\(deltaText) • \(String(format: "%.2f", abs(displayedDeltaPercent)))%"
+        }
+        return deltaText
     }
 
     var body: some View {
@@ -476,19 +795,17 @@ struct PortfolioValueChartCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(formattedPrice(displayedValue, currencyCode: displayCurrencyCode))
                 .font(.system(size: 35, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
 
             HStack(spacing: 10) {
                 Text(displayedDateLabel)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(theme.colors.textSecondary.opacity(0.9))
+                    .foregroundStyle(theme.colors.textPrimary)
 
-                if let rangeDelta,
-                   let rangeDeltaPercent {
-                    let positive = rangeDelta >= 0
-                    Text("\(positive ? "+" : "-")\(formattedPrice(abs(rangeDelta), currencyCode: displayCurrencyCode)) • \(String(format: "%.2f", abs(rangeDeltaPercent)))%")
+                if let displayedDeltaLabel {
+                    Text(displayedDeltaLabel)
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(positive ? theme.colors.success : theme.colors.danger)
+                        .foregroundStyle(theme.colors.textPrimary)
                 }
             }
         }
@@ -598,7 +915,7 @@ struct PortfolioValueChartCard: View {
         VStack(spacing: 10) {
             Image(systemName: isLoading ? "chart.line.uptrend.xyaxis" : "clock.arrow.circlepath")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(Color.white.opacity(0.46))
+                .foregroundStyle(theme.colors.textSecondary)
 
             Text(
                 isLoading
@@ -656,7 +973,7 @@ struct PortfolioValueChartCard: View {
         }
         .mask(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(.white)
+                .fill(theme.colors.canvasElevated)
         )
     }
 
@@ -710,7 +1027,7 @@ struct PortfolioValueChartCard: View {
                 } label: {
                     Text(option.displayLabel)
                         .font(.caption2.weight(.bold))
-                        .foregroundStyle(selectedRange == option ? theme.colors.textInverse : theme.colors.textPrimary.opacity(0.82))
+                        .foregroundStyle(selectedRange == option ? theme.colors.textInverse : theme.colors.textPrimary)
                         .padding(.horizontal, 10)
                         .padding(.vertical, 7)
                         .frame(maxWidth: .infinity)
@@ -736,8 +1053,8 @@ struct PortfolioValueChartCard: View {
         let width = max(1, size.width - horizontalPadding * 2)
         let height = max(1, size.height - verticalPadding * 2)
 
-        let minValue = visiblePoints.map(\.totalValue).min() ?? 0
-        let maxValue = visiblePoints.map(\.totalValue).max() ?? 1
+        let minValue: Double = 0
+        let maxValue = max(visiblePoints.map(\.totalValue).max() ?? 1, 1)
         let valueRange = max(maxValue - minValue, max(maxValue * 0.08, 1))
         let xStep = width / CGFloat(visiblePoints.count - 1)
 
@@ -759,17 +1076,15 @@ struct PortfolioValueChartCard: View {
             return (nil, nil)
         }
 
-        let minValue: Double
+        let minValue: Double = 0
         let maxValue: Double
         if values.count == 1, let onlyValue = values.first {
-            minValue = 0
             maxValue = max(onlyValue * 1.15, 1)
         } else {
-            guard let resolvedMinValue = values.min(), let resolvedMaxValue = values.max() else {
+            guard let resolvedMaxValue = values.max() else {
                 return (nil, nil)
             }
-            minValue = resolvedMinValue
-            maxValue = resolvedMaxValue
+            maxValue = max(resolvedMaxValue, 1)
         }
 
         let valueRange = max(maxValue - minValue, max(maxValue * 0.08, 1))
@@ -851,30 +1166,52 @@ private extension Array {
     }
 }
 
+private struct PortfolioInventoryBrowserPresentation: Identifiable {
+    let id = UUID()
+    let startsInSelectionMode: Bool
+    let initialSelectedEntryID: String?
+
+    static func browse() -> Self {
+        Self(startsInSelectionMode: false, initialSelectedEntryID: nil)
+    }
+
+    static func sell(initialSelectedEntryID: String? = nil) -> Self {
+        Self(startsInSelectionMode: true, initialSelectedEntryID: initialSelectedEntryID)
+    }
+}
+
 struct PortfolioSurfaceView: View {
     @Environment(\.lootyTheme) private var theme
     let onSelectEntry: (DeckCardEntry) -> Void
     @ObservedObject var collectionStore: CollectionStore
+    @ObservedObject var scannerViewModel: ScannerViewModel
+    @ObservedObject var showsState: ShowsMockState
+    let accountMonogram: String
     let isVisible: Bool
     let isHorizontalPageSwipeActive: Bool
     let onEnsureEntries: () -> Void
     let onOpenScanner: () -> Void
-    let onOpenLedger: () -> Void
+    let onOpenAccount: () -> Void
     let onVerticalScrollGestureActiveChanged: (Bool) -> Void
     @State private var searchQuery = ""
-    @State private var sortOption: PortfolioSortChoice = .recentlyAdded
-    @State private var inventoryFilter: PortfolioInventoryFilter = .all
+    @State private var isShowingManualCardSearch = false
     @State private var displayedEntries: [DeckCardEntry] = []
     @State private var displayedEntriesRefreshID = 0
-    @State private var isSelectionMode = false
-    @State private var selectedEntryIDs: Set<String> = []
-    @State private var isShowingBatchSellPreview = false
+    @State private var inventoryBrowserPresentation: PortfolioInventoryBrowserPresentation?
+    @State private var isInventorySectionExpanded = true
+    @State private var isTransactionsSectionExpanded = true
+    @State private var editingTransaction: PortfolioLedgerTransaction?
 
     private var inkBackground: Color { theme.colors.canvas }
     private var surfaceBackground: Color { theme.colors.canvasElevated }
     private var fieldBackground: Color { theme.colors.surface }
     private var limeAccent: Color { theme.colors.brand }
     private var outline: Color { theme.colors.outlineSubtle }
+    private var latestTransactions: [PortfolioLedgerTransaction] {
+        (collectionStore.portfolioLedger?.transactions ?? [])
+            .filter { $0.kind == .sell }
+            .sorted { $0.occurredAt > $1.occurredAt }
+    }
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -888,13 +1225,14 @@ struct PortfolioSurfaceView: View {
                 inkBackground.ignoresSafeArea()
 
                 ScrollView(showsIndicators: true) {
-                    VStack(alignment: .leading, spacing: 20) {
-                        portfolioChartSection
-                        portfolioHeader
-                        portfolioCardsSection
+                    VStack(alignment: .leading, spacing: 16) {
+                        pageHeader
+                        portfolioOverviewSection
+                        inventorySection
+                        transactionsSection
                     }
-                    .padding(.horizontal, 18)
-                    .padding(.top, 18)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
                     .padding(.bottom, 104 + max(proxy.safeAreaInsets.bottom, 0))
                 }
                 .scrollDisabled(isHorizontalPageSwipeActive)
@@ -910,50 +1248,35 @@ struct PortfolioSurfaceView: View {
                 )
             }
             .safeAreaInset(edge: .bottom, spacing: 0) {
-                VStack(spacing: 0) {
-                    if isSelectionMode {
-                        batchSelectionBar
-                    }
-
-                    AppShellBottomBar(
-                        selectedTab: .portfolio,
-                        onOpenPortfolio: {},
-                        onOpenScanner: onOpenScanner,
-                        onOpenLedger: onOpenLedger
-                    )
-                }
+                AppShellBottomBar(
+                    selectedTab: .portfolio,
+                    onOpenPortfolio: {},
+                    onOpenScanner: onOpenScanner,
+                    onOpenLedger: {}
+                )
             }
-            .sheet(isPresented: $isShowingBatchSellPreview) {
-                if let draft = selectedBatchSellDraft {
-                    ShowSellBatchPreviewSheet(draft: draft) { submission in
-                        let requests = submission.lines.map { line in
-                            PortfolioSaleBatchLineRequest(
-                                card: line.entry.card,
-                                slabContext: line.entry.slabContext,
-                                quantity: line.quantity,
-                                unitPrice: line.unitPrice,
-                                currencyCode: line.entry.card.pricing?.currencyCode ?? "USD",
-                                paymentMethod: submission.paymentMethod,
-                                soldAt: Date(),
-                                showSessionID: nil,
-                                note: submission.note,
-                                sourceScanID: nil
-                            )
-                        }
-                        _ = try await collectionStore.recordSalesBatch(requests)
-                        await MainActor.run {
-                            exitSelectionMode()
-                            isShowingBatchSellPreview = false
-                        }
-                    }
-                } else {
-                    EmptyView()
-                }
+            .fullScreenCover(item: $inventoryBrowserPresentation) { presentation in
+                PortfolioInventoryBrowserView(
+                    collectionStore: collectionStore,
+                    searchQuery: $searchQuery,
+                    startsInSelectionMode: presentation.startsInSelectionMode,
+                    initialSelectedEntryID: presentation.initialSelectedEntryID,
+                    onSelectEntry: onSelectEntry
+                )
+            }
+            .fullScreenCover(isPresented: $isShowingManualCardSearch) {
+                ManualCardSearchView(
+                    collectionStore: collectionStore,
+                    scannerViewModel: scannerViewModel,
+                    showsState: showsState,
+                    onOpenScanner: onOpenScanner
+                )
             }
             .refreshable {
                 async let entriesRefresh: Void = collectionStore.refreshFromBackend()
                 async let historyRefresh: Void = collectionStore.refreshPortfolioHistory()
-                _ = await (entriesRefresh, historyRefresh)
+                async let ledgerRefresh: Void = collectionStore.refreshPortfolioLedger(range: .all)
+                _ = await (entriesRefresh, historyRefresh, ledgerRefresh)
             }
             .onChange(of: isVisible, initial: true) { _, visible in
                 spotlightFlowLog("Portfolio isVisible -> \(visible) entries=\(collectionStore.entries.count) displayed=\(displayedEntries.count) historyLoaded=\(collectionStore.portfolioHistory != nil)")
@@ -973,16 +1296,15 @@ struct PortfolioSurfaceView: View {
                         await collectionStore.refreshPortfolioHistory()
                     }
                 }
+                if collectionStore.portfolioLedger == nil,
+                   !collectionStore.isLoadingPortfolioLedger {
+                    spotlightFlowLog("Portfolio requesting ledger load on first visibility")
+                    Task {
+                        await collectionStore.refreshPortfolioLedger(range: .all)
+                    }
+                }
             }
             .onChange(of: searchQuery, initial: true) { _, _ in
-                guard isVisible else { return }
-                scheduleDisplayedEntriesRefresh()
-            }
-            .onChange(of: sortOption, initial: false) {
-                guard isVisible else { return }
-                scheduleDisplayedEntriesRefresh()
-            }
-            .onChange(of: inventoryFilter, initial: false) {
                 guard isVisible else { return }
                 scheduleDisplayedEntriesRefresh()
             }
@@ -992,10 +1314,57 @@ struct PortfolioSurfaceView: View {
                 guard isVisible else { return }
                 scheduleDisplayedEntriesRefresh()
             }
+            .sheet(item: $editingTransaction) { transaction in
+                LedgerTransactionPriceEditorSheet(transaction: transaction) { updatedUnitPrice in
+                    switch transaction.kind {
+                    case .buy:
+                        try await collectionStore.updatePortfolioBuyTransactionPrice(
+                            transactionID: transaction.id,
+                            unitPrice: updatedUnitPrice,
+                            currencyCode: transaction.currencyCode
+                        )
+                    case .sell:
+                        try await collectionStore.updatePortfolioSaleTransactionPrice(
+                            transactionID: transaction.id,
+                            unitPrice: updatedUnitPrice,
+                            currencyCode: transaction.currencyCode
+                        )
+                    }
+                }
+            }
         }
     }
 
-    private var portfolioChartSection: some View {
+    private var pageHeader: some View {
+        HStack(alignment: .top, spacing: theme.spacing.sm) {
+            VStack(alignment: .leading, spacing: theme.spacing.xxxs) {
+                Text("Portfolio")
+                    .font(theme.typography.display)
+                    .foregroundStyle(theme.colors.textPrimary)
+
+                Text("Track value, inventory, and recent sales in one place.")
+                    .font(theme.typography.body)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+
+            Spacer(minLength: theme.spacing.sm)
+
+            Button(action: onOpenAccount) {
+                Circle()
+                    .fill(theme.colors.brand)
+                    .frame(width: 40, height: 40)
+                    .overlay(
+                        Text(accountMonogram)
+                            .font(theme.typography.caption)
+                            .foregroundStyle(theme.colors.textInverse)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open account")
+        }
+    }
+
+    private var portfolioOverviewSection: some View {
         PortfolioValueChartCard(
             history: collectionStore.portfolioHistory,
             fallbackCurrentValue: currentMarketValue,
@@ -1009,108 +1378,125 @@ struct PortfolioSurfaceView: View {
         )
     }
 
-    private var portfolioHeader: some View {
-        HStack {
-            Text(isSelectionMode ? "Select cards" : "Inventory")
-                .font(.system(size: 26, weight: .bold, design: .rounded))
-                .foregroundStyle(.white)
-
-            if !isSelectionMode {
-                Text("(\(collectionStore.totalCardCount))")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white.opacity(0.46))
-            }
-
-            Spacer()
-
-            if isSelectionMode {
+    private var inventorySection: some View {
+        VStack(alignment: .leading, spacing: theme.spacing.xs) {
+            HStack(spacing: theme.spacing.xs) {
                 Button {
-                    exitSelectionMode()
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        isInventorySectionExpanded.toggle()
+                    }
                 } label: {
-                    Label("Done", systemImage: "xmark.circle.fill")
-                        .font(.subheadline.weight(.bold))
-                        .foregroundStyle(.white)
+                    HStack(spacing: theme.spacing.xs) {
+                        Text("Inventory")
+                            .font(.system(size: 26, weight: .bold, design: .rounded))
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .lineLimit(1)
+
+                        if !collectionStore.entries.isEmpty {
+                            Text("(\(collectionStore.totalCardCount))")
+                                .font(.title3.weight(.bold))
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .lineLimit(1)
+                        }
+
+                        Image(systemName: isInventorySectionExpanded ? "chevron.up" : "chevron.down")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(theme.colors.textSecondary)
+                    }
+                    .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-            }
-        }
-    }
+                .layoutPriority(1)
 
-    private var portfolioCardsSection: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            HStack(spacing: 12) {
-                if isSelectionMode {
-                    Button("Done") {
-                        exitSelectionMode()
+                Spacer(minLength: 0)
+            }
+
+            HStack(alignment: .center, spacing: theme.spacing.sm) {
+                Button {
+                    isShowingManualCardSearch = true
+                } label: {
+                    Text("Add Card")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(theme.colors.textInverse)
+                        .padding(.horizontal, 14)
+                        .padding(.vertical, 8)
+                        .background(theme.colors.brand)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 0)
+
+                if !collectionStore.entries.isEmpty {
+                    Button {
+                        presentInventoryBrowser(selectionMode: true)
+                    } label: {
+                        Text("Sell")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(fieldBackground)
+                            .overlay(
+                                Capsule()
+                                    .stroke(outline, lineWidth: 1)
+                            )
+                            .clipShape(Capsule())
                     }
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .buttonStyle(.plain)
 
-                    Text("\(selectedEntries.count) selected")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
-                }
-
-                Spacer()
-
-                if !isSelectionMode {
-                    EmptyView()
+                    Button {
+                        presentInventoryBrowser()
+                    } label: {
+                        Text("See more")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(theme.colors.textPrimary)
+                    }
+                    .buttonStyle(.plain)
                 }
             }
 
-            HStack(spacing: 12) {
-                HStack(spacing: 10) {
-                    Image(systemName: "magnifyingglass")
-                        .foregroundStyle(.white.opacity(0.45))
+            if isInventorySectionExpanded {
+                VStack(alignment: .leading, spacing: 18) {
+                    HStack(spacing: 12) {
+                        HStack(spacing: 10) {
+                            Image(systemName: "magnifyingglass")
+                                .foregroundStyle(theme.colors.textSecondary)
 
-                    TextField("Search inventory cards", text: $searchQuery)
-                        .textInputAutocapitalization(.never)
-                        .disableAutocorrection(true)
-                        .foregroundStyle(.white)
-                }
-                .padding(.horizontal, 14)
-                .frame(height: 44)
-                .background(fieldBackground)
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .contentShape(Rectangle())
-                .overlay(
-                    RoundedRectangle(cornerRadius: 14, style: .continuous)
-                        .stroke(outline, lineWidth: 1)
-                )
-            }
-
-            VStack(alignment: .leading, spacing: 10) {
-                portfolioControlRow(
-                    title: "Sort",
-                    chips: PortfolioSortChoice.allCases.map { option in
-                        PortfolioControlChip(
-                            title: option.compactLabel,
-                            isSelected: sortOption == option
-                        ) {
-                            sortOption = option
+                            TextField("Search inventory cards", text: $searchQuery)
+                                .textInputAutocapitalization(.never)
+                                .disableAutocorrection(true)
+                                .foregroundStyle(theme.colors.textPrimary)
                         }
+                        .padding(.horizontal, 14)
+                        .frame(height: 44)
+                        .background(fieldBackground)
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .contentShape(Rectangle())
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .stroke(outline, lineWidth: 1)
+                        )
                     }
-                )
 
-                portfolioControlRow(
-                    title: "Filter",
-                    chips: PortfolioInventoryFilter.allCases.map { filter in
-                        PortfolioControlChip(
-                            title: filter.displayName,
-                            isSelected: inventoryFilter == filter
-                        ) {
-                            inventoryFilter = filter
+                    if displayedEntries.isEmpty {
+                        emptyState
+                    } else {
+                        LazyVGrid(columns: columns, spacing: 12) {
+                            ForEach(Array(displayedEntries.prefix(9))) { entry in
+                                PortfolioInventoryEntryTile(
+                                    entry: entry,
+                                    isSelectionMode: false,
+                                    isSelected: false,
+                                    onTap: {
+                                        onSelectEntry(entry)
+                                    },
+                                    onLongPress: {
+                                        presentInventoryBrowser(selectionMode: true, initialSelectedEntryID: entry.id)
+                                    }
+                                )
+                            }
                         }
-                    }
-                )
-            }
-
-            if displayedEntries.isEmpty {
-                emptyState
-            } else {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(displayedEntries) { entry in
-                        portfolioCard(entry)
                     }
                 }
             }
@@ -1118,14 +1504,45 @@ struct PortfolioSurfaceView: View {
     }
 
     private var emptyState: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            Text(emptyStateTitle)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.white)
+        VStack(alignment: .leading, spacing: 14) {
+            VStack(alignment: .leading, spacing: 10) {
+                Text(emptyStateTitle)
+                    .font(.headline.weight(.semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
 
-            Text(emptyStateMessage)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(0.62))
+                Text(emptyStateMessage)
+                    .font(.subheadline)
+                    .foregroundStyle(theme.colors.textSecondary)
+            }
+
+            if !collectionStore.entries.isEmpty {
+                HStack(spacing: 12) {
+                    Button {
+                        isShowingManualCardSearch = true
+                    } label: {
+                        Text("Add Card")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(
+                        LootyFilledButtonStyle(
+                            fill: theme.colors.brand,
+                            foreground: theme.colors.textInverse,
+                            cornerRadius: 16,
+                            minHeight: 50
+                        )
+                    )
+
+                    Button {
+                        onOpenScanner()
+                    } label: {
+                        Text("Open Scanner")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(
+                        LootySecondaryButtonStyle()
+                    )
+                }
+            }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(18)
@@ -1137,252 +1554,51 @@ struct PortfolioSurfaceView: View {
         )
     }
 
-    private func portfolioControlRow(
-        title: String,
-        chips: [PortfolioControlChip]
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title.uppercased())
-                .font(.caption.weight(.bold))
-                .foregroundStyle(.white.opacity(0.42))
-                .tracking(1.0)
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 8) {
-                    ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
-                        chip
-                    }
+    private var transactionsSection: some View {
+        VStack(alignment: .leading, spacing: theme.spacing.xs) {
+            PortfolioSectionHeader(
+                title: "Latest Sales",
+                subtitle: latestTransactions.isEmpty ? "Completed sales will show up here." : nil,
+                isExpanded: isTransactionsSectionExpanded,
+                trailing: collectionStore.isLoadingPortfolioLedger
+                    ? AnyView(ProgressView().tint(theme.colors.textSecondary))
+                    : nil
+            ) {
+                withAnimation(.easeInOut(duration: 0.18)) {
+                    isTransactionsSectionExpanded.toggle()
                 }
             }
-        }
-    }
 
-    private struct PortfolioControlChip: View {
-        let title: String
-        let isSelected: Bool
-        let action: () -> Void
+            if isTransactionsSectionExpanded {
+                if latestTransactions.isEmpty {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("No sales yet")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(theme.colors.textPrimary)
 
-        @Environment(\.lootyTheme) private var theme
-
-        var body: some View {
-            Button(action: action) {
-                Text(title)
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(isSelected ? theme.colors.textInverse : .white.opacity(0.86))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(isSelected ? theme.colors.brand : theme.colors.surface)
+                        Text("Completed sales will appear here as soon as you start moving inventory.")
+                            .font(.subheadline)
+                            .foregroundStyle(theme.colors.textSecondary)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(16)
+                    .background(surfaceBackground)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(
-                        Capsule()
-                            .stroke(isSelected ? Color.clear : theme.colors.outlineSubtle, lineWidth: 1)
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .stroke(outline, lineWidth: 1)
                     )
-                    .clipShape(Capsule())
-            }
-            .buttonStyle(.plain)
-        }
-    }
-
-    private func portfolioCard(_ entry: DeckCardEntry) -> some View {
-        let isSelected = selectedEntryIDs.contains(entry.id)
-
-        return VStack(alignment: .leading, spacing: 8) {
-            CardArtworkView(
-                urlString: entry.card.imageSmallURL ?? entry.card.imageLargeURL,
-                fallbackTitle: entry.card.name,
-                cornerRadius: 14,
-                contentMode: .fit
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 144)
-            .background(Color.white.opacity(0.04))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(alignment: .topTrailing) {
-                if isSelectionMode {
-                    selectionBadge(isSelected: isSelected)
-                        .padding(10)
-                }
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(entry.card.name)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .truncationMode(.tail)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                Text(formattedPortfolioCardPrice(entry.primaryPrice, currencyCode: entry.card.pricing?.currencyCode ?? "USD"))
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(entry.primaryPrice == nil ? Color.white.opacity(0.54) : limeAccent)
-                    .lineLimit(1)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-
-                HStack(spacing: 6) {
-                    Text(portfolioCardNumberLabel(for: entry))
-                        .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.62))
-                        .lineLimit(1)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-
-                    HStack(spacing: 4) {
-                        Image(systemName: "square.stack.3d.up.fill")
-                            .font(.system(size: 9, weight: .bold))
-                        Text("\(entry.quantity)")
-                            .font(.caption2.weight(.bold))
-                    }
-                    .foregroundStyle(limeAccent)
-                }
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .padding(8)
-        .background(isSelected ? limeAccent.opacity(0.12) : surfaceBackground)
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(isSelected ? limeAccent : outline, lineWidth: isSelected ? 1.5 : 1)
-        )
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .onTapGesture {
-            if isSelectionMode {
-                toggleSelection(for: entry.id)
-            } else {
-                onSelectEntry(entry)
-            }
-        }
-        .simultaneousGesture(
-            LongPressGesture(minimumDuration: 0.35)
-                .onEnded { _ in
-                    if !isSelectionMode {
-                        isSelectionMode = true
-                        selectedEntryIDs = [entry.id]
-                    } else {
-                        toggleSelection(for: entry.id)
+                } else {
+                    LazyVStack(spacing: theme.spacing.xs) {
+                        ForEach(latestTransactions) { transaction in
+                            PortfolioLatestTransactionCard(transaction: transaction) {
+                                editingTransaction = transaction
+                            }
+                        }
                     }
                 }
-        )
-    }
-
-    private var selectedEntries: [DeckCardEntry] {
-        portfolioSelectedEntries(collectionStore.entries, selectedIDs: selectedEntryIDs)
-    }
-
-    private var selectedBatchSummary: PortfolioBatchSelectionSummary {
-        portfolioBatchSelectionSummary(for: selectedEntries)
-    }
-
-    private var selectedBatchSellDraft: ShowSellBatchDraft? {
-        guard !selectedEntries.isEmpty else { return nil }
-        return ShowSellBatchDraft(
-            title: "Sell selected cards",
-            subtitle: "\(selectedEntries.count) card\(selectedEntries.count == 1 ? "" : "s") from portfolio",
-            lines: selectedEntries.map { entry in
-                ShowSellBatchLineDraft(
-                    id: entry.id,
-                    entry: entry,
-                    sourceItemIDs: [],
-                    scannedCount: 0,
-                    quantityLimit: max(1, entry.quantity),
-                    suggestedUnitPrice: entry.primaryPrice ?? 0
-                )
-            }
-        )
-    }
-
-    private var batchSelectionBar: some View {
-        VStack(spacing: 0) {
-            Rectangle()
-                .fill(outline)
-                .frame(height: 1)
-
-            HStack(spacing: 14) {
-                Button {
-                    exitSelectionMode()
-                } label: {
-                    Image(systemName: "xmark")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundStyle(.white)
-                        .frame(width: 44, height: 44)
-                        .background(fieldBackground)
-                        .clipShape(Circle())
-                }
-                .buttonStyle(.plain)
-
-                Spacer()
-
-                Button {
-                    isShowingBatchSellPreview = true
-                } label: {
-                    Text("Sell selected")
-                }
-                .buttonStyle(
-                    LootyFilledButtonStyle(
-                        fill: selectedEntries.isEmpty ? fieldBackground : limeAccent,
-                        foreground: selectedEntries.isEmpty ? theme.colors.textPrimary.opacity(0.40) : theme.colors.textInverse,
-                        cornerRadius: theme.radius.pill
-                    )
-                )
-                .disabled(selectedEntries.isEmpty)
-            }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .background(inkBackground.opacity(0.98))
-        }
-    }
-
-    private func selectionBadge(isSelected: Bool) -> some View {
-        ZStack {
-            Circle()
-                .fill(isSelected ? limeAccent : Color.black.opacity(0.58))
-                .frame(width: 28, height: 28)
-
-            Circle()
-                .stroke(isSelected ? limeAccent : Color.white.opacity(0.35), lineWidth: 1)
-                .frame(width: 28, height: 28)
-
-            if isSelected {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 12, weight: .bold))
-                    .foregroundStyle(.black)
             }
         }
-    }
-
-    private func toggleSelection(for entryID: String) {
-        selectedEntryIDs = toggledPortfolioSelectionIDs(selectedEntryIDs, entryID: entryID)
-        if !portfolioSelectionModeShouldRemainActive(selectedIDs: selectedEntryIDs) {
-            exitSelectionMode()
-        }
-    }
-
-    private func exitSelectionMode() {
-        isSelectionMode = false
-        selectedEntryIDs.removeAll()
-    }
-
-    private func formattedPrice(_ value: Double?, currencyCode: String = "USD") -> String {
-        guard let value else {
-            return "Unavailable"
-        }
-        return value.formatted(.currency(code: currencyCode).precision(.fractionLength(2)))
-    }
-
-    private func formattedPortfolioCardPrice(_ value: Double?, currencyCode: String = "USD") -> String {
-        guard let value else {
-            return "No price"
-        }
-        return value.formatted(.currency(code: currencyCode).precision(.fractionLength(2)))
-    }
-
-    private func portfolioCardNumberLabel(for entry: DeckCardEntry) -> String {
-        let normalizedNumber = entry.card.number.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalizedNumber.isEmpty else {
-            return entry.card.setName
-        }
-        if normalizedNumber.hasPrefix("#") {
-            return normalizedNumber
-        }
-        return "#\(normalizedNumber)"
     }
 
     private func scheduleDisplayedEntriesRefresh() {
@@ -1390,19 +1606,17 @@ struct PortfolioSurfaceView: View {
         let refreshID = displayedEntriesRefreshID
         let entries = collectionStore.entries
         let query = searchQuery
-        let filter = inventoryFilter
-        let sort = sortOption
         let startedAt = ProcessInfo.processInfo.systemUptime
-        spotlightFlowLog("Portfolio scheduleDisplayedEntriesRefresh id=\(refreshID) entries=\(entries.count) query=\(query) filter=\(filter.rawValue) sort=\(sort.rawValue)")
+        spotlightFlowLog("Portfolio scheduleDisplayedEntriesRefresh id=\(refreshID) entries=\(entries.count) query=\(query) previewLimit=9")
 
         DispatchQueue.global(qos: .userInitiated).async {
             let refreshedEntries = sortedPortfolioEntries(
                 filteredPortfolioEntries(
                     entries,
                     searchQuery: query,
-                    filter: filter
+                    filter: .all
                 ),
-                by: sort
+                by: .recentlyAdded
             )
 
             DispatchQueue.main.async {
@@ -1413,6 +1627,18 @@ struct PortfolioSurfaceView: View {
                 spotlightFlowLog("Portfolio displayedEntries ready id=\(refreshID) displayed=\(refreshedEntries.count) elapsed=\(String(format: "%.3f", elapsed))s")
             }
         }
+    }
+
+    private func presentInventoryBrowser(
+        selectionMode: Bool = false,
+        initialSelectedEntryID: String? = nil
+    ) {
+        if selectionMode {
+            searchQuery = ""
+        }
+        inventoryBrowserPresentation = selectionMode
+            ? .sell(initialSelectedEntryID: initialSelectedEntryID)
+            : .browse()
     }
 
     private func prefetchArtwork(for entries: [DeckCardEntry]) {
@@ -1445,8 +1671,8 @@ struct PortfolioSurfaceView: View {
             return "Fetching your deck entries and artwork."
         }
         return collectionStore.entries.isEmpty
-            ? "Scan a card, tap ADD TO INVENTORY, and it will appear here."
-            : "Try a different name, set, card number, or raw/graded filter."
+            ? "Scan a card and it will appear here."
+            : "Try a different name, set, or card number."
     }
 
     private var currentMarketValue: Double {
@@ -1461,6 +1687,415 @@ struct PortfolioSurfaceView: View {
             from: collectionStore.portfolioHistory,
             fallbackEntries: collectionStore.entries
         )
+    }
+}
+
+private struct PortfolioInventoryBrowserView: View {
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.lootyTheme) private var theme
+
+    @ObservedObject var collectionStore: CollectionStore
+    @Binding var searchQuery: String
+    let startsInSelectionMode: Bool
+    let initialSelectedEntryID: String?
+    let onSelectEntry: (DeckCardEntry) -> Void
+
+    @State private var sortOption: PortfolioSortChoice = .recentlyAdded
+    @State private var inventoryFilter: PortfolioInventoryFilter = .all
+    @State private var displayedEntries: [DeckCardEntry] = []
+    @State private var displayedEntriesRefreshID = 0
+    @State private var isSelectionMode = false
+    @State private var selectedEntryIDs: Set<String> = []
+    @State private var presentedBatchSellDraft: ShowSellBatchDraft?
+    @State private var didCompleteBatchSell = false
+
+    private var inkBackground: Color { theme.colors.canvas }
+    private var surfaceBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.surface }
+    private var limeAccent: Color { theme.colors.brand }
+    private var outline: Color { theme.colors.outlineSubtle }
+    private var launchSelectionStateKey: String {
+        "\(startsInSelectionMode)|\(initialSelectedEntryID ?? "")"
+    }
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+
+    var body: some View {
+        NavigationStack {
+            ZStack {
+                inkBackground.ignoresSafeArea()
+
+                ScrollView(showsIndicators: true) {
+                    VStack(alignment: .leading, spacing: 18) {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text("All cards")
+                                    .font(.system(size: 28, weight: .bold, design: .rounded))
+                                    .foregroundStyle(theme.colors.textPrimary)
+
+                                Text("\(displayedEntries.count) shown")
+                                    .font(.subheadline.weight(.semibold))
+                                    .foregroundStyle(theme.colors.textSecondary)
+                            }
+
+                            Spacer()
+                        }
+
+                        HStack(spacing: 12) {
+                            HStack(spacing: 10) {
+                                Image(systemName: "magnifyingglass")
+                                    .foregroundStyle(theme.colors.textSecondary)
+
+                                TextField("Search inventory cards", text: $searchQuery)
+                                    .textInputAutocapitalization(.never)
+                                    .disableAutocorrection(true)
+                                    .foregroundStyle(theme.colors.textPrimary)
+                            }
+                            .padding(.horizontal, 14)
+                            .frame(height: 44)
+                            .background(fieldBackground)
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .contentShape(Rectangle())
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                    .stroke(outline, lineWidth: 1)
+                            )
+                        }
+
+                        VStack(alignment: .leading, spacing: 10) {
+                            portfolioControlRow(
+                            title: "Sort",
+                                chips: PortfolioSortChoice.allCases.map { option in
+                                    PortfolioControlChip(
+                                        title: option.compactLabel,
+                                        isSelected: sortOption == option
+                                    ) {
+                                        sortOption = option
+                                    }
+                                }
+                            )
+
+                            portfolioControlRow(
+                            title: "Filter",
+                                chips: PortfolioInventoryFilter.allCases.map { filter in
+                                    PortfolioControlChip(
+                                        title: filter.displayName,
+                                        isSelected: inventoryFilter == filter
+                                    ) {
+                                        inventoryFilter = filter
+                                    }
+                                }
+                            )
+                        }
+
+                        if displayedEntries.isEmpty {
+                            emptyState
+                        } else {
+                            LazyVGrid(columns: columns, spacing: 12) {
+                                ForEach(displayedEntries) { entry in
+                                    PortfolioInventoryEntryTile(
+                                        entry: entry,
+                                        isSelectionMode: isSelectionMode,
+                                        isSelected: selectedEntryIDs.contains(entry.id),
+                                        onTap: {
+                                            if isSelectionMode {
+                                                toggleSelection(for: entry.id)
+                                            } else {
+                                                openEntry(entry)
+                                            }
+                                        },
+                                        onLongPress: {
+                                            if !isSelectionMode {
+                                                isSelectionMode = true
+                                                selectedEntryIDs = [entry.id]
+                                            } else {
+                                                toggleSelection(for: entry.id)
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                    .padding(.top, 18)
+                    .padding(.bottom, isSelectionMode ? 110 : 32)
+                }
+            }
+            .safeAreaInset(edge: .bottom, spacing: 0) {
+                if isSelectionMode {
+                    batchSelectionBar
+                }
+            }
+            .sheet(item: $presentedBatchSellDraft, onDismiss: handleBatchSellPreviewDismissal) { draft in
+                ShowSellBatchPreviewSheet(draft: draft) { submission in
+                    let requests = submission.lines.map { line in
+                        PortfolioSaleBatchLineRequest(
+                            card: line.entry.card,
+                            slabContext: line.entry.slabContext,
+                            quantity: line.quantity,
+                            unitPrice: line.unitPrice,
+                            currencyCode: line.entry.card.pricing?.currencyCode ?? "USD",
+                            paymentMethod: submission.paymentMethod,
+                            soldAt: Date(),
+                            showSessionID: nil,
+                            note: submission.note,
+                            sourceScanID: nil
+                        )
+                    }
+                    _ = try await collectionStore.recordSalesBatch(requests)
+                    AppFeedback.saleCompleted()
+                    await MainActor.run {
+                        didCompleteBatchSell = true
+                    }
+                }
+            }
+            .toolbarBackground(inkBackground, for: .navigationBar)
+            .toolbarColorScheme(.dark, for: .navigationBar)
+            .navigationTitle("Inventory")
+            .navigationBarTitleDisplayMode(.inline)
+                            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        dismiss()
+                    } label: {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 16, weight: .bold))
+                            .foregroundStyle(theme.colors.textPrimary)
+                    }
+                }
+            }
+            .task(id: launchSelectionStateKey) {
+                syncLaunchSelectionState()
+            }
+            .onAppear {
+                scheduleDisplayedEntriesRefresh()
+            }
+            .onChange(of: searchQuery, initial: false) { _, _ in
+                scheduleDisplayedEntriesRefresh()
+            }
+            .onChange(of: sortOption, initial: false) { _, _ in
+                scheduleDisplayedEntriesRefresh()
+            }
+            .onChange(of: inventoryFilter, initial: false) { _, _ in
+                scheduleDisplayedEntriesRefresh()
+            }
+            .onChange(of: collectionStore.entries, initial: true) { _, _ in
+                scheduleDisplayedEntriesRefresh()
+            }
+        }
+    }
+
+    private func openEntry(_ entry: DeckCardEntry) {
+        dismiss()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
+            onSelectEntry(entry)
+        }
+    }
+
+    private func syncLaunchSelectionState() {
+        let launchState = portfolioInventoryBrowserLaunchSelectionState(
+            startsInSelectionMode: startsInSelectionMode,
+            initialSelectedEntryID: initialSelectedEntryID
+        )
+        isSelectionMode = launchState.isSelectionMode
+        selectedEntryIDs = launchState.selectedEntryIDs
+    }
+
+    private func handleBatchSellPreviewDismissal() {
+        presentedBatchSellDraft = nil
+        if didCompleteBatchSell {
+            exitSelectionMode()
+        }
+        didCompleteBatchSell = false
+    }
+
+    private func scheduleDisplayedEntriesRefresh() {
+        displayedEntriesRefreshID += 1
+        let refreshID = displayedEntriesRefreshID
+        let entries = collectionStore.entries
+        let query = searchQuery
+        let filter = inventoryFilter
+        let sort = sortOption
+
+        DispatchQueue.global(qos: .userInitiated).async {
+            let refreshedEntries = sortedPortfolioEntries(
+                filteredPortfolioEntries(
+                    entries,
+                    searchQuery: query,
+                    filter: filter
+                ),
+                by: sort
+            )
+
+            DispatchQueue.main.async {
+                guard refreshID == displayedEntriesRefreshID else { return }
+                displayedEntries = refreshedEntries
+            }
+        }
+    }
+
+    private var selectedEntries: [DeckCardEntry] {
+        portfolioSelectedEntries(collectionStore.entries, selectedIDs: selectedEntryIDs)
+    }
+
+    private var selectedBatchSellDraft: ShowSellBatchDraft? {
+        guard !selectedEntries.isEmpty else { return nil }
+        return ShowSellBatchDraft(
+            title: "Sell selected cards",
+            subtitle: "\(selectedEntries.count) card\(selectedEntries.count == 1 ? "" : "s") from inventory",
+            lines: selectedEntries.map { entry in
+                ShowSellBatchLineDraft(
+                    id: entry.id,
+                    entry: entry,
+                    sourceItemIDs: [],
+                    scannedCount: 0,
+                    quantityLimit: max(1, entry.quantity),
+                    suggestedUnitPrice: entry.primaryPrice ?? 0
+                )
+            }
+        )
+    }
+
+    private var batchSelectionBar: some View {
+        VStack(spacing: 0) {
+            Rectangle()
+                .fill(outline)
+                .frame(height: 1)
+
+            HStack(spacing: 14) {
+                Button {
+                    exitSelectionMode()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .frame(width: 44, height: 44)
+                        .background(fieldBackground)
+                        .clipShape(Circle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer()
+
+                Button {
+                    guard let draft = selectedBatchSellDraft else { return }
+                    presentedBatchSellDraft = draft
+                } label: {
+                    Text("Sell selected")
+                }
+                .buttonStyle(
+                    LootyFilledButtonStyle(
+                        fill: selectedEntries.isEmpty ? fieldBackground : limeAccent,
+                        foreground: selectedEntries.isEmpty ? theme.colors.textPrimary.opacity(0.40) : theme.colors.textInverse,
+                        cornerRadius: theme.radius.pill
+                    )
+                )
+                .disabled(selectedEntries.isEmpty)
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .background(inkBackground)
+        }
+    }
+
+    private func toggleSelection(for entryID: String) {
+        selectedEntryIDs = toggledPortfolioSelectionIDs(selectedEntryIDs, entryID: entryID)
+        if !portfolioSelectionModeShouldRemainActive(selectedIDs: selectedEntryIDs) {
+            exitSelectionMode()
+        }
+    }
+
+    private func exitSelectionMode() {
+        isSelectionMode = false
+        selectedEntryIDs.removeAll()
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text(emptyStateTitle)
+                .font(.headline.weight(.semibold))
+                .foregroundStyle(theme.colors.textPrimary)
+
+            Text(emptyStateMessage)
+                .font(.subheadline)
+                .foregroundStyle(theme.colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .background(surfaceBackground)
+        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(outline, lineWidth: 1)
+        )
+    }
+
+    private var emptyStateTitle: String {
+        if collectionStore.isLoadingEntries && collectionStore.entries.isEmpty {
+            return "Loading your inventory..."
+        }
+        return collectionStore.entries.isEmpty
+            ? "No cards in your inventory yet"
+            : "No cards match that search"
+    }
+
+    private var emptyStateMessage: String {
+        if collectionStore.isLoadingEntries && collectionStore.entries.isEmpty {
+            return "Fetching your deck entries and artwork."
+        }
+        return collectionStore.entries.isEmpty
+            ? "Scan a card or add one manually."
+            : "Try a different name, set, card number, or raw/graded filter."
+    }
+
+    private func portfolioControlRow(
+        title: String,
+        chips: [PortfolioControlChip]
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title.uppercased())
+                .font(.caption.weight(.bold))
+                .foregroundStyle(theme.colors.textSecondary)
+                .tracking(1.0)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(Array(chips.enumerated()), id: \.offset) { _, chip in
+                        chip
+                    }
+                }
+            }
+        }
+    }
+
+    private struct PortfolioControlChip: View {
+        let title: String
+        let isSelected: Bool
+        let action: () -> Void
+
+        @Environment(\.lootyTheme) private var theme
+
+        var body: some View {
+            Button(action: action) {
+                Text(title)
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundStyle(isSelected ? theme.colors.textInverse : theme.colors.textPrimary)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(isSelected ? theme.colors.brand : theme.colors.surface)
+                    .overlay(
+                        Capsule()
+                            .stroke(isSelected ? Color.clear : theme.colors.outlineSubtle, lineWidth: 1)
+                    )
+                    .clipShape(Capsule())
+            }
+            .buttonStyle(.plain)
+        }
     }
 }
 
@@ -1617,7 +2252,7 @@ struct PortfolioBatchSellPreviewSheet: View {
                         : "Market value unavailable"
                 )
                 .font(.caption.weight(.bold))
-                .foregroundStyle((entry.totalEntryValue ?? 0) > 0 ? limeAccent : .white.opacity(0.54))
+                .foregroundStyle((entry.totalEntryValue ?? 0) > 0 ? theme.colors.textPrimary : .white.opacity(0.54))
             }
 
             Spacer(minLength: 0)
@@ -1752,7 +2387,7 @@ struct PortfolioPricingCalculatorCard: View {
                         .foregroundStyle(.white.opacity(0.56))
                     Text(formattedPrice(eightyPercentPriceValue))
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(limeAccent)
+                        .foregroundStyle(theme.colors.textPrimary)
                 }
             }
 

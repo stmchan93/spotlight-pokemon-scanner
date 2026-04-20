@@ -23,21 +23,20 @@ private struct AuthLoadingView: View {
 
     var body: some View {
         ZStack {
-            theme.colors.canvas
+            theme.colors.brand
                 .ignoresSafeArea()
 
-            VStack(spacing: theme.spacing.lg) {
-                ProgressView()
-                    .tint(theme.colors.brand)
-                    .scaleEffect(1.2)
-
-                Text("Restoring your Spotlight account")
-                    .font(theme.typography.headline)
+            VStack(spacing: theme.spacing.xs) {
+                Text("Loading Loooty")
+                    .font(theme.typography.titleCompact)
                     .foregroundStyle(theme.colors.textPrimary)
+
+                Text("Please be patient, it'll be worth the wait!")
+                    .font(theme.typography.body)
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .multilineTextAlignment(.center)
             }
-            .padding(theme.spacing.xxl)
-            .lootySurface(.dark, padding: theme.spacing.xxl, cornerRadius: theme.radius.xl)
-            .padding(theme.spacing.xl)
+            .padding(.horizontal, theme.spacing.lg)
         }
     }
 }

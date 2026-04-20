@@ -23,6 +23,12 @@ final class ScanTrayAndNavigationTests: XCTestCase {
         XCTAssertTrue(leadingTrayActionButtonsAreInteractive(forRevealedWidth: 44))
     }
 
+    func testCollapsedTrayRowBottomPaddingKeepsCollapsedItemNearBottom() {
+        XCTAssertEqual(collapsedTrayRowBottomPadding(trayBottomInset: 16), 12)
+        XCTAssertEqual(collapsedTrayRowBottomPadding(trayBottomInset: 34), 12)
+        XCTAssertGreaterThan(collapsedTrayRowBottomPadding(trayBottomInset: 48), 12)
+    }
+
     func testResultCandidateCycleStateReportsCurrentPosition() {
         let candidates = [
             makeCardCandidate(id: "a", name: "Alpha"),
@@ -332,53 +338,57 @@ final class ScanTrayAndNavigationTests: XCTestCase {
         )
     }
 
-    func testScannerSwipeShouldOpenPortfolioRequiresLeftwardHorizontalTravel() {
+    func testScannerSwipeShouldOpenPortfolioRequiresRightwardHorizontalTravel() {
         XCTAssertTrue(
             scannerSwipeShouldOpenPortfolio(
                 startLocation: CGPoint(x: 200, y: 320),
-                translation: CGSize(width: -120, height: 8),
+                translation: CGSize(width: 120, height: 8),
                 containerWidth: 390
             )
         )
         XCTAssertFalse(
             scannerSwipeShouldOpenPortfolio(
-                startLocation: CGPoint(x: 360, y: 320),
-                translation: CGSize(width: -40, height: 4),
+                startLocation: CGPoint(x: 24, y: 320),
+                translation: CGSize(width: 40, height: 4),
                 containerWidth: 390
             )
         )
         XCTAssertFalse(
             scannerSwipeShouldOpenPortfolio(
-                startLocation: CGPoint(x: 360, y: 320),
-                translation: CGSize(width: -50, height: 120),
+                startLocation: CGPoint(x: 24, y: 320),
+                translation: CGSize(width: 50, height: 120),
                 containerWidth: 390
             )
         )
     }
 
-    func testPortfolioSwipeShouldOpenScannerRequiresRightwardHorizontalTravel() {
+    func testPortfolioSwipeShouldOpenScannerRequiresLeftwardHorizontalTravelFromRightEdge() {
         XCTAssertTrue(
             portfolioSwipeShouldOpenScanner(
-                startLocation: CGPoint(x: 20, y: 300),
-                translation: CGSize(width: 120, height: 8)
+                startLocation: CGPoint(x: 372, y: 300),
+                translation: CGSize(width: -120, height: 8),
+                containerWidth: 390
             )
         )
         XCTAssertFalse(
             portfolioSwipeShouldOpenScanner(
-                startLocation: CGPoint(x: 24, y: 300),
-                translation: CGSize(width: 40, height: 8)
+                startLocation: CGPoint(x: 372, y: 300),
+                translation: CGSize(width: -40, height: 8),
+                containerWidth: 390
             )
         )
         XCTAssertFalse(
             portfolioSwipeShouldOpenScanner(
-                startLocation: CGPoint(x: 24, y: 300),
-                translation: CGSize(width: 40, height: 120)
+                startLocation: CGPoint(x: 372, y: 300),
+                translation: CGSize(width: -40, height: 120),
+                containerWidth: 390
             )
         )
         XCTAssertFalse(
             portfolioSwipeShouldOpenScanner(
                 startLocation: CGPoint(x: 140, y: 300),
-                translation: CGSize(width: 120, height: 8)
+                translation: CGSize(width: -120, height: 8),
+                containerWidth: 390
             )
         )
     }
@@ -401,20 +411,20 @@ final class ScanTrayAndNavigationTests: XCTestCase {
         )
     }
 
-    func testAppShellPagerStackOffsetPlacesPortfolioToTheRightOfScanner() {
+    func testAppShellPagerStackOffsetPlacesPortfolioToTheLeftOfScanner() {
         XCTAssertEqual(
             appShellPagerStackOffset(
                 selectedTab: .scan,
                 containerWidth: 390
             ),
-            0
+            -390
         )
         XCTAssertEqual(
             appShellPagerStackOffset(
                 selectedTab: .portfolio,
                 containerWidth: 390
             ),
-            -390
+            0
         )
         XCTAssertEqual(
             appShellPagerStackOffset(

@@ -3,8 +3,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import sqlite3
+import socket
+import sys
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from threading import Lock
 from time import perf_counter
 from typing import Any
@@ -47,6 +51,11 @@ _SCRYDEX_REQUEST_STATS: dict[str, Any] = {
     "byPath": {},
     "recent": [],
 }
+_SCRYDEX_AUDIT_DB_LOCK = Lock()
+SCRYDEX_AUDIT_RETENTION_DAYS = 30
+SCRYDEX_AUDIT_MAINTENANCE_INTERVAL = timedelta(hours=1)
+SCRYDEX_AUDIT_DAILY_ROLLUP_LIMIT = 60
+_SCRYDEX_AUDIT_LAST_MAINTENANCE_AT: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -96,6 +105,392 @@ def _record_scrydex_request(path: str, request_type: str, params: dict[str, str]
         if len(recent) > 25:
             del recent[:-25]
     return dict(entry)
+
+
+def _default_scrydex_audit_db_path() -> Path:
+    override = str(os.environ.get("SPOTLIGHT_SCRYDEX_AUDIT_DB_PATH") or "").strip()
+    if override:
+        return Path(override).expanduser()
+    return Path(__file__).resolve().parent / "data" / "scrydex_request_audit.sqlite"
+
+
+def _scrydex_runtime_label() -> str:
+    explicit = str(os.environ.get("SPOTLIGHT_RUNTIME_LABEL") or "").strip()
+    if explicit:
+        return explicit
+    hostname = socket.gethostname().strip() or "unknown-host"
+    executable = Path(sys.argv[0]).name.strip() or "python"
+    return f"{hostname}:{executable}"
+
+
+def _ensure_scrydex_audit_schema(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scrydex_request_audit (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            created_at TEXT NOT NULL,
+            runtime_label TEXT NOT NULL,
+            pid INTEGER NOT NULL,
+            request_type TEXT NOT NULL,
+            path TEXT NOT NULL,
+            query TEXT,
+            include_value TEXT,
+            page_size TEXT,
+            elapsed_ms REAL,
+            result_count INTEGER,
+            outcome TEXT NOT NULL,
+            error_text TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scrydex_request_audit_created_at
+        ON scrydex_request_audit(created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scrydex_request_audit_runtime_label
+        ON scrydex_request_audit(runtime_label, created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scrydex_request_audit_request_type
+        ON scrydex_request_audit(request_type, created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scrydex_daily_usage_rollups (
+            usage_date TEXT NOT NULL,
+            runtime_label TEXT NOT NULL,
+            request_type TEXT NOT NULL,
+            request_count INTEGER NOT NULL DEFAULT 0,
+            ok_count INTEGER NOT NULL DEFAULT 0,
+            error_count INTEGER NOT NULL DEFAULT 0,
+            total_elapsed_ms REAL NOT NULL DEFAULT 0,
+            max_elapsed_ms REAL NOT NULL DEFAULT 0,
+            last_aggregated_at TEXT NOT NULL,
+            PRIMARY KEY (usage_date, runtime_label, request_type)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scrydex_daily_usage_rollups_usage_date
+        ON scrydex_daily_usage_rollups(usage_date DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scrydex_daily_usage_rollups_runtime
+        ON scrydex_daily_usage_rollups(runtime_label, usage_date DESC)
+        """
+    )
+
+
+def _scrydex_audit_retention_cutoff(now_utc: datetime) -> str:
+    return (now_utc - timedelta(days=SCRYDEX_AUDIT_RETENTION_DAYS)).isoformat()
+
+
+def _scrydex_audit_maintenance_due(now_utc: datetime, *, force: bool = False) -> bool:
+    if force:
+        return True
+    global _SCRYDEX_AUDIT_LAST_MAINTENANCE_AT
+    if _SCRYDEX_AUDIT_LAST_MAINTENANCE_AT is None:
+        return True
+    return (now_utc - _SCRYDEX_AUDIT_LAST_MAINTENANCE_AT) >= SCRYDEX_AUDIT_MAINTENANCE_INTERVAL
+
+
+def _maintain_scrydex_audit_tables(
+    connection: sqlite3.Connection,
+    *,
+    now_utc: datetime,
+    force: bool = False,
+) -> None:
+    global _SCRYDEX_AUDIT_LAST_MAINTENANCE_AT
+    if not _scrydex_audit_maintenance_due(now_utc, force=force):
+        return
+
+    _ensure_scrydex_audit_schema(connection)
+    cutoff = _scrydex_audit_retention_cutoff(now_utc)
+    maintenance_at = now_utc.isoformat()
+    connection.execute("BEGIN IMMEDIATE")
+    try:
+        connection.execute(
+            """
+            INSERT INTO scrydex_daily_usage_rollups (
+                usage_date,
+                runtime_label,
+                request_type,
+                request_count,
+                ok_count,
+                error_count,
+                total_elapsed_ms,
+                max_elapsed_ms,
+                last_aggregated_at
+            )
+            SELECT
+                substr(created_at, 1, 10) AS usage_date,
+                runtime_label,
+                request_type,
+                COUNT(*) AS request_count,
+                SUM(CASE WHEN outcome = 'ok' THEN 1 ELSE 0 END) AS ok_count,
+                SUM(CASE WHEN outcome != 'ok' THEN 1 ELSE 0 END) AS error_count,
+                COALESCE(SUM(elapsed_ms), 0) AS total_elapsed_ms,
+                COALESCE(MAX(elapsed_ms), 0) AS max_elapsed_ms,
+                ? AS last_aggregated_at
+            FROM scrydex_request_audit
+            WHERE created_at < ?
+            GROUP BY substr(created_at, 1, 10), runtime_label, request_type
+            ON CONFLICT(usage_date, runtime_label, request_type)
+            DO UPDATE SET
+                request_count = request_count + excluded.request_count,
+                ok_count = ok_count + excluded.ok_count,
+                error_count = error_count + excluded.error_count,
+                total_elapsed_ms = total_elapsed_ms + excluded.total_elapsed_ms,
+                max_elapsed_ms = MAX(max_elapsed_ms, excluded.max_elapsed_ms),
+                last_aggregated_at = excluded.last_aggregated_at
+            """,
+            (maintenance_at, cutoff),
+        )
+        connection.execute(
+            "DELETE FROM scrydex_request_audit WHERE created_at < ?",
+            (cutoff,),
+        )
+        connection.commit()
+        _SCRYDEX_AUDIT_LAST_MAINTENANCE_AT = now_utc
+    except Exception:
+        connection.rollback()
+        raise
+
+
+def store_scrydex_request_audit(
+    *,
+    created_at: str,
+    request_type: str,
+    path: str,
+    params: dict[str, str],
+    elapsed_ms: float,
+    outcome: str,
+    result_count: int | None = None,
+    error_text: str | None = None,
+) -> None:
+    audit_db_path = _default_scrydex_audit_db_path()
+    audit_db_path.parent.mkdir(parents=True, exist_ok=True)
+    runtime_label = _scrydex_runtime_label()
+    payload = {
+        "created_at": created_at,
+        "runtime_label": runtime_label,
+        "pid": os.getpid(),
+        "request_type": request_type,
+        "path": path,
+        "query": params.get("q"),
+        "include_value": params.get("include"),
+        "page_size": params.get("page_size"),
+        "elapsed_ms": float(elapsed_ms),
+        "result_count": int(result_count) if result_count is not None else None,
+        "outcome": outcome,
+        "error_text": str(error_text or "").strip() or None,
+    }
+    with _SCRYDEX_AUDIT_DB_LOCK:
+        connection = sqlite3.connect(str(audit_db_path), timeout=5.0)
+        try:
+            _ensure_scrydex_audit_schema(connection)
+            _maintain_scrydex_audit_tables(connection, now_utc=datetime.now(timezone.utc))
+            connection.execute(
+                """
+                INSERT INTO scrydex_request_audit (
+                    created_at,
+                    runtime_label,
+                    pid,
+                    request_type,
+                    path,
+                    query,
+                    include_value,
+                    page_size,
+                    elapsed_ms,
+                    result_count,
+                    outcome,
+                    error_text
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["created_at"],
+                    payload["runtime_label"],
+                    payload["pid"],
+                    payload["request_type"],
+                    payload["path"],
+                    payload["query"],
+                    payload["include_value"],
+                    payload["page_size"],
+                    payload["elapsed_ms"],
+                    payload["result_count"],
+                    payload["outcome"],
+                    payload["error_text"],
+                ),
+            )
+            connection.commit()
+        finally:
+            connection.close()
+
+
+def scrydex_request_audit_summary(
+    *,
+    hours: int = 24,
+    recent_limit: int = 25,
+    timezone_name: str | None = None,
+) -> dict[str, Any]:
+    audit_db_path = _default_scrydex_audit_db_path()
+    if not audit_db_path.exists():
+        return {
+            "dbPath": str(audit_db_path),
+            "runtimeLabel": _scrydex_runtime_label(),
+            "todayTotal": 0,
+            "last24HoursTotal": 0,
+            "byRuntimeLabel": [],
+            "byRequestType": [],
+            "recent": [],
+        }
+
+    effective_hours = max(1, int(hours))
+    effective_recent_limit = max(0, min(int(recent_limit), 100))
+    with _SCRYDEX_AUDIT_DB_LOCK:
+        connection = sqlite3.connect(str(audit_db_path), timeout=5.0)
+        connection.row_factory = sqlite3.Row
+        try:
+            _ensure_scrydex_audit_schema(connection)
+            current_utc = datetime.now(timezone.utc)
+            _maintain_scrydex_audit_tables(connection, now_utc=current_utc, force=True)
+            lookback_cutoff = (current_utc - timedelta(hours=effective_hours)).isoformat()
+
+            today_cutoff = current_utc.astimezone().replace(hour=0, minute=0, second=0, microsecond=0)
+            if timezone_name:
+                try:
+                    from zoneinfo import ZoneInfo
+                    today_cutoff = current_utc.astimezone(ZoneInfo(timezone_name)).replace(
+                        hour=0,
+                        minute=0,
+                        second=0,
+                        microsecond=0,
+                    )
+                except Exception:
+                    pass
+            today_cutoff_utc = today_cutoff.astimezone(timezone.utc).isoformat()
+
+            today_total = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS count FROM scrydex_request_audit WHERE created_at >= ?",
+                    (today_cutoff_utc,),
+                ).fetchone()["count"]
+            )
+            last_24_hours_total = int(
+                connection.execute(
+                    "SELECT COUNT(*) AS count FROM scrydex_request_audit WHERE created_at >= ?",
+                    (lookback_cutoff,),
+                ).fetchone()["count"]
+            )
+            runtime_rows = connection.execute(
+                """
+                SELECT runtime_label, COUNT(*) AS count
+                FROM scrydex_request_audit
+                WHERE created_at >= ?
+                GROUP BY runtime_label
+                ORDER BY count DESC, runtime_label ASC
+                """,
+                (lookback_cutoff,),
+            ).fetchall()
+            request_type_rows = connection.execute(
+                """
+                SELECT request_type, COUNT(*) AS count
+                FROM scrydex_request_audit
+                WHERE created_at >= ?
+                GROUP BY request_type
+                ORDER BY count DESC, request_type ASC
+                """,
+                (lookback_cutoff,),
+            ).fetchall()
+            recent_rows = connection.execute(
+                """
+                SELECT created_at, runtime_label, pid, request_type, path, query, include_value,
+                       page_size, elapsed_ms, result_count, outcome, error_text
+                FROM scrydex_request_audit
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (effective_recent_limit,),
+            ).fetchall()
+            daily_rollup_rows = connection.execute(
+                """
+                SELECT usage_date,
+                       runtime_label,
+                       SUM(request_count) AS request_count,
+                       SUM(ok_count) AS ok_count,
+                       SUM(error_count) AS error_count
+                FROM (
+                    SELECT usage_date, runtime_label, request_count, ok_count, error_count
+                    FROM scrydex_daily_usage_rollups
+                    UNION ALL
+                    SELECT substr(created_at, 1, 10) AS usage_date,
+                           runtime_label,
+                           COUNT(*) AS request_count,
+                           SUM(CASE WHEN outcome = 'ok' THEN 1 ELSE 0 END) AS ok_count,
+                           SUM(CASE WHEN outcome != 'ok' THEN 1 ELSE 0 END) AS error_count
+                    FROM scrydex_request_audit
+                    GROUP BY substr(created_at, 1, 10), runtime_label
+                )
+                GROUP BY usage_date, runtime_label
+                ORDER BY usage_date DESC, request_count DESC, runtime_label ASC
+                LIMIT ?
+                """,
+                (SCRYDEX_AUDIT_DAILY_ROLLUP_LIMIT,),
+            ).fetchall()
+            return {
+                "dbPath": str(audit_db_path),
+                "runtimeLabel": _scrydex_runtime_label(),
+                "detailRetentionDays": SCRYDEX_AUDIT_RETENTION_DAYS,
+                "todayTotal": today_total,
+                "last24HoursTotal": last_24_hours_total,
+                "byRuntimeLabel": [
+                    {"runtimeLabel": str(row["runtime_label"]), "count": int(row["count"])}
+                    for row in runtime_rows
+                ],
+                "byRequestType": [
+                    {"requestType": str(row["request_type"]), "count": int(row["count"])}
+                    for row in request_type_rows
+                ],
+                "dailyRollups": [
+                    {
+                        "usageDate": str(row["usage_date"]),
+                        "runtimeLabel": str(row["runtime_label"]),
+                        "requestCount": int(row["request_count"]),
+                        "okCount": int(row["ok_count"] or 0),
+                        "errorCount": int(row["error_count"] or 0),
+                    }
+                    for row in daily_rollup_rows
+                ],
+                "recent": [
+                    {
+                        "createdAt": str(row["created_at"]),
+                        "runtimeLabel": str(row["runtime_label"]),
+                        "pid": int(row["pid"]),
+                        "requestType": str(row["request_type"]),
+                        "path": str(row["path"]),
+                        "query": row["query"],
+                        "include": row["include_value"],
+                        "pageSize": row["page_size"],
+                        "elapsedMs": float(row["elapsed_ms"] or 0.0),
+                        "resultCount": int(row["result_count"]) if row["result_count"] is not None else None,
+                        "outcome": str(row["outcome"]),
+                        "errorText": row["error_text"],
+                    }
+                    for row in recent_rows
+                ],
+            }
+        finally:
+            connection.close()
 
 
 def _log_scrydex_request_line(
@@ -180,25 +575,45 @@ def scrydex_api_request(
         with urlopen(request, timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as exc:
+        elapsed_ms = (perf_counter() - started) * 1000.0
         _log_scrydex_request_line(
             phase="error",
             sequence=request_entry.get("sequence"),
             request_type=request_type,
             path=path,
             params=params,
-            elapsed_ms=(perf_counter() - started) * 1000.0,
+            elapsed_ms=elapsed_ms,
             error=str(exc),
+        )
+        store_scrydex_request_audit(
+            created_at=str(request_entry.get("timestamp") or datetime.now(timezone.utc).isoformat()),
+            request_type=request_type,
+            path=path,
+            params=params,
+            elapsed_ms=elapsed_ms,
+            outcome="error",
+            error_text=str(exc),
         )
         raise
 
+    elapsed_ms = (perf_counter() - started) * 1000.0
     _log_scrydex_request_line(
         phase="ok",
         sequence=request_entry.get("sequence"),
         request_type=request_type,
         path=path,
         params=params,
-        elapsed_ms=(perf_counter() - started) * 1000.0,
+        elapsed_ms=elapsed_ms,
         result_count=_scrydex_result_count(payload),
+    )
+    store_scrydex_request_audit(
+        created_at=str(request_entry.get("timestamp") or datetime.now(timezone.utc).isoformat()),
+        request_type=request_type,
+        path=path,
+        params=params,
+        elapsed_ms=elapsed_ms,
+        result_count=_scrydex_result_count(payload),
+        outcome="ok",
     )
     return payload
 

@@ -77,6 +77,7 @@ struct ScanResultDetailView: View {
     @ObservedObject var viewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
     @ObservedObject var showsState: ShowsMockState
+    let onDismissOverride: (() -> Void)?
     @State private var marketHistory: CardMarketHistory?
     @State private var isLoadingMarketHistory = false
     @State private var selectedHistoryVariant: String?
@@ -91,10 +92,14 @@ struct ScanResultDetailView: View {
     @State private var gradedCompsRequestKey: String?
 
     private var limeAccent: Color { theme.colors.brand }
-    private var inkBackground: Color { theme.colors.canvas }
-    private var panelBackground: Color { theme.colors.surface }
-    private var secondaryPanelBackground: Color { theme.colors.canvasElevated }
+    private var inkBackground: Color { theme.colors.pageLight }
+    private var panelBackground: Color { theme.colors.canvasElevated }
+    private var secondaryPanelBackground: Color { theme.colors.surface }
+    private var outlineColor: Color { theme.colors.outlineSubtle }
+    private var mutedTextColor: Color { theme.colors.textSecondary }
+    private var subtleTextColor: Color { theme.colors.textSecondary.opacity(0.72) }
     private var infoAccent: Color { theme.colors.info }
+    private var ctaYellow: Color { Color(red: 0.86, green: 0.71, blue: 0.18) }
     private static let chartInputDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -113,6 +118,18 @@ struct ScanResultDetailView: View {
         formatter.timeStyle = .none
         return formatter
     }()
+
+    init(
+        viewModel: ScannerViewModel,
+        collectionStore: CollectionStore,
+        showsState: ShowsMockState,
+        onDismissOverride: (() -> Void)? = nil
+    ) {
+        self.viewModel = viewModel
+        self.collectionStore = collectionStore
+        self.showsState = showsState
+        self.onDismissOverride = onDismissOverride
+    }
 
     private var item: LiveScanStackItem? {
         viewModel.activeResultItem
@@ -201,6 +218,14 @@ struct ScanResultDetailView: View {
         return "\(card.id)|raw"
     }
 
+    private func dismissDetail() {
+        if let onDismissOverride {
+            onDismissOverride()
+        } else {
+            viewModel.dismissResultDetail()
+        }
+    }
+
     var body: some View {
         ZStack {
             background
@@ -211,12 +236,11 @@ struct ScanResultDetailView: View {
                         header(card: card)
                         heroSection(card: card, item: item)
                         primaryActionsSection(card: card, item: item)
+                        collectionSection(card: card, item: item)
                         if viewModel.hasAlternatives(for: item.id) {
                             similarCardsBanner(item: item)
                         }
                         marketValueSection(item: item, card: card)
-                        purchasePriceSection(card: card, item: item)
-                        collectionSection(card: card, item: item)
                         metadataChips(card: card, item: item)
                         if shouldShowMarketplaceLinks(for: item) {
                             marketplaceLinksSection(card: card, item: item)
@@ -240,11 +264,11 @@ struct ScanResultDetailView: View {
                 VStack(spacing: 16) {
                     Text("Result unavailable")
                         .font(.title2.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
 
                     Button("Back") {
                         spotlightFlowLog("Detail back tapped from unavailable state route=\(String(describing: viewModel.route))")
-                        viewModel.dismissResultDetail()
+                        dismissDetail()
                     }
                     .buttonStyle(
                         LootyFilledButtonStyle(
@@ -265,9 +289,9 @@ struct ScanResultDetailView: View {
 
             LinearGradient(
                 colors: [
-                    Color(red: 0.21, green: 0.19, blue: 0.15).opacity(0.62),
+                    limeAccent.opacity(0.18),
                     Color.clear,
-                    Color(red: 0.06, green: 0.07, blue: 0.10).opacity(0.85)
+                    theme.colors.surfaceMuted.opacity(0.32)
                 ],
                 startPoint: .top,
                 endPoint: .bottom
@@ -286,13 +310,17 @@ struct ScanResultDetailView: View {
         HStack(spacing: 12) {
             Button {
                 spotlightFlowLog("Detail back tapped cardID=\(card.id) itemID=\(item?.id.uuidString ?? "nil") route=\(String(describing: viewModel.route))")
-                viewModel.dismissResultDetail()
+                dismissDetail()
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.colors.textPrimary)
                     .frame(width: 36, height: 36)
-                    .background(Color.white.opacity(0.06))
+                    .background(theme.colors.surface)
+                    .overlay(
+                        Circle()
+                            .stroke(outlineColor, lineWidth: 1)
+                    )
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
@@ -303,45 +331,41 @@ struct ScanResultDetailView: View {
     }
 
     private func heroSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
+        let heroPrice = pricing?.primaryDisplayPrice ?? marketHistory?.primaryDisplayPrice
+        let heroCurrencyCode = pricing?.currencyCode ?? marketHistory?.currencyCode ?? "USD"
+
+        return VStack(alignment: .leading, spacing: 14) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 6) {
-                    if let slabBadgeTitle = slabBadgeTitle(for: item) {
-                        chip(slabBadgeTitle, background: Color.white.opacity(0.08))
-                    } else if portfolioQuantity > 0 {
-                        chip("In your collection", background: Color(red: 0.18, green: 0.26, blue: 0.14))
+                    if let heroPrice {
+                        Text(formattedPrice(heroPrice, currencyCode: heroCurrencyCode))
+                            .font(.system(size: 25, weight: .bold, design: .rounded))
+                            .foregroundStyle(theme.colors.textPrimary)
                     } else {
-                        chip("Scan result", background: Color.white.opacity(0.08))
+                        Text("Market price unavailable")
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(mutedTextColor)
                     }
 
                     Text(card.name)
                         .font(.system(size: 26, weight: .bold, design: .rounded))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
                         .lineLimit(2)
                         .minimumScaleFactor(0.86)
 
                     Text("\(card.setName) • #\(card.number)")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.64))
+                        .foregroundStyle(mutedTextColor)
                         .lineLimit(1)
                 }
 
-                Spacer(minLength: 12)
+                if let note = detailSubtitleNote(for: item) {
+                    Spacer(minLength: 12)
 
-                VStack(alignment: .trailing, spacing: 8) {
-                    if let pricing {
-                        Text(formattedPrice(pricing.primaryDisplayPrice ?? 0, currencyCode: pricing.currencyCode))
-                            .font(.system(size: 25, weight: .bold, design: .rounded))
-                            .foregroundStyle(theme.colors.textPrimary)
-                            .opacity(pricing.primaryDisplayPrice == nil ? 0 : 1)
-                    }
-
-                    if let note = detailSubtitleNote(for: item) {
-                        Text(note)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(Color.white.opacity(0.56))
-                            .multilineTextAlignment(.trailing)
-                    }
+                    Text(note)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(subtleTextColor)
+                        .multilineTextAlignment(.trailing)
                 }
             }
 
@@ -350,21 +374,11 @@ struct ScanResultDetailView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            Color.white.opacity(0.07),
-                            Color.white.opacity(0.035),
-                            Color.white.opacity(0.02)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
+                .fill(panelBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 24, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(outlineColor, lineWidth: 1)
         )
     }
 
@@ -381,12 +395,12 @@ struct ScanResultDetailView: View {
                     VStack(alignment: .leading, spacing: 2) {
                         Text("\(viewModel.similarMatchCount(for: item.id)) similar cards found")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.colors.textPrimary)
 
                         if item.phase == .needsReview {
                             Text("Best guess only. Check similar matches.")
                                 .font(.caption)
-                                .foregroundStyle(Color.white.opacity(0.66))
+                                .foregroundStyle(mutedTextColor)
                         }
                     }
 
@@ -394,17 +408,17 @@ struct ScanResultDetailView: View {
 
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.white.opacity(0.56))
+                        .foregroundStyle(mutedTextColor)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
                 .background(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color(red: 0.14, green: 0.17, blue: 0.10).opacity(0.88))
+                        .fill(panelBackground)
                 )
                 .overlay(
                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(limeAccent.opacity(0.78), lineWidth: 1)
+                        .stroke(limeAccent.opacity(0.52), lineWidth: 1)
                 )
             }
             .buttonStyle(.plain)
@@ -417,8 +431,8 @@ struct ScanResultDetailView: View {
                 .fill(
                     LinearGradient(
                         colors: [
-                            Color(red: 0.18, green: 0.15, blue: 0.12).opacity(0.9),
-                            Color(red: 0.07, green: 0.07, blue: 0.08)
+                            theme.colors.surface,
+                            theme.colors.pageLight
                         ],
                         startPoint: .top,
                         endPoint: .bottom
@@ -427,7 +441,7 @@ struct ScanResultDetailView: View {
                 .frame(height: 292)
 
             Ellipse()
-                .fill(Color.white.opacity(0.16))
+                .fill(Color.black.opacity(0.10))
                 .frame(width: 176, height: 30)
                 .blur(radius: 14)
                 .offset(y: 112)
@@ -445,14 +459,14 @@ struct ScanResultDetailView: View {
                 contentMode: .fit
             )
                 .frame(width: 204, height: 284)
-                .shadow(color: .black.opacity(0.42), radius: 28, y: 16)
+                .shadow(color: .black.opacity(0.18), radius: 24, y: 14)
         }
     }
 
     private func metadataChips(card: CardCandidate, item: LiveScanStackItem) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                chip("Pokemon", background: Color(red: 0.24, green: 0.14, blue: 0.18))
+                chip("Pokemon", background: theme.colors.surfaceMuted)
                 chip(card.setName, background: secondaryPanelBackground)
                 chip(card.language, background: secondaryPanelBackground)
                 if let slabBadgeTitle = slabBadgeTitle(for: item) {
@@ -500,7 +514,7 @@ struct ScanResultDetailView: View {
                 HStack(alignment: .firstTextBaseline) {
                     Text("Card condition")
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
 
                     Spacer()
 
@@ -531,23 +545,23 @@ struct ScanResultDetailView: View {
                     HStack(spacing: 12) {
                         Text(displayedCondition.displayName)
                             .font(.system(size: 18, weight: .semibold, design: .rounded))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.colors.textPrimary)
 
                         Spacer()
 
                         Image(systemName: "chevron.down")
                             .font(.caption.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.76))
+                            .foregroundStyle(mutedTextColor)
                     }
                     .padding(.horizontal, 16)
                     .padding(.vertical, 14)
                     .background(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .fill(Color.white.opacity(0.04))
+                            .fill(secondaryPanelBackground)
                     )
                     .overlay(
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                            .stroke(outlineColor, lineWidth: 1)
                     )
                 }
                 .buttonStyle(.plain)
@@ -555,7 +569,11 @@ struct ScanResultDetailView: View {
             .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.05))
+                    .fill(panelBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(outlineColor, lineWidth: 1)
             )
         }
     }
@@ -584,7 +602,7 @@ struct ScanResultDetailView: View {
             if let pricing {
                 Text("Pricing source: \(pricing.sourceLabel)")
                     .font(.footnote.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.62))
+                    .foregroundStyle(mutedTextColor)
             }
 
             VStack(spacing: 10) {
@@ -614,7 +632,11 @@ struct ScanResultDetailView: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.04))
+                .fill(panelBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(outlineColor, lineWidth: 1)
         )
     }
 
@@ -629,12 +651,12 @@ struct ScanResultDetailView: View {
                     .font(.system(size: 15, weight: .bold))
                     .foregroundStyle(limeAccent)
                     .frame(width: 30, height: 30)
-                    .background(Color.white.opacity(0.06))
+                    .background(secondaryPanelBackground)
                     .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
 
                 Text(title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
                     .layoutPriority(1)
 
@@ -642,19 +664,19 @@ struct ScanResultDetailView: View {
 
                 Text("View all listings")
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(limeAccent)
+                    .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
                     .fixedSize(horizontal: true, vertical: false)
 
                 Image(systemName: "arrow.up.right")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(limeAccent)
+                    .foregroundStyle(theme.colors.textPrimary)
             }
             .padding(.horizontal, 14)
             .frame(height: 48)
             .background(
                 RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(Color.white.opacity(0.04))
+                    .fill(secondaryPanelBackground)
             )
         }
         .buttonStyle(.plain)
@@ -672,20 +694,20 @@ struct ScanResultDetailView: View {
                         VStack(alignment: .leading, spacing: 4) {
                         Text("Current eBay listings")
                             .font(.headline.weight(.bold))
-                            .foregroundStyle(.white)
+                            .foregroundStyle(theme.colors.textPrimary)
 
                         Text("\(graderLabel)-focused grade tabs and current eBay listings.")
                             .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.62))
+                            .foregroundStyle(mutedTextColor)
                     }
 
                     Spacer()
 
                     if isLoadingGradedComps {
                         ProgressView()
-                            .tint(.white.opacity(0.78))
+                            .tint(theme.colors.textSecondary)
                     } else if let comps = gradedComps, comps.isFresh == true {
-                        compBadge("Fresh", background: limeAccent.opacity(0.18), foreground: limeAccent)
+                        compBadge("Fresh", background: limeAccent.opacity(0.18), foreground: theme.colors.textPrimary)
                     }
                 }
 
@@ -704,13 +726,13 @@ struct ScanResultDetailView: View {
                                             .opacity(0.72)
                                     }
                                 }
-                                .foregroundStyle(option.id == selectedGradeID ? .black : .white.opacity(0.86))
+                                .foregroundStyle(option.id == selectedGradeID ? theme.colors.textInverse : theme.colors.textPrimary)
                                 .padding(.horizontal, 12)
                                 .padding(.vertical, 10)
-                                .background(option.id == selectedGradeID ? limeAccent : Color.white.opacity(0.05))
+                                .background(option.id == selectedGradeID ? limeAccent : secondaryPanelBackground)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .stroke(option.id == selectedGradeID ? Color.clear : Color.white.opacity(0.08), lineWidth: 1)
+                                        .stroke(option.id == selectedGradeID ? Color.clear : outlineColor, lineWidth: 1)
                                 )
                                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                             }
@@ -722,27 +744,27 @@ struct ScanResultDetailView: View {
                 if isLoadingGradedComps && gradedComps == nil {
                     HStack(spacing: 12) {
                         ProgressView()
-                            .tint(.white)
+                            .tint(theme.colors.textPrimary)
                         Text("Loading eBay listings…")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.76))
+                            .foregroundStyle(mutedTextColor)
                     }
                     .padding(18)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(
                         RoundedRectangle(cornerRadius: 22, style: .continuous)
-                            .fill(Color.white.opacity(0.05))
+                            .fill(secondaryPanelBackground)
                     )
                 } else if let comps = gradedComps {
                     if comps.transactions.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(gradedCompsEmptyStateTitle(for: comps))
                                 .font(.headline.weight(.semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.colors.textPrimary)
 
                             Text(gradedCompsEmptyStateMessage(for: comps))
                                 .font(.subheadline)
-                                .foregroundStyle(.white.opacity(0.62))
+                                .foregroundStyle(mutedTextColor)
 
                             if let searchURL = gradedCompsSearchURL(for: comps) {
                                 Button {
@@ -750,7 +772,7 @@ struct ScanResultDetailView: View {
                                 } label: {
                                     Label("Open eBay search", systemImage: "arrow.up.right")
                                         .font(.footnote.weight(.semibold))
-                                        .foregroundStyle(limeAccent)
+                                        .foregroundStyle(theme.colors.textPrimary)
                                 }
                                 .buttonStyle(.plain)
                                 .padding(.top, 4)
@@ -760,7 +782,7 @@ struct ScanResultDetailView: View {
                         .padding(16)
                         .background(
                             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                                .fill(Color.white.opacity(0.04))
+                                .fill(secondaryPanelBackground)
                         )
                     } else {
                         LazyVStack(spacing: 10) {
@@ -777,24 +799,28 @@ struct ScanResultDetailView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             Text("eBay listings unavailable")
                                 .font(.headline.weight(.semibold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.colors.textPrimary)
 
                         Text(gradedCompsStatusMessage ?? "The backend did not return current eBay listings for this card.")
                             .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.62))
+                            .foregroundStyle(mutedTextColor)
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(16)
                     .background(
                         RoundedRectangle(cornerRadius: 20, style: .continuous)
-                            .fill(Color.white.opacity(0.04))
+                            .fill(secondaryPanelBackground)
                     )
                 }
                 }
                 .padding(16)
                 .background(
                     RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(Color.white.opacity(0.04))
+                        .fill(panelBackground)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(outlineColor, lineWidth: 1)
                 )
         }
     }
@@ -802,44 +828,67 @@ struct ScanResultDetailView: View {
     private func primaryActionsSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 12) {
-                Button {
-                    guard !item.isProvisional else { return }
-                    let previewEntry = collectionStore.previewEntry(
-                        card: card,
-                        slabContext: item.slabContext,
-                        quantityFallback: max(1, portfolioQuantity)
-                    )
-                    showsState.presentBuy(
-                        entry: previewEntry,
-                        title: "Add to Collection",
-                        subtitle: "Confirm the exact card details before adding it to your collection."
-                    )
-                } label: {
-                    HStack {
-                        Label("ADD TO COLLECTION", systemImage: "books.vertical.fill")
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(theme.colors.textPrimary)
-                        Spacer()
-                        if portfolioQuantity > 0 {
-                            LootyPill(
-                                title: "OWN \(portfolioQuantity)",
-                                fill: theme.colors.surfaceMuted,
-                                foreground: theme.colors.textPrimary.opacity(0.82),
-                                stroke: theme.colors.outlineSubtle
-                            )
+                if let sellableEntry {
+                    Button {
+                        showsState.presentSell(
+                            entry: sellableEntry,
+                            title: "Sell Card"
+                        )
+                    } label: {
+                        HStack(spacing: 10) {
+                            Image(systemName: "dollarsign.circle.fill")
+                                .font(.subheadline.weight(.bold))
+                            Text("SELL CARD")
+                                .font(.subheadline.weight(.bold))
+                            Spacer()
                         }
+                        .foregroundStyle(theme.colors.textInverse)
+                        .frame(maxWidth: .infinity)
                     }
-                    .frame(maxWidth: .infinity)
-                }
-                .buttonStyle(
-                    LootyFilledButtonStyle(
-                        fill: panelBackground,
-                        foreground: theme.colors.textPrimary,
-                        cornerRadius: 18,
-                        minHeight: 56
+                    .buttonStyle(
+                        LootyFilledButtonStyle(
+                            fill: limeAccent,
+                            foreground: theme.colors.textInverse,
+                            cornerRadius: 16,
+                            minHeight: 50
+                        )
                     )
-                )
-                .disabled(item.isProvisional)
+                }
+
+                if portfolioQuantity == 0 {
+                    Button {
+                        guard !item.isProvisional else { return }
+                        let previewEntry = collectionStore.previewEntry(
+                            card: card,
+                            slabContext: item.slabContext,
+                            quantityFallback: max(1, portfolioQuantity)
+                        )
+                        showsState.presentBuy(
+                            entry: previewEntry,
+                            title: "Add to Collection",
+                            subtitle: "Confirm the exact card details before adding it to your collection.",
+                            availableVariants: buySheetVariantOptions(for: item),
+                            selectedVariant: buySheetSelectedVariant(for: item)
+                        )
+                    } label: {
+                        HStack {
+                            Label("ADD TO COLLECTION", systemImage: "books.vertical.fill")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(.black)
+                            Spacer()
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(
+                        LootyFilledButtonStyle(
+                            fill: ctaYellow,
+                            foreground: .black,
+                            cornerRadius: 16,
+                            minHeight: 50
+                        )
+                    )
+                    .disabled(item.isProvisional)
+                }
 
                 Button {
                     openMarketplaceURL(
@@ -848,65 +897,67 @@ struct ScanResultDetailView: View {
                         failureMessage: "Could not open buying options"
                     )
                 } label: {
-                    HStack {
-                        Label(
-                            item.resolverMode == .rawCard ? "TCGPLAYER BUYING OPTIONS" : "SEE BUYING OPTIONS",
-                            systemImage: "cart.fill"
-                        )
-                            .font(.headline.weight(.semibold))
-                            .foregroundStyle(.white)
+                    HStack(spacing: 10) {
+                        Image(systemName: "cart.fill")
+                            .font(.subheadline.weight(.bold))
+
+                        Text(item.resolverMode == .rawCard ? "TCGPLAYER BUYING OPTIONS" : "SEE BUYING OPTIONS")
+                            .font(.subheadline.weight(.bold))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.88)
+
                         Spacer()
+
                         Image(systemName: "arrow.up.right")
-                            .font(.caption.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.82))
+                            .font(.subheadline.weight(.bold))
+                            .foregroundStyle(mutedTextColor)
                     }
+                    .foregroundStyle(theme.colors.textPrimary)
                     .frame(maxWidth: .infinity)
                 }
                 .buttonStyle(
                     LootyFilledButtonStyle(
-                        fill: infoAccent,
-                        foreground: .white,
-                        cornerRadius: 18,
-                        minHeight: 56
+                        fill: panelBackground,
+                        foreground: theme.colors.textPrimary,
+                        cornerRadius: 16,
+                        minHeight: 50
                     )
                 )
             }
         }
     }
 
+    @ViewBuilder
     private func collectionSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
         let ownedEntry = collectionStore.entry(card: card, slabContext: item.slabContext) ?? sellableEntry
 
-        return VStack(alignment: .leading, spacing: 0) {
-            Button {
-                guard ownedEntry != nil else { return }
-                withAnimation(.easeInOut(duration: 0.2)) {
-                    isCollectionSectionExpanded.toggle()
-                }
-            } label: {
-                HStack(spacing: 10) {
-                    Text("In your collection")
-                        .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
+        if let ownedEntry {
+            VStack(alignment: .leading, spacing: 0) {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isCollectionSectionExpanded.toggle()
+                    }
+                } label: {
+                    HStack(spacing: 10) {
+                        Text("In your collection")
+                            .font(.title3.weight(.bold))
+                            .foregroundStyle(theme.colors.textPrimary)
 
-                    Spacer()
+                        Spacer()
 
-                    if ownedEntry != nil {
                         Image(systemName: "chevron.down")
                             .font(.caption.weight(.bold))
-                            .foregroundStyle(.white.opacity(0.58))
+                            .foregroundStyle(mutedTextColor)
                             .rotationEffect(.degrees(isCollectionSectionExpanded ? 0 : -90))
                     }
+                    .contentShape(Rectangle())
+                    .padding(.vertical, 4)
                 }
-                .contentShape(Rectangle())
-                .padding(.vertical, 4)
-            }
-            .buttonStyle(.plain)
+                .buttonStyle(.plain)
 
-            if let ownedEntry {
                 if isCollectionSectionExpanded {
                     Rectangle()
-                        .fill(Color.white.opacity(0.08))
+                        .fill(outlineColor)
                         .frame(height: 1)
                         .padding(.top, 8)
 
@@ -922,7 +973,7 @@ struct ScanResultDetailView: View {
 
                         Text(collectionSummaryLine(entry: ownedEntry))
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.9))
+                            .foregroundStyle(theme.colors.textPrimary)
                             .lineLimit(1)
 
                         Spacer(minLength: 0)
@@ -930,7 +981,7 @@ struct ScanResultDetailView: View {
                         if let unitPrice = ownedEntry.primaryPrice {
                             Text(formattedPrice(unitPrice, currencyCode: ownedEntry.card.pricing?.currencyCode ?? "USD"))
                                 .font(.headline.weight(.bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.colors.textPrimary)
                                 .lineLimit(1)
                         }
 
@@ -940,72 +991,41 @@ struct ScanResultDetailView: View {
                             } label: {
                                 Image(systemName: "trash")
                                     .font(.caption.weight(.bold))
-                                    .foregroundStyle(.white.opacity(0.82))
+                                    .foregroundStyle(mutedTextColor)
                                     .frame(width: 30, height: 30)
                             }
                             .buttonStyle(.plain)
 
                             Text("\(ownedEntry.quantity)")
                                 .font(.subheadline.weight(.bold))
-                                .foregroundStyle(.white)
+                                .foregroundStyle(theme.colors.textPrimary)
                                 .frame(minWidth: 26)
 
                             Button {
                                 showsState.presentBuy(
                                     entry: ownedEntry,
-                                    title: "Add to Collection"
+                                    title: "Add to Collection",
+                                    availableVariants: buySheetVariantOptions(for: item),
+                                    selectedVariant: buySheetSelectedVariant(for: item)
                                 )
                             } label: {
                                 Image(systemName: "plus")
                                     .font(.caption.weight(.bold))
-                                    .foregroundStyle(.white)
+                                    .foregroundStyle(theme.colors.textPrimary)
                                     .frame(width: 30, height: 30)
                             }
                             .buttonStyle(.plain)
                         }
                         .padding(.horizontal, 4)
                         .padding(.vertical, 3)
-                        .background(Color.white.opacity(0.08))
+                        .background(secondaryPanelBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     }
                     .padding(.top, 12)
 
-                    if let sellableEntry {
-                        Button {
-                            showsState.presentSell(
-                                entry: sellableEntry,
-                                title: "Sell Card"
-                            )
-                        } label: {
-                            HStack(spacing: 10) {
-                                Image(systemName: "dollarsign.circle.fill")
-                                    .font(.subheadline.weight(.bold))
-                                Text("SELL CARD")
-                                    .font(.subheadline.weight(.bold))
-                                Spacer()
-                            }
-                            .foregroundStyle(theme.colors.textInverse)
-                            .frame(maxWidth: .infinity)
-                        }
-                        .buttonStyle(
-                            LootyFilledButtonStyle(
-                                fill: limeAccent,
-                                foreground: theme.colors.textInverse,
-                                cornerRadius: 14,
-                                minHeight: 40
-                            )
-                        )
-                        .padding(.top, 10)
-                    }
-
                     Color.clear
                         .frame(height: 2)
                 }
-            } else {
-                Text("Not in your collection yet")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.64))
-                    .padding(.top, 10)
             }
         }
     }
@@ -1022,24 +1042,24 @@ struct ScanResultDetailView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(transaction.title)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(2)
 
                 HStack(spacing: 6) {
                     if let gradeLabel {
-                        compBadge(gradeLabel, background: Color.white.opacity(0.08), foreground: .white.opacity(0.82))
+                        compBadge(gradeLabel, background: secondaryPanelBackground, foreground: theme.colors.textPrimary.opacity(0.82))
                     }
 
                     if let saleType = transaction.saleType?.trimmingCharacters(in: .whitespacesAndNewlines),
                        !saleType.isEmpty {
-                        compBadge(saleType, background: limeAccent.opacity(0.14), foreground: limeAccent)
+                        compBadge(saleType, background: limeAccent.opacity(0.14), foreground: theme.colors.textPrimary)
                     }
                 }
 
                 if let soldAt = transaction.soldAt {
                     Text(formattedGradedCompDate(soldAt))
                         .font(.caption2.weight(.medium))
-                        .foregroundStyle(.white.opacity(0.52))
+                        .foregroundStyle(mutedTextColor)
                 }
             }
 
@@ -1049,11 +1069,11 @@ struct ScanResultDetailView: View {
                 if let price = transaction.price {
                     Text(formattedGradedCompPrice(price, currencyCode: currencyCode))
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
                 } else {
                     Text("Price n/a")
                         .font(.headline.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.7))
+                        .foregroundStyle(mutedTextColor)
                 }
 
                 if let urlString = transaction.listingURL, let url = URL(string: urlString) {
@@ -1062,7 +1082,7 @@ struct ScanResultDetailView: View {
                     } label: {
                         Text("Open listing")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(limeAccent)
+                            .foregroundStyle(theme.colors.textPrimary)
                     }
                     .buttonStyle(.plain)
                 }
@@ -1071,11 +1091,11 @@ struct ScanResultDetailView: View {
         .padding(14)
         .background(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .fill(Color.white.opacity(0.04))
+                .fill(secondaryPanelBackground)
         )
         .overlay(
             RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                .stroke(outlineColor, lineWidth: 1)
         )
     }
 
@@ -1091,10 +1111,10 @@ struct ScanResultDetailView: View {
 
     private func marketValueSection(item: LiveScanStackItem, card: CardCandidate) -> some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center) {
-                Text("Market value")
-                    .font(.title3.weight(.bold))
-                    .foregroundStyle(.white)
+        HStack(alignment: .center) {
+            Text("Market value")
+                .font(.title3.weight(.bold))
+                .foregroundStyle(theme.colors.textPrimary)
 
                 Spacer()
 
@@ -1106,16 +1126,16 @@ struct ScanResultDetailView: View {
             if isLoadingMarketHistory && marketHistory == nil {
                 HStack(spacing: 12) {
                     ProgressView()
-                        .tint(.white)
+                        .tint(theme.colors.textPrimary)
                     Text("Loading market history…")
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(.white.opacity(0.76))
+                        .foregroundStyle(mutedTextColor)
                 }
                 .padding(18)
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
+                        .fill(panelBackground)
                 )
             } else if let history = marketHistory,
                       let primaryPrice = history.primaryDisplayPrice {
@@ -1123,7 +1143,7 @@ struct ScanResultDetailView: View {
                     HStack(alignment: .firstTextBaseline) {
                         Text(formattedPrice(primaryPrice, currencyCode: history.currencyCode))
                             .font(.system(size: 42, weight: .bold, design: .rounded))
-                            .foregroundStyle(historyPriceTint(history))
+                            .foregroundStyle(theme.colors.textPrimary)
                     }
 
                     historyDeltaRow(history)
@@ -1137,14 +1157,14 @@ struct ScanResultDetailView: View {
                 .padding(18)
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
+                        .fill(panelBackground)
                 )
             } else if let pricing,
                       let primaryPrice = pricing.primaryDisplayPrice {
                 VStack(alignment: .leading, spacing: 10) {
                     Text(formattedPrice(primaryPrice, currencyCode: pricing.currencyCode))
                         .font(.system(size: 42, weight: .bold, design: .rounded))
-                        .foregroundStyle(theme.colors.success)
+                        .foregroundStyle(theme.colors.textPrimary)
 
                     if let spreadText = pricing.spreadText {
                         detailRow("Range", spreadText)
@@ -1153,7 +1173,7 @@ struct ScanResultDetailView: View {
                 .padding(18)
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
+                        .fill(panelBackground)
                 )
             } else {
                 Text("Market value is unavailable.")
@@ -1163,7 +1183,7 @@ struct ScanResultDetailView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 .background(
                     RoundedRectangle(cornerRadius: 22, style: .continuous)
-                        .fill(Color.white.opacity(0.05))
+                        .fill(panelBackground)
                 )
             }
         }
@@ -1208,14 +1228,14 @@ struct ScanResultDetailView: View {
                     .foregroundStyle(positive ? theme.colors.success : theme.colors.danger)
                 Text(title)
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.58))
+                    .foregroundStyle(mutedTextColor)
             } else {
                 Text("—")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(.white.opacity(0.46))
+                    .foregroundStyle(mutedTextColor)
                 Text(title)
                     .font(.caption2)
-                    .foregroundStyle(.white.opacity(0.58))
+                    .foregroundStyle(mutedTextColor)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1225,18 +1245,18 @@ struct ScanResultDetailView: View {
         Group {
             if !history.hasRenderablePoints {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color.white.opacity(0.03))
+                    .fill(secondaryPanelBackground)
                     .overlay {
                         VStack(spacing: 8) {
                             Image(systemName: "chart.line.uptrend.xyaxis")
                                 .font(.title3.weight(.semibold))
-                                .foregroundStyle(Color.white.opacity(0.72))
+                                .foregroundStyle(mutedTextColor)
                             Text("Chart history is still populating.")
                                 .font(.subheadline.weight(.semibold))
-                                .foregroundStyle(.white.opacity(0.78))
+                                .foregroundStyle(theme.colors.textPrimary)
                             Text("It will appear automatically as local price history builds.")
                                 .font(.caption)
-                                .foregroundStyle(.white.opacity(0.56))
+                                .foregroundStyle(mutedTextColor)
                         }
                         .multilineTextAlignment(.center)
                         .padding(20)
@@ -1280,12 +1300,12 @@ struct ScanResultDetailView: View {
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 3)) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                            .foregroundStyle(Color.white.opacity(0.08))
+                            .foregroundStyle(outlineColor)
                         AxisValueLabel {
                             if let date = value.as(Date.self) {
                                 Text(chartAxisLabel(for: date))
                                     .font(.caption2)
-                                    .foregroundStyle(Color.white.opacity(0.55))
+                                    .foregroundStyle(mutedTextColor)
                             }
                         }
                     }
@@ -1293,19 +1313,19 @@ struct ScanResultDetailView: View {
                 .chartYAxis {
                     AxisMarks(position: .leading, values: .automatic(desiredCount: 4)) { value in
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                            .foregroundStyle(Color.white.opacity(0.08))
+                            .foregroundStyle(outlineColor)
                         AxisValueLabel {
                             if let price = value.as(Double.self) {
                                 Text(compactPrice(price, currencyCode: history.currencyCode))
                                     .font(.caption2)
-                                    .foregroundStyle(Color.white.opacity(0.55))
+                                    .foregroundStyle(mutedTextColor)
                             }
                         }
                     }
                 }
                 .chartPlotStyle { plot in
                     plot
-                        .background(Color.white.opacity(0.03))
+                        .background(secondaryPanelBackground)
                         .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
                 }
             }
@@ -1338,24 +1358,24 @@ struct ScanResultDetailView: View {
                             } else {
                                 Text("—")
                                     .font(.subheadline.weight(.semibold))
-                                    .foregroundStyle(.white.opacity(0.54))
+                                    .foregroundStyle(mutedTextColor)
                             }
                         }
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
                         .frame(width: 86, alignment: .leading)
                         .padding(.horizontal, 14)
                         .padding(.vertical, 12)
                         .background(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .fill(option.id == (selectedHistoryCondition ?? history.selectedCondition)
-                                    ? Color.white.opacity(0.12)
-                                    : Color.white.opacity(0.05))
+                                    ? theme.colors.surfaceMuted
+                                    : secondaryPanelBackground)
                         )
                         .overlay(
                             RoundedRectangle(cornerRadius: 16, style: .continuous)
                                 .stroke(option.id == (selectedHistoryCondition ?? history.selectedCondition)
-                                    ? Color.white.opacity(0.42)
-                                    : Color.white.opacity(0.08),
+                                    ? limeAccent.opacity(0.58)
+                                    : outlineColor,
                                         lineWidth: 1)
                         )
                     }
@@ -1394,6 +1414,29 @@ struct ScanResultDetailView: View {
 
     private func formattedChartDate(_ date: Date) -> String {
         Self.detailDateFormatter.string(from: date)
+    }
+
+    private func buySheetVariantOptions(for item: LiveScanStackItem) -> [MarketHistoryOption] {
+        if let history = marketHistory, !history.availableVariants.isEmpty {
+            return history.availableVariants
+        }
+        return item.availableVariants
+    }
+
+    private func buySheetSelectedVariant(for item: LiveScanStackItem) -> String? {
+        normalizedVariantSelection(
+            selectedHistoryVariant
+                ?? marketHistory?.selectedVariant
+                ?? item.selectedVariant
+                ?? item.basePricing?.variant
+                ?? item.displayCard?.variant
+                ?? item.slabContext?.variantName
+        )
+    }
+
+    private func normalizedVariantSelection(_ value: String?) -> String? {
+        let normalized = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return normalized.isEmpty ? nil : normalized
     }
 
     private func loadMarketHistoryIfNeeded(card: CardCandidate, item: LiveScanStackItem) async {
@@ -1581,9 +1624,6 @@ struct ScanResultDetailView: View {
                     boughtAt: Date(),
                     sourceScanID: item.scanID
                 )
-                await MainActor.run {
-                    viewModel.showBannerMessage("\(card.name) added to portfolio.")
-                }
             } catch {
                 await MainActor.run {
                     viewModel.showBannerMessage(error.localizedDescription)
@@ -1768,10 +1808,10 @@ struct ScanResultDetailView: View {
                 .font(.caption2.weight(.bold))
         }
         .font(.subheadline.weight(.semibold))
-        .foregroundStyle(.white.opacity(0.82))
+        .foregroundStyle(theme.colors.textPrimary)
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
-        .background(Color.white.opacity(0.08))
+        .background(secondaryPanelBackground)
         .clipShape(Capsule())
     }
 
@@ -1779,12 +1819,12 @@ struct ScanResultDetailView: View {
         HStack(alignment: .top, spacing: 12) {
             Text(title.uppercased())
                 .font(.caption.weight(.bold))
-                .foregroundStyle(Color.white.opacity(0.42))
+                .foregroundStyle(mutedTextColor)
                 .frame(width: 72, alignment: .leading)
 
             Text(value)
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(theme.colors.textPrimary)
 
             Spacer(minLength: 0)
         }
@@ -1809,6 +1849,8 @@ struct ScanResultDetailView: View {
 }
 
 private struct PurchasePriceCard: View {
+    @Environment(\.lootyTheme) private var theme
+
     let draftKey: String
     let persistedPurchasePrice: Double?
     let portfolioQuantity: Int
@@ -1903,13 +1945,13 @@ private struct PurchasePriceCard: View {
                 HStack(spacing: 10) {
                     Text("Purchase price")
                         .font(.title3.weight(.bold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(theme.colors.textPrimary)
 
                     Spacer()
 
                     Image(systemName: "chevron.down")
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(.white.opacity(0.58))
+                        .foregroundStyle(theme.colors.textSecondary)
                         .rotationEffect(.degrees(isExpanded ? 0 : -90))
                 }
                 .contentShape(Rectangle())
@@ -1919,7 +1961,7 @@ private struct PurchasePriceCard: View {
 
             if isExpanded {
                 Rectangle()
-                    .fill(Color.white.opacity(0.08))
+                    .fill(theme.colors.outlineSubtle)
                     .frame(height: 1)
                     .padding(.top, 6)
 
@@ -1929,7 +1971,7 @@ private struct PurchasePriceCard: View {
 
                         if index < purchasePriceTexts.index(before: purchasePriceTexts.endIndex) {
                             Rectangle()
-                                .fill(Color.white.opacity(0.08))
+                                .fill(theme.colors.outlineSubtle)
                                 .frame(height: 1)
                                 .padding(.leading, 40)
                         }
@@ -1938,7 +1980,7 @@ private struct PurchasePriceCard: View {
                 .padding(.top, 10)
 
                 Rectangle()
-                    .fill(Color.white.opacity(0.08))
+                    .fill(theme.colors.outlineSubtle)
                     .frame(height: 1)
                     .padding(.top, 8)
 
@@ -1951,11 +1993,11 @@ private struct PurchasePriceCard: View {
                         Group {
                             if isSaving {
                                 ProgressView()
-                                    .tint(.black)
+                                    .tint(theme.colors.textInverse)
                             } else {
                                 Text("Save")
                                     .font(.subheadline.weight(.bold))
-                                    .foregroundStyle(.black)
+                                    .foregroundStyle(theme.colors.textInverse)
                             }
                         }
                         .frame(width: 96, height: 40)
@@ -1972,7 +2014,11 @@ private struct PurchasePriceCard: View {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .fill(Color.white.opacity(0.05))
+                .fill(theme.colors.canvasElevated)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(theme.colors.outlineSubtle, lineWidth: 1)
         )
         .onChange(of: draftKey) { _, _ in
             guard focusedPurchasePriceIndex == nil else { return }
@@ -1988,15 +2034,6 @@ private struct PurchasePriceCard: View {
         .onChange(of: portfolioQuantity) { _, _ in
             guard !isSaving, focusedPurchasePriceIndex == nil else { return }
             syncDraft()
-        }
-        .onChange(of: focusedPurchasePriceIndex) { _, newValue in
-            print("🟢 FOCUS STATE CHANGED to \(String(describing: newValue)): \(Date()) [PurchasePriceCard]")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            print("🔵 KEYBOARD WILL SHOW: \(Date()) [PurchasePriceCard]")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-            print("🔴 KEYBOARD DID SHOW: \(Date()) [PurchasePriceCard]")
         }
     }
 
@@ -2021,12 +2058,12 @@ private struct PurchasePriceCard: View {
             VStack(alignment: .leading, spacing: 3) {
                 Text(cardTitle)
                     .font(.footnote.weight(.bold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(theme.colors.textPrimary)
                     .lineLimit(1)
 
                 Text(purchasePriceRowSummary(index: index))
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(.white.opacity(0.66))
+                    .foregroundStyle(theme.colors.textSecondary)
                     .lineLimit(1)
             }
 
@@ -2070,22 +2107,17 @@ private struct PurchasePriceCard: View {
             .textInputAutocapitalization(.never)
             .disableAutocorrection(true)
             .font(.system(size: 16, weight: .semibold, design: .rounded))
-            .foregroundStyle(.white)
+            .foregroundStyle(theme.colors.textPrimary)
             .multilineTextAlignment(.trailing)
             .padding(.horizontal, 12)
             .frame(width: 96, height: 40)
-            .background(Color.white.opacity(0.04))
+            .background(theme.colors.surface)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
                 RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .stroke(Color.white.opacity(0.08), lineWidth: 1)
+                    .stroke(theme.colors.outlineSubtle, lineWidth: 1)
             )
             .focused($focusedPurchasePriceIndex, equals: index)
-            .simultaneousGesture(
-                TapGesture().onEnded {
-                    print("🟡 TAP RECEIVED: \(Date()) [PurchasePriceCard]")
-                }
-            )
     }
 
     private func savePurchasePrice() {
@@ -2114,6 +2146,8 @@ private struct PurchasePriceCard: View {
 }
 
 struct CardArtworkView: View {
+    @Environment(\.lootyTheme) private var theme
+
     let urlString: String?
     let fallbackTitle: String
     var cornerRadius: CGFloat = 20
@@ -2143,11 +2177,11 @@ struct CardArtworkView: View {
 
     private var fallback: some View {
         RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-            .fill(Color.white.opacity(0.08))
+            .fill(theme.colors.surface)
             .overlay(
                 Text(String(fallbackTitle.prefix(1)))
                     .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundStyle(Color.white.opacity(0.78))
+                    .foregroundStyle(theme.colors.textSecondary.opacity(0.78))
             )
     }
 

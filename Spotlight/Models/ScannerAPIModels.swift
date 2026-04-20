@@ -317,7 +317,18 @@ enum PortfolioHistoryRange: String, CaseIterable, Codable, Hashable, Sendable, I
 
     var id: String { rawValue }
 
-    var displayLabel: String { rawValue }
+    var displayLabel: String {
+        switch self {
+        case .days7:
+            return "7D"
+        case .days30:
+            return "1M"
+        case .days90:
+            return "3M"
+        case .all:
+            return "All"
+        }
+    }
 }
 
 enum PortfolioDashboardChartMode: String, CaseIterable, Codable, Hashable, Sendable, Identifiable {
@@ -354,6 +365,10 @@ struct PortfolioSaleCreateRequestPayload: Codable, Hashable, Sendable {
     let sourceScanID: UUID?
 }
 
+struct PortfolioSalesBatchCreateRequestPayload: Codable, Hashable, Sendable {
+    let sales: [PortfolioSaleCreateRequestPayload]
+}
+
 struct PortfolioBuyCreateRequestPayload: Codable, Hashable, Sendable {
     let cardID: String
     let slabContext: SlabContext?
@@ -382,6 +397,10 @@ struct PortfolioSaleCreateResponsePayload: Codable, Hashable, Sendable {
     let grossTotal: Double
     let soldAt: Date
     let showSessionID: String?
+}
+
+struct PortfolioSalesBatchCreateResponsePayload: Codable, Hashable, Sendable {
+    let results: [PortfolioSaleCreateResponsePayload]
 }
 
 struct PortfolioHistoryCoverage: Codable, Hashable, Sendable {

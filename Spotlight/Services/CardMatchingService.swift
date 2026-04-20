@@ -5,7 +5,7 @@ protocol CardMatchingService: Sendable {
     func match(analysis: AnalyzedCapture) async throws -> ScanMatchResponse
     func matchVisualStart(payload: ScanVisualStartRequestPayload) async throws -> ScanMatchResponse
     func matchRerank(payload: ScanRerankRequestPayload) async throws -> ScanMatchResponse
-    func search(query: String) async -> [CardCandidate]
+    func search(query: String, limit: Int) async -> [CardCandidate]
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail?
     func fetchCardMarketHistory(cardID: String, slabContext: SlabContext?, days: Int, variant: String?, condition: String?) async -> CardMarketHistory?
     func fetchGradedCardComps(cardID: String, slabContext: SlabContext?, selectedGrade: String?) async -> GradedCardComps?
@@ -22,12 +22,19 @@ protocol CardMatchingService: Sendable {
     func addDeckEntry(_ payload: DeckEntryCreateRequestPayload) async throws
     func createPortfolioBuy(_ payload: PortfolioBuyCreateRequestPayload) async throws -> PortfolioBuyCreateResponsePayload
     func createPortfolioSale(_ payload: PortfolioSaleCreateRequestPayload) async throws -> PortfolioSaleCreateResponsePayload
+    func createPortfolioSalesBatch(_ payloads: [PortfolioSaleCreateRequestPayload]) async throws -> [PortfolioSaleCreateResponsePayload]
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
         wasTopPrediction: Bool,
         correctionType: CorrectionType
     ) async
+}
+
+extension CardMatchingService {
+    func search(query: String) async -> [CardCandidate] {
+        await search(query: query, limit: 20)
+    }
 }
 
 enum MatcherError: LocalizedError {
@@ -128,14 +135,17 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         )
     }
 
-    func search(query: String) async -> [CardCandidate] {
+    func search(query: String, limit: Int) async -> [CardCandidate] {
         let trimmedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedQuery.isEmpty else { return [] }
 
         guard var components = URLComponents(url: baseURL.appending(path: "api/v1/cards/search"), resolvingAgainstBaseURL: false) else {
             return []
         }
-        components.queryItems = [URLQueryItem(name: "q", value: trimmedQuery)]
+        components.queryItems = [
+            URLQueryItem(name: "q", value: trimmedQuery),
+            URLQueryItem(name: "limit", value: String(max(1, min(limit, 50)))),
+        ]
 
         guard let url = components.url else { return [] }
 
@@ -603,6 +613,26 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             throw MatcherError.server(message: message)
         }
         return try decoder.decode(PortfolioSaleCreateResponsePayload.self, from: data)
+    }
+
+    func createPortfolioSalesBatch(_ payloads: [PortfolioSaleCreateRequestPayload]) async throws -> [PortfolioSaleCreateResponsePayload] {
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/sales/batch")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(
+            PortfolioSalesBatchCreateRequestPayload(sales: payloads)
+        )
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            let message = String(data: data, encoding: .utf8) ?? "Batch sale submission failed."
+            throw MatcherError.server(message: message)
+        }
+
+        let decoded = try decoder.decode(PortfolioSalesBatchCreateResponsePayload.self, from: data)
+        return decoded.results
     }
 
     func createPortfolioBuy(_ payload: PortfolioBuyCreateRequestPayload) async throws -> PortfolioBuyCreateResponsePayload {

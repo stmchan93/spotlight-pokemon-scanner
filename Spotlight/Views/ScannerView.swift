@@ -13,6 +13,7 @@ private struct ReticleCornersOverlay: Shape {
     let leadingInset: CGFloat
     let trailingInset: CGFloat
     let armLength: CGFloat
+    let topLift: CGFloat
 
     func path(in rect: CGRect) -> Path {
         var path = Path()
@@ -20,7 +21,7 @@ private struct ReticleCornersOverlay: Shape {
         let left = leadingInset
         let right = rect.maxX - trailingInset
         let verticalInset = leadingInset
-        let top = verticalInset
+        let top = verticalInset - topLift
         let bottom = rect.maxY - verticalInset
 
         path.move(to: CGPoint(x: left, y: top + armLength))
@@ -47,19 +48,25 @@ func scannerSwipeShouldOpenPortfolio(
     startLocation: CGPoint,
     translation: CGSize,
     containerWidth: CGFloat,
-    minimumHorizontalTravel: CGFloat = 72
+    minimumHorizontalTravel: CGFloat = 48
 ) -> Bool {
     _ = startLocation
     _ = containerWidth
     guard abs(translation.width) > abs(translation.height) else { return false }
-    guard translation.width <= -minimumHorizontalTravel else { return false }
+    guard translation.width >= minimumHorizontalTravel else { return false }
     return true
+}
+
+func collapsedTrayRowBottomPadding(trayBottomInset: CGFloat) -> CGFloat {
+    max(12, round(trayBottomInset * 0.35))
 }
 
 struct ScannerView: View {
     @ObservedObject var viewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
     @ObservedObject var showsState: ShowsMockState
+    let rootSafeAreaTop: CGFloat
+    let rootSafeAreaBottom: CGFloat
     let onExitScanner: (() -> Void)?
     @State private var selectedPhotoItem: PhotosPickerItem?
     @State private var isTrayExpanded = false
@@ -128,8 +135,15 @@ struct ScannerView: View {
 
     var body: some View {
         GeometryReader { proxy in
+            let effectiveRootSafeAreaTop = max(rootSafeAreaTop, proxy.safeAreaInsets.top)
+            let effectiveRootSafeAreaBottom = max(rootSafeAreaBottom, proxy.safeAreaInsets.bottom)
+
             ZStack {
-                scannerBackdrop
+                scannerBackdrop(
+                    rootSafeAreaTop: effectiveRootSafeAreaTop,
+                    rootSafeAreaBottom: effectiveRootSafeAreaBottom
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
                 VStack(spacing: 0) {
                     scannerStatusCard
@@ -140,13 +154,13 @@ struct ScannerView: View {
 
                     compactScanTray(
                         screenHeight: proxy.size.height,
-                        safeAreaBottom: proxy.safeAreaInsets.bottom
+                        safeAreaBottom: effectiveRootSafeAreaBottom
                     )
                 }
                 .ignoresSafeArea(edges: .bottom)
             }
-            .background(Color.black.ignoresSafeArea())
         }
+        .ignoresSafeArea(edges: .top)
         .onAppear {
             viewModel.startScannerSession()
             maybeShowAddTooltip()
@@ -200,42 +214,99 @@ struct ScannerView: View {
         !cameraIsInteractive
     }
 
-    private var scannerBackdrop: some View {
+    // Keep the top safe area preview-transparent, the bottom safe area black,
+    // and the fixed reticle/toggle stack clear of the first collapsed tray row.
+    private let reticleStackVerticalOffset: CGFloat = -24
+    private let trayRowHeight: CGFloat = 80
+    private let trayRowSpacing: CGFloat = 12
+    private let trayHandleHeight: CGFloat = 5
+    private let trayHandleTopPadding: CGFloat = 6
+    private let trayHandleBottomPadding: CGFloat = 4
+    private let trayHeaderVerticalPadding: CGFloat = 8
+    private let minimumTrayBottomInset: CGFloat = 16
+    private let referenceReticleBottomTrim: CGFloat = 60
+    private let referenceReticleTopCornerLift: CGFloat = 44
+
+    private func reticleLayout(
+        containerSize: CGSize,
+        safeAreaTop: CGFloat,
+        safeAreaBottom: CGFloat
+    ) -> ScannerReticleLayout {
+        return ScannerReticleLayout.make(
+            containerSize: containerSize,
+            safeAreaTop: safeAreaTop,
+            safeAreaBottom: safeAreaBottom,
+            bottomTrim: scaledReticleBottomTrim(
+                baseTrim: referenceReticleBottomTrim,
+                containerHeight: containerSize.height
+            ),
+            verticalOffset: reticleStackVerticalOffset,
+            mode: viewModel.scannerPresentationMode
+        )
+    }
+
+    private func scannerBackdrop(
+        rootSafeAreaTop: CGFloat,
+        rootSafeAreaBottom: CGFloat
+    ) -> some View {
         ZStack {
-            // Always show camera preview - session will render when ready
+            // Let the preview own the safe-area expansion directly instead of
+            // trying to fake it with GeometryReader height/offset math.
             CameraPreviewView(
                 session: viewModel.cameraController.session,
                 onPreviewViewReady: { view in
                     viewModel.cameraController.previewView = view
                 }
             )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
             .ignoresSafeArea()
 
             GeometryReader { proxy in
-                tapAnywhereCaptureLayer(containerProxy: proxy)
+                tapAnywhereCaptureLayer(
+                    containerProxy: proxy,
+                    rootSafeAreaTop: rootSafeAreaTop,
+                    rootSafeAreaBottom: rootSafeAreaBottom
+                )
             }
 
             // Dark overlay with reticle cutout (Rare Candy style)
-            darkOverlayWithCutout
+            darkOverlayWithCutout(
+                rootSafeAreaTop: rootSafeAreaTop,
+                rootSafeAreaBottom: rootSafeAreaBottom
+            )
                 .allowsHitTesting(false)
 
-            scanningReticle
+            scanningReticle(
+                rootSafeAreaTop: rootSafeAreaTop,
+                rootSafeAreaBottom: rootSafeAreaBottom
+            )
         }
     }
 
-    private var darkOverlayWithCutout: some View {
+    private func darkOverlayWithCutout(
+        rootSafeAreaTop: CGFloat,
+        rootSafeAreaBottom: CGFloat
+    ) -> some View {
         GeometryReader { geo in
-            let layout = ScannerReticleLayout.make(
+            let layout = reticleLayout(
                 containerSize: geo.size,
-                safeAreaTop: geo.safeAreaInsets.top,
-                safeAreaBottom: geo.safeAreaInsets.bottom,
-                mode: viewModel.scannerPresentationMode
+                safeAreaTop: rootSafeAreaTop,
+                safeAreaBottom: rootSafeAreaBottom
             )
+            let overlayTopInset = layout.topSpacing
+            let overlayHeight = max(0, geo.size.height - overlayTopInset)
 
             ZStack {
-                // Full screen dark overlay
-                Color.black.opacity(0.6)
-                    .ignoresSafeArea()
+                // Keep the status-bar band transparent so the live preview
+                // shows through at the top edge, while preserving the darker
+                // scanner mask below.
+                Rectangle()
+                    .fill(Color.black.opacity(0.6))
+                    .frame(width: geo.size.width, height: overlayHeight)
+                    .position(
+                        x: geo.size.width / 2,
+                        y: overlayTopInset + (overlayHeight / 2)
+                    )
 
                 // Clear rectangle for reticle area
                 Rectangle()
@@ -250,13 +321,15 @@ struct ScannerView: View {
         }
     }
 
-    private var scanningReticle: some View {
+    private func scanningReticle(
+        rootSafeAreaTop: CGFloat,
+        rootSafeAreaBottom: CGFloat
+    ) -> some View {
         GeometryReader { geo in
-            let layout = ScannerReticleLayout.make(
+            let layout = reticleLayout(
                 containerSize: geo.size,
-                safeAreaTop: geo.safeAreaInsets.top,
-                safeAreaBottom: geo.safeAreaInsets.bottom,
-                mode: viewModel.scannerPresentationMode
+                safeAreaTop: rootSafeAreaTop,
+                safeAreaBottom: rootSafeAreaBottom
             )
 
             ZStack(alignment: .top) {
@@ -277,7 +350,11 @@ struct ScannerView: View {
                                 ReticleCornersOverlay(
                                     leadingInset: reticleCornerInset,
                                     trailingInset: reticleTrailingCornerInset,
-                                    armLength: reticleCornerArmLength
+                                    armLength: reticleCornerArmLength,
+                                    topLift: scaledReticleCornerLift(
+                                        baseLift: referenceReticleTopCornerLift,
+                                        containerHeight: geo.size.height
+                                    )
                                 )
                                 .stroke(
                                     Color.white,
@@ -311,7 +388,7 @@ struct ScannerView: View {
                     scanPrompt
                         .position(
                             x: geo.size.width / 2,
-                            y: max(24, max(geo.safeAreaInsets.top - 2, layout.topSpacing - 22))
+                            y: max(24, max(rootSafeAreaTop - 2, layout.topSpacing - 22))
                         )
                 }
             }
@@ -319,13 +396,16 @@ struct ScannerView: View {
     }
 
     @ViewBuilder
-    private func tapAnywhereCaptureLayer(containerProxy: GeometryProxy) -> some View {
+    private func tapAnywhereCaptureLayer(
+        containerProxy: GeometryProxy,
+        rootSafeAreaTop: CGFloat,
+        rootSafeAreaBottom: CGFloat
+    ) -> some View {
         if cameraIsInteractive {
-            let layout = ScannerReticleLayout.make(
+            let layout = reticleLayout(
                 containerSize: containerProxy.size,
-                safeAreaTop: containerProxy.safeAreaInsets.top,
-                safeAreaBottom: containerProxy.safeAreaInsets.bottom,
-                mode: viewModel.scannerPresentationMode
+                safeAreaTop: rootSafeAreaTop,
+                safeAreaBottom: rootSafeAreaBottom
             )
 
             Color.clear
@@ -453,21 +533,18 @@ struct ScannerView: View {
     private func compactScanTray(screenHeight: CGFloat, safeAreaBottom: CGFloat) -> some View {
         let visibleItemCount = viewModel.visibleScannedItems.count
         let expandedRowCount = min(max(visibleItemCount, 1), 3)
-        let rowHeight: CGFloat = 92
-        let rowSpacing: CGFloat = 12
-        let listVerticalPadding: CGFloat = 16
-        let collapsedListHeight = rowHeight + listVerticalPadding
-        let expandedListHeight = (CGFloat(expandedRowCount) * rowHeight)
-            + (CGFloat(max(expandedRowCount - 1, 0)) * rowSpacing)
-            + listVerticalPadding
+        let trayBottomInset = max(safeAreaBottom, minimumTrayBottomInset)
+        let collapsedListHeight = trayRowHeight
+        let expandedListHeight = (CGFloat(expandedRowCount) * trayRowHeight)
+            + (CGFloat(max(expandedRowCount - 1, 0)) * trayRowSpacing)
         let trayListHeight = isTrayExpanded ? expandedListHeight : collapsedListHeight
         let trayMaxHeight = screenHeight * 0.36
 
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 trayHandle
-                    .padding(.top, 6)
-                    .padding(.bottom, 4)
+                    .padding(.top, trayHandleTopPadding)
+                    .padding(.bottom, trayHandleBottomPadding)
                     .frame(maxWidth: .infinity)
 
                 // Header: "Recent scans" + CLEAR | "$X.XX total"
@@ -512,7 +589,7 @@ struct ScannerView: View {
                     }
                 }
                 .padding(.horizontal, 12)
-                .padding(.vertical, 8)
+                .padding(.vertical, trayHeaderVerticalPadding)
                 .background(Color.black)
             }
             .contentShape(Rectangle())
@@ -521,27 +598,36 @@ struct ScannerView: View {
             // Cards list (show first when collapsed, all when expanded)
             if !viewModel.visibleScannedItems.isEmpty {
                 let itemsToShow = isTrayExpanded ? viewModel.visibleScannedItems : Array(viewModel.visibleScannedItems.prefix(1))
-
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 12) {
-                        ForEach(itemsToShow) { item in
-                            compactCardRow(item)
-                                .transition(
-                                    .asymmetric(
-                                        insertion: .offset(y: -64).combined(with: .opacity),
-                                        removal: .opacity
-                                    )
-                                )
-                        }
+                if !isTrayExpanded, let firstItem = itemsToShow.first {
+                    if visibleItemCount > 1 {
+                        compactCollapsedTrayContent(
+                            item: firstItem,
+                            trayBottomInset: trayBottomInset
+                        )
+                            .frame(height: collapsedListHeight + trayBottomInset)
+                            .background(Color.black)
+                            .contentShape(Rectangle())
+                            .simultaneousGesture(trayExpansionGesture)
+                    } else {
+                        compactCollapsedTrayContent(
+                            item: firstItem,
+                            trayBottomInset: trayBottomInset
+                        )
+                            .frame(height: collapsedListHeight + trayBottomInset)
+                            .background(Color.black)
                     }
-                    .padding(.vertical, 8)
-                }
-                .frame(height: min(trayListHeight, trayMaxHeight))
-                .background(Color.black)
-            }
+                } else if isTrayExpanded {
+                    compactTrayListContent(items: itemsToShow)
+                        .frame(height: min(trayListHeight, trayMaxHeight))
+                        .background(Color.black)
 
-            Color.black
-                .frame(height: max(safeAreaBottom, 16))
+                    Color.black
+                        .frame(height: trayBottomInset)
+                }
+            } else {
+                Color.black
+                    .frame(height: trayBottomInset)
+            }
         }
         .background(Color.black)
         .clipShape(ScannerTraySheetShape(cornerRadius: 20))
@@ -549,10 +635,36 @@ struct ScannerView: View {
         .accessibilityIdentifier("scannerTray")
     }
 
+    private func compactCollapsedTrayContent(
+        item: LiveScanStackItem,
+        trayBottomInset: CGFloat
+    ) -> some View {
+        compactCardRow(item)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+            .padding(.top, 4)
+            .padding(.bottom, collapsedTrayRowBottomPadding(trayBottomInset: trayBottomInset))
+    }
+
+    private func compactTrayListContent(items: [LiveScanStackItem]) -> some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: trayRowSpacing) {
+                ForEach(items) { item in
+                    compactCardRow(item)
+                        .transition(
+                            .asymmetric(
+                                insertion: .offset(y: -64).combined(with: .opacity),
+                                removal: .opacity
+                            )
+                        )
+                }
+            }
+        }
+    }
+
     private var trayHandle: some View {
         Capsule()
             .fill(Color.white.opacity(0.3))
-            .frame(width: 48, height: 5)
+            .frame(width: 48, height: trayHandleHeight)
     }
 
     private func compactCardRow(_ item: LiveScanStackItem) -> some View {
@@ -928,11 +1040,9 @@ struct ScannerView: View {
 
     private func addCardToDeck(item: LiveScanStackItem, card: CardCandidate, slabContext: SlabContext?) {
         let appliedCondition: DeckCardCondition = .nearMint
-        let quantity = collectionStore.add(card: card, slabContext: slabContext, condition: appliedCondition)
+        _ = collectionStore.add(card: card, slabContext: slabContext, condition: appliedCondition)
         viewModel.recordDeckAddition(itemID: item.id, card: card, slabContext: slabContext, condition: appliedCondition)
         addTooltipItemID = nil
-        let message = "\(card.name) added to inventory • Qty \(quantity)"
-        viewModel.showBannerMessage(message)
     }
 
     private func maybeShowAddTooltip() {

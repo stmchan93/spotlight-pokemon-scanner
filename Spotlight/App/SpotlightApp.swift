@@ -1,5 +1,11 @@
 import Foundation
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
+#if canImport(AudioToolbox)
+import AudioToolbox
+#endif
 
 enum AppRuntime {
     static var isRunningTests: Bool {
@@ -27,7 +33,36 @@ func spotlightFlowLog(_ message: @autoclosure () -> String) {
 #endif
 }
 
-enum AppShellTab {
+enum AppFeedback {
+    static func cameraCapture() {
+#if canImport(UIKit)
+        DispatchQueue.main.async {
+            let impact = UIImpactFeedbackGenerator(style: .rigid)
+            impact.prepare()
+            impact.impactOccurred(intensity: 0.9)
+#if canImport(AudioToolbox)
+            AudioServicesPlaySystemSound(1108)
+#endif
+        }
+#endif
+    }
+
+    static func saleCompleted() {
+#if canImport(UIKit)
+        DispatchQueue.main.async {
+            let success = UINotificationFeedbackGenerator()
+            success.prepare()
+            success.notificationOccurred(.success)
+
+            let accent = UIImpactFeedbackGenerator(style: .soft)
+            accent.prepare()
+            accent.impactOccurred(intensity: 0.7)
+        }
+#endif
+    }
+}
+
+enum AppShellTab: Hashable {
     case portfolio
     case scan
     case ledger
@@ -88,9 +123,9 @@ func appShellPagerStackOffset(
 ) -> CGFloat {
     switch selectedTab {
     case .scan:
-        return 0
-    case .portfolio:
         return -containerWidth
+    case .portfolio:
+        return 0
     case .ledger:
         return 0
     }
@@ -129,7 +164,7 @@ private struct SpotlightRootView: View {
             }
         }
         .lootyTheme(.default)
-        .preferredColorScheme(.dark)
+        .preferredColorScheme(.light)
     }
 }
 
@@ -171,17 +206,15 @@ private struct TestHostPlaceholderView: View {
 }
 
 struct AppShellView: View {
+    @Environment(\.lootyTheme) private var theme
     @ObservedObject var scannerViewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
     @ObservedObject var authStore: AuthStore
     let onEnsurePortfolioEntries: () -> Void
     @State private var shellState = AppShellState()
-    @StateObject private var dealFlowState = ShowsMockState()
     @State private var portfolioVerticalScrollIsActive = false
-    @State private var pagerTransitionIsSettling = false
-    @State private var pagerSettleToken = UUID()
+    @StateObject private var dealFlowState = ShowsMockState()
     @State private var showingAccountSheet = false
-    @GestureState private var pagerDragTranslation: CGFloat = 0
 
     private var isPresentingDealFlow: Bool {
         dealFlowState.presentedFlow != nil
@@ -203,80 +236,69 @@ struct AppShellView: View {
         showingScannerDetail || showingPortfolioDetail
     }
 
-    private var supportsPagedSwipe: Bool {
-        appShellSupportsPagedSwipe(
-            selectedTab: shellState.selectedTab,
-            isPresentingDealFlow: isPresentingDealFlow,
-            showingSharedDetail: showingSharedDetail,
-            portfolioVerticalScrollIsActive: portfolioVerticalScrollIsActive
+    private var activePagerTab: AppShellTab {
+        shellState.selectedTab == .scan ? .scan : .portfolio
+    }
+
+    private var pagerSelection: Binding<AppShellTab> {
+        Binding(
+            get: { activePagerTab },
+            set: { newValue in
+                guard newValue != shellState.selectedTab else { return }
+                switch newValue {
+                case .portfolio:
+                    shellState.exitScanner()
+                case .scan:
+                    shellState.openScanner()
+                case .ledger:
+                    shellState.openLedger()
+                }
+            }
         )
     }
 
-    private var effectivePagerDragTranslation: CGFloat {
-        guard supportsPagedSwipe else { return 0 }
-        switch shellState.selectedTab {
-        case .scan:
-            return min(pagerDragTranslation, 0)
-        case .portfolio:
-            return max(pagerDragTranslation, 0)
-        case .ledger:
-            return 0
+    private var appShellBackgroundColor: Color {
+        if shellState.selectedTab == .scan && scannerViewModel.route == .scanner {
+            return .black
         }
+        return theme.colors.canvas
     }
 
-    private var portfolioHorizontalPageSwipeIsActive: Bool {
-        portfolioScrollShouldBeDisabledDuringHorizontalPageSwipe(
-            selectedTab: shellState.selectedTab,
-            pagerDragTranslation: effectivePagerDragTranslation
-        )
-    }
-
-    private var scannerShellIsVisible: Bool {
-        scannerShellShouldStayVisible(
-            selectedTab: shellState.selectedTab,
-            pagerDragTranslation: effectivePagerDragTranslation,
-            pagerTransitionIsSettling: pagerTransitionIsSettling
-        )
+    private var preferredShellColorScheme: ColorScheme? {
+        if shellState.selectedTab == .scan && scannerViewModel.route == .scanner {
+            return .dark
+        }
+        return .light
     }
 
     var body: some View {
         GeometryReader { proxy in
-            ZStack {
-                HStack(spacing: 0) {
-                    ScannerRootView(
-                        viewModel: scannerViewModel,
-                        collectionStore: collectionStore,
-                        dealFlowState: dealFlowState,
-                        showsInlineDetail: false,
-                        isVisible: scannerShellIsVisible,
-                        keepsCameraWarmOffscreen: shellState.selectedTab == .portfolio,
-                        onExitScanner: {
-                            spotlightFlowLog("AppShell exitScanner requested from scanner")
-                            transitionToPortfolio()
-                        }
-                    )
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .clipped()
-                    .allowsHitTesting(shellState.selectedTab == .scan)
+            let pagerTopInset = proxy.safeAreaInsets.top
+            let pagerBottomInset = proxy.safeAreaInsets.bottom
 
+            ZStack {
+                appShellBackgroundColor
+                    .ignoresSafeArea()
+
+                TabView(selection: pagerSelection) {
                     PortfolioSurfaceView(
                         onSelectEntry: { entry in
                             spotlightFlowLog("Portfolio entry tapped id=\(entry.id) cardID=\(entry.card.id)")
                             scannerViewModel.presentResultDetail(for: entry)
                         },
                         collectionStore: collectionStore,
+                        scannerViewModel: scannerViewModel,
+                        showsState: dealFlowState,
+                        accountMonogram: authStore.currentUser?.initials ?? "?",
                         isVisible: shellState.selectedTab == .portfolio,
-                        isHorizontalPageSwipeActive: portfolioHorizontalPageSwipeIsActive,
+                        isHorizontalPageSwipeActive: false,
                         onEnsureEntries: onEnsurePortfolioEntries,
                         onOpenScanner: {
                             spotlightFlowLog("AppShell openScanner requested from portfolio")
                             transitionToScanner()
                         },
-                        onOpenLedger: {
-                            spotlightFlowLog("AppShell openLedger requested from portfolio")
-                            withAnimation(.easeInOut(duration: 0.18)) {
-                                shellState.openLedger()
-                            }
+                        onOpenAccount: {
+                            showingAccountSheet = true
                         },
                         onVerticalScrollGestureActiveChanged: { isActive in
                             if portfolioVerticalScrollIsActive != isActive {
@@ -284,19 +306,27 @@ struct AppShellView: View {
                             }
                         }
                     )
-                    .frame(width: proxy.size.width, height: proxy.size.height)
-                    .clipped()
-                    .allowsHitTesting(shellState.selectedTab == .portfolio)
+                    .tag(AppShellTab.portfolio)
+
+                    ScannerRootView(
+                        viewModel: scannerViewModel,
+                        collectionStore: collectionStore,
+                        dealFlowState: dealFlowState,
+                        rootSafeAreaTop: pagerTopInset,
+                        rootSafeAreaBottom: pagerBottomInset,
+                        showsInlineDetail: false,
+                        isVisible: shellState.selectedTab == .scan,
+                        keepsCameraWarmOffscreen: shellState.selectedTab == .portfolio,
+                        onExitScanner: {
+                            spotlightFlowLog("AppShell exitScanner requested from scanner")
+                            transitionToPortfolio()
+                        }
+                    )
+                    .tag(AppShellTab.scan)
                 }
-                .frame(width: proxy.size.width * 2, height: proxy.size.height, alignment: .leading)
-                .offset(
-                    x: appShellPagerStackOffset(
-                        selectedTab: shellState.selectedTab,
-                        containerWidth: proxy.size.width
-                    ) + effectivePagerDragTranslation
-                )
-                .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
-                .clipped()
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .background(Color.clear)
+                .allowsHitTesting(!showingSharedDetail && shellState.selectedTab != .ledger)
 
                 if shellState.selectedTab == .ledger {
                     DashboardView(
@@ -334,11 +364,11 @@ struct AppShellView: View {
                         collectionStore: collectionStore,
                         showsState: dealFlowState
                     )
-                    .zIndex(3)
+                        .zIndex(3)
                 }
             }
-            .simultaneousGesture(shellPagerGesture(containerWidth: proxy.size.width))
         }
+        .preferredColorScheme(preferredShellColorScheme)
         .sheet(item: $dealFlowState.presentedFlow) { flow in
             switch flow {
             case .sell(let draft):
@@ -354,6 +384,7 @@ struct AppShellView: View {
                         showSessionID: nil,
                         note: submission.note
                     )
+                    AppFeedback.saleCompleted()
                 }
             case .sellBatch(let draft):
                 ShowSellBatchPreviewSheet(draft: draft) { submission in
@@ -373,6 +404,7 @@ struct AppShellView: View {
                         )
                     }
                     _ = try await collectionStore.recordSalesBatch(requests)
+                    AppFeedback.saleCompleted()
 
                     let soldItemIDs = submission.lines.flatMap { line in
                         Array(line.sourceItemIDs.prefix(line.quantity))
@@ -389,7 +421,7 @@ struct AppShellView: View {
                 ShowBuyPreviewSheet(draft: draft) { submission in
                     _ = try await collectionStore.recordBuy(
                         card: draft.entry.card,
-                        slabContext: draft.entry.slabContext,
+                        slabContext: submission.slabContext,
                         condition: submission.condition,
                         quantity: submission.quantity,
                         unitPrice: submission.unitPrice,
@@ -417,63 +449,15 @@ struct AppShellView: View {
         }
     }
 
-    private func shellPagerGesture(containerWidth: CGFloat) -> some Gesture {
-        DragGesture(minimumDistance: 16)
-            .updating($pagerDragTranslation) { value, state, _ in
-                guard supportsPagedSwipe else { return }
-                if shellState.selectedTab == .portfolio,
-                   value.startLocation.x > 36 {
-                    return
-                }
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-                let limit = containerWidth * 0.92
-                state = max(-limit, min(limit, value.translation.width))
-            }
-            .onEnded { value in
-                guard supportsPagedSwipe else { return }
-                guard abs(value.translation.width) > abs(value.translation.height) else { return }
-
-                switch shellState.selectedTab {
-                case .scan:
-                    guard scannerSwipeShouldOpenPortfolio(
-                        startLocation: value.startLocation,
-                        translation: value.translation,
-                        containerWidth: containerWidth
-                    ) else { return }
-                    transitionToPortfolio()
-                case .portfolio:
-                    guard portfolioSwipeShouldOpenScanner(
-                        startLocation: value.startLocation,
-                        translation: value.translation
-                    ) else { return }
-                    transitionToScanner()
-                case .ledger:
-                    break
-                }
-            }
-    }
-
     private func transitionToPortfolio() {
-        beginPagerSettleWindow()
         withAnimation(.spring(response: 0.26, dampingFraction: 0.9)) {
             shellState.exitScanner()
         }
     }
 
     private func transitionToScanner() {
-        beginPagerSettleWindow()
         withAnimation(.spring(response: 0.26, dampingFraction: 0.9)) {
             shellState.openScanner()
-        }
-    }
-
-    private func beginPagerSettleWindow(duration: TimeInterval = 0.38) {
-        let token = UUID()
-        pagerSettleToken = token
-        pagerTransitionIsSettling = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + duration) {
-            guard pagerSettleToken == token else { return }
-            pagerTransitionIsSettling = false
         }
     }
 }

@@ -4,6 +4,8 @@ struct ScannerRootView: View {
     @ObservedObject var viewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
     @ObservedObject var dealFlowState: ShowsMockState
+    let rootSafeAreaTop: CGFloat
+    let rootSafeAreaBottom: CGFloat
     @Environment(\.lootyTheme) private var theme
     var showsInlineDetail: Bool = true
     var isVisible: Bool = true
@@ -27,6 +29,8 @@ struct ScannerRootView: View {
                 viewModel: viewModel,
                 collectionStore: collectionStore,
                 showsState: dealFlowState,
+                rootSafeAreaTop: rootSafeAreaTop,
+                rootSafeAreaBottom: rootSafeAreaBottom,
                 onExitScanner: onExitScanner
             )
             .transition(.opacity)
@@ -107,7 +111,7 @@ struct AppShellBottomBar: View {
     let onOpenLedger: () -> Void
 
     var body: some View {
-        HStack(alignment: .center, spacing: theme.spacing.lg - 2) {
+        HStack(alignment: .center, spacing: theme.spacing.md) {
             shellTabItem(
                 systemName: "square.stack.fill",
                 title: "Portfolio",
@@ -134,20 +138,13 @@ struct AppShellBottomBar: View {
                 .frame(maxWidth: .infinity)
             }
             .buttonStyle(.plain)
-
-            shellTabItem(
-                systemName: "list.bullet.clipboard.fill",
-                title: "Dashboard",
-                isSelected: selectedTab == .ledger,
-                action: onOpenLedger
-            )
         }
-        .padding(.horizontal, theme.spacing.xxl)
+        .padding(.horizontal, theme.spacing.xl)
         .padding(.top, theme.spacing.xxs)
         .padding(.bottom, theme.spacing.xxxs)
         .background(
             Rectangle()
-                .fill(theme.colors.canvas.opacity(0.98))
+                .fill(theme.colors.canvas)
                 .overlay(alignment: .top) {
                     Rectangle()
                         .fill(theme.colors.outlineSubtle)

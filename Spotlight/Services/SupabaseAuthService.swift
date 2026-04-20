@@ -106,7 +106,8 @@ struct SupabaseAuthService: Sendable {
                 supabaseKey: configuration.anonKey,
                 options: SupabaseClientOptions(
                     auth: .init(
-                        redirectToURL: configuration.redirectURL
+                        redirectToURL: configuration.redirectURL,
+                        emitLocalSessionAsInitialSession: true
                     )
                 )
             )
@@ -169,7 +170,7 @@ struct SupabaseAuthService: Sendable {
 
     func resolvedAppUser(from session: Session) async -> AppUser {
         let authUser = session.user
-        let profile = await fetchProfile(for: authUser.id)
+        let profile = await fetchProfileWithTimeout(for: authUser.id)
         let displayName = UserProfile.normalized(profile?.displayName) ?? fallbackDisplayName(from: authUser)
         let avatarURL = profile?.avatarURL ?? fallbackAvatarURL(from: authUser)
         let providers = (authUser.identities ?? [])
@@ -250,6 +251,25 @@ struct SupabaseAuthService: Sendable {
             return response.value.userProfile
         } catch {
             return nil
+        }
+    }
+
+    private func fetchProfileWithTimeout(
+        for userID: UUID,
+        timeoutNanoseconds: UInt64 = 2_000_000_000
+    ) async -> UserProfile? {
+        await withTaskGroup(of: UserProfile?.self) { group in
+            group.addTask {
+                await fetchProfile(for: userID)
+            }
+            group.addTask {
+                try? await Task.sleep(nanoseconds: timeoutNanoseconds)
+                return nil
+            }
+
+            let profile = await group.next() ?? nil
+            group.cancelAll()
+            return profile
         }
     }
 

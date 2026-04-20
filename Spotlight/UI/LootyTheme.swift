@@ -70,43 +70,43 @@ struct LootyTheme: Equatable {
 
     static let `default` = LootyTheme(
         colors: Colors(
-            canvas: Color(red: 0.02, green: 0.02, blue: 0.03),
-            canvasElevated: Color(red: 0.06, green: 0.06, blue: 0.07),
-            surface: Color(red: 0.10, green: 0.10, blue: 0.12),
-            surfaceMuted: Color(red: 0.96, green: 0.84, blue: 0.25).opacity(0.10),
-            surfaceLight: Color(red: 0.98, green: 0.97, blue: 0.91),
-            pageLight: Color(red: 0.99, green: 0.98, blue: 0.94),
-            field: Color(red: 0.96, green: 0.84, blue: 0.25).opacity(0.12),
-            fieldLight: Color(red: 0.99, green: 0.98, blue: 0.95),
+            canvas: Color(red: 0.99, green: 0.99, blue: 0.98),
+            canvasElevated: Color.white,
+            surface: Color(red: 0.96, green: 0.96, blue: 0.94),
+            surfaceMuted: Color(red: 0.98, green: 0.90, blue: 0.34).opacity(0.18),
+            surfaceLight: Color.white,
+            pageLight: Color(red: 0.99, green: 0.99, blue: 0.98),
+            field: Color(red: 0.95, green: 0.95, blue: 0.93),
+            fieldLight: Color.white,
             brand: Color(red: 0.96, green: 0.84, blue: 0.25),
-            success: Color(red: 0.95, green: 0.82, blue: 0.22),
-            info: Color(red: 0.88, green: 0.72, blue: 0.18),
+            success: Color(red: 0.96, green: 0.84, blue: 0.25),
+            info: Color(red: 0.90, green: 0.75, blue: 0.20),
             warning: Color(red: 0.97, green: 0.76, blue: 0.24),
             danger: Color(red: 0.95, green: 0.46, blue: 0.46),
-            textPrimary: .white,
-            textSecondary: Color.white.opacity(0.70),
-            textInverse: Color(red: 0.05, green: 0.05, blue: 0.06),
-            textSecondaryInverse: Color(red: 0.45, green: 0.48, blue: 0.53),
-            outlineSubtle: Color.white.opacity(0.08),
-            outlineStrong: Color.white.opacity(0.18),
+            textPrimary: Color(red: 0.06, green: 0.06, blue: 0.07),
+            textSecondary: Color(red: 0.30, green: 0.31, blue: 0.34),
+            textInverse: Color(red: 0.06, green: 0.06, blue: 0.07),
+            textSecondaryInverse: Color(red: 0.30, green: 0.31, blue: 0.34),
+            outlineSubtle: Color.black.opacity(0.08),
+            outlineStrong: Color.black.opacity(0.16),
             outlineLight: Color.black.opacity(0.08)
         ),
         spacing: Spacing(
             xxxs: 4,
-            xxs: 6,
-            xs: 8,
-            sm: 12,
-            md: 16,
-            lg: 20,
-            xl: 24,
-            xxl: 28,
-            xxxl: 32
+            xxs: 8,
+            xs: 12,
+            sm: 16,
+            md: 20,
+            lg: 24,
+            xl: 28,
+            xxl: 32,
+            xxxl: 40
         ),
         radius: Radius(
-            sm: 10,
-            md: 14,
-            lg: 18,
-            xl: 24,
+            sm: 8,
+            md: 12,
+            lg: 16,
+            xl: 20,
             pill: 999
         ),
         typography: Typography(
@@ -120,10 +120,10 @@ struct LootyTheme: Equatable {
             micro: .system(size: 11, weight: .bold)
         ),
         shadow: Shadow(
-            color: Color.black.opacity(0.22),
-            radius: 18,
+            color: Color.black.opacity(0.08),
+            radius: 12,
             x: 0,
-            y: 10
+            y: 6
         )
     )
 }

@@ -4,6 +4,26 @@ import CoreGraphics
 
 @MainActor
 final class DeckPortfolioTests: XCTestCase {
+    func testPortfolioInventoryBrowserLaunchSelectionStateStartsDeselectedForBrowseLaunch() {
+        let launchState = portfolioInventoryBrowserLaunchSelectionState(
+            startsInSelectionMode: false,
+            initialSelectedEntryID: "raw|base1-4"
+        )
+
+        XCTAssertFalse(launchState.isSelectionMode)
+        XCTAssertEqual(launchState.selectedEntryIDs, [])
+    }
+
+    func testPortfolioInventoryBrowserLaunchSelectionStateStartsSelectedForSellLaunch() {
+        let launchState = portfolioInventoryBrowserLaunchSelectionState(
+            startsInSelectionMode: true,
+            initialSelectedEntryID: " raw|base1-4 "
+        )
+
+        XCTAssertTrue(launchState.isSelectionMode)
+        XCTAssertEqual(launchState.selectedEntryIDs, ["raw|base1-4"])
+    }
+
     func testSlabContextDisplayBadgeTitlePrefersGraderAndGrade() {
         let slabContext = SlabContext(grader: "PSA", grade: "10", certNumber: "12345", variantName: "Raw")
         XCTAssertEqual(slabContext.displayBadgeTitle, "PSA 10")
@@ -196,6 +216,81 @@ final class DeckPortfolioTests: XCTestCase {
         XCTAssertEqual(store.searchResults(for: "gym heroes").count, 1)
         XCTAssertEqual(store.searchResults(for: "60/132").count, 1)
         XCTAssertEqual(store.searchResults(for: "missing").count, 0)
+    }
+
+    func testManualCardSearchScopesApplyStructuredQueriesAndPreviewExistingEntries() async {
+        let store = makeCollectionStore()
+        let ownedCard = makeCardCandidate(id: "base1-4", name: "Charizard", setName: "Base Set", number: "4/102")
+        let baseCard = makeCardCandidate(id: "base1-2", name: "Charmeleon", setName: "Base Set", number: "2/102")
+        let jungleCard = makeCardCandidate(id: "jungle-1", name: "Charmander", setName: "Jungle", number: "1/64")
+
+        XCTAssertEqual(store.add(card: ownedCard, slabContext: nil), 1)
+
+        var capturedQueries: [String] = []
+        let viewModel = ManualCardSearchViewModel(resultLimit: 7) { query, limit in
+            capturedQueries.append("\(query)|\(limit)")
+            return [ownedCard, baseCard, jungleCard]
+        }
+
+        viewModel.query = "char"
+        viewModel.submitCurrentQuery()
+        await waitForManualSearchToFinish(viewModel)
+        XCTAssertEqual(capturedQueries.last, "char|7")
+        XCTAssertEqual(viewModel.results.map(\.id), [ownedCard.id, baseCard.id, jungleCard.id])
+
+        viewModel.query = "zard"
+        viewModel.selectScope(.name)
+        await waitForManualSearchToFinish(viewModel)
+        XCTAssertEqual(capturedQueries.last, "name:zard|7")
+        XCTAssertEqual(viewModel.results.map(\.id), [ownedCard.id])
+
+        let previewEntry = store.previewEntry(card: viewModel.results[0], slabContext: nil)
+        XCTAssertEqual(previewEntry.card.id, ownedCard.id)
+        XCTAssertEqual(previewEntry.quantity, 1)
+
+        viewModel.query = "base"
+        viewModel.selectScope(.set)
+        await waitForManualSearchToFinish(viewModel)
+        XCTAssertEqual(capturedQueries.last, "set:base|7")
+        XCTAssertEqual(viewModel.results.map(\.id), [ownedCard.id, baseCard.id])
+
+        viewModel.query = "4/102"
+        viewModel.selectScope(.number)
+        await waitForManualSearchToFinish(viewModel)
+        XCTAssertEqual(capturedQueries.last, "number:4/102|7")
+        XCTAssertEqual(viewModel.results.map(\.id), [ownedCard.id])
+    }
+
+    func testCollectionStoreFetchCardDetailUsesMatcherHydration() async {
+        let matcher = RecordingCardMatchingService()
+        let store = makeCollectionStore(matcher: matcher)
+        let hydratedCard = makeCardCandidate(
+            id: "base1-4",
+            name: "Charizard",
+            setName: "Base Set",
+            number: "4/102",
+            marketPrice: 249
+        )
+        let detail = CardDetail(
+            card: hydratedCard,
+            slabContext: nil,
+            source: "scrydex",
+            sourceRecordID: nil,
+            setID: nil,
+            setSeries: nil,
+            setReleaseDate: nil,
+            supertype: nil,
+            artist: nil,
+            regulationMark: nil,
+            imageSmallURL: nil,
+            imageLargeURL: nil
+        )
+        await matcher.setCardDetail(detail, slabContext: nil)
+
+        let fetchedDetail = await store.fetchCardDetail(cardID: hydratedCard.id, slabContext: nil)
+
+        XCTAssertEqual(fetchedDetail?.card.id, hydratedCard.id)
+        XCTAssertEqual(fetchedDetail?.pricing?.primaryDisplayPrice, 249)
     }
 
     func testFilteredPortfolioEntriesRespectsSearchAndInventoryFilter() {
@@ -1440,7 +1535,7 @@ final class DeckPortfolioTests: XCTestCase {
         XCTAssertEqual(payloads.first?.condition, .nearMint)
     }
 
-    func testCollectionStoreRecordSalesBatchUsesBackendEndpointForEachLine() async throws {
+    func testCollectionStoreRecordSalesBatchUsesBackendBatchEndpoint() async throws {
         let matcher = RecordingCardMatchingService()
         let store = makeCollectionStore(matcher: matcher)
         let first = makeCardCandidate(id: "base1-4", name: "Charizard", marketPrice: 250)
@@ -1473,11 +1568,69 @@ final class DeckPortfolioTests: XCTestCase {
             )
         ])
 
-        let payloads = await matcher.portfolioSalePayloads()
-        XCTAssertEqual(payloads.count, 2)
-        XCTAssertEqual(payloads.map(\.cardID), [first.id, second.id])
-        XCTAssertEqual(payloads.map(\.quantity), [1, 2])
-        XCTAssertEqual(payloads.map(\.showSessionID), ["show-1", "show-1"])
+        let batchPayloads = await matcher.portfolioSalesBatchPayloads()
+        XCTAssertEqual(batchPayloads.count, 1)
+        XCTAssertEqual(batchPayloads.first?.map(\.cardID), [first.id, second.id])
+        XCTAssertEqual(batchPayloads.first?.map(\.quantity), [1, 2])
+        XCTAssertEqual(batchPayloads.first?.map(\.showSessionID), ["show-1", "show-1"])
+
+        let perLinePayloads = await matcher.portfolioSalePayloads()
+        XCTAssertTrue(perLinePayloads.isEmpty)
+    }
+
+    func testCollectionStoreRecordSalesBatchDoesNotWaitForDashboardRefresh() async throws {
+        let matcher = RecordingCardMatchingService()
+        let store = makeCollectionStore(matcher: matcher)
+        let card = makeCardCandidate(id: "base1-4", name: "Charizard", marketPrice: 250)
+
+        await matcher.setDeckEntries([
+            makeDeckEntryPayload(
+                id: "raw|base1-4",
+                card: card,
+                slabContext: nil,
+                quantity: 1,
+                addedAt: makeDate("2026-04-14T12:00:00Z")
+            )
+        ])
+        await matcher.setSalesBatchResponses([
+            PortfolioSaleCreateResponsePayload(
+                saleID: "sale:base1-4",
+                deckEntryID: "raw|base1-4",
+                remainingQuantity: 0,
+                grossTotal: 240,
+                soldAt: makeDate("2026-04-14T20:00:00Z"),
+                showSessionID: nil
+            )
+        ])
+        await matcher.setBlockPortfolioHistoryFetch(true)
+        await store.refreshFromBackend()
+
+        let finished = expectation(description: "record sales batch finished")
+        Task {
+            do {
+                _ = try await store.recordSalesBatch([
+                    PortfolioSaleBatchLineRequest(
+                        card: card,
+                        slabContext: nil,
+                        quantity: 1,
+                        unitPrice: 240,
+                        currencyCode: "USD",
+                        paymentMethod: "Cash",
+                        soldAt: makeDate("2026-04-14T20:00:00Z"),
+                        showSessionID: "show-1",
+                        note: "Bundle",
+                        sourceScanID: nil
+                    )
+                ])
+                finished.fulfill()
+            } catch {
+                XCTFail("recordSalesBatch unexpectedly failed: \(error)")
+            }
+        }
+
+        await fulfillment(of: [finished], timeout: 0.5)
+        await matcher.setBlockPortfolioHistoryFetch(false)
+        await matcher.resumeBlockedPortfolioHistoryFetches()
     }
 
     func testCollectionStoreUpdatePortfolioBuyTransactionPriceUsesBackendEndpoint() async throws {
@@ -1973,4 +2126,14 @@ private func makePortfolioRequestCapturingService() -> RemoteScanMatchingService
     configuration.protocolClasses = [RequestCaptureURLProtocol.self]
     let session = URLSession(configuration: configuration)
     return RemoteScanMatchingService(baseURL: URL(string: "https://example.com")!, session: session)
+}
+
+@MainActor
+private func waitForManualSearchToFinish(_ viewModel: ManualCardSearchViewModel) async {
+    for _ in 0..<30 {
+        if !viewModel.isSearching {
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(20))
+    }
 }

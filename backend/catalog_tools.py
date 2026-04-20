@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import re
+import shlex
 import sqlite3
 import uuid
 from dataclasses import dataclass
@@ -2097,33 +2098,461 @@ def cards_by_ids(connection: sqlite3.Connection, card_ids: Iterable[str]) -> dic
     }
 
 
-def search_cards(connection: sqlite3.Connection, query: str, limit: int = 25) -> list[dict[str, Any]]:
-    tokens = tokenize(query)
-    scored: list[tuple[float, dict[str, Any]]] = []
-    for card in _candidate_rows(connection):
-        haystack_tokens = set(
-            tokenize(
-                " ".join(
-                    [
-                        *(_candidate_title_values(card)),
-                        card["setName"],
-                        card["number"],
-                        card.get("setID") or "",
-                    ]
-                )
+def _normalized_manual_search_limit(limit: int) -> int:
+    try:
+        requested_limit = int(limit)
+    except (TypeError, ValueError):
+        requested_limit = 20
+    return max(1, min(requested_limit, 50))
+
+
+def _manual_search_query_phrases(tokens: list[str]) -> tuple[str, ...]:
+    phrases: list[str] = []
+    seen: set[str] = set()
+    max_window = min(3, len(tokens))
+    for window_size in range(max_window, 0, -1):
+        for start in range(0, len(tokens) - window_size + 1):
+            phrase = " ".join(tokens[start:start + window_size]).strip()
+            if not phrase or phrase in seen:
+                continue
+            seen.add(phrase)
+            phrases.append(phrase)
+    return tuple(phrases)
+
+
+def _manual_search_number_forms(value: str) -> tuple[str, ...]:
+    normalized = canonicalize_collector_number(value)
+    if not normalized:
+        return tuple()
+
+    forms: list[str] = []
+    seen: set[str] = set()
+
+    def add(text: str) -> None:
+        cleaned = str(text or "").strip()
+        if not cleaned or cleaned in seen:
+            return
+        seen.add(cleaned)
+        forms.append(cleaned)
+
+    add(normalized)
+    if "/" in normalized:
+        add(normalized.split("/", 1)[0])
+    return tuple(forms)
+
+
+def _manual_search_prefix_bounds(prefix: str) -> tuple[str, str]:
+    normalized_prefix = str(prefix or "").strip()
+    if not normalized_prefix:
+        return "", ""
+    return normalized_prefix, f"{normalized_prefix}\U0010ffff"
+
+
+_MANUAL_SEARCH_FIELD_NAMES = ("name", "set", "number")
+def _manual_search_unquote(value: str) -> str:
+    cleaned = str(value or "").strip()
+    if len(cleaned) >= 2 and cleaned[0] == cleaned[-1] and cleaned[0] in {'"', "'"}:
+        return cleaned[1:-1].strip()
+    return cleaned
+
+
+def _manual_search_parse_query(query: str) -> tuple[dict[str, tuple[str, ...]], str]:
+    structured: dict[str, list[str]] = {field: [] for field in _MANUAL_SEARCH_FIELD_NAMES}
+    free_parts: list[str] = []
+
+    raw_query = str(query or "")
+    try:
+        parts = shlex.split(raw_query)
+    except ValueError:
+        parts = raw_query.split()
+
+    for raw_part in parts:
+        part = raw_part.strip()
+        if not part:
+            continue
+
+        field, separator, value = part.partition(":")
+        if separator:
+            field_key = field.strip().lower()
+            if field_key in structured:
+                cleaned_value = _manual_search_unquote(value)
+                if cleaned_value:
+                    structured[field_key].append(cleaned_value)
+                continue
+
+        cleaned_part = _manual_search_unquote(part)
+        if cleaned_part:
+            free_parts.append(cleaned_part)
+
+    search_terms = free_parts[:]
+    for field in _MANUAL_SEARCH_FIELD_NAMES:
+        search_terms.extend(structured[field])
+
+    return {field: tuple(values) for field, values in structured.items()}, " ".join(search_terms)
+
+
+def _manual_search_clause_matches_name(card: dict[str, Any], clause: str) -> bool:
+    normalized_clause = _normalized_alias_text(clause)
+    if not normalized_clause:
+        return False
+
+    normalized_title_values = tuple(
+        normalized
+        for normalized in (_normalized_alias_text(value) for value in _candidate_title_values(card))
+        if normalized
+    )
+    if normalized_clause in normalized_title_values:
+        return True
+    if any(value.startswith(normalized_clause) for value in normalized_title_values):
+        return True
+
+    clause_tokens = set(tokenize(clause))
+    if not clause_tokens:
+        return False
+
+    title_tokens = set(tokenize(" ".join(_candidate_title_values(card))))
+    return clause_tokens.issubset(title_tokens)
+
+
+def _manual_search_clause_matches_set(card: dict[str, Any], clause: str) -> bool:
+    normalized_clause = _normalized_alias_text(clause)
+    if not normalized_clause:
+        return False
+
+    normalized_set_values = tuple(
+        normalized
+        for normalized in (
+            _normalized_alias_text(value)
+            for value in [
+                str(card.get("setName") or ""),
+                str(card.get("setID") or ""),
+                str(card.get("setPtcgoCode") or ""),
+            ]
+        )
+        if normalized
+    )
+    if normalized_clause in normalized_set_values:
+        return True
+    if any(value.startswith(normalized_clause) for value in normalized_set_values):
+        return True
+
+    clause_tokens = set(tokenize(clause))
+    if not clause_tokens:
+        return False
+
+    set_tokens = set(
+        tokenize(
+            " ".join(
+                [
+                    str(card.get("setName") or ""),
+                    str(card.get("setID") or ""),
+                    str(card.get("setPtcgoCode") or ""),
+                ]
             )
         )
-        score = float(len(set(tokens) & haystack_tokens))
-        if query and any(query.lower() in value.lower() for value in _candidate_title_values(card)):
-            score += 2.0
-        if score <= 0:
+    )
+    return clause_tokens.issubset(set_tokens)
+
+
+def _manual_search_clause_matches_number(card: dict[str, Any], clause: str) -> bool:
+    clause_number = canonicalize_collector_number(clause)
+    card_number = canonicalize_collector_number(str(card.get("number") or ""))
+    if not clause_number or not card_number:
+        return False
+
+    if clause_number == card_number:
+        return True
+    if card_number.startswith(f"{clause_number}/"):
+        return True
+    return card_number.startswith(clause_number)
+
+
+def _manual_search_card_matches_structured_filters(
+    card: dict[str, Any],
+    structured_filters: dict[str, tuple[str, ...]],
+) -> bool:
+    for clause in structured_filters["name"]:
+        if not _manual_search_clause_matches_name(card, clause):
+            return False
+
+    for clause in structured_filters["set"]:
+        if not _manual_search_clause_matches_set(card, clause):
+            return False
+
+    for clause in structured_filters["number"]:
+        if not _manual_search_clause_matches_number(card, clause):
+            return False
+
+    return True
+
+
+def _manual_search_candidate_rows_for_phrase(
+    connection: sqlite3.Connection,
+    phrase: str,
+    *,
+    limit: int,
+) -> list[tuple[str, float]]:
+    normalized_phrase = _normalized_alias_text(phrase)
+    if not normalized_phrase:
+        return []
+
+    query_specs: list[tuple[str, tuple[object, ...]]] = [
+        (
+            "SELECT card_id AS id, 500.0 AS score FROM card_name_aliases WHERE normalized_alias = ? LIMIT ?",
+            (normalized_phrase,),
+        ),
+        (
+            "SELECT card_id AS id, 450.0 AS score FROM card_name_aliases WHERE normalized_alias >= ? AND normalized_alias < ? LIMIT ?",
+            _manual_search_prefix_bounds(normalized_phrase),
+        ),
+        (
+            "SELECT id AS id, 420.0 AS score FROM cards WHERE name >= ? AND name < ? LIMIT ?",
+            _manual_search_prefix_bounds(normalized_phrase),
+        ),
+        (
+            "SELECT id AS id, 380.0 AS score FROM cards WHERE set_name >= ? AND set_name < ? LIMIT ?",
+            _manual_search_prefix_bounds(normalized_phrase),
+        ),
+    ]
+
+    if len(normalized_phrase) <= 12:
+        query_specs.extend(
+            [
+                (
+                    "SELECT id AS id, 360.0 AS score FROM cards WHERE set_id >= ? AND set_id < ? LIMIT ?",
+                    _manual_search_prefix_bounds(normalized_phrase),
+                ),
+                (
+                    "SELECT id AS id, 360.0 AS score FROM cards WHERE set_ptcgo_code >= ? AND set_ptcgo_code < ? LIMIT ?",
+                    _manual_search_prefix_bounds(normalized_phrase),
+                ),
+            ]
+        )
+
+    for number_form in _manual_search_number_forms(normalized_phrase):
+        number_range = _manual_search_prefix_bounds(number_form)
+        query_specs.extend(
+            [
+                (
+                    "SELECT id AS id, 520.0 AS score FROM cards WHERE number = ? LIMIT ?",
+                    (number_form,),
+                ),
+                (
+                    "SELECT id AS id, 480.0 AS score FROM cards WHERE number >= ? AND number < ? LIMIT ?",
+                    _manual_search_prefix_bounds(f"{number_form}/"),
+                ),
+                (
+                    "SELECT id AS id, 430.0 AS score FROM cards WHERE number >= ? AND number < ? LIMIT ?",
+                    number_range,
+                ),
+            ]
+        )
+
+    if not query_specs:
+        return []
+
+    clause_limit = max(1, min(int(limit), 50))
+    fetch_limit = max(clause_limit * 2, min(clause_limit, 25))
+    fetch_limit = min(fetch_limit, 100)
+    best_scores: dict[str, float] = {}
+    ordered_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for sql, values in query_specs:
+        rows = connection.execute(sql, (*values, fetch_limit)).fetchall()
+        for row in rows:
+            card_id = str(row["id"] or "").strip()
+            if not card_id:
+                continue
+            score = float(row["score"] or 0.0)
+            if card_id not in seen_ids:
+                seen_ids.add(card_id)
+                ordered_ids.append(card_id)
+            best_scores[card_id] = max(best_scores.get(card_id, 0.0), score)
+
+    ordered_ids.sort(key=lambda card_id: (-best_scores.get(card_id, 0.0), card_id))
+    return [(card_id, best_scores[card_id]) for card_id in ordered_ids[:clause_limit]]
+
+
+def _manual_search_score(
+    card: dict[str, Any],
+    query: str,
+    tokens: list[str],
+    structured_filters: dict[str, tuple[str, ...]] | None = None,
+) -> float:
+    if structured_filters is None:
+        structured_filters = {field: tuple() for field in _MANUAL_SEARCH_FIELD_NAMES}
+
+    normalized_query = _normalized_alias_text(query)
+    query_phrases = _manual_search_query_phrases(tokens)
+    normalized_title_values = tuple(
+        normalized
+        for normalized in (_normalized_alias_text(value) for value in _candidate_title_values(card))
+        if normalized
+    )
+    title_token_set = set(tokenize(" ".join(_candidate_title_values(card))))
+    set_token_set = set(
+        tokenize(
+            " ".join(
+                [
+                    str(card.get("setName") or ""),
+                    str(card.get("setID") or ""),
+                    str(card.get("setPtcgoCode") or ""),
+                ]
+            )
+        )
+    )
+    query_token_set = set(tokens)
+    card_number = canonicalize_collector_number(str(card.get("number") or ""))
+    score = 0.0
+
+    if normalized_query:
+        if normalized_query in normalized_title_values:
+            score += 220.0
+        if any(value.startswith(normalized_query) for value in normalized_title_values):
+            score += 160.0
+
+    for phrase in query_phrases:
+        if phrase in normalized_title_values:
+            score += 100.0
+        if any(value.startswith(phrase) for value in normalized_title_values):
+            score += 70.0
+        if phrase == _normalized_alias_text(card.get("setName") or ""):
+            score += 55.0
+        if phrase == _normalized_alias_text(card.get("setID") or ""):
+            score += 50.0
+        if phrase == _normalized_alias_text(card.get("setPtcgoCode") or ""):
+            score += 50.0
+
+    score += float(len(query_token_set & title_token_set)) * 16.0
+    score += float(len(query_token_set & set_token_set)) * 12.0
+
+    for clause in structured_filters["name"]:
+        normalized_clause = _normalized_alias_text(clause)
+        if not normalized_clause:
             continue
-        scored.append((score, card))
-    scored.sort(key=lambda item: (-item[0], item[1]["name"], item[1]["number"]))
-    return [card for _, card in scored[:limit]]
+        if normalized_clause in normalized_title_values:
+            score += 240.0
+        elif any(value.startswith(normalized_clause) for value in normalized_title_values):
+            score += 190.0
+        elif set(tokenize(clause)).issubset(title_token_set):
+            score += 120.0
+
+    for clause in structured_filters["set"]:
+        normalized_clause = _normalized_alias_text(clause)
+        if not normalized_clause:
+            continue
+        set_values = tuple(
+            normalized
+            for normalized in (
+                _normalized_alias_text(value)
+                for value in [
+                    str(card.get("setName") or ""),
+                    str(card.get("setID") or ""),
+                    str(card.get("setPtcgoCode") or ""),
+                ]
+            )
+            if normalized
+        )
+        if normalized_clause in set_values:
+            score += 220.0
+        elif any(value.startswith(normalized_clause) for value in set_values):
+            score += 170.0
+        elif set(tokenize(clause)).issubset(set_token_set):
+            score += 110.0
+
+    for clause in structured_filters["number"]:
+        clause_number = canonicalize_collector_number(clause)
+        if not clause_number or not card_number:
+            continue
+        if clause_number == card_number:
+            score += 240.0
+        elif card_number.startswith(f"{clause_number}/"):
+            score += 190.0
+        elif card_number.startswith(clause_number):
+            score += 150.0
+
+    if card_number:
+        for token in tokens:
+            normalized_token = canonicalize_collector_number(token)
+            if not normalized_token:
+                continue
+            if normalized_token == card_number:
+                score += 180.0
+            elif card_number.startswith(f"{normalized_token}/"):
+                score += 120.0
+            elif card_number.startswith(normalized_token):
+                score += 90.0
+            elif normalized_token in card_number:
+                score += 30.0
+
+    if str(card.get("id") or "").lower().startswith("tcgp-") or str(card.get("sourceRecordID") or "").lower().startswith("tcgp-"):
+        if "tcgp" not in query_token_set and "tcgp" not in normalized_query:
+            score -= 60.0
+
+    return score
 
 
-def search_cards_local(connection: sqlite3.Connection, query: str, limit: int = 25) -> list[dict[str, Any]]:
+def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
+    structured_filters, search_text = _manual_search_parse_query(query)
+    normalized_query = _normalized_alias_text(search_text)
+    if not normalized_query:
+        return []
+
+    tokens = tokenize(search_text)
+    requested_limit = _normalized_manual_search_limit(limit)
+    query_phrases = _manual_search_query_phrases(tokens)
+    candidate_scores: dict[str, float] = {}
+    candidate_order: list[str] = []
+    seen_candidates: set[str] = set()
+
+    def add_candidate(card_id: str, score: float) -> None:
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            return
+        if normalized_card_id not in seen_candidates:
+            seen_candidates.add(normalized_card_id)
+            candidate_order.append(normalized_card_id)
+        candidate_scores[normalized_card_id] = max(candidate_scores.get(normalized_card_id, 0.0), float(score))
+
+    per_phrase_limit = max(8, min(50, requested_limit * 3))
+    for phrase in query_phrases:
+        for card_id, score in _manual_search_candidate_rows_for_phrase(
+            connection,
+            phrase,
+            limit=per_phrase_limit,
+        ):
+            add_candidate(card_id, score)
+
+    if not candidate_order:
+        return []
+
+    candidate_map = cards_by_ids(connection, candidate_order)
+    scored_cards: list[tuple[float, dict[str, Any]]] = []
+    for card_id in candidate_order:
+        card = candidate_map.get(card_id)
+        if card is None:
+            continue
+        if not _manual_search_card_matches_structured_filters(card, structured_filters):
+            continue
+        search_score = _manual_search_score(card, search_text, tokens, structured_filters)
+        retrieval_score = candidate_scores.get(card_id, 0.0)
+        final_score = retrieval_score + search_score
+        if final_score <= 0:
+            continue
+        scored_cards.append((final_score, card))
+
+    scored_cards.sort(
+        key=lambda item: (
+            -item[0],
+            str(item[1]["name"]),
+            str(item[1]["number"]),
+        )
+    )
+    return [card for _, card in scored_cards[:requested_limit]]
+
+
+def search_cards_local(connection: sqlite3.Connection, query: str, limit: int = 20) -> list[dict[str, Any]]:
     return search_cards(connection, query, limit=limit)
 
 

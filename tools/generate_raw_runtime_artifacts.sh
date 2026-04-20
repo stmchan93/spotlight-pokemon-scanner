@@ -35,6 +35,25 @@ raise SystemExit("No available iPhone simulator found")
 PY
 )"
 
+native_arch="$(uname -m)"
+arch_overrides=()
+case "$native_arch" in
+  arm64)
+    arch_overrides=(
+      ONLY_ACTIVE_ARCH=YES
+      ARCHS=arm64
+      EXCLUDED_ARCHS=x86_64
+    )
+    ;;
+  x86_64)
+    arch_overrides=(
+      ONLY_ACTIVE_ARCH=YES
+      ARCHS=x86_64
+      EXCLUDED_ARCHS=arm64
+    )
+    ;;
+esac
+
 xcodebuild \
   -project Spotlight.xcodeproj \
   -scheme Spotlight \
@@ -42,5 +61,6 @@ xcodebuild \
   -destination "platform=iOS Simulator,name=${destination_device_name}" \
   -derivedDataPath .derivedData \
   CODE_SIGNING_ALLOWED=NO \
+  "${arch_overrides[@]}" \
   test \
   -only-testing:SpotlightTests/OCRRewriteStage2FixtureTests/testRawFooterLayoutCheckFixturesEmitRuntimeSelectionSummary

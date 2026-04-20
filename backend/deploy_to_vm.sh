@@ -301,9 +301,12 @@ set -a
 set +a
 "$VENV_DIR/bin/python" "$SCRIPT_DIR/validate_scrydex.py" --database-path "$DATABASE_PATH"
 
-if [ "${SPOTLIGHT_SKIP_INITIAL_SYNC:-0}" != "1" ]; then
-  echo "Running initial Scrydex sync..."
+if [ "${SPOTLIGHT_RUN_INITIAL_SYNC:-0}" = "1" ]; then
+  echo "Running initial Scrydex sync (explicit opt-in)..."
   "$SCRIPT_DIR/run_sync_vm.sh" >> "$SYNC_LOG_FILE" 2>&1
+else
+  echo "Skipping initial Scrydex sync by default; relying on the scheduled 3:00 AM cron."
+  echo "Set SPOTLIGHT_RUN_INITIAL_SYNC=1 to opt in during deploy."
 fi
 
 CRON_BEGIN="# BEGIN spotlight-backend-vm"

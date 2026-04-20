@@ -834,6 +834,65 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(inactive_payload["entries"][0]["quantity"], 0)
         self.assertEqual(inactive_payload["summary"]["count"], 1)
 
+    def test_record_sales_batch_commits_multiple_sales_in_one_transaction(self) -> None:
+        self._insert_card("base1-4", name="Charizard")
+        self._insert_card("base1-2", name="Blastoise")
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="base1-4",
+            quantity=1,
+            added_at="2026-04-14T20:00:00Z",
+            updated_at="2026-04-14T20:00:00Z",
+        )
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="base1-2",
+            quantity=2,
+            added_at="2026-04-14T20:05:00Z",
+            updated_at="2026-04-14T20:05:00Z",
+        )
+        self.service.connection.commit()
+
+        batch_payload = self.service.record_sales_batch(
+            {
+                "sales": [
+                    {
+                        "cardID": "base1-4",
+                        "quantity": 1,
+                        "soldAt": "2026-04-15T20:00:00Z",
+                        "unitPrice": 240.0,
+                        "currencyCode": "USD",
+                        "paymentMethod": "cash",
+                    },
+                    {
+                        "cardID": "base1-2",
+                        "quantity": 2,
+                        "soldAt": "2026-04-15T20:05:00Z",
+                        "unitPrice": 85.0,
+                        "currencyCode": "USD",
+                        "paymentMethod": "cash",
+                    },
+                ]
+            }
+        )
+
+        self.assertEqual(len(batch_payload["results"]), 2)
+        remaining_rows = self.service.connection.execute(
+            "SELECT id, quantity FROM deck_entries ORDER BY id"
+        ).fetchall()
+        sale_rows = self.service.connection.execute(
+            "SELECT card_id, quantity, unit_price FROM sale_events ORDER BY sold_at, id"
+        ).fetchall()
+
+        self.assertEqual(
+            [(row["id"], row["quantity"]) for row in remaining_rows],
+            [("raw|base1-2", 0), ("raw|base1-4", 0)],
+        )
+        self.assertEqual(
+            [(row["card_id"], row["quantity"], float(row["unit_price"])) for row in sale_rows],
+            [("base1-4", 1, 240.0), ("base1-2", 2, 85.0)],
+        )
+
     def test_apply_schema_keeps_sold_entries_inactive(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         upsert_deck_entry(
