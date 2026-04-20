@@ -210,15 +210,130 @@ final class ScanTrayAndNavigationTests: XCTestCase {
         XCTAssertFalse(appShellUsesSharedDetailOverlay(selectedTab: .portfolio, route: .scanner))
     }
 
-    func testScannerSwipeShouldOpenPortfolioRequiresRightEdgeAndLeftwardTravel() {
+    func testAppShellSupportsPagedSwipeDisablesPortfolioPagingDuringVerticalScroll() {
         XCTAssertTrue(
-            scannerSwipeShouldOpenPortfolio(
-                startLocation: CGPoint(x: 360, y: 320),
-                translation: CGSize(width: -120, height: 8),
-                containerWidth: 390
+            appShellSupportsPagedSwipe(
+                selectedTab: .scan,
+                isPresentingDealFlow: false,
+                showingSharedDetail: false,
+                portfolioVerticalScrollIsActive: false
+            )
+        )
+        XCTAssertTrue(
+            appShellSupportsPagedSwipe(
+                selectedTab: .portfolio,
+                isPresentingDealFlow: false,
+                showingSharedDetail: false,
+                portfolioVerticalScrollIsActive: false
             )
         )
         XCTAssertFalse(
+            appShellSupportsPagedSwipe(
+                selectedTab: .portfolio,
+                isPresentingDealFlow: false,
+                showingSharedDetail: false,
+                portfolioVerticalScrollIsActive: true
+            )
+        )
+        XCTAssertFalse(
+            appShellSupportsPagedSwipe(
+                selectedTab: .ledger,
+                isPresentingDealFlow: false,
+                showingSharedDetail: false,
+                portfolioVerticalScrollIsActive: false
+            )
+        )
+    }
+
+    func testPortfolioScrollDisablesOnlyDuringActivePortfolioPageSwipe() {
+        XCTAssertFalse(
+            portfolioScrollShouldBeDisabledDuringHorizontalPageSwipe(
+                selectedTab: .scan,
+                pagerDragTranslation: 32
+            )
+        )
+        XCTAssertFalse(
+            portfolioScrollShouldBeDisabledDuringHorizontalPageSwipe(
+                selectedTab: .portfolio,
+                pagerDragTranslation: 4
+            )
+        )
+        XCTAssertTrue(
+            portfolioScrollShouldBeDisabledDuringHorizontalPageSwipe(
+                selectedTab: .portfolio,
+                pagerDragTranslation: 18
+            )
+        )
+    }
+
+    func testScannerShellStaysVisibleDuringPagerDragAndSettle() {
+        XCTAssertTrue(
+            scannerShellShouldStayVisible(
+                selectedTab: .scan,
+                pagerDragTranslation: 0,
+                pagerTransitionIsSettling: false
+            )
+        )
+        XCTAssertTrue(
+            scannerShellShouldStayVisible(
+                selectedTab: .portfolio,
+                pagerDragTranslation: 22,
+                pagerTransitionIsSettling: false
+            )
+        )
+        XCTAssertTrue(
+            scannerShellShouldStayVisible(
+                selectedTab: .portfolio,
+                pagerDragTranslation: 0,
+                pagerTransitionIsSettling: true
+            )
+        )
+        XCTAssertFalse(
+            scannerShellShouldStayVisible(
+                selectedTab: .portfolio,
+                pagerDragTranslation: 0,
+                pagerTransitionIsSettling: false
+            )
+        )
+    }
+
+    func testScannerCameraStaysWarmWhilePortfolioIsOpen() {
+        XCTAssertTrue(
+            scannerCameraShouldKeepRunning(
+                isVisible: false,
+                keepsCameraWarmOffscreen: true,
+                route: .scanner,
+                isPresentingDealFlow: false
+            )
+        )
+        XCTAssertFalse(
+            scannerCameraShouldKeepRunning(
+                isVisible: false,
+                keepsCameraWarmOffscreen: false,
+                route: .scanner,
+                isPresentingDealFlow: false
+            )
+        )
+        XCTAssertFalse(
+            scannerCameraShouldKeepRunning(
+                isVisible: false,
+                keepsCameraWarmOffscreen: true,
+                route: .resultDetail,
+                isPresentingDealFlow: false
+            )
+        )
+        XCTAssertFalse(
+            scannerCameraShouldKeepRunning(
+                isVisible: false,
+                keepsCameraWarmOffscreen: true,
+                route: .scanner,
+                isPresentingDealFlow: true
+            )
+        )
+    }
+
+    func testScannerSwipeShouldOpenPortfolioRequiresLeftwardHorizontalTravel() {
+        XCTAssertTrue(
             scannerSwipeShouldOpenPortfolio(
                 startLocation: CGPoint(x: 200, y: 320),
                 translation: CGSize(width: -120, height: 8),
@@ -241,16 +356,10 @@ final class ScanTrayAndNavigationTests: XCTestCase {
         )
     }
 
-    func testPortfolioSwipeShouldOpenScannerRequiresLeftEdgeAndRightwardTravel() {
+    func testPortfolioSwipeShouldOpenScannerRequiresRightwardHorizontalTravel() {
         XCTAssertTrue(
             portfolioSwipeShouldOpenScanner(
-                startLocation: CGPoint(x: 24, y: 300),
-                translation: CGSize(width: 120, height: 8)
-            )
-        )
-        XCTAssertFalse(
-            portfolioSwipeShouldOpenScanner(
-                startLocation: CGPoint(x: 140, y: 300),
+                startLocation: CGPoint(x: 20, y: 300),
                 translation: CGSize(width: 120, height: 8)
             )
         )
@@ -265,6 +374,54 @@ final class ScanTrayAndNavigationTests: XCTestCase {
                 startLocation: CGPoint(x: 24, y: 300),
                 translation: CGSize(width: 40, height: 120)
             )
+        )
+        XCTAssertFalse(
+            portfolioSwipeShouldOpenScanner(
+                startLocation: CGPoint(x: 140, y: 300),
+                translation: CGSize(width: 120, height: 8)
+            )
+        )
+    }
+
+    func testPortfolioDragBlocksHorizontalPagingOnlyWhenVerticalIntentIsClear() {
+        XCTAssertTrue(
+            portfolioDragShouldBlockHorizontalPageSwipe(
+                translation: CGSize(width: 18, height: 72)
+            )
+        )
+        XCTAssertFalse(
+            portfolioDragShouldBlockHorizontalPageSwipe(
+                translation: CGSize(width: 80, height: 18)
+            )
+        )
+        XCTAssertFalse(
+            portfolioDragShouldBlockHorizontalPageSwipe(
+                translation: CGSize(width: 4, height: 8)
+            )
+        )
+    }
+
+    func testAppShellPagerStackOffsetPlacesPortfolioToTheRightOfScanner() {
+        XCTAssertEqual(
+            appShellPagerStackOffset(
+                selectedTab: .scan,
+                containerWidth: 390
+            ),
+            0
+        )
+        XCTAssertEqual(
+            appShellPagerStackOffset(
+                selectedTab: .portfolio,
+                containerWidth: 390
+            ),
+            -390
+        )
+        XCTAssertEqual(
+            appShellPagerStackOffset(
+                selectedTab: .ledger,
+                containerWidth: 390
+            ),
+            0
         )
     }
 }

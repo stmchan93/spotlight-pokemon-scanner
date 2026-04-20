@@ -9,14 +9,36 @@ struct ReticleBoundsKey: PreferenceKey {
     }
 }
 
-private struct ReticleCornerShape: Shape {
+private struct ReticleCornersOverlay: Shape {
+    let leadingInset: CGFloat
+    let trailingInset: CGFloat
+    let armLength: CGFloat
+
     func path(in rect: CGRect) -> Path {
-        let inset: CGFloat = 0.5
-        let armLength = min(rect.width, rect.height) * 0.76
         var path = Path()
-        path.move(to: CGPoint(x: inset, y: armLength))
-        path.addLine(to: CGPoint(x: inset, y: inset))
-        path.addLine(to: CGPoint(x: armLength, y: inset))
+
+        let left = leadingInset
+        let right = rect.maxX - trailingInset
+        let verticalInset = leadingInset
+        let top = verticalInset
+        let bottom = rect.maxY - verticalInset
+
+        path.move(to: CGPoint(x: left, y: top + armLength))
+        path.addLine(to: CGPoint(x: left, y: top))
+        path.addLine(to: CGPoint(x: left + armLength, y: top))
+
+        path.move(to: CGPoint(x: right - armLength, y: top))
+        path.addLine(to: CGPoint(x: right, y: top))
+        path.addLine(to: CGPoint(x: right, y: top + armLength))
+
+        path.move(to: CGPoint(x: right, y: bottom - armLength))
+        path.addLine(to: CGPoint(x: right, y: bottom))
+        path.addLine(to: CGPoint(x: right - armLength, y: bottom))
+
+        path.move(to: CGPoint(x: left + armLength, y: bottom))
+        path.addLine(to: CGPoint(x: left, y: bottom))
+        path.addLine(to: CGPoint(x: left, y: bottom - armLength))
+
         return path
     }
 }
@@ -25,11 +47,11 @@ func scannerSwipeShouldOpenPortfolio(
     startLocation: CGPoint,
     translation: CGSize,
     containerWidth: CGFloat,
-    edgeZone: CGFloat = 120,
     minimumHorizontalTravel: CGFloat = 72
 ) -> Bool {
+    _ = startLocation
+    _ = containerWidth
     guard abs(translation.width) > abs(translation.height) else { return false }
-    guard startLocation.x >= containerWidth - edgeZone else { return false }
     guard translation.width <= -minimumHorizontalTravel else { return false }
     return true
 }
@@ -108,8 +130,6 @@ struct ScannerView: View {
         GeometryReader { proxy in
             ZStack {
                 scannerBackdrop
-                    .contentShape(Rectangle())
-                    .highPriorityGesture(scannerNavigationGesture(containerWidth: proxy.size.width))
 
                 VStack(spacing: 0) {
                     scannerStatusCard
@@ -122,7 +142,6 @@ struct ScannerView: View {
                         screenHeight: proxy.size.height,
                         safeAreaBottom: proxy.safeAreaInsets.bottom
                     )
-                    .padding(.bottom, -proxy.safeAreaInsets.bottom)
                 }
                 .ignoresSafeArea(edges: .bottom)
             }
@@ -254,25 +273,16 @@ struct ScannerView: View {
                             .overlay {
                                 slabReticleGuides(layout: layout)
                             }
-                            .overlay(alignment: .topLeading) {
-                                reticleCorner
-                                    .rotationEffect(.degrees(0))
-                                    .offset(x: 8, y: 8)
-                            }
-                            .overlay(alignment: .topTrailing) {
-                                reticleCorner
-                                    .rotationEffect(.degrees(90))
-                                    .offset(x: -8, y: 8)
-                            }
-                            .overlay(alignment: .bottomTrailing) {
-                                reticleCorner
-                                    .rotationEffect(.degrees(180))
-                                    .offset(x: -8, y: -8)
-                            }
-                            .overlay(alignment: .bottomLeading) {
-                                reticleCorner
-                                    .rotationEffect(.degrees(270))
-                                    .offset(x: 8, y: -8)
+                            .overlay {
+                                ReticleCornersOverlay(
+                                    leadingInset: reticleCornerInset,
+                                    trailingInset: reticleTrailingCornerInset,
+                                    armLength: reticleCornerArmLength
+                                )
+                                .stroke(
+                                    Color.white,
+                                    style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
+                                )
                             }
                             .contentShape(Rectangle())
                             .background(
@@ -378,14 +388,9 @@ struct ScannerView: View {
         }
     }
 
-    private var reticleCorner: some View {
-        ReticleCornerShape()
-            .stroke(
-                Color.white,
-                style: StrokeStyle(lineWidth: 1, lineCap: .round, lineJoin: .round)
-            )
-            .frame(width: 36, height: 36)
-    }
+    private var reticleCornerInset: CGFloat { 12 }
+    private var reticleTrailingCornerInset: CGFloat { 28 }
+    private var reticleCornerArmLength: CGFloat { 28 }
 
     private var unavailableState: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -488,13 +493,18 @@ struct ScannerView: View {
                     Spacer()
 
                     HStack(spacing: 8) {
-                        Text(viewModel.totalValueText)
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color(red: 0.35, green: 0.45, blue: 0.35))
-                            .clipShape(Capsule())
+                        ZStack {
+                            Text(viewModel.totalValueText)
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 6)
+                                .background(Color(red: 0.35, green: 0.45, blue: 0.35))
+                                .clipShape(Capsule())
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel(viewModel.totalValueText)
+                        .accessibilityIdentifier("scannerTrayTotalPill")
 
                         if let batchSellDraft {
                             batchSellCTA(batchSellDraft)
@@ -536,6 +546,7 @@ struct ScannerView: View {
         .background(Color.black)
         .clipShape(ScannerTraySheetShape(cornerRadius: 20))
         .ignoresSafeArea(edges: .bottom)
+        .accessibilityIdentifier("scannerTray")
     }
 
     private var trayHandle: some View {
@@ -1452,18 +1463,6 @@ struct ScannerView: View {
         case .low:
             return Color(red: 0.93, green: 0.53, blue: 0.53)
         }
-    }
-
-    private func scannerNavigationGesture(containerWidth: CGFloat) -> some Gesture {
-        return DragGesture(minimumDistance: 28)
-            .onEnded { value in
-                guard scannerSwipeShouldOpenPortfolio(
-                    startLocation: value.startLocation,
-                    translation: value.translation,
-                    containerWidth: containerWidth
-                ) else { return }
-                onExitScanner?()
-            }
     }
 
     private var trayExpansionGesture: some Gesture {

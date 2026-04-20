@@ -34,6 +34,20 @@
                ReferencedContainer = "container:Spotlight.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "NO"
+            buildForProfiling = "NO"
+            buildForArchiving = "NO"
+            buildForAnalyzing = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "4E79B6F870C041F3DD8E42B2"
+               BuildableName = "SpotlightUITests.xctest"
+               BlueprintName = "SpotlightUITests"
+               ReferencedContainer = "container:Spotlight.xcodeproj">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -50,6 +64,16 @@
                BlueprintIdentifier = "DT0000000000000000000001"
                BuildableName = "SpotlightTests.xctest"
                BlueprintName = "SpotlightTests"
+               ReferencedContainer = "container:Spotlight.xcodeproj">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "4E79B6F870C041F3DD8E42B2"
+               BuildableName = "SpotlightUITests.xctest"
+               BlueprintName = "SpotlightUITests"
                ReferencedContainer = "container:Spotlight.xcodeproj">
             </BuildableReference>
          </TestableReference>

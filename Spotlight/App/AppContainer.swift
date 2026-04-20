@@ -608,6 +608,7 @@ final class AppContainer: ObservableObject {
 
     let scannerViewModel: ScannerViewModel
     let collectionStore: CollectionStore
+    let authStore: AuthStore
     private let remoteMatcher: RemoteScanMatchingService
     private var hasPrimedLocalNetworkPermission = false
     private var isPrimingLocalNetworkPermission = false
@@ -631,6 +632,7 @@ final class AppContainer: ObservableObject {
         let remoteBaseURL = Self.resolveBackendBaseURL()
         let remoteMatcher = RemoteScanMatchingService(baseURL: remoteBaseURL)
         self.remoteMatcher = remoteMatcher
+        self.authStore = AuthStore()
         let logStore = ScanEventStore()
         self.collectionStore = CollectionStore(matcher: remoteMatcher)
         let artifactUploadsEnabled = Self.shouldEnableScanArtifactUploads()

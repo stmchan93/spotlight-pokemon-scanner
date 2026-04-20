@@ -13,3 +13,10 @@ SPOTLIGHT_PRODUCTION_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a
 // Optional. Override scan artifact uploads for local testing.
 // Debug defaults to NO. Staging/Release default to YES.
 SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED = NO
+
+// Required for Supabase Auth.
+SPOTLIGHT_SUPABASE_URL = https:/$()/your-project-ref.supabase.co
+SPOTLIGHT_SUPABASE_ANON_KEY = your-supabase-anon-key
+
+// Optional. Override the auth callback host if you need a different deep-link target.
+SPOTLIGHT_AUTH_REDIRECT_HOST = login-callback

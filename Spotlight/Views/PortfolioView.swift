@@ -166,13 +166,24 @@ func chartDragShouldScrub(translation: CGSize) -> Bool {
 func portfolioSwipeShouldOpenScanner(
     startLocation: CGPoint,
     translation: CGSize,
-    edgeZone: CGFloat = 88,
-    minimumHorizontalTravel: CGFloat = 90
+    minimumHorizontalTravel: CGFloat = 90,
+    edgeActivationWidth: CGFloat = 36
 ) -> Bool {
+    guard startLocation.x <= edgeActivationWidth else { return false }
     guard abs(translation.width) > abs(translation.height) else { return false }
-    guard startLocation.x <= edgeZone else { return false }
     guard translation.width >= minimumHorizontalTravel else { return false }
     return true
+}
+
+func portfolioDragShouldBlockHorizontalPageSwipe(
+    translation: CGSize,
+    minimumVerticalTravel: CGFloat = 10,
+    dominancePadding: CGFloat = 6
+) -> Bool {
+    let verticalTravel = abs(translation.height)
+    let horizontalTravel = abs(translation.width)
+    guard verticalTravel >= minimumVerticalTravel else { return false }
+    return verticalTravel > horizontalTravel + dominancePadding
 }
 
 func filteredPortfolioEntries(
@@ -845,9 +856,11 @@ struct PortfolioSurfaceView: View {
     let onSelectEntry: (DeckCardEntry) -> Void
     @ObservedObject var collectionStore: CollectionStore
     let isVisible: Bool
+    let isHorizontalPageSwipeActive: Bool
     let onEnsureEntries: () -> Void
     let onOpenScanner: () -> Void
     let onOpenLedger: () -> Void
+    let onVerticalScrollGestureActiveChanged: (Bool) -> Void
     @State private var searchQuery = ""
     @State private var sortOption: PortfolioSortChoice = .recentlyAdded
     @State private var inventoryFilter: PortfolioInventoryFilter = .all
@@ -874,7 +887,7 @@ struct PortfolioSurfaceView: View {
             ZStack {
                 inkBackground.ignoresSafeArea()
 
-                ScrollView(showsIndicators: false) {
+                ScrollView(showsIndicators: true) {
                     VStack(alignment: .leading, spacing: 20) {
                         portfolioChartSection
                         portfolioHeader
@@ -884,8 +897,18 @@ struct PortfolioSurfaceView: View {
                     .padding(.top, 18)
                     .padding(.bottom, 104 + max(proxy.safeAreaInsets.bottom, 0))
                 }
+                .scrollDisabled(isHorizontalPageSwipeActive)
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 8)
+                        .onChanged { value in
+                            guard portfolioDragShouldBlockHorizontalPageSwipe(translation: value.translation) else { return }
+                            onVerticalScrollGestureActiveChanged(true)
+                        }
+                        .onEnded { _ in
+                            onVerticalScrollGestureActiveChanged(false)
+                        }
+                )
             }
-            .highPriorityGesture(portfolioToScannerSwipeGesture)
             .safeAreaInset(edge: .bottom, spacing: 0) {
                 VStack(spacing: 0) {
                     if isSelectionMode {
@@ -934,6 +957,9 @@ struct PortfolioSurfaceView: View {
             }
             .onChange(of: isVisible, initial: true) { _, visible in
                 spotlightFlowLog("Portfolio isVisible -> \(visible) entries=\(collectionStore.entries.count) displayed=\(displayedEntries.count) historyLoaded=\(collectionStore.portfolioHistory != nil)")
+                if !visible {
+                    onVerticalScrollGestureActiveChanged(false)
+                }
                 guard visible else { return }
                 if collectionStore.entries.isEmpty {
                     spotlightFlowLog("Portfolio requesting ensured entries because store is empty")
@@ -967,17 +993,6 @@ struct PortfolioSurfaceView: View {
                 scheduleDisplayedEntriesRefresh()
             }
         }
-    }
-
-    private var portfolioToScannerSwipeGesture: some Gesture {
-        return DragGesture(minimumDistance: 28)
-            .onEnded { value in
-                guard portfolioSwipeShouldOpenScanner(
-                    startLocation: value.startLocation,
-                    translation: value.translation
-                ) else { return }
-                onOpenScanner()
-            }
     }
 
     private var portfolioChartSection: some View {

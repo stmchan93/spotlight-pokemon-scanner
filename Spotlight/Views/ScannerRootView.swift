@@ -6,10 +6,17 @@ struct ScannerRootView: View {
     @ObservedObject var dealFlowState: ShowsMockState
     @Environment(\.lootyTheme) private var theme
     var showsInlineDetail: Bool = true
+    var isVisible: Bool = true
+    var keepsCameraWarmOffscreen: Bool = false
     let onExitScanner: (() -> Void)?
 
     private var shouldKeepCameraRunning: Bool {
-        viewModel.route == .scanner && dealFlowState.presentedFlow == nil
+        scannerCameraShouldKeepRunning(
+            isVisible: isVisible,
+            keepsCameraWarmOffscreen: keepsCameraWarmOffscreen,
+            route: viewModel.route,
+            isPresentingDealFlow: dealFlowState.presentedFlow != nil
+        )
     }
 
     var body: some View {
@@ -61,6 +68,12 @@ struct ScannerRootView: View {
         .onChange(of: viewModel.route) { _, _ in
             syncScannerSession()
         }
+        .onChange(of: isVisible) { _, _ in
+            syncScannerSession()
+        }
+        .onChange(of: keepsCameraWarmOffscreen) { _, _ in
+            syncScannerSession()
+        }
         .onChange(of: dealFlowState.presentedFlow != nil) { _, _ in
             syncScannerSession()
         }
@@ -74,6 +87,16 @@ struct ScannerRootView: View {
             viewModel.stopScannerSession()
         }
     }
+}
+
+func scannerCameraShouldKeepRunning(
+    isVisible: Bool,
+    keepsCameraWarmOffscreen: Bool,
+    route: ScannerRoute,
+    isPresentingDealFlow: Bool
+) -> Bool {
+    guard route == .scanner, !isPresentingDealFlow else { return false }
+    return isVisible || keepsCameraWarmOffscreen
 }
 
 struct AppShellBottomBar: View {

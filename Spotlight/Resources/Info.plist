@@ -18,6 +18,17 @@
 	<string>$(PRODUCT_NAME)</string>
 	<key>CFBundlePackageType</key>
 	<string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>auth-callback</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(SPOTLIGHT_AUTH_REDIRECT_SCHEME)</string>
+			</array>
+		</dict>
+	</array>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>
@@ -45,6 +56,12 @@
 	<string>$(SPOTLIGHT_DEVICE_API_BASE_URL)</string>
 	<key>SpotlightEnvironment</key>
 	<string>$(SPOTLIGHT_ENVIRONMENT)</string>
+	<key>SpotlightSupabaseURL</key>
+	<string>$(SPOTLIGHT_SUPABASE_URL)</string>
+	<key>SpotlightSupabaseAnonKey</key>
+	<string>$(SPOTLIGHT_SUPABASE_ANON_KEY)</string>
+	<key>SpotlightAuthRedirectURL</key>
+	<string>$(SPOTLIGHT_AUTH_REDIRECT_URL)</string>
 	<key>SpotlightScanArtifactUploadsEnabled</key>
 	<string>$(SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED)</string>
 	<key>UIApplicationSceneManifest</key>

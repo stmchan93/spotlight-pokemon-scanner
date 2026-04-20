@@ -70,6 +70,20 @@ private func dismissKeyboard() {
 #endif
 }
 
+@MainActor
+private func currentBottomSafeAreaInset() -> CGFloat {
+#if canImport(UIKit)
+    let scenes = UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+    for scene in scenes {
+        if let window = scene.windows.first(where: \.isKeyWindow) {
+            return window.safeAreaInsets.bottom
+        }
+    }
+#endif
+    return 0
+}
+
 private func interactionUptimeString() -> String {
     String(format: "%.6f", ProcessInfo.processInfo.systemUptime)
 }
@@ -190,7 +204,7 @@ private struct UIKitDecimalTextField: UIViewRepresentable {
 
         func makeDoneAccessory() -> UIView {
             let accessory = KeyboardDoneAccessoryView(
-                buttonColor: .link,
+                buttonColor: UIColor(LootyTheme.default.colors.success),
                 backgroundColor: UIColor.systemBackground,
                 actionTarget: self,
                 action: #selector(doneButtonTapped)
@@ -504,8 +518,10 @@ struct LedgerTransactionPriceEditorSheet: View {
 
 struct DashboardView: View {
     @ObservedObject var collectionStore: CollectionStore
+    let accountMonogram: String
     let onOpenPortfolio: () -> Void
     let onOpenScanner: () -> Void
+    let onOpenAccount: () -> Void
 
     @Environment(\.lootyTheme) private var theme
     @State private var selectedOverviewIndex: Int?
@@ -676,16 +692,33 @@ struct DashboardView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 8) {
-                Text("Dashboard")
-                    .font(theme.typography.display)
-                    .foregroundStyle(theme.colors.textPrimary)
+        HStack(alignment: .top, spacing: theme.spacing.md) {
+            VStack(alignment: .leading, spacing: 14) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Dashboard")
+                        .font(theme.typography.display)
+                        .foregroundStyle(theme.colors.textPrimary)
 
-                Text("Track inventory value, spend, revenue, and realized profit over time.")
-                    .font(.subheadline)
-                    .foregroundStyle(theme.colors.textSecondary)
+                    Text("Track inventory value, spend, revenue, and realized profit over time.")
+                        .font(.subheadline)
+                        .foregroundStyle(theme.colors.textSecondary)
+                }
             }
+
+            Spacer(minLength: theme.spacing.md)
+
+            Button(action: onOpenAccount) {
+                Circle()
+                    .fill(theme.colors.brand)
+                    .frame(width: 38, height: 38)
+                    .overlay(
+                        Text(accountMonogram)
+                            .font(.caption.weight(.bold))
+                            .foregroundStyle(theme.colors.textInverse)
+                    )
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Open account")
         }
     }
 
@@ -2384,11 +2417,14 @@ struct ShowSellPreviewSheet: View {
     @Environment(\.lootyTheme) private var theme
     @State private var quantity = 1
     @State private var listPriceText: String
-    @State private var sellPercentText = "100"
+    @State private var sellPercentText: String
     @State private var isSubmitting = false
     @State private var errorMessage: String?
-    @State private var swipeProgress: CGFloat = 0
+    @State private var confirmationSheetOffset: CGFloat = 0
+    @State private var hasInitializedConfirmationSheet = false
+    @State private var lastClosedConfirmationSheetOffset: CGFloat = 0
     @State private var focusedField: SellInputField?
+    @GestureState private var liveSwipeTranslation: CGFloat = 0
 
     private var pageBackground: Color { theme.colors.pageLight }
     private var surfaceBackground: Color { theme.colors.surfaceLight }
@@ -2397,10 +2433,9 @@ struct ShowSellPreviewSheet: View {
     private var primaryText: Color { theme.colors.textInverse }
     private var secondaryText: Color { theme.colors.textSecondaryInverse }
     private var outline: Color { theme.colors.outlineLight }
-    private let swipeThreshold: CGFloat = 144
-    private let actionHeight: CGFloat = 108
-    private let swipeVisualTravel: CGFloat = 240
-    private let pageLiftDistance: CGFloat = 120
+    private let compactInputWidth: CGFloat = 112
+    private let compactInputHeight: CGFloat = 46
+    private let actionHeight: CGFloat = 100
 
     init(
         draft: ShowSellDraft,
@@ -2408,7 +2443,8 @@ struct ShowSellPreviewSheet: View {
     ) {
         self.draft = draft
         self.onConfirm = onConfirm
-        _listPriceText = State(initialValue: String(format: "%.2f", max(0, draft.suggestedPrice)))
+        _listPriceText = State(initialValue: "")
+        _sellPercentText = State(initialValue: "")
     }
 
     private var pricingCurrencyCode: String {
@@ -2451,14 +2487,6 @@ struct ShowSellPreviewSheet: View {
         !isSubmitting
     }
 
-    private var swipeCompletionProgress: CGFloat {
-        min(max(swipeProgress / swipeVisualTravel, 0), 1)
-    }
-
-    private var releaseToSellArmed: Bool {
-        swipeProgress >= swipeThreshold
-    }
-
     private var sellPercentBinding: Binding<String> {
         Binding(
             get: { sellPercentText },
@@ -2472,7 +2500,7 @@ struct ShowSellPreviewSheet: View {
     }
 
     private var hasInvalidPricingInput: Bool {
-        parsedListPrice == nil || parsedSellPercent == nil
+        parsedListPrice == nil
     }
 
     private var listPriceBinding: Binding<String> {
@@ -2489,8 +2517,14 @@ struct ShowSellPreviewSheet: View {
     var body: some View {
         NavigationStack {
             GeometryReader { proxy in
-                ZStack {
-                    sellSwipeBackdrop(containerHeight: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
+                let containerHeight = proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
+                let closedOffset = closedConfirmationSheetOffset(containerHeight: containerHeight)
+                let currentOffset = currentConfirmationSheetOffset(closedOffset: closedOffset)
+                let confirmationProgress = confirmationSheetProgress(closedOffset: closedOffset)
+
+                ZStack(alignment: .bottom) {
+                    pageBackground
+                        .ignoresSafeArea()
 
                     ScrollView(showsIndicators: false) {
                         VStack(alignment: .leading, spacing: 14) {
@@ -2511,16 +2545,26 @@ struct ShowSellPreviewSheet: View {
                             alignment: .top
                         )
                     }
-                    .offset(y: -(swipeCompletionProgress * pageLiftDistance))
-                    .scaleEffect(1 - (swipeCompletionProgress * 0.03), anchor: .top)
+                    .offset(y: -confirmationContentLift(containerHeight: containerHeight, closedOffset: closedOffset))
                     .scrollDismissesKeyboard(.interactively)
+
+                    sellConfirmationSheet(
+                        progress: confirmationProgress,
+                        closedOffset: closedOffset
+                    )
+                    .offset(y: currentOffset)
+                    .ignoresSafeArea(edges: .bottom)
+                    .allowsHitTesting(!isSubmitting)
                 }
                 .contentShape(Rectangle())
                 .onTapGesture {
                     clearInputFocus()
                 }
-                .safeAreaInset(edge: .bottom, spacing: 0) {
-                    sellBottomActionBar
+                .onAppear {
+                    initializeConfirmationSheetIfNeeded(closedOffset: closedOffset)
+                }
+                .onChange(of: closedOffset) { _, newValue in
+                    updateConfirmationSheetClosedOffset(newValue)
                 }
             }
             .toolbarBackground(pageBackground, for: .navigationBar)
@@ -2542,30 +2586,56 @@ struct ShowSellPreviewSheet: View {
                 }
             }
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .presentationDetents([.large])
         .presentationDragIndicator(.visible)
         .onChange(of: focusedField) { _, newValue in
             print("🟢 FOCUS STATE CHANGED to \(String(describing: newValue)): \(Date()) [ShowSellPreviewSheet]")
         }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillShowNotification)) { _ in
-            print("🔵 KEYBOARD WILL SHOW: \(Date()) [ShowSellPreviewSheet]")
-        }
-        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardDidShowNotification)) { _ in
-            print("🔴 KEYBOARD DID SHOW: \(Date()) [ShowSellPreviewSheet]")
-        }
     }
 
-    private func sellSwipeBackdrop(containerHeight: CGFloat) -> some View {
-        ZStack(alignment: .bottom) {
-            pageBackground
-                .ignoresSafeArea()
+    private func closedConfirmationSheetOffset(containerHeight: CGFloat) -> CGFloat {
+        max(0, containerHeight - actionHeight)
+    }
 
-            actionAccent
-                .opacity(Double(swipeCompletionProgress))
-                .frame(height: max(0, swipeCompletionProgress * containerHeight))
-                .ignoresSafeArea(edges: .bottom)
+    private func initializeConfirmationSheetIfNeeded(closedOffset: CGFloat) {
+        guard !hasInitializedConfirmationSheet else { return }
+        confirmationSheetOffset = closedOffset
+        lastClosedConfirmationSheetOffset = closedOffset
+        hasInitializedConfirmationSheet = true
+    }
+
+    private func updateConfirmationSheetClosedOffset(_ closedOffset: CGFloat) {
+        if !hasInitializedConfirmationSheet {
+            initializeConfirmationSheetIfNeeded(closedOffset: closedOffset)
+            return
         }
-        .animation(.easeOut(duration: 0.16), value: swipeProgress)
+
+        if abs(confirmationSheetOffset - lastClosedConfirmationSheetOffset) < 1 {
+            confirmationSheetOffset = closedOffset
+        }
+        lastClosedConfirmationSheetOffset = closedOffset
+    }
+
+    private func currentConfirmationSheetOffset(closedOffset: CGFloat) -> CGFloat {
+        let translatedOffset = confirmationSheetOffset + resistedSwipeTranslation(liveSwipeTranslation)
+        return min(max(0, translatedOffset), closedOffset)
+    }
+
+    private func confirmationSheetProgress(closedOffset: CGFloat) -> CGFloat {
+        guard closedOffset > 0 else { return 0 }
+        return 1 - (currentConfirmationSheetOffset(closedOffset: closedOffset) / closedOffset)
+    }
+
+    private func confirmationContentLift(containerHeight: CGFloat, closedOffset: CGFloat) -> CGFloat {
+        confirmationSheetProgress(closedOffset: closedOffset) * max(0, min(closedOffset, containerHeight * 0.56))
+    }
+
+    private func resistedSwipeTranslation(_ translation: CGFloat) -> CGFloat {
+        if translation < 0 {
+            return translation * 0.88
+        }
+        return translation * 0.35
     }
 
     private var sellSurface: some View {
@@ -2574,12 +2644,12 @@ struct ShowSellPreviewSheet: View {
                 CardArtworkView(
                     urlString: draft.entry.card.imageSmallURL ?? draft.entry.card.imageLargeURL,
                     fallbackTitle: draft.entry.card.name,
-                    cornerRadius: 22,
+                    cornerRadius: 20,
                     contentMode: .fit
                 )
-                .frame(width: 120, height: 168)
+                .frame(width: 104, height: 146)
                 .background(Color.black.opacity(0.04))
-                .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
 
                 VStack(spacing: 6) {
                     Text(draft.entry.card.name)
@@ -2594,16 +2664,11 @@ struct ShowSellPreviewSheet: View {
                         .multilineTextAlignment(.center)
                 }
 
-                VStack(spacing: 6) {
+                VStack(spacing: 0) {
                     Text(formattedPrice(targetSellPrice, currencyCode: pricingCurrencyCode))
                         .font(.system(size: 52, weight: .bold, design: .rounded))
                         .foregroundStyle(primaryText)
                         .minimumScaleFactor(0.62)
-
-                    Text(quantity == 1 ? "Sale price each" : "Sale price each • Total \(formattedPrice(grossTotal, currencyCode: pricingCurrencyCode))")
-                        .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(secondaryText)
-                        .multilineTextAlignment(.center)
                 }
             }
             .frame(maxWidth: .infinity)
@@ -2617,7 +2682,7 @@ struct ShowSellPreviewSheet: View {
                 compactValueField(
                     text: listPriceBinding,
                     placeholder: "0.00",
-                    width: 136,
+                    width: compactInputWidth,
                     focus: .listPrice
                 )
             }
@@ -2628,7 +2693,7 @@ struct ShowSellPreviewSheet: View {
                 compactValueField(
                     text: sellPercentBinding,
                     placeholder: "100",
-                    width: 112,
+                    width: compactInputWidth,
                     focus: .sellPercent
                 )
             }
@@ -2646,16 +2711,6 @@ struct ShowSellPreviewSheet: View {
                     .font(.body.weight(.bold))
                     .foregroundStyle(primaryText)
             }
-
-            divider
-
-            Text(reviewCalculationText)
-                .font(.footnote.weight(.semibold))
-                .foregroundStyle(secondaryText)
-                .frame(maxWidth: .infinity, alignment: .center)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 20)
-                .padding(.vertical, 16)
         }
         .background(surfaceBackground)
         .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
@@ -2666,13 +2721,18 @@ struct ShowSellPreviewSheet: View {
         .padding(.bottom, 8)
     }
 
-    private var sellBottomActionBar: some View {
+    private func sellConfirmationSheet(progress: CGFloat, closedOffset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            sellBottomActionBar(progress: progress, closedOffset: closedOffset)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(actionAccent)
+    }
+
+    private func sellBottomActionBar(progress: CGFloat, closedOffset: CGFloat) -> some View {
         let actionTitle = isSubmitting ? "SELLING…" : (releaseToSellArmed ? "Release to sell" : "Swipe up to sell")
         return VStack(spacing: 0) {
-            Rectangle()
-                .fill(outline)
-                .frame(height: 1)
-
             VStack(spacing: 6) {
                 Image(systemName: "chevron.up")
                     .font(.system(size: 12, weight: .bold))
@@ -2681,44 +2741,51 @@ struct ShowSellPreviewSheet: View {
             }
             .foregroundStyle(theme.colors.textInverse)
             .frame(maxWidth: .infinity, minHeight: actionHeight)
-            .background(actionAccent)
-            .offset(y: -min(swipeCompletionProgress * 18, 18))
-            .opacity(isSubmitting ? 0.78 : 1)
-            .contentShape(Rectangle())
-            .gesture(sellSwipeGesture)
-            .background(pageBackground)
         }
+        .opacity(isSubmitting ? 0.78 : 1)
+        .opacity(max(0.12, 1 - (progress * 1.2)))
+        .scaleEffect(max(0.88, 1 - (progress * 0.12)))
+        .contentShape(Rectangle())
+        .gesture(sellSwipeGesture(closedOffset: closedOffset))
     }
 
-    private var sellSwipeGesture: some Gesture {
+    private var releaseToSellArmed: Bool {
+        confirmationSheetProgress(closedOffset: lastClosedConfirmationSheetOffset) >= 0.42
+    }
+
+    private func sellSwipeGesture(closedOffset: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 8)
-            .onChanged { value in
+            .updating($liveSwipeTranslation) { value, state, _ in
                 guard canSwipeToSubmit else { return }
-                let upwardTravel = max(0, -value.translation.height)
-                swipeProgress = min(upwardTravel, swipeVisualTravel)
+                state = value.translation.height
             }
             .onEnded { value in
                 guard canSwipeToSubmit else { return }
-                let upwardTravel = max(0, -value.translation.height)
-                if upwardTravel >= swipeThreshold {
+                let translatedOffset = min(
+                    max(0, confirmationSheetOffset + resistedSwipeTranslation(value.translation.height)),
+                    closedOffset
+                )
+                let shouldConfirm = translatedOffset <= (closedOffset * 0.58)
+
+                if shouldConfirm {
                     withAnimation(.spring(response: 0.42, dampingFraction: 0.9)) {
-                        swipeProgress = swipeVisualTravel
+                        confirmationSheetOffset = 0
                     }
-                    submitSale()
+                    submitSale(closedOffset: closedOffset)
                 } else {
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                        swipeProgress = 0
+                        confirmationSheetOffset = closedOffset
                     }
                 }
             }
     }
 
-    private func submitSale() {
+    private func submitSale(closedOffset: CGFloat) {
         clearInputFocus()
         guard !hasInvalidPricingInput else {
-            errorMessage = "Enter a valid list price and sell % before selling."
+            errorMessage = "Enter a list price before selling."
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                swipeProgress = 0
+                confirmationSheetOffset = closedOffset
             }
             return
         }
@@ -2737,14 +2804,14 @@ struct ShowSellPreviewSheet: View {
                 )
                 await MainActor.run {
                     isSubmitting = false
-                    swipeProgress = 0
+                    confirmationSheetOffset = closedOffset
                     dismiss()
                 }
             } catch {
                 await MainActor.run {
                     isSubmitting = false
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                        swipeProgress = 0
+                        confirmationSheetOffset = closedOffset
                     }
                     errorMessage = error.localizedDescription
                 }
@@ -2822,7 +2889,7 @@ struct ShowSellPreviewSheet: View {
             text: text,
             placeholder: placeholder,
             alignment: width == nil ? .left : .right,
-            font: .systemFont(ofSize: 22, weight: .bold),
+            font: .systemFont(ofSize: 17, weight: .bold),
             textColor: UIColor(primaryText),
             traceContext: "ShowSellPreviewSheet",
             onTapReceived: {
@@ -2832,8 +2899,8 @@ struct ShowSellPreviewSheet: View {
                 focusedField = focus
             }
         )
-            .padding(.horizontal, 14)
-            .frame(maxWidth: width == nil ? .infinity : width, minHeight: 54, maxHeight: 54)
+            .padding(.horizontal, 12)
+            .frame(maxWidth: width == nil ? .infinity : width, minHeight: compactInputHeight, maxHeight: compactInputHeight)
             .background(fieldBackground)
             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             .overlay(
@@ -2843,54 +2910,13 @@ struct ShowSellPreviewSheet: View {
             .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 
-    private func discountField(
-        title: String,
-        text: Binding<String>,
-        placeholder: String,
-        focus: SellInputField
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(secondaryText)
-
-            compactValueField(
-                text: text,
-                placeholder: placeholder,
-                width: nil,
-                focus: focus
-            )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
     private func clearInputFocus() {
         focusedField = nil
         dismissKeyboard()
     }
 
-    private func reviewDetailRow(_ title: String, value: String) -> some View {
-        HStack(spacing: 12) {
-            Text(title)
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(primaryText)
-
-            Spacer()
-
-            Text(value)
-                .font(.subheadline.weight(.bold))
-                .foregroundStyle(primaryText)
-        }
-    }
-
-    private var reviewCalculationText: String {
-        let base = formattedPrice(listingPrice, currencyCode: pricingCurrencyCode)
-        let final = formattedPrice(targetSellPrice, currencyCode: pricingCurrencyCode)
-        return "\(base) × \(formattedPercent(resolvedSellPercent)) = \(final)"
-    }
-
     private func invalidateReviewedSaleForValueChange() {
-        swipeProgress = 0
+        confirmationSheetOffset = lastClosedConfirmationSheetOffset
         if errorMessage != nil {
             errorMessage = nil
         }
@@ -2926,8 +2952,11 @@ struct ShowSellBatchPreviewSheet: View {
     @State private var isReviewingSale = false
     @State private var isBuyerPresentationPresented = false
     @State private var errorMessage: String?
-    @State private var swipeProgress: CGFloat = 0
+    @State private var reviewConfirmationSheetOffset: CGFloat = 0
+    @State private var hasInitializedReviewConfirmationSheet = false
+    @State private var lastClosedReviewConfirmationSheetOffset: CGFloat = 0
     @State private var focusedField: BatchSellInputField?
+    @GestureState private var liveReviewSwipeTranslation: CGFloat = 0
 
     private var pageBackground: Color { theme.colors.pageLight }
     private var surfaceBackground: Color { theme.colors.surfaceLight }
@@ -2936,10 +2965,7 @@ struct ShowSellBatchPreviewSheet: View {
     private var primaryText: Color { theme.colors.textInverse }
     private var secondaryText: Color { theme.colors.textSecondaryInverse }
     private var outline: Color { theme.colors.outlineLight }
-    private let swipeThreshold: CGFloat = 144
-    private let actionHeight: CGFloat = 108
-    private let swipeVisualTravel: CGFloat = 240
-    private let pageLiftDistance: CGFloat = 120
+    private let actionHeight: CGFloat = 100
 
     init(
         draft: ShowSellBatchDraft,
@@ -2992,14 +3018,6 @@ struct ShowSellBatchPreviewSheet: View {
 
     private var canSwipeToSubmit: Bool {
         !isSubmitting
-    }
-
-    private var swipeCompletionProgress: CGFloat {
-        min(max(swipeProgress / swipeVisualTravel, 0), 1)
-    }
-
-    private var releaseToSellArmed: Bool {
-        swipeProgress >= swipeThreshold
     }
 
     var body: some View {
@@ -3483,8 +3501,14 @@ struct ShowSellBatchPreviewSheet: View {
 
     private var reviewPage: some View {
         GeometryReader { proxy in
-            ZStack {
-                sellSwipeBackdrop(containerHeight: proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom)
+            let containerHeight = proxy.size.height + proxy.safeAreaInsets.top + proxy.safeAreaInsets.bottom
+            let closedOffset = closedReviewConfirmationSheetOffset(containerHeight: containerHeight)
+            let currentOffset = currentReviewConfirmationSheetOffset(closedOffset: closedOffset)
+            let confirmationProgress = reviewConfirmationSheetProgress(closedOffset: closedOffset)
+
+            ZStack(alignment: .bottom) {
+                pageBackground
+                    .ignoresSafeArea()
 
                 ScrollView(showsIndicators: false) {
                     VStack(alignment: .leading, spacing: 18) {
@@ -3508,15 +3532,25 @@ struct ShowSellBatchPreviewSheet: View {
                     .padding(.bottom, actionHeight + 28)
                     .frame(
                         minHeight: max(0, proxy.size.height - proxy.safeAreaInsets.top - proxy.safeAreaInsets.bottom),
-                        alignment: .top
-                    )
+                            alignment: .top
+                        )
                 }
-                .offset(y: -(swipeCompletionProgress * pageLiftDistance))
-                .scaleEffect(1 - (swipeCompletionProgress * 0.03), anchor: .top)
+                .offset(y: -reviewContentLift(containerHeight: containerHeight, closedOffset: closedOffset))
                 .scrollDismissesKeyboard(.immediately)
+
+                reviewConfirmationSheet(
+                    progress: confirmationProgress,
+                    closedOffset: closedOffset
+                )
+                .offset(y: currentOffset)
+                .ignoresSafeArea(edges: .bottom)
+                .allowsHitTesting(!isSubmitting)
             }
-            .overlay(alignment: .bottom) {
-                reviewBottomActionBar
+            .onAppear {
+                initializeReviewConfirmationSheetIfNeeded(closedOffset: closedOffset)
+            }
+            .onChange(of: closedOffset) { _, newValue in
+                updateReviewConfirmationSheetClosedOffset(newValue)
             }
         }
         .toolbarBackground(pageBackground, for: .navigationBar)
@@ -3529,17 +3563,48 @@ struct ShowSellBatchPreviewSheet: View {
         }
     }
 
-    private func sellSwipeBackdrop(containerHeight: CGFloat) -> some View {
-        ZStack(alignment: .bottom) {
-            pageBackground
-                .ignoresSafeArea()
+    private func closedReviewConfirmationSheetOffset(containerHeight: CGFloat) -> CGFloat {
+        max(0, containerHeight - actionHeight)
+    }
 
-            actionAccent
-                .opacity(Double(swipeCompletionProgress))
-                .frame(height: max(0, swipeCompletionProgress * containerHeight))
-                .ignoresSafeArea(edges: .bottom)
+    private func initializeReviewConfirmationSheetIfNeeded(closedOffset: CGFloat) {
+        guard !hasInitializedReviewConfirmationSheet else { return }
+        reviewConfirmationSheetOffset = closedOffset
+        lastClosedReviewConfirmationSheetOffset = closedOffset
+        hasInitializedReviewConfirmationSheet = true
+    }
+
+    private func updateReviewConfirmationSheetClosedOffset(_ closedOffset: CGFloat) {
+        if !hasInitializedReviewConfirmationSheet {
+            initializeReviewConfirmationSheetIfNeeded(closedOffset: closedOffset)
+            return
         }
-        .animation(.easeOut(duration: 0.16), value: swipeProgress)
+
+        if abs(reviewConfirmationSheetOffset - lastClosedReviewConfirmationSheetOffset) < 1 {
+            reviewConfirmationSheetOffset = closedOffset
+        }
+        lastClosedReviewConfirmationSheetOffset = closedOffset
+    }
+
+    private func currentReviewConfirmationSheetOffset(closedOffset: CGFloat) -> CGFloat {
+        let translatedOffset = reviewConfirmationSheetOffset + resistedReviewSwipeTranslation(liveReviewSwipeTranslation)
+        return min(max(0, translatedOffset), closedOffset)
+    }
+
+    private func reviewConfirmationSheetProgress(closedOffset: CGFloat) -> CGFloat {
+        guard closedOffset > 0 else { return 0 }
+        return 1 - (currentReviewConfirmationSheetOffset(closedOffset: closedOffset) / closedOffset)
+    }
+
+    private func reviewContentLift(containerHeight: CGFloat, closedOffset: CGFloat) -> CGFloat {
+        reviewConfirmationSheetProgress(closedOffset: closedOffset) * max(0, min(closedOffset, containerHeight * 0.56))
+    }
+
+    private func resistedReviewSwipeTranslation(_ translation: CGFloat) -> CGFloat {
+        if translation < 0 {
+            return translation * 0.88
+        }
+        return translation * 0.35
     }
 
     private var reviewSummaryHero: some View {
@@ -3737,13 +3802,18 @@ struct ShowSellBatchPreviewSheet: View {
         }
     }
 
-    private var reviewBottomActionBar: some View {
+    private func reviewConfirmationSheet(progress: CGFloat, closedOffset: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            reviewBottomActionBar(progress: progress, closedOffset: closedOffset)
+            Spacer(minLength: 0)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(actionAccent)
+    }
+
+    private func reviewBottomActionBar(progress: CGFloat, closedOffset: CGFloat) -> some View {
         let actionTitle = isSubmitting ? "SELLING…" : (releaseToSellArmed ? "Release to sell" : "Swipe up to sell")
         return VStack(spacing: 0) {
-            Rectangle()
-                .fill(outline)
-                .frame(height: 1)
-
             VStack(spacing: 6) {
                 Image(systemName: "chevron.up")
                     .font(.system(size: 12, weight: .bold))
@@ -3752,33 +3822,40 @@ struct ShowSellBatchPreviewSheet: View {
             }
             .foregroundStyle(theme.colors.textInverse)
             .frame(maxWidth: .infinity, minHeight: actionHeight)
-            .background(actionAccent)
-            .offset(y: -min(swipeCompletionProgress * 18, 18))
-            .opacity(isSubmitting ? 0.78 : 1)
-            .contentShape(Rectangle())
-            .gesture(batchSellSwipeGesture)
-            .background(pageBackground)
         }
+        .opacity(isSubmitting ? 0.78 : 1)
+        .opacity(max(0.12, 1 - (progress * 1.2)))
+        .scaleEffect(max(0.88, 1 - (progress * 0.12)))
+        .contentShape(Rectangle())
+        .gesture(batchSellSwipeGesture(closedOffset: closedOffset))
     }
 
-    private var batchSellSwipeGesture: some Gesture {
+    private var releaseToSellArmed: Bool {
+        reviewConfirmationSheetProgress(closedOffset: lastClosedReviewConfirmationSheetOffset) >= 0.42
+    }
+
+    private func batchSellSwipeGesture(closedOffset: CGFloat) -> some Gesture {
         DragGesture(minimumDistance: 8)
-            .onChanged { value in
+            .updating($liveReviewSwipeTranslation) { value, state, _ in
                 guard canSwipeToSubmit else { return }
-                let upwardTravel = max(0, -value.translation.height)
-                swipeProgress = min(upwardTravel, swipeVisualTravel)
+                state = value.translation.height
             }
             .onEnded { value in
                 guard canSwipeToSubmit else { return }
-                let upwardTravel = max(0, -value.translation.height)
-                if upwardTravel >= swipeThreshold {
+                let translatedOffset = min(
+                    max(0, reviewConfirmationSheetOffset + resistedReviewSwipeTranslation(value.translation.height)),
+                    closedOffset
+                )
+                let shouldConfirm = translatedOffset <= (closedOffset * 0.58)
+
+                if shouldConfirm {
                     withAnimation(.spring(response: 0.42, dampingFraction: 0.9)) {
-                        swipeProgress = swipeVisualTravel
+                        reviewConfirmationSheetOffset = 0
                     }
-                    submitBatchSale()
+                    submitBatchSale(closedOffset: closedOffset)
                 } else {
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                        swipeProgress = 0
+                        reviewConfirmationSheetOffset = closedOffset
                     }
                 }
             }
@@ -3787,7 +3864,7 @@ struct ShowSellBatchPreviewSheet: View {
     private func invalidateReviewedSaleForValueChange() {
         if isReviewingSale {
             isReviewingSale = false
-            swipeProgress = 0
+            reviewConfirmationSheetOffset = lastClosedReviewConfirmationSheetOffset
         }
         if errorMessage != nil {
             errorMessage = nil
@@ -3805,7 +3882,7 @@ struct ShowSellBatchPreviewSheet: View {
             return
         }
         errorMessage = nil
-        swipeProgress = 0
+        reviewConfirmationSheetOffset = lastClosedReviewConfirmationSheetOffset
         isReviewingSale = true
     }
 
@@ -3814,19 +3891,19 @@ struct ShowSellBatchPreviewSheet: View {
         dismissKeyboard()
     }
 
-    private func submitBatchSale() {
+    private func submitBatchSale(closedOffset: CGFloat) {
         clearInputFocus()
         guard !activeLines.isEmpty else {
             errorMessage = "Choose at least one scanned card to sell."
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                swipeProgress = 0
+                reviewConfirmationSheetOffset = closedOffset
             }
             return
         }
         guard !hasInvalidActivePricing else {
             errorMessage = "Enter a valid list price and sell % before selling."
             withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                swipeProgress = 0
+                reviewConfirmationSheetOffset = closedOffset
             }
             return
         }
@@ -3853,14 +3930,14 @@ struct ShowSellBatchPreviewSheet: View {
                 )
                 await MainActor.run {
                     isSubmitting = false
-                    swipeProgress = 0
+                    reviewConfirmationSheetOffset = closedOffset
                     dismiss()
                 }
             } catch {
                 await MainActor.run {
                     isSubmitting = false
                     withAnimation(.spring(response: 0.28, dampingFraction: 0.84)) {
-                        swipeProgress = 0
+                        reviewConfirmationSheetOffset = closedOffset
                     }
                     errorMessage = error.localizedDescription
                 }

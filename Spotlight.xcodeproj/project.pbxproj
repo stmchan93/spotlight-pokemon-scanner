@@ -7,6 +7,14 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		0DC313A6A7687443FBA2C527 /* ProfileOnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 154FA995336B2774E0E64AB7 /* ProfileOnboardingView.swift */; };
+		118CD9B01441FB670411DB6F /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = D7D9211402201F51A78584E3 /* Supabase */; };
+		3619DC8DCC429DD1ECE44EA1 /* AuthModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1D8608018F9531BAD401E383 /* AuthModels.swift */; };
+		47A3C4525B2277C9872B6AE8 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = E902372506954E31821C26EB /* SignInView.swift */; };
+		56DE97C45381D84394C68720 /* SupabaseAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = CEDD4255F3A8CBF201428CC3 /* SupabaseAuthService.swift */; };
+		58DAA841E869B1D09DEEB22E /* AuthGateView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1125D886976D4220B75E770B /* AuthGateView.swift */; };
+		7AA23CCEDD616FAF107E80F5 /* ScanTrayVisibilityUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = D1EF19189DFD682DAF8FEBE0 /* ScanTrayVisibilityUITests.swift */; };
+		9F6DEDA15C8C08977278BCE7 /* Foundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 54A42715148F6D202CA06D4A /* Foundation.framework */; };
 		A1B2C3D4E5F6000000000001 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F6000000000002 /* Assets.xcassets */; };
 		BA0000000000000000000001 /* SpotlightApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000002 /* SpotlightApp.swift */; };
 		BA0000000000000000000002 /* AppContainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000003 /* AppContainer.swift */; };
@@ -35,12 +43,12 @@
 		BBC123450000000000000006 /* PerspectiveNormalization.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000006 /* PerspectiveNormalization.swift */; };
 		BBC123450000000000000007 /* TargetSelection.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000007 /* TargetSelection.swift */; };
 		BBC123450000000000000008 /* ModeSanitySignals.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000008 /* ModeSanitySignals.swift */; };
-		BBC12345000000000000000E /* OCRTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC12345000000000000000E /* OCRTuning.swift */; };
 		BBC123450000000000000009 /* RawSceneTraits.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC123450000000000000009 /* RawSceneTraits.swift */; };
 		BBC12345000000000000000A /* RawROIPlanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC12345000000000000000A /* RawROIPlanner.swift */; };
 		BBC12345000000000000000B /* RawOCRPassRunner.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC12345000000000000000B /* RawOCRPassRunner.swift */; };
 		BBC12345000000000000000C /* RawEvidenceSynthesizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC12345000000000000000C /* RawEvidenceSynthesizer.swift */; };
 		BBC12345000000000000000D /* RawPipeline.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC12345000000000000000D /* RawPipeline.swift */; };
+		BBC12345000000000000000E /* OCRTuning.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC12345000000000000000E /* OCRTuning.swift */; };
 		BBC12345000000000000000F /* RawConfidenceModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FFC12345000000000000000F /* RawConfidenceModel.swift */; };
 		C2EE97F53B03E6525C299E46 /* ScanCacheManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2876B6D775130E8BD64C6636 /* ScanCacheManager.swift */; };
 		C3EE97F53B03E6525C299E46 /* RemoteImagePrefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3876B6D775130E8BD64C6636 /* RemoteImagePrefetcher.swift */; };
@@ -59,9 +67,18 @@
 		DA000000000000000000000B /* ScanTrayAndNavigationTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB000000000000000000000C /* ScanTrayAndNavigationTests.swift */; };
 		DA000000000000000000000C /* ShowSellStateTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB000000000000000000000D /* ShowSellStateTests.swift */; };
 		DA000000000000000000000D /* ScanTestSupport.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB000000000000000000000E /* ScanTestSupport.swift */; };
+		DAFF8FAB64875966F2E7F574 /* AuthStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 330EDCCC1302EB35F455ECD2 /* AuthStore.swift */; };
+		E80EC3AB21411F92BEB05567 /* AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 884EAF13A1A2BB72CF4804D9 /* AccountView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		06C5ECE41EA4CCF556EFD080 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = PR0000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = TA0000000000000000000001;
+			remoteInfo = Spotlight;
+		};
 		DC0000000000000000000001 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = PR0000000000000000000001 /* Project object */;
@@ -72,13 +89,34 @@
 /* End PBXContainerItemProxy section */
 
 /* Begin PBXFileReference section */
+		1125D886976D4220B75E770B /* AuthGateView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthGateView.swift; sourceTree = "<group>"; };
+		154FA995336B2774E0E64AB7 /* ProfileOnboardingView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ProfileOnboardingView.swift; sourceTree = "<group>"; };
+		1D8608018F9531BAD401E383 /* AuthModels.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthModels.swift; sourceTree = "<group>"; };
 		2876B6D775130E8BD64C6636 /* ScanCacheManager.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ScanCacheManager.swift; sourceTree = "<group>"; };
+		292549CC39572276595BC11C /* Spotlight.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = Spotlight.entitlements; sourceTree = "<group>"; };
+		330EDCCC1302EB35F455ECD2 /* AuthStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AuthStore.swift; sourceTree = "<group>"; };
 		3876B6D775130E8BD64C6636 /* RemoteImagePrefetcher.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = RemoteImagePrefetcher.swift; sourceTree = "<group>"; };
+		54A42715148F6D202CA06D4A /* Foundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Foundation.framework; path = Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.0.sdk/System/Library/Frameworks/Foundation.framework; sourceTree = DEVELOPER_DIR; };
+		61D5F8F9FB7773E65F7DD632 /* SpotlightUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpotlightUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		884EAF13A1A2BB72CF4804D9 /* AccountView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AccountView.swift; sourceTree = "<group>"; };
 		A1B2C3D4E5F6000000000002 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		CEDD4255F3A8CBF201428CC3 /* SupabaseAuthService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SupabaseAuthService.swift; sourceTree = "<group>"; };
+		D1EF19189DFD682DAF8FEBE0 /* ScanTrayVisibilityUITests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = ScanTrayVisibilityUITests.swift; path = ScanTrayVisibilityUITests.swift; sourceTree = "<group>"; };
 		DB0000000000000000000001 /* OCRFixtureExecutionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRFixtureExecutionTests.swift; sourceTree = "<group>"; };
 		DB0000000000000000000002 /* SpotlightTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SpotlightTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRRewriteStage1FixtureTests.swift; sourceTree = "<group>"; };
+		DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawOCRRegressionSuiteTests.swift; sourceTree = "<group>"; };
 		DB0000000000000000000005 /* ScanReliabilityHeuristicsTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanReliabilityHeuristicsTests.swift; sourceTree = "<group>"; };
 		DB0000000000000000000006 /* ScanCaptureInputTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanCaptureInputTests.swift; sourceTree = "<group>"; };
+		DB0000000000000000000007 /* OCRTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRTestSupport.swift; sourceTree = "<group>"; };
+		DB0000000000000000000008 /* TargetSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetSelectionTests.swift; sourceTree = "<group>"; };
+		DB0000000000000000000009 /* PerspectiveNormalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectiveNormalizationTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000A /* DeckPortfolioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckPortfolioTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000B /* ScanArtifactQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanArtifactQueueTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000C /* ScanTrayAndNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanTrayAndNavigationTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000D /* ShowSellStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSellStateTests.swift; sourceTree = "<group>"; };
+		DB000000000000000000000E /* ScanTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanTestSupport.swift; sourceTree = "<group>"; };
+		E902372506954E31821C26EB /* SignInView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
 		FA0000000000000000000001 /* Spotlight.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Spotlight.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		FA0000000000000000000002 /* SpotlightApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SpotlightApp.swift; sourceTree = "<group>"; };
 		FA0000000000000000000003 /* AppContainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppContainer.swift; sourceTree = "<group>"; };
@@ -91,7 +129,6 @@
 		FA000000000000000000000A /* ScannerViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerViewModel.swift; sourceTree = "<group>"; };
 		FA000000000000000000000B /* ScannerRootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerRootView.swift; sourceTree = "<group>"; };
 		FA000000000000000000000C /* ScannerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerView.swift; sourceTree = "<group>"; };
-		FA0000000000000000000020 /* PortfolioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioView.swift; sourceTree = "<group>"; };
 		FA000000000000000000000E /* AlternateMatchesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AlternateMatchesView.swift; sourceTree = "<group>"; };
 		FA000000000000000000000F /* CameraPreviewView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraPreviewView.swift; sourceTree = "<group>"; };
 		FA0000000000000000000010 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
@@ -104,6 +141,7 @@
 		FA0000000000000000000017 /* LocalOverrides.example.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = LocalOverrides.example.xcconfig; sourceTree = "<group>"; };
 		FA0000000000000000000018 /* SlabLabelParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SlabLabelParsing.swift; sourceTree = "<group>"; };
 		FA0000000000000000000019 /* ScanResultDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanResultDetailView.swift; sourceTree = "<group>"; };
+		FA0000000000000000000020 /* PortfolioView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioView.swift; sourceTree = "<group>"; };
 		FA0000000000000000000021 /* ShowsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowsView.swift; sourceTree = "<group>"; };
 		FC4000000000000000000001 /* LootyTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootyTheme.swift; sourceTree = "<group>"; };
 		FC4000000000000000000002 /* LootyComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootyComponents.swift; sourceTree = "<group>"; };
@@ -115,33 +153,16 @@
 		FFC123450000000000000006 /* PerspectiveNormalization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectiveNormalization.swift; sourceTree = "<group>"; };
 		FFC123450000000000000007 /* TargetSelection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetSelection.swift; sourceTree = "<group>"; };
 		FFC123450000000000000008 /* ModeSanitySignals.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ModeSanitySignals.swift; sourceTree = "<group>"; };
-		FFC12345000000000000000E /* OCRTuning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRTuning.swift; sourceTree = "<group>"; };
 		FFC123450000000000000009 /* RawSceneTraits.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawSceneTraits.swift; sourceTree = "<group>"; };
 		FFC12345000000000000000A /* RawROIPlanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawROIPlanner.swift; sourceTree = "<group>"; };
 		FFC12345000000000000000B /* RawOCRPassRunner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawOCRPassRunner.swift; sourceTree = "<group>"; };
 		FFC12345000000000000000C /* RawEvidenceSynthesizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawEvidenceSynthesizer.swift; sourceTree = "<group>"; };
 		FFC12345000000000000000D /* RawPipeline.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawPipeline.swift; sourceTree = "<group>"; };
+		FFC12345000000000000000E /* OCRTuning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRTuning.swift; sourceTree = "<group>"; };
 		FFC12345000000000000000F /* RawConfidenceModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawConfidenceModel.swift; sourceTree = "<group>"; };
-		DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRRewriteStage1FixtureTests.swift; sourceTree = "<group>"; };
-		DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RawOCRRegressionSuiteTests.swift; sourceTree = "<group>"; };
-		DB0000000000000000000007 /* OCRTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OCRTestSupport.swift; sourceTree = "<group>"; };
-		DB0000000000000000000008 /* TargetSelectionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TargetSelectionTests.swift; sourceTree = "<group>"; };
-		DB0000000000000000000009 /* PerspectiveNormalizationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PerspectiveNormalizationTests.swift; sourceTree = "<group>"; };
-		DB000000000000000000000A /* DeckPortfolioTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DeckPortfolioTests.swift; sourceTree = "<group>"; };
-		DB000000000000000000000B /* ScanArtifactQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanArtifactQueueTests.swift; sourceTree = "<group>"; };
-		DB000000000000000000000C /* ScanTrayAndNavigationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanTrayAndNavigationTests.swift; sourceTree = "<group>"; };
-		DB000000000000000000000D /* ShowSellStateTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowSellStateTests.swift; sourceTree = "<group>"; };
-		DB000000000000000000000E /* ScanTestSupport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanTestSupport.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
-		PA0000000000000000000002 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 		DP0000000000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -149,15 +170,104 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		E63B9E278F49B4395EA04F10 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				9F6DEDA15C8C08977278BCE7 /* Foundation.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		PA0000000000000000000002 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				118CD9B01441FB670411DB6F /* Supabase in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		00FA0BB6DADD0D5269880FFF /* SpotlightUITests */ = {
+			isa = PBXGroup;
+			children = (
+				D1EF19189DFD682DAF8FEBE0 /* ScanTrayVisibilityUITests.swift */,
+			);
+			name = SpotlightUITests;
+			path = SpotlightUITests;
+			sourceTree = "<group>";
+		};
+		0E6C7721AB99FEF9A718D840 /* iOS */ = {
+			isa = PBXGroup;
+			children = (
+				54A42715148F6D202CA06D4A /* Foundation.framework */,
+			);
+			name = iOS;
+			sourceTree = "<group>";
+		};
+		6054F3EAEBFD7A86A1D5D662 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				1125D886976D4220B75E770B /* AuthGateView.swift */,
+				E902372506954E31821C26EB /* SignInView.swift */,
+				154FA995336B2774E0E64AB7 /* ProfileOnboardingView.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
+		70B4685BD75E1B35F84EBC9A /* Account */ = {
+			isa = PBXGroup;
+			children = (
+				884EAF13A1A2BB72CF4804D9 /* AccountView.swift */,
+			);
+			path = Account;
+			sourceTree = "<group>";
+		};
+		C68327938233F68775E4A15C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+				0E6C7721AB99FEF9A718D840 /* iOS */,
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
+		DG0000000000000000000001 /* SpotlightTests */ = {
+			isa = PBXGroup;
+			children = (
+				DB0000000000000000000001 /* OCRFixtureExecutionTests.swift */,
+				DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */,
+				DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */,
+				DB0000000000000000000005 /* ScanReliabilityHeuristicsTests.swift */,
+				DB0000000000000000000006 /* ScanCaptureInputTests.swift */,
+				DB0000000000000000000007 /* OCRTestSupport.swift */,
+				DB0000000000000000000008 /* TargetSelectionTests.swift */,
+				DB0000000000000000000009 /* PerspectiveNormalizationTests.swift */,
+				DB000000000000000000000A /* DeckPortfolioTests.swift */,
+				DB000000000000000000000B /* ScanArtifactQueueTests.swift */,
+				DB000000000000000000000C /* ScanTrayAndNavigationTests.swift */,
+				DB000000000000000000000D /* ShowSellStateTests.swift */,
+				DB000000000000000000000E /* ScanTestSupport.swift */,
+			);
+			path = SpotlightTests;
+			sourceTree = "<group>";
+		};
+		E2493DEC4938599034F429A7 /* Auth */ = {
+			isa = PBXGroup;
+			children = (
+				330EDCCC1302EB35F455ECD2 /* AuthStore.swift */,
+			);
+			path = Auth;
+			sourceTree = "<group>";
+		};
 		GA0000000000000000000001 = {
 			isa = PBXGroup;
 			children = (
 				GA0000000000000000000003 /* Spotlight */,
 				DG0000000000000000000001 /* SpotlightTests */,
 				GA0000000000000000000002 /* Products */,
+				C68327938233F68775E4A15C /* Frameworks */,
+				00FA0BB6DADD0D5269880FFF /* SpotlightUITests */,
 			);
 			sourceTree = "<group>";
 		};
@@ -166,6 +276,7 @@
 			children = (
 				FA0000000000000000000001 /* Spotlight.app */,
 				DB0000000000000000000002 /* SpotlightTests.xctest */,
+				61D5F8F9FB7773E65F7DD632 /* SpotlightUITests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -181,6 +292,7 @@
 				GA0000000000000000000007 /* ViewModels */,
 				GA0000000000000000000008 /* Views */,
 				GA0000000000000000000009 /* Resources */,
+				E2493DEC4938599034F429A7 /* Auth */,
 			);
 			path = Spotlight;
 			sourceTree = "<group>";
@@ -201,6 +313,7 @@
 				FA0000000000000000000005 /* ScanModels.swift */,
 				FA0000000000000000000012 /* ScanTrayLogic.swift */,
 				FA0000000000000000000011 /* ScannerAPIModels.swift */,
+				1D8608018F9531BAD401E383 /* AuthModels.swift */,
 			);
 			path = Models;
 			sourceTree = "<group>";
@@ -217,8 +330,56 @@
 				FA0000000000000000000018 /* SlabLabelParsing.swift */,
 				2876B6D775130E8BD64C6636 /* ScanCacheManager.swift */,
 				3876B6D775130E8BD64C6636 /* RemoteImagePrefetcher.swift */,
+				CEDD4255F3A8CBF201428CC3 /* SupabaseAuthService.swift */,
 			);
 			path = Services;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000007 /* ViewModels */ = {
+			isa = PBXGroup;
+			children = (
+				FA000000000000000000000A /* ScannerViewModel.swift */,
+			);
+			path = ViewModels;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000008 /* Views */ = {
+			isa = PBXGroup;
+			children = (
+				FA000000000000000000000B /* ScannerRootView.swift */,
+				FA000000000000000000000C /* ScannerView.swift */,
+				FA0000000000000000000020 /* PortfolioView.swift */,
+				FA0000000000000000000021 /* ShowsView.swift */,
+				FFC123450000000000000002 /* ScannerReticleLayout.swift */,
+				FA000000000000000000000E /* AlternateMatchesView.swift */,
+				FA0000000000000000000019 /* ScanResultDetailView.swift */,
+				FA000000000000000000000F /* CameraPreviewView.swift */,
+				6054F3EAEBFD7A86A1D5D662 /* Auth */,
+				70B4685BD75E1B35F84EBC9A /* Account */,
+			);
+			path = Views;
+			sourceTree = "<group>";
+		};
+		GA0000000000000000000009 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				A1B2C3D4E5F6000000000002 /* Assets.xcassets */,
+				FA0000000000000000000010 /* Info.plist */,
+				292549CC39572276595BC11C /* Spotlight.entitlements */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		GA000000000000000000000A /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				FA0000000000000000000013 /* Base.xcconfig */,
+				FA0000000000000000000014 /* Debug.xcconfig */,
+				FA0000000000000000000015 /* Staging.xcconfig */,
+				FA0000000000000000000016 /* Release.xcconfig */,
+				FA0000000000000000000017 /* LocalOverrides.example.xcconfig */,
+			);
+			path = Config;
 			sourceTree = "<group>";
 		};
 		GA000000000000000000000B /* OCR */ = {
@@ -249,50 +410,6 @@
 			path = Raw;
 			sourceTree = "<group>";
 		};
-		GA0000000000000000000007 /* ViewModels */ = {
-			isa = PBXGroup;
-			children = (
-				FA000000000000000000000A /* ScannerViewModel.swift */,
-			);
-			path = ViewModels;
-			sourceTree = "<group>";
-		};
-		GA0000000000000000000008 /* Views */ = {
-			isa = PBXGroup;
-			children = (
-				FA000000000000000000000B /* ScannerRootView.swift */,
-				FA000000000000000000000C /* ScannerView.swift */,
-				FA0000000000000000000020 /* PortfolioView.swift */,
-				FA0000000000000000000021 /* ShowsView.swift */,
-				FFC123450000000000000002 /* ScannerReticleLayout.swift */,
-				FA000000000000000000000E /* AlternateMatchesView.swift */,
-				FA0000000000000000000019 /* ScanResultDetailView.swift */,
-				FA000000000000000000000F /* CameraPreviewView.swift */,
-			);
-			path = Views;
-			sourceTree = "<group>";
-		};
-		GA0000000000000000000009 /* Resources */ = {
-			isa = PBXGroup;
-			children = (
-				A1B2C3D4E5F6000000000002 /* Assets.xcassets */,
-				FA0000000000000000000010 /* Info.plist */,
-			);
-			path = Resources;
-			sourceTree = "<group>";
-		};
-		GA000000000000000000000A /* Config */ = {
-			isa = PBXGroup;
-			children = (
-				FA0000000000000000000013 /* Base.xcconfig */,
-				FA0000000000000000000014 /* Debug.xcconfig */,
-				FA0000000000000000000015 /* Staging.xcconfig */,
-				FA0000000000000000000016 /* Release.xcconfig */,
-				FA0000000000000000000017 /* LocalOverrides.example.xcconfig */,
-			);
-			path = Config;
-			sourceTree = "<group>";
-		};
 		GA000000000000000000000D /* UI */ = {
 			isa = PBXGroup;
 			children = (
@@ -302,45 +419,26 @@
 			path = UI;
 			sourceTree = "<group>";
 		};
-		DG0000000000000000000001 /* SpotlightTests */ = {
-			isa = PBXGroup;
-			children = (
-				DB0000000000000000000001 /* OCRFixtureExecutionTests.swift */,
-				DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */,
-				DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */,
-				DB0000000000000000000005 /* ScanReliabilityHeuristicsTests.swift */,
-				DB0000000000000000000006 /* ScanCaptureInputTests.swift */,
-				DB0000000000000000000007 /* OCRTestSupport.swift */,
-				DB0000000000000000000008 /* TargetSelectionTests.swift */,
-				DB0000000000000000000009 /* PerspectiveNormalizationTests.swift */,
-				DB000000000000000000000A /* DeckPortfolioTests.swift */,
-				DB000000000000000000000B /* ScanArtifactQueueTests.swift */,
-				DB000000000000000000000C /* ScanTrayAndNavigationTests.swift */,
-				DB000000000000000000000D /* ShowSellStateTests.swift */,
-				DB000000000000000000000E /* ScanTestSupport.swift */,
-			);
-			path = SpotlightTests;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		TA0000000000000000000001 /* Spotlight */ = {
+		4E79B6F870C041F3DD8E42B2 /* SpotlightUITests */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = CL0000000000000000000002 /* Build configuration list for PBXNativeTarget "Spotlight" */;
+			buildConfigurationList = A82F2AD11B3C245421128800 /* Build configuration list for PBXNativeTarget "SpotlightUITests" */;
 			buildPhases = (
-				PA0000000000000000000001 /* Sources */,
-				PA0000000000000000000002 /* Frameworks */,
-				PA0000000000000000000003 /* Resources */,
+				E5070208302DA4AB4538BB9E /* Sources */,
+				E63B9E278F49B4395EA04F10 /* Frameworks */,
+				8DDBD549A77C604CC32E6CF0 /* Resources */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				F06DB17EE3B07A9CC47BB22D /* PBXTargetDependency */,
 			);
-			name = Spotlight;
-			productName = Spotlight;
-			productReference = FA0000000000000000000001 /* Spotlight.app */;
-			productType = "com.apple.product-type.application";
+			name = SpotlightUITests;
+			productName = SpotlightUITests;
+			productReference = 61D5F8F9FB7773E65F7DD632 /* SpotlightUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
 		};
 		DT0000000000000000000001 /* SpotlightTests */ = {
 			isa = PBXNativeTarget;
@@ -360,6 +458,26 @@
 			productReference = DB0000000000000000000002 /* SpotlightTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		TA0000000000000000000001 /* Spotlight */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = CL0000000000000000000002 /* Build configuration list for PBXNativeTarget "Spotlight" */;
+			buildPhases = (
+				PA0000000000000000000001 /* Sources */,
+				PA0000000000000000000002 /* Frameworks */,
+				PA0000000000000000000003 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Spotlight;
+			packageProductDependencies = (
+				D7D9211402201F51A78584E3 /* Supabase */,
+			);
+			productName = Spotlight;
+			productReference = FA0000000000000000000001 /* Spotlight.app */;
+			productType = "com.apple.product-type.application";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -369,12 +487,12 @@
 				LastUpgradeCheck = 2620;
 				ORGANIZATIONNAME = Spotlight;
 				TargetAttributes = {
-					TA0000000000000000000001 = {
-						CreatedOnToolsVersion = 26.2;
-					};
 					DT0000000000000000000001 = {
 						CreatedOnToolsVersion = 26.2;
 						TestTargetID = TA0000000000000000000001;
+					};
+					TA0000000000000000000001 = {
+						CreatedOnToolsVersion = 26.2;
 					};
 				};
 			};
@@ -387,22 +505,25 @@
 				Base,
 			);
 			mainGroup = GA0000000000000000000001;
+			packageReferences = (
+				EB7F98C9EE3945E37E756E17 /* XCRemoteSwiftPackageReference "supabase-swift" */,
+			);
 			productRefGroup = GA0000000000000000000002 /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
 				TA0000000000000000000001 /* Spotlight */,
 				DT0000000000000000000001 /* SpotlightTests */,
+				4E79B6F870C041F3DD8E42B2 /* SpotlightUITests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
-		PA0000000000000000000003 /* Resources */ = {
+		8DDBD549A77C604CC32E6CF0 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				A1B2C3D4E5F6000000000001 /* Assets.xcassets in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -413,9 +534,45 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		PA0000000000000000000003 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1B2C3D4E5F6000000000001 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		DP0000000000000000000002 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				DA0000000000000000000001 /* OCRFixtureExecutionTests.swift in Sources */,
+				DA0000000000000000000002 /* OCRRewriteStage1FixtureTests.swift in Sources */,
+				DA0000000000000000000003 /* RawOCRRegressionSuiteTests.swift in Sources */,
+				DA0000000000000000000004 /* ScanReliabilityHeuristicsTests.swift in Sources */,
+				DA0000000000000000000005 /* ScanCaptureInputTests.swift in Sources */,
+				DA0000000000000000000006 /* OCRTestSupport.swift in Sources */,
+				DA0000000000000000000007 /* TargetSelectionTests.swift in Sources */,
+				DA0000000000000000000008 /* PerspectiveNormalizationTests.swift in Sources */,
+				DA0000000000000000000009 /* DeckPortfolioTests.swift in Sources */,
+				DA000000000000000000000A /* ScanArtifactQueueTests.swift in Sources */,
+				DA000000000000000000000B /* ScanTrayAndNavigationTests.swift in Sources */,
+				DA000000000000000000000C /* ShowSellStateTests.swift in Sources */,
+				DA000000000000000000000D /* ScanTestSupport.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		E5070208302DA4AB4538BB9E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7AA23CCEDD616FAF107E80F5 /* ScanTrayVisibilityUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		PA0000000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -458,26 +615,13 @@
 				BA0000000000000000000011 /* SlabLabelParsing.swift in Sources */,
 				C2EE97F53B03E6525C299E46 /* ScanCacheManager.swift in Sources */,
 				C3EE97F53B03E6525C299E46 /* RemoteImagePrefetcher.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		DP0000000000000000000002 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				DA0000000000000000000001 /* OCRFixtureExecutionTests.swift in Sources */,
-				DA0000000000000000000002 /* OCRRewriteStage1FixtureTests.swift in Sources */,
-				DA0000000000000000000003 /* RawOCRRegressionSuiteTests.swift in Sources */,
-				DA0000000000000000000004 /* ScanReliabilityHeuristicsTests.swift in Sources */,
-				DA0000000000000000000005 /* ScanCaptureInputTests.swift in Sources */,
-				DA0000000000000000000006 /* OCRTestSupport.swift in Sources */,
-				DA0000000000000000000007 /* TargetSelectionTests.swift in Sources */,
-				DA0000000000000000000008 /* PerspectiveNormalizationTests.swift in Sources */,
-				DA0000000000000000000009 /* DeckPortfolioTests.swift in Sources */,
-				DA000000000000000000000A /* ScanArtifactQueueTests.swift in Sources */,
-				DA000000000000000000000B /* ScanTrayAndNavigationTests.swift in Sources */,
-				DA000000000000000000000C /* ShowSellStateTests.swift in Sources */,
-				DA000000000000000000000D /* ScanTestSupport.swift in Sources */,
+				3619DC8DCC429DD1ECE44EA1 /* AuthModels.swift in Sources */,
+				56DE97C45381D84394C68720 /* SupabaseAuthService.swift in Sources */,
+				DAFF8FAB64875966F2E7F574 /* AuthStore.swift in Sources */,
+				58DAA841E869B1D09DEEB22E /* AuthGateView.swift in Sources */,
+				47A3C4525B2277C9872B6AE8 /* SignInView.swift in Sources */,
+				0DC313A6A7687443FBA2C527 /* ProfileOnboardingView.swift in Sources */,
+				E80EC3AB21411F92BEB05567 /* AccountView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -489,9 +633,65 @@
 			target = TA0000000000000000000001 /* Spotlight */;
 			targetProxy = DC0000000000000000000001 /* PBXContainerItemProxy */;
 		};
+		F06DB17EE3B07A9CC47BB22D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			name = Spotlight;
+			target = TA0000000000000000000001 /* Spotlight */;
+			targetProxy = 06C5ECE41EA4CCF556EFD080 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		01955837C8F8BDA9CDD8BCD9 /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.app.LootyCardsUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Spotlight;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Staging;
+		};
+		1C905B6D3EA66526C9464A33 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.app.LootyCardsUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Spotlight;
+			};
+			name = Debug;
+		};
+		A0F2ED57328F68FA0F0D3D48 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CLANG_ENABLE_OBJC_WEAK = NO;
+				CODE_SIGN_STYLE = Automatic;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.app.LootyCardsUITests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				TEST_TARGET_NAME = Spotlight;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 		CA0000000000000000000001 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -526,28 +726,12 @@
 			};
 			name = Release;
 		};
-		CA0000000000000000000005 /* Staging */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				GCC_C_LANGUAGE_STANDARD = gnu17;
-				GCC_NO_COMMON_BLOCKS = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
-				SDKROOT = iphoneos;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_VERSION = 6.0;
-			};
-			name = Staging;
-		};
 		CA0000000000000000000003 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = FA0000000000000000000014 /* Debug.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Spotlight/Resources/Spotlight.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DR794CMJC4;
@@ -575,6 +759,7 @@
 			baseConfigurationReference = FA0000000000000000000016 /* Release.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Spotlight/Resources/Spotlight.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DR794CMJC4;
@@ -596,11 +781,29 @@
 			};
 			name = Release;
 		};
+		CA0000000000000000000005 /* Staging */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 18.0;
+				SDKROOT = iphoneos;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_VERSION = 6.0;
+			};
+			name = Staging;
+		};
 		CA0000000000000000000006 /* Staging */ = {
 			isa = XCBuildConfiguration;
 			baseConfigurationReference = FA0000000000000000000015 /* Staging.xcconfig */;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Spotlight/Resources/Spotlight.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = DR794CMJC4;
@@ -698,6 +901,16 @@
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		A82F2AD11B3C245421128800 /* Build configuration list for PBXNativeTarget "SpotlightUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A0F2ED57328F68FA0F0D3D48 /* Release */,
+				1C905B6D3EA66526C9464A33 /* Debug */,
+				01955837C8F8BDA9CDD8BCD9 /* Staging */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		CL0000000000000000000001 /* Build configuration list for PBXProject "Spotlight" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -729,6 +942,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		EB7F98C9EE3945E37E756E17 /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase/supabase-swift.git";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.43.1;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		D7D9211402201F51A78584E3 /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = EB7F98C9EE3945E37E756E17 /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = PR0000000000000000000001 /* Project object */;
 }
