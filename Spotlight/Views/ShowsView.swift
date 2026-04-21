@@ -736,7 +736,7 @@ struct DashboardView: View {
                         )
                     case .sell:
                         try await collectionStore.updatePortfolioSaleTransactionPrice(
-                            transactionID: transaction.id,
+                            transaction: transaction,
                             unitPrice: updatedUnitPrice,
                             currencyCode: transaction.currencyCode
                         )
@@ -1752,6 +1752,13 @@ final class ShowsMockState: ObservableObject {
             )
         )
     }
+
+    func transitionFromSellToTrade(previewEntry: DeckCardEntry) {
+        presentedFlow = nil
+        DispatchQueue.main.async { [weak self] in
+            self?.presentTrade(previewEntry: previewEntry)
+        }
+    }
 }
 
 struct ShowSellDraft: Identifiable {
@@ -2474,7 +2481,7 @@ struct ShowsView: View {
     }
 }
 
-struct ShowSellPreviewSheet: View {
+struct LegacyShowSellPreviewSheet: View {
     private enum SellInputField: Hashable {
         case listPrice
         case sellPercent
@@ -3125,7 +3132,7 @@ struct ShowSellPreviewSheet: View {
     }
 }
 
-struct ShowSellBatchPreviewSheet: View {
+struct LegacyShowSellBatchPreviewSheet: View {
     private enum BatchSellInputField: Hashable {
         case listPrice(String)
         case sellPercent(String)

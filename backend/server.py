@@ -90,12 +90,17 @@ from fx_rates import decorate_pricing_summary_with_fx
 from ebay_comps import fetch_graded_card_ebay_comps
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
+from portfolio_imports import (
+    commit_portfolio_import,
+    get_portfolio_import_job,
+    preview_portfolio_import,
+    resolve_portfolio_import,
+)
 from scrydex_adapter import (
     SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
     SCRYDEX_PROVIDER,
     ScrydexProvider,
     best_remote_scrydex_raw_candidates,
-    fetch_scrydex_card_by_id,
     fetch_scrydex_price_history,
     map_scrydex_catalog_card,
     persist_scrydex_price_history_payload,
@@ -126,6 +131,8 @@ LIVE_PRICING_SETTING_KEY = "live_pricing"
 SCAN_ARTIFACT_UPLOADS_SETTING_KEY = "scan_artifact_uploads"
 DEFAULT_CARD_SHOW_MODE_HOURS = 8.0
 LIVE_PRICING_REFRESH_WINDOW_HOURS = 1.0
+DEFAULT_JSON_BODY_LIMIT_BYTES = 12 * 1024 * 1024
+SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES = 32 * 1024 * 1024
 DECK_CARD_CONDITIONS = {
     "near_mint",
     "lightly_played",
@@ -273,7 +280,6 @@ class CandidateEncodingItem:
 class PendingVisualScan:
     scan_id: str
     created_at: float
-    request_payload: dict[str, Any]
     visual_matches: list[Any]
     visual_debug: dict[str, Any]
     requested_top_k: int
@@ -354,7 +360,6 @@ class SpotlightScanService:
         self,
         *,
         scan_id: str,
-        request_payload: dict[str, Any],
         visual_matches: list[Any],
         visual_debug: dict[str, Any],
         requested_top_k: int,
@@ -366,7 +371,6 @@ class SpotlightScanService:
         pending = PendingVisualScan(
             scan_id=scan_id,
             created_at=perf_counter(),
-            request_payload=dict(request_payload or {}),
             visual_matches=list(visual_matches),
             visual_debug=dict(visual_debug or {}),
             requested_top_k=max(1, int(requested_top_k)),
@@ -455,6 +459,14 @@ class SpotlightScanService:
         is_provisional: bool = False,
         finalize_response: bool = True,
     ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+        self._prime_card_lookup_cache(
+            [
+                entry.get("providerCardId")
+                for match in matches[:10]
+                for entry in [getattr(match, "entry", None)]
+                if isinstance(entry, dict)
+            ]
+        )
         ranked_matches = [self._visual_match_summary(match) for match in matches]
         confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
         review_disposition = "ready" if confidence != "low" else "needs_review"
@@ -836,18 +848,12 @@ class SpotlightScanService:
             return False
         return not self._scrydex_full_catalog_sync_is_fresh()
 
-    def _live_scrydex_imports_allowed(self) -> bool:
-        if self._manual_scrydex_mirror_enabled():
-            return False
-        return not self._scrydex_full_catalog_sync_is_fresh()
-
     def _live_scrydex_pricing_refresh_allowed(self) -> bool:
         return self._live_pricing_enabled()
 
     def _live_scrydex_queries_blocked(self) -> bool:
         return not (
             self._live_scrydex_searches_allowed()
-            or self._live_scrydex_imports_allowed()
             or self._live_scrydex_pricing_refresh_allowed()
         )
 
@@ -857,18 +863,15 @@ class SpotlightScanService:
     def _manual_scrydex_mirror_status(self) -> dict[str, Any]:
         full_sync_fresh = self._scrydex_full_catalog_sync_is_fresh()
         searches_allowed = self._live_scrydex_searches_allowed()
-        imports_allowed = self._live_scrydex_imports_allowed()
         pricing_refresh_allowed = self._live_scrydex_pricing_refresh_allowed()
         return {
             "enabled": self._manual_scrydex_mirror_enabled(),
             "fullCatalogSyncFresh": full_sync_fresh,
             "searchesAllowed": searches_allowed,
             "searchesBlocked": not searches_allowed,
-            "importsAllowed": imports_allowed,
-            "importsBlocked": not imports_allowed,
             "pricingRefreshAllowed": pricing_refresh_allowed,
             "pricingRefreshBlocked": not pricing_refresh_allowed,
-            "liveQueriesBlocked": not (searches_allowed or imports_allowed or pricing_refresh_allowed),
+            "liveQueriesBlocked": not (searches_allowed or pricing_refresh_allowed),
             "cardShowMode": self._card_show_mode_state(),
         }
 
@@ -1212,8 +1215,20 @@ class SpotlightScanService:
             return None
         return pricing
 
+    @staticmethod
+    def _normalized_unique_card_ids(card_ids: list[Any]) -> list[str]:
+        normalized_ids: list[str] = []
+        seen_ids: set[str] = set()
+        for raw_card_id in card_ids:
+            card_id = str(raw_card_id or "").strip()
+            if not card_id or card_id in seen_ids:
+                continue
+            seen_ids.add(card_id)
+            normalized_ids.append(card_id)
+        return normalized_ids
+
     def _price_snapshot_rows_by_card_id(self, card_ids: list[str]) -> dict[str, sqlite3.Row]:
-        normalized_ids = [str(card_id or "").strip() for card_id in card_ids if str(card_id or "").strip()]
+        normalized_ids = self._normalized_unique_card_ids(card_ids)
         if not normalized_ids:
             return {}
         placeholders = ",".join("?" for _ in normalized_ids)
@@ -1230,6 +1245,31 @@ class SpotlightScanService:
             for row in rows
             if str(row["card_id"] or "").strip()
         }
+
+    def _batched_card_hydration_context(
+        self,
+        card_ids: list[Any],
+    ) -> tuple[dict[str, dict[str, Any]], dict[str, sqlite3.Row]]:
+        normalized_ids = self._normalized_unique_card_ids(card_ids)
+        if not normalized_ids:
+            return {}, {}
+        return (
+            cards_by_ids(self.connection, normalized_ids),
+            self._price_snapshot_rows_by_card_id(normalized_ids),
+        )
+
+    def _prime_card_lookup_cache(self, card_ids: list[Any]) -> None:
+        normalized_ids = self._normalized_unique_card_ids(card_ids)
+        if not normalized_ids:
+            return
+        with self._state_lock:
+            missing_ids = [card_id for card_id in normalized_ids if card_id not in self._card_lookup_cache]
+        if not missing_ids:
+            return
+        fetched_cards = cards_by_ids(self.connection, missing_ids)
+        with self._state_lock:
+            for card_id in missing_ids:
+                self._card_lookup_cache.setdefault(card_id, fetched_cards.get(card_id))
 
     @staticmethod
     def _history_primary_price_value(point: dict[str, Any] | None) -> float | None:
@@ -1753,18 +1793,31 @@ class SpotlightScanService:
         if not card_id:
             return None
 
-        pricing_mode = "graded" if str(entry.get("itemKind") or "").strip().lower() == "slab" else "raw"
-        grader = str(entry.get("grader") or "").strip() or None
-        grade = str(entry.get("grade") or "").strip() or None
-        variant_name = str(entry.get("variantName") or "").strip() or None
         row = latest_price_history_row_for_card(
             self.connection,
             card_id,
             provider=SCRYDEX_PROVIDER,
             as_of_date=as_of_date.isoformat(),
         )
+        return self._portfolio_history_price_row_from_history_row(
+            entry,
+            row=row,
+            condition_code=condition_code,
+        )
+
+    def _portfolio_history_price_row_from_history_row(
+        self,
+        entry: dict[str, Any],
+        *,
+        row: sqlite3.Row | dict[str, Any] | None,
+        condition_code: str | None,
+    ) -> dict[str, Any] | None:
         if row is None:
             return None
+        pricing_mode = "graded" if str(entry.get("itemKind") or "").strip().lower() == "slab" else "raw"
+        grader = str(entry.get("grader") or "").strip() or None
+        grade = str(entry.get("grade") or "").strip() or None
+        variant_name = str(entry.get("variantName") or "").strip() or None
 
         if pricing_mode == "graded":
             entry = _resolve_graded_context_entry(
@@ -1831,6 +1884,83 @@ class SpotlightScanService:
             }
         )
 
+    @staticmethod
+    def _portfolio_history_context_key(
+        entry: dict[str, Any],
+        *,
+        condition_code: str | None,
+    ) -> tuple[str, str, str, str, str, str] | None:
+        card_id = str(entry.get("cardID") or "").strip()
+        if not card_id:
+            return None
+        pricing_mode = "graded" if str(entry.get("itemKind") or "").strip().lower() == "slab" else "raw"
+        return (
+            pricing_mode,
+            card_id,
+            str(entry.get("grader") or "").strip(),
+            str(entry.get("grade") or "").strip(),
+            str(entry.get("variantName") or "").strip(),
+            str(condition_code or "").strip(),
+        )
+
+    def _portfolio_history_rows_by_card_id(
+        self,
+        *,
+        card_ids: set[str],
+        end_date: date,
+        provider: str,
+    ) -> dict[str, list[sqlite3.Row]]:
+        rows_by_card_id: dict[str, list[sqlite3.Row]] = {}
+        ordered_card_ids = sorted(card_id for card_id in card_ids if str(card_id or "").strip())
+        for start in range(0, len(ordered_card_ids), 400):
+            chunk = ordered_card_ids[start : start + 400]
+            if not chunk:
+                continue
+            placeholders = ",".join("?" for _ in chunk)
+            params: list[Any] = [provider, *chunk, end_date.isoformat()]
+            rows = self.connection.execute(
+                f"""
+                SELECT *
+                FROM card_price_history_daily
+                WHERE provider = ?
+                  AND card_id IN ({placeholders})
+                  AND price_date <= ?
+                ORDER BY card_id ASC, price_date ASC, updated_at ASC
+                """,
+                params,
+            ).fetchall()
+            for row in rows:
+                card_id = str(row["card_id"] or "").strip()
+                if not card_id:
+                    continue
+                rows_by_card_id.setdefault(card_id, []).append(row)
+        return rows_by_card_id
+
+    def _portfolio_history_series_for_context(
+        self,
+        entry: dict[str, Any],
+        *,
+        condition_code: str | None,
+        history_rows: list[sqlite3.Row],
+        day_dates: list[date],
+    ) -> list[dict[str, Any] | None]:
+        latest_row: sqlite3.Row | None = None
+        row_index = 0
+        series: list[dict[str, Any] | None] = []
+        for day_value in day_dates:
+            day_iso = day_value.isoformat()
+            while row_index < len(history_rows) and str(history_rows[row_index]["price_date"] or "") <= day_iso:
+                latest_row = history_rows[row_index]
+                row_index += 1
+            series.append(
+                self._portfolio_history_price_row_from_history_row(
+                    entry,
+                    row=latest_row,
+                    condition_code=condition_code,
+                )
+            )
+        return series
+
     def deck_history(
         self,
         *,
@@ -1871,6 +2001,7 @@ class SpotlightScanService:
                 id,
                 item_kind,
                 card_id,
+                quantity,
                 grader,
                 grade,
                 cert_number,
@@ -1903,14 +2034,16 @@ class SpotlightScanService:
             }
 
         snapshot_by_id: dict[str, dict[str, Any]] = {}
+        condition_codes_by_entry_id: dict[str, set[str | None]] = {}
         for row in entry_rows:
             deck_entry_id = str(row["id"] or "").strip()
             if not deck_entry_id:
                 continue
-            snapshot_by_id[deck_entry_id] = {
+            snapshot = {
                 "deckEntryID": deck_entry_id,
                 "itemKind": str(row["item_kind"] or "").strip(),
                 "cardID": str(row["card_id"] or "").strip(),
+                "quantity": max(0, int(row["quantity"] or 0)),
                 "grader": str(row["grader"] or "").strip() or None,
                 "grade": str(row["grade"] or "").strip() or None,
                 "certNumber": str(row["cert_number"] or "").strip() or None,
@@ -1920,6 +2053,8 @@ class SpotlightScanService:
                 "costBasisCurrencyCode": str(row["cost_basis_currency_code"] or "").strip() or None,
                 "addedAt": str(row["added_at"] or "").strip() or None,
             }
+            snapshot_by_id[deck_entry_id] = snapshot
+            condition_codes_by_entry_id[deck_entry_id] = {self._portfolio_condition_code(snapshot.get("condition"))}
 
         event_rows = self.connection.execute(
             """
@@ -1983,15 +2118,14 @@ class SpotlightScanService:
                     "createdAt": created_at,
                 }
             )
+            condition_codes_by_entry_id.setdefault(deck_entry_id, set()).add(
+                self._portfolio_condition_code(str(row["condition"] or "").strip() or None)
+            )
 
         for deck_entry_id, snapshot in snapshot_by_id.items():
             if deck_entry_id in seen_event_entries:
                 continue
-            quantity_row = self.connection.execute(
-                "SELECT quantity FROM deck_entries WHERE id = ? LIMIT 1",
-                (deck_entry_id,),
-            ).fetchone()
-            quantity = max(0, int(quantity_row["quantity"] if quantity_row is not None else 0))
+            quantity = max(0, int(snapshot.get("quantity") or 0))
             if quantity <= 0:
                 continue
             added_at = self._coerce_utc_datetime(snapshot.get("addedAt"))
@@ -2040,12 +2174,36 @@ class SpotlightScanService:
         }
         event_index = 0
         points: list[dict[str, Any]] = []
-        current_day = start_date
         last_day_value = 0.0
         last_day_priced = 0
         last_day_unpriced = 0
-
+        day_dates: list[date] = []
+        current_day = start_date
         while current_day <= end_date:
+            day_dates.append(current_day)
+            current_day += timedelta(days=1)
+
+        history_rows_by_card_id = self._portfolio_history_rows_by_card_id(
+            card_ids={str(snapshot.get("cardID") or "").strip() for snapshot in snapshot_by_id.values()},
+            end_date=end_date,
+            provider=SCRYDEX_PROVIDER,
+        )
+        price_series_by_context: dict[tuple[str, str, str, str, str, str], list[dict[str, Any] | None]] = {}
+        for deck_entry_id, snapshot in snapshot_by_id.items():
+            context_conditions = condition_codes_by_entry_id.get(deck_entry_id) or {None}
+            history_rows = history_rows_by_card_id.get(str(snapshot.get("cardID") or "").strip(), [])
+            for condition_code in context_conditions:
+                context_key = self._portfolio_history_context_key(snapshot, condition_code=condition_code)
+                if context_key is None or context_key in price_series_by_context:
+                    continue
+                price_series_by_context[context_key] = self._portfolio_history_series_for_context(
+                    snapshot,
+                    condition_code=condition_code,
+                    history_rows=history_rows,
+                    day_dates=day_dates,
+                )
+
+        for day_index, current_day in enumerate(day_dates):
             next_day_start_utc = self._portfolio_day_start(current_day + timedelta(days=1), time_zone).astimezone(timezone.utc)
             while event_index < len(timeline) and timeline[event_index]["createdAt"] < next_day_start_utc:
                 event = timeline[event_index]
@@ -2092,17 +2250,28 @@ class SpotlightScanService:
                 day_cost_basis_total += float(state.get("cost_basis_total") or 0.0)
                 snapshot = state.get("snapshot") or {}
                 condition_code = self._portfolio_condition_code(state.get("condition"))
-                row = self._portfolio_history_price_row_for_entry_on_day(
-                    {
-                        "itemKind": snapshot.get("itemKind"),
-                        "cardID": snapshot.get("cardID"),
-                        "grader": snapshot.get("grader"),
-                        "grade": snapshot.get("grade"),
-                        "variantName": snapshot.get("variantName"),
-                    },
-                    as_of_date=current_day,
-                    condition_code=condition_code,
-                )
+                context_entry = {
+                    "itemKind": snapshot.get("itemKind"),
+                    "cardID": snapshot.get("cardID"),
+                    "grader": snapshot.get("grader"),
+                    "grade": snapshot.get("grade"),
+                    "variantName": snapshot.get("variantName"),
+                }
+                context_key = self._portfolio_history_context_key(context_entry, condition_code=condition_code)
+                if context_key is None:
+                    row = None
+                else:
+                    series = price_series_by_context.get(context_key)
+                    if series is None:
+                        history_rows = history_rows_by_card_id.get(str(snapshot.get("cardID") or "").strip(), [])
+                        series = self._portfolio_history_series_for_context(
+                            context_entry,
+                            condition_code=condition_code,
+                            history_rows=history_rows,
+                            day_dates=day_dates,
+                        )
+                        price_series_by_context[context_key] = series
+                    row = series[day_index]
                 if row is None:
                     unpriced_count += 1
                     continue
@@ -2127,7 +2296,6 @@ class SpotlightScanService:
                     "excludedCardCount": unpriced_count,
                 }
             )
-            current_day += timedelta(days=1)
 
         start_value = points[0]["totalValue"] if points else 0.0
         current_value = points[-1]["totalValue"] if points else 0.0
@@ -2459,6 +2627,31 @@ class SpotlightScanService:
             "totalSpend": round(unit_price * quantity, 2),
             "boughtAt": bought_at,
         }
+
+    def preview_portfolio_import(self, payload: dict[str, Any]) -> dict[str, Any]:
+        return preview_portfolio_import(self.connection, payload)
+
+    def portfolio_import_job(
+        self,
+        job_id: str,
+        *,
+        status_filter: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return get_portfolio_import_job(
+            self.connection,
+            job_id,
+            status_filter=status_filter,
+            limit=limit,
+            offset=offset,
+        )
+
+    def resolve_portfolio_import(self, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        return resolve_portfolio_import(self.connection, job_id, payload)
+
+    def commit_portfolio_import(self, job_id: str) -> dict[str, Any]:
+        return commit_portfolio_import(self.connection, job_id)
 
     def _record_sale_without_commit(self, payload: dict[str, Any]) -> dict[str, Any]:
         deck_entry_id = str(payload.get("deckEntryID") or "").strip()
@@ -3843,20 +4036,6 @@ class SpotlightScanService:
         self.refresh_index()
         return mapped_card
 
-    def import_catalog_card(self, card_id: str, api_key: str | None = None, *, trigger_source: str = "manual") -> dict[str, Any] | None:
-        del api_key
-        scrydex_provider = self.pricing_registry.get_provider("scrydex")
-        if scrydex_provider is None or not scrydex_provider.is_ready():
-            return None
-        raw_card = fetch_scrydex_card_by_id(card_id, include_prices=True, request_type="card_import")
-        mapped_card = map_scrydex_catalog_card(raw_card)
-        return self._persist_mapped_catalog_card(
-            mapped_card=mapped_card,
-            sync_mode="exact_card_import",
-            trigger_source=trigger_source,
-            query_text=card_id,
-        )
-
     def _card_exists(self, card_id: str) -> bool:
         row = self.connection.execute(
             "SELECT 1 FROM cards WHERE id = ? LIMIT 1",
@@ -4523,6 +4702,7 @@ class SpotlightScanService:
         refresh_pricing_if_missing: bool = False,
         force_show_mode_refresh: bool = False,
         card_show_mode_active: bool | None = None,
+        snapshot_row: sqlite3.Row | None = None,
         timing_output: dict[str, float] | None = None,
     ) -> dict[str, Any]:
         candidate_started_at = perf_counter()
@@ -4531,7 +4711,15 @@ class SpotlightScanService:
         ensure_cached_ms = (perf_counter() - ensure_cached_started_at) * 1000.0
         card_id = str(resolved_card.get("id") or "").strip()
         pricing_lookup_started_at = perf_counter()
-        pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context) if card_id else None
+        pricing = (
+            self._display_pricing_summary_for_context(
+                card_id,
+                pricing_context=pricing_context,
+                snapshot_row=snapshot_row,
+            )
+            if card_id
+            else None
+        )
         pricing_lookup_ms = (perf_counter() - pricing_lookup_started_at) * 1000.0
         pricing_refresh_ms = 0.0
         candidate_build_started_at = perf_counter()
@@ -4614,11 +4802,16 @@ class SpotlightScanService:
         candidate_hydration_ms = 0.0
         candidate_hydration_max_ms = 0.0
         card_show_mode_active = self._card_show_mode_active()
+        limited_items = items[:pricing_policy.limit]
+        _, price_snapshot_rows = self._batched_card_hydration_context(
+            [str((item.card or {}).get("id") or "").strip() for item in limited_items]
+        )
 
-        for index, item in enumerate(items[:pricing_policy.limit], start=1):
+        for index, item in enumerate(limited_items, start=1):
             pricing_rule = pricing_policy.rule_for_rank(index)
             candidate_started_at = perf_counter()
             candidate_timing: dict[str, float] = {}
+            card_id = str((item.card or {}).get("id") or "").strip()
             candidate_payload = self._candidate_payload(
                 item.card,
                 pricing_context=pricing_context,
@@ -4629,6 +4822,7 @@ class SpotlightScanService:
                 refresh_pricing_if_missing=pricing_rule.refresh_missing,
                 force_show_mode_refresh=pricing_rule.force_show_mode_refresh,
                 card_show_mode_active=card_show_mode_active,
+                snapshot_row=price_snapshot_rows.get(card_id),
                 timing_output=candidate_timing,
             )
             candidate_payload_ms = float(candidate_timing.get("candidatePayloadMs") or (perf_counter() - candidate_started_at) * 1000.0)
@@ -4930,6 +5124,14 @@ class SpotlightScanService:
         evidence_ms = (perf_counter() - evidence_started_at) * 1000.0
 
         visual_matches = [self._visual_match_summary(match) for match in matches]
+        self._prime_card_lookup_cache(
+            [
+                entry.get("providerCardId")
+                for match in matches
+                for entry in [getattr(match, "entry", None)]
+                if isinstance(entry, dict)
+            ]
+        )
         badge_image_scores: dict[str, dict[str, Any]] = {}
         badge_match_error: str | None = None
         badge_match_ms = 0.0
@@ -5180,7 +5382,6 @@ class SpotlightScanService:
         )
         self._store_pending_visual_scan(
             scan_id=scan_id,
-            request_payload=payload,
             visual_matches=matches,
             visual_debug=debug,
             requested_top_k=10,
@@ -5215,6 +5416,10 @@ class SpotlightScanService:
         pending = self._take_pending_visual_scan(scan_id)
         cache_lookup_ms = (perf_counter() - cache_lookup_started_at) * 1000.0
         if pending is None:
+            image_payload = payload.get("image") if isinstance(payload.get("image"), dict) else {}
+            image_bytes = str(image_payload.get("jpegBase64") or "").strip()
+            if not image_bytes:
+                raise ValueError("Cached visual shortlist expired; full rerank retry requires image.jpegBase64")
             print(f"[SCAN CACHE] Cache unavailable for rerank, falling back live: scanID={scan_id}")
             return self.match_scan(payload)
         cache_clear_ms = 0.0
@@ -5756,13 +5961,6 @@ class SpotlightScanService:
             return self._card_detail_for_context(card_id, pricing_context=pricing_context)
 
         existing_card = card_by_id(self.connection, card_id)
-        if existing_card is None and api_key and self._live_scrydex_imports_allowed():
-            try:
-                self.import_catalog_card(card_id, api_key=api_key, trigger_source="refresh_pricing_auto_import")
-            except Exception:
-                return None
-            existing_card = card_by_id(self.connection, card_id)
-
         existing_pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
         if self._should_use_cached_pricing_snapshot(existing_pricing, force_refresh=effective_force_refresh):
             self._log_pricing_provenance("refresh_raw_cached", card_id)
@@ -5833,14 +6031,8 @@ class SpotlightScanService:
             if grader or grade
             else self._raw_pricing_context()
         )
-        ordered_card_ids: list[str] = []
-        seen_card_ids: set[str] = set()
-        for raw_card_id in card_ids:
-            card_id = str(raw_card_id or "").strip()
-            if not card_id or card_id in seen_card_ids:
-                continue
-            seen_card_ids.add(card_id)
-            ordered_card_ids.append(card_id)
+        ordered_card_ids = self._normalized_unique_card_ids(card_ids)
+        preloaded_cards, price_snapshot_rows = self._batched_card_hydration_context(ordered_card_ids)
 
         refresh_budget = max(0, min(int(max_refresh_count), len(ordered_card_ids)))
         refreshed_count = 0
@@ -5848,7 +6040,12 @@ class SpotlightScanService:
         live_refresh_allowed = self._live_scrydex_pricing_refresh_allowed()
 
         for card_id in ordered_card_ids:
-            detail = self._card_detail_for_context(card_id, pricing_context=pricing_context)
+            detail = self._card_detail_for_context(
+                card_id,
+                pricing_context=pricing_context,
+                card=preloaded_cards.get(card_id),
+                snapshot_row=price_snapshot_rows.get(card_id),
+            )
             pricing = ((detail or {}).get("card") or {}).get("pricing") if isinstance(detail, dict) else None
             effective_force_refresh = force_refresh or (self._card_show_mode_active() and live_refresh_allowed)
             needs_refresh = live_refresh_allowed and not self._should_use_cached_pricing_snapshot(
@@ -5883,39 +6080,45 @@ class SpotlightScanService:
         card_id: str,
         *,
         pricing_context: PricingContext,
+        card: dict[str, Any] | None = None,
+        snapshot_row: sqlite3.Row | None = None,
     ) -> dict[str, Any] | None:
-        card = card_by_id(self.connection, card_id)
-        if card is None:
+        resolved_card = card or card_by_id(self.connection, card_id)
+        if resolved_card is None:
             return None
-        pricing = self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
+        pricing = self._display_pricing_summary_for_context(
+            card_id,
+            pricing_context=pricing_context,
+            snapshot_row=snapshot_row,
+        )
         resolved_variant = pricing_context.preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
         return {
             "card": {
-                "id": card["id"],
-                "name": card["name"],
-                "setName": card["setName"],
-                "number": card["number"],
-                "rarity": card["rarity"],
-                "variant": card["variant"],
-                "language": card["language"],
-                "imageSmallURL": card["imageSmallURL"],
-                "imageLargeURL": card["imageURL"],
+                "id": resolved_card["id"],
+                "name": resolved_card["name"],
+                "setName": resolved_card["setName"],
+                "number": resolved_card["number"],
+                "rarity": resolved_card["rarity"],
+                "variant": resolved_card["variant"],
+                "language": resolved_card["language"],
+                "imageSmallURL": resolved_card["imageSmallURL"],
+                "imageLargeURL": resolved_card["imageURL"],
                 "pricing": pricing,
             },
             "slabContext": self._slab_context_payload_for_pricing_context(
                 pricing_context,
                 resolved_variant=resolved_variant,
             ),
-            "source": card["sourceProvider"],
-            "sourceRecordID": card["sourceRecordID"],
-            "setID": card["setID"],
-            "setSeries": card["setSeries"],
-            "setReleaseDate": card["setReleaseDate"],
-            "supertype": card["supertype"],
-            "artist": card["artist"],
-            "regulationMark": card["regulationMark"],
-            "imageSmallURL": card["imageSmallURL"],
-            "imageLargeURL": card["imageURL"],
+            "source": resolved_card["sourceProvider"],
+            "sourceRecordID": resolved_card["sourceRecordID"],
+            "setID": resolved_card["setID"],
+            "setSeries": resolved_card["setSeries"],
+            "setReleaseDate": resolved_card["setReleaseDate"],
+            "supertype": resolved_card["supertype"],
+            "artist": resolved_card["artist"],
+            "regulationMark": resolved_card["regulationMark"],
+            "imageSmallURL": resolved_card["imageSmallURL"],
+            "imageLargeURL": resolved_card["imageURL"],
         }
 
     def card_detail(
@@ -6996,6 +7199,43 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path.startswith("/api/v1/portfolio/imports/"):
+            job_id = unquote(parsed.path.removeprefix("/api/v1/portfolio/imports/").strip("/"))
+            if not job_id or "/" in job_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            query_params = parse_qs(parsed.query)
+            try:
+                limit = int(query_params.get("limit", ["50"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                offset = int(query_params.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
+                return
+            status_filter = query_params.get("filter", [""])[0].strip() or query_params.get("status", [""])[0].strip() or None
+            try:
+                payload = self.service.portfolio_import_job(
+                    job_id,
+                    status_filter=status_filter,
+                    limit=limit,
+                    offset=offset,
+                )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Import job lookup failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
         if parsed.path == "/api/v1/cards/search":
             query_params = parse_qs(parsed.query)
             query = query_params.get("q", [""])[0]
@@ -7103,25 +7343,6 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 cert_number=cert_number,
                 preferred_variant=preferred_variant,
             )
-            if payload is None and self.service._live_scrydex_imports_allowed():
-                api_key = os.environ.get("SCRYDEX_API_KEY")
-                try:
-                    imported = self.service.import_catalog_card(
-                        card_id,
-                        api_key=api_key,
-                        trigger_source="auto_import_on_request",
-                    )
-                    if imported is not None:
-                        payload = self.service.card_detail(
-                            card_id,
-                            grader=grader,
-                            grade=grade,
-                            cert_number=cert_number,
-                            preferred_variant=preferred_variant,
-                        )
-                except Exception:
-                    pass
-
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
                 return
@@ -7169,7 +7390,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
         payload = self._read_json_body()
         if payload is None:
-            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid JSON body"})
+            self._write_json(
+                getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
+                {"error": getattr(self, "_json_body_error_message", "Invalid JSON body")},
+            )
             return
 
         if parsed.path == "/api/v1/admin/scrydex-sync":
@@ -7287,6 +7511,63 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, hydration_payload)
             return
 
+        if parsed.path == "/api/v1/portfolio/imports/preview":
+            try:
+                import_payload = self.service.preview_portfolio_import(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Import preview failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, import_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/portfolio/imports/") and parsed.path.endswith("/resolve"):
+            job_id = unquote(
+                parsed.path.removeprefix("/api/v1/portfolio/imports/").removesuffix("/resolve").strip("/")
+            )
+            if not job_id:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "jobID is required"})
+                return
+            try:
+                import_payload = self.service.resolve_portfolio_import(job_id, payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Import resolve failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, import_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/portfolio/imports/") and parsed.path.endswith("/commit"):
+            job_id = unquote(
+                parsed.path.removeprefix("/api/v1/portfolio/imports/").removesuffix("/commit").strip("/")
+            )
+            if not job_id:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "jobID is required"})
+                return
+            try:
+                import_payload = self.service.commit_portfolio_import(job_id)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Import commit failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, import_payload)
+            return
+
         if parsed.path in {"/api/v1/sales/batch", "/api/v1/deck/sales/batch", "/api/v1/portfolio/sales/batch"}:
             try:
                 sale_payload = self.service.record_sales_batch(payload)
@@ -7379,26 +7660,6 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, update_payload)
             return
 
-        if parsed.path == "/api/v1/catalog/import-card":
-            card_id = str(payload.get("cardID") or "").strip()
-            if not card_id:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "cardID is required"})
-                return
-            try:
-                imported = self.service.import_catalog_card(
-                    card_id,
-                    api_key=os.environ.get("SCRYDEX_API_KEY"),
-                    trigger_source="manual_endpoint",
-                )
-            except Exception as error:
-                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Catalog import failed: {error}"})
-                return
-            if imported is None:
-                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
-                return
-            self._write_json(HTTPStatus.OK, {"card": imported})
-            return
-
         if parsed.path == "/api/v1/scan/match":
             request_started_at = perf_counter()
             try:
@@ -7450,6 +7711,16 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json_timed(
                     HTTPStatus.OK,
                     self.service.rerank_visual_match(payload),
+                    label="scan_rerank",
+                    started_at=request_started_at,
+                )
+            except ValueError as error:
+                self._write_json_timed(
+                    HTTPStatus.CONFLICT,
+                    {
+                        "error": str(error),
+                        "errorType": type(error).__name__,
+                    },
                     label="scan_rerank",
                     started_at=request_started_at,
                 )
@@ -7541,21 +7812,40 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         return
 
     def _read_json_body(self) -> dict[str, Any] | None:
+        self._json_body_error_status = None
+        self._json_body_error_message = None
         try:
             content_length = int(self.headers.get("Content-Length", "0"))
         except ValueError:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "Content-Length must be an integer"
+            return None
+        if content_length < 0:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "Content-Length must be non-negative"
+            return None
+        max_body_bytes = (
+            SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES
+            if urlparse(getattr(self, "path", "")).path == "/api/v1/scan-artifacts"
+            else DEFAULT_JSON_BODY_LIMIT_BYTES
+        )
+        if content_length > max_body_bytes:
+            self._json_body_error_status = HTTPStatus.REQUEST_ENTITY_TOO_LARGE
+            self._json_body_error_message = f"JSON body exceeds {max_body_bytes} bytes"
             return None
 
         body = self.rfile.read(content_length)
         try:
             return json.loads(body.decode("utf-8"))
         except json.JSONDecodeError:
+            self._json_body_error_status = HTTPStatus.BAD_REQUEST
+            self._json_body_error_message = "Invalid JSON body"
             return None
 
     def _write_json(self, status: HTTPStatus, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload).encode("utf-8")
+        body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         self.send_response(status.value)
-        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         try:

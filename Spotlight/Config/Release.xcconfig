@@ -1,7 +1,7 @@
 #include "Base.xcconfig"
 
 // Production backend for App Store / explicit production archives.
-SPOTLIGHT_PRODUCTION_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.run.app/
+SPOTLIGHT_PRODUCTION_API_BASE_URL = https:/$()/looty.34.59.188.129.sslip.io/
 
 #include? "LocalOverrides.xcconfig"
 

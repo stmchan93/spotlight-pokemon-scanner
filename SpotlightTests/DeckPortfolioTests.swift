@@ -1665,6 +1665,79 @@ final class DeckPortfolioTests: XCTestCase {
         XCTAssertEqual(payloads.first?.payload.currencyCode, "USD")
     }
 
+    func testCollectionStoreUpdatePortfolioSaleTransactionPriceRetriesWithRefreshedLedgerID() async throws {
+        let matcher = RecordingCardMatchingService()
+        let store = makeCollectionStore(matcher: matcher)
+        let originalTransaction = PortfolioLedgerTransaction(
+            id: "sale-stale",
+            kind: .sell,
+            card: makeCardCandidate(id: "gym1-60", name: "Sabrina's Slowbro"),
+            slabContext: nil,
+            condition: .nearMint,
+            quantity: 1,
+            unitPrice: 19.0,
+            totalPrice: 19.0,
+            currencyCode: "USD",
+            paymentMethod: "Cash",
+            costBasisTotal: 11.5,
+            grossProfit: 7.5,
+            occurredAt: makeDate("2026-04-15T20:00:00Z"),
+            note: "Weekend sale"
+        )
+        let refreshedTransaction = PortfolioLedgerTransaction(
+            id: "sale-live",
+            kind: .sell,
+            card: originalTransaction.card,
+            slabContext: originalTransaction.slabContext,
+            condition: originalTransaction.condition,
+            quantity: originalTransaction.quantity,
+            unitPrice: originalTransaction.unitPrice,
+            totalPrice: originalTransaction.totalPrice,
+            currencyCode: originalTransaction.currencyCode,
+            paymentMethod: originalTransaction.paymentMethod,
+            costBasisTotal: originalTransaction.costBasisTotal,
+            grossProfit: originalTransaction.grossProfit,
+            occurredAt: originalTransaction.occurredAt,
+            note: originalTransaction.note
+        )
+
+        await matcher.setPortfolioLedger(
+            PortfolioLedger(
+                range: .days30,
+                currencyCode: "USD",
+                summary: PortfolioLedgerSummary(
+                    revenue: refreshedTransaction.totalPrice,
+                    spend: 0,
+                    grossProfit: refreshedTransaction.grossProfit ?? 0,
+                    inventoryValue: 0,
+                    inventoryCount: 0
+                ),
+                transactions: [refreshedTransaction],
+                dailySeries: [],
+                count: 1,
+                limit: 1,
+                offset: 0,
+                refreshedAt: "2026-04-20T23:59:00Z"
+            )
+        )
+        await matcher.queuePortfolioSalePriceUpdateFailure(
+            transactionID: originalTransaction.id,
+            message: "sale transaction not found"
+        )
+
+        try await store.updatePortfolioSaleTransactionPrice(
+            transaction: originalTransaction,
+            unitPrice: 21.75
+        )
+
+        let payloads = await matcher.portfolioSalePriceUpdatePayloads()
+        XCTAssertEqual(payloads.count, 2)
+        XCTAssertEqual(payloads.first?.transactionID, "sale-stale")
+        XCTAssertEqual(payloads.last?.transactionID, "sale-live")
+        XCTAssertEqual(payloads.last?.payload.unitPrice, 21.75)
+        XCTAssertEqual(payloads.last?.payload.currencyCode, "USD")
+    }
+
     func testVisibleTransactionNoteHidesPurchasePriceMetadataAndTrimsUserNotes() {
         let baseTransaction = PortfolioLedgerTransaction(
             id: "tx-1",

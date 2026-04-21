@@ -17,6 +17,7 @@ from raw_visual_dataset_paths import (
     default_raw_visual_train_manifest_summary_path,
     default_raw_visual_train_query_cache_path,
     default_raw_visual_train_reference_image_root,
+    default_raw_visual_scan_registry_path,
     default_raw_visual_train_root,
 )
 
@@ -189,6 +190,22 @@ def grouped_truths(fixtures: Iterable[TrainingFixture]) -> dict[str, dict[str, A
     return grouped
 
 
+def load_registry_fixture_metadata(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text())
+    entries = payload.get("entries") or []
+    metadata_by_fixture_path: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        fixture_path = str(entry.get("importedFixturePath") or "").strip()
+        if not fixture_path:
+            continue
+        metadata_by_fixture_path[fixture_path] = entry
+    return metadata_by_fixture_path
+
+
 def pinned_mapping_payload(mapping: dict[str, Any]) -> dict[str, Any]:
     return {
         "providerSupported": True,
@@ -229,6 +246,7 @@ def build_manifest(
     reference_image_root: Path,
     download_reference_images: bool,
     expansion_snapshot_path: Path,
+    registry_metadata_by_fixture_path: dict[str, dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     query_cache = load_query_cache(query_cache_path)
     grouped = grouped_truths(fixtures)
@@ -309,6 +327,24 @@ def build_manifest(
             "mappingReason": mapping.get("mappingReason"),
             "candidateSummaries": mapping.get("candidateSummaries") or [],
         }
+        registry_entry = registry_metadata_by_fixture_path.get(str(fixture.fixture_dir.resolve())) or {}
+        if registry_entry:
+            row["datasetStatus"] = registry_entry.get("datasetStatus")
+            row["importBatchId"] = registry_entry.get("batchID")
+            row["importBucket"] = registry_entry.get("bucket")
+            row["expansionHoldoutSelected"] = bool(registry_entry.get("expansionHoldoutSelected"))
+
+        if bool(row.get("expansionHoldoutSelected")):
+            skipped_rows.append(
+                {
+                    "fixtureName": fixture.fixture_name,
+                    "truthKey": fixture.truth.key,
+                    "reason": "expansion_holdout_selected",
+                    "mappingConfidence": mapping.get("mappingConfidence"),
+                    "mappingReason": mapping.get("mappingReason"),
+                }
+            )
+            continue
 
         if provider_supported:
             manifest_rows.append(row)
@@ -380,6 +416,12 @@ def parse_args() -> argparse.Namespace:
         help="Directory used to cache official reference images.",
     )
     parser.add_argument(
+        "--scan-registry-path",
+        type=Path,
+        default=default_raw_visual_scan_registry_path(),
+        help="Optional raw scan registry used to enrich manifest rows with batch provenance.",
+    )
+    parser.add_argument(
         "--skip-reference-download",
         action="store_true",
         help="Do not download official reference images; emit only referenceImageUrl values.",
@@ -401,12 +443,14 @@ def main() -> int:
     query_cache_path = args.query_cache.resolve()
     expansion_snapshot_path = args.expansion_snapshot.resolve()
     reference_image_root = args.reference_image_root.resolve()
+    scan_registry_path = args.scan_registry_path.resolve()
     api_key = os.environ.get("SCRYDEX_API_KEY")
 
     if not api_key:
         print("Warning: SCRYDEX_API_KEY is not set; provider mapping may be slower or rate-limited.")
 
     fixtures, discovery_skips = discover_fixtures(fixture_roots, limit=args.limit)
+    registry_metadata_by_fixture_path = load_registry_fixture_metadata(scan_registry_path)
     if not fixtures:
         print("No eligible training fixtures were found.")
         if discovery_skips:
@@ -422,6 +466,7 @@ def main() -> int:
         expansion_snapshot_path=expansion_snapshot_path,
         reference_image_root=reference_image_root,
         download_reference_images=not args.skip_reference_download,
+        registry_metadata_by_fixture_path=registry_metadata_by_fixture_path,
     )
     if discovery_skips:
         summary["discoverySkips"] = discovery_skips

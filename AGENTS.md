@@ -222,6 +222,7 @@ Repo-specific workflow notes for future coding agents.
   - persisted SQLite snapshot timestamps are the source of truth for the normal cached freshness window and for `isFresh`
   - live pricing is a separate explicit runtime gate, not the same thing as normal cached freshness
   - when live pricing is `off`, scanner/runtime pricing reads must stay SQLite-only everywhere and must not issue hidden provider refreshes
+  - when live pricing is `off`, do not issue Scrydex exact-card import/fetch-by-id requests to fill missing rows; return `not found` from the runtime path and investigate the nightly mirror offline
   - when live pricing is `on`, scanner/runtime metadata still comes from SQLite, but pricing may refresh live
   - the live-pricing refresh window is `1 hour` and applies only when live pricing is enabled
   - when live pricing is `on`, scan responses may reuse SQLite pricing that was refreshed within the last hour; otherwise they should refresh pricing live and persist it back to SQLite
@@ -254,14 +255,16 @@ Repo-specific workflow notes for future coding agents.
     - card metadata
     - raw price snapshots
     - graded price snapshots returned by the same `include=prices` payload
-  - when live pricing is `off`, treat that nightly mirror as authoritative and keep normal scan hot paths SQLite-only even if snapshots are older than the live-pricing `1 hour` window
+  - when live pricing is `off`, treat that nightly mirror as authoritative and keep normal scan/detail hot paths SQLite-only even if snapshots are older than the live-pricing `1 hour` window
+  - in normal runtime, the Scrydex sync should be the only Scrydex query path while live pricing is `off`
+  - do not add or reintroduce manual card import, exact-card fetch-by-id, or hidden runtime hydration fallback paths
+  - if a card is unexpectedly missing locally, return `404` / `not found` to the caller; do not query Scrydex and do not trigger an ad hoc resync from that request path
   - live pricing is an explicit opt-in runtime mode, not a silent fallback when the mirror is stale
-      - a card is unexpectedly missing locally
-      - the caller explicitly forces refresh
 - Scrydex request-budget rule:
   - cached raw scans/details should stay fully local and issue `0` live Scrydex requests
-  - once the nightly full sync is fresh, first-seen raw and slab responses should also stay local unless an explicit fallback condition is hit
-  - before the nightly sync is in place or when it is stale, non-visual remote raw fallback is capped at `2` Scrydex search requests max
+  - once the nightly full sync is in place, first-seen raw and slab responses should also stay local
+  - do not reintroduce exact-card import/fetch-by-id fallback to paper over missing SQLite rows
+  - non-visual remote raw search fallback is legacy debt and should stay blocked under the manual-mirror deployment path
   - use `GET /api/v1/ops/provider-status` and inspect `scrydexRequestStats` when auditing overage risk
 - Implementation files:
   - [backend/pricing_provider.py](/Users/stephenchan/Code/spotlight/backend/pricing_provider.py) - provider contract and registry
@@ -339,8 +342,8 @@ Repo-specific workflow notes for future coding agents.
     - hybrid top-5 contains-truth: `40/67`
   - Scrydex request-budget guardrails now landed:
     - cached raw scans/details should issue `0` live Scrydex requests
-    - during the same-machine nightly-sync stage, first-seen visual-hybrid top-1 hydration should also stay local when the latest full sync is fresh
-    - before that sync is fresh, first-seen visual-hybrid top-1 hydration may still issue `1` Scrydex fetch-by-id request
+    - during the same-machine nightly-sync stage, first-seen visual-hybrid top-1 hydration should stay local and read from SQLite
+    - do not reintroduce first-seen exact-card fetch-by-id hydration as a runtime fallback
     - before that sync is fresh, non-visual remote raw fallback is capped at `2` Scrydex search queries max
     - `GET /api/v1/ops/provider-status` includes `scrydexRequestStats`
   - promoted Scrydex visual candidates:
@@ -511,8 +514,8 @@ Repo-specific workflow notes for future coding agents.
   - `Staging` => TestFlight / internal backend
   - `Release` => production backend
 - The machine-local override file is `Spotlight/Config/LocalOverrides.xcconfig`.
-- Current default staging host is `https://spotlight-backend-grhsfspaia-uc.a.run.app/`.
-- Current production host is also `https://spotlight-backend-grhsfspaia-uc.a.run.app/`.
+- Current default staging host is `https://looty.34.59.188.129.sslip.io/`.
+- Current production host is also `https://looty.34.59.188.129.sslip.io/`.
 - Default local backend assumptions:
   - simulator: `http://127.0.0.1:8788/`
   - physical device: set `SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL` in `LocalOverrides.xcconfig` to the Mac's LAN URL, for example `http://192.168.x.y:8788/`
@@ -521,22 +524,22 @@ Repo-specific workflow notes for future coding agents.
 - Do not re-introduce a checked-in backend Pokémon catalog JSON snapshot as a runtime source of truth.
 - Canonical scanner runtime architecture:
   - treat the app as OCR capture plus backend request/response UI, not as a local card-identity runtime
-  - treat backend SQLite as the runtime cache/source for previously hydrated card metadata and pricing snapshots
-  - treat provider APIs as the live source of truth for rich metadata and pricing:
+  - treat backend SQLite as the runtime source for card metadata and persisted pricing snapshots
+  - treat provider APIs as the upstream source of truth that feed the nightly mirror and explicit live-pricing refreshes:
     - raw/singles => Scrydex-first migration lane
     - slab/graded => Scrydex
-  - do not make Cloud Run correctness depend on a preseeded lightweight JSON catalog file or bundled local identifier asset
+  - do not make hosted-backend correctness depend on a preseeded lightweight JSON catalog file or bundled local identifier asset
 - Current deployment rule for the SQLite mirror stage:
   - if you want the nightly Scrydex mirror to be authoritative, the backend process and the cron job must run on the same host with the same SQLite database path
-  - do not assume Cloud Run instances share the same local SQLite file as a cron job running elsewhere
+  - do not assume multiple backend hosts share the same local SQLite file as a cron job running elsewhere
   - for internet-reachable tester builds, point the app at the host that is actually running that shared backend + cron pair
-  - current live hosted beta path is the same-host VM mirror setup, not Cloud Run
+  - current live hosted beta path is the same-host VM mirror setup
 - Preferred raw runtime flow:
   - app OCR extracts collector number/text locally
   - app sends the normalized image plus OCR payload to the backend
-  - the backend visually retrieves candidates, reranks with OCR evidence, and hydrates SQLite on demand
-  - backend SQLite is a runtime cache for imported card metadata/pricing, not a required preseeded catalog
-  - Cloud Run should not depend on a seeded local JSON catalog file to recognize standard raw cards
+  - the backend visually retrieves candidates, reranks with OCR evidence, and reads matched card metadata/pricing from mirrored SQLite
+  - the nightly Scrydex sync hydrates SQLite; runtime should not exact-import card rows on demand and should return `not found` if a row is missing
+  - the hosted backend should not depend on a seeded local JSON catalog file to recognize standard raw cards
 - Canonical raw scan flow:
   - 1. app normalizes the card image and runs OCR
   - 2. app sends the normalized image plus OCR evidence to the backend
@@ -680,7 +683,7 @@ export SCRYDEX_TEAM_ID=your_team_id
 0 3 * * * cd /Users/stephenchan/Code/spotlight && .venv-raw-visual-poc/bin/python backend/sync_scrydex_catalog.py --database-path backend/data/spotlight_scanner.sqlite >> /Users/stephenchan/Code/spotlight/backend/logs/scrydex_sync.log 2>&1
 ```
 
-Cloud Run deploy:
+VM deploy:
 
 ```bash
 backend/deploy.sh staging backend/.env
@@ -689,12 +692,12 @@ backend/deploy.sh production backend/.env
 
 Rules:
 
-- keep non-secret Cloud Run runtime config in:
+- keep non-secret VM runtime config in:
   - `backend/.env.staging`
   - `backend/.env.production`
 - keep exactly one local backend secrets file:
   - `backend/.env`
-- deploy merges the tracked runtime env file with `backend/.env` and sends that combined env payload to Cloud Run
+- deploy reads the tracked runtime env file plus `backend/.env` on the VM and writes the merged runtime config locally
 - do not re-introduce duplicate local `.env` paths
 - `backend/deploy.sh` is the one-command entrypoint; helper scripts may remain underneath but should not become the primary documented flow
 
@@ -743,6 +746,5 @@ The backend is always live-only. Do not reintroduce seeded startup or bundled ca
 - Important ops endpoints now exist:
   - `GET /api/v1/ops/provider-status`
   - `GET /api/v1/ops/unmatched-scans`
-- The backend can import raw card records through `POST /api/v1/catalog/import-card`.
 - Validate Scrydex creds/live provider wiring:
   - `python3 backend/validate_scrydex.py`

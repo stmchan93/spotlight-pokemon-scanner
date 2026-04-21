@@ -1267,25 +1267,6 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(detail["source"], "scrydex")
         self.assertEqual(detail["imageLargeURL"], "https://images.example/gym1-60-large.png")
 
-    def test_import_catalog_card_uses_scrydex_exact_import_path(self) -> None:
-        service = SpotlightScanService(self.database_path, REPO_ROOT)
-        with patch("server.fetch_scrydex_card_by_id", return_value=sample_scrydex_card()):
-            mapped = service.import_catalog_card("m2a_ja-232", trigger_source="test")
-        card = card_by_id(service.connection, "m2a_ja-232")
-        detail = service.card_detail("m2a_ja-232")
-        service.connection.close()
-
-        self.assertEqual(mapped["id"], "m2a_ja-232")
-        self.assertIsNotNone(card)
-        self.assertIsNotNone(detail)
-        assert card is not None
-        assert detail is not None
-        self.assertEqual(card["setID"], "m2a_ja")
-        self.assertEqual(card["setSeries"], "Scarlet & Violet")
-        self.assertEqual(card["imageURL"], "https://images.example/m2a_ja-232-large.png")
-        self.assertEqual(detail["source"], "scrydex")
-        self.assertEqual(detail["card"]["name"], "Mega Dragonite ex")
-
     def test_low_confidence_top_candidate_skips_live_pricing_refresh_when_live_pricing_disabled(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         upsert_card(

@@ -35,6 +35,9 @@
 		BA000000000000000000000C /* PortfolioView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000020 /* PortfolioView.swift */; };
 		BA0000000000000000000014 /* ManualCardSearchViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000022 /* ManualCardSearchViewModel.swift */; };
 		BA0000000000000000000015 /* ManualCardSearchView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000023 /* ManualCardSearchView.swift */; };
+		BA0000000000000000000016 /* PortfolioImportModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000024 /* PortfolioImportModels.swift */; };
+		BA0000000000000000000017 /* PortfolioImportViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000025 /* PortfolioImportViewModel.swift */; };
+		BA0000000000000000000018 /* PortfolioImportView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000026 /* PortfolioImportView.swift */; };
 		BA000000000000000000000D /* AlternateMatchesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000E /* AlternateMatchesView.swift */; };
 		BA000000000000000000000E /* CameraPreviewView.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA000000000000000000000F /* CameraPreviewView.swift */; };
 		BA000000000000000000000F /* ScannerAPIModels.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA0000000000000000000011 /* ScannerAPIModels.swift */; };
@@ -61,6 +64,8 @@
 		C3EE97F53B03E6525C299E46 /* RemoteImagePrefetcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3876B6D775130E8BD64C6636 /* RemoteImagePrefetcher.swift */; };
 		C40000000000000000000001 /* LootyTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC4000000000000000000001 /* LootyTheme.swift */; };
 		C40000000000000000000002 /* LootyComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC4000000000000000000002 /* LootyComponents.swift */; };
+		C40000000000000000000003 /* SellModalComponents.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC4000000000000000000003 /* SellModalComponents.swift */; };
+		C40000000000000000000004 /* SellOrderSheets.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC4000000000000000000004 /* SellOrderSheets.swift */; };
 		DA0000000000000000000001 /* OCRFixtureExecutionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000001 /* OCRFixtureExecutionTests.swift */; };
 		DA0000000000000000000002 /* OCRRewriteStage1FixtureTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000003 /* OCRRewriteStage1FixtureTests.swift */; };
 		DA0000000000000000000003 /* RawOCRRegressionSuiteTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DB0000000000000000000004 /* RawOCRRegressionSuiteTests.swift */; };
@@ -152,8 +157,13 @@
 		FA0000000000000000000021 /* ShowsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShowsView.swift; sourceTree = "<group>"; };
 		FA0000000000000000000022 /* ManualCardSearchViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualCardSearchViewModel.swift; sourceTree = "<group>"; };
 		FA0000000000000000000023 /* ManualCardSearchView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ManualCardSearchView.swift; sourceTree = "<group>"; };
+		FA0000000000000000000024 /* PortfolioImportModels.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioImportModels.swift; sourceTree = "<group>"; };
+		FA0000000000000000000025 /* PortfolioImportViewModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioImportViewModel.swift; sourceTree = "<group>"; };
+		FA0000000000000000000026 /* PortfolioImportView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PortfolioImportView.swift; sourceTree = "<group>"; };
 		FC4000000000000000000001 /* LootyTheme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootyTheme.swift; sourceTree = "<group>"; };
 		FC4000000000000000000002 /* LootyComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LootyComponents.swift; sourceTree = "<group>"; };
+		FC4000000000000000000003 /* SellModalComponents.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SellModalComponents.swift; sourceTree = "<group>"; };
+		FC4000000000000000000004 /* SellOrderSheets.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SellOrderSheets.swift; sourceTree = "<group>"; };
 		FFC123450000000000000001 /* CardIdentifierParsing.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CardIdentifierParsing.swift; sourceTree = "<group>"; };
 		FFC123450000000000000002 /* ScannerReticleLayout.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScannerReticleLayout.swift; sourceTree = "<group>"; };
 		FFC123450000000000000003 /* ScanPipelineTypes.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScanPipelineTypes.swift; sourceTree = "<group>"; };
@@ -327,6 +337,7 @@
 				FA0000000000000000000005 /* ScanModels.swift */,
 				FA0000000000000000000012 /* ScanTrayLogic.swift */,
 				FA0000000000000000000011 /* ScannerAPIModels.swift */,
+				FA0000000000000000000024 /* PortfolioImportModels.swift */,
 				1D8608018F9531BAD401E383 /* AuthModels.swift */,
 			);
 			path = Models;
@@ -354,6 +365,7 @@
 			children = (
 				FA000000000000000000000A /* ScannerViewModel.swift */,
 				FA0000000000000000000022 /* ManualCardSearchViewModel.swift */,
+				FA0000000000000000000025 /* PortfolioImportViewModel.swift */,
 			);
 			path = ViewModels;
 			sourceTree = "<group>";
@@ -364,8 +376,10 @@
 				FA000000000000000000000B /* ScannerRootView.swift */,
 				FA000000000000000000000C /* ScannerView.swift */,
 				FA0000000000000000000020 /* PortfolioView.swift */,
+				FA0000000000000000000026 /* PortfolioImportView.swift */,
 				FA0000000000000000000023 /* ManualCardSearchView.swift */,
 				FA0000000000000000000021 /* ShowsView.swift */,
+				FC4000000000000000000004 /* SellOrderSheets.swift */,
 				FFC123450000000000000002 /* ScannerReticleLayout.swift */,
 				FA000000000000000000000E /* AlternateMatchesView.swift */,
 				FA0000000000000000000019 /* ScanResultDetailView.swift */,
@@ -431,6 +445,7 @@
 			children = (
 				FC4000000000000000000001 /* LootyTheme.swift */,
 				FC4000000000000000000002 /* LootyComponents.swift */,
+				FC4000000000000000000003 /* SellModalComponents.swift */,
 			);
 			path = UI;
 			sourceTree = "<group>";
@@ -602,6 +617,8 @@
 				BA0000000000000000000002 /* AppContainer.swift in Sources */,
 				C40000000000000000000001 /* LootyTheme.swift in Sources */,
 				C40000000000000000000002 /* LootyComponents.swift in Sources */,
+				C40000000000000000000003 /* SellModalComponents.swift in Sources */,
+				C40000000000000000000004 /* SellOrderSheets.swift in Sources */,
 				BA0000000000000000000003 /* CardCandidate.swift in Sources */,
 				BA0000000000000000000004 /* ScanModels.swift in Sources */,
 				BA0000000000000000000010 /* ScanTrayLogic.swift in Sources */,
@@ -629,6 +646,9 @@
 				BA000000000000000000000C /* PortfolioView.swift in Sources */,
 				BA0000000000000000000014 /* ManualCardSearchViewModel.swift in Sources */,
 				BA0000000000000000000015 /* ManualCardSearchView.swift in Sources */,
+				BA0000000000000000000016 /* PortfolioImportModels.swift in Sources */,
+				BA0000000000000000000017 /* PortfolioImportViewModel.swift in Sources */,
+				BA0000000000000000000018 /* PortfolioImportView.swift in Sources */,
 				BA0000000000000000000013 /* ShowsView.swift in Sources */,
 				BBC123450000000000000002 /* ScannerReticleLayout.swift in Sources */,
 				BA000000000000000000000D /* AlternateMatchesView.swift in Sources */,

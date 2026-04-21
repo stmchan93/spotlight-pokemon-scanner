@@ -10,7 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from raw_visual_dataset_paths import default_raw_visual_train_manifest_path
+from raw_visual_dataset_paths import default_raw_visual_scan_registry_path, default_raw_visual_train_manifest_path
 
 import numpy as np
 import torch
@@ -39,12 +39,18 @@ def sanitize_model_slug(model_id: str) -> str:
 @dataclass(frozen=True)
 class TrainingRecord:
     fixture_name: str
+    fixture_root: Path
+    fixture_path: Path
     provider_card_id: str
     normalized_image_path: Path
     reference_image_path: Path
     card_name: str
     collector_number: str
     set_code: str | None
+    import_batch_id: str | None
+    import_bucket: str | None
+    dataset_status: str | None
+    expansion_holdout_selected: bool
 
 
 @dataclass(frozen=True)
@@ -67,8 +73,14 @@ def load_manifest(path: Path) -> list[TrainingRecord]:
         provider_card_id = str(payload.get("providerCardId") or "").strip()
         normalized_image_path = Path(str(payload.get("normalizedImagePath") or "")).resolve()
         reference_image_path = Path(str(payload.get("referenceImagePath") or "")).resolve()
+        fixture_path_value = str(payload.get("fixturePath") or "").strip()
+        fixture_path = Path(fixture_path_value).resolve() if fixture_path_value else normalized_image_path.parent.resolve()
+        fixture_root_value = str(payload.get("fixtureRoot") or "").strip()
+        fixture_root = Path(fixture_root_value).resolve() if fixture_root_value else fixture_path.parent.resolve()
         if not provider_card_id:
             raise SystemExit(f"Missing providerCardId in {path}:{line_number}")
+        if not fixture_path.exists():
+            raise SystemExit(f"Missing fixture path in {path}:{line_number}: {fixture_path}")
         if not normalized_image_path.exists():
             raise SystemExit(f"Missing normalized image in {path}:{line_number}: {normalized_image_path}")
         if not reference_image_path.exists():
@@ -76,12 +88,24 @@ def load_manifest(path: Path) -> list[TrainingRecord]:
         records.append(
             TrainingRecord(
                 fixture_name=str(payload.get("fixtureName") or "").strip(),
+                fixture_root=fixture_root,
+                fixture_path=fixture_path,
                 provider_card_id=provider_card_id,
                 normalized_image_path=normalized_image_path,
                 reference_image_path=reference_image_path,
                 card_name=str(payload.get("cardName") or "").strip(),
                 collector_number=str(payload.get("collectorNumber") or "").strip(),
                 set_code=(str(payload.get("setCode")).strip() or None) if payload.get("setCode") is not None else None,
+                import_batch_id=(str(payload.get("importBatchId")).strip() or None)
+                if payload.get("importBatchId") is not None
+                else None,
+                import_bucket=(str(payload.get("importBucket")).strip() or None)
+                if payload.get("importBucket") is not None
+                else None,
+                dataset_status=(str(payload.get("datasetStatus")).strip() or None)
+                if payload.get("datasetStatus") is not None
+                else None,
+                expansion_holdout_selected=bool(payload.get("expansionHoldoutSelected") or False),
             )
         )
     if not records:
@@ -129,6 +153,55 @@ def load_hard_negative_manifest(path: Path) -> dict[str, list[HardNegativeEntry]
             )
         output[str(fixture_name)] = parsed_items
     return output
+
+
+def load_registry_fixture_metadata(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text())
+    entries = payload.get("entries") or []
+    output: dict[str, dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        fixture_path = str(entry.get("importedFixturePath") or "").strip()
+        if not fixture_path:
+            continue
+        output[str(Path(fixture_path).resolve())] = entry
+    return output
+
+
+def apply_registry_metadata(
+    records: list[TrainingRecord],
+    *,
+    registry_fixture_metadata: dict[str, dict[str, Any]],
+) -> list[TrainingRecord]:
+    if not registry_fixture_metadata:
+        return records
+    hydrated_records: list[TrainingRecord] = []
+    for record in records:
+        registry_entry = registry_fixture_metadata.get(str(record.fixture_path.resolve()))
+        if registry_entry is None:
+            hydrated_records.append(record)
+            continue
+        hydrated_records.append(
+            TrainingRecord(
+                fixture_name=record.fixture_name,
+                fixture_root=record.fixture_root,
+                fixture_path=record.fixture_path,
+                provider_card_id=record.provider_card_id,
+                normalized_image_path=record.normalized_image_path,
+                reference_image_path=record.reference_image_path,
+                card_name=record.card_name,
+                collector_number=record.collector_number,
+                set_code=record.set_code,
+                import_batch_id=record.import_batch_id or (str(registry_entry.get("batchID") or "").strip() or None),
+                import_bucket=record.import_bucket or (str(registry_entry.get("bucket") or "").strip() or None),
+                dataset_status=record.dataset_status or (str(registry_entry.get("datasetStatus") or "").strip() or None),
+                expansion_holdout_selected=record.expansion_holdout_selected or bool(registry_entry.get("expansionHoldoutSelected") or False),
+            )
+        )
+    return hydrated_records
 
 
 def maybe_limit_provider_ids(provider_ids: list[str], limit: int) -> list[str]:
@@ -283,6 +356,104 @@ def build_batch_hard_negative_tensor(
     return tensor, len(ordered_negative_provider_ids)
 
 
+def group_train_records_by_provider(records: list[TrainingRecord]) -> dict[str, list[TrainingRecord]]:
+    grouped: dict[str, list[TrainingRecord]] = {}
+    for record in records:
+        grouped.setdefault(record.provider_card_id, []).append(record)
+    for provider_id in grouped:
+        grouped[provider_id] = sorted(grouped[provider_id], key=lambda record: record.fixture_name)
+    return grouped
+
+
+def is_focus_batch_record(record: TrainingRecord, focus_batch_ids: set[str]) -> bool:
+    return (
+        bool(focus_batch_ids)
+        and record.import_batch_id in focus_batch_ids
+        and record.import_bucket == "safe_new"
+        and not record.expansion_holdout_selected
+    )
+
+
+def build_epoch_train_records(
+    *,
+    train_records_by_provider: dict[str, list[TrainingRecord]],
+    seed: int,
+    epoch: int,
+    max_train_images_per_provider_per_epoch: int,
+    focus_batch_ids: set[str],
+    focus_batch_provider_ratio: float | None,
+) -> tuple[list[TrainingRecord], dict[str, Any]]:
+    rng = random.Random(seed + epoch)
+    provider_ids = sorted(train_records_by_provider)
+    focus_provider_ids = sorted(
+        provider_id
+        for provider_id, records in train_records_by_provider.items()
+        if any(is_focus_batch_record(record, focus_batch_ids) for record in records)
+    )
+    focus_provider_set = set(focus_provider_ids)
+    legacy_provider_ids = sorted(provider_id for provider_id in provider_ids if provider_id not in focus_provider_set)
+
+    epoch_records: list[TrainingRecord] = []
+    focus_pool_records: list[TrainingRecord] = []
+    legacy_pool_records: list[TrainingRecord] = []
+
+    for provider_id in provider_ids:
+        provider_records = list(train_records_by_provider[provider_id])
+        rng.shuffle(provider_records)
+        if max_train_images_per_provider_per_epoch > 0:
+            provider_records = provider_records[:max_train_images_per_provider_per_epoch]
+        epoch_records.extend(provider_records)
+        if provider_id in focus_provider_set:
+            focus_pool_records.extend(provider_records)
+        else:
+            legacy_pool_records.extend(provider_records)
+
+    target_focus_ratio = focus_batch_provider_ratio
+    extra_records_added = 0
+    if (
+        target_focus_ratio is not None
+        and 0.0 < target_focus_ratio < 1.0
+        and focus_pool_records
+        and legacy_pool_records
+    ):
+        focus_count = len(focus_pool_records)
+        legacy_count = len(legacy_pool_records)
+        total_count = focus_count + legacy_count
+        actual_focus_ratio = focus_count / total_count if total_count else 0.0
+
+        extra_pool: list[TrainingRecord] = []
+        if target_focus_ratio < actual_focus_ratio:
+            desired_total = int(np.ceil(focus_count / target_focus_ratio))
+            extra_records_added = max(0, desired_total - total_count)
+            extra_pool = legacy_pool_records
+        elif target_focus_ratio > actual_focus_ratio:
+            desired_total = int(np.ceil(legacy_count / (1.0 - target_focus_ratio)))
+            extra_records_added = max(0, desired_total - total_count)
+            extra_pool = focus_pool_records
+
+        if extra_records_added > 0 and extra_pool:
+            epoch_records.extend(rng.choice(extra_pool) for _ in range(extra_records_added))
+
+    rng.shuffle(epoch_records)
+    epoch_focus_records = sum(1 for record in epoch_records if record.provider_card_id in focus_provider_set)
+    epoch_legacy_records = len(epoch_records) - epoch_focus_records
+    metrics = {
+        "providerCount": len(provider_ids),
+        "focusProviderCount": len(focus_provider_ids),
+        "legacyProviderCount": len(legacy_provider_ids),
+        "baseFocusRecordCount": len(focus_pool_records),
+        "baseLegacyRecordCount": len(legacy_pool_records),
+        "epochRecordCount": len(epoch_records),
+        "epochFocusRecordCount": epoch_focus_records,
+        "epochLegacyRecordCount": epoch_legacy_records,
+        "extraReplayRecordCount": extra_records_added,
+        "focusBatchProviderRatioTarget": target_focus_ratio,
+        "epochFocusRecordRatio": (epoch_focus_records / len(epoch_records)) if epoch_records else 0.0,
+        "maxTrainImagesPerProviderPerEpoch": max_train_images_per_provider_per_epoch,
+    }
+    return epoch_records, metrics
+
+
 def retrieval_metrics(
     *,
     adapter: RawVisualProjectionAdapter,
@@ -402,6 +573,12 @@ def parse_args() -> argparse.Namespace:
         help="Batch size for frozen CLIP base-embedding extraction.",
     )
     parser.add_argument(
+        "--max-train-images-per-provider-per-epoch",
+        type=int,
+        default=4,
+        help="Identity-balanced per-provider image cap for each epoch. Set 0 to keep every image for a provider.",
+    )
+    parser.add_argument(
         "--epochs",
         type=int,
         default=12,
@@ -456,6 +633,24 @@ def parse_args() -> argparse.Namespace:
         help="Optional hard-negative manifest path. When provided, mined confusing wrong candidates are appended to the scan->reference loss.",
     )
     parser.add_argument(
+        "--scan-registry-path",
+        type=Path,
+        default=default_raw_visual_scan_registry_path(),
+        help="Raw scan registry used to backfill batch provenance for replay weighting.",
+    )
+    parser.add_argument(
+        "--focus-batch-id",
+        action="append",
+        default=[],
+        help="Batch id to treat as the new-batch replay group. Repeatable.",
+    )
+    parser.add_argument(
+        "--focus-batch-provider-ratio",
+        type=float,
+        default=None,
+        help="Target share of per-epoch sampled records coming from focus-batch safe_new providers.",
+    )
+    parser.add_argument(
         "--index-npz",
         type=Path,
         default=Path("backend/data/visual-index/visual_index_active_clip-vit-base-patch32.npz"),
@@ -474,12 +669,16 @@ def main() -> None:
     args = parse_args()
     random.seed(args.seed)
     torch.manual_seed(args.seed)
+    if args.focus_batch_provider_ratio is not None and not (0.0 < args.focus_batch_provider_ratio < 1.0):
+        raise SystemExit("--focus-batch-provider-ratio must be between 0 and 1.")
 
     manifest_path = args.manifest_path.resolve()
     output_dir = args.output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
     records = load_manifest(manifest_path)
+    registry_fixture_metadata = load_registry_fixture_metadata(args.scan_registry_path.resolve())
+    records = apply_registry_metadata(records, registry_fixture_metadata=registry_fixture_metadata)
     unique_provider_ids = sorted({record.provider_card_id for record in records})
     limited_provider_ids = set(maybe_limit_provider_ids(unique_provider_ids, args.provider_limit))
     if args.provider_limit > 0:
@@ -499,6 +698,13 @@ def main() -> None:
     val_records = [record for record in records if record.provider_card_id in val_provider_set]
     if not train_records or not val_records:
         raise SystemExit("Train/validation split produced an empty partition.")
+    train_records_by_provider = group_train_records_by_provider(train_records)
+    focus_batch_ids = {batch_id.strip() for batch_id in args.focus_batch_id if batch_id.strip()}
+    focus_train_provider_ids = sorted(
+        provider_id
+        for provider_id, provider_records in train_records_by_provider.items()
+        if any(is_focus_batch_record(record, focus_batch_ids) for record in provider_records)
+    )
 
     print(
         f"Training records={len(train_records)} validation records={len(val_records)} "
@@ -534,9 +740,6 @@ def main() -> None:
         for provider_card_id, metadata in hard_negative_reference_metadata.items():
             reference_metadata.setdefault(provider_card_id, metadata)
 
-    train_scan_records = list(train_records)
-    train_batches = max(1, (len(train_scan_records) + args.batch_size - 1) // args.batch_size)
-
     device = resolve_torch_device(args.device)
     adapter = RawVisualProjectionAdapter(embedding_dim=encoder.embedding_dim).to(device)
     optimizer = torch.optim.AdamW(adapter.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
@@ -555,7 +758,15 @@ def main() -> None:
 
     for epoch in range(1, args.epochs + 1):
         adapter.train()
-        random.Random(args.seed + epoch).shuffle(train_scan_records)
+        train_scan_records, epoch_sampling = build_epoch_train_records(
+            train_records_by_provider=train_records_by_provider,
+            seed=args.seed,
+            epoch=epoch,
+            max_train_images_per_provider_per_epoch=args.max_train_images_per_provider_per_epoch,
+            focus_batch_ids=focus_batch_ids,
+            focus_batch_provider_ratio=args.focus_batch_provider_ratio,
+        )
+        train_batches = max(1, (len(train_scan_records) + args.batch_size - 1) // args.batch_size)
         batch_losses: list[float] = []
         batch_top1_values: list[float] = []
         batch_logit_scales: list[float] = []
@@ -596,6 +807,7 @@ def main() -> None:
             "trainBatchTop1": sum(batch_top1_values) / max(1, len(batch_top1_values)),
             "trainLogitScale": sum(batch_logit_scales) / max(1, len(batch_logit_scales)),
             "trainExtraNegativeCount": sum(batch_extra_negative_counts) / max(1, len(batch_extra_negative_counts)),
+            "sampling": epoch_sampling,
             "validation": val_metrics,
         }
         history.append(epoch_summary)
@@ -604,6 +816,8 @@ def main() -> None:
             f"loss={epoch_summary['trainLoss']:.4f} "
             f"train_top1={epoch_summary['trainBatchTop1']:.4f} "
             f"extra_negs={epoch_summary['trainExtraNegativeCount']:.2f} "
+            f"epoch_records={epoch_sampling['epochRecordCount']} "
+            f"focus_ratio={epoch_sampling['epochFocusRecordRatio']:.4f} "
             f"val_r1={val_metrics['recallAt1']:.4f} "
             f"val_r5={val_metrics['recallAt5']:.4f} "
             f"val_r10={val_metrics['recallAt10']:.4f} "
@@ -664,6 +878,11 @@ def main() -> None:
         "providerCount": len(provider_ids),
         "trainProviderCount": len(train_provider_ids),
         "validationProviderCount": len(val_provider_ids),
+        "scanRegistryPath": str(args.scan_registry_path.resolve()),
+        "focusBatchIds": sorted(focus_batch_ids),
+        "focusBatchTrainProviderCount": len(focus_train_provider_ids),
+        "focusBatchProviderRatio": args.focus_batch_provider_ratio,
+        "maxTrainImagesPerProviderPerEpoch": args.max_train_images_per_provider_per_epoch,
         "bestEpoch": best_epoch,
         "bestValidation": best_metrics,
         "outputMetricsPath": str(metrics_path),
@@ -692,6 +911,9 @@ def main() -> None:
         "artifactVersion": args.artifact_version,
         "seed": args.seed,
         "manifestPath": str(manifest_path),
+        "focusBatchIds": sorted(focus_batch_ids),
+        "focusBatchProviderRatio": args.focus_batch_provider_ratio,
+        "maxTrainImagesPerProviderPerEpoch": args.max_train_images_per_provider_per_epoch,
         "trainProviderIds": train_provider_ids,
         "validationProviderIds": val_provider_ids,
         "trainFixtureNames": sorted(record.fixture_name for record in train_records),

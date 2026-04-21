@@ -34,7 +34,6 @@ What is intentionally removed right now:
 - `GET /api/v1/cards/search?q=charizard`
 - `GET /api/v1/cards/<card_id>`
 - `POST /api/v1/cards/<card_id>/refresh-pricing`
-- `POST /api/v1/catalog/import-card`
 - `POST /api/v1/scan/match`
 - `POST /api/v1/scan/feedback`
 
@@ -57,7 +56,7 @@ For the current beta stage, the recommended hosted path is one Linux VM with:
 Run this on the VM after cloning the repo:
 
 ```bash
-backend/deploy.sh vm staging backend/.env
+backend/deploy.sh staging backend/.env
 ```
 
 What it does:

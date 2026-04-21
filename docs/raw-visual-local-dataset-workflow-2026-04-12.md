@@ -15,6 +15,7 @@ By default, raw visual training data should live outside the repo under:
 ```text
 ~/spotlight-datasets/raw-visual-train
 ~/spotlight-datasets/raw-visual-train-excluded
+~/spotlight-datasets/raw-visual-expansion-holdouts
 ```
 
 Override these when needed with:
@@ -22,6 +23,7 @@ Override these when needed with:
 - `SPOTLIGHT_DATASET_ROOT`
 - `SPOTLIGHT_RAW_VISUAL_TRAIN_ROOT`
 - `SPOTLIGHT_RAW_VISUAL_TRAIN_EXCLUDED_ROOT`
+- `SPOTLIGHT_RAW_VISUAL_EXPANSION_HOLDOUT_ROOT`
 
 These are working-copy roots, not hardcoded storage backends.
 
@@ -107,15 +109,26 @@ That flow:
 3. detects held-out truth overlap, excluded overlap, exact-hash duplicates, and broken source images
 4. writes staged manifests under:
    - `<active-training-root>/batch-audits/<batch-id>/`
+   - includes `expansion_holdout.tsv` for the new-card eval split
 5. updates the persistent dedupe registry:
    - `<active-training-root>/raw_scan_registry.json`
 6. imports only:
-   - `safe_new`
+   - `safe_new` rows not reserved for expansion holdout
    - `safe_training_augment`
-7. leaves:
+7. imports expansion holdout rows into:
+   - `<raw-visual-expansion-holdouts>/<batch-id>/`
+8. leaves:
    - `heldout_blocked`
    - `manual_review`
    out of accepted training fixtures
+
+For `safe_new` truths, the batch processor now creates a deterministic per-truth expansion holdout:
+
+- `4-5` photos => reserve `1`
+- `6+` photos => reserve `2`
+- fewer than `4` photos => keep all in training and mark the truth as insufficient for expansion holdout
+
+Selection is deterministic from `batch-id + truth-key`, so rerunning the same batch produces the same split.
 
 The registry is the running record for future drops. It tracks:
 
@@ -126,6 +139,7 @@ The registry is the running record for future drops. It tracks:
 - dataset status
 - reason
 - imported fixture path
+- expansion-holdout selection
 - timestamps
 
 This is the preferred path when new spreadsheets will keep arriving over time.
@@ -159,6 +173,48 @@ manifest groups fixtures by:
 
 The manifest does not require an explicit angle field. The image variation still
 matters, but the import sheet does not need to encode it.
+
+## Post-import evaluation surfaces
+
+After a batch import, evaluate candidate adapters on three separate surfaces:
+
+1. Legacy retention
+   - `qa/raw-footer-layout-check`
+2. New-batch expansion
+   - `~/spotlight-datasets/raw-visual-expansion-holdouts/<batch-id>`
+3. Mixed runtime
+   - `qa/raw-footer-layout-check`
+   - plus the parent expansion-holdout root so all historical batch holdouts are aggregated
+
+`tools/eval_raw_visual_model.py` now accepts repeated `--fixture-root` flags and can fall back to `runtime_selection_summary.json` when a fixture does not have `raw_ocr_regression_result.json`.
+
+Example commands after a new batch import:
+
+```bash
+.venv-raw-visual-poc/bin/python tools/train_raw_visual_adapter.py \
+  --manifest-path ~/spotlight-datasets/raw-visual-train/raw_visual_training_manifest.jsonl \
+  --hard-negatives-path ~/spotlight-datasets/raw-visual-train/raw_visual_hard_negatives.json \
+  --artifact-version v008-candidate \
+  --focus-batch-id <batch-id> \
+  --focus-batch-provider-ratio 0.30 \
+  --max-train-images-per-provider-per-epoch 4
+
+.venv-raw-visual-poc/bin/python tools/eval_raw_visual_model.py \
+  --adapter-checkpoint backend/data/visual-models/raw_visual_adapter_v008-candidate.pt \
+  --fixture-root qa/raw-footer-layout-check \
+  --output qa/raw-footer-layout-check/raw_visual_adapter_eval_scorecard_v008-candidate_legacy.json
+
+.venv-raw-visual-poc/bin/python tools/eval_raw_visual_model.py \
+  --adapter-checkpoint backend/data/visual-models/raw_visual_adapter_v008-candidate.pt \
+  --fixture-root ~/spotlight-datasets/raw-visual-expansion-holdouts/<batch-id> \
+  --output ~/spotlight-datasets/raw-visual-expansion-holdouts/<batch-id>/raw_visual_adapter_eval_scorecard_v008-candidate.json
+
+.venv-raw-visual-poc/bin/python tools/eval_raw_visual_model.py \
+  --adapter-checkpoint backend/data/visual-models/raw_visual_adapter_v008-candidate.pt \
+  --fixture-root qa/raw-footer-layout-check \
+  --fixture-root ~/spotlight-datasets/raw-visual-expansion-holdouts \
+  --output backend/data/visual-models/raw_visual_adapter_eval_scorecard_v008-candidate_mixed.json
+```
 
 ## Current local continuity option
 

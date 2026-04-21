@@ -259,6 +259,62 @@ CREATE TABLE IF NOT EXISTS runtime_settings (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS portfolio_import_jobs (
+    id TEXT PRIMARY KEY,
+    source_type TEXT NOT NULL,
+    status TEXT NOT NULL,
+    source_file_name TEXT,
+    source_sha256 TEXT NOT NULL,
+    row_count INTEGER NOT NULL DEFAULT 0,
+    matched_count INTEGER NOT NULL DEFAULT 0,
+    ambiguous_count INTEGER NOT NULL DEFAULT 0,
+    unresolved_count INTEGER NOT NULL DEFAULT 0,
+    unsupported_count INTEGER NOT NULL DEFAULT 0,
+    committed_count INTEGER NOT NULL DEFAULT 0,
+    skipped_count INTEGER NOT NULL DEFAULT 0,
+    summary_json TEXT NOT NULL DEFAULT '{}',
+    error_text TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    committed_at TEXT
+);
+
+CREATE TABLE IF NOT EXISTS portfolio_import_rows (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES portfolio_import_jobs(id) ON DELETE CASCADE,
+    row_index INTEGER NOT NULL,
+    source_collection_name TEXT,
+    raw_row_json TEXT NOT NULL DEFAULT '{}',
+    normalized_row_json TEXT NOT NULL DEFAULT '{}',
+    match_status TEXT NOT NULL,
+    matched_card_id TEXT REFERENCES cards(id) ON DELETE SET NULL,
+    match_strategy TEXT,
+    candidate_card_ids_json TEXT NOT NULL DEFAULT '[]',
+    quantity INTEGER,
+    condition TEXT,
+    variant_name TEXT,
+    currency_code TEXT,
+    acquisition_unit_price REAL,
+    acquisition_total_price REAL,
+    market_unit_price REAL,
+    commit_action TEXT,
+    commit_result_json TEXT,
+    error_text TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(job_id, row_index)
+);
+
+CREATE TABLE IF NOT EXISTS card_external_refs (
+    provider TEXT NOT NULL,
+    external_id TEXT NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (provider, external_id)
+);
+
 CREATE INDEX IF NOT EXISTS idx_cards_name_set_number
     ON cards(name, set_name, number);
 
@@ -283,8 +339,14 @@ CREATE INDEX IF NOT EXISTS idx_card_name_aliases_card_id
 CREATE INDEX IF NOT EXISTS idx_card_price_snapshots_lookup
     ON card_price_snapshots(card_id, updated_at DESC);
 
+CREATE INDEX IF NOT EXISTS idx_card_price_snapshots_provider_updated_at
+    ON card_price_snapshots(provider, updated_at DESC);
+
 CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_lookup
     ON card_price_history_daily(card_id, price_date DESC);
+
+CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_card_provider_lookup
+    ON card_price_history_daily(card_id, provider, price_date DESC, updated_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_card_price_history_daily_date
     ON card_price_history_daily(price_date DESC, card_id, updated_at DESC);
@@ -342,3 +404,21 @@ CREATE INDEX IF NOT EXISTS idx_provider_sync_runs_provider_scope_started
 
 CREATE INDEX IF NOT EXISTS idx_runtime_settings_updated_at
     ON runtime_settings(updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_import_jobs_created_at
+    ON portfolio_import_jobs(created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_import_jobs_status
+    ON portfolio_import_jobs(status, updated_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_import_rows_job_row
+    ON portfolio_import_rows(job_id, row_index ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_import_rows_job_status
+    ON portfolio_import_rows(job_id, match_status, row_index ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_portfolio_import_rows_job_committed
+    ON portfolio_import_rows(job_id, commit_result_json, row_index ASC, id ASC);
+
+CREATE INDEX IF NOT EXISTS idx_card_external_refs_card_id
+    ON card_external_refs(card_id);

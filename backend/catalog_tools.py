@@ -250,6 +250,20 @@ def connect(
     connection.row_factory = sqlite3.Row
     connection.execute(f"PRAGMA busy_timeout = {busy_timeout_ms or int(timeout_seconds * 1000)}")
     connection.execute("PRAGMA foreign_keys = ON")
+    if str(database_path) != ":memory:":
+        try:
+            connection.execute("PRAGMA journal_mode = WAL")
+        except sqlite3.DatabaseError:
+            pass
+    for pragma in (
+        "PRAGMA synchronous = NORMAL",
+        "PRAGMA temp_store = MEMORY",
+        "PRAGMA wal_autocheckpoint = 1000",
+    ):
+        try:
+            connection.execute(pragma)
+        except sqlite3.DatabaseError:
+            pass
     return connection
 
 
@@ -4110,22 +4124,62 @@ def _collector_match(card_number: str, evidence: RawEvidence) -> tuple[float, fl
     return exact, partial, denominator
 
 
-def _candidate_rows(connection: sqlite3.Connection) -> list[dict[str, Any]]:
-    rows = connection.execute("SELECT * FROM cards").fetchall()
-    alias_map = _card_title_aliases_by_card_ids(connection, [str(row["id"]) for row in rows])
-    return [
-        card
-        for card in (
-            _card_row_to_dict(row, title_aliases=alias_map.get(str(row["id"]), ()))
-            for row in rows
-        )
-        if card is not None
-    ]
+def _raw_local_number_query_parts(evidence: RawEvidence) -> tuple[str, ...]:
+    parts: list[str] = []
+    seen: set[str] = set()
+    for value in (
+        evidence.collector_number_exact,
+        evidence.collector_number_partial,
+        *(evidence.collector_number_query_values or ()),
+    ):
+        cleaned = str(value or "").strip()
+        normalized = canonicalize_collector_number(cleaned)
+        if not cleaned or not normalized or normalized in seen:
+            continue
+        seen.add(normalized)
+        parts.append(cleaned)
+    return tuple(parts)
+
+
+def _raw_local_shortlist_query(*parts: object) -> str:
+    query_parts: list[str] = []
+    seen: set[str] = set()
+    for part in parts:
+        cleaned = str(part or "").strip()
+        normalized = cleaned.lower()
+        if not cleaned or normalized in seen:
+            continue
+        seen.add(normalized)
+        query_parts.append(cleaned)
+    return " ".join(query_parts)
+
+
+def _raw_local_shortlisted_cards(
+    connection: sqlite3.Connection,
+    *,
+    query: str,
+    limit: int,
+) -> list[dict[str, Any]]:
+    normalized_query = str(query or "").strip()
+    if not normalized_query:
+        return []
+    shortlist_limit = min(max(int(limit) * 6, 48), 120)
+    return search_cards(connection, normalized_query, limit=shortlist_limit)
 
 
 def search_cards_local_title_set(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:
     scored = []
-    for card in _candidate_rows(connection):
+    set_tokens = evidence.trusted_set_hint_tokens or evidence.set_hint_tokens
+    shortlist = _raw_local_shortlisted_cards(
+        connection,
+        query=_raw_local_shortlist_query(
+            evidence.title_text_primary,
+            evidence.title_text_secondary,
+            *set_tokens,
+        ),
+        limit=limit,
+    )
+    for card in shortlist:
         title_score = _title_overlap(card, evidence)
         set_score = _set_overlap(card, evidence)
         if title_score <= 0 or set_score <= 0:
@@ -4138,7 +4192,15 @@ def search_cards_local_title_set(connection: sqlite3.Connection, evidence: RawEv
 
 def search_cards_local_title_only(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:
     scored = []
-    for card in _candidate_rows(connection):
+    shortlist = _raw_local_shortlisted_cards(
+        connection,
+        query=_raw_local_shortlist_query(
+            evidence.title_text_primary,
+            evidence.title_text_secondary,
+        ),
+        limit=limit,
+    )
+    for card in shortlist:
         title_score = _title_overlap(card, evidence)
         if title_score <= 0:
             continue
@@ -4150,7 +4212,16 @@ def search_cards_local_title_only(connection: sqlite3.Connection, evidence: RawE
 
 def search_cards_local_collector_set(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:
     scored = []
-    for card in _candidate_rows(connection):
+    set_tokens = evidence.trusted_set_hint_tokens or evidence.set_hint_tokens
+    shortlist = _raw_local_shortlisted_cards(
+        connection,
+        query=_raw_local_shortlist_query(
+            *_raw_local_number_query_parts(evidence),
+            *set_tokens,
+        ),
+        limit=limit,
+    )
+    for card in shortlist:
         exact, partial, denominator = _collector_match(card["number"], evidence)
         set_score = _set_overlap(card, evidence)
         if max(exact, partial) <= 0 or set_score <= 0:
@@ -4163,7 +4234,12 @@ def search_cards_local_collector_set(connection: sqlite3.Connection, evidence: R
 
 def search_cards_local_collector_only(connection: sqlite3.Connection, evidence: RawEvidence, limit: int = 12) -> list[dict[str, Any]]:
     scored = []
-    for card in _candidate_rows(connection):
+    shortlist = _raw_local_shortlisted_cards(
+        connection,
+        query=_raw_local_shortlist_query(*_raw_local_number_query_parts(evidence)),
+        limit=limit,
+    )
+    for card in shortlist:
         exact, partial, denominator = _collector_match(card["number"], evidence)
         if max(exact, partial, denominator) <= 0:
             continue

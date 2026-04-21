@@ -329,6 +329,29 @@ private actor StubCardMatchingService: CardMatchingService {
         throw MatcherError.server(message: "not implemented")
     }
 
+    func previewPortfolioImport(_ payload: PortfolioImportPreviewRequestPayload) async throws -> PortfolioImportJobPayload {
+        throw MatcherError.server(message: "not implemented")
+    }
+
+    func fetchPortfolioImportJob(jobID: String) async throws -> PortfolioImportJobPayload {
+        _ = jobID
+        throw MatcherError.server(message: "not implemented")
+    }
+
+    func resolvePortfolioImportRow(
+        jobID: String,
+        payload: PortfolioImportResolveRequestPayload
+    ) async throws -> PortfolioImportJobPayload {
+        _ = jobID
+        _ = payload
+        throw MatcherError.server(message: "not implemented")
+    }
+
+    func commitPortfolioImportJob(jobID: String) async throws -> PortfolioImportCommitResponsePayload {
+        _ = jobID
+        throw MatcherError.server(message: "not implemented")
+    }
+
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -354,6 +377,7 @@ actor RecordingCardMatchingService: CardMatchingService {
     private var recordedPortfolioSalesBatchPayloads: [[PortfolioSaleCreateRequestPayload]] = []
     private var portfolioBuyPriceUpdates: [(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload)] = []
     private var portfolioSalePriceUpdates: [(transactionID: String, payload: PortfolioTransactionPriceUpdateRequestPayload)] = []
+    private var queuedPortfolioSalePriceUpdateFailures: [String: [String]] = [:]
     private var portfolioBuyResponse = PortfolioBuyCreateResponsePayload(
         deckEntryID: "raw|test",
         cardID: "test",
@@ -491,6 +515,16 @@ actor RecordingCardMatchingService: CardMatchingService {
         payload: PortfolioTransactionPriceUpdateRequestPayload
     ) async throws {
         portfolioSalePriceUpdates.append((transactionID: transactionID, payload: payload))
+        if var queuedFailures = queuedPortfolioSalePriceUpdateFailures[transactionID],
+           let nextMessage = queuedFailures.first {
+            queuedFailures.removeFirst()
+            if queuedFailures.isEmpty {
+                queuedPortfolioSalePriceUpdateFailures.removeValue(forKey: transactionID)
+            } else {
+                queuedPortfolioSalePriceUpdateFailures[transactionID] = queuedFailures
+            }
+            throw MatcherError.server(message: nextMessage)
+        }
     }
 
     func uploadScanArtifacts(_ payload: ScanArtifactUploadRequestPayload) async throws {
@@ -582,6 +616,30 @@ actor RecordingCardMatchingService: CardMatchingService {
         return responses
     }
 
+    func previewPortfolioImport(_ payload: PortfolioImportPreviewRequestPayload) async throws -> PortfolioImportJobPayload {
+        _ = payload
+        throw MatcherError.server(message: "not implemented")
+    }
+
+    func fetchPortfolioImportJob(jobID: String) async throws -> PortfolioImportJobPayload {
+        _ = jobID
+        throw MatcherError.server(message: "not implemented")
+    }
+
+    func resolvePortfolioImportRow(
+        jobID: String,
+        payload: PortfolioImportResolveRequestPayload
+    ) async throws -> PortfolioImportJobPayload {
+        _ = jobID
+        _ = payload
+        throw MatcherError.server(message: "not implemented")
+    }
+
+    func commitPortfolioImportJob(jobID: String) async throws -> PortfolioImportCommitResponsePayload {
+        _ = jobID
+        throw MatcherError.server(message: "not implemented")
+    }
+
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -629,6 +687,10 @@ actor RecordingCardMatchingService: CardMatchingService {
 
     func setSalesBatchResponses(_ responses: [PortfolioSaleCreateResponsePayload]) {
         portfolioSalesBatchResponse = responses
+    }
+
+    func queuePortfolioSalePriceUpdateFailure(transactionID: String, message: String) {
+        queuedPortfolioSalePriceUpdateFailures[transactionID, default: []].append(message)
     }
 
     func uploadedArtifactPayloads() -> [ScanArtifactUploadRequestPayload] {

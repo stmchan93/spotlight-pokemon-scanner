@@ -210,6 +210,35 @@ class RawRetrievalPhase4Tests(unittest.TestCase):
         self.assertEqual(candidates[0]["id"], "gym1-60")
         self.assertIn("collector_set_exact", candidates[0]["_retrievalRoutes"])
 
+    def test_local_raw_retrieval_avoids_full_catalog_scan_query(self) -> None:
+        payload = raw_payload(
+            title_text_primary="Charizard ex",
+            whole_card_text="Charizard ex",
+            footer_band_text="OBF",
+            set_hint_tokens=["OBF"],
+            crop_confidence=0.9,
+        )
+        evidence = build_raw_evidence(payload)
+        statements: list[str] = []
+        self.connection.set_trace_callback(statements.append)
+        try:
+            candidates = search_cards_local_title_set(self.connection, evidence, limit=5)
+        finally:
+            self.connection.set_trace_callback(None)
+
+        normalized_statements = [
+            " ".join(statement.lower().split())
+            for statement in statements
+        ]
+        self.assertTrue(candidates)
+        self.assertFalse(
+            any(
+                statement.startswith("select * from cards")
+                and " where " not in statement
+                for statement in normalized_statements
+            )
+        )
+
     def test_remote_raw_search_respects_manual_mirror_search_policy(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         payload = raw_payload(

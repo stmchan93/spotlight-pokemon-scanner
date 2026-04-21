@@ -127,6 +127,22 @@ struct PortfolioHistoryLineSeries: Hashable {
     let values: [Double?]
 }
 
+private enum PortfolioOverviewChartMode: String, CaseIterable, Identifiable {
+    case portfolio
+    case sales
+
+    var id: String { rawValue }
+
+    var displayLabel: String {
+        switch self {
+        case .portfolio:
+            return "Portfolio"
+        case .sales:
+            return "Sales"
+        }
+    }
+}
+
 func usablePortfolioHistoryPoints(_ history: PortfolioHistory?) -> [PortfolioHistoryPoint] {
     guard let history else { return [] }
     return history.points
@@ -362,6 +378,39 @@ func portfolioSinglePricedHistoryDisplay(
 
     points.append(actualPoint)
     return (points, actualPoint)
+}
+
+func portfolioRevenueDailySeries(
+    for ledger: PortfolioLedger?,
+    range: PortfolioHistoryRange
+) -> [PortfolioLedgerDailyPoint] {
+    guard let ledger else { return [] }
+
+    let orderedSeries = ledger.dailySeries.sorted { lhs, rhs in
+        let lhsDate = lhs.date.trimmingCharacters(in: .whitespacesAndNewlines)
+        let rhsDate = rhs.date.trimmingCharacters(in: .whitespacesAndNewlines)
+        if lhsDate != rhsDate {
+            return lhsDate < rhsDate
+        }
+        return lhs.id < rhs.id
+    }
+
+    let limit: Int?
+    switch range {
+    case .days7:
+        limit = 7
+    case .days30:
+        limit = 30
+    case .days90:
+        limit = 90
+    case .all:
+        limit = nil
+    }
+
+    guard let limit else {
+        return orderedSeries
+    }
+    return Array(orderedSeries.suffix(limit))
 }
 
 func portfolioCurrentMarketValue(from history: PortfolioHistory?, fallbackValue: Double) -> Double {
@@ -693,21 +742,32 @@ func portfolioResolvedCalculatorPrice(
 struct PortfolioValueChartCard: View {
     @Environment(\.lootyTheme) private var theme
     let history: PortfolioHistory?
+    let ledger: PortfolioLedger?
     let fallbackCurrentValue: Double
-    let isLoading: Bool
+    let isLoadingHistory: Bool
+    let isLoadingLedger: Bool
     let selectedRange: PortfolioHistoryRange
     let onSelectRange: (PortfolioHistoryRange) -> Void
 
+    @State private var selectedChartMode: PortfolioOverviewChartMode = .portfolio
     @State private var selectedPointIndex: Int?
+    @State private var selectedRevenuePointIndex: Int?
 
     private var inkBackground: Color { theme.colors.canvas }
     private var surfaceBackground: Color { theme.colors.canvasElevated }
     private var fieldBackground: Color { theme.colors.surface }
     private var limeAccent: Color { theme.colors.brand }
+    private var salesAccent: Color { theme.colors.success }
 
     private var visiblePoints: [PortfolioHistoryPoint] { usablePortfolioHistoryPoints(history) }
     private var visibleSeries: [PortfolioHistoryLineSeries] { portfolioHistoryLineSeries(for: history) }
+    private var visibleRevenuePoints: [PortfolioLedgerDailyPoint] {
+        portfolioRevenueDailySeries(for: ledger, range: selectedRange)
+    }
     private var hasUsableHistory: Bool { !visiblePoints.isEmpty }
+    private var hasRevenueActivity: Bool {
+        visibleRevenuePoints.contains { $0.revenue > 0.000_1 }
+    }
     private var resolvedSelectionIndex: Int? {
         resolvedPortfolioHistorySelectionIndex(
             selectedPointIndex: selectedPointIndex,
@@ -723,6 +783,14 @@ struct PortfolioValueChartCard: View {
         return visiblePoints[resolvedSelectionIndex]
     }
 
+    private var selectedRevenuePoint: PortfolioLedgerDailyPoint? {
+        guard let selectedRevenuePointIndex,
+              visibleRevenuePoints.indices.contains(selectedRevenuePointIndex) else {
+            return nil
+        }
+        return visibleRevenuePoints[selectedRevenuePointIndex]
+    }
+
     private var displayedPointValue: Double? {
         selectedPoint?.marketValue
             ?? selectedPoint?.totalValue
@@ -734,12 +802,25 @@ struct PortfolioValueChartCard: View {
             ?? fallbackCurrentValue
     }
 
+    private var displayedGrossSalesValue: Double {
+        if let selectedRevenuePoint {
+            return max(0.0, selectedRevenuePoint.revenue)
+        }
+        return visibleRevenuePoints.reduce(0.0) { partialResult, point in
+            partialResult + max(0.0, point.revenue)
+        }
+    }
+
+    private var displayedHeadlineValue: Double {
+        selectedChartMode == .portfolio ? displayedValue : displayedGrossSalesValue
+    }
+
     private var displayedDateLabel: String {
         guard hasUsableHistory else {
-            return fallbackCurrentValue > 0 ? "Current snapshot" : (isLoading ? "Loading daily history" : "Daily dashboard view")
+            return fallbackCurrentValue > 0 ? "Current snapshot" : (isLoadingHistory ? "Loading daily history" : "Daily dashboard view")
         }
         guard let dateString = selectedPoint?.date ?? visiblePoints.last?.date else {
-            return isLoading ? "Loading daily history" : "Daily dashboard view"
+            return isLoadingHistory ? "Loading daily history" : "Daily dashboard view"
         }
         return formattedDisplayDate(from: dateString)
     }
@@ -760,7 +841,7 @@ struct PortfolioValueChartCard: View {
     }
 
     private var displayCurrencyCode: String {
-        history?.currencyCode ?? "USD"
+        history?.currencyCode ?? ledger?.currencyCode ?? "USD"
     }
 
     private var displayedDeltaLabel: String? {
@@ -772,6 +853,53 @@ struct PortfolioValueChartCard: View {
             return "\(deltaText) • \(String(format: "%.2f", abs(displayedDeltaPercent)))%"
         }
         return deltaText
+    }
+
+    private var salesHeadlineLabel: String {
+        if let selectedRevenuePoint {
+            return formattedDisplayDate(from: selectedRevenuePoint.date)
+        }
+        switch selectedRange {
+        case .days7:
+            return "Gross sales over 7 days"
+        case .days30:
+            return "Gross sales over 1 month"
+        case .days90:
+            return "Gross sales over 3 months"
+        case .all:
+            return "Gross sales across all time"
+        }
+    }
+
+    private var salesDetailLabel: String? {
+        if let selectedRevenuePoint {
+            switch selectedRevenuePoint.sellCount {
+            case 0:
+                return "No sales recorded"
+            case 1:
+                return "1 sale"
+            default:
+                return "\(selectedRevenuePoint.sellCount) sales"
+            }
+        }
+
+        let totalSalesCount = visibleRevenuePoints.reduce(0) { partialResult, point in
+            partialResult + max(0, point.sellCount)
+        }
+        guard totalSalesCount > 0 else { return nil }
+        return totalSalesCount == 1 ? "1 sale" : "\(totalSalesCount) sales"
+    }
+
+    private var summaryCaption: String {
+        selectedChartMode == .portfolio ? "PORTFOLIO VALUE" : "GROSS SALES"
+    }
+
+    private var summaryPrimaryLabel: String {
+        selectedChartMode == .portfolio ? displayedDateLabel : salesHeadlineLabel
+    }
+
+    private var summarySecondaryLabel: String? {
+        selectedChartMode == .portfolio ? displayedDeltaLabel : salesDetailLabel
     }
 
     var body: some View {
@@ -792,18 +920,32 @@ struct PortfolioValueChartCard: View {
     }
 
     private var summaryRow: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(formattedPrice(displayedValue, currencyCode: displayCurrencyCode))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 12) {
+                Text(summaryCaption)
+                    .font(.caption2.weight(.bold))
+                    .tracking(0.8)
+                    .foregroundStyle(theme.colors.textSecondary.opacity(0.82))
+
+                Spacer(minLength: 12)
+
+                chartModeToggle
+            }
+
+            Text(formattedPrice(displayedHeadlineValue, currencyCode: displayCurrencyCode))
                 .font(.system(size: 35, weight: .bold, design: .rounded))
                 .foregroundStyle(theme.colors.textPrimary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+                .allowsTightening(true)
 
             HStack(spacing: 10) {
-                Text(displayedDateLabel)
+                Text(summaryPrimaryLabel)
                     .font(.caption.weight(.semibold))
                     .foregroundStyle(theme.colors.textPrimary)
 
-                if let displayedDeltaLabel {
-                    Text(displayedDeltaLabel)
+                if let summarySecondaryLabel {
+                    Text(summarySecondaryLabel)
                         .font(.caption.weight(.bold))
                         .foregroundStyle(theme.colors.textPrimary)
                 }
@@ -812,6 +954,64 @@ struct PortfolioValueChartCard: View {
     }
 
     private var chartArea: some View {
+        Group {
+            switch selectedChartMode {
+            case .portfolio:
+                valueChartArea
+            case .sales:
+                salesChartArea
+            }
+        }
+        .frame(height: 212)
+        .onChange(of: selectedRange, initial: false) {
+            selectedPointIndex = nil
+            selectedRevenuePointIndex = nil
+        }
+        .onChange(of: visiblePoints, initial: false) { _, newPoints in
+            selectedPointIndex = latestPricedPortfolioHistoryPointIndex(in: newPoints)
+        }
+        .onChange(of: history?.summary.currentValue, initial: false) {
+            selectedPointIndex = latestPricedPortfolioHistoryPointIndex(in: visiblePoints)
+        }
+        .onChange(of: visibleRevenuePoints, initial: false) { _, newPoints in
+            guard let selectedRevenuePointIndex else { return }
+            if !newPoints.indices.contains(selectedRevenuePointIndex) {
+                self.selectedRevenuePointIndex = nil
+            }
+        }
+    }
+
+    private var chartModeToggle: some View {
+        HStack(spacing: 6) {
+            ForEach(PortfolioOverviewChartMode.allCases) { mode in
+                let isSelected = selectedChartMode == mode
+                let fillColor: Color = {
+                    guard isSelected else { return fieldBackground }
+                    return mode == .portfolio ? limeAccent : salesAccent
+                }()
+
+                Button {
+                    withAnimation(.easeInOut(duration: 0.18)) {
+                        selectedChartMode = mode
+                    }
+                } label: {
+                    Text(mode.displayLabel)
+                        .font(.caption2.weight(.bold))
+                        .foregroundStyle(isSelected ? theme.colors.textInverse : theme.colors.textPrimary)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 8)
+                        .background(fillColor)
+                        .clipShape(Capsule())
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(5)
+        .background(theme.colors.surfaceMuted)
+        .clipShape(Capsule())
+    }
+
+    private var valueChartArea: some View {
         GeometryReader { geometry in
             let chartLines = chartLineCoordinates(in: geometry.size)
             let syntheticSinglePointChart = portfolioSinglePricedHistoryDisplay(
@@ -854,7 +1054,7 @@ struct PortfolioValueChartCard: View {
                     .fill(surfaceBackground.opacity(0.68))
 
                 if visiblePoints.isEmpty {
-                    emptyChartState
+                    historyEmptyChartState
                 } else {
                     chartGrid
 
@@ -899,26 +1099,82 @@ struct PortfolioValueChartCard: View {
                 seedSelectionIfNeeded()
             }
         }
-        .frame(height: 212)
-        .onChange(of: selectedRange, initial: false) {
-            selectedPointIndex = nil
-        }
-        .onChange(of: visiblePoints, initial: false) { _, newPoints in
-            selectedPointIndex = latestPricedPortfolioHistoryPointIndex(in: newPoints)
-        }
-        .onChange(of: history?.summary.currentValue, initial: false) {
-            selectedPointIndex = latestPricedPortfolioHistoryPointIndex(in: visiblePoints)
+    }
+
+    private var salesChartArea: some View {
+        GeometryReader { geometry in
+            let frames = salesBarFrames(in: geometry.size)
+            let selectedFrame: CGRect? = {
+                guard let selectedRevenuePointIndex,
+                      frames.indices.contains(selectedRevenuePointIndex) else {
+                    return nil
+                }
+                return frames[selectedRevenuePointIndex]
+            }()
+
+            ZStack {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(surfaceBackground.opacity(0.68))
+
+                if visibleRevenuePoints.isEmpty || !hasRevenueActivity {
+                    salesEmptyChartState
+                } else {
+                    chartGrid
+
+                    if let selectedFrame {
+                        Rectangle()
+                            .fill(theme.colors.textPrimary.opacity(0.16))
+                            .frame(width: 1)
+                            .position(x: selectedFrame.midX, y: geometry.size.height / 2)
+                    }
+
+                    ForEach(Array(frames.enumerated()), id: \.offset) { index, frame in
+                        let isSelected = selectedRevenuePointIndex == index
+                        RoundedRectangle(cornerRadius: min(CGFloat(8), frame.width / 2), style: .continuous)
+                            .fill(isSelected ? salesAccent : salesAccent.opacity(0.62))
+                            .frame(width: frame.width, height: frame.height)
+                            .position(x: frame.midX, y: frame.midY)
+                            .overlay {
+                                if isSelected {
+                                    RoundedRectangle(cornerRadius: min(CGFloat(8), frame.width / 2), style: .continuous)
+                                        .stroke(theme.colors.textPrimary.opacity(0.32), lineWidth: 1)
+                                }
+                            }
+                    }
+                }
+            }
+            .contentShape(Rectangle())
+            .simultaneousGesture(
+                DragGesture(minimumDistance: 12)
+                    .onChanged { value in
+                        guard hasRevenueActivity,
+                              chartDragShouldScrub(translation: value.translation) else { return }
+                        selectedRevenuePointIndex = nearestRevenuePointIndex(for: value.location, size: geometry.size)
+                    }
+                    .onEnded { value in
+                        guard hasRevenueActivity,
+                              chartDragShouldScrub(translation: value.translation) else { return }
+                        selectedRevenuePointIndex = nearestRevenuePointIndex(for: value.location, size: geometry.size)
+                    }
+            )
+            .simultaneousGesture(
+                SpatialTapGesture()
+                    .onEnded { value in
+                        guard hasRevenueActivity else { return }
+                        selectedRevenuePointIndex = nearestRevenuePointIndex(for: value.location, size: geometry.size)
+                    }
+            )
         }
     }
 
-    private var emptyChartState: some View {
+    private var historyEmptyChartState: some View {
         VStack(spacing: 10) {
-            Image(systemName: isLoading ? "chart.line.uptrend.xyaxis" : "clock.arrow.circlepath")
+            Image(systemName: isLoadingHistory ? "chart.line.uptrend.xyaxis" : "clock.arrow.circlepath")
                 .font(.system(size: 20, weight: .semibold))
                 .foregroundStyle(theme.colors.textSecondary)
 
             Text(
-                isLoading
+                isLoadingHistory
                     ? "Loading inventory history..."
                     : (fallbackCurrentValue > 0
                         ? "Current inventory value is loaded. Daily history will appear after historical pricing is seeded."
@@ -928,6 +1184,24 @@ struct PortfolioValueChartCard: View {
                 .foregroundStyle(theme.colors.textSecondary.opacity(0.8))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 28)
+        }
+    }
+
+    private var salesEmptyChartState: some View {
+        VStack(spacing: 10) {
+            Image(systemName: isLoadingLedger ? "chart.bar.fill" : "dollarsign.circle")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(theme.colors.textSecondary)
+
+            Text(
+                isLoadingLedger
+                    ? "Loading sales history..."
+                    : "Record a sale and your daily gross-sales bars will show up here."
+            )
+            .font(.footnote.weight(.semibold))
+            .foregroundStyle(theme.colors.textSecondary.opacity(0.8))
+            .multilineTextAlignment(.center)
+            .padding(.horizontal, 28)
         }
     }
 
@@ -1016,6 +1290,30 @@ struct PortfolioValueChartCard: View {
                         .stroke(limeAccent, lineWidth: 2.5)
                 )
                 .position(point)
+        }
+    }
+
+    private func salesBarFrames(in size: CGSize) -> [CGRect] {
+        guard !visibleRevenuePoints.isEmpty else { return [] }
+
+        let horizontalPadding: CGFloat = 14
+        let verticalPadding: CGFloat = 20
+        let chartWidth = max(1, size.width - horizontalPadding * 2)
+        let chartHeight = max(1, size.height - verticalPadding * 2)
+        let maxRevenue = max(visibleRevenuePoints.map(\.revenue).max() ?? 0.0, 1.0)
+        let baselineY = size.height - verticalPadding
+        let step = chartWidth / CGFloat(max(visibleRevenuePoints.count, 1))
+        let maxBarWidth: CGFloat = visibleRevenuePoints.count <= 7 ? 28 : 18
+        let proposedBarWidth: CGFloat = visibleRevenuePoints.count == 1 ? min(CGFloat(42), chartWidth * 0.45) : step * 0.72
+        let barWidth = max(CGFloat(2), min(maxBarWidth, proposedBarWidth))
+
+        return visibleRevenuePoints.enumerated().map { index, point in
+            let normalizedHeight = CGFloat(max(0.0, point.revenue) / maxRevenue)
+            let minimumHeight: CGFloat = point.revenue > 0 ? 4 : 1
+            let height = max(minimumHeight, normalizedHeight * chartHeight)
+            let x = horizontalPadding + CGFloat(index) * step + ((step - barWidth) / 2)
+            let y = baselineY - height
+            return CGRect(x: x, y: y, width: barWidth, height: height)
         }
     }
 
@@ -1117,6 +1415,22 @@ struct PortfolioValueChartCard: View {
         var nearestDistance = CGFloat.greatestFiniteMagnitude
         for (index, point) in points.enumerated() {
             let distance = abs(point.x - location.x)
+            if distance < nearestDistance {
+                nearestDistance = distance
+                nearestIndex = index
+            }
+        }
+        return nearestIndex
+    }
+
+    private func nearestRevenuePointIndex(for location: CGPoint, size: CGSize) -> Int {
+        let frames = salesBarFrames(in: size)
+        guard !frames.isEmpty else { return 0 }
+
+        var nearestIndex = 0
+        var nearestDistance = CGFloat.greatestFiniteMagnitude
+        for (index, frame) in frames.enumerated() {
+            let distance = abs(frame.midX - location.x)
             if distance < nearestDistance {
                 nearestDistance = distance
                 nearestIndex = index
@@ -1325,7 +1639,7 @@ struct PortfolioSurfaceView: View {
                         )
                     case .sell:
                         try await collectionStore.updatePortfolioSaleTransactionPrice(
-                            transactionID: transaction.id,
+                            transaction: transaction,
                             unitPrice: updatedUnitPrice,
                             currencyCode: transaction.currencyCode
                         )
@@ -1367,8 +1681,10 @@ struct PortfolioSurfaceView: View {
     private var portfolioOverviewSection: some View {
         PortfolioValueChartCard(
             history: collectionStore.portfolioHistory,
+            ledger: collectionStore.portfolioLedger,
             fallbackCurrentValue: currentMarketValue,
-            isLoading: collectionStore.isLoadingPortfolioHistory,
+            isLoadingHistory: collectionStore.isLoadingPortfolioHistory,
+            isLoadingLedger: collectionStore.isLoadingPortfolioLedger,
             selectedRange: collectionStore.selectedPortfolioHistoryRange,
             onSelectRange: { range in
                 Task {

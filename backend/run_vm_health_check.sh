@@ -64,7 +64,6 @@ audit = payload.get("scrydexAudit", {})
 summary = {
     "fullCatalogSyncFresh": mirror.get("fullCatalogSyncFresh"),
     "searchesBlocked": mirror.get("searchesBlocked"),
-    "importsBlocked": mirror.get("importsBlocked"),
     "pricingRefreshBlocked": mirror.get("pricingRefreshBlocked"),
     "lastFullCatalogSyncAt": payload.get("providers", [{}])[0].get("lastFullCatalogSyncAt"),
     "lastSyncStatus": sync.get("status"),

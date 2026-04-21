@@ -505,6 +505,36 @@ final class CollectionStore: ObservableObject {
         await refreshDashboardData()
     }
 
+    func updatePortfolioSaleTransactionPrice(
+        transaction: PortfolioLedgerTransaction,
+        unitPrice: Double,
+        currencyCode: String? = nil
+    ) async throws {
+        let resolvedCurrencyCode = (currencyCode ?? transaction.currencyCode)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedCurrencyCode = resolvedCurrencyCode.isEmpty ? "USD" : resolvedCurrencyCode
+
+        do {
+            try await updatePortfolioSaleTransactionPrice(
+                transactionID: transaction.id,
+                unitPrice: unitPrice,
+                currencyCode: normalizedCurrencyCode
+            )
+            return
+        } catch {
+            guard isMissingPortfolioSaleTransactionError(error),
+                  let refreshedTransactionID = await resolveRefreshedSaleTransactionID(matching: transaction) else {
+                throw error
+            }
+
+            try await updatePortfolioSaleTransactionPrice(
+                transactionID: refreshedTransactionID,
+                unitPrice: unitPrice,
+                currencyCode: normalizedCurrencyCode
+            )
+        }
+    }
+
     func searchResults(for query: String) -> [DeckCardEntry] {
         let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard !trimmed.isEmpty else {
@@ -615,6 +645,44 @@ final class CollectionStore: ObservableObject {
             try? fileManager.removeItem(at: legacyFileURL)
         }
     }
+
+    private func isMissingPortfolioSaleTransactionError(_ error: Error) -> Bool {
+        guard case let MatcherError.server(message) = error else { return false }
+        return message.localizedCaseInsensitiveContains("sale transaction not found")
+    }
+
+    private func resolveRefreshedSaleTransactionID(
+        matching transaction: PortfolioLedgerTransaction
+    ) async -> String? {
+        await refreshPortfolioLedger(range: selectedPortfolioLedgerRange)
+
+        let normalizedNote = transaction.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let exactMatch = portfolioLedger?.transactions.first(where: { candidate in
+            guard candidate.kind == .sell else { return false }
+            guard candidate.id != transaction.id else { return false }
+            guard candidate.card.id == transaction.card.id else { return false }
+            guard candidate.slabContext == transaction.slabContext else { return false }
+            guard candidate.quantity == transaction.quantity else { return false }
+            guard candidate.currencyCode == transaction.currencyCode else { return false }
+            guard candidate.occurredAt == transaction.occurredAt else { return false }
+            let candidateNote = candidate.note?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return candidateNote == normalizedNote
+        })
+        if let exactMatch {
+            return exactMatch.id
+        }
+
+        let fuzzyMatch = portfolioLedger?.transactions.first(where: { candidate in
+            guard candidate.kind == .sell else { return false }
+            guard candidate.id != transaction.id else { return false }
+            guard candidate.card.id == transaction.card.id else { return false }
+            guard candidate.slabContext == transaction.slabContext else { return false }
+            guard candidate.quantity == transaction.quantity else { return false }
+            guard candidate.currencyCode == transaction.currencyCode else { return false }
+            return abs(candidate.occurredAt.timeIntervalSince(transaction.occurredAt)) < 1
+        })
+        return fuzzyMatch?.id
+    }
 }
 
 @MainActor
@@ -692,6 +760,10 @@ final class AppContainer: ObservableObject {
                 print("🧹 [DEBUG] Cleared \(removedCount) scan artifact director\(removedCount == 1 ? "y" : "ies") at \(rootPath)")
             }
         }
+    }
+
+    var cardMatchingService: any CardMatchingService {
+        remoteMatcher
     }
 
     func refreshCollectionStoreFromBackend(

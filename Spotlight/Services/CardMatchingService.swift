@@ -23,6 +23,10 @@ protocol CardMatchingService: Sendable {
     func createPortfolioBuy(_ payload: PortfolioBuyCreateRequestPayload) async throws -> PortfolioBuyCreateResponsePayload
     func createPortfolioSale(_ payload: PortfolioSaleCreateRequestPayload) async throws -> PortfolioSaleCreateResponsePayload
     func createPortfolioSalesBatch(_ payloads: [PortfolioSaleCreateRequestPayload]) async throws -> [PortfolioSaleCreateResponsePayload]
+    func previewPortfolioImport(_ payload: PortfolioImportPreviewRequestPayload) async throws -> PortfolioImportJobPayload
+    func fetchPortfolioImportJob(jobID: String) async throws -> PortfolioImportJobPayload
+    func resolvePortfolioImportRow(jobID: String, payload: PortfolioImportResolveRequestPayload) async throws -> PortfolioImportJobPayload
+    func commitPortfolioImportJob(jobID: String) async throws -> PortfolioImportCommitResponsePayload
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -163,15 +167,7 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
     }
 
     func fetchCardDetail(cardID: String, slabContext: SlabContext?) async -> CardDetail? {
-        if let detail = await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext) {
-            return detail
-        }
-
-        guard await importCatalogCard(cardID: cardID) else {
-            return nil
-        }
-
-        return await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext)
+        await fetchCardDetailFromServer(cardID: cardID, slabContext: slabContext)
     }
 
     func fetchCardMarketHistory(
@@ -235,21 +231,6 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
                 return payload
             }
         }
-
-        guard await importCatalogCard(cardID: cardID) else {
-            return nil
-        }
-
-        for path in endpointPaths {
-            if let payload = await fetchGradedCardCompsFromServer(
-                path: path,
-                slabContext: slabContext,
-                selectedGrade: selectedGrade
-            ) {
-                return payload
-            }
-        }
-
         return nil
     }
 
@@ -522,28 +503,6 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
         return try decoder.decode(CardDetail.self, from: data)
     }
 
-    private func importCatalogCard(cardID: String) async -> Bool {
-        let endpoint = baseURL.appending(path: "api/v1/catalog/import-card")
-        var request = URLRequest(url: endpoint)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-
-        struct ImportCardPayload: Codable {
-            let cardID: String
-        }
-
-        do {
-            request.httpBody = try encoder.encode(ImportCardPayload(cardID: cardID))
-            let (_, response) = try await session.data(for: request)
-            guard let httpResponse = response as? HTTPURLResponse else {
-                return false
-            }
-            return (200..<300).contains(httpResponse.statusCode)
-        } catch {
-            return false
-        }
-    }
-
     func submitFeedback(
         scanID: UUID,
         selectedCardID: String?,
@@ -649,6 +608,71 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
             throw MatcherError.server(message: message)
         }
         return try decoder.decode(PortfolioBuyCreateResponsePayload.self, from: data)
+    }
+
+    func previewPortfolioImport(_ payload: PortfolioImportPreviewRequestPayload) async throws -> PortfolioImportJobPayload {
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/imports/preview")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: serverErrorMessage(from: data, fallback: "Import preview failed."))
+        }
+
+        return try decoder.decode(PortfolioImportJobPayload.self, from: data)
+    }
+
+    func fetchPortfolioImportJob(jobID: String) async throws -> PortfolioImportJobPayload {
+        let encodedID = jobID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? jobID
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/imports/\(encodedID)")
+        let (data, response) = try await session.data(from: endpoint)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: serverErrorMessage(from: data, fallback: "Import job refresh failed."))
+        }
+
+        return try decoder.decode(PortfolioImportJobPayload.self, from: data)
+    }
+
+    func resolvePortfolioImportRow(
+        jobID: String,
+        payload: PortfolioImportResolveRequestPayload
+    ) async throws -> PortfolioImportJobPayload {
+        let encodedID = jobID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? jobID
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/imports/\(encodedID)/resolve")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(payload)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: serverErrorMessage(from: data, fallback: "Import row update failed."))
+        }
+
+        return try decoder.decode(PortfolioImportJobPayload.self, from: data)
+    }
+
+    func commitPortfolioImportJob(jobID: String) async throws -> PortfolioImportCommitResponsePayload {
+        let encodedID = jobID.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? jobID
+        let endpoint = baseURL.appending(path: "api/v1/portfolio/imports/\(encodedID)/commit")
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = Data("{}".utf8)
+
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode) else {
+            throw MatcherError.server(message: serverErrorMessage(from: data, fallback: "Import commit failed."))
+        }
+
+        return try decoder.decode(PortfolioImportCommitResponsePayload.self, from: data)
     }
 
     private func makeRerankPayload(analysis: AnalyzedCapture) -> ScanRerankRequestPayload {

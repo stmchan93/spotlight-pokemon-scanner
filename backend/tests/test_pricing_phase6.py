@@ -72,6 +72,47 @@ class PricingPhase6Tests(unittest.TestCase):
         self.connection.close()
         self.tempdir.cleanup()
 
+    def test_connect_enables_sqlite_runtime_pragmas(self) -> None:
+        journal_mode = str(self.connection.execute("PRAGMA journal_mode").fetchone()[0]).strip().lower()
+        synchronous = int(self.connection.execute("PRAGMA synchronous").fetchone()[0])
+        busy_timeout = int(self.connection.execute("PRAGMA busy_timeout").fetchone()[0])
+
+        self.assertEqual(journal_mode, "wal")
+        self.assertEqual(synchronous, 1)
+        self.assertGreaterEqual(busy_timeout, 5000)
+
+    def test_price_history_lookup_uses_card_provider_index(self) -> None:
+        plan_rows = self.connection.execute(
+            """
+            EXPLAIN QUERY PLAN
+            SELECT *
+            FROM card_price_history_daily
+            WHERE card_id = ? AND provider = ?
+            ORDER BY price_date DESC, updated_at DESC
+            LIMIT 1
+            """,
+            ("base1-4", "scrydex"),
+        ).fetchall()
+        plan_detail = " ".join(str(row["detail"]) for row in plan_rows)
+
+        self.assertIn("idx_card_price_history_daily_card_provider_lookup", plan_detail)
+
+    def test_provider_snapshot_lookup_uses_provider_updated_index(self) -> None:
+        plan_rows = self.connection.execute(
+            """
+            EXPLAIN QUERY PLAN
+            SELECT updated_at
+            FROM card_price_snapshots
+            WHERE provider = ?
+            ORDER BY updated_at DESC
+            LIMIT 5
+            """,
+            ("scrydex",),
+        ).fetchall()
+        plan_detail = " ".join(str(row["detail"]) for row in plan_rows)
+
+        self.assertIn("idx_card_price_snapshots_provider_updated_at", plan_detail)
+
     def _seed_full_catalog_sync(self, *, completed_at: str | None = None) -> None:
         run_id = start_provider_sync_run(
             self.connection,
@@ -330,7 +371,6 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertTrue(provider_status["manualScrydexMirror"]["enabled"])
         self.assertTrue(provider_status["manualScrydexMirror"]["liveQueriesBlocked"])
         self.assertTrue(provider_status["manualScrydexMirror"]["searchesBlocked"])
-        self.assertTrue(provider_status["manualScrydexMirror"]["importsBlocked"])
         self.assertTrue(provider_status["manualScrydexMirror"]["pricingRefreshBlocked"])
         providers = {provider["providerId"]: provider for provider in provider_status["providers"]}
         self.assertTrue(providers["scrydex"]["fullCatalogSyncFresh"])
@@ -490,7 +530,6 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertFalse(provider_status["scrydexFullCatalogSyncFresh"])
         self.assertTrue(provider_status["manualScrydexMirror"]["enabled"])
         self.assertTrue(provider_status["manualScrydexMirror"]["searchesBlocked"])
-        self.assertTrue(provider_status["manualScrydexMirror"]["importsBlocked"])
         self.assertFalse(provider_status["manualScrydexMirror"]["pricingRefreshAllowed"])
         self.assertTrue(provider_status["manualScrydexMirror"]["pricingRefreshBlocked"])
         self.assertTrue(provider_status["manualScrydexMirror"]["liveQueriesBlocked"])
@@ -522,7 +561,6 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertTrue(provider_status["scrydexFullCatalogSyncFresh"])
         self.assertTrue(provider_status["cardShowMode"]["active"])
         self.assertTrue(provider_status["manualScrydexMirror"]["searchesBlocked"])
-        self.assertTrue(provider_status["manualScrydexMirror"]["importsBlocked"])
         self.assertFalse(provider_status["manualScrydexMirror"]["pricingRefreshAllowed"])
         self.assertTrue(provider_status["manualScrydexMirror"]["pricingRefreshBlocked"])
 

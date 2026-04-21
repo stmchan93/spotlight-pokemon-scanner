@@ -5,7 +5,6 @@ import tempfile
 import unittest
 from http import HTTPStatus
 from pathlib import Path
-from unittest.mock import patch
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -173,13 +172,29 @@ class ManualCardSearchTests(unittest.TestCase):
         self.assertNotEqual(results[0]["id"], "tcgp-charizard")
 
     def test_search_clamps_limit_and_stays_off_full_table_scan(self) -> None:
-        with patch("catalog_tools._candidate_rows", side_effect=AssertionError("full table scan path should not be used")):
+        statements: list[str] = []
+        self.connection.set_trace_callback(statements.append)
+        try:
             default_results = search_cards(self.connection, "pikachu")
             limited_results = search_cards(self.connection, "pikachu", limit=999)
+        finally:
+            self.connection.set_trace_callback(None)
+
+        normalized_statements = [
+            " ".join(statement.lower().split())
+            for statement in statements
+        ]
 
         self.assertEqual(len(default_results), 20)
         self.assertEqual(len(limited_results), 50)
         self.assertEqual(default_results[0]["name"].startswith("Pikachu"), True)
+        self.assertFalse(
+            any(
+                statement.startswith("select * from cards")
+                and " where " not in statement
+                for statement in normalized_statements
+            )
+        )
 
     def test_search_route_keeps_backward_compatible_results_payload(self) -> None:
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)

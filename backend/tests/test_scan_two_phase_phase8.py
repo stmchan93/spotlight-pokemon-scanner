@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import sys
 import tempfile
 import time
@@ -17,6 +18,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from catalog_tools import apply_schema, connect, upsert_catalog_card  # noqa: E402
+import server as server_module  # noqa: E402
 from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
 
 
@@ -82,6 +84,7 @@ def raw_payload(
     collector_number_exact: str = "",
     set_hint_tokens: list[str] | None = None,
     crop_confidence: float = 0.95,
+    jpeg_base64: str | None = "dGVzdA==",
 ) -> dict[str, object]:
     payload = {
         "scanID": scan_id,
@@ -105,7 +108,7 @@ def raw_payload(
             }
         },
         "image": {
-            "jpegBase64": "dGVzdA==",
+            "jpegBase64": jpeg_base64,
             "width": 630,
             "height": 880,
         },
@@ -311,6 +314,10 @@ class TwoPhaseScanTests(unittest.TestCase):
         self.service.match_scan.assert_called_once()
         self.assertEqual(response, fallback_response)
 
+    def test_rerank_cache_miss_without_image_bytes_raises_explicit_error(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Cached visual shortlist expired"):
+            self.service.rerank_visual_match(raw_payload(scan_id="missing-scan", jpeg_base64=None))
+
     def test_scan_routes_dispatch_to_two_phase_methods(self) -> None:
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = "/api/v1/scan/visual-match"
@@ -342,6 +349,68 @@ class TwoPhaseScanTests(unittest.TestCase):
         handler.service.rerank_visual_match.assert_called_once_with({"scanID": "scan-phase8"})
         self.assertEqual(captured["status"], HTTPStatus.OK)
         self.assertEqual(captured["payload"], {"stage": "rerank"})
+
+    def test_scan_rerank_route_returns_conflict_for_cache_expiry_error(self) -> None:
+        handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+        handler.path = "/api/v1/scan/rerank"
+        handler.service = Mock()
+        handler.service.rerank_visual_match.side_effect = ValueError("Cached visual shortlist expired")
+        captured: dict[str, object] = {}
+
+        def write_json_timed(status: HTTPStatus, payload: dict[str, object], *, label: str, started_at: float) -> None:  # noqa: ARG001
+            captured["status"] = status
+            captured["payload"] = payload
+
+        handler._read_json_body = lambda: {"scanID": "scan-phase8"}  # type: ignore[method-assign]
+        handler._write_json_timed = write_json_timed  # type: ignore[method-assign]
+        handler.do_POST()
+
+        self.assertEqual(captured["status"], HTTPStatus.CONFLICT)
+        self.assertEqual(captured["payload"], {"error": "Cached visual shortlist expired", "errorType": "ValueError"})
+
+    def test_read_json_body_enforces_path_specific_size_limits(self) -> None:
+        original_default_limit = server_module.DEFAULT_JSON_BODY_LIMIT_BYTES
+        original_artifact_limit = server_module.SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES
+        server_module.DEFAULT_JSON_BODY_LIMIT_BYTES = 32
+        server_module.SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES = 96
+        try:
+            scan_body = b'{"scanID":"' + (b"x" * 40) + b'"}'
+            handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+            handler.path = "/api/v1/scan/match"
+            handler.headers = {"Content-Length": str(len(scan_body))}
+            handler.rfile = io.BytesIO(scan_body)
+
+            payload = handler._read_json_body()
+
+            self.assertIsNone(payload)
+            self.assertEqual(handler._json_body_error_status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            self.assertEqual(handler._json_body_error_message, "JSON body exceeds 32 bytes")
+
+            artifact_body = b'{"scanID":"' + (b"y" * 50) + b'"}'
+            handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+            handler.path = "/api/v1/scan-artifacts"
+            handler.headers = {"Content-Length": str(len(artifact_body))}
+            handler.rfile = io.BytesIO(artifact_body)
+
+            artifact_payload = handler._read_json_body()
+
+            self.assertEqual(artifact_payload, {"scanID": "y" * 50})
+            self.assertIsNone(handler._json_body_error_status)
+
+            oversized_artifact_body = b'{"scanID":"' + (b"z" * 120) + b'"}'
+            handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+            handler.path = "/api/v1/scan-artifacts"
+            handler.headers = {"Content-Length": str(len(oversized_artifact_body))}
+            handler.rfile = io.BytesIO(oversized_artifact_body)
+
+            rejected_payload = handler._read_json_body()
+
+            self.assertIsNone(rejected_payload)
+            self.assertEqual(handler._json_body_error_status, HTTPStatus.REQUEST_ENTITY_TOO_LARGE)
+            self.assertEqual(handler._json_body_error_message, "JSON body exceeds 96 bytes")
+        finally:
+            server_module.DEFAULT_JSON_BODY_LIMIT_BYTES = original_default_limit
+            server_module.SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES = original_artifact_limit
 
     def test_concurrent_two_phase_requests_keep_cached_shortlists_isolated(self) -> None:
         class FakeVisualMatcher:

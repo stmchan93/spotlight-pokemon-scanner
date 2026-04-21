@@ -178,6 +178,7 @@ private struct LiveAppRootView: View {
                 scannerViewModel: container.scannerViewModel,
                 collectionStore: container.collectionStore,
                 authStore: container.authStore,
+                matcher: container.cardMatchingService,
                 onEnsurePortfolioEntries: {
                     container.refreshCollectionStoreAfterWarmup(scope: .entries)
                 }
@@ -210,6 +211,7 @@ struct AppShellView: View {
     @ObservedObject var scannerViewModel: ScannerViewModel
     @ObservedObject var collectionStore: CollectionStore
     @ObservedObject var authStore: AuthStore
+    let matcher: any CardMatchingService
     let onEnsurePortfolioEntries: () -> Void
     @State private var shellState = AppShellState()
     @State private var portfolioVerticalScrollIsActive = false
@@ -218,6 +220,86 @@ struct AppShellView: View {
 
     private var isPresentingDealFlow: Bool {
         dealFlowState.presentedFlow != nil
+    }
+
+    private var singleSellDealFlowBinding: Binding<ShowSellDraft?> {
+        Binding(
+            get: {
+                switch dealFlowState.presentedFlow {
+                case .some(.sell(let draft)):
+                    return draft
+                case .some(.sellBatch), .some(.buy), .some(.trade), nil:
+                    return nil
+                }
+            },
+            set: { newValue in
+                switch newValue {
+                case .some(let draft):
+                    dealFlowState.presentedFlow = .sell(draft)
+                case nil:
+                    switch dealFlowState.presentedFlow {
+                    case .some(.sell):
+                        dealFlowState.presentedFlow = nil
+                    case .some(.sellBatch), .some(.buy), .some(.trade), nil:
+                        break
+                    }
+                }
+            }
+        )
+    }
+
+    private var sellBatchDealFlowBinding: Binding<ShowSellBatchDraft?> {
+        Binding(
+            get: {
+                switch dealFlowState.presentedFlow {
+                case .some(.sellBatch(let draft)):
+                    return draft
+                case .some(.sell), .some(.buy), .some(.trade), nil:
+                    return nil
+                }
+            },
+            set: { newValue in
+                switch newValue {
+                case .some(let draft):
+                    dealFlowState.presentedFlow = .sellBatch(draft)
+                case nil:
+                    switch dealFlowState.presentedFlow {
+                    case .some(.sellBatch):
+                        dealFlowState.presentedFlow = nil
+                    case .some(.sell), .some(.buy), .some(.trade), nil:
+                        break
+                    }
+                }
+            }
+        )
+    }
+
+    private var sheetDealFlowBinding: Binding<ShowsPresentedFlow?> {
+        Binding(
+            get: {
+                switch dealFlowState.presentedFlow {
+                case .some(.buy), .some(.trade):
+                    return dealFlowState.presentedFlow
+                case .some(.sell), .some(.sellBatch), nil:
+                    return nil
+                }
+            },
+            set: { newValue in
+                switch newValue {
+                case .some(.buy), .some(.trade):
+                    dealFlowState.presentedFlow = newValue
+                case nil:
+                    switch dealFlowState.presentedFlow {
+                    case .some(.buy), .some(.trade):
+                        dealFlowState.presentedFlow = nil
+                    case .some(.sell), .some(.sellBatch), nil:
+                        break
+                    }
+                case .some(.sell), .some(.sellBatch):
+                    break
+                }
+            }
+        )
     }
 
     private var showingScannerDetail: Bool {
@@ -369,54 +451,63 @@ struct AppShellView: View {
             }
         }
         .preferredColorScheme(preferredShellColorScheme)
-        .sheet(item: $dealFlowState.presentedFlow) { flow in
-            switch flow {
-            case .sell(let draft):
-                ShowSellPreviewSheet(draft: draft) { submission in
-                    _ = try await collectionStore.recordSale(
-                        card: draft.entry.card,
-                        slabContext: draft.entry.slabContext,
-                        quantity: submission.quantity,
-                        unitPrice: submission.unitPrice,
-                        currencyCode: draft.entry.card.pricing?.currencyCode ?? "USD",
+        .sheet(item: singleSellDealFlowBinding) { draft in
+            ShowSellPreviewSheet(
+                draft: draft,
+                onTrade: dealFlowState.activeShow == nil ? nil : {
+                    dealFlowState.transitionFromSellToTrade(previewEntry: draft.entry)
+                }
+            ) { submission in
+                _ = try await collectionStore.recordSale(
+                    card: draft.entry.card,
+                    slabContext: draft.entry.slabContext,
+                    quantity: submission.quantity,
+                    unitPrice: submission.unitPrice,
+                    currencyCode: draft.entry.card.pricing?.currencyCode ?? "USD",
+                    paymentMethod: submission.paymentMethod,
+                    soldAt: Date(),
+                    showSessionID: nil,
+                    note: submission.note
+                )
+                AppFeedback.saleCompleted()
+            }
+            .presentationDetents([.large])
+            .presentationDragIndicator(.visible)
+        }
+        .fullScreenCover(item: sellBatchDealFlowBinding) { draft in
+            ShowSellBatchPreviewSheet(draft: draft) { submission in
+                let soldAt = Date()
+                let requests = submission.lines.map { line in
+                    PortfolioSaleBatchLineRequest(
+                        card: line.entry.card,
+                        slabContext: line.entry.slabContext,
+                        quantity: line.quantity,
+                        unitPrice: line.unitPrice,
+                        currencyCode: line.entry.card.pricing?.currencyCode ?? "USD",
                         paymentMethod: submission.paymentMethod,
-                        soldAt: Date(),
+                        soldAt: soldAt,
                         showSessionID: nil,
-                        note: submission.note
+                        note: submission.note,
+                        sourceScanID: nil
                     )
-                    AppFeedback.saleCompleted()
                 }
-            case .sellBatch(let draft):
-                ShowSellBatchPreviewSheet(draft: draft) { submission in
-                    let soldAt = Date()
-                    let requests = submission.lines.map { line in
-                        PortfolioSaleBatchLineRequest(
-                            card: line.entry.card,
-                            slabContext: line.entry.slabContext,
-                            quantity: line.quantity,
-                            unitPrice: line.unitPrice,
-                            currencyCode: line.entry.card.pricing?.currencyCode ?? "USD",
-                            paymentMethod: submission.paymentMethod,
-                            soldAt: soldAt,
-                            showSessionID: nil,
-                            note: submission.note,
-                            sourceScanID: nil
-                        )
-                    }
-                    _ = try await collectionStore.recordSalesBatch(requests)
-                    AppFeedback.saleCompleted()
+                _ = try await collectionStore.recordSalesBatch(requests)
+                AppFeedback.saleCompleted()
 
-                    let soldItemIDs = submission.lines.flatMap { line in
-                        Array(line.sourceItemIDs.prefix(line.quantity))
-                    }
-                    await MainActor.run {
-                        scannerViewModel.removeStackItems(soldItemIDs)
-                        let cardCount = submission.lines.reduce(0) { partialResult, line in
-                            partialResult + line.quantity
-                        }
-                        scannerViewModel.showBannerMessage("Sold \(cardCount) scanned card\(cardCount == 1 ? "" : "s")")
-                    }
+                let soldItemIDs = submission.lines.flatMap { line in
+                    Array(line.sourceItemIDs.prefix(line.quantity))
                 }
+                await MainActor.run {
+                    scannerViewModel.removeStackItems(soldItemIDs)
+                    let cardCount = submission.lines.reduce(0) { partialResult, line in
+                        partialResult + line.quantity
+                    }
+                    scannerViewModel.showBannerMessage("Sold \(cardCount) scanned card\(cardCount == 1 ? "" : "s")")
+                }
+            }
+        }
+        .sheet(item: sheetDealFlowBinding) { flow in
+            switch flow {
             case .buy(let draft):
                 ShowBuyPreviewSheet(draft: draft) { submission in
                     _ = try await collectionStore.recordBuy(
@@ -433,10 +524,16 @@ struct AppShellView: View {
                 }
             case .trade(let draft):
                 ShowTradePreviewSheet(draft: draft)
+            case .sell, .sellBatch:
+                EmptyView()
             }
         }
         .sheet(isPresented: $showingAccountSheet) {
-            AccountView(authStore: authStore)
+            AccountView(
+                authStore: authStore,
+                collectionStore: collectionStore,
+                matcher: matcher
+            )
         }
         .onChange(of: shellState.selectedTab, initial: true) { oldValue, newValue in
             spotlightFlowLog("AppShell selectedTab \(String(describing: oldValue)) -> \(String(describing: newValue)), route=\(String(describing: scannerViewModel.route)), sharedDetail=\(showingSharedDetail)")

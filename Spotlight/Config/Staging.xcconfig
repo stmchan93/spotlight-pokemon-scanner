@@ -1,8 +1,7 @@
 #include "Base.xcconfig"
 
 // TestFlight/internal backend.
-// For now this is the same as production.
-SPOTLIGHT_STAGING_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.run.app/
+SPOTLIGHT_STAGING_API_BASE_URL = https:/$()/looty.34.59.188.129.sslip.io/
 
 #include? "LocalOverrides.xcconfig"
 

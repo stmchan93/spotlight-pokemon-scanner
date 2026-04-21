@@ -92,3 +92,7 @@ def default_raw_visual_scan_registry_path() -> Path:
 
 def default_raw_visual_batch_audit_root() -> Path:
     return default_raw_visual_train_root() / "batch-audits"
+
+
+def default_raw_visual_expansion_holdout_root() -> Path:
+    return _env_or_default("SPOTLIGHT_RAW_VISUAL_EXPANSION_HOLDOUT_ROOT", "raw-visual-expansion-holdouts")

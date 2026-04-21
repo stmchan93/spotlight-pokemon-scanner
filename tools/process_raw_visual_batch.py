@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import os
+import random
 import subprocess
 import sys
 import xml.etree.ElementTree as ET
@@ -26,6 +27,7 @@ from import_raw_visual_training_photos import (
 )
 from raw_visual_dataset_paths import (
     default_raw_visual_batch_audit_root,
+    default_raw_visual_expansion_holdout_root,
     default_raw_visual_scan_registry_path,
     default_raw_visual_train_excluded_root,
     default_raw_visual_train_root,
@@ -313,6 +315,74 @@ def write_tsv(path: Path, rows: list[dict[str, str]]) -> None:
             writer.writerow(row)
 
 
+def batch_entry_tsv_row(entry: BatchEntry) -> dict[str, str]:
+    return {
+        "file_name": entry.resolved_file_name,
+        "card_name": entry.card_name,
+        "number": entry.collector_number,
+        "set": entry.set_code,
+        "Promo": entry.promo,
+    }
+
+
+def determine_expansion_holdout_count(photo_count: int) -> int:
+    if photo_count >= 6:
+        return 2
+    if photo_count >= 4:
+        return 1
+    return 0
+
+
+def split_safe_new_entries_for_expansion_holdout(
+    safe_new_entries: list[BatchEntry],
+    *,
+    batch_id: str,
+) -> tuple[list[BatchEntry], list[BatchEntry], list[dict[str, Any]]]:
+    grouped_entries: dict[str, list[BatchEntry]] = defaultdict(list)
+    for entry in safe_new_entries:
+        grouped_entries[entry.normalized_truth_key].append(entry)
+
+    train_entries: list[BatchEntry] = []
+    holdout_entries: list[BatchEntry] = []
+    holdout_summary: list[dict[str, Any]] = []
+
+    for normalized_truth_key, grouped in sorted(grouped_entries.items()):
+        ordered_entries = sorted(grouped, key=lambda entry: (entry.resolved_file_name, entry.file_hash))
+        holdout_count = determine_expansion_holdout_count(len(ordered_entries))
+        shuffled_entries = list(ordered_entries)
+        random.Random(f"{batch_id}:{normalized_truth_key}").shuffle(shuffled_entries)
+        selected_holdouts = sorted(
+            shuffled_entries[:holdout_count],
+            key=lambda entry: (entry.resolved_file_name, entry.file_hash),
+        )
+        selected_holdout_names = {entry.resolved_file_name for entry in selected_holdouts}
+        selected_training = [
+            entry
+            for entry in ordered_entries
+            if entry.resolved_file_name not in selected_holdout_names
+        ]
+        train_entries.extend(selected_training)
+        holdout_entries.extend(selected_holdouts)
+        holdout_summary.append(
+            {
+                "cardName": ordered_entries[0].card_name,
+                "collectorNumber": ordered_entries[0].collector_number,
+                "setCode": ordered_entries[0].set_code,
+                "photoCount": len(ordered_entries),
+                "trainingPhotoCount": len(selected_training),
+                "holdoutPhotoCount": len(selected_holdouts),
+                "holdoutResolvedFiles": [entry.resolved_file_name for entry in selected_holdouts],
+                "trainingResolvedFiles": [entry.resolved_file_name for entry in selected_training],
+                "insufficientForHoldout": holdout_count == 0,
+            }
+        )
+
+    train_entries.sort(key=lambda entry: (entry.card_name, entry.collector_number, entry.set_code, entry.resolved_file_name))
+    holdout_entries.sort(key=lambda entry: (entry.card_name, entry.collector_number, entry.set_code, entry.resolved_file_name))
+    holdout_summary.sort(key=lambda entry: (entry["cardName"], entry["collectorNumber"], entry["setCode"]))
+    return train_entries, holdout_entries, holdout_summary
+
+
 def batch_id_from_path(photo_root: Path) -> str:
     return slugify(photo_root.name or "raw-batch")
 
@@ -350,6 +420,7 @@ def main() -> int:
     parser.add_argument("--photo-root", required=True, help="Directory containing the batch photos.")
     parser.add_argument("--batch-id", help="Optional stable batch id. Defaults to a slug of the photo-root folder name.")
     parser.add_argument("--training-root", default=str(default_raw_visual_train_root()))
+    parser.add_argument("--expansion-holdout-root", default=str(default_raw_visual_expansion_holdout_root()))
     parser.add_argument("--excluded-root", default=str(default_raw_visual_train_excluded_root()))
     parser.add_argument("--heldout-root", default=str(HELDOUT_ROOT))
     parser.add_argument("--audit-root", default=str(default_raw_visual_batch_audit_root()))
@@ -377,12 +448,14 @@ def main() -> int:
     spreadsheet_path = Path(args.spreadsheet).expanduser().resolve()
     photo_root = Path(args.photo_root).expanduser().resolve()
     training_root = Path(args.training_root).expanduser().resolve()
+    expansion_holdout_root = Path(args.expansion_holdout_root).expanduser().resolve()
     excluded_root = Path(args.excluded_root).expanduser().resolve()
     heldout_root = Path(args.heldout_root).expanduser().resolve()
     audit_root = Path(args.audit_root).expanduser().resolve()
     registry_path = Path(args.registry_path).expanduser().resolve()
     batch_id = args.batch_id or batch_id_from_path(photo_root)
     batch_audit_root = audit_root / batch_id
+    batch_expansion_holdout_root = expansion_holdout_root / batch_id
 
     parsed_batch_rows = parse_batch_rows(spreadsheet_path)
     batch_rows, excluded_rows = apply_row_exclusions(
@@ -524,6 +597,11 @@ def main() -> int:
             entry.reason = reason
             bucket_rows[bucket].append(entry)
 
+    safe_new_training_entries, expansion_holdout_entries, expansion_holdout_truths = split_safe_new_entries_for_expansion_holdout(
+        bucket_rows["safe_new"],
+        batch_id=batch_id,
+    )
+
     unreferenced_files = sorted(path.name for path in images if path.name not in resolved_files)
 
     batch_audit_root.mkdir(parents=True, exist_ok=True)
@@ -532,34 +610,15 @@ def main() -> int:
         for bucket in ("safe_new", "safe_training_augment", "heldout_blocked", "manual_review")
     }
     safe_import_manifest = batch_audit_root / "safe_import.tsv"
+    expansion_holdout_manifest = batch_audit_root / "expansion_holdout.tsv"
     for bucket_name, path in bucket_manifests.items():
-        write_tsv(
-            path,
-            [
-                {
-                    "file_name": entry.resolved_file_name,
-                    "card_name": entry.card_name,
-                    "number": entry.collector_number,
-                    "set": entry.set_code,
-                    "Promo": entry.promo,
-                }
-                for entry in bucket_rows[bucket_name]
-            ],
-        )
+        write_tsv(path, [batch_entry_tsv_row(entry) for entry in bucket_rows[bucket_name]])
     write_tsv(
         safe_import_manifest,
-        [
-            {
-                "file_name": entry.resolved_file_name,
-                "card_name": entry.card_name,
-                "number": entry.collector_number,
-                "set": entry.set_code,
-                "Promo": entry.promo,
-            }
-            for bucket_name in ("safe_new", "safe_training_augment")
-            for entry in bucket_rows[bucket_name]
-        ],
+        [batch_entry_tsv_row(entry) for entry in safe_new_training_entries]
+        + [batch_entry_tsv_row(entry) for entry in bucket_rows["safe_training_augment"]],
     )
+    write_tsv(expansion_holdout_manifest, [batch_entry_tsv_row(entry) for entry in expansion_holdout_entries])
 
     grouped_bucket_summary: dict[str, list[dict[str, Any]]] = {}
     for bucket_name, grouped in bucket_rows.items():
@@ -585,6 +644,7 @@ def main() -> int:
         "spreadsheetPath": str(spreadsheet_path),
         "photoRoot": str(photo_root),
         "trainingRoot": str(training_root),
+        "expansionHoldoutRoot": str(batch_expansion_holdout_root),
         "excludedRoot": str(excluded_root),
         "heldoutRoot": str(heldout_root),
         "registryPath": str(registry_path),
@@ -604,6 +664,13 @@ def main() -> int:
             }
             for bucket, grouped in bucket_rows.items()
         },
+        "expansionHoldoutSummary": {
+            "selectedRowCount": len(expansion_holdout_entries),
+            "selectedTruthCount": len({entry.normalized_truth_key for entry in expansion_holdout_entries}),
+            "trainingImportRowCount": len(safe_new_training_entries) + len(bucket_rows["safe_training_augment"]),
+            "trainingSafeNewRowCount": len(safe_new_training_entries),
+            "safeNewRowsReservedForHoldout": len(expansion_holdout_entries),
+        },
         "unresolvedRows": unresolved_rows,
         "excludedRows": excluded_rows,
         "unreferencedFiles": unreferenced_files,
@@ -616,20 +683,24 @@ def main() -> int:
             if entry.source_image_issue
         ],
         "bucketTruths": grouped_bucket_summary,
+        "expansionHoldoutTruths": expansion_holdout_truths,
         "manifests": {
             "safeNew": str(bucket_manifests["safe_new"]),
             "safeTrainingAugment": str(bucket_manifests["safe_training_augment"]),
             "heldoutBlocked": str(bucket_manifests["heldout_blocked"]),
             "manualReview": str(bucket_manifests["manual_review"]),
             "safeImport": str(safe_import_manifest),
+            "expansionHoldout": str(expansion_holdout_manifest),
         },
     }
     write_json(batch_audit_root / "audit_summary.json", audit_summary)
 
-    import_summary_by_key: dict[tuple[str, str], str] = {}
+    training_import_summary_by_key: dict[tuple[str, str], str] = {}
+    expansion_holdout_import_summary_by_key: dict[tuple[str, str], str] = {}
     import_summary_path = batch_audit_root / "import_summary.json"
+    expansion_holdout_import_summary_path = batch_audit_root / "expansion_holdout_import_summary.json"
 
-    if args.import_safe and (bucket_rows["safe_new"] or bucket_rows["safe_training_augment"]):
+    if args.import_safe and (safe_new_training_entries or bucket_rows["safe_training_augment"]):
         import_command = [
             sys.executable,
             str(REPO_ROOT / "tools" / "import_raw_visual_training_photos.py"),
@@ -645,6 +716,8 @@ def main() -> int:
             str(heldout_root),
             "--exact-duplicate-root",
             str(training_root),
+            "--exact-duplicate-root",
+            str(expansion_holdout_root),
         ]
         run_command(import_command)
 
@@ -654,12 +727,42 @@ def main() -> int:
             source_hash = str(item.get("sourceImageSha256") or "").strip()
             fixture_path = str(item.get("fixturePath") or "").strip()
             if source_name and source_hash and fixture_path:
-                import_summary_by_key[(source_name, source_hash)] = fixture_path
+                training_import_summary_by_key[(source_name, source_hash)] = fixture_path
 
-        if args.run_training_pipeline:
-            env = os.environ.copy()
-            env.update(load_env_file(REPO_ROOT / "backend" / ".env"))
+    if args.import_safe and expansion_holdout_entries:
+        holdout_import_command = [
+            sys.executable,
+            str(REPO_ROOT / "tools" / "import_raw_visual_training_photos.py"),
+            "--input-dir",
+            str(photo_root),
+            "--metadata",
+            str(expansion_holdout_manifest),
+            "--output-root",
+            str(batch_expansion_holdout_root),
+            "--summary-output",
+            str(expansion_holdout_import_summary_path),
+            "--exact-duplicate-root",
+            str(heldout_root),
+            "--exact-duplicate-root",
+            str(training_root),
+            "--exact-duplicate-root",
+            str(expansion_holdout_root),
+        ]
+        run_command(holdout_import_command)
 
+        import_summary_payload = json.loads(expansion_holdout_import_summary_path.read_text())
+        for item in import_summary_payload.get("imported") or []:
+            source_name = str(item.get("sourceImageName") or "").strip()
+            source_hash = str(item.get("sourceImageSha256") or "").strip()
+            fixture_path = str(item.get("fixturePath") or "").strip()
+            if source_name and source_hash and fixture_path:
+                expansion_holdout_import_summary_by_key[(source_name, source_hash)] = fixture_path
+
+    if args.run_training_pipeline and args.import_safe:
+        env = os.environ.copy()
+        env.update(load_env_file(REPO_ROOT / "backend" / ".env"))
+
+        if safe_new_training_entries or bucket_rows["safe_training_augment"]:
             run_command(["zsh", str(REPO_ROOT / "tools" / "generate_raw_runtime_artifacts.sh"), str(training_root)])
             visual_python = ensure_visual_python()
             run_command(
@@ -685,6 +788,20 @@ def main() -> int:
                     str(training_root / ".visual_reference_cache" / "provider_search_cache.json"),
                     "--reference-image-root",
                     str(training_root / ".visual_reference_cache" / "reference_images"),
+                ],
+                env=env,
+            )
+        if expansion_holdout_entries:
+            run_command(["zsh", str(REPO_ROOT / "tools" / "generate_raw_runtime_artifacts.sh"), str(batch_expansion_holdout_root)])
+            visual_python = ensure_visual_python()
+            run_command(
+                [
+                    str(visual_python),
+                    str(REPO_ROOT / "tools" / "auto_label_raw_visual_training_fixtures.py"),
+                    "--fixture-root",
+                    str(batch_expansion_holdout_root),
+                    "--summary-output",
+                    str(batch_expansion_holdout_root / "auto_label_summary.json"),
                 ],
                 env=env,
             )
@@ -720,17 +837,25 @@ def main() -> int:
         not in current_registry_keys
     ]
 
+    expansion_holdout_file_names = {entry.resolved_file_name for entry in expansion_holdout_entries}
+
     for entry in entries:
-        imported_fixture_path = import_summary_by_key.get((entry.resolved_file_name, entry.file_hash))
-        if entry.bucket in {"safe_new", "safe_training_augment"}:
-            dataset_status = "training" if imported_fixture_path else "staged"
+        training_fixture_path = training_import_summary_by_key.get((entry.resolved_file_name, entry.file_hash))
+        holdout_fixture_path = expansion_holdout_import_summary_by_key.get((entry.resolved_file_name, entry.file_hash))
+        if entry.resolved_file_name in expansion_holdout_file_names:
+            dataset_status = "expansion_holdout" if holdout_fixture_path else "staged"
+            imported_fixture_path = holdout_fixture_path
+        elif entry.bucket in {"safe_new", "safe_training_augment"}:
+            dataset_status = "training" if training_fixture_path else "staged"
+            imported_fixture_path = training_fixture_path
         elif entry.bucket == "heldout_blocked":
             dataset_status = "blocked"
+            imported_fixture_path = None
         else:
             dataset_status = "manual_review"
+            imported_fixture_path = None
         registry_key = registry_entry_key(batch_id, entry.file_hash, entry.source_file_name)
         previous_entry = existing_entry_by_key.get(registry_key)
-        imported_fixture_path = import_summary_by_key.get((entry.resolved_file_name, entry.file_hash))
         retained_entries.append(
             {
                 "batchID": batch_id,
@@ -747,6 +872,7 @@ def main() -> int:
                 "promo": entry.promo,
                 "bucket": entry.bucket,
                 "datasetStatus": dataset_status,
+                "expansionHoldoutSelected": entry.resolved_file_name in expansion_holdout_file_names,
                 "reason": entry.reason,
                 "overlapRoots": entry.overlap_roots,
                 "overlapRegistryStatuses": entry.overlap_registry,

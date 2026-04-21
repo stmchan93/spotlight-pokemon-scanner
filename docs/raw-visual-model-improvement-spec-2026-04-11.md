@@ -246,6 +246,7 @@ Important:
 - split by `providerCardId`, not by image
 - images of the same card cannot appear across both train and validation
 - the held-out suite must remain completely isolated
+- new raw-photo batches should also reserve a separate per-batch expansion holdout outside the training root
 
 ## Model Design V1
 
@@ -344,6 +345,8 @@ Recommended defaults:
 - weight decay: `1e-4`
 - batch size: `32` or `64` if memory allows
 - epochs: `10-20`
+- identity-balanced epoch sampling with a per-provider image cap
+- optional old/new replay weighting when a batch introduces many new truths
 - early stopping metric: validation recall@10
 - early stopping patience: `3`
 
@@ -453,6 +456,8 @@ The only change is that index generation must apply the trained projection to re
       - consumes the manifest directly
       - uses in-batch negatives by default
       - applies mined hard negatives to the scan-to-reference loss when `--hard-negatives-path` is provided
+      - should prefer provider-balanced epoch sampling over raw image-count shuffling
+      - should accept batch-focused replay weighting for post-import retrains
 
 4. `tools/eval_raw_visual_model.py`
    - input:
@@ -463,6 +468,10 @@ The only change is that index generation must apply the trained projection to re
      - score held-out visual top-1 / top-5 / top-10
      - optionally score hybrid with the same `K=10`
      - write a model-eval scorecard
+   - should support:
+      - legacy regression fixtures with `raw_ocr_regression_result.json`
+      - expansion holdouts that only have `runtime_selection_summary.json`
+      - aggregated mixed suites via repeated fixture roots
 
 ### Shared runtime/model layer
 

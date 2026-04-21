@@ -73,8 +73,8 @@ Date: 2026-04-13
   - `selected_card_id`
   - `confirmed_card_id`
 - Current pricing-cache operating decision:
-  - the current live beta remains Cloud Run plus on-demand Scrydex with per-instance SQLite caching
-  - the same-machine SQLite mirror and nightly full Scrydex sync remain implemented in-repo but are not the live deployment path yet
+  - the current live beta is the same-host VM mirror path with nightly Scrydex sync
+  - the backend server and the nightly sync job share one SQLite database on that VM
   - when the mirror path is turned on, nightly full Scrydex sync runs at `3:00 AM America/Los_Angeles`
   - that sync persists card metadata plus raw and graded price snapshots from the same `include=prices` payload
   - fresh successful syncs should suppress normal hot-path Scrydex calls
@@ -667,13 +667,13 @@ Status: `planned`
 ## Pricing Freshness Decision
 
 - Current live beta decision:
-  - keep Cloud Run as the active hosted backend for now
-  - keep live Scrydex search/refresh behavior active when SQLite is missing or stale
-  - keep the nightly same-machine mirror path dormant until it is worth the operational cutover
+  - keep the same-host VM as the active hosted backend
+  - keep the nightly same-machine Scrydex mirror path active
+  - keep live Scrydex search/refresh behavior blocked during normal runtime while the mirror is fresh
 - Mirror cutover decision, when resumed:
   - run a same-machine nightly Scrydex full-catalog sync at `3:00 AM America/Los_Angeles`
   - require the backend server and the cron job to point at the same SQLite database path
-  - do not assume Cloud Run shares that SQLite file
+  - do not assume multiple hosts share that SQLite file
   - nightly sync scope:
     - `cards` metadata mirror
     - raw price snapshot mirror
@@ -687,7 +687,7 @@ Status: `planned`
 
 ## Pricing Freshness Follow-Up TODOs
 
-1. Decide when to cut over from the current Cloud Run live mode to the same-host SQLite mirror mode.
+1. Keep the VM mirror deployment stable and documented as the only hosted path.
 2. Add explicit freshness metadata to API responses so the app can show:
    - snapshot age
    - whether the latest response was served from cached SQLite or a live fallback

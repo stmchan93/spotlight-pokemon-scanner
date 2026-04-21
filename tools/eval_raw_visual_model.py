@@ -43,6 +43,8 @@ def fixture_truth_key(truth: dict[str, Any]) -> str:
 
 
 def load_provider_truth_map(manifest_path: Path) -> dict[str, dict[str, Any]]:
+    if not manifest_path.exists():
+        return {}
     manifest = load_json(manifest_path)
     entries = manifest.get("entries") or []
     return {
@@ -114,6 +116,97 @@ def build_fixture_payload(fixture_name: str, normalized_image_path: Path, regres
     }
 
 
+def whole_card_text_from_runtime_summary(runtime_summary: dict[str, Any]) -> str:
+    texts: list[str] = []
+    seen: set[str] = set()
+    for pass_summary in runtime_summary.get("passSummaries") or []:
+        text = str(pass_summary.get("text") or "").strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        texts.append(text)
+    return " ".join(texts)
+
+
+def build_fixture_payload_from_runtime_summary(
+    fixture_name: str,
+    normalized_image_path: Path,
+    runtime_summary: dict[str, Any],
+) -> dict[str, Any]:
+    raw_evidence: dict[str, Any] = {
+        "collectorNumberExact": runtime_summary.get("collectorNumber"),
+        "collectorNumberPartial": runtime_summary.get("collectorNumberPartial"),
+        "setHints": list(runtime_summary.get("setHintTokens") or []),
+        "titleTextPrimary": runtime_summary.get("titleTextPrimary"),
+        "footerBandText": " ".join(
+            str(pass_summary.get("text") or "").strip()
+            for pass_summary in runtime_summary.get("passSummaries") or []
+            if str(pass_summary.get("kind") or "").strip() == "footer_band_wide"
+            and str(pass_summary.get("text") or "").strip()
+        ),
+        "wholeCardText": whole_card_text_from_runtime_summary(runtime_summary),
+        "titleConfidence": {
+            "score": float(runtime_summary.get("titleConfidenceScore") or 0.0),
+        },
+        "collectorConfidence": {
+            "score": float(runtime_summary.get("collectorConfidenceScore") or 0.0),
+        },
+        "setConfidence": {
+            "score": float(runtime_summary.get("setConfidenceScore") or 0.0),
+        },
+    }
+
+    return {
+        "scanID": fixture_name,
+        "resolverModeHint": "raw_card",
+        "normalizedImagePath": str(normalized_image_path),
+        "collectorNumber": runtime_summary.get("collectorNumber"),
+        "setHintTokens": list(runtime_summary.get("setHintTokens") or []),
+        "cropConfidence": float(runtime_summary.get("cropConfidence") or 0.0),
+        "ocrAnalysis": {
+            "rawEvidence": raw_evidence,
+            "normalizedTarget": {
+                "usedFallback": bool(runtime_summary.get("ocrUsedFallback") or False),
+                "targetQuality": {
+                    "overallScore": float(runtime_summary.get("ocrTargetQualityScore") or 0.0),
+                },
+            },
+        },
+    }
+
+
+def load_label_status_provider_mapping(directory: Path) -> dict[str, Any] | None:
+    label_status_path = directory / "label_status.json"
+    if not label_status_path.exists():
+        return None
+    payload = load_json(label_status_path)
+    provider_mapping = payload.get("providerMapping")
+    if not isinstance(provider_mapping, dict):
+        return None
+    provider_card_id = str(provider_mapping.get("providerCardId") or "").strip()
+    if not provider_card_id:
+        return None
+    return provider_mapping
+
+
+def resolve_expected_provider_card_id(
+    *,
+    directory: Path,
+    truth: dict[str, Any],
+    provider_truth_map: dict[str, dict[str, Any]],
+) -> tuple[str | None, str]:
+    provider_mapping = provider_truth_map.get(fixture_truth_key(truth))
+    if provider_mapping:
+        provider_card_id = str(provider_mapping.get("providerCardId") or "").strip()
+        if provider_card_id:
+            return provider_card_id, "provider_manifest"
+
+    label_status_mapping = load_label_status_provider_mapping(directory)
+    if label_status_mapping:
+        return str(label_status_mapping.get("providerCardId") or "").strip(), "label_status"
+    return None, "unmapped"
+
+
 def visual_candidate_stub(entry: dict[str, Any], similarity: float) -> dict[str, Any]:
     image_url = entry.get("imageUrl")
     return {
@@ -173,8 +266,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--fixture-root",
         type=Path,
-        default=Path("qa/raw-footer-layout-check"),
-        help="Held-out raw fixture root.",
+        action="append",
+        dest="fixture_roots",
+        default=None,
+        help="Fixture root to evaluate. Repeat this flag to aggregate multiple roots.",
     )
     parser.add_argument(
         "--provider-manifest",
@@ -235,7 +330,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
 
-    fixture_root = args.fixture_root.resolve()
+    fixture_roots = [path.resolve() for path in (args.fixture_roots or [Path("qa/raw-footer-layout-check")])]
     provider_manifest_path = args.provider_manifest.resolve()
     index_npz_path = args.index_npz.resolve()
     index_manifest_path = args.index_manifest.resolve()
@@ -262,11 +357,12 @@ def main() -> None:
         batch_size=args.projection_batch_size,
     )
 
-    fixture_directories = sorted(
-        path
-        for path in fixture_root.iterdir()
-        if path.is_dir() and not path.name.startswith(".")
-    )
+    fixture_directories = []
+    for fixture_root in fixture_roots:
+        if not fixture_root.exists():
+            continue
+        fixture_directories.extend(truth_path.parent for truth_path in fixture_root.rglob("truth.json"))
+    fixture_directories = sorted({path.resolve() for path in fixture_directories}, key=lambda path: (str(path.parent), path.name))
 
     entries: list[dict[str, Any]] = []
     supported_fixture_count = 0
@@ -281,28 +377,50 @@ def main() -> None:
         truth_path = directory / "truth.json"
         normalized_path = directory / "runtime_normalized.jpg"
         regression_path = directory / "raw_ocr_regression_result.json"
-        if not truth_path.exists() or not normalized_path.exists() or not regression_path.exists():
+        runtime_summary_path = directory / "runtime_selection_summary.json"
+        if not truth_path.exists() or not normalized_path.exists():
             continue
 
         truth = load_json(truth_path)
-        regression_result = load_json(regression_path)
-        truth_key = fixture_truth_key(truth)
-        provider_mapping = provider_truth_map.get(truth_key)
-        if not provider_mapping or not provider_mapping.get("providerSupported"):
+        expected_provider_card_id, mapping_source = resolve_expected_provider_card_id(
+            directory=directory,
+            truth=truth,
+            provider_truth_map=provider_truth_map,
+        )
+        if not expected_provider_card_id:
             unsupported_fixture_count += 1
             entries.append(
                 {
                     "fixtureName": directory.name,
                     "providerSupported": False,
                     "truth": truth,
+                    "mappingSource": mapping_source,
                     "reason": "No provider-supported mapping was available for this truth key.",
                 }
             )
             continue
 
+        if regression_path.exists():
+            regression_result = load_json(regression_path)
+            payload = build_fixture_payload(directory.name, normalized_path, regression_result)
+            ocrArtifactSource = "raw_ocr_regression_result"
+        elif runtime_summary_path.exists():
+            runtime_summary = load_json(runtime_summary_path)
+            payload = build_fixture_payload_from_runtime_summary(directory.name, normalized_path, runtime_summary)
+            ocrArtifactSource = "runtime_selection_summary"
+        else:
+            unsupported_fixture_count += 1
+            entries.append(
+                {
+                    "fixtureName": directory.name,
+                    "providerSupported": False,
+                    "truth": truth,
+                    "mappingSource": mapping_source,
+                    "reason": "No OCR/runtime artifact was available for this fixture.",
+                }
+            )
+            continue
         supported_fixture_count += 1
-        expected_provider_card_id = str(provider_mapping.get("providerCardId") or "")
-        payload = build_fixture_payload(directory.name, normalized_path, regression_result)
         query_embedding = encoder.embed_image_paths([normalized_path], batch_size=args.embedding_batch_size)
         projected_query = project_embeddings_numpy(
             adapter,
@@ -361,7 +479,10 @@ def main() -> None:
         entries.append(
             {
                 "fixtureName": directory.name,
+                "fixtureRoot": str(directory.parent.resolve()),
                 "providerSupported": True,
+                "mappingSource": mapping_source,
+                "ocrArtifactSource": ocrArtifactSource,
                 "truth": {
                     **truth,
                     "providerCardId": expected_provider_card_id,
@@ -392,6 +513,7 @@ def main() -> None:
     scorecard = {
         "generatedAt": utc_now_iso(),
         "adapterCheckpointPath": str(args.adapter_checkpoint.resolve()),
+        "fixtureRoots": [str(path) for path in fixture_roots],
         "modelId": args.model_id,
         "embeddingDimension": encoder.embedding_dim,
         "indexNpzPath": str(index_npz_path),
@@ -409,6 +531,15 @@ def main() -> None:
         "hybridTop5ContainsTruthCount": hybrid_top5_contains_truth_count,
         "hybridTop1PassRate": rate(hybrid_top1_pass_count, supported_fixture_count),
         "hybridTop5ContainsTruthRate": rate(hybrid_top5_contains_truth_count, supported_fixture_count),
+        "mappingSourceCounts": {
+            "provider_manifest": sum(1 for entry in entries if entry.get("mappingSource") == "provider_manifest"),
+            "label_status": sum(1 for entry in entries if entry.get("mappingSource") == "label_status"),
+            "unmapped": sum(1 for entry in entries if entry.get("mappingSource") == "unmapped"),
+        },
+        "ocrArtifactSourceCounts": {
+            "raw_ocr_regression_result": sum(1 for entry in entries if entry.get("ocrArtifactSource") == "raw_ocr_regression_result"),
+            "runtime_selection_summary": sum(1 for entry in entries if entry.get("ocrArtifactSource") == "runtime_selection_summary"),
+        },
         "entries": entries,
     }
 

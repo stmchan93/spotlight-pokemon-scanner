@@ -1822,7 +1822,11 @@ final class ScannerViewModel: ObservableObject {
             scanID: analysis.scanID,
             capturedAt: Date(),
             clientContext: .current(),
-            image: scanImagePayload(for: analysis.normalizedImage),
+            image: ScanImagePayload(
+                jpegBase64: nil,
+                width: Int(analysis.normalizedImage.size.width.rounded()),
+                height: Int(analysis.normalizedImage.size.height.rounded())
+            ),
             recognizedTokens: analysis.recognizedTokens,
             collectorNumber: analysis.collectorNumber,
             setHintTokens: analysis.setHintTokens,

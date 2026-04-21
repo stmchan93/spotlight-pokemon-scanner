@@ -7,10 +7,10 @@
 SPOTLIGHT_LOCAL_DEVICE_API_BASE_URL = http:/$()/Stephens-MacBook-Pro.local:8788/
 
 // Optional. For now staging and production are the same backend.
-SPOTLIGHT_STAGING_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.run.app/
+SPOTLIGHT_STAGING_API_BASE_URL = https:/$()/looty.34.59.188.129.sslip.io/
 
 // Optional. Override production without editing Release.xcconfig.
-SPOTLIGHT_PRODUCTION_API_BASE_URL = https:/$()/spotlight-backend-grhsfspaia-uc.a.run.app/
+SPOTLIGHT_PRODUCTION_API_BASE_URL = https:/$()/looty.34.59.188.129.sslip.io/
 
 // Optional. Override scan artifact uploads for local testing.
 // Debug defaults to NO. Staging/Release default to YES.

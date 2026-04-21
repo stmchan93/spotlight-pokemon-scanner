@@ -239,7 +239,14 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             ),
         ]
 
-        with patch.object(self.service, "_card_show_mode_active", wraps=self.service._card_show_mode_active) as show_mode_mock:
+        with (
+            patch.object(self.service, "_card_show_mode_active", wraps=self.service._card_show_mode_active) as show_mode_mock,
+            patch.object(
+                self.service,
+                "_batched_card_hydration_context",
+                wraps=self.service._batched_card_hydration_context,
+            ) as hydration_context_mock,
+        ):
             encoded_candidates, scored_candidates, encode_debug = self.service._encode_top_candidates(
                 items,
                 pricing_context=self.service._raw_pricing_context(),
@@ -248,6 +255,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             )
 
         self.assertEqual(show_mode_mock.call_count, 1)
+        self.assertEqual(hydration_context_mock.call_count, 1)
         self.assertEqual(len(encoded_candidates), 2)
         self.assertEqual(len(scored_candidates), 2)
         self.assertIn("candidateHydrationMs", encode_debug)
@@ -1005,6 +1013,70 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(history["summary"]["deltaValue"], -10.0)
         self.assertEqual(history["summary"]["currentCostBasisValue"], 0.0)
         self.assertEqual(history["summary"]["startCostBasisValue"], 8.0)
+
+    def test_deck_history_uses_preloaded_price_history_instead_of_day_by_day_queries(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_price_history_daily(
+            self.service.connection,
+            card_id="gym1-60",
+            pricing_mode="raw",
+            provider="scrydex",
+            price_date="2026-04-14",
+            currency_code="USD",
+            variant="Normal",
+            condition="NM",
+            low_price=9.0,
+            market_price=10.0,
+            mid_price=10.0,
+            high_price=11.0,
+            source_url="https://prices.example/gym1-60/2026-04-14",
+            payload={"source": "scrydex"},
+        )
+        upsert_price_history_daily(
+            self.service.connection,
+            card_id="gym1-60",
+            pricing_mode="raw",
+            provider="scrydex",
+            price_date="2026-04-15",
+            currency_code="USD",
+            variant="Normal",
+            condition="NM",
+            low_price=11.0,
+            market_price=12.0,
+            mid_price=12.0,
+            high_price=13.0,
+            source_url="https://prices.example/gym1-60/2026-04-15",
+            payload={"source": "scrydex"},
+        )
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="gym1-60",
+            quantity=1,
+            condition="near_mint",
+            unit_price=8.0,
+            currency_code="USD",
+            event_kind="buy",
+            added_at="2026-04-14T09:00:00Z",
+            updated_at="2026-04-14T09:00:00Z",
+        )
+        self.service.connection.commit()
+
+        self.service.record_sale(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "soldAt": "2026-04-15T10:00:00Z",
+                "unitPrice": 11.0,
+                "currencyCode": "USD",
+            }
+        )
+
+        with patch("server.latest_price_history_row_for_card", side_effect=AssertionError("deck_history should not query day-by-day price history")):
+            history = self.service.deck_history(days=2, range_label="ALL")
+
+        points_by_date = {point["date"]: point for point in history["points"]}
+        self.assertAlmostEqual(points_by_date["2026-04-14"]["totalValue"], 10.0, places=2)
+        self.assertAlmostEqual(points_by_date["2026-04-15"]["totalValue"], 0.0, places=2)
 
     def test_record_buy_and_portfolio_ledger_return_real_summary(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
