@@ -16,7 +16,9 @@ EBAY_WEB_SEARCH_BASE_URL = "https://www.ebay.com/sch/i.html"
 EBAY_BROWSE_API_BASE_URL = "https://api.ebay.com"
 EBAY_USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
-DEFAULT_RESULT_LIMIT = 25
+DEFAULT_RESULT_LIMIT = 5
+EBAY_WEB_LOWEST_PRICE_SORT = "15"
+EBAY_BROWSE_LOWEST_PRICE_SORT = "price"
 PSA_GRADE_OPTIONS = ("10", "9", "8.5", "8")
 EBAY_BROWSE_ENABLED_ENV = "SPOTLIGHT_EBAY_BROWSE_ENABLED"
 EBAY_CLIENT_ID_ENV = "EBAY_CLIENT_ID"
@@ -127,6 +129,7 @@ def _build_live_search_url(search_query: str, *, limit: int) -> str:
     params = {
         "_nkw": search_query,
         "_ipg": str(max(1, min(int(limit), 100))),
+        "_sop": EBAY_WEB_LOWEST_PRICE_SORT,
         "rt": "nc",
     }
     return f"{EBAY_WEB_SEARCH_BASE_URL}?{urlencode(params)}"
@@ -137,6 +140,7 @@ def _build_browse_search_url(search_query: str, *, limit: int, marketplace_id: s
         "q": search_query,
         "limit": str(max(1, min(int(limit), 100))),
         "filter": DEFAULT_BROWSE_FILTER,
+        "sort": EBAY_BROWSE_LOWEST_PRICE_SORT,
     }
     return f"{_ebay_api_base_url().rstrip('/')}/buy/browse/v1/item_summary/search?{urlencode(params)}"
 
@@ -259,6 +263,14 @@ def _normalize_listing_date(value: object) -> str | None:
     return parsed.date().isoformat()
 
 
+def _normalize_result_limit(limit: object) -> int:
+    try:
+        parsed_limit = int(limit)
+    except (TypeError, ValueError):
+        parsed_limit = DEFAULT_RESULT_LIMIT
+    return max(1, min(parsed_limit, DEFAULT_RESULT_LIMIT))
+
+
 def _browse_item_sale_type(item: dict[str, Any]) -> str | None:
     buying_options = item.get("buyingOptions")
     if not isinstance(buying_options, list):
@@ -321,6 +333,7 @@ def _transaction_payload(
     price_amount: float | None,
     price_currency_code: str | None,
     price_display: str | None,
+    grader: str | None,
     grade: str | None,
     sale_type: str | None,
 ) -> dict[str, Any] | None:
@@ -338,13 +351,16 @@ def _transaction_payload(
         "title": normalized_title,
         "saleType": sale_type,
         "soldAt": listing_date,
+        "listingDate": listing_date,
         "price": {
             "amount": price_amount,
             "currencyCode": price_currency_code or "USD",
             "display": price_display,
         },
-        "grader": "PSA",
+        "currencyCode": price_currency_code or "USD",
+        "grader": grader,
         "grade": _normalize_grade_label(grade) or None,
+        "listingURL": link,
         "link": link,
     }
     return payload
@@ -375,6 +391,7 @@ def _parse_browse_items(items: object, *, selected_grade: str | None) -> list[di
             price_amount=price_amount,
             price_currency_code=price_currency_code,
             price_display=price_display,
+            grader="PSA" if parsed_grade else None,
             grade=parsed_grade,
             sale_type=sale_type,
         )
@@ -397,10 +414,21 @@ def _dedupe_transactions(transactions: list[dict[str, Any]], *, limit: int) -> l
     return deduped
 
 
+def _transactions_currency_code(transactions: list[dict[str, Any]]) -> str:
+    for transaction in transactions:
+        raw_currency_code = transaction.get("currencyCode")
+        if raw_currency_code is None and isinstance(transaction.get("price"), dict):
+            raw_currency_code = transaction["price"].get("currencyCode")
+        currency_code = str(raw_currency_code or "").strip()
+        if currency_code:
+            return currency_code
+    return "USD"
+
+
 def _unavailable_payload(
     *,
     card: dict[str, Any],
-    grader: str,
+    grader: str | None,
     selected_grade: str | None,
     grade_options: list[dict[str, Any]],
     fetched_at: str,
@@ -425,6 +453,7 @@ def _unavailable_payload(
         "availableGradeOptions": grade_options,
         "transactions": [],
         "transactionCount": 0,
+        "currencyCode": "USD",
         "fetchedAt": fetched_at,
         "searchURL": search_url,
         "searchQuery": search_query,
@@ -440,38 +469,51 @@ def _unavailable_payload(
 def fetch_graded_card_ebay_comps(
     card: dict[str, Any],
     *,
-    grader: str = "PSA",
+    grader: str | None = "PSA",
     selected_grade: str | None = None,
     available_grades: Iterable[str] = (),
     limit: int = DEFAULT_RESULT_LIMIT,
     fetch_json: Callable[..., dict[str, Any]] | None = None,
     timeout_seconds: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
 ) -> dict[str, Any]:
-    normalized_grader = str(grader or "PSA").strip().upper() or "PSA"
+    normalized_grader = str(grader or "").strip().upper() or None
     normalized_selected_grade = _normalize_grade_label(selected_grade) or None
-    normalized_limit = max(1, min(int(limit), 100))
-    grade_options = build_psa_grade_options(
-        normalized_selected_grade,
-        available_grades=available_grades,
+    if normalized_grader is None and normalized_selected_grade is not None:
+        normalized_grader = "PSA"
+    normalized_limit = _normalize_result_limit(limit)
+    has_grade_context = bool(
+        normalized_grader
+        or normalized_selected_grade
+        or any(_normalize_grade_label(grade) for grade in available_grades)
     )
-    if normalized_selected_grade is None and grade_options:
-        normalized_selected_grade = str(grade_options[0]["id"])
-    if normalized_selected_grade and all(option["id"] != normalized_selected_grade for option in grade_options):
+    grade_options: list[dict[str, Any]] = []
+    if has_grade_context:
         grade_options = build_psa_grade_options(
             normalized_selected_grade,
-            available_grades=[option["id"] for option in grade_options],
+            available_grades=available_grades,
         )
+        if normalized_selected_grade is None and grade_options:
+            normalized_selected_grade = str(grade_options[0]["id"])
+        if normalized_selected_grade and all(option["id"] != normalized_selected_grade for option in grade_options):
+            grade_options = build_psa_grade_options(
+                normalized_selected_grade,
+                available_grades=[option["id"] for option in grade_options],
+            )
 
     fetched_at = _utc_now()
-    search_query = _build_search_query(card, grader=normalized_grader, selected_grade=normalized_selected_grade)
+    search_query = _build_search_query(
+        card,
+        grader=normalized_grader or "",
+        selected_grade=normalized_selected_grade,
+    )
     search_url = _build_live_search_url(search_query, limit=normalized_limit)
 
     browse_search_ready_reason = _browse_search_ready_reason()
     if browse_search_ready_reason is not None:
         if browse_search_ready_reason == "browse_disabled":
-            reason = "eBay current listings are disabled in this environment."
+            reason = "eBay active listings are disabled in this environment."
         else:
-            reason = "eBay current listing credentials are not configured."
+            reason = "eBay active listing credentials are not configured."
         return _unavailable_payload(
             card=card,
             grader=normalized_grader,
@@ -547,6 +589,7 @@ def fetch_graded_card_ebay_comps(
         "availableGradeOptions": grade_options,
         "transactions": transactions,
         "transactionCount": len(transactions),
+        "currencyCode": _transactions_currency_code(transactions),
         "fetchedAt": fetched_at,
         "searchURL": search_url,
         "searchQuery": search_query,

@@ -875,6 +875,8 @@ final class RemoteScanMatchingService: CardMatchingService, @unchecked Sendable 
 
     private func gradedCompsQueryItems(for slabContext: SlabContext?, selectedGrade: String?) -> [URLQueryItem] {
         var items = detailQueryItems(for: slabContext)
+        items.removeAll { $0.name == "limit" }
+        items.append(URLQueryItem(name: "limit", value: "5"))
         if let selectedGrade = selectedGrade?.trimmingCharacters(in: .whitespacesAndNewlines), !selectedGrade.isEmpty {
             items.removeAll { $0.name == "grade" }
             items.append(URLQueryItem(name: "grade", value: selectedGrade))

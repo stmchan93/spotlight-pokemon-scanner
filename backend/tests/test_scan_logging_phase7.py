@@ -16,7 +16,7 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import apply_schema, connect, upsert_card_price_summary, upsert_deck_entry, upsert_price_history_daily, upsert_slab_price_snapshot  # noqa: E402
+from catalog_tools import apply_schema, connect, upsert_card_price_summary, upsert_deck_entry, upsert_price_history_daily, upsert_price_snapshot, upsert_slab_price_snapshot  # noqa: E402
 from scan_artifact_store import (  # noqa: E402
     GoogleCloudScanArtifactStore,
     SCAN_ARTIFACTS_ROOT_ENV,
@@ -772,6 +772,195 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertIsNone(entries[1]["slabContext"])
         self.assertEqual(entries[1]["card"]["pricing"]["market"], 2.5)
 
+    def test_record_buy_splits_raw_entries_by_condition_and_variant(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 6.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+                "variantName": None,
+            }
+        )
+        variant_payload = self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 2,
+                "unitPrice": 5.5,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-14T10:00:00Z",
+                "condition": "lightly_played",
+                "variantName": "Reverse Holo",
+            }
+        )
+
+        payload = self.service.deck_entries(limit=10)
+        entry_by_id = {entry["id"]: entry for entry in payload["entries"]}
+
+        self.assertEqual(payload["summary"]["count"], 2)
+        self.assertEqual(payload["summary"]["rawCount"], 2)
+        self.assertEqual(payload["summary"]["slabCount"], 0)
+        self.assertIn("raw|gym1-60", entry_by_id)
+        self.assertIn("raw|gym1-60|Reverse Holo|lightly_played", entry_by_id)
+        self.assertEqual(entry_by_id["raw|gym1-60"]["condition"], "near_mint")
+        self.assertIsNone(entry_by_id["raw|gym1-60"]["variantName"])
+        self.assertEqual(entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["condition"], "lightly_played")
+        self.assertEqual(entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["variantName"], "Reverse Holo")
+        self.assertIsNone(entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["slabContext"])
+        self.assertEqual(variant_payload["deckEntryID"], "raw|gym1-60|Reverse Holo|lightly_played")
+
+    def test_deck_entries_use_condition_specific_raw_market_price(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_price_snapshot(
+            self.service.connection,
+            card_id="gym1-60",
+            provider="scrydex",
+            pricing_mode="raw",
+            currency_code="USD",
+            variant="Holofoil",
+            condition="near_mint",
+            low_price=10.0,
+            market_price=12.5,
+            mid_price=12.0,
+            high_price=13.0,
+            direct_low_price=9.5,
+            trend_price=12.25,
+            payload={"variant": "Holofoil", "condition": "NM"},
+        )
+        upsert_price_snapshot(
+            self.service.connection,
+            card_id="gym1-60",
+            provider="scrydex",
+            pricing_mode="raw",
+            currency_code="USD",
+            variant="Holofoil",
+            condition="lightly_played",
+            low_price=7.0,
+            market_price=8.75,
+            mid_price=8.5,
+            high_price=9.0,
+            direct_low_price=6.5,
+            trend_price=8.6,
+            payload={"variant": "Holofoil", "condition": "LP"},
+        )
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 12.5,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+                "variantName": "Holofoil",
+            }
+        )
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 8.75,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-14T10:00:00Z",
+                "condition": "lightly_played",
+                "variantName": "Holofoil",
+            }
+        )
+
+        payload = self.service.deck_entries(limit=10)
+        entry_by_id = {entry["id"]: entry for entry in payload["entries"]}
+
+        self.assertAlmostEqual(entry_by_id["raw|gym1-60|Holofoil|near_mint"]["card"]["pricing"]["market"], 12.5, places=2)
+        self.assertAlmostEqual(entry_by_id["raw|gym1-60|Holofoil|lightly_played"]["card"]["pricing"]["market"], 8.75, places=2)
+
+    def test_deck_entries_do_not_fallback_to_near_mint_for_other_raw_conditions(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_price_snapshot(
+            self.service.connection,
+            card_id="gym1-60",
+            provider="scrydex",
+            pricing_mode="raw",
+            currency_code="USD",
+            variant="Holofoil",
+            condition="near_mint",
+            low_price=10.0,
+            market_price=12.5,
+            mid_price=12.0,
+            high_price=13.0,
+            direct_low_price=9.5,
+            trend_price=12.25,
+            payload={"variant": "Holofoil", "condition": "NM"},
+        )
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 8.75,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-14T10:00:00Z",
+                "condition": "lightly_played",
+                "variantName": "Holofoil",
+            }
+        )
+
+        payload = self.service.deck_entries(limit=10)
+        entry = payload["entries"][0]
+
+        self.assertEqual(entry["id"], "raw|gym1-60|Holofoil|lightly_played")
+        self.assertIsNone(entry["card"].get("pricing"))
+
+    def test_replace_deck_entry_moves_raw_entry_to_specific_variant_row(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 2,
+                "unitPrice": 6.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+            }
+        )
+
+        replace_payload = self.service.replace_deck_entry(
+            {
+                "deckEntryID": "raw|gym1-60",
+                "cardID": "gym1-60",
+                "slabContext": None,
+                "variantName": "Reverse Holo",
+                "condition": "lightly_played",
+                "quantity": 2,
+                "unitPrice": 7.0,
+                "currencyCode": "USD",
+                "updatedAt": "2026-04-14T11:00:00Z",
+            }
+        )
+
+        active_payload = self.service.deck_entries(limit=10)
+        inactive_payload = self.service.deck_entries(limit=10, include_inactive=True)
+        active_entry = active_payload["entries"][0]
+        inactive_entry_by_id = {entry["id"]: entry for entry in inactive_payload["entries"]}
+
+        self.assertEqual(replace_payload["previousDeckEntryID"], "raw|gym1-60")
+        self.assertEqual(replace_payload["deckEntryID"], "raw|gym1-60|Reverse Holo|lightly_played")
+        self.assertEqual(active_payload["summary"]["count"], 1)
+        self.assertEqual(active_entry["id"], "raw|gym1-60|Reverse Holo|lightly_played")
+        self.assertEqual(active_entry["variantName"], "Reverse Holo")
+        self.assertEqual(active_entry["condition"], "lightly_played")
+        self.assertEqual(active_entry["quantity"], 2)
+        self.assertEqual(inactive_entry_by_id["raw|gym1-60"]["quantity"], 0)
+        self.assertEqual(inactive_entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["quantity"], 2)
+
     def test_record_sale_decrements_quantity_and_hides_inactive_entries(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         upsert_card_price_summary(
@@ -900,6 +1089,51 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             [(row["card_id"], row["quantity"], float(row["unit_price"])) for row in sale_rows],
             [("base1-4", 1, 240.0), ("base1-2", 2, 85.0)],
         )
+
+    def test_portfolio_ledger_excludes_inventory_adjustment_sales(self) -> None:
+        self._insert_card("neo1-1", name="Ampharos")
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="neo1-1",
+            quantity=2,
+            added_at="2026-04-14T20:00:00Z",
+            updated_at="2026-04-14T20:00:00Z",
+        )
+        self.service.connection.commit()
+
+        self.service.record_sale(
+            {
+                "cardID": "neo1-1",
+                "quantity": 1,
+                "soldAt": "2026-04-15T20:00:00Z",
+                "unitPrice": 0.0,
+                "currencyCode": "USD",
+                "saleSource": "inventory_adjustment",
+                "note": "Inventory decrement from card detail trash control.",
+            }
+        )
+        self.service.record_sale(
+            {
+                "cardID": "neo1-1",
+                "quantity": 1,
+                "soldAt": "2026-04-16T20:00:00Z",
+                "unitPrice": 12.5,
+                "currencyCode": "USD",
+                "saleSource": "manual",
+            }
+        )
+
+        ledger = self.service.portfolio_ledger(range_label="30D")
+        self.assertAlmostEqual(ledger["summary"]["revenue"], 12.5, places=2)
+        self.assertEqual(len(ledger["transactions"]), 1)
+        self.assertEqual(ledger["transactions"][0]["kind"], "sell")
+        self.assertEqual(ledger["transactions"][0]["totalPrice"], 12.5)
+
+        daily_by_date = {point["date"]: point for point in ledger["dailySeries"]}
+        self.assertAlmostEqual(daily_by_date["2026-04-15"]["revenue"], 0.0, places=2)
+        self.assertEqual(daily_by_date["2026-04-15"]["sellCount"], 0)
+        self.assertAlmostEqual(daily_by_date["2026-04-16"]["revenue"], 12.5, places=2)
+        self.assertEqual(daily_by_date["2026-04-16"]["sellCount"], 1)
 
     def test_apply_schema_keeps_sold_entries_inactive(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
@@ -1358,7 +1592,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(daily_by_date["2026-04-15"]["buyCount"], 0)
         self.assertEqual(daily_by_date["2026-04-15"]["sellCount"], 1)
 
-    def test_portfolio_ledger_range_labels_override_day_window_size(self) -> None:
+    def test_portfolio_ledger_clamps_longer_ranges_to_first_portfolio_activity(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         self.service.record_buy(
             {
@@ -1375,15 +1609,97 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
         ledger_30d = self.service.portfolio_ledger(days=365, range_label="30D", time_zone_name="UTC")
         ledger_90d = self.service.portfolio_ledger(days=365, range_label="90D", time_zone_name="UTC")
+        ledger_1y = self.service.portfolio_ledger(days=30, range_label="1Y", time_zone_name="UTC")
         ledger_all = self.service.portfolio_ledger(days=365, range_label="ALL", time_zone_name="UTC")
 
         self.assertEqual(len(ledger_7d["dailySeries"]), 7)
-        self.assertEqual(len(ledger_30d["dailySeries"]), 30)
-        self.assertEqual(len(ledger_90d["dailySeries"]), 90)
+        self.assertEqual(len(ledger_30d["dailySeries"]), 12)
+        self.assertEqual(len(ledger_90d["dailySeries"]), 12)
+        self.assertEqual(len(ledger_1y["dailySeries"]), 12)
         self.assertGreaterEqual(len(ledger_all["dailySeries"]), 1)
+        self.assertEqual(ledger_30d["dailySeries"][0]["date"], "2026-04-15")
+        self.assertEqual(ledger_90d["dailySeries"][0]["date"], "2026-04-15")
+        self.assertEqual(ledger_1y["dailySeries"][0]["date"], "2026-04-15")
+        self.assertEqual(ledger_1y["dailySeries"][-1]["date"], "2026-04-26")
         self.assertEqual(ledger_all["dailySeries"][0]["date"], "2026-04-15")
         self.assertAlmostEqual(ledger_all["dailySeries"][0]["spend"], 12.0, places=2)
         self.assertEqual(ledger_all["dailySeries"][0]["buyCount"], 1)
+
+    def test_deck_history_clamps_longer_ranges_to_first_portfolio_activity(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_card_price_summary(
+            self.service.connection,
+            card_id="gym1-60",
+            source="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=1.0,
+            market_price=12.5,
+            mid_price=12.0,
+            high_price=13.0,
+            direct_low_price=1.5,
+            trend_price=12.25,
+            source_updated_at="2026-04-14T19:00:00Z",
+            source_url="https://prices.example/gym1-60",
+            payload={"source": "scrydex"},
+        )
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 12.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-15T06:30:00Z",
+                "condition": "near_mint",
+            }
+        )
+
+        history_1y = self.service.deck_history(days=30, range_label="1Y", time_zone_name="UTC")
+
+        self.assertEqual(len(history_1y["points"]), 12)
+        self.assertEqual(history_1y["points"][0]["date"], "2026-04-15")
+        self.assertEqual(history_1y["points"][-1]["date"], "2026-04-26")
+
+    def test_portfolio_ranges_clamp_7d_when_first_activity_is_newer_than_a_week(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_card_price_summary(
+            self.service.connection,
+            card_id="gym1-60",
+            source="scrydex",
+            currency_code="USD",
+            variant="normal",
+            low_price=1.0,
+            market_price=12.5,
+            mid_price=12.0,
+            high_price=13.0,
+            direct_low_price=1.5,
+            trend_price=12.25,
+            source_updated_at="2026-04-22T19:00:00Z",
+            source_url="https://prices.example/gym1-60",
+            payload={"source": "scrydex"},
+        )
+        self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 12.0,
+                "currencyCode": "USD",
+                "paymentMethod": "cash",
+                "boughtAt": "2026-04-23T06:30:00Z",
+                "condition": "near_mint",
+            }
+        )
+
+        ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
+        history_7d = self.service.deck_history(days=365, range_label="7D", time_zone_name="UTC")
+
+        self.assertEqual(ledger_7d["dailySeries"][0]["date"], "2026-04-23")
+        self.assertEqual(ledger_7d["dailySeries"][-1]["date"], "2026-04-26")
+        self.assertEqual(len(ledger_7d["dailySeries"]), 4)
+        self.assertEqual(history_7d["points"][0]["date"], "2026-04-23")
+        self.assertEqual(history_7d["points"][-1]["date"], "2026-04-26")
+        self.assertEqual(len(history_7d["points"]), 4)
 
     def test_deck_history_buckets_by_timezone(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")

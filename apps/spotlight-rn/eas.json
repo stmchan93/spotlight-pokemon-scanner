@@ -1,0 +1,34 @@
+{
+  "cli": {
+    "version": ">= 16.23.1",
+    "appVersionSource": "remote"
+  },
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "env": {
+        "SPOTLIGHT_APP_ENV": "development"
+      },
+      "channel": "development"
+    },
+    "staging": {
+      "env": {
+        "SPOTLIGHT_APP_ENV": "staging"
+      },
+      "channel": "staging",
+      "autoIncrement": true
+    },
+    "production": {
+      "env": {
+        "SPOTLIGHT_APP_ENV": "production"
+      },
+      "channel": "production",
+      "autoIncrement": true
+    }
+  },
+  "submit": {
+    "staging": {},
+    "production": {}
+  }
+}

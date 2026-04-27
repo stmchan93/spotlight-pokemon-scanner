@@ -53,6 +53,19 @@ qa/raw-visual-train-excluded/
 # Logs
 *.log
 
+# JavaScript / Expo / pnpm
+node_modules/
+.pnpm-store/
+coverage/
+dist/
+apps/spotlight-rn/.expo/
+apps/spotlight-rn/.eas/
+apps/spotlight-rn/.metro-health-check*
+apps/spotlight-rn/.maestro/*.mp4
+apps/spotlight-rn/.maestro/*.png
+apps/spotlight-rn/.maestro/logs/
+apps/spotlight-rn/junit.xml
+
 # Local Xcode environment overrides
 Spotlight/Config/LocalOverrides.xcconfig
 

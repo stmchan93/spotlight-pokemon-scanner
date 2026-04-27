@@ -1,0 +1,29 @@
+{
+  "name": "spotlight",
+  "private": true,
+  "packageManager": "pnpm@10.30.3",
+  "scripts": {
+    "backend:start:phone": "zsh tools/start_mobile_phone_dev.sh --backend-only",
+    "deploy:staging:vm": "bash tools/deploy_vm_one_shot.sh staging backend/.env",
+    "deploy:production:vm": "bash tools/deploy_vm_one_shot.sh production backend/.env",
+    "mobile:start": "pnpm --filter @spotlight/mobile-app start",
+    "mobile:start:phone": "zsh tools/start_mobile_phone_dev.sh",
+    "mobile:start:phone:dev-client": "zsh tools/start_mobile_phone_dev.sh --dev-client",
+    "mobile:start:phone:frontend": "zsh tools/start_mobile_phone_dev.sh --frontend-only",
+    "mobile:ios": "pnpm --filter @spotlight/mobile-app ios",
+    "mobile:android": "pnpm --filter @spotlight/mobile-app android",
+    "mobile:web": "pnpm --filter @spotlight/mobile-app web",
+    "mobile:build:ios:development": "bash tools/run_mobile_eas.sh development build ios development",
+    "mobile:build:ios:staging": "bash tools/run_mobile_eas.sh staging build ios staging",
+    "mobile:build:ios:production": "bash tools/run_mobile_eas.sh production build ios production",
+    "mobile:release:ios:staging": "bash tools/run_mobile_eas.sh staging release ios staging",
+    "mobile:release:ios:production": "bash tools/run_mobile_eas.sh production release ios production",
+    "mobile:submit:ios:staging": "bash tools/run_mobile_eas.sh staging submit ios staging",
+    "mobile:submit:ios": "bash tools/run_mobile_eas.sh production submit ios production",
+    "mobile:lint": "pnpm --filter @spotlight/mobile-app lint",
+    "mobile:typecheck": "pnpm --filter @spotlight/mobile-app typecheck",
+    "mobile:test": "pnpm --filter @spotlight/mobile-app test",
+    "mobile:test:watch": "pnpm --filter @spotlight/mobile-app test:watch",
+    "mobile:test:integration": "pnpm --filter @spotlight/mobile-app test:integration"
+  }
+}

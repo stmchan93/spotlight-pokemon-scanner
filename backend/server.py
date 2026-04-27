@@ -27,6 +27,7 @@ from catalog_tools import (
     _coerce_price_summary_from_entry,
     _graded_contexts_payload,
     _graded_variants_for_context,
+    _normalized_variant_label,
     _raw_context_conditions,
     _raw_context_entry,
     _raw_context_variants,
@@ -87,7 +88,7 @@ from catalog_tools import (
     utc_now,
 )
 from fx_rates import decorate_pricing_summary_with_fx
-from ebay_comps import fetch_graded_card_ebay_comps
+from ebay_comps import DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT, fetch_graded_card_ebay_comps
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
 from portfolio_imports import (
@@ -152,7 +153,7 @@ def _env_flag(name: str, *, default: bool = False) -> bool:
 @dataclass
 class ServerConfig:
     host: str = "127.0.0.1"
-    port: int = 8787
+    port: int = 8788
 
 
 class SpotlightThreadingHTTPServer(ThreadingHTTPServer):
@@ -184,6 +185,7 @@ class PricingContext:
     grade: str | None = None
     cert_number: str | None = None
     preferred_variant: str | None = None
+    preferred_condition: str | None = None
     variant_hints: dict[str, Any] | None = None
 
     @property
@@ -616,9 +618,31 @@ class SpotlightScanService:
             start_date = end_date - timedelta(days=29)
         elif normalized_range == "90D":
             start_date = end_date - timedelta(days=89)
-        elif normalized_range == "ALL" and earliest_at is not None:
-            start_date = earliest_at.astimezone(time_zone).date()
+        elif normalized_range == "1Y":
+            start_date = end_date - timedelta(days=364)
+        if earliest_at is not None:
+            earliest_date = earliest_at.astimezone(time_zone).date()
+            if normalized_range == "ALL":
+                start_date = earliest_date
+            elif normalized_range in {"7D", "30D", "90D", "1Y"} and earliest_date > start_date:
+                start_date = earliest_date
         return time_zone, start_date, end_date
+
+    def _portfolio_earliest_activity_at(self) -> datetime | None:
+        earliest_row = self.connection.execute(
+            """
+            SELECT MIN(created_at) AS earliest_at
+            FROM (
+                SELECT created_at AS created_at FROM deck_entry_events
+                UNION ALL
+                SELECT sold_at AS created_at FROM sale_events
+                UNION ALL
+                SELECT added_at AS created_at FROM deck_entries
+            )
+            """
+        ).fetchone()
+        earliest_raw = str(earliest_row["earliest_at"] if earliest_row is not None else "").strip()
+        return self._coerce_utc_datetime(earliest_raw)
 
     def _card_show_mode_record(self) -> dict[str, Any] | None:
         return runtime_setting(self.connection, CARD_SHOW_MODE_SETTING_KEY)
@@ -983,6 +1007,7 @@ class SpotlightScanService:
         grader: str | None = None,
         grade: str | None = None,
         preferred_variant: str | None = None,
+        preferred_condition: str | None = None,
     ) -> dict[str, Any] | None:
         pricing_context = (
             self._slab_pricing_context(
@@ -991,13 +1016,23 @@ class SpotlightScanService:
                 preferred_variant=preferred_variant,
             )
             if grader or grade
-            else self._raw_pricing_context()
+            else self._raw_pricing_context(
+                preferred_variant=preferred_variant,
+                preferred_condition=preferred_condition,
+            )
         )
         return self._display_pricing_summary_for_context(card_id, pricing_context=pricing_context)
 
     @staticmethod
-    def _raw_pricing_context() -> PricingContext:
-        return PricingContext(mode="raw")
+    def _raw_pricing_context(
+        preferred_variant: str | None = None,
+        preferred_condition: str | None = None,
+    ) -> PricingContext:
+        return PricingContext(
+            mode="raw",
+            preferred_variant=preferred_variant,
+            preferred_condition=preferred_condition,
+        )
 
     @staticmethod
     def _slab_pricing_context(
@@ -1061,7 +1096,17 @@ class SpotlightScanService:
                 snapshot_row,
                 pricing_context=pricing_context,
             )
-            if pricing is not None:
+            if (
+                pricing is not None
+                and (
+                    pricing_context.is_graded
+                    or self._raw_pricing_matches_context(
+                        pricing,
+                        preferred_variant=pricing_context.preferred_variant,
+                        preferred_condition=pricing_context.preferred_condition,
+                    )
+                )
+            ):
                 return pricing
 
         pricing = contextual_pricing_summary_for_card(
@@ -1070,6 +1115,7 @@ class SpotlightScanService:
             grader=pricing_context.grader,
             grade=pricing_context.grade,
             variant=pricing_context.preferred_variant,
+            condition=pricing_context.preferred_condition,
         )
         if pricing is None and pricing_context.is_graded:
             pricing = contextual_pricing_summary_for_card(
@@ -1091,7 +1137,41 @@ class SpotlightScanService:
             )
         ):
             return None
+        if (
+            not pricing_context.is_graded
+            and pricing is not None
+            and not self._raw_pricing_matches_context(
+                pricing,
+                preferred_variant=pricing_context.preferred_variant,
+                preferred_condition=pricing_context.preferred_condition,
+            )
+        ):
+            return None
         return pricing
+
+    def _raw_pricing_matches_context(
+        self,
+        pricing: dict[str, Any] | None,
+        *,
+        preferred_variant: str | None,
+        preferred_condition: str | None,
+    ) -> bool:
+        if not isinstance(pricing, dict):
+            return False
+
+        payload = pricing.get("payload") if isinstance(pricing.get("payload"), dict) else {}
+        pricing_condition = self._portfolio_condition_code(str(payload.get("condition") or "").strip() or None)
+        requested_condition = self._portfolio_condition_code(preferred_condition)
+        if requested_condition and pricing_condition != requested_condition:
+            return False
+
+        if preferred_variant:
+            requested_variant = _normalized_variant_label(preferred_variant)
+            pricing_variant = _normalized_variant_label(str(pricing.get("variant") or "").strip() or None)
+            if requested_variant != pricing_variant:
+                return False
+
+        return True
 
     def _pricing_summary_from_snapshot_row(
         self,
@@ -1153,7 +1233,7 @@ class SpotlightScanService:
             resolved_variant, _, summary = _resolve_raw_context_summary(
                 raw_contexts,
                 variant=pricing_context.preferred_variant or snapshot_row["default_raw_variant"],
-                condition=DEFAULT_RAW_CONDITION,
+                condition=pricing_context.preferred_condition or DEFAULT_RAW_CONDITION,
             )
             if summary is None and snapshot_row["default_raw_market_price"] is not None:
                 summary = {
@@ -1299,6 +1379,11 @@ class SpotlightScanService:
         if not normalized:
             return None
         mapping = {
+            "nm": "NM",
+            "lp": "LP",
+            "mp": "MP",
+            "hp": "HP",
+            "dm": "DM",
             "near_mint": "NM",
             "lightly_played": "LP",
             "moderately_played": "MP",
@@ -1970,24 +2055,8 @@ class SpotlightScanService:
     ) -> dict[str, Any]:
         normalized_range = str(range_label or "").strip().upper() or None
         earliest_at: datetime | None = None
-        if normalized_range == "ALL":
-            earliest_row = self.connection.execute(
-                """
-                SELECT MIN(created_at) AS earliest_at
-                FROM deck_entry_events
-                """
-            ).fetchone()
-            earliest_raw = str(earliest_row["earliest_at"] if earliest_row is not None else "").strip()
-            earliest_at = self._coerce_utc_datetime(earliest_raw)
-            if earliest_at is None:
-                earliest_row = self.connection.execute(
-                    """
-                    SELECT MIN(added_at) AS earliest_at
-                    FROM deck_entries
-                    """
-                ).fetchone()
-                earliest_raw = str(earliest_row["earliest_at"] if earliest_row is not None else "").strip()
-                earliest_at = self._coerce_utc_datetime(earliest_raw)
+        if normalized_range in {"7D", "30D", "90D", "1Y", "ALL"}:
+            earliest_at = self._portfolio_earliest_activity_at()
         time_zone, start_date, end_date = self._portfolio_date_bounds(
             days=days,
             range_label=normalized_range,
@@ -2335,19 +2404,8 @@ class SpotlightScanService:
     ) -> dict[str, Any]:
         normalized_range = str(range_label or "").strip().upper() or None
         earliest_at: datetime | None = None
-        if normalized_range == "ALL":
-            earliest_row = self.connection.execute(
-                """
-                SELECT MIN(created_at) AS earliest_at
-                FROM (
-                    SELECT created_at FROM deck_entry_events WHERE event_kind = 'buy'
-                    UNION ALL
-                    SELECT sold_at AS created_at FROM sale_events
-                )
-                """
-            ).fetchone()
-            earliest_raw = str(earliest_row["earliest_at"] if earliest_row is not None else "").strip()
-            earliest_at = self._coerce_utc_datetime(earliest_raw)
+        if normalized_range in {"7D", "30D", "90D", "1Y", "ALL"}:
+            earliest_at = self._portfolio_earliest_activity_at()
         time_zone, start_date, end_date = self._portfolio_date_bounds(
             days=days,
             range_label=normalized_range,
@@ -2397,6 +2455,7 @@ class SpotlightScanService:
                 sale_events.currency_code,
                 sale_events.payment_method,
                 sale_events.cost_basis_total,
+                sale_events.sale_source,
                 sale_events.note,
                 sale_events.sold_at,
                 deck_entries.condition,
@@ -2409,6 +2468,7 @@ class SpotlightScanService:
                 ON deck_entries.id = sale_events.deck_entry_id
             WHERE sold_at >= ?
               AND sold_at < ?
+              AND COALESCE(sale_events.sale_source, 'manual') != 'inventory_adjustment'
             ORDER BY sale_events.sold_at DESC, sale_events.id DESC
             """,
             (start_dt, end_dt),
@@ -2429,7 +2489,7 @@ class SpotlightScanService:
             cert_number = str(row["cert_number"] or "").strip() or None
             variant_name = str(row["variant_name"] or "").strip() or None
             slab_context = None
-            if any([grader, grade, cert_number, variant_name]):
+            if any([grader, grade, cert_number]):
                 slab_context = {
                     "grader": grader,
                     "grade": grade,
@@ -2558,7 +2618,9 @@ class SpotlightScanService:
         grader = str(slab_context.get("grader") or "").strip() or None
         grade = str(slab_context.get("grade") or "").strip() or None
         cert_number = str(slab_context.get("certNumber") or "").strip() or None
-        variant_name = str(slab_context.get("variantName") or "").strip() or None
+        raw_variant_name = str(payload.get("variantName") or "").strip() or None
+        slab_variant_name = str(slab_context.get("variantName") or "").strip() or None
+        variant_name = slab_variant_name if any([grader, grade, cert_number]) else raw_variant_name
         condition = self._normalized_deck_card_condition(payload.get("condition"))
 
         try:
@@ -2589,6 +2651,7 @@ class SpotlightScanService:
             grade=grade,
             cert_number=cert_number,
             variant_name=variant_name,
+            condition=condition,
         )
 
         try:
@@ -2622,10 +2685,179 @@ class SpotlightScanService:
         return {
             "deckEntryID": deck_entry_id,
             "cardID": card_id,
+            "variantName": variant_name,
             "inserted": inserted,
             "quantityAdded": quantity,
             "totalSpend": round(unit_price * quantity, 2),
             "boughtAt": bought_at,
+        }
+
+    def replace_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
+        previous_deck_entry_id = str(payload.get("deckEntryID") or "").strip()
+        if not previous_deck_entry_id:
+            raise ValueError("deckEntryID is required")
+
+        card_id = str(payload.get("cardID") or "").strip()
+        if not card_id:
+            raise ValueError("cardID is required")
+
+        slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
+        grader = str(slab_context.get("grader") or "").strip() or None
+        grade = str(slab_context.get("grade") or "").strip() or None
+        cert_number = str(slab_context.get("certNumber") or "").strip() or None
+        raw_variant_name = str(payload.get("variantName") or "").strip() or None
+        slab_variant_name = str(slab_context.get("variantName") or "").strip() or None
+        variant_name = slab_variant_name if any([grader, grade, cert_number]) else raw_variant_name
+        condition = self._normalized_deck_card_condition(payload.get("condition"))
+
+        try:
+            quantity = int(payload.get("quantity", 1))
+        except (TypeError, ValueError):
+            raise ValueError("quantity must be an integer") from None
+        if quantity < 1:
+            raise ValueError("quantity must be at least 1")
+
+        unit_price_raw = payload.get("unitPrice")
+        if unit_price_raw is None or unit_price_raw == "":
+            raise ValueError("unitPrice is required")
+        try:
+            unit_price = float(unit_price_raw)
+        except (TypeError, ValueError):
+            raise ValueError("unitPrice must be a number") from None
+        if unit_price < 0:
+            raise ValueError("unitPrice must be non-negative")
+
+        currency_code = str(payload.get("currencyCode") or "").strip() or "USD"
+        updated_at = str(payload.get("updatedAt") or utc_now()).strip() or utc_now()
+
+        existing_row = self.connection.execute(
+            """
+            SELECT id, card_id, quantity, condition, grader, grade, cert_number, variant_name,
+                   source_scan_id, source_confirmation_id
+            FROM deck_entries
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (previous_deck_entry_id,),
+        ).fetchone()
+        if existing_row is None:
+            raise FileNotFoundError("deck entry not found")
+
+        existing_card_id = str(existing_row["card_id"] or "").strip()
+        if existing_card_id and existing_card_id != card_id:
+            raise ValueError("cardID does not match the deck entry")
+
+        next_deck_entry_id = deck_entry_storage_key(
+            card_id=card_id,
+            grader=grader,
+            grade=grade,
+            cert_number=cert_number,
+            variant_name=variant_name,
+            condition=condition,
+        )
+        existing_quantity = max(0, int(existing_row["quantity"] or 0))
+
+        try:
+            if next_deck_entry_id == previous_deck_entry_id:
+                self.connection.execute(
+                    """
+                    UPDATE deck_entries
+                    SET grader = ?,
+                        grade = ?,
+                        cert_number = ?,
+                        variant_name = ?,
+                        condition = ?,
+                        quantity = ?,
+                        cost_basis_total = ?,
+                        cost_basis_currency_code = ?,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        grader,
+                        grade,
+                        cert_number,
+                        variant_name,
+                        condition,
+                        quantity,
+                        round(unit_price * quantity, 2),
+                        currency_code,
+                        updated_at,
+                        previous_deck_entry_id,
+                    ),
+                )
+                append_deck_entry_event(
+                    self.connection,
+                    deck_entry_id=previous_deck_entry_id,
+                    card_id=card_id,
+                    event_kind="replace",
+                    quantity_delta=quantity - existing_quantity,
+                    unit_price=unit_price,
+                    total_price=round(unit_price * quantity, 2),
+                    currency_code=currency_code,
+                    condition=condition,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    variant_name=variant_name,
+                    created_at=updated_at,
+                )
+            else:
+                upsert_deck_entry(
+                    self.connection,
+                    card_id=card_id,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    variant_name=variant_name,
+                    condition=condition,
+                    quantity=quantity,
+                    unit_price=unit_price,
+                    currency_code=currency_code,
+                    added_at=updated_at,
+                    updated_at=updated_at,
+                    source_scan_id=str(existing_row["source_scan_id"] or "").strip() or None,
+                    source_confirmation_id=str(existing_row["source_confirmation_id"] or "").strip() or None,
+                    event_kind="replace_in",
+                )
+                self.connection.execute(
+                    """
+                    UPDATE deck_entries
+                    SET quantity = 0,
+                        cost_basis_total = 0,
+                        updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (updated_at, previous_deck_entry_id),
+                )
+                append_deck_entry_event(
+                    self.connection,
+                    deck_entry_id=previous_deck_entry_id,
+                    card_id=card_id,
+                    event_kind="replace_out",
+                    quantity_delta=-existing_quantity,
+                    currency_code=currency_code,
+                    condition=str(existing_row["condition"] or "").strip() or None,
+                    grader=str(existing_row["grader"] or "").strip() or None,
+                    grade=str(existing_row["grade"] or "").strip() or None,
+                    cert_number=str(existing_row["cert_number"] or "").strip() or None,
+                    variant_name=str(existing_row["variant_name"] or "").strip() or None,
+                    created_at=updated_at,
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return {
+            "previousDeckEntryID": previous_deck_entry_id,
+            "deckEntryID": next_deck_entry_id,
+            "cardID": card_id,
+            "variantName": variant_name,
+            "condition": condition,
+            "quantity": quantity,
+            "unitPrice": unit_price,
+            "updatedAt": updated_at,
         }
 
     def preview_portfolio_import(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -6148,17 +6380,25 @@ class SpotlightScanService:
         *,
         grader: str | None = None,
         grade: str | None = None,
-        limit: int = 25,
+        limit: int = DEFAULT_EBAY_LISTING_LIMIT,
     ) -> dict[str, Any] | None:
         card = card_by_id(self.connection, card_id)
         if card is None:
             return None
-        normalized_grader = str(grader or "PSA").strip().upper() or "PSA"
+        normalized_grader = str(grader or "").strip().upper() or None
+        normalized_grade = str(grade or "").strip() or None
+        try:
+            normalized_limit = int(limit)
+        except (TypeError, ValueError):
+            normalized_limit = DEFAULT_EBAY_LISTING_LIMIT
+        normalized_limit = max(1, min(normalized_limit, DEFAULT_EBAY_LISTING_LIMIT))
+        if normalized_grader is None and normalized_grade is not None:
+            normalized_grader = "PSA"
         return fetch_graded_card_ebay_comps(
             card,
             grader=normalized_grader,
-            selected_grade=grade,
-            limit=limit,
+            selected_grade=normalized_grade,
+            limit=normalized_limit,
         )
 
     def match_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -6563,6 +6803,7 @@ class SpotlightScanService:
         return {
             "deckEntryID": deck_entry_id,
             "cardID": card_id,
+            "variantName": variant_name,
             "condition": condition,
             "confirmationID": confirmation_id,
             "sourceScanID": scan_id,
@@ -6997,7 +7238,10 @@ class SpotlightScanService:
                     preferred_variant=variant_name,
                 )
                 if grader or grade
-                else self._raw_pricing_context()
+                else self._raw_pricing_context(
+                    preferred_variant=variant_name,
+                    preferred_condition=condition,
+                )
             )
             pricing = self._display_pricing_summary_for_context(
                 card_id,
@@ -7019,7 +7263,7 @@ class SpotlightScanService:
                     total_value += float(primary_price) * quantity
 
             slab_context = None
-            if any([grader, grade, cert_number, variant_name]):
+            if str(row["item_kind"] or "").strip().lower() == "slab":
                 slab_context = {
                     "grader": grader,
                     "grade": grade,
@@ -7035,6 +7279,7 @@ class SpotlightScanService:
                     "id": row["id"],
                     "itemKind": row["item_kind"],
                     "card": card_payload,
+                    "variantName": variant_name,
                     "slabContext": slab_context,
                     "condition": condition,
                     "quantity": quantity,
@@ -7259,10 +7504,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
 
             query = parse_qs(parsed.query)
-            grader = query.get("grader", ["PSA"])[0].strip() or "PSA"
             grade = query.get("grade", [""])[0].strip() or None
+            grader = query.get("grader", [""])[0].strip() or None
+            if grader is None and grade is not None:
+                grader = "PSA"
             try:
-                limit = int(query.get("limit", ["25"])[0])
+                limit = int(query.get("limit", [str(DEFAULT_EBAY_LISTING_LIMIT)])[0])
             except (TypeError, ValueError):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
                 return
@@ -7790,6 +8037,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, update_payload)
             return
 
+        if parsed.path == "/api/v1/deck/entries/replace":
+            try:
+                update_payload = self.service.replace_deck_entry(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry replace failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, update_payload)
+            return
+
         if parsed.path == "/api/v1/deck/entries/purchase-price":
             try:
                 update_payload = self.service.update_deck_entry_purchase_price(payload)
@@ -7913,7 +8176,7 @@ def main() -> None:
     repo_root = root.parent
     config = ServerConfig(
         host=cli_value("--host") or os.environ.get("SPOTLIGHT_HOST", "127.0.0.1"),
-        port=cli_int_value("--port", int(os.environ.get("SPOTLIGHT_PORT", "8787"))),
+        port=cli_int_value("--port", int(os.environ.get("SPOTLIGHT_PORT", "8788"))),
     )
     database_path = bootstrap_backend(
         root,

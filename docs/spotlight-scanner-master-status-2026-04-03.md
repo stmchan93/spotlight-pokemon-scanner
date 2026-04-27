@@ -1,8 +1,16 @@
 # Spotlight Scanner Master Status
 
-Date: 2026-04-11
+Date: 2026-04-11 (last content edit); **alias + rewrite pointer updated 2026-04-23**
 
 This is the current product/source-of-truth status doc.
+
+## 2026-04-23 update notes
+
+- The current scanner + visual-model rewrite source of truth is now [docs/scanner-model-rewrite-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scanner-model-rewrite-spec-2026-04-23.md).
+- The paired data + labeling pipeline spec is [docs/scan-data-labeling-pipeline-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scan-data-labeling-pipeline-spec-2026-04-23.md).
+- The active raw visual runtime alias is `v006-scrydex-cardphotos33-clean` as of `2026-04-22T02:00:22Z`, per `backend/data/visual-models/raw_visual_runtime_active.json`. References below to `v004-scrydex-b8` as the active alias are stale.
+- Later adapters (v007, v008-r015/r020/r025, v009-sweep-selected) are trained on the 259-card corpus but have not been promoted to `active`. v009 was briefly published on `2026-04-20T23:45:41Z` and rolled back to v006.
+- The v006 adapter was trained on only ~33 unique cards. Training-corpus size, not backbone capacity, is now the primary ceiling for visual retrieval quality — this drives the new data-loop spec.
 
 ## Current Backend State
 
@@ -49,6 +57,10 @@ Use this OCR planning spec next:
 Use this slab rebuild implementation spec when slab work resumes:
 
 - [slab-cert-first-rebuild-implementation-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/slab-cert-first-rebuild-implementation-spec-2026-04-11.md)
+
+Use this locked React Native execution spec for the parallel mobile migration workstream:
+
+- [react-native-parallel-execution-spec-2026-04-21.md](/Users/stephenchan/Code/spotlight/docs/react-native-parallel-execution-spec-2026-04-21.md)
 
 ## Current Product State
 

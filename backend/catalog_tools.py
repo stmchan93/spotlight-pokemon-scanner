@@ -3131,6 +3131,7 @@ def price_snapshot_for_card(
     grader: str | None = None,
     grade: str | None = None,
     variant: str | None = None,
+    condition: str | None = None,
 ) -> dict[str, Any] | None:
     query = """
         SELECT *
@@ -3166,7 +3167,7 @@ def price_snapshot_for_card(
         resolved_variant, resolved_condition, summary = _resolve_raw_context_summary(
             raw_contexts,
             variant=variant or row["default_raw_variant"],
-            condition=DEFAULT_RAW_CONDITION,
+            condition=condition or DEFAULT_RAW_CONDITION,
         )
         if summary is None and row["default_raw_market_price"] is not None:
             summary = {
@@ -3227,6 +3228,7 @@ def contextual_pricing_summary_for_card(
     grader: str | None = None,
     grade: str | None = None,
     variant: str | None = None,
+    condition: str | None = None,
 ) -> dict[str, Any] | None:
     if grader or grade:
         return price_snapshot_for_card(
@@ -3237,7 +3239,13 @@ def contextual_pricing_summary_for_card(
             grade=grade,
             variant=variant,
         )
-    return raw_pricing_summary_for_card(connection, card_id)
+    return price_snapshot_for_card(
+        connection,
+        card_id,
+        pricing_mode=RAW_PRICING_MODE,
+        variant=variant,
+        condition=condition,
+    )
 
 
 def upsert_card_price_summary(
@@ -3563,8 +3571,25 @@ def deck_entry_storage_key(
     grade: str | None = None,
     cert_number: str | None = None,
     variant_name: str | None = None,
+    condition: str | None = None,
 ) -> str:
     normalized_card_id = str(card_id or "").strip()
+    normalized_variant_name = str(variant_name or "").strip() or None
+    normalized_condition = str(condition or "").strip().lower() or None
+    is_slab_entry = any(str(value or "").strip() for value in (grader, grade, cert_number))
+
+    if not is_slab_entry:
+        if not normalized_variant_name and normalized_condition in {None, "", "near_mint"}:
+            return f"raw|{normalized_card_id}"
+        return "|".join(
+            [
+                "raw",
+                normalized_card_id,
+                normalized_variant_name or "",
+                normalized_condition or "near_mint",
+            ]
+        )
+
     if not any(str(value or "").strip() for value in (grader, grade, cert_number, variant_name)):
         return f"raw|{normalized_card_id}"
     return "|".join(
@@ -3574,7 +3599,7 @@ def deck_entry_storage_key(
             str(grader or "").strip(),
             str(grade or "").strip(),
             str(cert_number or "").strip(),
-            str(variant_name or "").strip(),
+            normalized_variant_name or "",
         ]
     )
 
@@ -3792,8 +3817,9 @@ def upsert_deck_entry(
         grade=grade,
         cert_number=cert_number,
         variant_name=variant_name,
+        condition=condition,
     )
-    item_kind = "slab" if deck_entry_id.startswith("slab|") else "raw"
+    item_kind = "slab" if any(str(value or "").strip() for value in (grader, grade, cert_number)) else "raw"
     normalized_quantity = max(1, int(quantity))
     cost_basis_total = 0.0 if unit_price is None else round(float(unit_price) * normalized_quantity, 2)
     connection.execute(

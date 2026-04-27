@@ -100,6 +100,11 @@ struct ScanResultDetailView: View {
     private var subtleTextColor: Color { theme.colors.textSecondary.opacity(0.72) }
     private var infoAccent: Color { theme.colors.info }
     private var ctaYellow: Color { Color(red: 0.86, green: 0.71, blue: 0.18) }
+    private var ebayRed: Color { Color(red: 0.89, green: 0.19, blue: 0.22) }
+    private var ebayBlue: Color { Color(red: 0.10, green: 0.47, blue: 0.87) }
+    private var ebayYellow: Color { Color(red: 0.97, green: 0.73, blue: 0.11) }
+    private var ebayGreen: Color { Color(red: 0.47, green: 0.73, blue: 0.21) }
+    private static let marketplaceListingsDisplayLimit = 5
     private static let chartInputDateFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
@@ -153,11 +158,11 @@ struct ScanResultDetailView: View {
     }
 
     private var gradedCompsLoadKey: String {
-        guard let card, let item, shouldShowGradedComps(for: item) else {
+        guard let card, let item, shouldShowMarketplaceListings(for: item) else {
             return "none"
         }
-        let grader = resolvedGradedCompsGraderLabel(for: item)
-        let grade = resolvedGradedCompsGradeID(for: item) ?? "none"
+        let grader = hasGradedMarketplaceContext(for: item) ? resolvedGradedCompsGraderLabel(for: item) : "raw"
+        let grade = hasGradedMarketplaceContext(for: item) ? (resolvedGradedCompsGradeID(for: item) ?? "none") : "none"
         let cert = item.slabContext?.certNumber ?? "none"
         let variant = item.slabContext?.variantName ?? "none"
         return [card.id, grader, grade, cert, variant].joined(separator: "|")
@@ -237,15 +242,13 @@ struct ScanResultDetailView: View {
                         heroSection(card: card, item: item)
                         primaryActionsSection(card: card, item: item)
                         collectionSection(card: card, item: item)
-                        if viewModel.hasAlternatives(for: item.id) {
-                            similarCardsBanner(item: item)
-                        }
+                        similarCardsBanner(item: item)
                         marketValueSection(item: item, card: card)
+                        gradedCompsSection(card: card, item: item)
                         metadataChips(card: card, item: item)
                         if shouldShowMarketplaceLinks(for: item) {
                             marketplaceLinksSection(card: card, item: item)
                         }
-                        gradedCompsSection(card: card, item: item)
                     }
                     .padding(.horizontal, 18)
                     .padding(.top, 14)
@@ -397,11 +400,9 @@ struct ScanResultDetailView: View {
                             .font(.subheadline.weight(.semibold))
                             .foregroundStyle(theme.colors.textPrimary)
 
-                        if item.phase == .needsReview {
-                            Text("Best guess only. Check similar matches.")
-                                .font(.caption)
-                                .foregroundStyle(mutedTextColor)
-                        }
+                        Text("Best guess only. Check similar matches.")
+                            .font(.caption)
+                            .foregroundStyle(mutedTextColor)
                     }
 
                     Spacer()
@@ -682,21 +683,96 @@ struct ScanResultDetailView: View {
         .buttonStyle(.plain)
     }
 
+    private func ebayWordmark(font: Font) -> some View {
+        HStack(spacing: -1) {
+            Text("e")
+                .foregroundStyle(ebayRed)
+            Text("b")
+                .foregroundStyle(ebayBlue)
+            Text("a")
+                .foregroundStyle(ebayYellow)
+            Text("y")
+                .foregroundStyle(ebayGreen)
+        }
+        .font(font)
+        .accessibilityHidden(true)
+    }
+
+    private func ebayListingIcon() -> some View {
+        ebayWordmark(font: .system(size: 13, weight: .heavy, design: .rounded))
+            .frame(width: 34, height: 34)
+            .background(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(secondaryPanelBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(outlineColor, lineWidth: 1)
+            )
+            .accessibilityLabel("eBay")
+    }
+
+    private func marketplaceListingsSummary(displayedCount: Int, totalCount: Int) -> String {
+        guard displayedCount > 0 else {
+            return ""
+        }
+        if totalCount > displayedCount {
+            return "Showing \(displayedCount) of \(totalCount) lowest active listings."
+        }
+        if displayedCount == 1 {
+            return "Showing 1 active listing."
+        }
+        return "Showing \(displayedCount) active listings."
+    }
+
+    private func viewAllMarketplaceButton() -> some View {
+        HStack(spacing: 10) {
+            ebayListingIcon()
+
+            Text("View all on eBay")
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(theme.colors.textPrimary)
+
+            Spacer()
+
+            Image(systemName: "arrow.up.right")
+                .font(.caption.weight(.bold))
+                .foregroundStyle(mutedTextColor)
+        }
+        .padding(.horizontal, 14)
+        .frame(height: 46)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(secondaryPanelBackground)
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(outlineColor, lineWidth: 1)
+        )
+    }
+
     @ViewBuilder
     private func gradedCompsSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
-        if shouldShowGradedComps(for: item) {
+        if shouldShowMarketplaceListings(for: item) {
+            let hasGradeContext = hasGradedMarketplaceContext(for: item)
             let gradeOptions = displayedGradeOptions(for: item)
-            let selectedGradeID = selectedGradedCompsGradeID(for: item)
-            let graderLabel = resolvedGradedCompsGraderLabel(for: item)
+            let selectedGradeID = hasGradeContext ? selectedGradedCompsGradeID(for: item) : nil
+            let graderLabel = hasGradeContext ? resolvedGradedCompsGraderLabel(for: item) : nil
+            let displayedTransactions = Array((gradedComps?.transactions ?? []).prefix(Self.marketplaceListingsDisplayLimit))
+            let totalListingsCount = gradedComps?.transactions.count ?? 0
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .firstTextBaseline, spacing: 12) {
-                        VStack(alignment: .leading, spacing: 4) {
-                        Text("Current eBay listings")
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(alignment: .firstTextBaseline, spacing: 12) {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Lowest active eBay listings")
                             .font(.headline.weight(.bold))
                             .foregroundStyle(theme.colors.textPrimary)
 
-                        Text("\(graderLabel)-focused grade tabs and current eBay listings.")
+                        Text(
+                            hasGradeContext
+                                ? "\(graderLabel ?? "PSA")-focused grade tabs and lowest active eBay listings."
+                                : "Lowest active eBay results for this card."
+                        )
                             .font(.footnote)
                             .foregroundStyle(mutedTextColor)
                     }
@@ -711,32 +787,45 @@ struct ScanResultDetailView: View {
                     }
                 }
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(gradeOptions) { option in
-                            Button {
-                                selectGradedCompsGrade(option, card: card, item: item)
-                            } label: {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(option.displayLabel)
-                                        .font(.caption.weight(.bold))
-                                    if let count = option.count {
-                                        Text("\(count) listings")
-                                            .font(.caption2.weight(.medium))
-                                            .opacity(0.72)
+                if !displayedTransactions.isEmpty {
+                    Text(
+                        marketplaceListingsSummary(
+                            displayedCount: displayedTransactions.count,
+                            totalCount: totalListingsCount
+                        )
+                    )
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(subtleTextColor)
+                }
+
+                if !gradeOptions.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(gradeOptions) { option in
+                                Button {
+                                    selectGradedCompsGrade(option, card: card, item: item)
+                                } label: {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        Text(option.displayLabel)
+                                            .font(.caption.weight(.bold))
+                                        if let count = option.count {
+                                            Text("\(count) listings")
+                                                .font(.caption2.weight(.medium))
+                                                .opacity(0.72)
+                                        }
                                     }
+                                    .foregroundStyle(option.id == selectedGradeID ? theme.colors.textInverse : theme.colors.textPrimary)
+                                    .padding(.horizontal, 12)
+                                    .padding(.vertical, 10)
+                                    .background(option.id == selectedGradeID ? limeAccent : secondaryPanelBackground)
+                                    .overlay(
+                                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                            .stroke(option.id == selectedGradeID ? Color.clear : outlineColor, lineWidth: 1)
+                                    )
+                                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                                 }
-                                .foregroundStyle(option.id == selectedGradeID ? theme.colors.textInverse : theme.colors.textPrimary)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                                .background(option.id == selectedGradeID ? limeAccent : secondaryPanelBackground)
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                        .stroke(option.id == selectedGradeID ? Color.clear : outlineColor, lineWidth: 1)
-                                )
-                                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                                .buttonStyle(.plain)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
                 }
@@ -756,7 +845,7 @@ struct ScanResultDetailView: View {
                             .fill(secondaryPanelBackground)
                     )
                 } else if let comps = gradedComps {
-                    if comps.transactions.isEmpty {
+                    if displayedTransactions.isEmpty {
                         VStack(alignment: .leading, spacing: 8) {
                             Text(gradedCompsEmptyStateTitle(for: comps))
                                 .font(.headline.weight(.semibold))
@@ -786,7 +875,7 @@ struct ScanResultDetailView: View {
                         )
                     } else {
                         LazyVStack(spacing: 10) {
-                            ForEach(comps.transactions) { transaction in
+                            ForEach(displayedTransactions) { transaction in
                                 gradedCompsRow(
                                     transaction: transaction,
                                     selectedGradeID: selectedGradeID,
@@ -794,14 +883,23 @@ struct ScanResultDetailView: View {
                                 )
                             }
                         }
+
+                        if let searchURL = gradedCompsSearchURL(for: comps) {
+                            Button {
+                                openMarketplaceURL(searchURL, failureMessage: "Could not open eBay search")
+                            } label: {
+                                viewAllMarketplaceButton()
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
                 } else {
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text("eBay listings unavailable")
-                                .font(.headline.weight(.semibold))
-                                .foregroundStyle(theme.colors.textPrimary)
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("eBay listings unavailable")
+                            .font(.headline.weight(.semibold))
+                            .foregroundStyle(theme.colors.textPrimary)
 
-                        Text(gradedCompsStatusMessage ?? "The backend did not return current eBay listings for this card.")
+                        Text(gradedCompsStatusMessage ?? "The backend did not return active eBay listings for this card.")
                             .font(.subheadline)
                             .foregroundStyle(mutedTextColor)
                     }
@@ -812,23 +910,23 @@ struct ScanResultDetailView: View {
                             .fill(secondaryPanelBackground)
                     )
                 }
-                }
-                .padding(16)
-                .background(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .fill(panelBackground)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .stroke(outlineColor, lineWidth: 1)
-                )
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .fill(panelBackground)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 20, style: .continuous)
+                    .stroke(outlineColor, lineWidth: 1)
+            )
         }
     }
 
     private func primaryActionsSection(card: CardCandidate, item: LiveScanStackItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             VStack(spacing: 12) {
-                if let sellableEntry {
+                if let sellableEntry, !viewModel.hasAlternatives(for: item.id) {
                     Button {
                         showsState.presentSell(
                             entry: sellableEntry,
@@ -1033,12 +1131,14 @@ struct ScanResultDetailView: View {
     private func gradedCompsRow(
         transaction: GradedCardCompsTransaction,
         selectedGradeID: String?,
-        graderLabel: String
+        graderLabel: String?
     ) -> some View {
         let currencyCode = transaction.currencyCode.isEmpty ? (gradedComps?.currencyCode ?? "USD") : transaction.currencyCode
         let gradeLabel = transactionGradeLabel(transaction: transaction, selectedGradeID: selectedGradeID, graderLabel: graderLabel)
 
         return HStack(alignment: .top, spacing: 12) {
+            ebayListingIcon()
+
             VStack(alignment: .leading, spacing: 6) {
                 Text(transaction.title)
                     .font(.subheadline.weight(.semibold))
@@ -1062,6 +1162,7 @@ struct ScanResultDetailView: View {
                         .foregroundStyle(mutedTextColor)
                 }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer(minLength: 0)
 
@@ -1080,7 +1181,7 @@ struct ScanResultDetailView: View {
                     Button {
                         openMarketplaceURL(url, failureMessage: "Could not open listing")
                     } label: {
-                        Text("Open listing")
+                        Label("Open", systemImage: "arrow.up.right")
                             .font(.caption.weight(.semibold))
                             .foregroundStyle(theme.colors.textPrimary)
                     }
@@ -1489,7 +1590,7 @@ struct ScanResultDetailView: View {
         item: LiveScanStackItem,
         selectedGradeOverride: String? = nil
     ) async {
-        guard shouldShowGradedComps(for: item) else {
+        guard shouldShowMarketplaceListings(for: item) else {
             resetGradedCompsState()
             return
         }
@@ -1502,10 +1603,12 @@ struct ScanResultDetailView: View {
             loadedGradedCompsCardID = card.id
         }
 
-        let requestedGrade = normalizedSelectedGradedCompsGradeID(
-            override: selectedGradeOverride,
-            item: item
-        )
+        let requestedGrade = hasGradedMarketplaceContext(for: item)
+            ? normalizedSelectedGradedCompsGradeID(
+                override: selectedGradeOverride,
+                item: item
+            )
+            : nil
 
         if !cardChanged,
            let existingComps = gradedComps,
@@ -1544,7 +1647,7 @@ struct ScanResultDetailView: View {
             selectedGradedCompsGradeID = responseSelectedGrade
         }
         if comps == nil {
-            gradedCompsStatusMessage = "The backend did not return current eBay listings for this card."
+            gradedCompsStatusMessage = "The backend did not return active eBay listings for this card."
         } else if let unavailableReason = comps?.unavailableReason, !unavailableReason.isEmpty {
             gradedCompsStatusMessage = unavailableReason
         }
@@ -1646,6 +1749,10 @@ struct ScanResultDetailView: View {
         override: String?,
         item: LiveScanStackItem
     ) -> String? {
+        guard hasGradedMarketplaceContext(for: item) else {
+            return nil
+        }
+
         if let override = override?.trimmingCharacters(in: .whitespacesAndNewlines),
            !override.isEmpty {
             return override
@@ -1679,6 +1786,10 @@ struct ScanResultDetailView: View {
     }
 
     private func displayedGradeOptions(for item: LiveScanStackItem) -> [GradedCardCompsGradeOption] {
+        guard hasGradedMarketplaceContext(for: item) else {
+            return []
+        }
+
         if let gradeOptions = gradedComps?.gradeOptions, !gradeOptions.isEmpty {
             return gradeOptions
         }
@@ -1694,7 +1805,11 @@ struct ScanResultDetailView: View {
         }
     }
 
-    private func shouldShowGradedComps(for item: LiveScanStackItem) -> Bool {
+    private func shouldShowMarketplaceListings(for _: LiveScanStackItem) -> Bool {
+        return true
+    }
+
+    private func hasGradedMarketplaceContext(for item: LiveScanStackItem) -> Bool {
         if item.resolverMode == .psaSlab || item.slabContext != nil {
             return true
         }
@@ -1754,6 +1869,8 @@ struct ScanResultDetailView: View {
         switch comps.statusReason?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "bot_blocked":
             return "eBay blocked the listings request"
+        case "browse_disabled", "missing_credentials":
+            return "eBay listings unavailable"
         case "fetch_failed":
             return "Could not load eBay listings"
         default:
@@ -1765,6 +1882,8 @@ struct ScanResultDetailView: View {
         switch comps.statusReason?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
         case "bot_blocked":
             return "eBay is blocking automated listing requests from the backend right now. You can still open the eBay search directly."
+        case "browse_disabled", "missing_credentials":
+            return comps.unavailableReason ?? "Enable eBay Browse credentials for this environment to load active listings."
         case "fetch_failed":
             return comps.errorMessage ?? "The backend could not reach eBay for this listing tab."
         default:
@@ -1783,8 +1902,12 @@ struct ScanResultDetailView: View {
     private func transactionGradeLabel(
         transaction: GradedCardCompsTransaction,
         selectedGradeID: String?,
-        graderLabel: String
+        graderLabel: String?
     ) -> String? {
+        guard let graderLabel = graderLabel?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !graderLabel.isEmpty else {
+            return nil
+        }
         let rawGrade = transaction.grade?.trimmingCharacters(in: .whitespacesAndNewlines)
         let resolvedGrade = rawGrade?.isEmpty == false ? rawGrade : selectedGradeID
         guard let resolvedGrade, !resolvedGrade.isEmpty else {

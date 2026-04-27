@@ -1987,7 +1987,7 @@ struct PortfolioSurfaceView: View {
             return "Fetching your deck entries and artwork."
         }
         return collectionStore.entries.isEmpty
-            ? "Scan a card and it will appear here."
+            ? "Scan or add a card and it will appear here."
             : "Try a different name, set, or card number."
     }
 

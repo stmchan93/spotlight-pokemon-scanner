@@ -275,6 +275,8 @@ final class ScannerViewModel: ObservableObject {
 
     var activeAlternativesPreviewImage: UIImage? {
         activeAlternativesContext?.previewImage
+            ?? activeAlternativesContext?.analysis?.originalImage
+            ?? activeAlternativesContext?.analysis?.normalizedImage
     }
 
     var activeAlternativesResponse: ScanMatchResponse? {

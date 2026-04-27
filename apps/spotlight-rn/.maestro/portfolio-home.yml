@@ -1,0 +1,6 @@
+appId: com.spotlight.mobile
+---
+- launchApp
+- assertVisible: "Portfolio"
+- tapOn: "Scan"
+- assertVisible: "Tap anywhere to scan"

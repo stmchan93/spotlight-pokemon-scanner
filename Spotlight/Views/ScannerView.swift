@@ -69,7 +69,6 @@ struct ScannerView: View {
     let rootSafeAreaBottom: CGFloat
     let onExitScanner: (() -> Void)?
     @State private var selectedPhotoItem: PhotosPickerItem?
-    @State private var isTrayExpanded = false
     @State private var reticleBounds: CGRect = .zero
     @State private var addTooltipItemID: UUID?
     @State private var seenAddTooltipItemIDs: Set<UUID> = []
@@ -215,14 +214,17 @@ struct ScannerView: View {
     }
 
     // Keep the top safe area preview-transparent, the bottom safe area black,
-    // and the fixed reticle/toggle stack clear of the first collapsed tray row.
+    // and the fixed reticle/toggle stack clear of the reference tray sheet.
     private let reticleStackVerticalOffset: CGFloat = -24
-    private let trayRowHeight: CGFloat = 80
+    private let trayRowHeight: CGFloat = 94
     private let trayRowSpacing: CGFloat = 12
+    private let trayVisibleRowLimit = 3
     private let trayHandleHeight: CGFloat = 5
-    private let trayHandleTopPadding: CGFloat = 6
-    private let trayHandleBottomPadding: CGFloat = 4
-    private let trayHeaderVerticalPadding: CGFloat = 8
+    private let trayHandleTopPadding: CGFloat = 10
+    private let trayHandleBottomPadding: CGFloat = 16
+    private let trayHeaderBottomPadding: CGFloat = 0
+    private let trayListTopPadding: CGFloat = 6
+    private let emptyTrayBodyHeight: CGFloat = 117
     private let minimumTrayBottomInset: CGFloat = 16
     private let referenceReticleBottomTrim: CGFloat = 60
     private let referenceReticleTopCornerLift: CGFloat = 44
@@ -442,9 +444,9 @@ struct ScannerView: View {
             }
         } label: {
             Text(title)
-                .font(.system(size: 14, weight: .bold))
+                .font(.system(size: 16, weight: .bold))
                 .foregroundStyle(isSelected ? spotlightBlack : spotlightWhite.opacity(0.8))
-                .frame(minWidth: 88, minHeight: 36)
+                .frame(minWidth: 96, minHeight: 40)
                 .background(isSelected ? spotlightYellow : Color.clear)
                 .clipShape(Capsule())
         }
@@ -532,13 +534,13 @@ struct ScannerView: View {
 
     private func compactScanTray(screenHeight: CGFloat, safeAreaBottom: CGFloat) -> some View {
         let visibleItemCount = viewModel.visibleScannedItems.count
-        let expandedRowCount = min(max(visibleItemCount, 1), 3)
+        let expandedRowCount = min(max(visibleItemCount, 1), trayVisibleRowLimit)
         let trayBottomInset = max(safeAreaBottom, minimumTrayBottomInset)
-        let collapsedListHeight = trayRowHeight
         let expandedListHeight = (CGFloat(expandedRowCount) * trayRowHeight)
             + (CGFloat(max(expandedRowCount - 1, 0)) * trayRowSpacing)
-        let trayListHeight = isTrayExpanded ? expandedListHeight : collapsedListHeight
-        let trayMaxHeight = screenHeight * 0.36
+            + trayListTopPadding
+        let trayListHeight = visibleItemCount > 0 ? expandedListHeight : 0
+        let trayMaxHeight = screenHeight * 0.46
 
         return VStack(alignment: .leading, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
@@ -549,20 +551,22 @@ struct ScannerView: View {
 
                 // Header: "Recent scans" + CLEAR | "$X.XX total"
                 HStack(alignment: .center, spacing: 8) {
-                    HStack(spacing: 8) {
+                    HStack(spacing: 14) {
                         Text("Recent scans")
-                            .font(.system(size: 16, weight: .semibold))
+                            .font(.system(size: 18, weight: .bold))
                             .foregroundStyle(.white)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.9)
 
                         if !viewModel.visibleScannedItems.isEmpty {
                             Button("CLEAR") {
                                 viewModel.clearScans()
                             }
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundStyle(.white.opacity(0.6))
-                            .padding(.horizontal, 10)
-                            .padding(.vertical, 5)
-                            .background(Color.white.opacity(0.15))
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(.white.opacity(0.62))
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 8)
+                            .background(Color.white.opacity(0.14))
                             .clipShape(Capsule())
                         }
                     }
@@ -572,11 +576,11 @@ struct ScannerView: View {
                     HStack(spacing: 8) {
                         ZStack {
                             Text(viewModel.totalValueText)
-                                .font(.system(size: 16, weight: .bold))
+                                .font(.system(size: 18, weight: .bold))
                                 .foregroundStyle(.white)
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 6)
-                                .background(Color(red: 0.35, green: 0.45, blue: 0.35))
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 8)
+                                .background(Color(red: 0.40, green: 0.53, blue: 0.40))
                                 .clipShape(Capsule())
                         }
                         .accessibilityElement(children: .ignore)
@@ -588,61 +592,28 @@ struct ScannerView: View {
                         }
                     }
                 }
-                .padding(.horizontal, 12)
-                .padding(.vertical, trayHeaderVerticalPadding)
+                .padding(.horizontal, 14)
+                .padding(.bottom, trayHeaderBottomPadding)
                 .background(Color.black)
             }
             .contentShape(Rectangle())
-            .simultaneousGesture(trayExpansionGesture)
 
-            // Cards list (show first when collapsed, all when expanded)
             if !viewModel.visibleScannedItems.isEmpty {
-                let itemsToShow = isTrayExpanded ? viewModel.visibleScannedItems : Array(viewModel.visibleScannedItems.prefix(1))
-                if !isTrayExpanded, let firstItem = itemsToShow.first {
-                    if visibleItemCount > 1 {
-                        compactCollapsedTrayContent(
-                            item: firstItem,
-                            trayBottomInset: trayBottomInset
-                        )
-                            .frame(height: collapsedListHeight + trayBottomInset)
-                            .background(Color.black)
-                            .contentShape(Rectangle())
-                            .simultaneousGesture(trayExpansionGesture)
-                    } else {
-                        compactCollapsedTrayContent(
-                            item: firstItem,
-                            trayBottomInset: trayBottomInset
-                        )
-                            .frame(height: collapsedListHeight + trayBottomInset)
-                            .background(Color.black)
-                    }
-                } else if isTrayExpanded {
-                    compactTrayListContent(items: itemsToShow)
-                        .frame(height: min(trayListHeight, trayMaxHeight))
-                        .background(Color.black)
+                compactTrayListContent(items: viewModel.visibleScannedItems)
+                    .frame(height: min(trayListHeight, trayMaxHeight))
+                    .background(Color.black)
 
-                    Color.black
-                        .frame(height: trayBottomInset)
-                }
-            } else {
                 Color.black
                     .frame(height: trayBottomInset)
+            } else {
+                Color.black
+                    .frame(height: emptyTrayBodyHeight + trayBottomInset)
             }
         }
         .background(Color.black)
-        .clipShape(ScannerTraySheetShape(cornerRadius: 20))
+        .clipShape(ScannerTraySheetShape(cornerRadius: 22))
         .ignoresSafeArea(edges: .bottom)
         .accessibilityIdentifier("scannerTray")
-    }
-
-    private func compactCollapsedTrayContent(
-        item: LiveScanStackItem,
-        trayBottomInset: CGFloat
-    ) -> some View {
-        compactCardRow(item)
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            .padding(.top, 4)
-            .padding(.bottom, collapsedTrayRowBottomPadding(trayBottomInset: trayBottomInset))
     }
 
     private func compactTrayListContent(items: [LiveScanStackItem]) -> some View {
@@ -650,6 +621,7 @@ struct ScannerView: View {
             VStack(spacing: trayRowSpacing) {
                 ForEach(items) { item in
                     compactCardRow(item)
+                        .frame(height: trayRowHeight)
                         .transition(
                             .asymmetric(
                                 insertion: .offset(y: -64).combined(with: .opacity),
@@ -658,6 +630,7 @@ struct ScannerView: View {
                         )
                 }
             }
+            .padding(.top, trayListTopPadding)
         }
     }
 
@@ -689,29 +662,34 @@ struct ScannerView: View {
                     item: item,
                     cycleState: cycleState,
                     onPrimaryTap: detailAction,
-                    onCycleTap: cycleState == nil ? nil : { viewModel.cycleCandidate(for: item.id) }
+                    onCycleTap: cycleState == nil ? nil : { viewModel.cycleCandidate(for: item.id) },
+                    width: 64,
+                    height: 90,
+                    cornerRadius: 8
                 )
-                    .frame(width: 50, height: 70)
 
-                HStack(alignment: .center, spacing: 12) {
+                HStack(alignment: .center, spacing: 10) {
                     if item.phase == .pending {
                         pendingCompactRowCopy
                     } else {
-                        VStack(alignment: .leading, spacing: 3) {
+                        VStack(alignment: .leading, spacing: 5) {
                             Text(primaryTitle(for: item))
-                                .font(.system(size: 14, weight: .semibold))
+                                .font(.system(size: 17, weight: .bold))
                                 .foregroundStyle(.white)
-                                .lineLimit(2)
+                                .lineLimit(1)
+                                .minimumScaleFactor(0.82)
 
                             if let secondaryTitle = secondaryTitle(for: item) {
                                 Text(secondaryTitle)
-                                    .font(.system(size: 12))
+                                    .font(.system(size: 15, weight: .regular))
                                     .foregroundStyle(.white.opacity(0.7))
-                                    .lineLimit(2)
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.82)
                             }
 
                             compactRowSupplementaryLine(for: item)
                         }
+                        .layoutPriority(1)
                     }
 
                     Spacer(minLength: 8)
@@ -719,13 +697,17 @@ struct ScannerView: View {
                     if let pricing = item.pricing, let primaryPrice = pricing.primaryDisplayPrice {
                         VStack(alignment: .trailing, spacing: 2) {
                             Text(pricing.primaryLabel.uppercased())
-                                .font(.system(size: 9, weight: .bold))
+                                .font(.system(size: 12, weight: .bold))
                                 .foregroundStyle(.white.opacity(0.5))
+                                .tracking(1.1)
 
                             Text(formattedPrice(primaryPrice, currencyCode: pricing.currencyCode))
-                                .font(.system(size: 16, weight: .bold))
+                                .font(.system(size: 21, weight: .bold))
                                 .foregroundStyle(.white)
+                                .minimumScaleFactor(0.82)
+                                .lineLimit(1)
                         }
+                        .frame(minWidth: 94, alignment: .trailing)
                     } else if item.phase == .pending {
                         pendingCompactRowValue
                     }
@@ -739,8 +721,8 @@ struct ScannerView: View {
                     trayCollectionAction(item: item, state: collectionState)
                 }
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            .padding(.horizontal, 14)
+            .padding(.vertical, 2)
             .background(Color.black)
             .frame(maxWidth: .infinity, alignment: .leading)
             .offset(x: swipeOffset)
@@ -784,9 +766,10 @@ struct ScannerView: View {
             trayVariantMenu(for: item)
         } else if let tertiaryLine = tertiaryLine(for: item) {
             Text(tertiaryLine)
-                .font(.system(size: 11))
+                .font(.system(size: 14, weight: .regular))
                 .foregroundStyle(.white.opacity(0.6))
                 .lineLimit(1)
+                .minimumScaleFactor(0.82)
         }
     }
 
@@ -964,13 +947,15 @@ struct ScannerView: View {
     }
 
     private func trayCollectionAction(item: LiveScanStackItem, state: TrayCollectionState) -> some View {
-        VStack(spacing: 4) {
+        let actionColor = Color(red: 0.76, green: 1.0, blue: 0.25)
+
+        return VStack(spacing: 4) {
             if state.quantity > 0 {
                 Text("QTY \(state.quantity)")
-                    .font(.system(size: 10, weight: .bold))
+                    .font(.system(size: 12, weight: .bold))
                     .foregroundStyle(.white)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
+                    .padding(.horizontal, 11)
+                    .padding(.vertical, 5)
                     .background(Color.white.opacity(0.14))
                     .clipShape(Capsule())
             }
@@ -978,15 +963,18 @@ struct ScannerView: View {
             Button {
                 addCardToDeck(item: item, card: state.card, slabContext: state.slabContext)
             } label: {
-                Image(systemName: "plus.square.fill")
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundStyle(Color(red: 0.74, green: 0.94, blue: 0.33))
+                Image(systemName: "plus")
+                    .font(.system(size: 19, weight: .black))
+                    .foregroundStyle(.black)
+                    .frame(width: 30, height: 30)
+                    .background(actionColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
             }
             .buttonStyle(.plain)
 
             Text("ADD")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(Color(red: 0.74, green: 0.94, blue: 0.33))
+                .font(.system(size: 14, weight: .bold))
+                .foregroundStyle(actionColor)
         }
         .frame(width: 58)
         .overlay(alignment: .topTrailing) {
@@ -1014,9 +1002,9 @@ struct ScannerView: View {
             )
         } label: {
             Text("SELL")
-                .font(.system(size: 12, weight: .black))
+                .font(.system(size: 16, weight: .black))
                 .foregroundStyle(spotlightBlack)
-                .padding(.horizontal, 18)
+                .padding(.horizontal, 22)
                 .padding(.vertical, 10)
                 .background(spotlightYellow)
             .clipShape(Capsule())
@@ -1575,21 +1563,6 @@ struct ScannerView: View {
         }
     }
 
-    private var trayExpansionGesture: some Gesture {
-        DragGesture(minimumDistance: 14)
-            .onEnded { value in
-                guard abs(value.translation.height) > abs(value.translation.width) else { return }
-                if value.translation.height < -28 {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                        isTrayExpanded = true
-                    }
-                } else if value.translation.height > 28 {
-                    withAnimation(.spring(response: 0.28, dampingFraction: 0.86)) {
-                        isTrayExpanded = false
-                    }
-                }
-            }
-    }
 }
 
 private struct CompactActionChip: View {
@@ -1677,11 +1650,14 @@ private struct StackItemThumbnail: View {
     let cycleState: ResultCandidateCycleState?
     let onPrimaryTap: (() -> Void)?
     let onCycleTap: (() -> Void)?
+    var width: CGFloat = 64
+    var height: CGFloat = 90
+    var cornerRadius: CGFloat = 8
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             imageContent
-                .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .contentShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
                 .onTapGesture {
                     if let onCycleTap {
                         onCycleTap()
@@ -1703,8 +1679,8 @@ private struct StackItemThumbnail: View {
                 .padding(5)
             }
         }
-        .frame(width: 64, height: 90)
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .frame(width: width, height: height)
+        .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
     }
 
     @ViewBuilder
@@ -1741,7 +1717,7 @@ private struct StackItemThumbnail: View {
                 .resizable()
                 .scaledToFill()
         } else {
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
+            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
                 .fill(Color.white.opacity(0.08))
                 .overlay(
                     Text(placeholderGlyph)

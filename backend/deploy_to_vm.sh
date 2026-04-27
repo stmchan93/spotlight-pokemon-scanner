@@ -74,6 +74,36 @@ for raw_line in env_path.read_text().splitlines():
 PY
 }
 
+read_first_dotenv_value() {
+  local key="$1"
+  shift
+  local candidate_file=""
+  local value=""
+
+  for candidate_file in "$@"; do
+    if [ -z "$candidate_file" ] || [ ! -f "$candidate_file" ]; then
+      continue
+    fi
+    value="$(read_dotenv_value "$candidate_file" "$key")"
+    if [ -n "$value" ]; then
+      printf '%s' "$value"
+      return
+    fi
+  done
+}
+
+env_flag_enabled() {
+  local raw_value="${1:-}"
+  case "${raw_value,,}" in
+    1|true|yes|on)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
 normalize_vm_repo_path() {
   local raw_path="${1:-}"
   if [ -z "$raw_path" ]; then
@@ -150,6 +180,17 @@ for key in "${REQUIRED_ENV_KEYS[@]}"; do
     exit 1
   fi
 done
+
+EBAY_BROWSE_ENABLED_VALUE="$(read_first_dotenv_value "SPOTLIGHT_EBAY_BROWSE_ENABLED" "$ENV_FILE" "$SECRETS_FILE")"
+if env_flag_enabled "$EBAY_BROWSE_ENABLED_VALUE"; then
+  for key in EBAY_CLIENT_ID EBAY_CLIENT_SECRET; do
+    value="$(read_first_dotenv_value "$key" "$SECRETS_FILE" "$ENV_FILE")"
+    if [ -z "$value" ]; then
+      echo "eBay Browse is enabled, but $key is missing from $SECRETS_FILE or $ENV_FILE." >&2
+      exit 1
+    fi
+  done
+fi
 
 VENV_DIR="$SCRIPT_DIR/.venv"
 LOG_DIR="$SCRIPT_DIR/logs"
@@ -372,5 +413,6 @@ echo "  Resource cron: $RESOURCE_CRON_SCHEDULE"
 echo "  Backend bind: $BACKEND_HOST:8788"
 echo "  Backend service: $SERVICE_NAME"
 echo "  Public base URL: ${PUBLIC_BASE_URL:-<unset>}"
+echo "  eBay Browse: $(if env_flag_enabled "$EBAY_BROWSE_ENABLED_VALUE"; then printf '%s' "enabled"; else printf '%s' "disabled"; fi)"
 echo "  Health: curl http://127.0.0.1:8788/api/v1/health"
 echo "  Provider status: curl http://127.0.0.1:8788/api/v1/ops/provider-status"

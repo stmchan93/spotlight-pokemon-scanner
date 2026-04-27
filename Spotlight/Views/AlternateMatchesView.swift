@@ -1,11 +1,17 @@
 import SwiftUI
 
 struct AlternateMatchesView: View {
+    @Environment(\.lootyTheme) private var theme
     @ObservedObject var viewModel: ScannerViewModel
     @State private var isSearchExpanded = false
 
-    private let limeAccent = Color(red: 0.78, green: 0.92, blue: 0.47)
-    private let inkBackground = Color(red: 0.04, green: 0.05, blue: 0.07)
+    private var accent: Color { theme.colors.brand }
+    private var pageBackground: Color { theme.colors.pageLight }
+    private var panelBackground: Color { theme.colors.canvasElevated }
+    private var fieldBackground: Color { theme.colors.field }
+    private var primaryText: Color { theme.colors.textPrimary }
+    private var secondaryText: Color { theme.colors.textSecondary }
+    private var rowDivider: Color { theme.colors.outlineSubtle }
 
     private var topCandidates: [ScoredCandidate] {
         viewModel.activeAlternativesResponse?.topCandidates ?? []
@@ -26,7 +32,7 @@ struct AlternateMatchesView: View {
 
     var body: some View {
         ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 28) {
+            VStack(alignment: .leading, spacing: 26) {
                 header
                 scanPreview
                 closestMatchSection
@@ -37,8 +43,8 @@ struct AlternateMatchesView: View {
                     searchResultsSection
                 }
             }
-            .padding(.horizontal, 20)
-            .padding(.top, 16)
+            .padding(.horizontal, 18)
+            .padding(.top, 18)
             .padding(.bottom, 40)
         }
         .background(background.ignoresSafeArea())
@@ -48,25 +54,7 @@ struct AlternateMatchesView: View {
     }
 
     private var background: some View {
-        ZStack {
-            inkBackground
-
-            LinearGradient(
-                colors: [
-                    Color(red: 0.19, green: 0.16, blue: 0.12).opacity(0.42),
-                    Color.clear,
-                    Color(red: 0.06, green: 0.07, blue: 0.10).opacity(0.8)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            Circle()
-                .fill(Color.white.opacity(0.08))
-                .frame(width: 280, height: 280)
-                .blur(radius: 52)
-                .offset(y: 88)
-        }
+        pageBackground
     }
 
     private var shouldShowSearchResults: Bool {
@@ -82,16 +70,16 @@ struct AlternateMatchesView: View {
                     Image(systemName: "chevron.left")
                     Text("Back")
                 }
-                .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.82))
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(secondaryText)
             }
             .buttonStyle(.plain)
 
             Spacer()
 
             Text(resultCountText)
-                .font(.headline.weight(.semibold))
-                .foregroundStyle(.white)
+                .font(.system(size: 22, weight: .bold))
+                .foregroundStyle(primaryText)
 
             Spacer()
 
@@ -103,32 +91,26 @@ struct AlternateMatchesView: View {
     private var scanPreview: some View {
         VStack(spacing: 14) {
             if let previewImage = viewModel.activeAlternativesPreviewImage {
-                ZStack {
-                    Circle()
-                        .fill(Color.white.opacity(0.12))
-                        .frame(width: 210, height: 210)
-                        .blur(radius: 48)
-
-                    Image(uiImage: previewImage)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: 220, maxHeight: 290)
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-                        .shadow(color: .black.opacity(0.36), radius: 22, y: 10)
-                }
+                Image(uiImage: previewImage)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: 266, height: 310)
+                    .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                    .shadow(color: theme.shadow.color, radius: theme.shadow.radius, y: theme.shadow.y)
             } else {
                 RoundedRectangle(cornerRadius: 20, style: .continuous)
-                    .fill(Color.white.opacity(0.06))
-                    .frame(width: 220, height: 280)
+                    .fill(fieldBackground)
+                    .frame(width: 266, height: 310)
                     .overlay(
                         Image(systemName: "photo")
                             .font(.title.weight(.semibold))
-                            .foregroundStyle(Color.white.opacity(0.55))
+                            .foregroundStyle(secondaryText)
                     )
             }
         }
         .frame(maxWidth: .infinity)
-        .padding(.vertical, 6)
+        .padding(.top, 34)
+        .padding(.bottom, 14)
     }
 
     @ViewBuilder
@@ -136,8 +118,8 @@ struct AlternateMatchesView: View {
         if let bestMatch {
             VStack(alignment: .leading, spacing: 12) {
                 Text("Closest Match")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(limeAccent)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(accent)
 
                 Button {
                     viewModel.presentCandidateDetail(bestMatch.candidate)
@@ -158,8 +140,8 @@ struct AlternateMatchesView: View {
         if !similarMatches.isEmpty {
             VStack(alignment: .leading, spacing: 12) {
                 Text("\(similarMatches.count) similar \(similarMatches.count == 1 ? "card" : "cards")")
-                    .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .font(.system(size: 22, weight: .bold))
+                    .foregroundStyle(primaryText)
 
                 ForEach(similarMatches) { candidate in
                     Button {
@@ -189,14 +171,14 @@ struct AlternateMatchesView: View {
             } label: {
                 Text("Are these wrong?")
                     .font(.headline.weight(.semibold))
-                    .foregroundStyle(.white)
+                    .foregroundStyle(primaryText)
             }
             .buttonStyle(.plain)
 
             if isSearchExpanded {
                 Text("Search by name, set, or number, or go back and rescan.")
                     .font(.subheadline)
-                    .foregroundStyle(Color.white.opacity(0.68))
+                    .foregroundStyle(secondaryText)
 
                 TextField("Search by name, set, or number", text: Binding(
                     get: { viewModel.searchQuery },
@@ -207,9 +189,9 @@ struct AlternateMatchesView: View {
                 .padding(16)
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color(red: 0.12, green: 0.16, blue: 0.20))
+                        .fill(panelBackground)
                 )
-                .foregroundStyle(.white)
+                .foregroundStyle(primaryText)
             }
 
             Button {
@@ -217,10 +199,10 @@ struct AlternateMatchesView: View {
             } label: {
                 Text("Back To Scanner")
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(Color.white.opacity(0.78))
+                    .foregroundStyle(secondaryText)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .background(Color.white.opacity(0.06))
+                    .background(fieldBackground)
                     .clipShape(Capsule())
             }
             .buttonStyle(.plain)
@@ -231,7 +213,7 @@ struct AlternateMatchesView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Search Results")
                 .font(.headline.weight(.semibold))
-                .foregroundStyle(.white)
+                .foregroundStyle(primaryText)
 
             ForEach(viewModel.searchResults) { candidate in
                 Button {
@@ -256,17 +238,17 @@ struct AlternateMatchesView: View {
                 VStack(alignment: .leading, spacing: 6) {
                     Text("\(candidate.setName) • \(candidate.language)".uppercased())
                         .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.white.opacity(0.58))
+                        .foregroundStyle(secondaryText)
                         .lineLimit(2)
 
                     Text("\(candidate.name) #\(candidate.number)")
                         .font(.headline.weight(.semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(primaryText)
                         .lineLimit(2)
 
                     Text(detailLabel)
                         .font(.subheadline.weight(.semibold))
-                        .foregroundStyle(emphasize ? .white : Color.white.opacity(0.78))
+                        .foregroundStyle(emphasize ? primaryText : secondaryText)
                         .lineLimit(1)
                 }
 
@@ -274,13 +256,13 @@ struct AlternateMatchesView: View {
 
                 Image(systemName: "chevron.right")
                     .font(.caption.weight(.bold))
-                    .foregroundStyle(Color.white.opacity(0.52))
+                    .foregroundStyle(secondaryText)
                     .padding(.top, 4)
             }
             .padding(.vertical, 6)
 
             Rectangle()
-                .fill(Color.white.opacity(0.06))
+                .fill(rowDivider)
                 .frame(height: 1)
                 .padding(.leading, 78)
         }
@@ -305,6 +287,7 @@ struct AlternateMatchesView: View {
 }
 
 private struct CandidateThumbnail: View {
+    @Environment(\.lootyTheme) private var theme
     let candidate: CardCandidate
 
     var body: some View {
@@ -330,18 +313,18 @@ private struct CandidateThumbnail: View {
             }
         }
         .frame(width: 64, height: 90)
-        .background(Color.white.opacity(0.04))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(theme.colors.field)
+        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     @ViewBuilder
     private var fallback: some View {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-            .fill(Color.white.opacity(0.08))
+        RoundedRectangle(cornerRadius: 10, style: .continuous)
+            .fill(theme.colors.field)
             .overlay(
                 Text(String(candidate.name.prefix(1)))
                     .font(.headline.weight(.bold))
-                    .foregroundStyle(Color.white.opacity(0.74))
+                    .foregroundStyle(theme.colors.textSecondary)
             )
     }
 }

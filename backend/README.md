@@ -33,6 +33,7 @@ What is intentionally removed right now:
 - `GET /api/v1/ops/unmatched-scans`
 - `GET /api/v1/cards/search?q=charizard`
 - `GET /api/v1/cards/<card_id>`
+- `GET /api/v1/cards/<card_id>/ebay-comps`
 - `POST /api/v1/cards/<card_id>/refresh-pricing`
 - `POST /api/v1/scan/match`
 - `POST /api/v1/scan/feedback`
@@ -40,7 +41,8 @@ What is intentionally removed right now:
 ## Run
 
 ```bash
-python3 backend/server.py \
+backend/.venv/bin/python -m pip install -r backend/requirements.vm.txt
+backend/.venv/bin/python backend/server.py \
   --database-path backend/data/spotlight_scanner.sqlite \
   --port 8788
 ```
@@ -56,8 +58,25 @@ For the current beta stage, the recommended hosted path is one Linux VM with:
 Run this on the VM after cloning the repo:
 
 ```bash
+cp backend/.env.secrets.example backend/.env
 backend/deploy.sh staging backend/.env
 ```
+
+Or from the repo root, use the one-shot wrapper:
+
+```bash
+pnpm deploy:staging:vm
+```
+
+That wrapper runs the deploy and then immediately runs the VM health check.
+
+The deploy helper uses two inputs:
+
+- `backend/.env.staging` or `backend/.env.production` for checked-in environment defaults
+- the second argument secrets file, typically `backend/.env`, for machine-specific secrets like:
+  - `SCRYDEX_API_KEY`
+  - `SCRYDEX_TEAM_ID`
+  - optional eBay credentials
 
 What it does:
 - creates `backend/.venv`
@@ -71,6 +90,7 @@ What it does:
   - `@reboot` backend start
   - a minute-level scheduler wrapper that evaluates the desired local timezone and fires the Scrydex sync at `3:00 AM America/Los_Angeles`
 - starts the backend immediately on `0.0.0.0:8788`
+- validates `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` before restart when `SPOTLIGHT_EBAY_BROWSE_ENABLED=1`
 
 Useful follow-ups on the VM:
 
@@ -109,6 +129,21 @@ Active raw runtime provider:
 Thin provider shells preserved for the later slab rebuild / future experiments:
 - `PRICECHARTING_API_KEY`
 - `PRICECHARTING_BASE_URL`
+
+Optional eBay Browse live-listings integration:
+- `SPOTLIGHT_EBAY_BROWSE_ENABLED=1`
+- `EBAY_CLIENT_ID`
+- `EBAY_CLIENT_SECRET`
+- `EBAY_MARKETPLACE_ID=EBAY_US`
+
+For VM deploys, it is safest to keep `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` in the deploy secrets file you pass to `backend/deploy.sh` or `backend/deploy_to_vm.sh`.
+
+Current eBay listings endpoint notes:
+- `GET /api/v1/cards/<card_id>/ebay-comps` returns active listings only, not sold comps
+- raw card requests work without `grader` or `grade`
+- graded/slab requests still accept `grader` and `grade`
+- responses are normalized to return at most `5` listings, or fewer when `limit` asks for a smaller number
+- active listing results are sorted lowest-first by eBay price ordering
 
 ## Useful commands
 
