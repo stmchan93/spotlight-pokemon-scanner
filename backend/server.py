@@ -2645,6 +2645,20 @@ class SpotlightScanService:
         bought_at = str(payload.get("boughtAt") or utc_now()).strip() or utc_now()
         source_scan_id = str(payload.get("sourceScanID") or "").strip() or None
         source_confirmation_id = str(payload.get("sourceConfirmationID") or "").strip() or None
+        if source_scan_id:
+            scan_exists = self.connection.execute(
+                "SELECT 1 FROM scan_events WHERE scan_id = ? LIMIT 1",
+                (source_scan_id,),
+            ).fetchone() is not None
+            if not scan_exists:
+                source_scan_id = None
+        if source_confirmation_id:
+            confirmation_exists = self.connection.execute(
+                "SELECT 1 FROM scan_confirmations WHERE id = ? LIMIT 1",
+                (source_confirmation_id,),
+            ).fetchone() is not None
+            if not confirmation_exists:
+                source_confirmation_id = None
         deck_entry_id = deck_entry_storage_key(
             card_id=card_id,
             grader=grader,
@@ -6706,7 +6720,7 @@ class SpotlightScanService:
                 (scan_id,),
             ).fetchone()
             if existing_event is None:
-                raise FileNotFoundError("scan event not found")
+                scan_id = None
 
         slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
         grader = str(slab_context.get("grader") or "").strip() or None

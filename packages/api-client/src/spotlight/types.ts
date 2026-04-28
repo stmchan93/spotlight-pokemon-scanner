@@ -242,6 +242,29 @@ export type PortfolioBuyResponsePayload = {
   boughtAt: string;
 };
 
+export type InventoryEntryCreateRequestPayload = {
+  cardID: string;
+  slabContext: SlabContext | null;
+  variantName?: string | null;
+  condition: DeckConditionCode | null;
+  quantity?: number;
+  sourceScanID: string | null;
+  selectionSource?: 'top' | 'alternate' | 'manual_search' | 'unknown';
+  selectedRank?: number | null;
+  wasTopPrediction?: boolean | null;
+  addedAt: string;
+};
+
+export type InventoryEntryCreateResponsePayload = {
+  deckEntryID: string;
+  cardID: string;
+  variantName?: string | null;
+  condition?: DeckConditionCode | null;
+  confirmationID?: string | null;
+  sourceScanID?: string | null;
+  addedAt: string;
+};
+
 export type PortfolioEntryReplaceRequestPayload = {
   deckEntryID: string;
   cardID: string;

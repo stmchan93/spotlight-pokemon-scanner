@@ -18,6 +18,8 @@ import type {
   CardEbayListingsRecord,
   CardMarketInsight,
   CatalogSearchResult,
+  InventoryEntryCreateRequestPayload,
+  InventoryEntryCreateResponsePayload,
   InventoryCardEntry,
   PortfolioEntryReplaceRequestPayload,
   PortfolioEntryReplaceResponsePayload,
@@ -64,6 +66,7 @@ export interface SpotlightRepository {
     limit?: number;
   }): Promise<CardEbayListingsRecord | null>;
   getAddToCollectionOptions(cardId: string): Promise<AddToCollectionOptions>;
+  createInventoryEntry(payload: InventoryEntryCreateRequestPayload): Promise<InventoryEntryCreateResponsePayload>;
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
   replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload): Promise<PortfolioEntryReplaceResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
@@ -1772,6 +1775,33 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
+  async createInventoryEntry(payload: InventoryEntryCreateRequestPayload) {
+    const quantity = Math.max(1, payload.quantity ?? 1);
+    const { updatedEntries, deckEntryID } = appendMockBuy(
+      this.inventoryEntries,
+      this.cardDetails,
+      {
+        cardID: payload.cardID,
+        slabContext: payload.slabContext,
+        variantName: payload.variantName ?? null,
+        condition: payload.condition,
+        quantity,
+        unitPrice: 0,
+      },
+    );
+    this.inventoryEntries = updatedEntries;
+
+    return {
+      deckEntryID,
+      cardID: payload.cardID,
+      variantName: payload.variantName ?? null,
+      condition: payload.condition,
+      confirmationID: null,
+      sourceScanID: payload.sourceScanID,
+      addedAt: payload.addedAt,
+    };
+  }
+
   async replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload) {
     const existingEntry = this.inventoryEntries.find((entry) => entry.id === payload.deckEntryID);
     if (!existingEntry) {
@@ -2478,6 +2508,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async createPortfolioBuy(payload: PortfolioBuyRequestPayload) {
     return this.requestJsonOrThrow<PortfolioBuyResponsePayload>(`${this.baseUrl}/api/v1/portfolio/buys`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async createInventoryEntry(payload: InventoryEntryCreateRequestPayload) {
+    return this.requestJsonOrThrow<InventoryEntryCreateResponsePayload>(`${this.baseUrl}/api/v1/deck/entries`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

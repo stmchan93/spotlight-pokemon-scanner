@@ -35,6 +35,8 @@ from catalog_tools import (  # noqa: E402
     utc_now,
 )
 from scrydex_adapter import (  # noqa: E402
+    DEFAULT_CATALOG_SYNC_TIMEOUT_SECONDS,
+    fetch_scrydex_cards_page,
     persist_scrydex_all_graded_snapshots,
     persist_scrydex_daily_history_from_card_payload,
     reset_scrydex_request_stats,
@@ -733,6 +735,98 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(sync_once.call_count, 1)
         sleep.assert_not_called()
 
+    def test_fetch_scrydex_cards_page_uses_longer_catalog_sync_timeout(self) -> None:
+        with patch("scrydex_adapter.scrydex_api_request", return_value={"data": []}) as api_request:
+            cards = fetch_scrydex_cards_page(page=1, page_size=100, include_prices=True)
+
+        self.assertEqual(cards, [])
+        self.assertEqual(DEFAULT_CATALOG_SYNC_TIMEOUT_SECONDS, 30)
+        api_request.assert_called_once()
+        self.assertEqual(api_request.call_args.kwargs["timeout"], 30)
+
+    def test_sync_scrydex_catalog_retries_transient_page_timeout_on_same_page(self) -> None:
+        sync_payload = [
+            {
+                "id": "xy1-2",
+                "name": "Ivysaur",
+                "language_code": "en",
+                "printed_number": "2",
+                "number": "2",
+                "rarity": "Uncommon",
+                "expansion": {
+                    "id": "xy1",
+                    "name": "XY",
+                    "series": "XY",
+                    "language": "en",
+                },
+                "images": [],
+                "variants": [],
+            }
+        ]
+
+        with patch.dict(
+            os.environ,
+            {"SCRYDEX_API_KEY": "scrydex-key", "SCRYDEX_TEAM_ID": "team-id"},
+            clear=False,
+        ), patch(
+            "sync_scrydex_catalog.fetch_scrydex_cards_page",
+            side_effect=[TimeoutError("The read operation timed out"), sync_payload],
+        ) as fetch_page, patch("sync_scrydex_catalog.random.uniform", return_value=0.0), patch(
+            "sync_scrydex_catalog.time.sleep"
+        ) as sleep:
+            summary = sync_scrydex_catalog(
+                database_path=self.database_path,
+                repo_root=REPO_ROOT,
+                page_size=1,
+                max_pages=1,
+            )
+
+        self.assertEqual(fetch_page.call_count, 2)
+        self.assertEqual([call.kwargs["page"] for call in fetch_page.call_args_list], [1, 1])
+        sleep.assert_called_once_with(2.0)
+        self.assertEqual(summary["pagesFetched"], 1)
+        self.assertEqual(summary["cardsSeen"], 1)
+        self.assertEqual(summary["estimatedCreditsUsed"], 1)
+
+    def test_sync_scrydex_catalog_fails_after_transient_page_retries_are_exhausted(self) -> None:
+        with patch.dict(
+            os.environ,
+            {"SCRYDEX_API_KEY": "scrydex-key", "SCRYDEX_TEAM_ID": "team-id"},
+            clear=False,
+        ), patch(
+            "sync_scrydex_catalog.fetch_scrydex_cards_page",
+            side_effect=TimeoutError("The read operation timed out"),
+        ) as fetch_page, patch("sync_scrydex_catalog.random.uniform", return_value=0.0), patch(
+            "sync_scrydex_catalog.time.sleep"
+        ) as sleep:
+            with self.assertRaises(TimeoutError):
+                sync_scrydex_catalog(
+                    database_path=self.database_path,
+                    repo_root=REPO_ROOT,
+                    page_size=100,
+                    max_pages=1,
+                )
+
+        self.assertEqual(fetch_page.call_count, 5)
+        self.assertEqual([call.kwargs["page"] for call in fetch_page.call_args_list], [1, 1, 1, 1, 1])
+        self.assertEqual([call.args[0] for call in sleep.call_args_list], [2.0, 4.0, 8.0, 16.0])
+
+        sync_row = self.connection.execute(
+            """
+            SELECT status, pages_fetched, cards_seen, estimated_credits_used, error_text
+            FROM provider_sync_runs
+            ORDER BY started_at DESC
+            LIMIT 1
+            """
+        ).fetchone()
+        self.assertIsNotNone(sync_row)
+        assert sync_row is not None
+        self.assertEqual(sync_row["status"], "failed")
+        self.assertEqual(sync_row["pages_fetched"], 0)
+        self.assertEqual(sync_row["cards_seen"], 0)
+        self.assertEqual(sync_row["estimated_credits_used"], 0)
+        self.assertIn("timed out", sync_row["error_text"])
+
     def test_persist_scrydex_all_graded_snapshots_writes_multiple_grade_rows(self) -> None:
         payload = {
             "id": "base1-4",
@@ -1219,6 +1313,7 @@ class PricingPhase6Tests(unittest.TestCase):
                 repo_root=REPO_ROOT,
                 page_size=1,
                 max_pages=1,
+                price_date="2026-04-28",
             )
 
         fetch_page.assert_called_once_with(
@@ -1234,6 +1329,7 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(summary["rawSnapshotsUpserted"], 1)
         self.assertEqual(summary["gradedSnapshotsUpserted"], 1)
         self.assertEqual(summary["estimatedCreditsUsed"], 1)
+        self.assertEqual(summary["priceDate"], "2026-04-28")
 
         card_row = self.connection.execute(
             "SELECT id, image_small_url, image_url FROM cards WHERE id = ?",
@@ -1242,6 +1338,15 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertIsNotNone(card_row)
         self.assertEqual(card_row["image_small_url"], "https://images.scrydex.example/cards/xy1-1/small")
         self.assertEqual(card_row["image_url"], "https://images.scrydex.example/cards/xy1-1/large")
+
+        history_row = self.connection.execute(
+            "SELECT card_id, price_date, default_raw_market_price FROM card_price_history_daily WHERE card_id = ?",
+            ("xy1-1",),
+        ).fetchone()
+        self.assertIsNotNone(history_row)
+        assert history_row is not None
+        self.assertEqual(history_row["price_date"], "2026-04-28")
+        self.assertEqual(history_row["default_raw_market_price"], 24.5)
 
         snapshot_count = self.connection.execute(
             "SELECT COUNT(*) AS count FROM card_price_snapshots WHERE card_id = ?",

@@ -458,8 +458,10 @@ describe('ScannerScreen', () => {
 
   it('adds a scanned card into inventory from the tray', async () => {
     let inventoryEntries: any[] = [];
+    const addPayloads: any[] = [];
     const spotlightRepository = createTestSpotlightRepository({
-      createPortfolioBuy: async (payload) => {
+      createInventoryEntry: async (payload) => {
+        addPayloads.push(payload);
         inventoryEntries = [
           {
             id: 'entry-froakie',
@@ -472,23 +474,24 @@ describe('ScannerScreen', () => {
             hasMarketPrice: true,
             currencyCode: 'USD',
             quantity: 1,
-            addedAt: payload.boughtAt,
+            addedAt: payload.addedAt,
             kind: 'raw',
             conditionCode: 'near_mint',
             conditionLabel: 'Near Mint',
             conditionShortLabel: 'NM',
-            costBasisPerUnit: 55,
-            costBasisTotal: 55,
+            costBasisPerUnit: null,
+            costBasisTotal: 0,
           },
         ];
 
         return {
           deckEntryID: 'entry-froakie',
           cardID: payload.cardID,
-          inserted: true,
-          quantityAdded: payload.quantity,
-          totalSpend: payload.quantity * payload.unitPrice,
-          boughtAt: payload.boughtAt,
+          variantName: null,
+          condition: payload.condition,
+          confirmationID: 'confirmation-froakie',
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
         };
       },
       getInventoryEntries: async () => inventoryEntries,
@@ -520,6 +523,58 @@ describe('ScannerScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-qty-0')).toBeTruthy();
     });
+    expect(addPayloads[0]).toEqual(expect.objectContaining({
+      sourceScanID: 'scan-froakie',
+      selectionSource: 'top',
+      selectedRank: 1,
+      wasTopPrediction: true,
+    }));
+  });
+
+  it('does not send a synthetic capture id when scanner add has no backend scan id', async () => {
+    const addPayloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      createInventoryEntry: async (payload) => {
+        addPayloads.push(payload);
+
+        return {
+          deckEntryID: 'entry-froakie',
+          cardID: payload.cardID,
+          variantName: null,
+          condition: payload.condition,
+          confirmationID: null,
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
+        };
+      },
+      getInventoryEntries: async () => [],
+      matchScannerCapture: async () => ({
+        scanID: null,
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 55,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
+
+    await waitFor(() => {
+      expect(addPayloads).toHaveLength(1);
+    });
+    expect(addPayloads[0]?.sourceScanID).toBeNull();
   });
 
   it('cycles candidates and then opens card detail for the active result', async () => {

@@ -93,6 +93,10 @@ export function createTestSpotlightRepository(
       return overrides.getAddToCollectionOptions?.(...args)
         ?? baseRepository.getAddToCollectionOptions(...args);
     },
+    createInventoryEntry: (...args) => {
+      return overrides.createInventoryEntry?.(...args)
+        ?? baseRepository.createInventoryEntry(...args);
+    },
     createPortfolioBuy: (...args) => {
       return overrides.createPortfolioBuy?.(...args)
         ?? baseRepository.createPortfolioBuy(...args);

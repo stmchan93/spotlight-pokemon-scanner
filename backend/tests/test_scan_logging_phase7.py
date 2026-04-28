@@ -815,6 +815,58 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertIsNone(entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["slabContext"])
         self.assertEqual(variant_payload["deckEntryID"], "raw|gym1-60|Reverse Holo|lightly_played")
 
+    def test_record_buy_ignores_invalid_optional_scan_id(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+
+        buy_payload = self.service.record_buy(
+            {
+                "cardID": "gym1-60",
+                "quantity": 1,
+                "unitPrice": 6.0,
+                "currencyCode": "USD",
+                "paymentMethod": None,
+                "boughtAt": "2026-04-14T09:00:00Z",
+                "condition": "near_mint",
+                "sourceScanID": "local-capture-id-not-in-scan-events",
+            }
+        )
+
+        self.assertEqual(buy_payload["deckEntryID"], "raw|gym1-60")
+        row = self.service.connection.execute(
+            "SELECT source_scan_id FROM deck_entries WHERE id = ? LIMIT 1",
+            ("raw|gym1-60",),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertIsNone(row["source_scan_id"])
+
+    def test_create_deck_entry_adds_inventory_without_missing_scan_event(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+
+        deck_payload = self.service.create_deck_entry(
+            {
+                "cardID": "gym1-60",
+                "sourceScanID": "scan-id-not-in-scan-events",
+                "selectionSource": "top",
+                "selectedRank": 1,
+                "wasTopPrediction": True,
+                "addedAt": "2026-04-14T20:10:00Z",
+            }
+        )
+
+        self.assertEqual(deck_payload["deckEntryID"], "raw|gym1-60")
+        self.assertIsNone(deck_payload["confirmationID"])
+        self.assertIsNone(deck_payload["sourceScanID"])
+        row = self.service.connection.execute(
+            "SELECT quantity, source_scan_id, source_confirmation_id FROM deck_entries WHERE id = ? LIMIT 1",
+            ("raw|gym1-60",),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertEqual(row["quantity"], 1)
+        self.assertIsNone(row["source_scan_id"])
+        self.assertIsNone(row["source_confirmation_id"])
+
     def test_deck_entries_use_condition_specific_raw_market_price(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         upsert_price_snapshot(

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
 import json
+import random
+import socket
 import sqlite3
 import sys
 import time
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
+from urllib.error import HTTPError, URLError
 
 from catalog_tools import (
     PROVIDER_SYNC_STATUS_FAILED,
@@ -31,6 +35,115 @@ from scrydex_adapter import (
 load_backend_env_file(Path(__file__).resolve().parent / ".env")
 
 SQLITE_LOCK_RETRY_DELAYS_SECONDS = (2.0, 5.0, 10.0)
+SCRYDEX_CATALOG_PAGE_MAX_ATTEMPTS = 5
+SCRYDEX_CATALOG_PAGE_RETRY_BASE_DELAY_SECONDS = 2.0
+SCRYDEX_CATALOG_PAGE_RETRY_MAX_DELAY_SECONDS = 30.0
+SCRYDEX_CATALOG_PAGE_RETRY_JITTER_SECONDS = 1.0
+SCRYDEX_TRANSIENT_HTTP_STATUS_CODES = {408, 429, 500, 502, 503, 504}
+
+
+def _parse_retry_after_seconds(value: str | None) -> float | None:
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+
+    try:
+        return max(0.0, float(normalized))
+    except ValueError:
+        pass
+
+    try:
+        retry_at = parsedate_to_datetime(normalized)
+    except (TypeError, ValueError):
+        return None
+    if retry_at.tzinfo is None:
+        return None
+    return max(0.0, retry_at.timestamp() - time.time())
+
+
+def _retry_after_from_error(exc: BaseException) -> float | None:
+    if not isinstance(exc, HTTPError):
+        return None
+    headers = getattr(exc, "headers", None)
+    if headers is None:
+        return None
+    return _parse_retry_after_seconds(headers.get("Retry-After"))
+
+
+def _is_transient_scrydex_catalog_error(exc: BaseException) -> bool:
+    if isinstance(exc, HTTPError):
+        return int(exc.code) in SCRYDEX_TRANSIENT_HTTP_STATUS_CODES
+    if isinstance(exc, (TimeoutError, socket.timeout)):
+        return True
+    if isinstance(exc, URLError):
+        reason = getattr(exc, "reason", None)
+        if isinstance(reason, (TimeoutError, socket.timeout)):
+            return True
+        message = str(exc).lower()
+        return (
+            "timed out" in message
+            or "connection reset" in message
+            or "temporarily unavailable" in message
+        )
+
+    message = str(exc).lower()
+    return (
+        "timed out" in message
+        or "connection reset" in message
+        or "temporarily unavailable" in message
+    )
+
+
+def _scrydex_catalog_page_retry_delay_seconds(attempt: int, exc: BaseException) -> float:
+    retry_after = _retry_after_from_error(exc)
+    if retry_after is not None:
+        return retry_after
+
+    exponential_delay = SCRYDEX_CATALOG_PAGE_RETRY_BASE_DELAY_SECONDS * (2 ** max(0, attempt - 1))
+    delay = min(SCRYDEX_CATALOG_PAGE_RETRY_MAX_DELAY_SECONDS, exponential_delay)
+    jitter = random.uniform(0.0, SCRYDEX_CATALOG_PAGE_RETRY_JITTER_SECONDS)
+    return min(SCRYDEX_CATALOG_PAGE_RETRY_MAX_DELAY_SECONDS, delay + jitter)
+
+
+def _fetch_scrydex_cards_page_with_retries(
+    *,
+    page: int,
+    page_size: int,
+    include_prices: bool,
+    language: str | None,
+    request_type: str,
+) -> list[dict[str, Any]]:
+    for attempt in range(1, SCRYDEX_CATALOG_PAGE_MAX_ATTEMPTS + 1):
+        try:
+            return fetch_scrydex_cards_page(
+                page=page,
+                page_size=page_size,
+                include_prices=include_prices,
+                language=language,
+                request_type=request_type,
+            )
+        except Exception as exc:
+            is_last_attempt = attempt >= SCRYDEX_CATALOG_PAGE_MAX_ATTEMPTS
+            if is_last_attempt or not _is_transient_scrydex_catalog_error(exc):
+                raise
+
+            delay_seconds = _scrydex_catalog_page_retry_delay_seconds(attempt, exc)
+            print(
+                json.dumps(
+                    {
+                        "event": "scrydex_catalog_page_retry",
+                        "page": page,
+                        "attempt": attempt,
+                        "nextAttempt": attempt + 1,
+                        "delaySeconds": round(delay_seconds, 3),
+                        "errorText": str(exc),
+                    }
+                ),
+                file=sys.stderr,
+            )
+            time.sleep(delay_seconds)
+
+    raise RuntimeError("unreachable")
 
 
 def cli_value(flag: str) -> str | None:
@@ -59,6 +172,7 @@ def _sync_scrydex_catalog_once(
     page_size: int = 100,
     language: str | None = None,
     max_pages: int | None = None,
+    price_date: str | None = None,
     scheduled_for: str | None = None,
 ) -> dict[str, Any]:
     backend_root = Path(__file__).resolve().parent
@@ -71,11 +185,14 @@ def _sync_scrydex_catalog_once(
         raise SystemExit("Scrydex credentials are not configured")
 
     normalized_language = str(language or "").strip().lower() or "all"
+    normalized_price_date = str(price_date or "").strip() or None
     notes = {
         "language": normalized_language,
         "includePrices": True,
         "sameMachineCron": True,
     }
+    if normalized_price_date:
+        notes["priceDate"] = normalized_price_date
     run_id = start_provider_sync_run(
         connection,
         provider=SCRYDEX_PROVIDER,
@@ -98,7 +215,7 @@ def _sync_scrydex_catalog_once(
     try:
         page = 1
         while True:
-            cards = fetch_scrydex_cards_page(
+            cards = _fetch_scrydex_cards_page_with_retries(
                 page=page,
                 page_size=page_size,
                 include_prices=True,
@@ -126,6 +243,7 @@ def _sync_scrydex_catalog_once(
                     connection,
                     card_id=str(mapped_card["id"]),
                     payload=payload,
+                    price_date=normalized_price_date,
                     commit=False,
                 )
                 if persist_scrydex_raw_snapshot(connection, str(mapped_card["id"]), payload, commit=False) is not None:
@@ -171,6 +289,7 @@ def _sync_scrydex_catalog_once(
             "provider": SCRYDEX_PROVIDER,
             "syncScope": SCRYDEX_FULL_CATALOG_SYNC_SCOPE,
             "language": normalized_language,
+            "priceDate": normalized_price_date,
             "pageSize": page_size,
             **totals,
             "estimatedCreditsUsed": totals["pagesFetched"],
@@ -205,6 +324,7 @@ def sync_scrydex_catalog(
     page_size: int = 100,
     language: str | None = None,
     max_pages: int | None = None,
+    price_date: str | None = None,
     scheduled_for: str | None = None,
 ) -> dict[str, Any]:
     for attempt, delay_seconds in enumerate((0.0, *SQLITE_LOCK_RETRY_DELAYS_SECONDS), start=1):
@@ -230,6 +350,7 @@ def sync_scrydex_catalog(
                 page_size=page_size,
                 language=language,
                 max_pages=max_pages,
+                price_date=price_date,
                 scheduled_for=scheduled_for,
             )
         except sqlite3.OperationalError as exc:
@@ -262,6 +383,7 @@ def main() -> None:
     max_pages_value = cli_value("--max-pages")
     max_pages = int(max_pages_value) if max_pages_value is not None else None
     language = cli_value("--language")
+    price_date = cli_value("--price-date")
     scheduled_for = cli_value("--scheduled-for")
     summary = sync_scrydex_catalog(
         database_path=database_path,
@@ -269,6 +391,7 @@ def main() -> None:
         page_size=page_size,
         language=language,
         max_pages=max_pages,
+        price_date=price_date,
         scheduled_for=scheduled_for,
     )
     print(json.dumps(summary, indent=2))

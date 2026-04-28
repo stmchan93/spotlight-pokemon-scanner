@@ -168,6 +168,52 @@ function formatCurrency(amount: number, currencyCode = 'USD') {
   }).format(amount);
 }
 
+function withOptimisticInventoryAdd(
+  entries: InventoryCardEntry[],
+  candidate: CatalogSearchResult,
+  addedAt: string,
+): InventoryCardEntry[] {
+  const existingIndex = entries.findIndex((entry) => (
+    entry.cardId === candidate.cardId
+    && entry.kind === 'raw'
+    && (entry.conditionCode ?? 'near_mint') === 'near_mint'
+    && !entry.variantName
+  ));
+
+  if (existingIndex >= 0) {
+    return entries.map((entry, index) => (
+      index === existingIndex
+        ? { ...entry, quantity: entry.quantity + 1 }
+        : entry
+    ));
+  }
+
+  return [
+    {
+      addedAt,
+      cardId: candidate.cardId,
+      cardNumber: candidate.cardNumber,
+      conditionCode: 'near_mint',
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: 0,
+      currencyCode: candidate.currencyCode ?? 'USD',
+      hasMarketPrice: candidate.marketPrice != null,
+      id: `optimistic|raw|${candidate.cardId}`,
+      imageUrl: candidate.imageUrl,
+      kind: 'raw',
+      marketPrice: candidate.marketPrice ?? 0,
+      name: candidate.name,
+      quantity: 1,
+      setName: candidate.setName,
+      slabContext: null,
+      variantName: null,
+    },
+    ...entries,
+  ];
+}
+
 function parsePictureSize(size: string) {
   const match = size.trim().match(/^(\d+)x(\d+)$/);
   if (!match) {
@@ -377,7 +423,6 @@ export function ScannerScreen() {
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraReady, setIsCameraReady] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
-  const [captureError, setCaptureError] = useState<string | null>(null);
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
   const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
@@ -559,19 +604,16 @@ export function ScannerScreen() {
   }, [recentCaptures]);
 
   const clearRecentCaptures = useCallback(() => {
-    setCaptureError(null);
     setRecentCaptures([]);
     setIsTrayExpanded(false);
   }, []);
 
   const deleteRecentCapture = useCallback((captureId: string) => {
-    setCaptureError(null);
     setRecentCaptures((current) => current.filter((capture) => capture.id !== captureId));
   }, []);
 
   const handleCapture = useCallback(async () => {
     if (!permission?.granted) {
-      setCaptureError('Allow camera access to scan cards.');
       if (permission?.canAskAgain) {
         await requestPermission();
       }
@@ -585,7 +627,6 @@ export function ScannerScreen() {
     void triggerScannerHaptic();
     const scanStartedAt = Date.now();
     setIsCapturing(true);
-    setCaptureError(null);
 
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     setRecentCaptures((current) => [
@@ -623,7 +664,6 @@ export function ScannerScreen() {
       setIsCapturing(false);
 
       if (!photo?.uri) {
-        setCaptureError('Camera capture finished without an image.');
         setRecentCaptures((current) => current.map((capture) => {
           if (capture.id !== captureId) {
             return capture;
@@ -826,7 +866,6 @@ export function ScannerScreen() {
           error,
         );
       }
-      setCaptureError(capturedPhotoUri ? 'Could not prepare scan right now.' : 'Could not capture photo right now.');
       setIsCapturing(false);
       setRecentCaptures((current) => current.map((capture) => {
         if (capture.id !== captureId) {
@@ -885,24 +924,34 @@ export function ScannerScreen() {
       };
     }));
 
+    const addedAt = new Date().toISOString();
+    let previousInventoryEntries: InventoryCardEntry[] = [];
+    setInventoryEntries((current) => {
+      previousInventoryEntries = current;
+      return withOptimisticInventoryAdd(current, activeCandidate, addedAt);
+    });
+
     try {
-      await spotlightRepository.createPortfolioBuy({
-        boughtAt: new Date().toISOString(),
+      await spotlightRepository.createInventoryEntry({
+        addedAt,
         cardID: activeCandidate.cardId,
         condition: 'near_mint',
-        currencyCode: activeCandidate.currencyCode ?? 'USD',
-        paymentMethod: null,
         quantity: 1,
+        selectedRank: capture.activeCandidateIndex + 1,
+        selectionSource: capture.activeCandidateIndex === 0 ? 'top' : 'alternate',
         slabContext: null,
-        sourceScanID: capture.scanID ?? captureId,
-        unitPrice: activeCandidate.marketPrice ?? 0,
+        sourceScanID: capture.scanID ?? null,
         variantName: null,
+        wasTopPrediction: capture.activeCandidateIndex === 0,
       });
       const nextEntries = await spotlightRepository.getInventoryEntries();
       setInventoryEntries(nextEntries);
       refreshData();
-    } catch {
-      setCaptureError('Could not add that card to inventory right now.');
+    } catch (error) {
+      setInventoryEntries(previousInventoryEntries);
+      if (process.env.NODE_ENV !== 'test') {
+        console.warn(`[SCANNER] addToInventory failed: ${scannerErrorMessage(error)}`);
+      }
     } finally {
       setRecentCaptures((current) => current.map((entry) => {
         if (entry.id !== captureId) {
@@ -1169,7 +1218,6 @@ export function ScannerScreen() {
             key={cameraSessionKey}
             onCameraReady={() => {
               setIsCameraReady(true);
-              setCaptureError(null);
               resolveRawVisualPictureSize();
               void cameraRef.current?.resumePreview?.();
             }}
@@ -1246,12 +1294,6 @@ export function ScannerScreen() {
           <Text style={[styles.scanPrompt, { top: promptTop }]} testID="scanner-prompt">
             {promptCopy}
           </Text>
-
-          {captureError ? (
-            <View style={[styles.captureErrorPill, { top: promptTop + 32 }]}>
-              <Text style={styles.captureErrorText}>{captureError}</Text>
-            </View>
-          ) : null}
 
           <View
             style={[
@@ -1441,22 +1483,6 @@ const styles = StyleSheet.create({
   captureCopy: {
     flex: 1,
     gap: 4,
-  },
-  captureErrorPill: {
-    alignSelf: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.52)',
-    borderColor: colors.scannerOutline,
-    borderRadius: 999,
-    borderWidth: 1,
-    maxWidth: 260,
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    position: 'absolute',
-  },
-  captureErrorText: {
-    ...textStyles.caption,
-    color: colors.scannerTextPrimary,
-    textAlign: 'center',
   },
   captureLoadingRow: {
     alignItems: 'center',
