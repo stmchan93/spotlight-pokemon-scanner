@@ -55,6 +55,14 @@ export interface SpotlightRepository {
   getScannerCandidates(mode: ScannerMode, limit?: number): Promise<CatalogSearchResult[]>;
   loadCardDetail(query: CardDetailQuery): Promise<SpotlightRepositoryLoadResult<CardDetailRecord | null>>;
   getCardDetail(query: CardDetailQuery): Promise<CardDetailRecord | null>;
+  getCardMarketHistory(query: CardDetailQuery & {
+    condition?: string | null;
+    days?: number;
+    variant?: string | null;
+  }): Promise<CardDetailRecord['marketHistory'] | null>;
+  getCardEbayListings(query: CardDetailQuery & {
+    limit?: number;
+  }): Promise<CardEbayListingsRecord | null>;
   getAddToCollectionOptions(cardId: string): Promise<AddToCollectionOptions>;
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
   replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload): Promise<PortfolioEntryReplaceResponsePayload>;
@@ -89,11 +97,25 @@ export function isSpotlightRepositoryRequestError(
 }
 
 type JsonRequestResult<T> =
-  | { kind: 'success'; data: T | null }
-  | { kind: 'not_found'; error: SpotlightRepositoryRequestError }
-  | { kind: 'error'; error: SpotlightRepositoryRequestError };
+  | { kind: 'success'; data: T | null; meta: JsonRequestMeta }
+  | { kind: 'not_found'; error: SpotlightRepositoryRequestError; meta: JsonRequestMeta }
+  | { kind: 'error'; error: SpotlightRepositoryRequestError; meta: JsonRequestMeta | null };
 
 const httpRequestTimeoutMs = 6000;
+
+type JsonRequestMeta = {
+  requestUrl: string;
+  attemptCount: number;
+};
+
+type JsonRequestCandidateStrategy = 'all_candidates' | 'single_active';
+
+type JsonRequestOptions = {
+  allowNotFound?: boolean;
+  candidateStrategy?: JsonRequestCandidateStrategy;
+  requestLabel?: string;
+  logTransport?: boolean;
+};
 
 type CardPricingSummaryDTO = {
   currencyCode?: string;
@@ -175,6 +197,9 @@ type ScanMatchCandidateDTO = {
 type ScanMatchResponseDTO = {
   scanID?: string | null;
   topCandidates?: ScanMatchCandidateDTO[] | null;
+  performance?: {
+    serverProcessingMs?: number | null;
+  } | null;
 };
 
 type CardDetailDTO = {
@@ -756,6 +781,34 @@ function buildTcgPlayerSearchUrl(params: {
   return `https://www.tcgplayer.com/search/pokemon/product?${searchParams.toString()}`;
 }
 
+function buildDetailQueryParams(query: CardDetailQuery) {
+  const detailQuery = new URLSearchParams();
+  if (query.slabContext?.grader) {
+    detailQuery.set('grader', query.slabContext.grader);
+  }
+  if (query.slabContext?.grade) {
+    detailQuery.set('grade', query.slabContext.grade);
+  }
+  if (query.slabContext?.certNumber) {
+    detailQuery.set('cert', query.slabContext.certNumber);
+  }
+  if (query.slabContext?.variantName) {
+    detailQuery.set('variant', query.slabContext.variantName);
+  }
+
+  return detailQuery;
+}
+
+function buildRawDefaultMarketHistoryQuery(query: CardDetailQuery) {
+  const historyQuery = buildDetailQueryParams(query);
+  historyQuery.set('days', '30');
+  if (!query.slabContext?.grader && !query.slabContext?.grade) {
+    historyQuery.set('condition', 'NM');
+  }
+
+  return historyQuery;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -909,11 +962,17 @@ function createScannerMatchPayload(
     slabClassifierReasons: [],
     slabRecommendedLookupPath: null,
     resolverModeHint: payload.mode === 'slabs' ? 'psa_slab' : 'raw_card',
-    rawResolverMode: payload.mode === 'raw' ? 'hybrid' : null,
+    rawResolverMode: payload.mode === 'raw' ? 'visual' : null,
     cropConfidence: 1,
     warnings: [],
     ocrAnalysis: null,
   };
+}
+
+function scannerMatchEndpointPath(payload: ScannerCapturePayload) {
+  return payload.mode === 'raw'
+    ? 'api/v1/scan/visual-match'
+    : 'api/v1/scan/match';
 }
 
 function createPseudoUUID() {
@@ -1648,6 +1707,22 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data;
   }
 
+  async getCardMarketHistory(query: CardDetailQuery & {
+    condition?: string | null;
+    days?: number;
+    variant?: string | null;
+  }) {
+    const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
+    return detail?.marketHistory ?? null;
+  }
+
+  async getCardEbayListings(query: CardDetailQuery & {
+    limit?: number;
+  }) {
+    const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
+    return detail?.ebayListings ?? null;
+  }
+
   async getAddToCollectionOptions(cardId: string) {
     const detailResult = await this.loadCardDetail({ cardId });
     if (!detailResult.data) {
@@ -1934,6 +2009,21 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return this.activeBaseUrl;
   }
 
+  private logRequestTransport(
+    label: string,
+    payload: Record<string, string | number | null | undefined>,
+  ) {
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
+    const details = Object.entries(payload)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${value ?? 'n/a'}`)
+      .join(' ');
+    console.info(`[SPOTLIGHT API] ${label}${details ? ` ${details}` : ''}`);
+  }
+
   private async searchCatalogCardsForScanner(query: string, limit = 12) {
     const normalized = query.trim();
     if (normalized.length < 2) {
@@ -1990,8 +2080,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   }
 
   async loadPortfolioDashboard() {
-    const inventoryResult = await this.loadInventoryEntries();
     const [
+      inventoryResult,
       history7d,
       history1m,
       history3m,
@@ -2003,6 +2093,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ledger1y,
       ledgerAll,
     ] = await Promise.all([
+      this.loadInventoryEntries(),
       this.loadPortfolioHistory('7D'),
       this.loadPortfolioHistory('1M'),
       this.loadPortfolioHistory('3M'),
@@ -2178,8 +2269,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   }
 
   async matchScannerCapture(payload: ScannerCapturePayload) {
-    const response = await this.requestJsonOrThrow<ScanMatchResponseDTO>(
-      `${this.baseUrl}/api/v1/scan/match`,
+    const endpointPath = scannerMatchEndpointPath(payload);
+    const startedAt = Date.now();
+    const response = await this.requestJson<ScanMatchResponseDTO>(
+      `${this.baseUrl}/${endpointPath}`,
       {
         body: JSON.stringify(createScannerMatchPayload(payload)),
         headers: {
@@ -2187,11 +2280,28 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         },
         method: 'POST',
       },
+      {
+        candidateStrategy: 'single_active',
+        logTransport: true,
+        requestLabel: endpointPath,
+      },
     );
 
+    if (response.kind !== 'success') {
+      throw response.error;
+    }
+
+    const roundTripMs = Date.now() - startedAt;
+    const serverProcessingMs = normalizeNumber(response.data?.performance?.serverProcessingMs);
+
     return {
-      scanID: normalizeString(response.scanID),
-      candidates: mapScannerMatchCandidates(response, this.baseUrl),
+      scanID: normalizeString(response.data?.scanID),
+      candidates: mapScannerMatchCandidates(response.data, this.baseUrl),
+      endpointPath,
+      requestAttemptCount: response.meta.attemptCount,
+      requestUrl: response.meta.requestUrl,
+      roundTripMs,
+      serverProcessingMs,
     } satisfies ScannerMatchResult;
   }
 
@@ -2204,28 +2314,17 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   }
 
   async loadCardDetail(query: CardDetailQuery) {
-    const detailQuery = new URLSearchParams();
-    if (query.slabContext?.grader) {
-      detailQuery.set('grader', query.slabContext.grader);
-    }
-    if (query.slabContext?.grade) {
-      detailQuery.set('grade', query.slabContext.grade);
-    }
-    if (query.slabContext?.certNumber) {
-      detailQuery.set('cert', query.slabContext.certNumber);
-    }
-    if (query.slabContext?.variantName) {
-      detailQuery.set('variant', query.slabContext.variantName);
-    }
+    const detailQuery = buildDetailQueryParams(query);
 
     const detailUrl = `${this.baseUrl}/api/v1/cards/${query.cardId}${detailQuery.toString() ? `?${detailQuery.toString()}` : ''}`;
     const ebayQuery = new URLSearchParams(detailQuery);
     ebayQuery.set('limit', '5');
     const ebayUrl = `${this.baseUrl}/api/v1/cards/${query.cardId}/ebay-comps?${ebayQuery.toString()}`;
+    const historyQuery = buildRawDefaultMarketHistoryQuery(query);
     const [detailResponse, inventoryResult, historyResponse] = await Promise.all([
       this.requestJson<CardDetailDTO>(detailUrl, undefined, { allowNotFound: true }),
       this.loadInventoryEntries(),
-      this.requestJson<CardMarketHistoryDTO>(`${this.baseUrl}/api/v1/cards/${query.cardId}/market-history?days=30`),
+      this.requestJson<CardMarketHistoryDTO>(`${this.baseUrl}/api/v1/cards/${query.cardId}/market-history?${historyQuery.toString()}`),
     ]);
 
     if (detailResponse.kind === 'not_found') {
@@ -2306,6 +2405,53 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return result.data;
+  }
+
+  async getCardMarketHistory(query: CardDetailQuery & {
+    condition?: string | null;
+    days?: number;
+    variant?: string | null;
+  }) {
+    const historyQuery = buildDetailQueryParams(query);
+    historyQuery.set('days', String(Math.max(7, Math.min(query.days ?? 30, 90))));
+    if (query.variant) {
+      historyQuery.set('variant', query.variant);
+    }
+    if (query.condition) {
+      historyQuery.set('condition', query.condition);
+    } else if (!query.slabContext?.grader && !query.slabContext?.grade) {
+      historyQuery.set('condition', 'NM');
+    }
+
+    const response = await this.requestJson<CardMarketHistoryDTO>(
+      `${this.baseUrl}/api/v1/cards/${query.cardId}/market-history?${historyQuery.toString()}`,
+      undefined,
+      { allowNotFound: true },
+    );
+
+    if (response.kind !== 'success' || response.data === null) {
+      return null;
+    }
+
+    return buildMarketHistoryRecord(response.data, 'USD');
+  }
+
+  async getCardEbayListings(query: CardDetailQuery & {
+    limit?: number;
+  }) {
+    const ebayQuery = buildDetailQueryParams(query);
+    ebayQuery.set('limit', String(Math.max(1, Math.min(query.limit ?? 5, 5))));
+    const response = await this.requestJson<EbayCompsDTO>(
+      `${this.baseUrl}/api/v1/cards/${query.cardId}/ebay-comps?${ebayQuery.toString()}`,
+      undefined,
+      { allowNotFound: true },
+    );
+
+    if (response.kind !== 'success' || response.data === null) {
+      return null;
+    }
+
+    return buildCardEbayListingsRecord(response.data, 'USD');
   }
 
   async getAddToCollectionOptions(cardId: string) {
@@ -2489,13 +2635,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   private async requestJson<T>(
     url: string,
     init?: RequestInit,
-    options?: { allowNotFound?: boolean },
+    options?: JsonRequestOptions,
   ): Promise<JsonRequestResult<T>> {
-    const candidateUrls = this.expandRequestCandidateUrls(url);
+    const candidateUrls = this.expandRequestCandidateUrls(url, options?.candidateStrategy);
     let lastNetworkError: SpotlightRepositoryRequestError | null = null;
+    let lastRequestMeta: JsonRequestMeta | null = null;
 
-    for (const candidateUrl of candidateUrls) {
+    for (const [index, candidateUrl] of candidateUrls.entries()) {
+      const attemptCount = index + 1;
       let response: Response;
+      const attemptStartedAt = Date.now();
       const controller = typeof AbortController === 'function' ? new AbortController() : null;
       const timeoutId = controller
         ? setTimeout(() => {
@@ -2506,12 +2655,27 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       try {
         response = await fetch(candidateUrl, controller ? { ...init, signal: controller.signal } : init);
       } catch (error) {
+        const elapsedMs = Date.now() - attemptStartedAt;
+        lastRequestMeta = {
+          attemptCount,
+          requestUrl: candidateUrl,
+        };
         lastNetworkError = new SpotlightRepositoryRequestError(
           isAbortError(error)
             ? 'Request timed out while contacting the Spotlight backend.'
             : errorMessageFromUnknown(error, 'Could not reach the Spotlight backend.'),
           'request_failed',
         );
+        if (options?.logTransport) {
+          this.logRequestTransport(options.requestLabel ?? 'request', {
+            attempt: attemptCount,
+            elapsedMs,
+            error: lastNetworkError.message,
+            outcome: isAbortError(error) ? 'timeout' : 'network_error',
+            strategy: options.candidateStrategy ?? 'all_candidates',
+            url: candidateUrl,
+          });
+        }
         continue;
       } finally {
         if (timeoutId) {
@@ -2520,11 +2684,29 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       }
 
       this.promoteSuccessfulBaseUrl(candidateUrl);
+      const elapsedMs = Date.now() - attemptStartedAt;
+      const requestMeta: JsonRequestMeta = {
+        attemptCount,
+        requestUrl: candidateUrl,
+      };
+      lastRequestMeta = requestMeta;
+
+      if (options?.logTransport) {
+        this.logRequestTransport(options.requestLabel ?? 'request', {
+          attempt: attemptCount,
+          elapsedMs,
+          outcome: response.ok ? 'success' : 'http_error',
+          status: response.status,
+          strategy: options.candidateStrategy ?? 'all_candidates',
+          url: candidateUrl,
+        });
+      }
 
       if (options?.allowNotFound && response.status === 404) {
         return {
           kind: 'not_found',
           error: new SpotlightRepositoryRequestError('Requested resource was not found.', 'not_found', 404),
+          meta: requestMeta,
         };
       }
 
@@ -2537,6 +2719,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
             'request_failed',
             response.status,
           ),
+          meta: requestMeta,
         };
       }
 
@@ -2545,6 +2728,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         return {
           kind: 'success',
           data: null,
+          meta: requestMeta,
         };
       }
 
@@ -2552,6 +2736,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         return {
           kind: 'success',
           data: JSON.parse(text) as T,
+          meta: requestMeta,
         };
       } catch {
         return {
@@ -2561,6 +2746,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
             'invalid_response',
             response.status,
           ),
+          meta: requestMeta,
         };
       }
     }
@@ -2571,10 +2757,18 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         'Could not reach the Spotlight backend.',
         'request_failed',
       ),
+      meta: lastRequestMeta,
     };
   }
 
-  private expandRequestCandidateUrls(url: string) {
+  private expandRequestCandidateUrls(
+    url: string,
+    strategy: JsonRequestCandidateStrategy = 'all_candidates',
+  ) {
+    if (strategy === 'single_active') {
+      return [url];
+    }
+
     const activeBaseUrl = this.activeBaseUrl;
     const orderedBaseUrls = [
       activeBaseUrl,
@@ -2599,8 +2793,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     this.activeBaseUrl = matchedBaseUrl;
   }
 
-  private async requestJsonOrThrow<T>(url: string, init?: RequestInit) {
-    const result = await this.requestJson<T>(url, init);
+  private async requestJsonOrThrow<T>(url: string, init?: RequestInit, options?: JsonRequestOptions) {
+    const result = await this.requestJson<T>(url, init, options);
     if (result.kind !== 'success') {
       throw result.error;
     }

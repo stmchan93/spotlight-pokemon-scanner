@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native';
+import { StyleSheet, Text } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as mockApiClient from '../mock-api-client';
 
@@ -16,16 +16,30 @@ describe('PortfolioScreen', () => {
     insets: { top: 59, right: 0, bottom: 34, left: 0 },
   };
 
-  it('renders the portfolio shell and recent transactions list', async () => {
-    render(
+  function renderPortfolioScreen({
+    repository,
+    showPortfolio = true,
+  }: {
+    repository?: mockApiClient.SpotlightRepository;
+    showPortfolio?: boolean;
+  } = {}) {
+    return render(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
         <SpotlightThemeProvider>
-          <AppProviders>
-            <PortfolioScreen onOpenSalesHistory={jest.fn()} />
+          <AppProviders spotlightRepository={repository}>
+            {showPortfolio ? (
+              <PortfolioScreen onOpenSalesHistory={jest.fn()} />
+            ) : (
+              <Text testID="portfolio-placeholder">Portfolio hidden</Text>
+            )}
           </AppProviders>
         </SpotlightThemeProvider>
       </SafeAreaProvider>,
     );
+  }
+
+  it('renders the portfolio shell and recent transactions list', async () => {
+    renderPortfolioScreen();
 
     expect(screen.queryByText('Loading Loooty...')).toBeNull();
     expect(await screen.findByText('Track value, inventory, and latest transactions in one place.')).toBeTruthy();
@@ -53,16 +67,77 @@ describe('PortfolioScreen', () => {
     });
   });
 
+  it('renders cached inventory with chart and sales skeletons before the first dashboard load resolves', async () => {
+    const repository = new mockApiClient.MockSpotlightRepository();
+    const sourceRepository = new mockApiClient.MockSpotlightRepository();
+    let resolveDashboard: (
+      value: Awaited<ReturnType<mockApiClient.MockSpotlightRepository['loadPortfolioDashboard']>>
+    ) => void = () => {};
+
+    jest.spyOn(repository, 'loadPortfolioDashboard').mockImplementation(() => {
+      return new Promise((resolve) => {
+        resolveDashboard = resolve;
+      });
+    });
+
+    renderPortfolioScreen({ repository });
+
+    expect(screen.queryByText('Loading your portfolio...')).toBeNull();
+    expect(await screen.findByTestId('portfolio-chart-skeleton')).toBeTruthy();
+    expect(await screen.findByText('(6)')).toBeTruthy();
+    expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('latest-sales-skeleton')).toBeTruthy();
+
+    const dashboardResult = await sourceRepository.loadPortfolioDashboard();
+    await act(async () => {
+      resolveDashboard(dashboardResult);
+    });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('portfolio-chart-skeleton')).toBeNull();
+    });
+    expect(screen.getByTestId('portfolio-chart-summary-value')).toBeTruthy();
+  });
+
+  it('uses the provider cache when the portfolio screen remounts', async () => {
+    const repository = new mockApiClient.MockSpotlightRepository();
+
+    const { rerender } = renderPortfolioScreen({ repository });
+
+    expect(await screen.findByText('(6)')).toBeTruthy();
+
+    await act(async () => {
+      rerender(
+        <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+          <SpotlightThemeProvider>
+            <AppProviders spotlightRepository={repository}>
+              <Text testID="portfolio-placeholder">Portfolio hidden</Text>
+            </AppProviders>
+          </SpotlightThemeProvider>
+        </SafeAreaProvider>,
+      );
+    });
+
+    expect(screen.getByTestId('portfolio-placeholder')).toBeTruthy();
+
+    await act(async () => {
+      rerender(
+        <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+          <SpotlightThemeProvider>
+            <AppProviders spotlightRepository={repository}>
+              <PortfolioScreen onOpenSalesHistory={jest.fn()} />
+            </AppProviders>
+          </SpotlightThemeProvider>
+        </SafeAreaProvider>,
+      );
+    });
+
+    expect(screen.queryByText('Loading your portfolio...')).toBeNull();
+    expect(screen.getByText('(6)')).toBeTruthy();
+  });
+
   it('switches chart modes and keeps the sell entry available from inventory', async () => {
-    render(
-      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <SpotlightThemeProvider>
-          <AppProviders>
-            <PortfolioScreen onOpenSalesHistory={jest.fn()} />
-          </AppProviders>
-        </SpotlightThemeProvider>
-      </SafeAreaProvider>,
-    );
+    renderPortfolioScreen();
 
     await screen.findByText('Track value, inventory, and latest transactions in one place.');
 

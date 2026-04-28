@@ -148,6 +148,25 @@ function SaleCard({
   );
 }
 
+function SalesHistorySkeleton() {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View style={styles.saleList} testID="sales-history-skeleton">
+      {Array.from({ length: 4 }).map((_, index) => (
+        <SurfaceCard key={index} padding={16} radius={16} style={styles.saleCard}>
+          <View style={[styles.saleArtSkeleton, { backgroundColor: theme.colors.outlineSubtle }]} />
+          <View style={styles.saleCopy}>
+            <View style={[styles.skeletonLineWide, { backgroundColor: theme.colors.outlineSubtle }]} />
+            <View style={[styles.skeletonLineMedium, { backgroundColor: theme.colors.outlineSubtle }]} />
+            <View style={[styles.skeletonLineNarrow, { backgroundColor: theme.colors.outlineSubtle }]} />
+          </View>
+        </SurfaceCard>
+      ))}
+    </View>
+  );
+}
+
 export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
@@ -155,8 +174,9 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState<SalesSortOption>('recent');
   const [filterOption, setFilterOption] = useState<SalesFilterOption>('all');
+  const shouldShowInitialError = !model.hasLoadedDashboard && !model.isLoading && model.loadError !== null;
 
-  const sales = model.dashboard?.recentSales ?? [];
+  const sales = model.dashboard.recentSales;
   const trimmedSearchQuery = searchQuery.trim().toLowerCase();
 
   const displayedSales = useMemo(() => {
@@ -188,6 +208,7 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
       }
     });
   }, [filterOption, sales, sortOption, trimmedSearchQuery]);
+  const shouldShowSalesSkeleton = model.isLoadingDashboard && !model.hasLoadedDashboard && displayedSales.length === 0;
 
   const emptyState = useMemo(() => {
     if (sales.length === 0) {
@@ -257,11 +278,14 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
             </ControlGroup>
           </View>
 
-          {model.dashboard == null ? (
+          {shouldShowSalesSkeleton ? (
+            <SalesHistorySkeleton />
+          ) : shouldShowInitialError ? (
             <StateCard
-              message="Pulling your recent transactions."
+              message={model.loadError ?? 'Please try again once your backend is reachable.'}
               style={styles.stateCard}
-              title="Loading transactions..."
+              title="Could not load transactions"
+              variant="field"
             />
           ) : displayedSales.length === 0 ? (
             <StateCard
@@ -324,6 +348,11 @@ const styles = StyleSheet.create({
     resizeMode: 'contain',
     width: 72,
   },
+  saleArtSkeleton: {
+    borderRadius: 12,
+    height: 96,
+    width: 72,
+  },
   saleCard: {
     alignItems: 'flex-start',
     flexDirection: 'row',
@@ -380,6 +409,21 @@ const styles = StyleSheet.create({
   },
   sectionLabel: {
     letterSpacing: 1.8,
+  },
+  skeletonLineMedium: {
+    borderRadius: 999,
+    height: 12,
+    width: '62%',
+  },
+  skeletonLineNarrow: {
+    borderRadius: 999,
+    height: 10,
+    width: '42%',
+  },
+  skeletonLineWide: {
+    borderRadius: 999,
+    height: 16,
+    width: '80%',
   },
   stateCard: {
     alignItems: 'flex-start',

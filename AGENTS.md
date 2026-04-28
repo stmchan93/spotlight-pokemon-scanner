@@ -71,6 +71,45 @@ Repo-specific workflow notes for future coding agents.
   - avoid overbuilding enterprise POS/accounting concepts unless they materially improve the dealer-at-the-table moment
   - prefer summary analytics and financially legible visuals over dense reporting
 
+## React Native Design System Rules
+
+- For React Native UI work, treat `packages/design-system` as the source of truth for visual language.
+- Before adding a title, button, input, card, segmented control, nav control, empty state, or sheet/header UI, inspect and reuse the exported primitives from `@spotlight/design-system`:
+  - `Button`
+  - `IconButton`
+  - `PillButton`
+  - `SearchField`
+  - `TextField`
+  - `ScreenHeader`
+  - `SectionHeader`
+  - `SheetHeader`
+  - `StateCard`
+  - `SurfaceCard`
+  - `SegmentedControl`
+  - `FloatingBottomNav`
+- For app-specific chrome that already exists outside the package, reuse the existing component instead of recreating it, especially:
+  - `apps/spotlight-rn/src/components/chrome-back-button.tsx`
+- Typography must come from `useSpotlightTheme().typography` or `textStyles` from `@spotlight/design-system`.
+- Do not invent ad-hoc `fontFamily`, `fontSize`, `fontWeight`, or `lineHeight` for normal UI text when an existing text style fits.
+- Standard title mapping:
+  - large hero/page totals: `theme.typography.display`
+  - screen/section titles: `theme.typography.title` or `theme.typography.titleCompact`
+  - smaller headings: `theme.typography.headline`
+  - normal copy: `theme.typography.body`
+  - emphasized body/control labels: `theme.typography.bodyStrong` or `theme.typography.control`
+  - metadata/captions: `theme.typography.caption` or `theme.typography.micro`
+- Colors must come from `theme.colors` or `colors` from `@spotlight/design-system`.
+- Do not introduce arbitrary green, purple, blue, gray, or random hex colors for standard UI. Use semantic tokens such as `brand`, `success`, `danger`, `textPrimary`, `textSecondary`, `canvas`, `field`, `outlineSubtle`, or the scanner-specific tokens.
+- Scanner/camera surfaces may use scanner tokens (`scannerCanvas`, `scannerTray`, `scannerTextPrimary`, `scannerTextMuted`, etc.) but should still avoid one-off hardcoded colors unless matching an existing scanner pattern.
+- Layout primitives should use `theme.spacing`, `theme.radii`, `theme.layout`, and existing nearby component styles before inventing new spacing/radius systems.
+- If adding a new reusable visual pattern, put it in `packages/design-system/src/components` and export it from `packages/design-system/src/index.ts` instead of copying one-off styles into a screen.
+- If editing an existing screen, match the nearest existing screen pattern first. Do not redesign the visual language unless the user explicitly asks for a redesign.
+- If a request sounds simple, like “add a title” or “add a button”, still use the design-system typography/component defaults. Do not hand-code a `Pressable`/`Text` button unless the existing `Button`/`IconButton`/`PillButton` cannot express the behavior.
+- If a design-system primitive cannot be used, add a short code comment or final-note explanation for the exception.
+- When changing design-system primitives or tokens, update the design-system catalog screen/tests when relevant:
+  - `apps/spotlight-rn/src/features/design-system/screens/design-system-catalog-screen.tsx`
+  - `apps/spotlight-rn/__tests__/components/design-system-catalog-screen-test.tsx`
+
 ## Scan Artifact Dataset And Confirmation Rules
 
 - The scanner moat / training dataset now treats scan capture, matcher prediction, scan selection, and deck add confirmation as separate states.

@@ -40,6 +40,9 @@ describe('SalePriceEditSheet', () => {
 
     expect(screen.getByText('Edit Sale Price')).toBeTruthy();
     expect(screen.getByText('Treecko • Apr 26')).toBeTruthy();
+    expect(screen.getByTestId('edit-sale-card-image').props.source).toEqual({
+      uri: sale.imageUrl,
+    });
     expect(screen.getByText('Previous $12.50')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('edit-sale-price-input').props.style)).toMatchObject({
       fontSize: 34,

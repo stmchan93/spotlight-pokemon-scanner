@@ -1,0 +1,62 @@
+# EAS mobile builds only need the React Native workspace slice.
+# Keep apps/spotlight-rn, packages/, root package metadata, and lockfiles.
+
+# Large non-mobile surfaces
+/backend/
+/qa/
+/Spotlight/
+/Spotlight.xcodeproj/
+/SpotlightTests/
+/SpotlightUITests/
+/docs/
+/tools/
+/AGENTS.md
+/CLAUDE.md
+/PLAN.md
+/start_backend.sh
+/.git
+/.git/
+/.agents/
+/.claude/
+/.mcp.json
+/.DS_Store
+
+# Local dependencies and generated output
+/node_modules/
+/.pnpm-store/
+/.expo/
+/.derivedData/
+/.derivedData-*/
+/.venv-*/
+/apps/spotlight-rn/node_modules/
+/apps/spotlight-rn/.expo/
+/apps/spotlight-rn/.eas/
+/apps/spotlight-rn/.vscode/
+/apps/spotlight-rn/dist/
+/apps/spotlight-rn/web-build/
+/apps/spotlight-rn/coverage/
+/apps/spotlight-rn/*.tsbuildinfo
+
+# Expo/EAS will generate native projects from app config for remote builds.
+/apps/spotlight-rn/ios/
+/apps/spotlight-rn/android/
+
+# Local env and credentials
+/apps/spotlight-rn/.env
+/apps/spotlight-rn/.env.*
+.env
+.env.*
+*.pem
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Tests and local-only support files
+/apps/spotlight-rn/__tests__/
+/apps/spotlight-rn/test-support/
+/apps/spotlight-rn/.maestro/
+/apps/spotlight-rn/jest.config.cjs
+/apps/spotlight-rn/jest.setup.ts
+/apps/spotlight-rn/eslint.config.mjs

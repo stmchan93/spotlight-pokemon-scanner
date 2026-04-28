@@ -143,7 +143,12 @@ cp apps/spotlight-rn/.env.staging.example apps/spotlight-rn/.env.staging
 cp apps/spotlight-rn/.env.production.example apps/spotlight-rn/.env.production
 ```
 
-If you only have one backend and one Supabase project right now, it is fine for all three files to contain the same values.
+Do not keep development identical to staging/production.
+
+- `.env.development` should point at your local backend by default, usually `http://127.0.0.1:8788`
+- `.env.staging` should point at your hosted staging backend
+- `.env.production` should point at your hosted production backend
+- third-party services like Supabase can stay shared if you only have one project right now
 
 Minimum values you need in each file:
 
@@ -185,7 +190,7 @@ pnpm mobile:submit:ios
 
 What they do:
 
-- `mobile:build:ios:development` builds an internal dev-client build using `.env.development`
+- `mobile:build:ios:development` builds an internal dev-client build using `.env.development`, which should be local-backend-oriented
 - `mobile:build:ios:staging` builds a store-signed staging build using `.env.staging`
 - `mobile:build:ios:production` builds the TestFlight/App Store binary using `.env.production`
 - `mobile:release:ios:staging` does a one-shot staging `build + auto-submit` to TestFlight
@@ -195,6 +200,15 @@ What they do:
 
 The helper script [tools/run_mobile_eas.sh](/Users/stephenchan/Code/spotlight/tools/run_mobile_eas.sh:1) automatically loads the matching env file and sets `SPOTLIGHT_APP_ENV` before invoking EAS CLI.
 It also fails fast if the env file still contains placeholder values like `example.com` or `com.yourcompany.*`.
+
+For physical-phone local development, prefer the phone helper launcher instead of editing `.env.development` to your current LAN IP:
+
+```bash
+pnpm backend:start:phone
+pnpm mobile:start:phone:frontend:dev-client
+```
+
+That launcher keeps `.env.development` local-first while overriding Expo at runtime with `http://<your-mac-lan-ip>:8788`.
 
 ### First production TestFlight pass
 

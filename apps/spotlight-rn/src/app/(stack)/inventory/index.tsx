@@ -1,5 +1,6 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
+import { saveCardDetailPreviewFromInventoryEntry } from '@/features/cards/card-detail-preview-session';
 import { InventoryBrowserScreen } from '@/features/inventory/screens/inventory-browser-screen';
 
 function firstParam(value?: string | string[]) {
@@ -56,6 +57,7 @@ export default function InventoryRoute() {
           params: {
             cardId: entry.cardId,
             entryId: entry.id,
+            previewId: saveCardDetailPreviewFromInventoryEntry(entry),
           },
         });
       }}

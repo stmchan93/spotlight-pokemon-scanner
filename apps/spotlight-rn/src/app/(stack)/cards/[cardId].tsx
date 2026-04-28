@@ -15,9 +15,13 @@ export default function CardDetailRoute() {
   const params = useLocalSearchParams<{
     cardId?: string | string[];
     entryId?: string | string[];
+    previewId?: string | string[];
+    scanReviewId?: string | string[];
   }>();
   const cardId = firstParam(params.cardId);
   const entryId = firstParam(params.entryId) || undefined;
+  const previewId = firstParam(params.previewId) || undefined;
+  const scanReviewId = firstParam(params.scanReviewId) || undefined;
 
   if (!cardId) {
     return null;
@@ -25,7 +29,7 @@ export default function CardDetailRoute() {
 
   return (
     <CardDetailScreen
-      key={`${cardId}:${entryId ?? ''}`}
+      key={`${cardId}:${entryId ?? ''}:${previewId ?? ''}:${scanReviewId ?? ''}`}
       cardId={cardId}
       entryId={entryId}
       onBack={() => router.back()}
@@ -38,6 +42,15 @@ export default function CardDetailRoute() {
           },
         });
       }}
+      onOpenScanCandidateReview={(nextScanReviewId) => {
+        router.push({
+          pathname: '/cards/[cardId]/scan-review',
+          params: {
+            cardId,
+            scanReviewId: nextScanReviewId,
+          },
+        });
+      }}
       onOpenSell={(selectedEntryId) => {
         router.push({
           pathname: '/sell/[entryId]',
@@ -46,6 +59,8 @@ export default function CardDetailRoute() {
           },
         });
       }}
+      previewId={previewId}
+      scanReviewId={scanReviewId}
     />
   );
 }

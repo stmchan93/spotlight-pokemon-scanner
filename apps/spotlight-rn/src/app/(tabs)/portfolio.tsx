@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router';
 
 import { getUserInitials } from '@/features/auth/auth-models';
+import { saveCardDetailPreviewFromInventoryEntry } from '@/features/cards/card-detail-preview-session';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -14,12 +15,13 @@ export default function PortfolioRoute() {
       onOpenAddCard={() => router.push('/catalog/search')}
       onOpenAccount={() => router.push('/account')}
       onOpenInventory={() => router.push('/inventory')}
-      onOpenInventoryEntry={(entryId, cardId) =>
+      onOpenInventoryEntry={(entry) =>
         router.push({
           pathname: '/cards/[cardId]',
           params: {
-            cardId,
-            entryId,
+            cardId: entry.cardId,
+            entryId: entry.id,
+            previewId: saveCardDetailPreviewFromInventoryEntry(entry),
           },
         })}
       onOpenSalesHistory={() => router.push('/sales-history')}

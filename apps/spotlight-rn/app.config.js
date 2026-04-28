@@ -1,3 +1,5 @@
+/* global __dirname */
+
 const fs = require('node:fs');
 const path = require('node:path');
 
@@ -102,6 +104,7 @@ function loadSpotlightReleaseOverridesFromEnv(env = process.env) {
     expoOwner: trimEnvValue(env.SPOTLIGHT_EXPO_OWNER),
     iosBundleIdentifier: trimEnvValue(env.SPOTLIGHT_IOS_BUNDLE_IDENTIFIER),
     scheme: trimEnvValue(env.SPOTLIGHT_APP_SCHEME),
+    updateChannel: trimEnvValue(env.SPOTLIGHT_EAS_UPDATE_CHANNEL) || trimEnvValue(env.SPOTLIGHT_APP_ENV),
   };
 }
 
@@ -201,11 +204,15 @@ function loadSpotlightExpoExtra(overridesPath = LOCAL_OVERRIDES_PATH, env = proc
 function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDES_PATH) {
   const resolvedEnv = resolveSpotlightConfigEnv(env);
   const releaseOverrides = loadSpotlightReleaseOverridesFromEnv(resolvedEnv);
+  const resolvedAppEnv = trimEnvValue(resolvedEnv.SPOTLIGHT_APP_ENV);
   const resolvedScheme = releaseOverrides.scheme || baseExpoConfig.scheme;
   const extra = {
     ...(baseExpoConfig.extra ?? {}),
     ...loadSpotlightExpoExtra(overridesPath, resolvedEnv),
   };
+  if (resolvedAppEnv) {
+    extra.spotlightAppEnv = resolvedAppEnv;
+  }
   if (!extra.spotlightAuthScheme && resolvedScheme) {
     extra.spotlightAuthScheme = resolvedScheme;
   }
@@ -231,11 +238,22 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
     android.package = releaseOverrides.androidPackage;
   }
 
+  const updates = {
+    ...(baseExpoConfig.updates ?? {}),
+  };
+  if (releaseOverrides.updateChannel) {
+    updates.requestHeaders = {
+      ...(updates.requestHeaders ?? {}),
+      'expo-channel-name': releaseOverrides.updateChannel,
+    };
+  }
+
   const expoConfig = {
     ...baseExpoConfig,
     android,
     ios,
     scheme: resolvedScheme || undefined,
+    updates,
     extra,
   };
 

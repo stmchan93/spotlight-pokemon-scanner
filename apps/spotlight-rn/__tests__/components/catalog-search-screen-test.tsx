@@ -74,7 +74,10 @@ describe('CatalogSearchScreen', () => {
     expect(screen.getByTestId('catalog-result-sm7-2')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('catalog-result-sm7-1'));
-    expect(onOpenCard).toHaveBeenCalledWith('sm7-1');
+    expect(onOpenCard).toHaveBeenCalledWith(expect.objectContaining({
+      cardId: 'sm7-1',
+      name: 'Treecko',
+    }));
   });
 
   it('renders the empty state when a query returns no matches', async () => {

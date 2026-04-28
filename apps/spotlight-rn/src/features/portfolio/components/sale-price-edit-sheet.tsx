@@ -1,4 +1,5 @@
 import {
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -78,6 +79,20 @@ export function SalePriceEditSheet({
         >
           <SurfaceCard padding={18} radius={24} style={styles.sheet}>
             <SheetHeader
+              leadingAccessory={(
+                <Image
+                  resizeMode="cover"
+                  source={{ uri: sale.imageUrl }}
+                  style={[
+                    styles.saleArt,
+                    {
+                      backgroundColor: theme.colors.field,
+                      borderColor: theme.colors.outlineSubtle,
+                    },
+                  ]}
+                  testID="edit-sale-card-image"
+                />
+              )}
               rightAccessory={(
                 <IconButton
                   accessibilityLabel="Close edit sale price"
@@ -150,6 +165,12 @@ const styles = StyleSheet.create({
   },
   priceFieldInput: {
     lineHeight: 40,
+  },
+  saleArt: {
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 72,
+    width: 52,
   },
   sheet: {
     marginHorizontal: 16,

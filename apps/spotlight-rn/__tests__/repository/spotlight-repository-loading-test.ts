@@ -292,6 +292,70 @@ describe('HttpSpotlightRepository', () => {
     expect(detail?.ebayListings?.listings.map((listing) => listing.priceAmount)).toEqual([1, 21.99, 90]);
   });
 
+  it('loads raw card market history with the near-mint condition by default', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/cards/sv4-199/market-history')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          currentPrice: 112.01,
+          selectedCondition: 'NM',
+          points: [
+            { date: '2026-04-27', market: 112.01 },
+          ],
+          availableVariants: [
+            { id: 'Holofoil', label: 'Holofoil', currentPrice: 112.01 },
+          ],
+          availableConditions: [
+            { id: 'NM', label: 'NM', currentPrice: 112.01 },
+          ],
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const history = await repository.getCardMarketHistory({ cardId: 'sv4-199' });
+    const requestedUrl = new URL(String((global.fetch as jest.Mock).mock.calls[0]?.[0]));
+
+    expect(requestedUrl?.searchParams.get('days')).toBe('30');
+    expect(requestedUrl?.searchParams.get('condition')).toBe('NM');
+    expect(history).toMatchObject({
+      currentPrice: 112.01,
+      selectedCondition: 'NM',
+    });
+    expect(history?.points).toHaveLength(1);
+  });
+
+  it('preserves the eBay search URL when active listings are disabled by the backend', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/cards/sv4-199/ebay-comps')) {
+        return jsonResponse(200, {
+          status: 'unavailable',
+          statusReason: 'browse_disabled',
+          unavailableReason: 'eBay active listings are disabled in this environment.',
+          transactions: [],
+          transactionCount: 0,
+          searchURL: 'https://www.ebay.com/sch/i.html?_nkw=Groudon+Paradox+Rift+199%2F182',
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const listings = await repository.getCardEbayListings({ cardId: 'sv4-199', limit: 5 });
+    const requestedUrl = new URL(String((global.fetch as jest.Mock).mock.calls[0]?.[0]));
+
+    expect(requestedUrl?.searchParams.get('limit')).toBe('5');
+    expect(listings).toMatchObject({
+      status: 'unavailable',
+      statusReason: 'browse_disabled',
+      listingCount: 0,
+      searchUrl: 'https://www.ebay.com/sch/i.html?_nkw=Groudon+Paradox+Rift+199%2F182',
+    });
+  });
+
   it('returns an error load state but still shapes an empty portfolio dashboard on failures', async () => {
     global.fetch = jest.fn().mockRejectedValue(new Error('backend offline')) as typeof fetch;
     const repository = new HttpSpotlightRepository('http://example.test');
@@ -312,50 +376,120 @@ describe('HttpSpotlightRepository', () => {
     });
   });
 
-  it('matches scanner captures through the backend scan endpoint and exposes real candidate ids', async () => {
-    global.fetch = jest.fn().mockImplementation(async (url: string) => {
-      if (url.includes('/api/v1/scan/match')) {
-        return jsonResponse(200, {
-          scanID: 'scan-oshawott',
-          topCandidates: [
-            {
-              rank: 1,
-              candidate: {
-                id: 'catalog-oshawott-real',
-                name: 'Oshawott',
-                setName: "McDonald's Collection 2021",
-                number: '21/25',
-                imageSmallURL: 'https://cdn.example/oshawott-small.png',
-                imageLargeURL: 'https://cdn.example/oshawott-large.png',
-                pricing: {
-                  currencyCode: 'usd',
-                  market: 1.23,
+  it('matches raw scanner captures through the backend visual-only endpoint and exposes real candidate ids', async () => {
+    const previousNodeEnv = process.env.NODE_ENV;
+    (process.env as Record<string, string | undefined>).NODE_ENV = 'development';
+    let requestBody: Record<string, unknown> | null = null;
+    const consoleInfoSpy = jest.spyOn(console, 'info').mockImplementation(() => {});
+
+    try {
+      global.fetch = jest.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+        if (url.includes('/api/v1/scan/visual-match')) {
+          requestBody = init?.body ? JSON.parse(String(init.body)) as Record<string, unknown> : null;
+          return jsonResponse(200, {
+            scanID: 'scan-oshawott',
+            performance: {
+              serverProcessingMs: 52.5,
+            },
+            topCandidates: [
+              {
+                rank: 1,
+                candidate: {
+                  id: 'catalog-oshawott-real',
+                  name: 'Oshawott',
+                  setName: "McDonald's Collection 2021",
+                  number: '21/25',
+                  imageSmallURL: 'https://cdn.example/oshawott-small.png',
+                  imageLargeURL: 'https://cdn.example/oshawott-large.png',
+                  pricing: {
+                    currencyCode: 'usd',
+                    market: 1.23,
+                  },
                 },
               },
-            },
-          ],
+            ],
+          });
+        }
+
+        throw new Error(`Unexpected URL: ${url}`);
+      }) as typeof fetch;
+
+      const repository = new HttpSpotlightRepository('http://example.test');
+      const result = await repository.matchScannerCapture({
+        jpegBase64: 'bW9jay1zY2Fu',
+        height: 1620,
+        mode: 'raw',
+        width: 1080,
+      });
+      const [candidate] = result.candidates;
+
+      expect(candidate).toMatchObject({
+        cardId: 'catalog-oshawott-real',
+        id: 'catalog-oshawott-real',
+        imageUrl: 'https://cdn.example/oshawott-large.png',
+        marketPrice: 1.23,
+      });
+      expect(requestBody).toMatchObject({
+        resolverModeHint: 'raw_card',
+        rawResolverMode: 'visual',
+        recognizedTokens: [],
+        ocrAnalysis: null,
+      });
+      expect(result.requestAttemptCount).toBe(1);
+      expect(result.requestUrl).toBe('http://example.test/api/v1/scan/visual-match');
+      expect(result.scanID).toBe('scan-oshawott');
+      expect(result.endpointPath).toBe('api/v1/scan/visual-match');
+      expect(result.serverProcessingMs).toBe(52.5);
+      expect(consoleInfoSpy).toHaveBeenCalledWith(expect.stringContaining('[SPOTLIGHT API] api/v1/scan/visual-match'));
+      expect(consoleInfoSpy).toHaveBeenCalledWith(expect.stringContaining('strategy=single_active'));
+    } finally {
+      if (previousNodeEnv === undefined) {
+        delete (process.env as Record<string, string | undefined>).NODE_ENV;
+      } else {
+        (process.env as Record<string, string | undefined>).NODE_ENV = previousNodeEnv;
+      }
+    }
+  });
+
+  it('does not retry scanner match requests across fallback base URLs', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.startsWith('http://bad.local:8788/api/v1/scan/visual-match')) {
+        throw new Error('backend offline');
+      }
+
+      if (url.startsWith('http://192.168.1.146:8788/api/v1/scan/visual-match')) {
+        return jsonResponse(200, {
+          scanID: 'scan-should-not-succeed',
+          topCandidates: [],
         });
       }
 
       throw new Error(`Unexpected URL: ${url}`);
     }) as typeof fetch;
 
-    const repository = new HttpSpotlightRepository('http://example.test');
-    const result = await repository.matchScannerCapture({
-      jpegBase64: 'bW9jay1zY2Fu',
+    const repository = new HttpSpotlightRepository([
+      'http://bad.local:8788',
+      'http://192.168.1.146:8788',
+    ]);
+
+    await expect(repository.matchScannerCapture({
       height: 1620,
+      jpegBase64: 'bW9jay1zY2Fu',
       mode: 'raw',
       width: 1080,
+    })).rejects.toMatchObject({
+      kind: 'request_failed',
+      message: 'backend offline',
     });
-    const [candidate] = result.candidates;
 
-    expect(candidate).toMatchObject({
-      cardId: 'catalog-oshawott-real',
-      id: 'catalog-oshawott-real',
-      imageUrl: 'https://cdn.example/oshawott-large.png',
-      marketPrice: 1.23,
-    });
-    expect(result.scanID).toBe('scan-oshawott');
+    expect((global.fetch as jest.Mock).mock.calls).toEqual([
+      [
+        'http://bad.local:8788/api/v1/scan/visual-match',
+        expect.objectContaining({
+          method: 'POST',
+        }),
+      ],
+    ]);
   });
 
   it('times out unreachable backend requests instead of hanging forever', async () => {

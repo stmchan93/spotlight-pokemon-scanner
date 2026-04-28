@@ -25,8 +25,9 @@ function TabsChrome() {
   const theme = useSpotlightTheme();
   const portfolioSelected = isPortfolioPath(pathname);
   const scanSelected = isScanPath(pathname);
+  const isTabsPath = portfolioSelected || scanSelected;
 
-  if (scanSelected) {
+  if (!isTabsPath || scanSelected) {
     return null;
   }
 

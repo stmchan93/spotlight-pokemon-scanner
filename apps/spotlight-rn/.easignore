@@ -1,0 +1,53 @@
+# EAS only needs app source, native project config, assets, and package metadata.
+# Local dependency installs, generated native build products, tests, and caches make
+# the upload much larger but are recreated on the EAS builder.
+
+# Package managers / installs
+node_modules/
+.pnpm-store/
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+pnpm-debug.log*
+
+# Expo / Metro / local build output
+.expo/
+.expo-shared/
+dist/
+web-build/
+coverage/
+.metro-health-check*
+*.tsbuildinfo
+
+# Local editors / OS files
+.vscode/
+.DS_Store
+
+# Local env / credentials
+.env
+.env.*
+*.pem
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+
+# Tests and local-only support files
+__tests__/
+test-support/
+jest.config.cjs
+jest.setup.ts
+eslint.config.mjs
+.maestro/
+
+# Generated native dependency/build outputs. Keep ios/ and android/ project files;
+# EAS runs dependency installation on the builder.
+ios/Pods/
+ios/build/
+ios/DerivedData/
+ios/**/*.xcuserstate
+ios/**/xcuserdata/
+android/.gradle/
+android/app/build/
+android/build/

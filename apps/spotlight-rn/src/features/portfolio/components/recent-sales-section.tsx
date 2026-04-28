@@ -72,6 +72,7 @@ function RecentSaleCard({
 
 type RecentSalesSectionProps = {
   expanded: boolean;
+  isLoading?: boolean;
   onOpenSalesHistory?: () => void;
   onSalePress?: (sale: RecentSaleRecord) => void;
   onToggleExpanded: () => void;
@@ -79,15 +80,49 @@ type RecentSalesSectionProps = {
   title?: string;
 };
 
+function RecentSalesSkeleton() {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View style={styles.list} testID="latest-sales-skeleton">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <SurfaceCard
+          key={index}
+          padding={8}
+          radius={16}
+          style={[styles.card, { minHeight: theme.layout.recentSaleHeight }]}
+        >
+          <View
+            style={[
+              styles.skeletonArt,
+              {
+                backgroundColor: theme.colors.outlineSubtle,
+                height: theme.layout.recentSaleHeight - 16,
+              },
+            ]}
+          />
+
+          <View style={[styles.copy, { minHeight: theme.layout.recentSaleHeight - 16 }]}>
+            <View style={[styles.skeletonLineWide, { backgroundColor: theme.colors.outlineSubtle }]} />
+            <View style={[styles.skeletonLineMedium, { backgroundColor: theme.colors.outlineSubtle }]} />
+            <View style={[styles.skeletonLineNarrow, { backgroundColor: theme.colors.outlineSubtle }]} />
+          </View>
+        </SurfaceCard>
+      ))}
+    </View>
+  );
+}
+
 export function RecentSalesSection({
   expanded,
+  isLoading = false,
   onOpenSalesHistory,
   onSalePress,
   onToggleExpanded,
   sales,
   title = 'Latest Sales',
 }: RecentSalesSectionProps) {
-  const showSubtitle = sales.length === 0;
+  const showSubtitle = sales.length === 0 && !isLoading;
   const showSeeMore = sales.length > 0 && onOpenSalesHistory;
 
   return (
@@ -103,7 +138,9 @@ export function RecentSalesSection({
       />
 
       {expanded ? (
-        sales.length === 0 ? (
+        sales.length === 0 && isLoading ? (
+          <RecentSalesSkeleton />
+        ) : sales.length === 0 ? (
           <StateCard
             message="Completed transactions will appear here as soon as you start moving inventory."
             style={styles.emptyStateCard}
@@ -174,5 +211,24 @@ const styles = StyleSheet.create({
   priceText: {
     flexShrink: 0,
     textAlign: 'right',
+  },
+  skeletonArt: {
+    borderRadius: 12,
+    width: 72,
+  },
+  skeletonLineMedium: {
+    borderRadius: 999,
+    height: 12,
+    width: '58%',
+  },
+  skeletonLineNarrow: {
+    borderRadius: 999,
+    height: 10,
+    width: '42%',
+  },
+  skeletonLineWide: {
+    borderRadius: 999,
+    height: 16,
+    width: '76%',
   },
 });

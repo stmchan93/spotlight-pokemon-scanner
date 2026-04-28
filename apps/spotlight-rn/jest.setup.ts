@@ -130,6 +130,126 @@ jest.mock('expo-camera', () => {
   };
 });
 
+jest.mock('expo-image-manipulator', () => {
+  const dimensionsByUri = new Map<string, { height: number; width: number }>();
+  dimensionsByUri.set('file:///mock-scan.jpg', { height: 888, width: 1920 });
+  let imageCounter = 0;
+
+  function applyResize(
+    current: { height: number; width: number },
+    resize: { height?: number | null; width?: number | null },
+  ) {
+    if (resize.width && resize.height) {
+      return {
+        height: resize.height,
+        width: resize.width,
+      };
+    }
+
+    if (resize.width) {
+      return {
+        height: Math.round((current.height / current.width) * resize.width),
+        width: resize.width,
+      };
+    }
+
+    if (resize.height) {
+      return {
+        height: resize.height,
+        width: Math.round((current.width / current.height) * resize.height),
+      };
+    }
+
+    return current;
+  }
+
+  return {
+    ImageManipulator: {
+      manipulate: jest.fn((uri: string) => {
+        let current = dimensionsByUri.get(uri) ?? { height: 1620, width: 1080 };
+
+        return {
+          crop(rect: { height: number; width: number }) {
+            current = {
+              height: Math.round(rect.height),
+              width: Math.round(rect.width),
+            };
+            return this;
+          },
+          renderAsync: jest.fn(async () => ({
+            height: current.height,
+            release: jest.fn(),
+            saveAsync: jest.fn(async ({ base64 }: { base64?: boolean } = {}) => {
+              const nextUri = `file:///mock-normalized-${imageCounter += 1}.jpg`;
+              dimensionsByUri.set(nextUri, current);
+              return {
+                base64: base64 ? 'bm9ybWFsaXplZC1zY2FuLWJhc2U2NA==' : undefined,
+                height: current.height,
+                uri: nextUri,
+                width: current.width,
+              };
+            }),
+            width: current.width,
+          })),
+          release: jest.fn(),
+          resize(size: { height?: number | null; width?: number | null }) {
+            current = applyResize(current, size);
+            return this;
+          },
+          rotate(degrees: number) {
+            if (Math.abs(degrees) % 180 === 90) {
+              current = {
+                height: current.width,
+                width: current.height,
+              };
+            }
+            return this;
+          },
+        };
+      }),
+    },
+    manipulateAsync: jest.fn(async (
+      uri: string,
+      actions: Array<{
+        crop?: { originX: number; originY: number; width: number; height: number };
+        resize?: { height?: number | null; width?: number | null };
+      }> = [],
+      { base64 }: { base64?: boolean } = {},
+    ) => {
+      let current = dimensionsByUri.get(uri) ?? { height: 1620, width: 1080 };
+
+      actions.forEach((action) => {
+        if (action.crop) {
+          current = {
+            height: Math.round(action.crop.height),
+            width: Math.round(action.crop.width),
+          };
+          return;
+        }
+
+        if (action.resize) {
+          current = applyResize(current, action.resize);
+        }
+      });
+
+      const nextUri = `file:///mock-normalized-${imageCounter += 1}.jpg`;
+      dimensionsByUri.set(nextUri, current);
+
+      return {
+        base64: base64 ? 'bm9ybWFsaXplZC1zY2FuLWJhc2U2NA==' : undefined,
+        height: current.height,
+        uri: nextUri,
+        width: current.width,
+      };
+    }),
+    SaveFormat: {
+      JPEG: 'jpeg',
+      PNG: 'png',
+      WEBP: 'webp',
+    },
+  };
+});
+
 jest.mock('expo-document-picker', () => ({
   getDocumentAsync: jest.fn(async () => ({
     canceled: true,

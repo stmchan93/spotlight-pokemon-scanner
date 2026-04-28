@@ -1,6 +1,7 @@
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import type { InventoryCardEntry } from '@spotlight/api-client';
 import { StateCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import { InventoryGrid } from '@/features/portfolio/components/inventory-grid';
@@ -14,7 +15,7 @@ type PortfolioScreenProps = {
   onOpenAddCard?: () => void;
   onOpenAccount?: () => void;
   onOpenInventory?: () => void;
-  onOpenInventoryEntry?: (entryId: string, cardId: string) => void;
+  onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
   onOpenSalesHistory: () => void;
   onOpenSellSelection?: (entryId?: string) => void;
 };
@@ -31,6 +32,10 @@ export function PortfolioScreen({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const model = usePortfolioScreenModel();
+  const shouldShowInitialError = !model.hasLoadedDashboard
+    && !model.hasLoadedInventory
+    && !model.isLoading
+    && model.loadError !== null;
 
   return (
     <SafeAreaView
@@ -78,46 +83,59 @@ export function PortfolioScreen({
           </Pressable>
         </View>
 
-        <PortfolioChartCard
-          chartMode={model.chartMode}
-          dashboard={model.dashboard}
-          onModeChange={model.setChartMode}
-          onRangeChange={model.setSelectedRange}
-          selectedRange={model.selectedRange}
-        />
-
-        {model.loadError ? (
+        {shouldShowInitialError ? (
           <StateCard
-            message={model.loadError}
+            message={model.loadError || 'Please try again once your backend is reachable.'}
             title="Could not load your backend data"
             variant="field"
           />
-        ) : null}
+        ) : (
+          <>
+            <PortfolioChartCard
+              chartMode={model.chartMode}
+              dashboard={model.dashboard}
+              isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
+              onModeChange={model.setChartMode}
+              onRangeChange={model.setSelectedRange}
+              selectedRange={model.selectedRange}
+            />
 
-        <InventoryGrid
-          hasInventoryEntries={model.hasInventoryEntries}
-          inventoryCount={model.inventoryTotalCount}
-          inventoryExpanded={model.inventoryExpanded}
-          inventoryItems={model.filteredInventory}
-          onOpenAddCard={onOpenAddCard}
-          onOpenEntry={(entry) => onOpenInventoryEntry(entry.id, entry.cardId)}
-          onOpenInventory={onOpenInventory}
-          onOpenSellSelection={onOpenSellSelection}
-          onSearchChange={model.setSearchQuery}
-          onToggleExpanded={() => model.setInventoryExpanded((value) => !value)}
-          searchQuery={model.searchQuery}
-        />
+            {model.loadError ? (
+              <StateCard
+                message={model.loadError}
+                title="Could not refresh your backend data"
+                variant="field"
+              />
+            ) : null}
 
-        <View style={[styles.recentSalesWrap, { marginTop: theme.layout.sectionGapLarge - theme.layout.sectionGap }]}>
-          <RecentSalesSection
-            expanded={model.recentSalesExpanded}
-            onOpenSalesHistory={onOpenSalesHistory}
-            onSalePress={model.openSaleEditor}
-            onToggleExpanded={() => model.setRecentSalesExpanded((value) => !value)}
-            sales={model.recentSales}
-            title="Latest Sales"
-          />
-        </View>
+            <InventoryGrid
+              hasInventoryEntries={model.hasInventoryEntries}
+              isLoading={model.isLoadingInventory && !model.hasInventoryEntries}
+              inventoryCount={model.inventoryTotalCount}
+              inventoryExpanded={model.inventoryExpanded}
+              inventoryItems={model.filteredInventory}
+              onOpenAddCard={onOpenAddCard}
+              onOpenEntry={onOpenInventoryEntry}
+              onOpenInventory={onOpenInventory}
+              onOpenSellSelection={onOpenSellSelection}
+              onSearchChange={model.setSearchQuery}
+              onToggleExpanded={() => model.setInventoryExpanded((value) => !value)}
+              searchQuery={model.searchQuery}
+            />
+
+            <View style={[styles.recentSalesWrap, { marginTop: theme.layout.sectionGapLarge - theme.layout.sectionGap }]}>
+              <RecentSalesSection
+                expanded={model.recentSalesExpanded}
+                isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
+                onOpenSalesHistory={onOpenSalesHistory}
+                onSalePress={model.openSaleEditor}
+                onToggleExpanded={() => model.setRecentSalesExpanded((value) => !value)}
+                sales={model.recentSales}
+                title="Latest Sales"
+              />
+            </View>
+          </>
+        )}
       </ScrollView>
 
       <SalePriceEditSheet

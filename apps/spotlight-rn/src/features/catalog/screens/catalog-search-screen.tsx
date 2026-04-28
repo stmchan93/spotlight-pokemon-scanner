@@ -24,7 +24,7 @@ import { useAppServices } from '@/providers/app-providers';
 
 type CatalogSearchScreenProps = {
   onClose: () => void;
-  onOpenCard: (cardId: string) => void;
+  onOpenCard: (result: CatalogSearchResult) => void;
 };
 
 function resultNumberLabel(result: CatalogSearchResult) {
@@ -297,7 +297,7 @@ export function CatalogSearchScreen({
 
   const openResult = (result: CatalogSearchResult) => {
     setOpeningResultId(result.id);
-    onOpenCard(result.cardId);
+    onOpenCard(result);
   };
 
   return (

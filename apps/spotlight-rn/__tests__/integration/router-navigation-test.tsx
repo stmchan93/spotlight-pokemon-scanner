@@ -6,7 +6,7 @@ describe('mobile app routing', () => {
   it('boots into scan and navigates between portfolio, scan, and sales history', async () => {
     renderAppRouter('/');
 
-    expect(await screen.findByText('Tap anywhere to scan')).toBeTruthy();
+    expect(await screen.findByText('Tap inside frame to scan')).toBeTruthy();
     expect(screen.getByTestId('scanner-tray')).toBeTruthy();
     expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
     expect(screen.queryByTestId('bottom-nav-scan')).toBeNull();
@@ -31,7 +31,7 @@ describe('mobile app routing', () => {
     fireEvent.press(screen.getByTestId('bottom-nav-scan'));
 
     await waitFor(() => {
-      expect(screen.getByText('Tap anywhere to scan')).toBeTruthy();
+      expect(screen.getByText('Tap inside frame to scan')).toBeTruthy();
     });
   });
 
@@ -39,6 +39,14 @@ describe('mobile app routing', () => {
     renderAppRouter('/sales-history');
 
     expect(await screen.findByText('All Transactions')).toBeTruthy();
+  });
+
+  it('does not render tab chrome on card detail stack routes', async () => {
+    renderAppRouter('/cards/mcdonalds25-21');
+
+    expect(await screen.findByTestId('detail-hero-card')).toBeTruthy();
+    expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
+    expect(screen.queryByTestId('bottom-nav-scan')).toBeNull();
   });
 
   it('opens the sale edit popup from the sales-history route', async () => {

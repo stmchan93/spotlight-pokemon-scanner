@@ -10,6 +10,7 @@
     "mobile:start:phone": "zsh tools/start_mobile_phone_dev.sh",
     "mobile:start:phone:dev-client": "zsh tools/start_mobile_phone_dev.sh --dev-client",
     "mobile:start:phone:frontend": "zsh tools/start_mobile_phone_dev.sh --frontend-only",
+    "mobile:start:phone:frontend:dev-client": "zsh tools/start_mobile_phone_dev.sh --frontend-only --dev-client",
     "mobile:ios": "pnpm --filter @spotlight/mobile-app ios",
     "mobile:android": "pnpm --filter @spotlight/mobile-app android",
     "mobile:web": "pnpm --filter @spotlight/mobile-app web",

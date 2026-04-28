@@ -1,16 +1,16 @@
 # Spotlight Scanner Master Status
 
-Date: 2026-04-11 (last content edit); **alias + rewrite pointer updated 2026-04-23**
+Date: 2026-04-11 (last content edit); **active visual alias updated 2026-04-28**
 
 This is the current product/source-of-truth status doc.
 
-## 2026-04-23 update notes
+## 2026-04-28 update notes
 
 - The current scanner + visual-model rewrite source of truth is now [docs/scanner-model-rewrite-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scanner-model-rewrite-spec-2026-04-23.md).
 - The paired data + labeling pipeline spec is [docs/scan-data-labeling-pipeline-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scan-data-labeling-pipeline-spec-2026-04-23.md).
-- The active raw visual runtime alias is `v006-scrydex-cardphotos33-clean` as of `2026-04-22T02:00:22Z`, per `backend/data/visual-models/raw_visual_runtime_active.json`. References below to `v004-scrydex-b8` as the active alias are stale.
-- Later adapters (v007, v008-r015/r020/r025, v009-sweep-selected) are trained on the 259-card corpus but have not been promoted to `active`. v009 was briefly published on `2026-04-20T23:45:41Z` and rolled back to v006.
-- The v006 adapter was trained on only ~33 unique cards. Training-corpus size, not backbone capacity, is now the primary ceiling for visual retrieval quality — this drives the new data-loop spec.
+- The active raw visual runtime alias is `v009-scrydex-cardphotos259-sweep-selected` as of `2026-04-28T20:11:59Z`, per `backend/data/visual-models/raw_visual_runtime_active.json`.
+- v009 is trained on the 259-card corpus and replaces the previous `v006-scrydex-cardphotos33-clean` active alias.
+- The previous v006 adapter was trained on only ~33 unique cards. Training-corpus size, not backbone capacity, remains the primary ceiling for visual retrieval quality — this drives the new data-loop spec.
 
 ## Current Backend State
 
@@ -134,7 +134,7 @@ Use this locked React Native execution spec for the parallel mobile migration wo
     - `v004-scrydex` base: hybrid top-1 `29/67`
     - `v004-scrydex-b8` adapter: hybrid top-1 `33/67` before matcher shortlist improvements
     - `v004-scrydex-b8` with matcher shortlist improvements: hybrid top-1 `36/67`
-    - runtime decision: keep the active aliases on `v004-scrydex-b8` unless a later Scrydex-backed candidate beats `36/67`
+    - runtime decision: active aliases are now promoted to `v009-scrydex-cardphotos259-sweep-selected`
 - current raw visual proof-of-concept baseline on the provider-supported subset:
   - provider-supported fixtures: `47`
   - provider-unsupported fixtures: `20`

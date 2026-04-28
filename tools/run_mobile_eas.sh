@@ -60,6 +60,7 @@ set -a
 # shellcheck disable=SC1090
 . "$ENV_FILE"
 export SPOTLIGHT_APP_ENV="$ENVIRONMENT"
+export EXPO_NO_DOTENV=1
 set +a
 
 require_non_placeholder_env "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL"

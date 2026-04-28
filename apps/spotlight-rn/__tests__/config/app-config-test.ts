@@ -152,11 +152,13 @@ describe('app config local overrides bridge', () => {
       expoOwner: '',
       iosBundleIdentifier: '',
       scheme: '',
+      updateChannel: '',
     });
 
     expect(loadSpotlightReleaseOverridesFromEnv({
       SPOTLIGHT_ANDROID_PACKAGE: 'com.looty.spotlight',
       SPOTLIGHT_APP_SCHEME: 'looty',
+      SPOTLIGHT_EAS_UPDATE_CHANNEL: 'staging',
       SPOTLIGHT_EAS_PROJECT_ID: '12345678-1234-1234-1234-1234567890ab',
       SPOTLIGHT_EXPO_OWNER: 'looty',
       SPOTLIGHT_IOS_BUNDLE_IDENTIFIER: 'com.looty.spotlight',
@@ -166,6 +168,7 @@ describe('app config local overrides bridge', () => {
       expoOwner: 'looty',
       iosBundleIdentifier: 'com.looty.spotlight',
       scheme: 'looty',
+      updateChannel: 'staging',
     });
   });
 
@@ -181,6 +184,7 @@ describe('app config local overrides bridge', () => {
       expoOwner: '',
       iosBundleIdentifier: '',
       scheme: '',
+      updateChannel: '',
     });
   });
 
@@ -240,7 +244,9 @@ describe('app config local overrides bridge', () => {
     const previousEnv = {
       EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL: process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL,
       SPOTLIGHT_ANDROID_PACKAGE: process.env.SPOTLIGHT_ANDROID_PACKAGE,
+      SPOTLIGHT_APP_ENV: process.env.SPOTLIGHT_APP_ENV,
       SPOTLIGHT_APP_SCHEME: process.env.SPOTLIGHT_APP_SCHEME,
+      SPOTLIGHT_EAS_UPDATE_CHANNEL: process.env.SPOTLIGHT_EAS_UPDATE_CHANNEL,
       SPOTLIGHT_EAS_PROJECT_ID: process.env.SPOTLIGHT_EAS_PROJECT_ID,
       SPOTLIGHT_EXPO_OWNER: process.env.SPOTLIGHT_EXPO_OWNER,
       SPOTLIGHT_IOS_BUNDLE_IDENTIFIER: process.env.SPOTLIGHT_IOS_BUNDLE_IDENTIFIER,
@@ -249,6 +255,7 @@ describe('app config local overrides bridge', () => {
     process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL = 'https://api.looty.app';
     process.env.SPOTLIGHT_ANDROID_PACKAGE = 'com.looty.spotlight';
     process.env.SPOTLIGHT_APP_SCHEME = 'looty';
+    process.env.SPOTLIGHT_EAS_UPDATE_CHANNEL = 'staging';
     process.env.SPOTLIGHT_EAS_PROJECT_ID = '12345678-1234-1234-1234-1234567890ab';
     process.env.SPOTLIGHT_EXPO_OWNER = 'looty';
     process.env.SPOTLIGHT_IOS_BUNDLE_IDENTIFIER = 'com.looty.spotlight';
@@ -262,6 +269,7 @@ describe('app config local overrides bridge', () => {
     expect(config.extra?.spotlightApiBaseUrl).toBe('https://api.looty.app');
     expect(config.extra?.spotlightAuthScheme).toBe('looty');
     expect(config.extra?.eas?.projectId).toBe('12345678-1234-1234-1234-1234567890ab');
+    expect(config.updates?.requestHeaders?.['expo-channel-name']).toBe('staging');
 
     Object.assign(process.env, previousEnv);
   });
@@ -285,8 +293,10 @@ describe('app config local overrides bridge', () => {
     expect(config.ios?.bundleIdentifier).toBe('com.looty.production');
     expect(config.owner).toBe('looty');
     expect(config.extra?.spotlightApiBaseUrl).toBe('https://api.looty.app');
+    expect(config.extra?.spotlightAppEnv).toBe('production');
     expect(config.extra?.spotlightSupabaseUrl).toBe('https://sb.looty.app');
     expect(config.extra?.eas?.projectId).toBe('12345678-1234-1234-1234-1234567890ab');
+    expect(config.updates?.requestHeaders?.['expo-channel-name']).toBe('production');
 
     existsSpy.mockRestore();
     readSpy.mockRestore();

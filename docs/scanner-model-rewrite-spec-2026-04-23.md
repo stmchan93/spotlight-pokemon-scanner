@@ -22,20 +22,19 @@ Date: 2026-04-23
 
 If a proposed change improves top-10 at the cost of top-1, reject it unless it is a clearly scoped interim step with a follow-up that recovers top-1.
 
-## Current State As Of 2026-04-23
+## Current State As Of 2026-04-28
 
 ### Active runtime model
 
-- `raw_visual_runtime_active.json` says `artifactVersion = v006-scrydex-cardphotos33-clean`, published `2026-04-22T02:00:22Z`.
-- `raw_visual_adapter_active.pt` and `visual_index_active_*.npz` bytes confirm this — they are identical to the `v006-scrydex-cardphotos33-clean_*` source files.
-- v007, v008-r015/r020/r025, and v009-sweep-selected adapters exist on disk (trained on the `cardphotos259` corpus) but are not the active alias.
-- A `raw_visual_runtime_active.pre-v009-20260420T234541Z.json` backup exists, which means v009 was briefly promoted on `2026-04-20T23:45:41Z` and then rolled back to v006.
-- [spotlight-scanner-master-status-2026-04-03.md](/Users/stephenchan/Code/spotlight/docs/spotlight-scanner-master-status-2026-04-03.md) still claims `v004-scrydex-b8` is the active alias. This doc is stale and must be corrected.
+- `raw_visual_runtime_active.json` says `artifactVersion = v009-scrydex-cardphotos259-sweep-selected`, published `2026-04-28T20:11:59Z`.
+- `raw_visual_adapter_active.pt` and `visual_index_active_*.npz` bytes confirm this — they are identical to the `v009-scrydex-cardphotos259-sweep-selected_*` source files.
+- v009-sweep-selected is trained on the `cardphotos259` corpus and replaces the previous `v006-scrydex-cardphotos33-clean` active alias.
+- A fresh pre-v009 backup exists under `backend/data/visual-models/active-backups/` and `backend/data/visual-index/active-backups/`.
 
 ### Corpus ceiling
 
-- The active `v006-scrydex-cardphotos33-clean` adapter was trained on ~33 unique cards (manifest had 388 records, 89 providers, but the corpus-name suffix `-cardphotos33` records the small unique-card root count).
-- The rolled-back v009 was trained on the 259-card corpus.
+- The previous `v006-scrydex-cardphotos33-clean` adapter was trained on ~33 unique cards (manifest had 388 records, 89 providers, but the corpus-name suffix `-cardphotos33` records the small unique-card root count).
+- The active v009 adapter was trained on the 259-card corpus.
 - Training-corpus size, not backbone capacity, is now the primary ceiling for visual retrieval quality.
 
 ### Scanner front half (iOS)

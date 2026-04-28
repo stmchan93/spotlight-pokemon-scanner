@@ -8,13 +8,35 @@
       "developmentClient": true,
       "distribution": "internal",
       "env": {
-        "SPOTLIGHT_APP_ENV": "development"
+        "EXPO_NO_DOTENV": "1",
+        "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL": "http://127.0.0.1:8788",
+        "EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL": "spotlight://login-callback",
+        "EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME": "spotlight",
+        "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY": "sb_publishable_qt8HOMPYzMc0UUAgLg0e8A_JYcA53An",
+        "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL": "https://lvnjshymwvagwadqeofm.supabase.co",
+        "SPOTLIGHT_ANDROID_PACKAGE": "com.looty.spotlight.dev",
+        "SPOTLIGHT_APP_ENV": "development",
+        "SPOTLIGHT_APP_SCHEME": "spotlight",
+        "SPOTLIGHT_EAS_PROJECT_ID": "bd29d8aa-8a70-45ba-907e-f7136f2be4ff",
+        "SPOTLIGHT_EXPO_OWNER": "schan93",
+        "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER": "com.looty.spotlight.dev"
       },
       "channel": "development"
     },
     "staging": {
       "env": {
-        "SPOTLIGHT_APP_ENV": "staging"
+        "EXPO_NO_DOTENV": "1",
+        "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL": "https://looty.34.59.188.129.sslip.io",
+        "EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL": "spotlight://login-callback",
+        "EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME": "spotlight",
+        "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY": "sb_publishable_qt8HOMPYzMc0UUAgLg0e8A_JYcA53An",
+        "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL": "https://lvnjshymwvagwadqeofm.supabase.co",
+        "SPOTLIGHT_ANDROID_PACKAGE": "com.looty.staging",
+        "SPOTLIGHT_APP_ENV": "staging",
+        "SPOTLIGHT_APP_SCHEME": "spotlight",
+        "SPOTLIGHT_EAS_PROJECT_ID": "bd29d8aa-8a70-45ba-907e-f7136f2be4ff",
+        "SPOTLIGHT_EXPO_OWNER": "schan93",
+        "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER": "com.looty.staging"
       },
       "channel": "staging",
       "autoIncrement": true

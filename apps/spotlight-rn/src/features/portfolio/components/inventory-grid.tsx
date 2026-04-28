@@ -6,6 +6,7 @@ import {
   SearchField,
   SectionHeader,
   StateCard,
+  useSpotlightTheme,
 } from '@spotlight/design-system';
 
 import { InventoryEntryCard } from '@/features/inventory/components/inventory-entry-card';
@@ -13,6 +14,7 @@ import { InventoryEntryCard } from '@/features/inventory/components/inventory-en
 type InventoryGridProps = {
   hasInventoryEntries: boolean;
   inventoryCount: number;
+  isLoading?: boolean;
   inventoryExpanded: boolean;
   inventoryItems: InventoryCardEntry[];
   onOpenAddCard: () => void;
@@ -34,9 +36,40 @@ function chunkIntoRows(items: readonly InventoryCardEntry[], perRow: number) {
   return rows;
 }
 
+function InventoryGridSkeleton() {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View style={styles.grid} testID="portfolio-inventory-skeleton">
+      {Array.from({ length: 2 }).map((_, rowIndex) => (
+        <View key={rowIndex} style={styles.gridRow}>
+          {Array.from({ length: 3 }).map((__, tileIndex) => (
+            <View
+              key={tileIndex}
+              style={[
+                styles.tileWrap,
+                styles.skeletonTile,
+                {
+                  backgroundColor: theme.colors.canvasElevated,
+                  borderColor: theme.colors.outlineSubtle,
+                },
+              ]}
+            >
+              <View style={[styles.skeletonImage, { backgroundColor: theme.colors.outlineSubtle }]} />
+              <View style={[styles.skeletonTextWide, { backgroundColor: theme.colors.outlineSubtle }]} />
+              <View style={[styles.skeletonTextNarrow, { backgroundColor: theme.colors.outlineSubtle }]} />
+            </View>
+          ))}
+        </View>
+      ))}
+    </View>
+  );
+}
+
 export function InventoryGrid({
   hasInventoryEntries,
   inventoryCount,
+  isLoading = false,
   inventoryExpanded,
   inventoryItems,
   onOpenAddCard,
@@ -104,7 +137,9 @@ export function InventoryGrid({
             value={searchQuery}
           />
 
-          {inventoryItems.length === 0 ? (
+          {inventoryItems.length === 0 && isLoading ? (
+            <InventoryGridSkeleton />
+          ) : inventoryItems.length === 0 ? (
             <StateCard
               message={hasSearchQuery || hasInventoryEntries
                 ? emptyStateMessage
@@ -172,6 +207,31 @@ const styles = StyleSheet.create({
   section: {},
   secondaryAction: {
     minWidth: 78,
+  },
+  skeletonImage: {
+    aspectRatio: 0.72,
+    borderRadius: 10,
+    width: '72%',
+  },
+  skeletonTextNarrow: {
+    borderRadius: 999,
+    height: 10,
+    marginTop: 4,
+    width: '58%',
+  },
+  skeletonTextWide: {
+    borderRadius: 999,
+    height: 12,
+    marginTop: 12,
+    width: '78%',
+  },
+  skeletonTile: {
+    alignItems: 'center',
+    borderRadius: 16,
+    borderWidth: 1,
+    minHeight: 182,
+    paddingHorizontal: 8,
+    paddingVertical: 12,
   },
   tileWrap: {
     flex: 1,

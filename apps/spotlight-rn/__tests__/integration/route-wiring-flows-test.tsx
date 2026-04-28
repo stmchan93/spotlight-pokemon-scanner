@@ -273,7 +273,7 @@ describe('route wiring flows', () => {
       'inventory/index': InventoryRouteHarness,
     });
 
-    expect(await screen.findByText('Portfolio')).toBeTruthy();
+    expect(await screen.findByText('Track value, inventory, and latest transactions in one place.')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('portfolio-see-more'));
 

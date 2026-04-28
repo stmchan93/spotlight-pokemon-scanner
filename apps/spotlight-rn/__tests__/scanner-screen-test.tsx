@@ -1,18 +1,30 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { LayoutAnimation, StyleSheet } from 'react-native';
 
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
+import {
+  clearScanCandidateReviewSessions,
+  getScanCandidateReviewSession,
+} from '@/features/scanner/scan-candidate-review-session';
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
 
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
+const mockConfigureNext = jest.spyOn(LayoutAnimation, 'configureNext').mockImplementation(jest.fn());
 
-jest.mock('expo-router', () => ({
-  useRouter: () => ({
-    push: mockPush,
-    replace: mockReplace,
-  }),
-}));
+jest.mock('expo-router', () => {
+  const React = jest.requireActual<typeof import('react')>('react');
+
+  return {
+    useFocusEffect: (effect: () => void | (() => void)) => {
+      React.useEffect(() => effect(), [effect]);
+    },
+    useRouter: () => ({
+      push: mockPush,
+      replace: mockReplace,
+    }),
+  };
+});
 
 function renderScannerScreen(options?: Parameters<typeof renderWithProviders>[1]) {
   return renderWithProviders(<ScannerScreen />, options);
@@ -28,6 +40,8 @@ describe('ScannerScreen', () => {
   beforeEach(() => {
     mockPush.mockReset();
     mockReplace.mockReset();
+    mockConfigureNext.mockClear();
+    clearScanCandidateReviewSessions();
   });
 
   it('switches between raw and slabs guidance', () => {
@@ -42,6 +56,17 @@ describe('ScannerScreen', () => {
     expect(screen.getByText('SLABS')).toBeTruthy();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
     expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
+    const previewStyle = StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style);
+    const reticleStyle = StyleSheet.flatten(screen.getByTestId('scanner-reticle').props.style);
+    expect(previewStyle).toMatchObject({
+      height: reticleStyle.height,
+      left: reticleStyle.left,
+      position: 'absolute',
+      top: reticleStyle.top,
+      width: reticleStyle.width,
+    });
+    expect(previewStyle.bottom).toBeUndefined();
+    expect(previewStyle.right).toBeUndefined();
 
     fireEvent.press(screen.getByText('SLABS'));
 
@@ -97,6 +122,134 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray-qty-0')).toBeTruthy();
     expect(screen.queryByTestId('scanner-matches-button')).toBeNull();
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.56');
+    expect(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+      includeHiddenElements: true,
+    })).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+      includeHiddenElements: true,
+    }).props.accessibilityState).toMatchObject({
+      disabled: true,
+    });
+  });
+
+  it('sends a normalized reticle target to scanner matching', async () => {
+    const payloads: Array<{ height: number; jpegBase64: string; width: number }> = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push({
+          height: payload.height,
+          jpegBase64: payload.jpegBase64,
+          width: payload.width,
+        });
+
+        return {
+          scanID: 'scan-oshawott',
+          candidates: [{
+            id: 'mcdonalds25-21',
+            cardId: 'mcdonalds25-21',
+            name: 'Oshawott',
+            cardNumber: '#21/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+            marketPrice: 0.56,
+            currencyCode: 'USD',
+          }],
+        };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+
+    expect(payloads[0]).toEqual({
+      height: 880,
+      jpegBase64: 'bm9ybWFsaXplZC1zY2FuLWJhc2U2NA==',
+      width: 630,
+    });
+  });
+
+  it('keeps the hidden delete action inactive until the row is swiped open', async () => {
+    renderScannerScreen();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+      includeHiddenElements: true,
+    }));
+
+    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.56');
+  });
+
+  it('allows a single scan tray to expand and keeps it expanded when deleting down to one scan', async () => {
+    renderScannerScreen();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    expect(screen.getByTestId('scanner-tray-toggle')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+
+    let expandedViewportHeight = 0;
+    await waitFor(() => {
+      expandedViewportHeight = StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
+      expect(expandedViewportHeight).toBeGreaterThanOrEqual(248);
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-1')).toBeTruthy();
+    });
+
+    expandedViewportHeight = StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-delete', {
+      includeHiddenElements: true,
+    }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+        includeHiddenElements: true,
+      }).props.accessibilityState).toMatchObject({
+        disabled: false,
+      });
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
+      includeHiddenElements: true,
+    }));
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('scanner-tray-row-1')).toBeNull();
+    });
+
+    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-toggle')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height).toBe(expandedViewportHeight);
   });
 
   it('shows the pending tray row immediately before scanner matches resolve', async () => {
@@ -144,7 +297,7 @@ describe('ScannerScreen', () => {
   });
 
   it('allows another scan while earlier scans are still processing', async () => {
-    const pendingResolvers: Array<(value: any) => void> = [];
+    const pendingResolvers: ((value: any) => void)[] = [];
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async () => {
         return new Promise((resolve) => {
@@ -205,7 +358,7 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Scorbunny')).toBeTruthy();
   });
 
-  it('cycles through scan candidates with the thumbnail refresh control', async () => {
+  it('cycles through scan candidates when the thumbnail is tapped', async () => {
     renderScannerScreen();
 
     await waitForScannerReady();
@@ -214,13 +367,14 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Oshawott')).toBeTruthy();
     expect(screen.queryByText('Potential match')).toBeNull();
 
-    fireEvent.press(screen.getByTestId('scanner-tray-refresh-0'));
+    fireEvent.press(screen.getByTestId('scanner-tray-thumb-0'));
 
     await waitFor(() => {
       expect(screen.getByText('Scorbunny')).toBeTruthy();
     });
 
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.38');
+    expect(mockPush).not.toHaveBeenCalled();
   });
 
   it('opens card detail when the recent scan text area is tapped', async () => {
@@ -239,9 +393,27 @@ describe('ScannerScreen', () => {
         params: {
           cardId: 'mcdonalds25-21',
           entryId: 'entry-2',
+          scanReviewId: expect.any(String),
         },
       });
     });
+
+    const pushedRoute = mockPush.mock.calls[0]?.[0] as {
+      params?: { scanReviewId?: string };
+    };
+    const scanReviewSession = getScanCandidateReviewSession(pushedRoute.params?.scanReviewId);
+    expect(scanReviewSession?.normalizedImageUri).toEqual(expect.stringContaining('file:///mock-normalized-'));
+    expect(scanReviewSession?.normalizedImageDimensions).toEqual({
+      height: 880,
+      width: 630,
+    });
+    expect(scanReviewSession?.sourceImageCrop).not.toBeNull();
+    expect(scanReviewSession?.sourceImageCrop?.width).toBeGreaterThan(0);
+    expect(scanReviewSession?.sourceImageCrop?.height).toBeGreaterThan(0);
+    expect(scanReviewSession?.sourceImageDimensions).toBeTruthy();
+    expect(scanReviewSession?.sourceImageDimensions?.height).toBeGreaterThan(
+      scanReviewSession?.sourceImageDimensions?.width ?? 0,
+    );
   });
 
   it('keeps the tray collapsed to the newest scan until expanded, then opens a calm half-screen viewport', async () => {
@@ -252,11 +424,9 @@ describe('ScannerScreen', () => {
       fireEvent.press(screen.getByTestId('scanner-preview'));
       // Let the mocked camera request settle before the next capture.
       // The newest row remains row 0 even after multiple captures.
-      // eslint-disable-next-line no-await-in-loop
       await waitFor(() => {
         expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
       });
-      // eslint-disable-next-line no-await-in-loop
       await waitForScannerReady();
     }
 
@@ -264,6 +434,7 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-tray-row-1')).toBeNull();
 
     fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+    expect(mockConfigureNext).toHaveBeenCalled();
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-scroll')).toBeTruthy();
@@ -402,6 +573,7 @@ describe('ScannerScreen', () => {
         params: {
           cardId: 'mcdonalds25-16',
           entryId: 'entry-1',
+          scanReviewId: expect.any(String),
         },
       });
     });

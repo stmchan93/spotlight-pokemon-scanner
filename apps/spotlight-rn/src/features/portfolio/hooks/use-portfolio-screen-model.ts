@@ -42,6 +42,49 @@ const emptyPortfolioDashboard: PortfolioDashboard = {
   },
 };
 
+function calculateInventoryValue(entries: InventoryCardEntry[]) {
+  return Number(entries.reduce((sum, entry) => {
+    if (!entry.hasMarketPrice) {
+      return sum;
+    }
+
+    return sum + Math.max(0, entry.marketPrice) * Math.max(0, entry.quantity);
+  }, 0).toFixed(2));
+}
+
+function buildInventoryFallbackDashboard(entries: InventoryCardEntry[]): PortfolioDashboard {
+  const currentValue = calculateInventoryValue(entries);
+
+  return {
+    ...emptyPortfolioDashboard,
+    summary: {
+      currentValue,
+      changeAmount: 0,
+      changePercent: 0,
+      asOfLabel: 'Current snapshot',
+    },
+    inventoryCount: entries.length,
+    inventoryItems: entries,
+  };
+}
+
+function mergeDashboardInventory(
+  dashboard: PortfolioDashboard,
+  inventoryItems: InventoryCardEntry[],
+): PortfolioDashboard {
+  return {
+    ...dashboard,
+    inventoryCount: inventoryItems.length,
+    inventoryItems,
+  };
+}
+
+function dashboardHasHydratedSeries(dashboard: PortfolioDashboard) {
+  return Object.values(dashboard.ranges).some((range) => {
+    return range.portfolio.length > 0 || range.sales.length > 0;
+  });
+}
+
 function inventorySearchText(item: InventoryCardEntry) {
   return [
     item.name,
@@ -153,9 +196,22 @@ function applySalePriceEdit(
 }
 
 export function usePortfolioScreenModel() {
-  const { spotlightRepository, dataVersion } = useAppServices();
-  const [dashboard, setDashboard] = useState<PortfolioDashboard>(emptyPortfolioDashboard);
-  const [isLoading, setIsLoading] = useState(true);
+  const {
+    spotlightRepository,
+    dataVersion,
+    inventoryEntriesCache,
+    setInventoryEntriesCache,
+    portfolioDashboardCache,
+    setPortfolioDashboardCache,
+  } = useAppServices();
+  const [dashboard, setDashboard] = useState<PortfolioDashboard>(
+    () => portfolioDashboardCache
+      ?? (inventoryEntriesCache ? buildInventoryFallbackDashboard(inventoryEntriesCache) : emptyPortfolioDashboard),
+  );
+  const [hasLoadedInventory, setHasLoadedInventory] = useState(inventoryEntriesCache !== null);
+  const [hasLoadedDashboard, setHasLoadedDashboard] = useState(portfolioDashboardCache !== null);
+  const [isLoadingInventory, setIsLoadingInventory] = useState(inventoryEntriesCache === null);
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(portfolioDashboardCache === null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [selectedRange, setSelectedRange] = useState<PortfolioHistoryRange>('7D');
   const [chartMode, setChartMode] = useState<ChartMode>('portfolio');
@@ -165,17 +221,48 @@ export function usePortfolioScreenModel() {
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [editingSalePriceText, setEditingSalePriceText] = useState('');
 
+  const loadInventory = useCallback(async () => {
+    setIsLoadingInventory(true);
+    const loadResult = await spotlightRepository.loadInventoryEntries();
+
+    if (loadResult.data && loadResult.state !== 'error') {
+      const inventoryItems = loadResult.data;
+
+      setInventoryEntriesCache(inventoryItems);
+      setHasLoadedInventory(true);
+      setDashboard((currentDashboard) => {
+        if (dashboardHasHydratedSeries(currentDashboard)) {
+          return mergeDashboardInventory(currentDashboard, inventoryItems);
+        }
+
+        return buildInventoryFallbackDashboard(inventoryItems);
+      });
+    } else {
+      setLoadError(loadResult.errorMessage);
+    }
+
+    setIsLoadingInventory(false);
+  }, [setInventoryEntriesCache, spotlightRepository]);
+
   const loadDashboard = useCallback(async () => {
-    setIsLoading(true);
+    setIsLoadingDashboard(true);
     const loadResult = await spotlightRepository.loadPortfolioDashboard();
-    setDashboard(loadResult.data ?? emptyPortfolioDashboard);
+
+    if (loadResult.data && loadResult.state !== 'error') {
+      setDashboard(loadResult.data);
+      setPortfolioDashboardCache(loadResult.data);
+      setInventoryEntriesCache(loadResult.data.inventoryItems);
+      setHasLoadedDashboard(true);
+      setHasLoadedInventory(true);
+    }
     setLoadError(loadResult.state === 'error' ? loadResult.errorMessage : null);
-    setIsLoading(false);
-  }, [spotlightRepository]);
+    setIsLoadingDashboard(false);
+  }, [setInventoryEntriesCache, setPortfolioDashboardCache, spotlightRepository]);
 
   useEffect(() => {
+    void loadInventory();
     void loadDashboard();
-  }, [dataVersion, loadDashboard]);
+  }, [dataVersion, loadDashboard, loadInventory]);
 
   const filteredInventory = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
@@ -191,6 +278,7 @@ export function usePortfolioScreenModel() {
 
   const hasInventoryEntries = dashboard.inventoryItems.length > 0;
   const inventoryTotalCount = filteredInventory.length;
+  const isLoading = isLoadingInventory || isLoadingDashboard;
 
   const recentSales = useMemo(() => {
     return dashboard.recentSales.slice(0, maxRecentSales);
@@ -231,11 +319,11 @@ export function usePortfolioScreenModel() {
       return;
     }
 
-    setDashboard((currentDashboard) => {
-      return applySalePriceEdit(currentDashboard, editingSaleId, parsedEditingSalePrice);
-    });
+    const nextDashboard = applySalePriceEdit(dashboard, editingSaleId, parsedEditingSalePrice);
+    setDashboard(nextDashboard);
+    setPortfolioDashboardCache(nextDashboard);
     closeSaleEditor();
-  }, [closeSaleEditor, editingSaleId, parsedEditingSalePrice]);
+  }, [closeSaleEditor, dashboard, editingSaleId, parsedEditingSalePrice, setPortfolioDashboardCache]);
 
   useEffect(() => {
     if (editingSaleId && !editingSale) {
@@ -248,7 +336,11 @@ export function usePortfolioScreenModel() {
     dashboard,
     editingSale,
     editingSalePriceText,
+    hasLoadedDashboard,
+    hasLoadedInventory,
     isLoading,
+    isLoadingDashboard,
+    isLoadingInventory,
     loadError,
     canConfirmSalePriceEdit: editingSale !== null && parsedEditingSalePrice != null,
     filteredInventory,

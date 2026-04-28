@@ -2,9 +2,12 @@ import {
   useEffect,
   memo,
   useMemo,
+  useRef,
   useState,
 } from 'react';
 import {
+  Animated,
+  Easing,
   GestureResponderEvent,
   LayoutChangeEvent,
   StyleSheet,
@@ -54,6 +57,8 @@ const rangeItems = [
 ] as const;
 
 const axisLabelColumnWidth = 56;
+const skeletonBarScales = [0.42, 0.62, 0.5, 0.74, 0.58, 0.82, 0.68, 0.9, 0.76, 0.56, 0.72, 0.64];
+
 function buildLinePath(points: readonly { x: number; y: number }[]) {
   if (points.length === 0) {
     return '';
@@ -297,14 +302,98 @@ function formatSummaryDetailLabel(amount: number, percent: number) {
 type PortfolioChartCardProps = {
   chartMode: ChartMode;
   dashboard: PortfolioDashboard;
+  isLoading?: boolean;
   selectedRange: PortfolioHistoryRange;
   onModeChange: (value: ChartMode) => void;
   onRangeChange: (value: PortfolioHistoryRange) => void;
 };
 
+function ChartSkeleton({ chartMode }: { chartMode: ChartMode }) {
+  const theme = useSpotlightTheme();
+  const pulseOpacity = useRef(new Animated.Value(0.72)).current;
+
+  useEffect(() => {
+    if (process.env.NODE_ENV === 'test') {
+      return undefined;
+    }
+
+    const animation = Animated.loop(
+      Animated.sequence([
+        Animated.timing(pulseOpacity, {
+          duration: 780,
+          easing: Easing.inOut(Easing.ease),
+          toValue: 1,
+          useNativeDriver: true,
+        }),
+        Animated.timing(pulseOpacity, {
+          duration: 780,
+          easing: Easing.inOut(Easing.ease),
+          toValue: 0.72,
+          useNativeDriver: true,
+        }),
+      ]),
+    );
+
+    animation.start();
+
+    return () => {
+      animation.stop();
+    };
+  }, [pulseOpacity]);
+
+  return (
+    <View pointerEvents="none" style={styles.skeletonChart} testID="portfolio-chart-skeleton">
+      <Animated.View style={[styles.skeletonPulseLayer, { opacity: pulseOpacity }]}>
+        <View
+          style={[
+            styles.skeletonPanel,
+            {
+              backgroundColor: theme.colors.canvasElevated,
+              borderColor: theme.colors.outlineSubtle,
+            },
+          ]}
+          testID="portfolio-chart-skeleton-panel"
+        >
+          <View style={styles.skeletonGridLines}>
+            {Array.from({ length: 4 }).map((_, index) => (
+              <View
+                key={index}
+                style={[styles.gridLine, { borderColor: theme.colors.chartGrid }]}
+              />
+            ))}
+          </View>
+
+          <View style={styles.skeletonBarRow} testID="portfolio-chart-skeleton-bars">
+            {skeletonBarScales.map((heightScale, index) => (
+              <View
+                key={index}
+                style={[
+                  styles.skeletonBar,
+                  {
+                    backgroundColor: theme.colors.outlineStrong,
+                    height: Math.round(142 * heightScale),
+                    opacity: chartMode === 'sales' ? 0.62 : 0.46,
+                  },
+                ]}
+                testID={`portfolio-chart-skeleton-bar-${index}`}
+              />
+            ))}
+          </View>
+        </View>
+
+        <View style={styles.skeletonXAxisRow}>
+          <View style={[styles.skeletonAxisPill, { backgroundColor: theme.colors.outlineSubtle }]} />
+          <View style={[styles.skeletonAxisPill, { backgroundColor: theme.colors.outlineSubtle }]} />
+        </View>
+      </Animated.View>
+    </View>
+  );
+}
+
 export const PortfolioChartCard = memo(function PortfolioChartCard({
   chartMode,
   dashboard,
+  isLoading = false,
   selectedRange,
   onModeChange,
   onRangeChange,
@@ -316,6 +405,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const chartPadding = 16;
   const activeRange = dashboard.ranges[selectedRange];
   const series = chartMode === 'portfolio' ? activeRange.portfolio : activeRange.sales;
+  const isChartSkeletonVisible = isLoading && series.length === 0;
   const salesPointCounts = useMemo(() => {
     return buildSalesPointCounts(activeRange.sales, dashboard.recentSales);
   }, [activeRange.sales, dashboard.recentSales]);
@@ -439,9 +529,11 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const displayValue = chartMode === 'portfolio'
     ? (selectedPoint?.value ?? displayPoint?.value ?? portfolioSummary?.currentValue ?? dashboard.summary.currentValue)
     : (selectedPoint?.value ?? totalSalesValue);
-  const displayDateLabel = chartMode === 'portfolio'
-    ? (displayPoint?.shortLabel ?? portfolioSummary?.asOfLabel ?? dashboard.summary.asOfLabel)
-    : (selectedPoint?.shortLabel ?? formatSalesRangeLabel(activeRange.sales));
+  const displayDateLabel = isChartSkeletonVisible
+    ? (chartMode === 'portfolio' && dashboard.summary.currentValue > 0 ? dashboard.summary.asOfLabel : '')
+    : (chartMode === 'portfolio'
+        ? (displayPoint?.shortLabel ?? portfolioSummary?.asOfLabel ?? dashboard.summary.asOfLabel)
+        : (selectedPoint?.shortLabel ?? formatSalesRangeLabel(activeRange.sales)));
   const portfolioChange = chartMode === 'portfolio'
     ? portfolioChangeForPoint(series, activePointIndex, portfolioSummary ?? dashboard.summary)
     : null;
@@ -453,12 +545,16 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
         ? totalSalesCount
         : (salesPointCounts[resolvedSalesPointIndex] ?? 0))
     : 0;
-  const summaryDetailLabel = chartMode === 'portfolio'
-    ? formatSummaryDetailLabel(
-        portfolioChange?.amount ?? portfolioSummary?.changeAmount ?? dashboard.summary.changeAmount,
-        portfolioChange?.percent ?? portfolioSummary?.changePercent ?? dashboard.summary.changePercent,
-      )
-    : (displaySalesCount > 0 ? formatSaleCount(displaySalesCount) : 'No sales');
+  const summaryDetailLabel = isChartSkeletonVisible
+    ? ''
+    : (chartMode === 'portfolio'
+        ? formatSummaryDetailLabel(
+            portfolioChange?.amount ?? portfolioSummary?.changeAmount ?? dashboard.summary.changeAmount,
+            portfolioChange?.percent ?? portfolioSummary?.changePercent ?? dashboard.summary.changePercent,
+          )
+        : (displaySalesCount > 0 ? formatSaleCount(displaySalesCount) : 'No sales'));
+  const shouldShowSummaryValueSkeleton = isChartSkeletonVisible
+    && (chartMode === 'sales' || dashboard.summary.currentValue <= 0);
 
   const updateActivePoint = (event: GestureResponderEvent) => {
     if (chartWidth === 0 || series.length === 0) {
@@ -538,9 +634,16 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
       </View>
 
       <View style={styles.valueBlock}>
-        <Text style={[theme.typography.display, styles.value]} testID="portfolio-chart-summary-value">
-          {formatCurrency(displayValue)}
-        </Text>
+        {shouldShowSummaryValueSkeleton ? (
+          <View
+            style={[styles.summaryValueSkeleton, { backgroundColor: theme.colors.outlineSubtle }]}
+            testID="portfolio-chart-summary-value-skeleton"
+          />
+        ) : (
+          <Text style={[theme.typography.display, styles.value]} testID="portfolio-chart-summary-value">
+            {formatCurrency(displayValue)}
+          </Text>
+        )}
 
         {(displayDateLabel || summaryDetailLabel) ? (
           <View style={styles.valueMetaRow}>
@@ -579,162 +682,180 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
         testID={`portfolio-chart-${chartMode}`}
       >
         <View style={styles.axisLabelColumn}>
-          {yAxisValues
-            .slice()
-            .reverse()
-            .map((value) => {
-              return (
+          {isChartSkeletonVisible
+            ? Array.from({ length: 3 }).map((_, index) => (
+                <View
+                  key={index}
+                  style={[
+                    styles.axisLabelSkeleton,
+                    {
+                      backgroundColor: theme.colors.outlineSubtle,
+                    },
+                  ]}
+                />
+              ))
+            : yAxisValues
+                .slice()
+                .reverse()
+                .map((value) => {
+                  return (
+                    <Text
+                      ellipsizeMode="clip"
+                      key={value}
+                      numberOfLines={1}
+                      style={[
+                        theme.typography.micro,
+                        styles.axisLabel,
+                        {
+                          color: theme.colors.chartAxisLabel,
+                        },
+                      ]}
+                    >
+                      {formatCompactCurrency(value)}
+                    </Text>
+                  );
+                })}
+        </View>
+
+        <View style={styles.chartArea}>
+          {isChartSkeletonVisible ? (
+            <ChartSkeleton chartMode={chartMode} />
+          ) : (
+            <>
+              <View pointerEvents="none" style={styles.gridLines}>
+                {Array.from({ length: 3 }).map((_, index) => {
+                  return (
+                    <View
+                      key={index}
+                      style={[
+                        styles.gridLine,
+                        {
+                          borderColor: theme.colors.chartGrid,
+                        },
+                      ]}
+                    />
+                  );
+                })}
+              </View>
+
+              {chartWidth > 0 ? (
+                <Svg height={chartHeight} width="100%">
+                  <Defs>
+                    <LinearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
+                      <Stop offset="0" stopColor={theme.colors.brand} stopOpacity="0.28" />
+                      <Stop offset="1" stopColor={theme.colors.brand} stopOpacity="0.02" />
+                    </LinearGradient>
+                  </Defs>
+
+                  {chartMode === 'portfolio' ? (
+                    <>
+                      <Path d={fillPath} fill="url(#portfolioFill)" />
+                      <Path
+                        d={linePath}
+                        fill="none"
+                        stroke={chartAccentColor}
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2.5}
+                      />
+                      {activeSelection ? (
+                        <>
+                          <Line
+                            stroke={theme.colors.chartGuide}
+                            strokeWidth={1.5}
+                            x1={activeSelection.x}
+                            x2={activeSelection.x}
+                            y1={chartPadding}
+                            y2={chartHeight - chartPadding}
+                          />
+                          <Circle
+                            cx={activeSelection.x}
+                            cy={activeSelection.y}
+                            fill={theme.colors.canvasElevated}
+                            r={7}
+                            stroke={chartAccentColor}
+                            strokeWidth={2.5}
+                          />
+                        </>
+                      ) : coordinates.length > 0 ? (
+                        <Circle
+                          cx={coordinates[coordinates.length - 1]?.x ?? 0}
+                          cy={coordinates[coordinates.length - 1]?.y ?? 0}
+                          fill={theme.colors.canvasElevated}
+                          r={7}
+                          stroke={chartAccentColor}
+                          strokeWidth={2.5}
+                        />
+                      ) : null}
+                    </>
+                  ) : (
+                    <>
+                      {salesBars.map((bar, index) => {
+                        return (
+                          <Rect
+                            key={series[index]?.isoDate ?? index}
+                            fill={chartAccentColor}
+                            height={bar.height}
+                            opacity={activePointIndex == null || activePointIndex === index ? 1 : 0.45}
+                            rx={8}
+                            width={bar.width}
+                            x={bar.x}
+                            y={bar.y}
+                          />
+                        );
+                      })}
+                      {activeSelection ? (
+                        <Line
+                          stroke={theme.colors.chartGuide}
+                          strokeWidth={1.5}
+                          x1={activeSelection.x}
+                          x2={activeSelection.x}
+                          y1={chartPadding}
+                          y2={chartHeight - chartPadding}
+                        />
+                      ) : null}
+                    </>
+                  )}
+                </Svg>
+              ) : null}
+
+              <View style={styles.xAxisLabels}>
                 <Text
-                  ellipsizeMode="clip"
-                  key={value}
-                  numberOfLines={1}
                   style={[
                     theme.typography.micro,
-                    styles.axisLabel,
                     {
                       color: theme.colors.chartAxisLabel,
                     },
                   ]}
                 >
-                  {formatCompactCurrency(value)}
+                  {chartMode === 'sales'
+                    ? formatSalesAxisStartLabel(series[0])
+                    : series[0]?.shortLabel}
                 </Text>
-              );
-            })}
-        </View>
-
-        <View style={styles.chartArea}>
-          <View pointerEvents="none" style={styles.gridLines}>
-            {Array.from({ length: 3 }).map((_, index) => {
-              return (
-                <View
-                  key={index}
+                <Text
                   style={[
-                    styles.gridLine,
+                    theme.typography.micro,
                     {
-                      borderColor: theme.colors.chartGrid,
+                      color: theme.colors.chartAxisLabel,
                     },
                   ]}
-                />
-              );
-            })}
-          </View>
+                >
+                  {chartMode === 'sales'
+                    ? formatSalesAxisEndLabel(series[series.length - 1])
+                    : series[series.length - 1]?.shortLabel}
+                </Text>
+              </View>
 
-          {chartWidth > 0 ? (
-            <Svg height={chartHeight} width="100%">
-              <Defs>
-                <LinearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
-                  <Stop offset="0" stopColor={theme.colors.brand} stopOpacity="0.28" />
-                  <Stop offset="1" stopColor={theme.colors.brand} stopOpacity="0.02" />
-                </LinearGradient>
-              </Defs>
-
-              {chartMode === 'portfolio' ? (
-                <>
-                  <Path d={fillPath} fill="url(#portfolioFill)" />
-                  <Path
-                    d={linePath}
-                    fill="none"
-                    stroke={chartAccentColor}
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2.5}
-                  />
-                  {activeSelection ? (
-                    <>
-                      <Line
-                        stroke={theme.colors.chartGuide}
-                        strokeWidth={1.5}
-                        x1={activeSelection.x}
-                        x2={activeSelection.x}
-                        y1={chartPadding}
-                        y2={chartHeight - chartPadding}
-                      />
-                      <Circle
-                        cx={activeSelection.x}
-                        cy={activeSelection.y}
-                        fill={theme.colors.canvasElevated}
-                        r={7}
-                        stroke={chartAccentColor}
-                        strokeWidth={2.5}
-                      />
-                    </>
-                  ) : coordinates.length > 0 ? (
-                    <Circle
-                      cx={coordinates[coordinates.length - 1]?.x ?? 0}
-                      cy={coordinates[coordinates.length - 1]?.y ?? 0}
-                      fill={theme.colors.canvasElevated}
-                      r={7}
-                      stroke={chartAccentColor}
-                      strokeWidth={2.5}
-                    />
-                  ) : null}
-                </>
-              ) : (
-                <>
-                  {salesBars.map((bar, index) => {
-                    return (
-                      <Rect
-                        key={series[index]?.isoDate ?? index}
-                        fill={chartAccentColor}
-                        height={bar.height}
-                        opacity={activePointIndex == null || activePointIndex === index ? 1 : 0.45}
-                        rx={8}
-                        width={bar.width}
-                        x={bar.x}
-                        y={bar.y}
-                      />
-                    );
-                  })}
-                  {activeSelection ? (
-                    <Line
-                      stroke={theme.colors.chartGuide}
-                      strokeWidth={1.5}
-                      x1={activeSelection.x}
-                      x2={activeSelection.x}
-                      y1={chartPadding}
-                      y2={chartHeight - chartPadding}
-                    />
-                  ) : null}
-                </>
-              )}
-            </Svg>
-          ) : null}
-
-          <View style={styles.xAxisLabels}>
-            <Text
-              style={[
-                theme.typography.micro,
-                {
-                  color: theme.colors.chartAxisLabel,
-                },
-              ]}
-            >
-              {chartMode === 'sales'
-                ? formatSalesAxisStartLabel(series[0])
-                : series[0]?.shortLabel}
-            </Text>
-            <Text
-              style={[
-                theme.typography.micro,
-                {
-                  color: theme.colors.chartAxisLabel,
-                },
-              ]}
-            >
-              {chartMode === 'sales'
-                ? formatSalesAxisEndLabel(series[series.length - 1])
-                : series[series.length - 1]?.shortLabel}
-            </Text>
-          </View>
-
-          <View
-            onMoveShouldSetResponder={() => true}
-            onResponderGrant={updateActivePoint}
-            onResponderMove={updateActivePoint}
-            onStartShouldSetResponder={() => true}
-            style={styles.chartTouchTarget}
-            testID="portfolio-chart-touch-target"
-          />
+              <View
+                onMoveShouldSetResponder={() => true}
+                onResponderGrant={updateActivePoint}
+                onResponderMove={updateActivePoint}
+                onStartShouldSetResponder={() => true}
+                style={styles.chartTouchTarget}
+                testID="portfolio-chart-touch-target"
+              />
+            </>
+          )}
         </View>
       </View>
 
@@ -766,6 +887,11 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
 const styles = StyleSheet.create({
   axisLabel: {
     textAlign: 'left',
+  },
+  axisLabelSkeleton: {
+    borderRadius: 999,
+    height: 10,
+    width: 34,
   },
   axisLabelColumn: {
     justifyContent: 'space-between',
@@ -826,6 +952,67 @@ const styles = StyleSheet.create({
     gap: 8,
     marginTop: 4,
     padding: 4,
+  },
+  skeletonAxisPill: {
+    borderRadius: 999,
+    height: 10,
+    width: 54,
+  },
+  skeletonBar: {
+    borderRadius: 6,
+    width: 12,
+  },
+  skeletonBarRow: {
+    alignItems: 'flex-end',
+    bottom: 18,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    left: 14,
+    position: 'absolute',
+    right: 14,
+    top: 18,
+  },
+  skeletonChart: {
+    flex: 1,
+    minHeight: 236,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  skeletonGridLines: {
+    bottom: 18,
+    justifyContent: 'space-between',
+    left: 14,
+    position: 'absolute',
+    right: 14,
+    top: 18,
+  },
+  skeletonPanel: {
+    borderRadius: 24,
+    borderWidth: 1,
+    bottom: 28,
+    left: 0,
+    overflow: 'hidden',
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  skeletonPulseLayer: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  skeletonXAxisRow: {
+    alignItems: 'center',
+    bottom: 2,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+  },
+  summaryValueSkeleton: {
+    borderRadius: 16,
+    height: 52,
+    marginTop: 8,
+    width: 168,
   },
   toggleWrap: {
     borderRadius: 999,

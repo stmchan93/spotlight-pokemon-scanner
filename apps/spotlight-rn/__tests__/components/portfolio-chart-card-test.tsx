@@ -155,6 +155,19 @@ const dashboardWithDenseSalesRanges = {
   },
 };
 
+const dashboardWithEmptySelectedRange = {
+  ...mockPortfolioDashboard,
+  recentSales: [],
+  ranges: {
+    ...mockPortfolioDashboard.ranges,
+    '7D': {
+      ...mockPortfolioDashboard.ranges['7D'],
+      portfolio: [],
+      sales: [],
+    },
+  },
+};
+
 describe('PortfolioChartCard', () => {
   function Harness({ dashboard = dashboardWithPredictableDeltas }: { dashboard?: typeof mockPortfolioDashboard }) {
     const [chartMode, setChartMode] = useState<'portfolio' | 'sales'>('portfolio');
@@ -202,6 +215,25 @@ describe('PortfolioChartCard', () => {
 
     expect(screen.getByTestId('portfolio-chart-summary-date').props.children).toBe('Mar 21 - Apr 21');
     expect(screen.getByTestId('portfolio-chart-summary-value').props.children).toBe('$98.10');
+  });
+
+  it('renders the loading chart as a bar skeleton instead of broken chart geometry', () => {
+    render(
+      <SpotlightThemeProvider>
+        <PortfolioChartCard
+          chartMode="portfolio"
+          dashboard={dashboardWithEmptySelectedRange}
+          isLoading
+          onModeChange={jest.fn()}
+          onRangeChange={jest.fn()}
+          selectedRange="7D"
+        />
+      </SpotlightThemeProvider>,
+    );
+
+    expect(screen.getByTestId('portfolio-chart-skeleton-panel')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-chart-skeleton-bars')).toBeTruthy();
+    expect(screen.getAllByTestId(/portfolio-chart-skeleton-bar-/)).toHaveLength(12);
   });
 
   it('recomputes the portfolio summary from the start of the selected range', () => {

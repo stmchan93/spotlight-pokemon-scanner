@@ -51,6 +51,9 @@ describe('AppProviders', () => {
   const mockedConstants = Constants as { expoConfig?: { extra?: Record<string, unknown>; hostUri?: string } };
   const originalNodeEnv = process.env.NODE_ENV;
   const originalApiBaseUrl = process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL;
+  const originalExtra = mockedConstants.expoConfig?.extra
+    ? { ...mockedConstants.expoConfig.extra }
+    : undefined;
   const originalHostUri = mockedConstants.expoConfig?.hostUri;
 
   function setNodeEnv(value: string) {
@@ -71,6 +74,7 @@ describe('AppProviders', () => {
     if (!mockedConstants.expoConfig) {
       mockedConstants.expoConfig = { extra: {} };
     }
+    mockedConstants.expoConfig.extra = originalExtra ? { ...originalExtra } : {};
     mockedConstants.expoConfig.hostUri = originalHostUri;
   });
 
@@ -88,6 +92,24 @@ describe('AppProviders', () => {
 
     expect(resolveRepositoryBaseUrl()).toBe('http://10.0.2.2:8788');
     expect(createDefaultSpotlightRepository()).toBeInstanceOf(HttpSpotlightRepository);
+  });
+
+  it('prefers the runtime Expo API base URL over the bundled EXPO_PUBLIC fallback in development', () => {
+    setNodeEnv('development');
+    process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL = 'https://looty.34.59.188.129.sslip.io///';
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {} };
+    }
+    mockedConstants.expoConfig.extra = {
+      spotlightApiBaseUrl: 'http://192.168.0.225:8788///',
+    };
+
+    expect(resolveRepositoryBaseUrls()).toEqual([
+      'http://192.168.0.225:8788',
+      'https://looty.34.59.188.129.sslip.io',
+      DEFAULT_LOCAL_API_BASE_URL,
+    ]);
+    expect(resolveRepositoryBaseUrl()).toBe('http://192.168.0.225:8788');
   });
 
   it('keeps the default test runtime deterministic when no API base URL is configured', () => {
@@ -110,6 +132,65 @@ describe('AppProviders', () => {
       'http://192.168.1.146:8788',
       DEFAULT_LOCAL_API_BASE_URL,
     ]);
+  });
+
+  it('uses the Expo extra API base URL in production builds', () => {
+    setNodeEnv('production');
+    delete process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL;
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {} };
+    }
+    mockedConstants.expoConfig.hostUri = '192.168.1.146:8081';
+    mockedConstants.expoConfig.extra = {
+      spotlightApiBaseUrl: 'https://looty.34.59.188.129.sslip.io///',
+    };
+
+    expect(resolveRepositoryBaseUrls()).toEqual(['https://looty.34.59.188.129.sslip.io']);
+    expect(createDefaultSpotlightRepository()).toBeInstanceOf(HttpSpotlightRepository);
+  });
+
+  it('does not fall back to local backend URLs in production builds', () => {
+    setNodeEnv('production');
+    delete process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL;
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {} };
+    }
+    mockedConstants.expoConfig.hostUri = '192.168.1.146:8081';
+    mockedConstants.expoConfig.extra = {};
+
+    expect(resolveRepositoryBaseUrls()).toEqual([]);
+    expect(resolveRepositoryBaseUrl()).toBeNull();
+    expect(createDefaultSpotlightRepository()).toBeInstanceOf(HttpSpotlightRepository);
+  });
+
+  it('does not fall back to local backend URLs in staging app env builds', () => {
+    setNodeEnv('development');
+    delete process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL;
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {} };
+    }
+    mockedConstants.expoConfig.hostUri = '192.168.1.146:8081';
+    mockedConstants.expoConfig.extra = {
+      spotlightApiBaseUrl: 'https://looty.34.59.188.129.sslip.io///',
+      spotlightAppEnv: 'staging',
+    };
+
+    expect(resolveRepositoryBaseUrls()).toEqual(['https://looty.34.59.188.129.sslip.io']);
+  });
+
+  it('does not fall back to a mock repository in staging app env builds when the API base URL is missing', () => {
+    setNodeEnv('development');
+    delete process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL;
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {} };
+    }
+    mockedConstants.expoConfig.hostUri = '192.168.1.146:8081';
+    mockedConstants.expoConfig.extra = {
+      spotlightAppEnv: 'staging',
+    };
+
+    expect(resolveRepositoryBaseUrls()).toEqual([]);
+    expect(createDefaultSpotlightRepository()).toBeInstanceOf(HttpSpotlightRepository);
   });
 
   it('uses the supplied repository override instead of creating a default client', () => {

@@ -1,13 +1,34 @@
-import { useEffect, useMemo, useState } from 'react';
-import { Image, Linking, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Image,
+  Linking,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg';
 
-import { deckConditionOptions, type CardDetailRecord } from '@spotlight/api-client';
+import {
+  deckConditionOptions,
+  type CardDetailRecord,
+  type CardEbayListingsRecord,
+} from '@spotlight/api-client';
 import { Button, SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import { resolveConditionDisplayLabel } from '@/lib/condition-display';
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import {
+  resolveActiveScanReviewCandidate,
+  resolveSimilarScanCandidates,
+} from '@/features/cards/screens/scan-candidate-review-screen';
+import {
+  cardDetailPreviewFromCatalogResult,
+  cardDetailPreviewFromInventoryEntry,
+  getCardDetailPreview,
+} from '@/features/cards/card-detail-preview-session';
 import {
   formatCurrency,
   formatOptionalCurrency,
@@ -16,6 +37,9 @@ import {
 } from '@/features/portfolio/components/portfolio-formatting';
 import { collectionSummaryLine } from '@/features/sell/sell-order-helpers';
 import { SellBackdrop } from '@/features/sell/components/sell-ui';
+import {
+  getScanCandidateReviewSession,
+} from '@/features/scanner/scan-candidate-review-session';
 import { useAppServices } from '@/providers/app-providers';
 
 function displayNumber(value?: string | null) {
@@ -27,12 +51,45 @@ function displayNumber(value?: string | null) {
   return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
 }
 
+function cleanedMarketplaceToken(value?: string | null) {
+  const trimmed = value?.trim();
+  return trimmed ? trimmed : null;
+}
+
+function buildTcgPlayerSearchUrl(params: {
+  cardNumber: string;
+  name: string;
+  setName: string;
+}) {
+  const query = [
+    cleanedMarketplaceToken(params.name),
+    cleanedMarketplaceToken(params.cardNumber.replace(/^#/, '')),
+    cleanedMarketplaceToken(params.setName),
+  ]
+    .filter(Boolean)
+    .join(' ');
+
+  if (!query) {
+    return null;
+  }
+
+  const searchParams = new URLSearchParams({
+    q: query,
+    view: 'grid',
+  });
+
+  return `https://www.tcgplayer.com/search/pokemon/product?${searchParams.toString()}`;
+}
+
 type CardDetailScreenProps = {
   cardId: string;
   entryId?: string;
   onBack: () => void;
   onOpenAddToCollection: (cardId: string, entryId?: string) => void;
+  onOpenScanCandidateReview?: (scanReviewId: string) => void;
   onOpenSell?: (entryId: string) => void;
+  previewId?: string;
+  scanReviewId?: string;
 };
 
 function isGenericRawVariantLabel(value?: string | null) {
@@ -116,6 +173,13 @@ function normalizeMarketConditionId(value?: string | null) {
     default:
       return null;
   }
+}
+
+function defaultMarketConditionId(history?: CardDetailRecord['marketHistory'] | null) {
+  return normalizeMarketConditionId(history?.selectedCondition)
+    ?? normalizeMarketConditionId(history?.availableConditions[0]?.id)
+    ?? normalizeMarketConditionId(history?.availableConditions[0]?.label)
+    ?? null;
 }
 
 function ChevronIcon({
@@ -224,6 +288,38 @@ function EbayWordmarkBadge() {
   );
 }
 
+function SimilarCardsButton({
+  count,
+  onPress,
+}: {
+  count: number;
+  onPress: () => void;
+}) {
+  const theme = useSpotlightTheme();
+  const title = count === 1 ? '1 similar card found' : `${count} similar cards found`;
+
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.similarCardsButton,
+        pressed ? styles.similarCardsButtonPressed : null,
+      ]}
+      testID="detail-similar-cards-button"
+    >
+      <Text
+        style={[theme.typography.bodyStrong, styles.similarCardsTitle]}
+        testID="detail-similar-cards-title"
+      >
+        {title}
+      </Text>
+
+      <Text style={styles.similarCardsChevron}>›</Text>
+    </Pressable>
+  );
+}
+
 function HistoryChart({
   currencyCode,
   currentPrice,
@@ -245,10 +341,9 @@ function HistoryChart({
 
   if (points.length === 0) {
     return (
-      <View style={styles.chartEmptyState}>
-        <Text style={[theme.typography.headline, styles.chartEmptyTitle]}>Chart history is still populating.</Text>
-        <Text style={[theme.typography.caption, styles.chartEmptyCopy]}>
-          It will appear automatically as local price history builds.
+      <View style={styles.lazyMarketBlock} testID="detail-scan-preview-market">
+        <Text style={styles.previewMarketValue}>
+          {formatCurrency(currentPrice, currencyCode)}
         </Text>
       </View>
     );
@@ -257,10 +352,11 @@ function HistoryChart({
   const rawValues = [...points.map((point) => point.value), currentPrice];
   const minValue = Math.max(0, Math.min(...rawValues));
   const maxValue = Math.max(...rawValues);
-  const paddingValue = Math.max((maxValue - minValue) * 0.18, maxValue * 0.06, 0.1);
+  const minimumVisiblePadding = maxValue >= 1 ? 0.1 : 0.02;
+  const paddingValue = Math.max((maxValue - minValue) * 0.18, maxValue * 0.06, minimumVisiblePadding);
   const chartMin = Math.max(0, minValue - paddingValue);
   const chartMax = maxValue + paddingValue;
-  const chartRange = Math.max(chartMax - chartMin, 1);
+  const chartRange = Math.max(chartMax - chartMin, minimumVisiblePadding);
   const chartWidth = width - paddingLeft - paddingRight;
   const baseline = height - paddingBottom;
   const gridValues = Array.from({ length: 4 }, (_, index) => chartMax - (chartRange / 3) * index);
@@ -282,7 +378,10 @@ function HistoryChart({
       <View style={styles.chartFrame}>
         {gridValues.map((value, index) => (
           <View key={`${value}-${index}`} style={styles.chartGridRow}>
-            <Text style={[theme.typography.micro, styles.chartGridLabel]}>
+            <Text
+              style={[theme.typography.micro, styles.chartGridLabel]}
+              testID={`detail-market-grid-label-${index}`}
+            >
               {compactCurrency(value, currencyCode)}
             </Text>
             <View style={styles.chartGridLine} />
@@ -322,20 +421,61 @@ export function CardDetailScreen({
   entryId,
   onBack,
   onOpenAddToCollection,
+  onOpenScanCandidateReview,
   onOpenSell,
+  previewId,
+  scanReviewId,
 }: CardDetailScreenProps) {
   const theme = useSpotlightTheme();
-  const { spotlightRepository, dataVersion, refreshData } = useAppServices();
+  const {
+    spotlightRepository,
+    dataVersion,
+    refreshData,
+    inventoryEntriesCache,
+    portfolioDashboardCache,
+  } = useAppServices();
   const [detail, setDetail] = useState<CardDetailRecord | null>(null);
+  const [marketHistory, setMarketHistory] = useState<CardDetailRecord['marketHistory'] | null>(null);
+  const [ebayListingsState, setEbayListingsState] = useState<CardEbayListingsRecord | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCollectionExpanded, setIsCollectionExpanded] = useState(true);
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
   const [inventoryActionError, setInventoryActionError] = useState<string | null>(null);
   const [isAdjustingInventory, setIsAdjustingInventory] = useState(false);
+  const scanReviewSession = useMemo(
+    () => getScanCandidateReviewSession(scanReviewId),
+    [scanReviewId],
+  );
+  const closestScanCandidate = useMemo(
+    () => resolveActiveScanReviewCandidate(scanReviewSession, cardId),
+    [cardId, scanReviewSession],
+  );
+  const similarScanCandidates = useMemo(
+    () => resolveSimilarScanCandidates(scanReviewSession, closestScanCandidate?.cardId ?? cardId),
+    [cardId, closestScanCandidate?.cardId, scanReviewSession],
+  );
+  const scanPreviewCandidate = useMemo(() => {
+    return scanReviewSession?.candidates.find((candidate) => candidate.cardId === cardId) ?? null;
+  }, [cardId, scanReviewSession]);
+  const scanDetailPreview = useMemo(() => {
+    return scanPreviewCandidate ? cardDetailPreviewFromCatalogResult(scanPreviewCandidate) : null;
+  }, [scanPreviewCandidate]);
+  const savedDetailPreview = useMemo(() => {
+    const preview = getCardDetailPreview(previewId);
+    return preview?.cardId === cardId ? preview : null;
+  }, [cardId, previewId]);
+  const dashboardDetailPreview = useMemo(() => {
+    const inventoryEntry = (inventoryEntriesCache ?? portfolioDashboardCache?.inventoryItems)?.find((entry) => (
+      entryId ? entry.id === entryId : entry.cardId === cardId
+    ));
+
+    return inventoryEntry ? cardDetailPreviewFromInventoryEntry(inventoryEntry) : null;
+  }, [cardId, entryId, inventoryEntriesCache, portfolioDashboardCache]);
+  const detailPreview = scanDetailPreview ?? savedDetailPreview ?? dashboardDetailPreview;
 
   useEffect(() => {
     let cancelled = false;
-    setDetail(null);
+    setDetail((currentDetail) => (currentDetail?.cardId === cardId ? currentDetail : null));
     setErrorMessage(null);
 
     void spotlightRepository.getCardDetail({ cardId })
@@ -352,12 +492,6 @@ export function CardDetailScreen({
         }
 
         setDetail(nextDetail);
-        setSelectedConditionId(
-          normalizeMarketConditionId(nextDetail.marketHistory.selectedCondition)
-            ?? normalizeMarketConditionId(nextDetail.marketHistory.availableConditions[0]?.id)
-            ?? normalizeMarketConditionId(nextDetail.marketHistory.availableConditions[0]?.label)
-            ?? null,
-        );
         setInventoryActionError(null);
       })
       .catch(() => {
@@ -373,17 +507,89 @@ export function CardDetailScreen({
     };
   }, [cardId, dataVersion, spotlightRepository]);
 
+  useEffect(() => {
+    setSelectedConditionId(null);
+    setMarketHistory(null);
+  }, [cardId]);
+
+  useEffect(() => {
+    if (selectedConditionId != null) {
+      return;
+    }
+
+    const nextConditionId = defaultMarketConditionId(detail?.marketHistory ?? null);
+    if (nextConditionId) {
+      setSelectedConditionId(nextConditionId);
+    }
+  }, [detail?.marketHistory, selectedConditionId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const requestedCondition = selectedConditionId
+      ?? defaultMarketConditionId(detail?.marketHistory ?? null)
+      ?? 'near_mint';
+
+    void spotlightRepository.getCardMarketHistory({
+      cardId,
+      condition: requestedCondition,
+      days: 30,
+    })
+      .then((nextHistory) => {
+        if (!cancelled) {
+          setMarketHistory(nextHistory);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMarketHistory(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, spotlightRepository]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEbayListingsState(null);
+
+    void spotlightRepository.getCardEbayListings({
+      cardId,
+      limit: 5,
+    })
+      .then((nextListings) => {
+        if (!cancelled) {
+          setEbayListingsState(nextListings);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEbayListingsState(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cardId, dataVersion, spotlightRepository]);
+
   const selectedEntry = useMemo(() => {
     if (!detail) {
-      return null;
+      const previewEntry = detailPreview?.ownedEntry ?? null;
+      if (!previewEntry) {
+        return null;
+      }
+
+      return !entryId || previewEntry.id === entryId ? previewEntry : null;
     }
 
     return detail.ownedEntries.find((entry) => entry.id === entryId) ?? detail.ownedEntries[0] ?? null;
-  }, [detail, entryId]);
+  }, [detail, detailPreview?.ownedEntry, entryId]);
 
   const ownedEntries = useMemo(() => {
     if (!detail) {
-      return [];
+      return selectedEntry ? [selectedEntry] : [];
     }
 
     if (!selectedEntry) {
@@ -396,13 +602,26 @@ export function CardDetailScreen({
     ];
   }, [detail, selectedEntry]);
 
+  const effectiveMarketHistory = marketHistory ?? detail?.marketHistory ?? null;
+
+  useEffect(() => {
+    if (!effectiveMarketHistory || selectedConditionId != null) {
+      return;
+    }
+
+    const nextConditionId = defaultMarketConditionId(effectiveMarketHistory);
+    if (nextConditionId) {
+      setSelectedConditionId(nextConditionId);
+    }
+  }, [effectiveMarketHistory, selectedConditionId]);
+
   const marketConditionOptions = useMemo(() => {
-    if (!detail) {
+    if (!effectiveMarketHistory) {
       return [];
     }
 
     return deckConditionOptions.map((option) => {
-      const matchingCondition = detail.marketHistory.availableConditions.find((condition) => (
+      const matchingCondition = effectiveMarketHistory.availableConditions.find((condition) => (
         normalizeMarketConditionId(condition.id) === option.code
         || normalizeMarketConditionId(condition.label) === option.code
       ));
@@ -414,26 +633,26 @@ export function CardDetailScreen({
         shortLabel: option.shortLabel,
       };
     });
-  }, [detail]);
+  }, [effectiveMarketHistory]);
 
   const selectedCondition = useMemo(() => {
-    if (!detail) {
+    if (!effectiveMarketHistory) {
       return null;
     }
 
     return marketConditionOptions.find((condition) => condition.id === selectedConditionId && condition.isAvailable)
       ?? marketConditionOptions.find((condition) => condition.isAvailable)
       ?? null;
-  }, [detail, marketConditionOptions, selectedConditionId]);
+  }, [effectiveMarketHistory, marketConditionOptions, selectedConditionId]);
 
   const marketTint = useMemo(() => {
-    if (!detail) {
+    if (!effectiveMarketHistory) {
       return theme.colors.brand;
     }
 
-    const monthInsight = detail.marketHistory.insights.find((insight) => insight.id === 'month');
+    const monthInsight = effectiveMarketHistory.insights.find((insight) => insight.id === 'month');
     return (monthInsight?.deltaAmount ?? 0) >= 0 ? theme.colors.success : theme.colors.danger;
-  }, [detail, theme.colors.brand, theme.colors.danger, theme.colors.success]);
+  }, [effectiveMarketHistory, theme.colors.brand, theme.colors.danger, theme.colors.success]);
 
   const handleDecrementCollection = (entry: CardDetailRecord['ownedEntries'][number]) => {
     if (isAdjustingInventory) {
@@ -457,7 +676,33 @@ export function CardDetailScreen({
       sourceScanID: null,
       saleSource: 'inventory_adjustment',
     })
-      .then(() => {
+      .then((sale) => {
+        setDetail((currentDetail) => {
+          if (!currentDetail) {
+            return currentDetail;
+          }
+
+          return {
+            ...currentDetail,
+            ownedEntries: currentDetail.ownedEntries.flatMap((ownedEntry) => {
+              if (ownedEntry.id !== sale.deckEntryID) {
+                return [ownedEntry];
+              }
+
+              if (sale.remainingQuantity <= 0) {
+                return [];
+              }
+
+              return [{
+                ...ownedEntry,
+                costBasisTotal: ownedEntry.costBasisPerUnit
+                  ? Number((ownedEntry.costBasisPerUnit * sale.remainingQuantity).toFixed(2))
+                  : ownedEntry.costBasisTotal,
+                quantity: sale.remainingQuantity,
+              }];
+            }),
+          };
+        });
         refreshData();
       })
       .catch(() => {
@@ -468,7 +713,9 @@ export function CardDetailScreen({
       });
   };
 
-  if (!detail && !errorMessage) {
+  const hasDisplayContent = detail != null || detailPreview != null;
+
+  if (!hasDisplayContent && !errorMessage) {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}>
         <View style={styles.loadingState}>
@@ -478,7 +725,7 @@ export function CardDetailScreen({
     );
   }
 
-  if (!detail) {
+  if (!hasDisplayContent) {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}>
         <View style={styles.loadingState}>
@@ -489,23 +736,45 @@ export function CardDetailScreen({
     );
   }
 
-  const displayedPrice = selectedCondition?.currentPrice ?? detail.marketHistory.currentPrice ?? detail.marketPrice;
+  const displayName = detail?.name ?? detailPreview?.name ?? '';
+  const displayImageUrl = detail?.largeImageUrl
+    ?? detail?.imageUrl
+    ?? detailPreview?.largeImageUrl
+    ?? detailPreview?.imageUrl
+    ?? null;
+  const displayedPrice = selectedCondition?.currentPrice
+    ?? effectiveMarketHistory?.currentPrice
+    ?? detail?.marketPrice
+    ?? detailPreview?.marketPrice
+    ?? 0;
+  const displayCurrencyCode = detail?.currencyCode ?? detailPreview?.currencyCode ?? 'USD';
   const isOwned = selectedEntry != null;
-  const heroMeta = `${displayNumber(detail.cardNumber)} • ${detail.setName}`;
-  const ebayListings = detail.ebayListings;
-  const defaultRawVariantLabel = detail.variantOptions[0]?.label ?? null;
+  const heroMeta = detail
+    ? `${displayNumber(detail.cardNumber)} • ${detail.setName}`
+    : `${detailPreview ? displayNumber(detailPreview.cardNumber) : '#--'} • ${detailPreview?.setName ?? ''}`;
+  const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
+  const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
+  const ebayListings = ebayListingsState ?? detail?.ebayListings ?? null;
+  const defaultRawVariantLabel = detail?.variantOptions[0]?.label ?? null;
   const ownedCopiesCount = ownedEntries.reduce((sum, entry) => sum + Math.max(0, entry.quantity), 0);
   const collectionTitle = ownedCopiesCount > 1
     ? `In your collection (${ownedCopiesCount})`
     : 'In your collection';
-  const marketplaceUrl = detail.marketplaceUrl ?? null;
+  const marketplaceUrl = detail?.marketplaceUrl ?? buildTcgPlayerSearchUrl({
+    cardNumber: displayCardNumber,
+    name: displayName,
+    setName: displaySetName,
+  });
+  const marketplaceLabel = detail?.marketplaceLabel ?? 'TCGPLAYER BUYING OPTIONS';
+  const sellEntryId = selectedEntry?.id ?? entryId;
+  const hasMarketHistoryPoints = (effectiveMarketHistory?.points.length ?? 0) > 0;
 
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
       style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
     >
-      <SellBackdrop imageUrl={detail.largeImageUrl ?? detail.imageUrl} variant="single" />
+      <SellBackdrop imageUrl={displayImageUrl ?? undefined} variant="single" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <ChromeBackButton
@@ -517,7 +786,7 @@ export function CardDetailScreen({
         <View testID="detail-hero-card">
           <SurfaceCard padding={20} radius={28} style={styles.heroCard}>
             <View style={styles.heroCopy}>
-              <Text style={[theme.typography.display, styles.heroName]}>{detail.name}</Text>
+              <Text style={[theme.typography.display, styles.heroName]}>{displayName}</Text>
               <Text
                 style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
                 testID="detail-hero-meta"
@@ -527,14 +796,14 @@ export function CardDetailScreen({
             </View>
 
             <View style={styles.heroArtStage}>
-              {detail.largeImageUrl || detail.imageUrl ? (
+              {displayImageUrl ? (
                 <Image
-                  source={{ uri: detail.largeImageUrl ?? detail.imageUrl }}
+                  source={{ uri: displayImageUrl }}
                   style={styles.heroArt}
                 />
               ) : (
                 <View style={styles.heroArtFallback}>
-                  <Text style={[theme.typography.titleCompact, styles.heroArtFallbackText]}>{detail.name}</Text>
+                  <Text style={[theme.typography.titleCompact, styles.heroArtFallbackText]}>{displayName}</Text>
                 </View>
               )}
             </View>
@@ -545,12 +814,12 @@ export function CardDetailScreen({
           {isOwned ? (
             <Button
               contentStyle={styles.primaryButtonContent}
-              disabled={!onOpenSell}
+              disabled={!onOpenSell || !sellEntryId}
               label="SELL CARD"
               labelStyle={styles.primaryButtonLabel}
               onPress={() => {
-                if (selectedEntry && onOpenSell) {
-                  onOpenSell(selectedEntry.id);
+                if (sellEntryId && onOpenSell) {
+                  onOpenSell(sellEntryId);
                 }
               }}
               size="lg"
@@ -562,7 +831,7 @@ export function CardDetailScreen({
               contentStyle={styles.primaryButtonContent}
               label="ADD TO COLLECTION"
               labelStyle={styles.primaryButtonLabel}
-              onPress={() => onOpenAddToCollection(detail.cardId)}
+              onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId)}
               size="lg"
               testID="detail-add-to-collection"
               variant="primary"
@@ -572,7 +841,7 @@ export function CardDetailScreen({
           <Button
             contentStyle={styles.marketplaceButtonContent}
             disabled={!marketplaceUrl}
-            label={detail.marketplaceLabel}
+            label={marketplaceLabel}
             labelStyle={styles.marketplaceButtonLabel}
             onPress={marketplaceUrl
               ? () => {
@@ -591,6 +860,17 @@ export function CardDetailScreen({
             )}
             variant="secondary"
           />
+
+          {similarScanCandidates.length > 0 ? (
+            <SimilarCardsButton
+              count={similarScanCandidates.length}
+              onPress={() => {
+                if (scanReviewId) {
+                  onOpenScanCandidateReview?.(scanReviewId);
+                }
+              }}
+            />
+          ) : null}
         </View>
 
         {selectedEntry ? (
@@ -630,7 +910,11 @@ export function CardDetailScreen({
 
                     <View style={styles.collectionRow} testID={`detail-collection-row-${entry.id}`}>
                       <View style={styles.collectionArtPlate}>
-                        <Image source={{ uri: entry.imageUrl }} style={styles.collectionArt} />
+                        <Image
+                          source={{ uri: entry.imageUrl }}
+                          style={styles.collectionArt}
+                          testID={`detail-collection-art-${entry.id}`}
+                        />
                       </View>
 
                       <View style={styles.collectionBody}>
@@ -687,7 +971,7 @@ export function CardDetailScreen({
                           <Pressable
                             accessibilityLabel="Add to collection"
                             accessibilityRole="button"
-                            onPress={() => onOpenAddToCollection(detail.cardId)}
+                            onPress={() => onOpenAddToCollection(selectedEntry.cardId)}
                             style={({ pressed }) => [
                               styles.collectionControlIconButton,
                               {
@@ -702,7 +986,7 @@ export function CardDetailScreen({
                         <Pressable
                           accessibilityLabel="Edit collection item"
                           accessibilityRole="button"
-                          onPress={() => onOpenAddToCollection(detail.cardId, entry.id)}
+                          onPress={() => onOpenAddToCollection(selectedEntry.cardId, entry.id)}
                           style={({ pressed }) => [
                             styles.collectionEditButton,
                             {
@@ -737,76 +1021,99 @@ export function CardDetailScreen({
 
           <View testID="detail-market-card">
             <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
-              <View style={styles.insightsRow}>
-                {detail.marketHistory.insights.map((insight) => (
-                  <View key={insight.id} style={styles.insightBlock}>
-                    {insight.deltaAmount != null ? (
-                      <Text
-                        style={[
-                          theme.typography.caption,
-                          { color: (insight.deltaAmount ?? 0) >= 0 ? theme.colors.success : theme.colors.danger },
-                        ]}
-                      >
-                        {formatSignedCurrency(insight.deltaAmount, detail.currencyCode)}
-                        {' '}
-                        ({formatPercent(insight.deltaPercent ?? 0)})
-                      </Text>
-                    ) : (
-                      <Text style={[theme.typography.caption, styles.insightMuted]}>—</Text>
-                    )}
-                    <Text style={[theme.typography.micro, styles.insightLabel]}>{insight.label}</Text>
+              {hasMarketHistoryPoints && effectiveMarketHistory ? (
+                <>
+                  <Text
+                    style={[theme.typography.display, styles.marketValueTitle]}
+                    testID="detail-market-price"
+                  >
+                    {formatCurrency(displayedPrice, displayCurrencyCode)}
+                  </Text>
+                  <View style={styles.insightsRow}>
+                    {effectiveMarketHistory.insights.map((insight) => (
+                      <View key={insight.id} style={styles.insightBlock}>
+                        {insight.deltaAmount != null ? (
+                          <Text
+                            style={[
+                              theme.typography.caption,
+                              { color: (insight.deltaAmount ?? 0) >= 0 ? theme.colors.success : theme.colors.danger },
+                            ]}
+                          >
+                            {formatSignedCurrency(insight.deltaAmount, displayCurrencyCode)}
+                            {' '}
+                            ({formatPercent(insight.deltaPercent ?? 0)})
+                          </Text>
+                        ) : (
+                          <Text style={[theme.typography.caption, styles.insightMuted]}>—</Text>
+                        )}
+                        <Text style={[theme.typography.micro, styles.insightLabel]}>{insight.label}</Text>
+                      </View>
+                    ))}
                   </View>
-                ))}
-              </View>
 
-              <HistoryChart
-                currencyCode={detail.currencyCode}
-                currentPrice={displayedPrice}
-                points={detail.marketHistory.points}
-                tintColor={marketTint}
-              />
+                  <HistoryChart
+                    currencyCode={displayCurrencyCode}
+                    currentPrice={displayedPrice}
+                    points={effectiveMarketHistory.points}
+                    tintColor={marketTint}
+                  />
+                </>
+              ) : (
+                <View style={styles.lazyMarketBlock} testID="detail-scan-preview-market">
+                  <Text style={styles.previewMarketValue}>
+                    {formatCurrency(displayedPrice, displayCurrencyCode)}
+                  </Text>
+                  {errorMessage ? (
+                    <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
+                      {errorMessage}
+                    </Text>
+                  ) : null}
+                </View>
+              )}
 
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.conditionChipRow}
-                testID="detail-condition-chip-scroll"
-              >
-                {marketConditionOptions.map((condition) => {
-                  const isSelected = condition.id === selectedCondition?.id;
+              {marketConditionOptions.length > 0 ? (
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.conditionChipRow}
+                  testID="detail-condition-chip-scroll"
+                >
+                  {marketConditionOptions.map((condition) => {
+                    const isSelected = condition.id === selectedCondition?.id;
 
-                  return (
-                    <Pressable
-                      key={condition.id}
-                      accessibilityRole="button"
-                      disabled={!condition.isAvailable}
-                      onPress={() => {
-                        if (condition.isAvailable) {
-                          setSelectedConditionId(condition.id);
-                        }
-                      }}
-                      style={({ pressed }) => [
-                        styles.conditionChip,
-                        {
-                          backgroundColor: isSelected ? theme.colors.surfaceMuted : '#F7F8FA',
-                          borderColor: isSelected ? theme.colors.brand : 'rgba(15, 15, 18, 0.08)',
-                          opacity: condition.isAvailable ? (pressed ? 0.92 : 1) : 0.56,
-                        },
-                      ]}
-                      testID={`detail-condition-chip-${condition.id}`}
-                    >
-                      <Text style={[theme.typography.caption, styles.conditionLabel]}>
-                        {condition.shortLabel}
-                      </Text>
-                      <Text style={[theme.typography.bodyStrong, styles.conditionPrice]}>
-                        {condition.currentPrice != null
-                          ? formatCurrency(condition.currentPrice, detail.currencyCode)
-                          : '—'}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
+                    return (
+                      <Pressable
+                        key={condition.id}
+                        accessibilityRole="button"
+                        disabled={!condition.isAvailable}
+                        onPress={() => {
+                          if (condition.isAvailable) {
+                            setSelectedConditionId(condition.id);
+                          }
+                        }}
+                        style={({ pressed }) => [
+                          styles.conditionChip,
+                          {
+                            backgroundColor: isSelected ? theme.colors.surfaceMuted : '#F7F8FA',
+                            borderColor: isSelected ? theme.colors.brand : 'rgba(15, 15, 18, 0.08)',
+                            opacity: condition.isAvailable ? (pressed ? 0.92 : 1) : 0.56,
+                          },
+                        ]}
+                        testID={`detail-condition-chip-${condition.id}`}
+                      >
+                        <Text style={[theme.typography.caption, styles.conditionLabel]}>
+                          {condition.shortLabel}
+                        </Text>
+                        <Text style={[theme.typography.bodyStrong, styles.conditionPrice]}>
+                          {condition.currentPrice != null
+                            ? formatCurrency(condition.currentPrice, displayCurrencyCode)
+                            : '—'}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              ) : null}
             </SurfaceCard>
           </View>
         </View>
@@ -901,6 +1208,23 @@ export function CardDetailScreen({
                     <Text style={[theme.typography.caption, styles.ebayMeta]}>
                       {ebayListings.unavailableReason ?? 'No active eBay listings were returned for this card.'}
                     </Text>
+                    {ebayListings.searchUrl ? (
+                      <Button
+                        contentStyle={styles.ebayButtonContent}
+                        label="View all on eBay"
+                        labelStyle={styles.marketplaceButtonLabel}
+                        leadingAccessory={<EbayWordmarkBadge />}
+                        onPress={() => {
+                          if (ebayListings.searchUrl) {
+                            void Linking.openURL(ebayListings.searchUrl);
+                          }
+                        }}
+                        size="lg"
+                        style={styles.ebayViewAllButton}
+                        testID="detail-ebay-view-all"
+                        variant="secondary"
+                      />
+                    ) : null}
                   </View>
                 )}
               </SurfaceCard>
@@ -1074,17 +1398,15 @@ const styles = StyleSheet.create({
     color: '#F5AF02',
   },
   collectionArt: {
-    borderRadius: 7,
-    height: 40,
-    resizeMode: 'contain',
-    width: 28,
+    height: '100%',
+    resizeMode: 'cover',
+    width: '100%',
   },
   collectionArtPlate: {
-    alignItems: 'center',
-    backgroundColor: '#F5F6F7',
+    backgroundColor: 'transparent',
     borderRadius: 14,
     height: 64,
-    justifyContent: 'center',
+    overflow: 'hidden',
     width: 48,
   },
   collectionActionsRow: {
@@ -1288,6 +1610,12 @@ const styles = StyleSheet.create({
     height: 26,
     width: 26,
   },
+  lazyDetailCopy: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  lazyMarketBlock: {
+    gap: 8,
+  },
   ebayButtonContent: {
     justifyContent: 'flex-start',
     width: '100%',
@@ -1303,6 +1631,10 @@ const styles = StyleSheet.create({
     fontSize: 18,
     lineHeight: 22,
   },
+  marketValueTitle: {
+    color: '#0F0F12',
+    marginBottom: 4,
+  },
   primaryButtonContent: {
     justifyContent: 'flex-start',
     width: '100%',
@@ -1310,6 +1642,12 @@ const styles = StyleSheet.create({
   primaryButtonLabel: {
     flex: 1,
     textAlign: 'left',
+  },
+  previewMarketValue: {
+    color: '#0F0F12',
+    fontSize: 48,
+    fontWeight: '800',
+    lineHeight: 56,
   },
   safeArea: {
     flex: 1,
@@ -1334,5 +1672,31 @@ const styles = StyleSheet.create({
   },
   sectionHeaderTitle: {
     paddingRight: 4,
+  },
+  similarCardsButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderColor: '#F4D230',
+    borderRadius: 999,
+    borderWidth: 1.4,
+    flexDirection: 'row',
+    minHeight: 48,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    width: '100%',
+  },
+  similarCardsButtonPressed: {
+    opacity: 0.9,
+  },
+  similarCardsChevron: {
+    color: 'rgba(15, 15, 18, 0.68)',
+    fontSize: 28,
+    fontWeight: '500',
+    lineHeight: 28,
+  },
+  similarCardsTitle: {
+    color: '#0F0F12',
+    flex: 1,
+    textAlign: 'left',
   },
 });

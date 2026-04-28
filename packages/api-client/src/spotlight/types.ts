@@ -15,6 +15,11 @@ export type ScannerCapturePayload = {
 export type ScannerMatchResult = {
   scanID: string | null;
   candidates: CatalogSearchResult[];
+  endpointPath?: string;
+  roundTripMs?: number | null;
+  serverProcessingMs?: number | null;
+  requestUrl?: string | null;
+  requestAttemptCount?: number | null;
 };
 
 export const spotlightRepositoryLoadStates = ['success', 'empty', 'not_found', 'error'] as const;

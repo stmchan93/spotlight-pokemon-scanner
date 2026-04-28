@@ -81,6 +81,14 @@ export function createTestSpotlightRepository(
       return overrides.getCardDetail?.(...args)
         ?? baseRepository.getCardDetail(...args);
     },
+    getCardMarketHistory: (...args) => {
+      return overrides.getCardMarketHistory?.(...args)
+        ?? baseRepository.getCardMarketHistory(...args);
+    },
+    getCardEbayListings: (...args) => {
+      return overrides.getCardEbayListings?.(...args)
+        ?? baseRepository.getCardEbayListings(...args);
+    },
     getAddToCollectionOptions: (...args) => {
       return overrides.getAddToCollectionOptions?.(...args)
         ?? baseRepository.getAddToCollectionOptions(...args);
@@ -204,6 +212,16 @@ export function renderAppRouter(
     candidates: [
       { key: '(modal)/account/import', modulePath: '@/app/(modal)/account/import' },
       { key: 'account/import', modulePath: '@/app/account/import' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      {
+        key: '(modal)/cards/[cardId]/scan-review',
+        modulePath: '@/app/(modal)/cards/[cardId]/scan-review',
+      },
+      { key: 'cards/[cardId]/scan-review', modulePath: '@/app/cards/[cardId]/scan-review' },
     ],
     optional: true,
   });

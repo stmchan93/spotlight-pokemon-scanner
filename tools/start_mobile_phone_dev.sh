@@ -140,10 +140,9 @@ Looty phone dev config
   Expo port: ${EXPO_PORT}
 
 Important:
-  - React Native portfolio/inventory/search surfaces can use this backend.
-  - React Native scanner capture is still a placeholder in this repo and does not perform a real scan yet.
-  - Use the Swift Spotlight iOS app for live camera scanning until the RN scanner bridge lands.
+  - The React Native app will use this local backend over your LAN.
   - The Expo QR is for opening the RN app in Expo Go or a dev client. Do not scan that QR with the in-app card scanner.
+  - If scans fail, watch this terminal for backend tracebacks and the Expo terminal for RN scanner logs.
 EOF
 }
 

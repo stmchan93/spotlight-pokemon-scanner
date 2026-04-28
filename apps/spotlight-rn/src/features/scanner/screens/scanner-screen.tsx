@@ -1,25 +1,31 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
-import { useRouter } from 'expo-router';
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useFocusEffect, useRouter } from 'expo-router';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Animated,
   Image,
   LayoutAnimation,
   PanResponder,
+  type PanResponderGestureState,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   UIManager,
+  Vibration,
   View,
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import Svg, { Path } from 'react-native-svg';
 
-import type { CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
+import {
+  isSpotlightRepositoryRequestError,
+  type CatalogSearchResult,
+  type InventoryCardEntry,
+} from '@spotlight/api-client';
 import {
   Button,
   colors,
@@ -29,6 +35,24 @@ import {
 } from '@spotlight/design-system';
 
 import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
+import {
+  clampRecentCaptureSwipeTranslate,
+  recentCaptureDeleteRevealWidth,
+  shouldCollapseRecentCaptureDeleteFromSwipe,
+  shouldRevealRecentCaptureDeleteFromSwipe,
+  shouldSetRecentCaptureSwipeResponder,
+} from '@/features/scanner/recent-capture-swipe';
+import {
+  saveScanCandidateReviewSession,
+  type ScanSourceImageCrop,
+  type ScanSourceImageDimensions,
+} from '@/features/scanner/scan-candidate-review-session';
+import {
+  buildNormalizedScannerTarget,
+  makeOrientationFixedSourceImageDimensions,
+  makeReticleSourceImageCrop,
+  rawCardReticleAspectRatio,
+} from '@/features/scanner/scanner-normalized-target';
 import { useAppServices } from '@/providers/app-providers';
 
 type ScannerMode = 'raw' | 'slabs';
@@ -39,7 +63,12 @@ type RecentCapture = {
   isAddingToInventory: boolean;
   isLoadingCandidates: boolean;
   mode: ScannerMode;
+  normalizedImageDimensions: ScanSourceImageDimensions | null;
+  normalizedImageUri: string | null;
   scanID: string | null;
+  sourceImageCrop: ScanSourceImageCrop | null;
+  sourceImageDimensions: ScanSourceImageDimensions | null;
+  sourceImageRotationDegrees: number;
   uri: string;
   activeCandidateIndex: number;
 };
@@ -49,15 +78,43 @@ const scannerModes: readonly { label: string; value: ScannerMode }[] = [
   { label: 'SLABS', value: 'slabs' },
 ];
 
-const sharedFrameAspectRatio = 1.52;
+const sharedFrameAspectRatio = rawCardReticleAspectRatio;
 const maxStoredCaptures = 12;
 const collapsedVisibleCaptures = 1;
 const captureRowHeight = 74;
 const captureRowGap = 8;
-const traySwipeThreshold = 36;
-const trayVelocityThreshold = 0.48;
-const trayExpandedLift = 56;
-const trayCollapsedDrop = 40;
+const traySwipeThreshold = 20;
+const trayVelocityThreshold = 0.22;
+const rawVisualCaptureQuality = 0.45;
+const rawVisualPreferredLongSide = 1280;
+const rawVisualMinimumLongSide = 900;
+const scannerTrayLayoutAnimation = {
+  create: {
+    property: LayoutAnimation.Properties.opacity,
+    type: LayoutAnimation.Types.easeInEaseOut,
+  },
+  delete: {
+    property: LayoutAnimation.Properties.opacity,
+    type: LayoutAnimation.Types.easeInEaseOut,
+  },
+  duration: 240,
+  update: {
+    springDamping: 0.88,
+    type: LayoutAnimation.Types.easeInEaseOut,
+  },
+} as const;
+
+function scannerErrorMessage(error: unknown) {
+  if (isSpotlightRepositoryRequestError(error)) {
+    return `${error.kind}:${error.status ?? 'n/a'}:${error.message}`;
+  }
+
+  if (error instanceof Error) {
+    return error.message;
+  }
+
+  return 'Unknown scanner error';
+}
 
 function alignToFourPointGrid(value: number) {
   return Math.max(0, Math.round(value / 4) * 4);
@@ -111,6 +168,184 @@ function formatCurrency(amount: number, currencyCode = 'USD') {
   }).format(amount);
 }
 
+function parsePictureSize(size: string) {
+  const match = size.trim().match(/^(\d+)x(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const width = Number(match[1]);
+  const height = Number(match[2]);
+  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
+    return null;
+  }
+
+  return {
+    area: width * height,
+    longSide: Math.max(width, height),
+    raw: size,
+  };
+}
+
+function chooseRawVisualPictureSize(sizes: readonly string[]) {
+  const parsed = sizes
+    .map(parsePictureSize)
+    .filter((size): size is NonNullable<ReturnType<typeof parsePictureSize>> => size != null);
+  if (parsed.length === 0) {
+    return null;
+  }
+
+  const preferred = parsed
+    .filter((size) => size.longSide >= rawVisualMinimumLongSide && size.longSide <= rawVisualPreferredLongSide)
+    .sort((a, b) => a.area - b.area);
+  if (preferred[0]) {
+    return preferred[0].raw;
+  }
+
+  const largerFallback = parsed
+    .filter((size) => size.longSide > rawVisualPreferredLongSide)
+    .sort((a, b) => a.area - b.area);
+  if (largerFallback[0]) {
+    return largerFallback[0].raw;
+  }
+
+  return parsed.sort((a, b) => b.area - a.area)[0]?.raw ?? null;
+}
+
+async function triggerScannerHaptic() {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  try {
+    const Haptics = await import('expo-haptics');
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  } catch {
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate(10);
+    }
+  }
+}
+
+type RecentCaptureSwipeRowProps = {
+  children: ReactNode;
+  onDelete: () => void;
+  testID: string;
+};
+
+function RecentCaptureSwipeRow({ children, onDelete, testID }: RecentCaptureSwipeRowProps) {
+  const [isDeleteRevealed, setIsDeleteRevealed] = useState(false);
+  const translateX = useRef(new Animated.Value(0)).current;
+  const deleteOpacity = useMemo(() => translateX.interpolate({
+    extrapolate: 'clamp',
+    inputRange: [0, 1],
+    outputRange: [0, 1],
+  }), [translateX]);
+
+  const settleClosed = useCallback(() => {
+    setIsDeleteRevealed(false);
+    Animated.spring(translateX, {
+      bounciness: 0,
+      speed: 16,
+      toValue: 0,
+      useNativeDriver: true,
+    }).start();
+  }, [translateX]);
+
+  const revealDeleteAction = useCallback(() => {
+    setIsDeleteRevealed(true);
+    Animated.spring(translateX, {
+      bounciness: 0,
+      speed: 18,
+      toValue: recentCaptureDeleteRevealWidth,
+      useNativeDriver: true,
+    }).start();
+  }, [translateX]);
+
+  const handleSwipeMove = useCallback((gestureState: PanResponderGestureState) => {
+    translateX.setValue(clampRecentCaptureSwipeTranslate(gestureState.dx, isDeleteRevealed));
+  }, [isDeleteRevealed, translateX]);
+
+  const handleSwipeEnd = useCallback((gestureState: PanResponderGestureState) => {
+    if (isDeleteRevealed) {
+      if (shouldCollapseRecentCaptureDeleteFromSwipe(gestureState)) {
+        settleClosed();
+        return;
+      }
+
+      revealDeleteAction();
+      return;
+    }
+
+    if (shouldRevealRecentCaptureDeleteFromSwipe(gestureState)) {
+      revealDeleteAction();
+      return;
+    }
+
+    settleClosed();
+  }, [isDeleteRevealed, revealDeleteAction, settleClosed]);
+
+  const panResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gestureState) => shouldSetRecentCaptureSwipeResponder(gestureState, isDeleteRevealed),
+    onPanResponderMove: (_, gestureState) => handleSwipeMove(gestureState),
+    onPanResponderRelease: (_, gestureState) => handleSwipeEnd(gestureState),
+    onPanResponderTerminate: () => {
+      settleClosed();
+    },
+  }), [handleSwipeEnd, handleSwipeMove, isDeleteRevealed, settleClosed]);
+
+  return (
+    <View
+      style={styles.captureSwipeShell}
+      testID={testID}
+      {...panResponder.panHandlers}
+    >
+      {process.env.NODE_ENV === 'test' ? (
+        <>
+          <Pressable
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            onPress={revealDeleteAction}
+            style={styles.captureSwipeTestControl}
+            testID={`${testID}-reveal-delete`}
+          />
+          <Pressable
+            accessibilityElementsHidden
+            importantForAccessibility="no-hide-descendants"
+            onPress={settleClosed}
+            style={styles.captureSwipeTestControl}
+            testID={`${testID}-collapse-delete`}
+          />
+        </>
+      ) : null}
+      <Animated.View
+        pointerEvents={isDeleteRevealed ? 'auto' : 'none'}
+        style={[styles.captureDeleteUnderlay, { opacity: deleteOpacity }]}
+        testID={`${testID}-delete-underlay`}
+      >
+        <Pressable
+          accessibilityElementsHidden={!isDeleteRevealed}
+          accessibilityLabel="Delete recent scan"
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !isDeleteRevealed }}
+          importantForAccessibility={isDeleteRevealed ? 'auto' : 'no-hide-descendants'}
+          onPress={isDeleteRevealed ? onDelete : undefined}
+          style={({ pressed }) => [
+            styles.captureDeleteButton,
+            pressed ? styles.captureDeleteUnderlayPressed : null,
+          ]}
+          testID={`${testID}-delete-button`}
+        >
+          <Text style={styles.captureDeleteLabel}>DELETE</Text>
+        </Pressable>
+      </Animated.View>
+      <Animated.View style={[styles.captureSwipeContent, { transform: [{ translateX }] }]}>
+        {children}
+      </Animated.View>
+    </View>
+  );
+}
+
 function RefreshIcon({ color, size = 18 }: { color: string; size?: number }) {
   return (
     <Svg fill="none" height={size} viewBox="0 0 18 18" width={size}>
@@ -146,9 +381,14 @@ export function ScannerScreen() {
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
   const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
+  const [rawVisualPictureSize, setRawVisualPictureSize] = useState<string | undefined>(undefined);
+  const [cameraSessionKey, setCameraSessionKey] = useState(0);
+  const hasFocusedScannerRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const cameraRef = useRef<CameraView | null>(null);
-  const trayTranslateY = useRef(new Animated.Value(0)).current;
+  const isResolvingPictureSizeRef = useRef(false);
+  const trayGestureCommittedRef = useRef(false);
+  const reticleSnapshotRef = useRef({ height: 0, previewHeight: 0, previewWidth: 0, width: 0, x: 0, y: 0 });
 
   const trayBottomInset = insets.bottom + 14;
   const collapsedTrayReservedHeight = 196;
@@ -160,12 +400,21 @@ export function ScannerScreen() {
   });
   const reticleLeft = (windowWidth - reticleLayout.width) / 2;
   const reticleTop = reticleLayout.topSpacing + 16;
+  reticleSnapshotRef.current = {
+    height: reticleLayout.height,
+    previewHeight: windowHeight,
+    previewWidth: windowWidth,
+    width: reticleLayout.width,
+    x: reticleLeft,
+    y: reticleTop,
+  };
   const scannerBackTop = insets.top + 2;
   const promptTop = Math.max(insets.top + chromeBackButtonSize + 20, reticleTop - 36);
   const controlsTop = reticleTop + reticleLayout.height + reticleLayout.controlsTopSpacing;
   const modeToggleWidth = Math.min(windowWidth - 48, 264);
   const hasCameraAccess = permission?.granted ?? false;
   const canCapture = hasCameraAccess && isCameraReady && !isCapturing;
+  const canToggleTray = recentCaptures.length > 0;
   const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures);
   const visibleCaptures = isTrayExpanded ? recentCaptures : collapsedCaptures;
   const trayExpandedBodyHeight = alignToFourPointGrid(
@@ -215,38 +464,73 @@ export function ScannerScreen() {
   }, [permission, requestPermission]);
 
   useEffect(() => {
-    if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-      UIManager.setLayoutAnimationEnabledExperimental(true);
+    if (Platform.OS === 'android') {
+      UIManager.setLayoutAnimationEnabledExperimental?.(true);
     }
   }, []);
 
-  const animateTrayLayout = useCallback(() => {
-    LayoutAnimation.configureNext({
-      duration: 260,
-      update: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-      },
-      create: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
-      delete: {
-        type: LayoutAnimation.Types.easeInEaseOut,
-        property: LayoutAnimation.Properties.opacity,
-      },
+  useEffect(() => {
+    if (recentCaptures.length === 0 && isTrayExpanded) {
+      setIsTrayExpanded(false);
+    }
+  }, [isTrayExpanded, recentCaptures.length]);
+
+  useFocusEffect(useCallback(() => {
+    trayGestureCommittedRef.current = false;
+    isResolvingPictureSizeRef.current = false;
+
+    if (hasFocusedScannerRef.current) {
+      setIsCameraReady(false);
+      setIsCapturing(false);
+      setRawVisualPictureSize(undefined);
+      setCameraSessionKey((current) => current + 1);
+    } else {
+      hasFocusedScannerRef.current = true;
+    }
+
+    return () => {
+      trayGestureCommittedRef.current = false;
+      isResolvingPictureSizeRef.current = false;
+      setIsCameraReady(false);
+      setIsCapturing(false);
+    };
+  }, []));
+
+  const commitTrayExpandedState = useCallback((nextExpanded: boolean) => {
+    setIsTrayExpanded((current) => {
+      if (current === nextExpanded) {
+        return current;
+      }
+
+      if (Platform.OS !== 'web') {
+        LayoutAnimation.configureNext(scannerTrayLayoutAnimation);
+      }
+
+      return nextExpanded;
     });
   }, []);
 
-  const animateTraySettle = useCallback((velocity = 0) => {
-    Animated.spring(trayTranslateY, {
-      toValue: 0,
-      useNativeDriver: true,
-      damping: 24,
-      stiffness: 260,
-      mass: 0.9,
-      velocity,
-    }).start();
-  }, [trayTranslateY]);
+  const resolveRawVisualPictureSize = useCallback(() => {
+    if (isResolvingPictureSizeRef.current) {
+      return;
+    }
+
+    isResolvingPictureSizeRef.current = true;
+    void (async () => {
+      try {
+        const sizes = await cameraRef.current?.getAvailablePictureSizesAsync?.();
+        const selectedSize = chooseRawVisualPictureSize(Array.isArray(sizes) ? sizes : []);
+        setRawVisualPictureSize(selectedSize ?? undefined);
+        if (selectedSize && process.env.NODE_ENV !== 'test') {
+          console.info(`[SCANNER VISUAL TEST] rawPictureSize=${selectedSize}`);
+        }
+      } catch {
+        setRawVisualPictureSize(undefined);
+      } finally {
+        isResolvingPictureSizeRef.current = false;
+      }
+    })();
+  }, []);
 
   const inventoryByCardId = useMemo(() => {
     const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
@@ -275,12 +559,15 @@ export function ScannerScreen() {
   }, [recentCaptures]);
 
   const clearRecentCaptures = useCallback(() => {
-    animateTrayLayout();
     setCaptureError(null);
     setRecentCaptures([]);
     setIsTrayExpanded(false);
-    animateTraySettle();
-  }, [animateTrayLayout, animateTraySettle]);
+  }, []);
+
+  const deleteRecentCapture = useCallback((captureId: string) => {
+    setCaptureError(null);
+    setRecentCaptures((current) => current.filter((capture) => capture.id !== captureId));
+  }, []);
 
   const handleCapture = useCallback(async () => {
     if (!permission?.granted) {
@@ -295,6 +582,8 @@ export function ScannerScreen() {
       return;
     }
 
+    void triggerScannerHaptic();
+    const scanStartedAt = Date.now();
     setIsCapturing(true);
     setCaptureError(null);
 
@@ -307,21 +596,33 @@ export function ScannerScreen() {
         isAddingToInventory: false,
         isLoadingCandidates: true,
         mode: scannerMode,
+        normalizedImageDimensions: null,
+        normalizedImageUri: null,
         scanID: null,
+        sourceImageCrop: null,
+        sourceImageDimensions: null,
+        sourceImageRotationDegrees: 0,
         uri: '',
       },
       ...current,
     ].slice(0, maxStoredCaptures));
 
+    let capturedPhotoUri = '';
+    let capturedSourceImageCrop: ScanSourceImageCrop | null = null;
+    let capturedSourceImageDimensions: ScanSourceImageDimensions | null = null;
+
     try {
+      const captureStartedAt = Date.now();
       const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        quality: 0.7,
+        exif: false,
+        quality: scannerMode === 'raw' ? rawVisualCaptureQuality : 0.7,
+        skipProcessing: false,
       });
+      const captureMs = Date.now() - captureStartedAt;
 
       setIsCapturing(false);
 
-      if (!photo?.uri || !photo.base64) {
+      if (!photo?.uri) {
         setCaptureError('Camera capture finished without an image.');
         setRecentCaptures((current) => current.map((capture) => {
           if (capture.id !== captureId) {
@@ -331,13 +632,41 @@ export function ScannerScreen() {
           return {
             ...capture,
             isLoadingCandidates: false,
+            normalizedImageDimensions: null,
+            normalizedImageUri: null,
+            sourceImageCrop: null,
+            sourceImageDimensions: photo?.width && photo.height
+              ? { height: photo.height, width: photo.width }
+              : null,
+            sourceImageRotationDegrees: 0,
             uri: photo?.uri ?? '',
           };
         }));
         return;
       }
 
-      const photoBase64 = photo.base64;
+      capturedPhotoUri = photo.uri;
+      const rawSourceImageDimensions: ScanSourceImageDimensions = {
+        height: photo.height ?? 1,
+        width: photo.width ?? 1,
+      };
+      const sourceImageDimensions = makeOrientationFixedSourceImageDimensions(rawSourceImageDimensions);
+      capturedSourceImageDimensions = sourceImageDimensions;
+      const sourceImageCrop = makeReticleSourceImageCrop({
+        previewLayout: {
+          height: reticleSnapshotRef.current.previewHeight,
+          width: reticleSnapshotRef.current.previewWidth,
+        },
+        reticle: {
+          height: reticleSnapshotRef.current.height,
+          width: reticleSnapshotRef.current.width,
+          x: reticleSnapshotRef.current.x,
+          y: reticleSnapshotRef.current.y,
+        },
+        sourceImageDimensions,
+      });
+      capturedSourceImageCrop = sourceImageCrop;
+
       setRecentCaptures((current) => current.map((capture) => {
         if (capture.id !== captureId) {
           return capture;
@@ -345,18 +674,104 @@ export function ScannerScreen() {
 
         return {
           ...capture,
+          normalizedImageDimensions: null,
+          normalizedImageUri: null,
+          sourceImageCrop,
+          sourceImageDimensions,
+          sourceImageRotationDegrees: 0,
           uri: photo.uri,
+        };
+      }));
+
+      const normalizeStartedAt = Date.now();
+      if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
+        console.info(
+          `[SCANNER VISUAL TEST] normalizeStart `
+          + `reportedSource=${sourceImageDimensions.width}x${sourceImageDimensions.height} `
+          + `preview=${reticleSnapshotRef.current.previewWidth}x${reticleSnapshotRef.current.previewHeight} `
+          + `reticle=${reticleSnapshotRef.current.width}x${reticleSnapshotRef.current.height}@${reticleSnapshotRef.current.x},${reticleSnapshotRef.current.y} `
+          + `crop=${sourceImageCrop ? `${sourceImageCrop.width}x${sourceImageCrop.height}@${sourceImageCrop.x},${sourceImageCrop.y}` : 'n/a'}`,
+        );
+      }
+      const normalizedTarget = await buildNormalizedScannerTarget({
+        previewLayout: {
+          height: reticleSnapshotRef.current.previewHeight,
+          width: reticleSnapshotRef.current.previewWidth,
+        },
+        reticle: {
+          height: reticleSnapshotRef.current.height,
+          width: reticleSnapshotRef.current.width,
+          x: reticleSnapshotRef.current.x,
+          y: reticleSnapshotRef.current.y,
+        },
+        sourceImageDimensions,
+        sourceImageUri: photo.uri,
+      });
+      const normalizeMs = Date.now() - normalizeStartedAt;
+      if (!normalizedTarget) {
+        throw new Error('normalized_target_unavailable');
+      }
+
+      setRecentCaptures((current) => current.map((capture) => {
+        if (capture.id !== captureId) {
+          return capture;
+        }
+
+        return {
+          ...capture,
+          normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
+          normalizedImageUri: normalizedTarget.normalizedImageUri,
+          sourceImageCrop: normalizedTarget.sourceImageCrop,
+          sourceImageDimensions,
+          sourceImageRotationDegrees: 0,
+          uri: normalizedTarget.normalizedImageUri,
         };
       }));
 
       void (async () => {
         try {
+          const matchStartedAt = Date.now();
+          const estimatedPayloadKB = Math.round((normalizedTarget.normalizedImageBase64.length * 0.75) / 1024);
+          if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
+            console.info(
+              `[SCANNER VISUAL TEST] dispatch `
+              + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
+              + `rotate=${normalizedTarget.normalizationRotationDegrees} `
+              + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
+              + `payloadKB=${estimatedPayloadKB} `
+              + `quality=${rawVisualCaptureQuality}`,
+            );
+          }
           const matchResult = await spotlightRepository.matchScannerCapture({
-            height: photo.height ?? 1,
-            jpegBase64: photoBase64,
+            height: normalizedTarget.normalizedImageDimensions.height,
+            jpegBase64: normalizedTarget.normalizedImageBase64,
             mode: scannerMode,
-            width: photo.width ?? 1,
+            width: normalizedTarget.normalizedImageDimensions.width,
           });
+          if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
+            const clientMatchMs = Date.now() - matchStartedAt;
+            const endToEndMs = Date.now() - scanStartedAt;
+            console.info(
+              `[SCANNER VISUAL TEST] captureMs=${captureMs} `
+              + `source=${rawSourceImageDimensions.width}x${rawSourceImageDimensions.height} `
+              + `oriented=${sourceImageDimensions.width}x${sourceImageDimensions.height} `
+              + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
+              + `rotate=${normalizedTarget.normalizationRotationDegrees} `
+              + `crop=${normalizedTarget.sourceImageCrop.width}x${normalizedTarget.sourceImageCrop.height} `
+              + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
+              + `payloadKB=${estimatedPayloadKB} `
+              + `quality=${rawVisualCaptureQuality} `
+              + `normalizeMs=${normalizeMs} `
+              + `matchMs=${clientMatchMs} `
+              + `endpoint=/${matchResult.endpointPath ?? 'unknown'} `
+              + `requestUrl=${matchResult.requestUrl ?? 'n/a'} `
+              + `attempts=${matchResult.requestAttemptCount ?? 'n/a'} `
+              + `serverMs=${matchResult.serverProcessingMs ?? 'n/a'} `
+              + `roundTripMs=${matchResult.roundTripMs ?? 'n/a'} `
+              + `endToEndMs=${endToEndMs} `
+              + `candidates=${matchResult.candidates.length}`,
+            );
+          }
           setRecentCaptures((current) => current.map((capture) => {
             if (capture.id !== captureId) {
               return capture;
@@ -367,10 +782,23 @@ export function ScannerScreen() {
               activeCandidateIndex: 0,
               candidates: matchResult.candidates,
               isLoadingCandidates: false,
+              normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
+              normalizedImageUri: normalizedTarget.normalizedImageUri,
               scanID: matchResult.scanID,
             };
           }));
-        } catch {
+        } catch (error) {
+          if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
+            console.error(
+              `[SCANNER VISUAL TEST] matchError `
+              + `message=${scannerErrorMessage(error)} `
+              + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
+              + `rotate=${normalizedTarget.normalizationRotationDegrees} `
+              + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
+              + `payloadKB=${Math.round((normalizedTarget.normalizedImageBase64.length * 0.75) / 1024)}`,
+              error,
+            );
+          }
           setRecentCaptures((current) => current.map((capture) => {
             if (capture.id !== captureId) {
               return capture;
@@ -380,16 +808,51 @@ export function ScannerScreen() {
               ...capture,
               candidates: [],
               isLoadingCandidates: false,
+              normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
+              normalizedImageUri: normalizedTarget.normalizedImageUri,
               scanID: null,
             };
           }));
         }
       })();
-    } catch {
-      setCaptureError('Could not capture photo right now.');
+    } catch (error) {
+      if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
+        console.error(
+          `[SCANNER VISUAL TEST] capturePrepError `
+          + `message=${scannerErrorMessage(error)} `
+          + `photoUri=${capturedPhotoUri || 'n/a'} `
+          + `source=${capturedSourceImageDimensions ? `${capturedSourceImageDimensions.width}x${capturedSourceImageDimensions.height}` : 'n/a'} `
+          + `crop=${capturedSourceImageCrop ? `${capturedSourceImageCrop.width}x${capturedSourceImageCrop.height}@${capturedSourceImageCrop.x},${capturedSourceImageCrop.y}` : 'n/a'}`,
+          error,
+        );
+      }
+      setCaptureError(capturedPhotoUri ? 'Could not prepare scan right now.' : 'Could not capture photo right now.');
       setIsCapturing(false);
+      setRecentCaptures((current) => current.map((capture) => {
+        if (capture.id !== captureId) {
+          return capture;
+        }
+
+        return {
+          ...capture,
+          isLoadingCandidates: false,
+          normalizedImageDimensions: null,
+          normalizedImageUri: null,
+          sourceImageCrop: capturedSourceImageCrop,
+          sourceImageDimensions: capturedSourceImageDimensions,
+          sourceImageRotationDegrees: 0,
+          uri: capturedPhotoUri,
+        };
+      }));
     }
-  }, [isCameraReady, isCapturing, permission, requestPermission, scannerMode, spotlightRepository]);
+  }, [
+    isCameraReady,
+    isCapturing,
+    permission,
+    requestPermission,
+    scannerMode,
+    spotlightRepository,
+  ]);
 
   const cycleCandidate = useCallback((captureId: string) => {
     setRecentCaptures((current) => current.map((capture) => {
@@ -457,29 +920,39 @@ export function ScannerScreen() {
   const handleOpenCard = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((entry) => entry.id === captureId);
     const candidate = capture ? activeCandidateForCapture(capture) : null;
-    if (!candidate || capture?.isLoadingCandidates) {
+    if (!capture || !candidate || capture.isLoadingCandidates) {
       return;
     }
 
     const matchingInventoryEntries = inventoryByCardId.get(candidate.cardId)?.entryIds ?? [];
+    const scanReviewId = saveScanCandidateReviewSession({
+      candidates: capture.candidates,
+      id: capture.id,
+      normalizedImageDimensions: capture.normalizedImageDimensions,
+      normalizedImageUri: capture.normalizedImageUri,
+      selectedCardId: candidate.cardId,
+      sourceImageCrop: capture.sourceImageCrop,
+      sourceImageDimensions: capture.sourceImageDimensions,
+      sourceImageRotationDegrees: capture.sourceImageRotationDegrees,
+      sourceImageUri: capture.uri || null,
+    });
     router.push({
       pathname: '/cards/[cardId]',
       params: {
         cardId: candidate.cardId,
         entryId: matchingInventoryEntries[0],
+        scanReviewId,
       },
     });
   }, [inventoryByCardId, recentCaptures, router]);
 
   const toggleTrayExpanded = useCallback(() => {
-    if (recentCaptures.length <= 1) {
+    if (!canToggleTray) {
       return;
     }
 
-    animateTrayLayout();
-    setIsTrayExpanded((current) => !current);
-    animateTraySettle();
-  }, [animateTrayLayout, animateTraySettle, recentCaptures.length]);
+    commitTrayExpandedState(!isTrayExpanded);
+  }, [canToggleTray, commitTrayExpandedState, isTrayExpanded]);
 
   const handleExitScanner = useCallback(() => {
     router.replace('/portfolio');
@@ -487,37 +960,58 @@ export function ScannerScreen() {
 
   const trayHeaderPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) =>
-      Math.abs(gestureState.dy) > 8 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+      Math.abs(gestureState.dy) > 4 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+    onPanResponderGrant: () => {
+      trayGestureCommittedRef.current = false;
+    },
     onPanResponderMove: (_, gestureState) => {
-      const proposedOffset = gestureState.dy;
-      if (isTrayExpanded) {
-        trayTranslateY.setValue(Math.max(-18, Math.min(trayCollapsedDrop, proposedOffset)));
+      if (trayGestureCommittedRef.current) {
         return;
       }
 
-      trayTranslateY.setValue(Math.min(18, Math.max(-trayExpandedLift, proposedOffset)));
+      const shouldExpand = canToggleTray
+        && !isTrayExpanded
+        && gestureState.dy <= -traySwipeThreshold;
+      const shouldCollapse = isTrayExpanded
+        && gestureState.dy >= traySwipeThreshold;
+
+      if (shouldExpand) {
+        trayGestureCommittedRef.current = true;
+        commitTrayExpandedState(true);
+        return;
+      }
+
+      if (shouldCollapse) {
+        trayGestureCommittedRef.current = true;
+        commitTrayExpandedState(false);
+      }
     },
     onPanResponderRelease: (_, gestureState) => {
-      const shouldExpand = recentCaptures.length > 1
+      if (trayGestureCommittedRef.current) {
+        trayGestureCommittedRef.current = false;
+        return;
+      }
+
+      const shouldExpand = canToggleTray
         && !isTrayExpanded
         && (gestureState.dy <= -traySwipeThreshold || gestureState.vy <= -trayVelocityThreshold);
       const shouldCollapse = isTrayExpanded
         && (gestureState.dy >= traySwipeThreshold || gestureState.vy >= trayVelocityThreshold);
 
       if (shouldExpand) {
-        animateTrayLayout();
-        setIsTrayExpanded(true);
-      } else if (shouldCollapse) {
-        animateTrayLayout();
-        setIsTrayExpanded(false);
+        commitTrayExpandedState(true);
+        return;
       }
-
-      animateTraySettle(gestureState.vy);
+      if (shouldCollapse) {
+        commitTrayExpandedState(false);
+        return;
+      }
     },
     onPanResponderTerminate: () => {
-      animateTraySettle();
+      trayGestureCommittedRef.current = false;
     },
-  }), [animateTrayLayout, animateTraySettle, isTrayExpanded, recentCaptures.length, trayTranslateY]);
+    onPanResponderTerminationRequest: () => false,
+  }), [canToggleTray, commitTrayExpandedState, isTrayExpanded]);
 
   const promptCopy = !permission
     ? 'Starting camera...'
@@ -525,7 +1019,7 @@ export function ScannerScreen() {
       ? 'Allow camera access to scan'
       : isCapturing
         ? 'Capturing scan...'
-        : 'Tap anywhere to scan';
+        : 'Tap inside frame to scan';
 
   const renderCaptureRow = (capture: RecentCapture, index: number) => {
     const candidate = activeCandidateForCapture(capture);
@@ -533,22 +1027,32 @@ export function ScannerScreen() {
     const quantity = inventoryMatch?.quantity ?? 0;
     const marketPrice = candidate?.marketPrice ?? 0;
     const currencyCode = candidate?.currencyCode ?? 'USD';
+    const canCycleCandidate = !!candidate && capture.candidates.length > 1;
 
     return (
-      <View key={capture.id} style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
-        <Pressable
-          accessibilityLabel={candidate ? `Open ${candidate.name}` : `Open recent scan ${index + 1}`}
-          accessibilityRole="button"
-          onPress={() => {
-            void handleOpenCard(capture.id);
-          }}
-          style={({ pressed }) => [
-            styles.captureMainButton,
-            pressed ? styles.captureMainButtonPressed : null,
-          ]}
-          testID={`scanner-tray-open-card-${index}`}
-        >
-          <View style={styles.captureThumbWrap}>
+      <RecentCaptureSwipeRow
+        key={capture.id}
+        onDelete={() => {
+          deleteRecentCapture(capture.id);
+        }}
+        testID={`scanner-tray-swipe-${index}`}
+      >
+        <View style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
+          <Pressable
+            accessibilityLabel={canCycleCandidate ? `Refresh match for ${candidate?.name ?? `recent scan ${index + 1}`}` : undefined}
+            accessibilityRole={canCycleCandidate ? 'button' : undefined}
+            disabled={!canCycleCandidate}
+            onPress={() => {
+              if (canCycleCandidate) {
+                cycleCandidate(capture.id);
+              }
+            }}
+            style={({ pressed }) => [
+              styles.captureThumbPressable,
+              pressed && canCycleCandidate ? styles.captureThumbPressed : null,
+            ]}
+            testID={`scanner-tray-thumb-${index}`}
+          >
             {candidate?.imageUrl || capture.uri ? (
               <Image
                 source={{ uri: candidate?.imageUrl || capture.uri }}
@@ -558,64 +1062,73 @@ export function ScannerScreen() {
             ) : (
               <View style={styles.captureThumb} testID={`scanner-tray-image-${index}`} />
             )}
-            {candidate && capture.candidates.length > 1 ? (
+            {canCycleCandidate ? (
               <Pressable
                 accessibilityLabel="Refresh match"
-                onPress={(event) => {
-                  event?.stopPropagation?.();
+                onPress={() => {
                   cycleCandidate(capture.id);
                 }}
                 style={styles.captureRefreshButton}
                 testID={`scanner-tray-refresh-${index}`}
-                hitSlop={8}
+                hitSlop={10}
               >
                 {({ pressed }) => (
-                  <View style={pressed ? styles.captureRefreshPressed : null}>
-                    <RefreshIcon color={colors.scannerTextPrimary} size={14} />
+                  <View style={[styles.captureRefreshChip, pressed ? styles.captureRefreshPressed : null]}>
+                    <RefreshIcon color="#FFFFFF" size={16} />
                   </View>
                 )}
               </Pressable>
             ) : null}
-          </View>
+          </Pressable>
 
-          <View style={styles.captureCopy}>
-            {capture.isLoadingCandidates ? (
-              <>
-                <View style={styles.captureLoadingRow}>
-                  <ActivityIndicator color={theme.colors.brand} size="small" />
-                  <Text style={styles.captureTitle}>Finding match</Text>
-                </View>
-                <Text style={styles.captureSubtitle}>Photo captured and queued for scan review</Text>
-              </>
-            ) : candidate ? (
-              <>
-                <Text numberOfLines={1} style={styles.captureTitle}>{candidate.name}</Text>
-                <Text numberOfLines={1} style={styles.captureSubtitle}>
-                  {candidate.setName}
-                  {' • '}
-                  {candidate.cardNumber}
-                </Text>
-              </>
-            ) : (
-              <>
-                <Text numberOfLines={1} style={styles.captureTitle}>{capturePrimaryLabel(capture.mode)}</Text>
-                <Text numberOfLines={2} style={styles.captureSubtitle}>Photo captured, but matches could not load</Text>
-              </>
-            )}
-          </View>
-
-          {candidate ? (
-            <View style={styles.capturePriceWrap}>
-              <Text style={styles.capturePriceLabel}>MARKET</Text>
-              <Text style={styles.capturePriceValue}>{formatCurrency(marketPrice, currencyCode)}</Text>
-              {quantity > 0 ? (
-                <View style={styles.captureQuantityPill}>
-                  <Text style={styles.captureQuantityText} testID={`scanner-tray-qty-${index}`}>QTY {quantity}</Text>
-                </View>
-              ) : null}
+          <Pressable
+            accessibilityLabel={candidate ? `Open ${candidate.name}` : `Open recent scan ${index + 1}`}
+            accessibilityRole="button"
+            onPress={() => {
+              void handleOpenCard(capture.id);
+            }}
+            style={({ pressed }) => [
+              styles.captureMainButton,
+              pressed ? styles.captureMainButtonPressed : null,
+            ]}
+            testID={`scanner-tray-open-card-${index}`}
+          >
+            <View style={styles.captureCopy}>
+              {capture.isLoadingCandidates ? (
+                <>
+                  <View style={styles.captureLoadingRow}>
+                    <ActivityIndicator color={theme.colors.brand} size="small" />
+                    <Text style={styles.captureTitle}>Finding match</Text>
+                  </View>
+                  <Text style={styles.captureSubtitle}>Photo captured and queued for scan review</Text>
+                </>
+              ) : candidate ? (
+                <>
+                  <Text numberOfLines={1} style={styles.captureTitle}>{candidate.name}</Text>
+                  <Text numberOfLines={1} style={styles.captureSubtitle}>
+                    {candidate.setName}
+                    {' • '}
+                    {candidate.cardNumber}
+                  </Text>
+                </>
+              ) : (
+                <>
+                  <Text numberOfLines={1} style={styles.captureTitle}>{capturePrimaryLabel(capture.mode)}</Text>
+                  <Text numberOfLines={2} style={styles.captureSubtitle}>Photo captured, but matches could not load</Text>
+                </>
+              )}
             </View>
-          ) : null}
-        </Pressable>
+
+            {candidate ? (
+              <View style={styles.capturePriceWrap}>
+                <Text style={styles.capturePriceLabel}>MARKET</Text>
+                <Text style={styles.capturePriceValue}>{formatCurrency(marketPrice, currencyCode)}</Text>
+                {quantity > 0 ? (
+                  <Text style={styles.captureQuantityText} testID={`scanner-tray-qty-${index}`}>QTY {quantity}</Text>
+                ) : null}
+              </View>
+            ) : null}
+          </Pressable>
 
         {candidate ? (
           <View style={styles.captureActionWrap}>
@@ -642,7 +1155,8 @@ export function ScannerScreen() {
             <Text style={styles.captureAddLabel}>ADD</Text>
           </View>
         ) : null}
-      </View>
+        </View>
+      </RecentCaptureSwipeRow>
     );
   };
 
@@ -652,10 +1166,14 @@ export function ScannerScreen() {
         {hasCameraAccess ? (
           <CameraView
             facing="back"
+            key={cameraSessionKey}
             onCameraReady={() => {
               setIsCameraReady(true);
               setCaptureError(null);
+              resolveRawVisualPictureSize();
+              void cameraRef.current?.resumePreview?.();
             }}
+            pictureSize={Platform.OS === 'android' && scannerMode === 'raw' ? rawVisualPictureSize : undefined}
             ref={cameraRef}
             style={StyleSheet.absoluteFillObject}
             testID="scanner-camera"
@@ -666,13 +1184,21 @@ export function ScannerScreen() {
 
         {hasCameraAccess ? (
           <Pressable
-            accessibilityLabel="Capture scan"
+            accessibilityLabel="Capture scan inside frame"
             accessibilityRole="button"
             disabled={!canCapture}
             onPress={() => {
               void handleCapture();
             }}
-            style={StyleSheet.absoluteFillObject}
+            style={[
+              styles.reticleCaptureButton,
+              {
+                height: reticleLayout.height,
+                left: reticleLeft,
+                top: reticleTop,
+                width: reticleLayout.width,
+              },
+            ]}
             testID="scanner-preview"
           />
         ) : null}
@@ -778,21 +1304,13 @@ export function ScannerScreen() {
           </View>
         </View>
 
-        <Animated.View
-          style={[
-            styles.trayShell,
-            {
-              transform: [{ translateY: trayTranslateY }],
-            },
-          ]}
-          testID="scanner-tray"
-        >
+        <View style={styles.trayShell} testID="scanner-tray">
           <View
             style={styles.trayHeader}
             testID="scanner-tray-header"
             {...trayHeaderPanResponder.panHandlers}
           >
-            {recentCaptures.length > 1 ? (
+            {canToggleTray ? (
               <Pressable
                 accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
                 accessibilityRole="button"
@@ -849,20 +1367,20 @@ export function ScannerScreen() {
           >
             {recentCaptures.length === 0 ? (
               <View style={styles.trayEmptyFill} />
-            ) : isTrayExpanded ? (
+            ) : (
               <View
                 style={[
                   styles.trayViewport,
                   {
-                    height: trayScrollViewportHeight,
+                    height: isTrayExpanded ? trayScrollViewportHeight : captureRowHeight,
                   },
                 ]}
                 testID="scanner-tray-viewport"
               >
                 <ScrollView
                   nestedScrollEnabled
-                  scrollEnabled={trayScrollEnabled}
-                  showsVerticalScrollIndicator={trayScrollEnabled}
+                  scrollEnabled={isTrayExpanded && trayScrollEnabled}
+                  showsVerticalScrollIndicator={isTrayExpanded && trayScrollEnabled}
                   style={styles.trayScroll}
                   contentContainerStyle={styles.trayScrollContent}
                   testID="scanner-tray-scroll"
@@ -870,11 +1388,9 @@ export function ScannerScreen() {
                   {visibleCaptures.map(renderCaptureRow)}
                 </ScrollView>
               </View>
-            ) : (
-              visibleCaptures.map(renderCaptureRow)
             )}
           </View>
-        </Animated.View>
+        </View>
       </View>
     </SafeAreaView>
   );
@@ -976,23 +1492,12 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 96,
   },
-  captureQuantityPill: {
-    alignItems: 'center',
-    backgroundColor: colors.scannerSurfaceStrong,
-    borderRadius: 999,
-    justifyContent: 'center',
-    minHeight: 34,
-    minWidth: 74,
-    paddingHorizontal: 14,
-  },
-  captureQuantitySpacer: {
-    height: 34,
-  },
   captureQuantityText: {
     ...textStyles.control,
     color: colors.scannerTextPrimary,
     fontSize: 12,
     lineHeight: 14,
+    textAlign: 'right',
   },
   captureRow: {
     alignItems: 'center',
@@ -1005,22 +1510,75 @@ const styles = StyleSheet.create({
     minHeight: captureRowHeight,
     paddingHorizontal: 8,
     paddingVertical: 6,
+    width: '100%',
+  },
+  captureDeleteLabel: {
+    ...textStyles.control,
+    color: '#FFFFFF',
+    fontSize: 11,
+    lineHeight: 13,
+  },
+  captureDeleteUnderlay: {
+    alignItems: 'center',
+    backgroundColor: '#B91C1C',
+    borderRadius: 18,
+    bottom: 0,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    top: 0,
+    width: recentCaptureDeleteRevealWidth,
+  },
+  captureDeleteButton: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    width: '100%',
+  },
+  captureDeleteUnderlayPressed: {
+    opacity: 0.82,
   },
   captureRefreshButton: {
     alignItems: 'center',
-    bottom: 2,
-    height: 14,
+    bottom: 0,
+    height: 32,
     justifyContent: 'center',
-    left: 2,
+    left: 0,
     position: 'absolute',
-    width: 14,
+    width: 32,
+    zIndex: 2,
+  },
+  captureRefreshChip: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(12, 12, 14, 0.82)',
+    borderRadius: 999,
+    height: 25,
+    justifyContent: 'center',
+    shadowColor: '#000000',
+    shadowOffset: {
+      width: 0,
+      height: 6,
+    },
+    shadowOpacity: 0.34,
+    shadowRadius: 8,
+    width: 25,
+    elevation: 8,
   },
   captureRefreshPressed: {
-    opacity: 0.76,
+    opacity: 0.82,
   },
   captureSubtitle: {
     ...textStyles.caption,
     color: colors.scannerTextMuted,
+  },
+  captureSwipeShell: {
+    borderRadius: 18,
+    overflow: 'hidden',
+    position: 'relative',
+    width: '100%',
+  },
+  captureSwipeContent: {
+    width: '100%',
   },
   captureThumb: {
     backgroundColor: colors.scannerSurfaceStrong,
@@ -1028,10 +1586,26 @@ const styles = StyleSheet.create({
     height: 54,
     width: 44,
   },
+  captureThumbPressed: {
+    opacity: 0.9,
+  },
+  captureThumbPressable: {
+    height: 54,
+    position: 'relative',
+    width: 44,
+  },
   captureThumbWrap: {
     height: 54,
     position: 'relative',
     width: 44,
+  },
+  captureSwipeTestControl: {
+    height: 1,
+    left: -1000,
+    opacity: 0,
+    position: 'absolute',
+    top: -1000,
+    width: 1,
   },
   captureTitle: {
     ...textStyles.bodyStrong,
@@ -1134,6 +1708,9 @@ const styles = StyleSheet.create({
   reticleBottomRightPosition: {
     bottom: 2,
     right: 2,
+  },
+  reticleCaptureButton: {
+    position: 'absolute',
   },
   reticleCorner: {
     borderColor: colors.scannerTextPrimary,
