@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import re
 from typing import Any, Protocol
 
 try:
@@ -13,6 +14,9 @@ except ImportError:  # pragma: no cover - optional dependency
 SCAN_ARTIFACTS_STORAGE_ENV = "SPOTLIGHT_SCAN_ARTIFACTS_STORAGE"
 SCAN_ARTIFACTS_ROOT_ENV = "SPOTLIGHT_SCAN_ARTIFACTS_ROOT"
 SCAN_ARTIFACTS_GCS_BUCKET_ENV = "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET"
+
+
+_SAFE_PATH_SEGMENT_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 
 
 @dataclass(frozen=True)
@@ -40,6 +44,34 @@ class ScanArtifactStore(Protocol):
         day: str,
     ) -> StoredScanArtifacts:
         ...
+
+    def store_labeling_session_artifact(
+        self,
+        *,
+        session_id: str,
+        angle_index: int,
+        angle_label: str,
+        source_bytes: bytes,
+        normalized_bytes: bytes,
+    ) -> StoredScanArtifacts:
+        ...
+
+
+def _safe_path_segment(value: object, *, fallback: str) -> str:
+    segment = _SAFE_PATH_SEGMENT_PATTERN.sub("_", str(value or "").strip()).strip("._-")
+    return segment or fallback
+
+
+def _labeling_session_artifact_root(
+    *,
+    session_id: str,
+    angle_index: int,
+    angle_label: str,
+) -> Path:
+    safe_session_id = _safe_path_segment(session_id, fallback="session")
+    safe_angle_label = _safe_path_segment(angle_label, fallback="capture")
+    angle_directory = f"angle_{max(0, int(angle_index)):02d}_{safe_angle_label}"
+    return Path("labeling-sessions") / safe_session_id / angle_directory
 
 
 class FilesystemScanArtifactStore:
@@ -70,6 +102,33 @@ class FilesystemScanArtifactStore:
         day: str,
     ) -> StoredScanArtifacts:
         relative_root = Path("scans") / year / month / day / scan_id
+        absolute_root = self.root / relative_root
+        absolute_root.mkdir(parents=True, exist_ok=True)
+
+        source_path = absolute_root / "source_capture.jpg"
+        normalized_path = absolute_root / "normalized_target.jpg"
+        source_path.write_bytes(source_bytes)
+        normalized_path.write_bytes(normalized_bytes)
+
+        return StoredScanArtifacts(
+            source_object_path=relative_root.joinpath("source_capture.jpg").as_posix(),
+            normalized_object_path=relative_root.joinpath("normalized_target.jpg").as_posix(),
+        )
+
+    def store_labeling_session_artifact(
+        self,
+        *,
+        session_id: str,
+        angle_index: int,
+        angle_label: str,
+        source_bytes: bytes,
+        normalized_bytes: bytes,
+    ) -> StoredScanArtifacts:
+        relative_root = _labeling_session_artifact_root(
+            session_id=session_id,
+            angle_index=angle_index,
+            angle_label=angle_label,
+        )
         absolute_root = self.root / relative_root
         absolute_root.mkdir(parents=True, exist_ok=True)
 
@@ -142,6 +201,34 @@ class GoogleCloudScanArtifactStore:
         day: str,
     ) -> StoredScanArtifacts:
         relative_root = Path("scans") / year / month / day / scan_id
+        source_object_path = self._object_name(relative_root.joinpath("source_capture.jpg"))
+        normalized_object_path = self._object_name(relative_root.joinpath("normalized_target.jpg"))
+
+        source_blob = self.bucket.blob(source_object_path)
+        source_blob.upload_from_string(source_bytes, content_type="image/jpeg")
+
+        normalized_blob = self.bucket.blob(normalized_object_path)
+        normalized_blob.upload_from_string(normalized_bytes, content_type="image/jpeg")
+
+        return StoredScanArtifacts(
+            source_object_path=source_object_path,
+            normalized_object_path=normalized_object_path,
+        )
+
+    def store_labeling_session_artifact(
+        self,
+        *,
+        session_id: str,
+        angle_index: int,
+        angle_label: str,
+        source_bytes: bytes,
+        normalized_bytes: bytes,
+    ) -> StoredScanArtifacts:
+        relative_root = _labeling_session_artifact_root(
+            session_id=session_id,
+            angle_index=angle_index,
+            angle_label=angle_label,
+        )
         source_object_path = self._object_name(relative_root.joinpath("source_capture.jpg"))
         normalized_object_path = self._object_name(relative_root.joinpath("normalized_target.jpg"))
 

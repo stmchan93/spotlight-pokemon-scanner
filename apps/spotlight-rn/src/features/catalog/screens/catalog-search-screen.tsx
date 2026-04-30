@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Image,
@@ -14,11 +14,6 @@ import type { CatalogSearchResult } from '@spotlight/api-client';
 import { SearchField, StateCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
-import {
-  buildCatalogSetGroups,
-  pickDefaultCatalogSetKey,
-  type CatalogSetGroup,
-} from '@/features/catalog/catalog-search-helpers';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -149,62 +144,6 @@ function SearchResultRow({
   );
 }
 
-function SetGroupRow({
-  group,
-  onPress,
-}: {
-  group: CatalogSetGroup;
-  onPress: () => void;
-}) {
-  const theme = useSpotlightTheme();
-
-  return (
-    <Pressable
-      accessibilityRole="button"
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.groupPressable,
-        {
-          opacity: pressed ? 0.92 : 1,
-        },
-      ]}
-      testID={`catalog-set-group-${group.anchorResultID}`}
-    >
-      <View
-        style={[
-          styles.groupRow,
-          {
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.outlineSubtle,
-          },
-        ]}
-      >
-        <ResultArtwork
-          fallbackTestID={`catalog-set-group-artwork-fallback-${group.anchorResultID}`}
-          imageUrl={group.previewImageUrl}
-          title={group.setName}
-        />
-
-        <View style={styles.groupCopy}>
-          <Text numberOfLines={2} style={[styles.groupTitle, { color: theme.colors.textPrimary }]}>
-            {group.setName}
-          </Text>
-        </View>
-
-        {group.ownedQuantity > 0 ? (
-          <View style={[styles.groupOwnedBadge, { backgroundColor: theme.colors.surfaceMuted }]}>
-            <Text style={[theme.typography.caption, { color: theme.colors.textPrimary }]}>
-              Owned {group.ownedQuantity}
-            </Text>
-          </View>
-        ) : (
-          <Text style={[styles.resultChevron, { color: theme.colors.textSecondary }]}>›</Text>
-        )}
-      </View>
-    </Pressable>
-  );
-}
-
 export function CatalogSearchScreen({
   onClose,
   onOpenCard,
@@ -219,7 +158,15 @@ export function CatalogSearchScreen({
   const [errorMessage, setErrorMessage] = useState('');
   const [searchRevision, setSearchRevision] = useState(0);
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
-  const [selectedSetKey, setSelectedSetKey] = useState<string | null>(null);
+  const openingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (openingResetTimerRef.current) {
+        clearTimeout(openingResetTimerRef.current);
+      }
+    };
+  }, []);
 
   useEffect(() => {
     const trimmed = query.trim();
@@ -239,7 +186,7 @@ export function CatalogSearchScreen({
     const timeout = setTimeout(() => {
       setIsLoading(true);
 
-      void spotlightRepository.searchCatalogCards(trimmed, 20)
+      void spotlightRepository.searchCatalogCards(trimmed, 50)
         .then((nextResults) => {
           if (isCancelled) {
             return;
@@ -271,33 +218,18 @@ export function CatalogSearchScreen({
 
   const trimmedQuery = query.trim();
   const hasActiveQuery = trimmedQuery.length >= 2;
-  const groupedResults = useMemo(() => buildCatalogSetGroups(results), [results]);
-  const defaultSetKey = useMemo(() => pickDefaultCatalogSetKey(groupedResults, trimmedQuery), [groupedResults, trimmedQuery]);
-
-  useEffect(() => {
-    if (!hasActiveQuery || groupedResults.length === 0) {
-      setSelectedSetKey(null);
-      return;
-    }
-
-    setSelectedSetKey((current) => {
-      if (current && groupedResults.some((group) => group.key === current)) {
-        return current;
-      }
-
-      return defaultSetKey;
-    });
-  }, [defaultSetKey, groupedResults, hasActiveQuery]);
-
-  const effectiveSelectedSetKey = selectedSetKey ?? defaultSetKey;
-  const selectedGroup = groupedResults.find((group) => group.key === effectiveSelectedSetKey) ?? null;
   const hasVisibleResults = hasActiveQuery && !errorMessage && results.length > 0;
-  const showsSetDrillIn = hasVisibleResults && groupedResults.length > 1 && selectedGroup == null;
-  const visibleCards = selectedGroup?.cards ?? [];
 
   const openResult = (result: CatalogSearchResult) => {
+    if (openingResetTimerRef.current) {
+      clearTimeout(openingResetTimerRef.current);
+    }
     setOpeningResultId(result.id);
     onOpenCard(result);
+    openingResetTimerRef.current = setTimeout(() => {
+      setOpeningResultId((current) => (current === result.id ? null : current));
+      openingResetTimerRef.current = null;
+    }, 350);
   };
 
   return (
@@ -363,22 +295,10 @@ export function CatalogSearchScreen({
             style={styles.stateCard}
             title="No matching cards"
           />
-        ) : showsSetDrillIn ? (
+        ) : hasVisibleResults ? (
           <View style={styles.resultsSection}>
             <View style={styles.resultsList}>
-              {groupedResults.map((group) => (
-                <SetGroupRow
-                  key={group.key}
-                  group={group}
-                  onPress={() => setSelectedSetKey(group.key)}
-                />
-              ))}
-            </View>
-          </View>
-        ) : selectedGroup ? (
-          <View style={styles.resultsSection}>
-            <View style={styles.resultsList}>
-              {visibleCards.map((result) => (
+              {results.map((result) => (
                 <SearchResultRow
                   key={result.id}
                   isOpening={openingResultId === result.id}
@@ -397,34 +317,6 @@ export function CatalogSearchScreen({
 const styles = StyleSheet.create({
   closeButton: {
     flexShrink: 0,
-  },
-  groupCopy: {
-    flex: 1,
-    gap: 8,
-    minWidth: 0,
-  },
-  groupOwnedBadge: {
-    alignSelf: 'flex-start',
-    borderRadius: 999,
-    justifyContent: 'center',
-    minHeight: 24,
-    paddingHorizontal: 10,
-  },
-  groupPressable: {
-    width: '100%',
-  },
-  groupRow: {
-    alignItems: 'flex-start',
-    borderRadius: 20,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 12,
-    padding: 12,
-  },
-  groupTitle: {
-    fontSize: 17,
-    fontWeight: '600',
-    lineHeight: 22,
   },
   ownedBadge: {
     borderRadius: 999,

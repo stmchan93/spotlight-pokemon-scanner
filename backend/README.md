@@ -1,20 +1,19 @@
 # Spotlight Scanner Backend
 
-Temporary raw-only backend reset.
+Shared Spotlight runtime backend for authenticated scan, inventory, portfolio, and pricing flows.
 
 What this backend currently does:
 - stores runtime card metadata in SQLite `cards`
 - stores raw and future graded pricing snapshots in SQLite `card_price_snapshots`
 - stores scan telemetry in SQLite `scan_events`
+- stores scan artifacts, confirmations, deck entries, deal history, and portfolio import jobs in SQLite
 - resolves raw cards through the new evidence -> retrieval -> rerank flow
+- serves authenticated deck / buy / sell / portfolio history / ledger / scan confirmation routes
 - refreshes raw pricing from Scrydex
 - treats Scrydex as the active raw identity/reference/pricing lane
 - preserves PriceCharting as a thin non-active shell
 
 What is intentionally removed right now:
-- slab runtime matching
-- slab pricing runtime flow
-- slab sync/import pipelines
 - old catalog sync/cache layers
 - old collector-number-first raw matcher
 - legacy raw importer CLI / catalog JSON / image download path
@@ -24,6 +23,12 @@ What is intentionally removed right now:
 - `cards`
 - `card_price_snapshots`
 - `scan_events`
+- `scan_artifacts`
+- `scan_confirmations`
+- `deck_entries`
+- `deck_entry_events`
+- `sale_events`
+- `portfolio_import_jobs`
 
 ## Active endpoints
 
@@ -34,9 +39,49 @@ What is intentionally removed right now:
 - `GET /api/v1/cards/search?q=charizard`
 - `GET /api/v1/cards/<card_id>`
 - `GET /api/v1/cards/<card_id>/ebay-comps`
+- `GET /api/v1/deck/entries`
+- `GET /api/v1/deck/history`
+- `GET /api/v1/portfolio/history`
+- `GET /api/v1/portfolio/ledger`
+- `GET /api/v1/ledger`
+- `GET /api/v1/deals`
+- `GET /api/v1/portfolio/imports/<job_id>`
 - `POST /api/v1/cards/<card_id>/refresh-pricing`
 - `POST /api/v1/scan/match`
+- `POST /api/v1/scan/visual-match`
+- `POST /api/v1/scan/rerank`
 - `POST /api/v1/scan/feedback`
+- `POST /api/v1/scan-artifacts`
+- `POST /api/v1/deck/entries`
+- `POST /api/v1/deck/entries/condition`
+- `POST /api/v1/deck/entries/purchase-price`
+- `POST /api/v1/deck/entries/replace`
+- `POST /api/v1/buys`
+- `POST /api/v1/sales`
+- `POST /api/v1/sales/batch`
+- `POST /api/v1/portfolio/imports/preview`
+- `POST /api/v1/portfolio/imports/resolve`
+- `POST /api/v1/portfolio/imports/<job_id>/commit`
+
+## Auth / user isolation
+
+- Staging and production should run with `SPOTLIGHT_AUTH_REQUIRED=1`.
+- The backend validates Supabase bearer tokens using `SUPABASE_URL`.
+- Local dev may use `SPOTLIGHT_AUTH_FALLBACK_USER_ID` when auth is intentionally bypassed.
+- Mutable scan / deck / buy / sell / portfolio import routes and their corresponding read paths are owner-scoped by `owner_user_id`.
+- `backend/deploy_to_vm.sh` now refuses a hosted deploy if:
+  - `SPOTLIGHT_AUTH_REQUIRED` is not enabled
+  - `SUPABASE_URL` is missing
+  - `SPOTLIGHT_AUTH_FALLBACK_USER_ID` is set
+
+Run this before a staged/prod VM deploy or mobile release:
+
+```bash
+pnpm release:audit:staging
+pnpm release:audit:production
+```
+
+Those audits check the hosted backend env file, the backend secrets file, and the matching mobile release env file for the selected environment.
 
 ## Run
 
@@ -101,6 +146,19 @@ curl http://127.0.0.1:8788/api/v1/ops/scrydex-usage | python3 -m json.tool
 tail -f backend/logs/backend.log
 tail -f backend/logs/scrydex_sync.log
 ```
+
+For the staging labeling -> retrain -> guarded publish cycle on the VM, use:
+
+```bash
+zsh tools/run_staging_labeling_cycle.sh
+```
+
+That wrapper:
+- uses the same VM runtime config / env files when available
+- runs `tools/run_labeling_retrain_cycle.py` against the staging SQLite DB
+- only publishes a candidate when the release gate passes
+- restarts `spotlight-backend.service` after a successful publish
+- writes per-run summaries under `~/spotlight-datasets/raw-visual-train/ops/runs/`
 
 Persistent Scrydex request audit:
 

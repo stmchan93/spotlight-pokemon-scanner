@@ -43,7 +43,15 @@ class SupabaseRequestAuthenticator:
     def resolve_identity(self, authorization_header: str | None) -> RequestIdentity:
         token = self._bearer_token_from_header(authorization_header)
         if token is not None:
-            return self._identity_from_token(token)
+            try:
+                return self._identity_from_token(token)
+            except RequestAuthError:
+                if self.auth_required or not self.fallback_user_id:
+                    raise
+                return RequestIdentity(
+                    user_id=self.fallback_user_id,
+                    auth_source="dev_fallback_bearer",
+                )
 
         if self.auth_required:
             raise RequestAuthError("Authentication required.")

@@ -20,8 +20,8 @@ Date: 2026-04-13
 - The current scanner + visual-model rewrite source of truth is [docs/scanner-model-rewrite-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scanner-model-rewrite-spec-2026-04-23.md). It supersedes earlier scanner guidance where they conflict and is paired with the data-loop spec below.
 - The current scan data + labeling pipeline source of truth is [docs/scan-data-labeling-pipeline-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scan-data-labeling-pipeline-spec-2026-04-23.md). It extends, not replaces, the local dataset workflow doc.
 - **Phase 2 entry decisions for the scanner rewrite / data loop are locked as of 2026-04-23.** See the "Decisions Locked 2026-04-23" section in the data pipeline spec. Highlights: in-app labeling tray (no web tool), admin-gated `labeler` role, multi-angle labeling sessions uploaded to GCS from day one, Tier 1/2/3 train/test discipline with automated routing via `raw_scan_registry.json`, ~50 gold-labeled cards per friend per week target, OCR removed outright (not dead-coded) when Phase 6 gates are met.
-- The active raw visual runtime alias as of 2026-04-22 is `v006-scrydex-cardphotos33-clean`, per `backend/data/visual-models/raw_visual_runtime_active.json`. Earlier references to `v004-scrydex-b8` in this file and in the master status doc are stale and should be read as historical context only until the corresponding sections are rewritten.
-- v007/v008/v009 adapters were trained on the 259-card corpus but are not currently published to `active`. v009 was briefly promoted on `2026-04-20T23:45:41Z` and then rolled back.
+- The active raw visual runtime alias as of 2026-04-28 is `v009-scrydex-cardphotos259-sweep-selected`, per `backend/data/visual-models/raw_visual_runtime_active.json`.
+- The old v006 adapter was trained on a much smaller cardphotos33 corpus and is historical context only.
 - The raw backend reset has now landed.
 - The next raw identity direction is now:
   - visual matching first
@@ -228,7 +228,7 @@ Status: `active`
 - Phase order:
   - Phase 1: instrumentation + deployment truth
   - Phase 2: front-half fixes (zoom, temporal stability, OCR-confidence rerank gate)
-  - Phase 3: data loop (top-10 labeling UI, CSV export/import, user_id wiring)
+  - Phase 3: data loop (top-10 labeling UI, scanner-surface labeling sessions, provider-card Tier 2/3 routing, owner_user_id wiring)
   - Phase 4: corpus expansion + retrain
   - Phase 5: RN scanner bridge (parallel with Phase 4)
   - Phase 6: OCR removal evaluation

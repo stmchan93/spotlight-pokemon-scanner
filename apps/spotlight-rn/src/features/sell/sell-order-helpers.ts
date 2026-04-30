@@ -15,6 +15,27 @@ export type SingleSellStatusCopy = {
   detail: string;
 };
 
+export function scheduleSellStatusCompletion({
+  onComplete,
+  onSuccess,
+  processingDurationMs,
+  schedule = setTimeout,
+  successDurationMs = sellOrderSuccessDisplayDurationMs,
+}: {
+  onComplete: () => void;
+  onSuccess: () => void;
+  processingDurationMs: number;
+  schedule?: (callback: () => void, delayMs: number) => ReturnType<typeof setTimeout>;
+  successDurationMs?: number;
+}) {
+  const processingTimer = schedule(() => {
+    onSuccess();
+    schedule(onComplete, successDurationMs);
+  }, processingDurationMs);
+
+  return processingTimer;
+}
+
 export function sanitizeSellPriceText(value: string) {
   const trimmed = value.replace(/[^0-9.]/g, '');
   const [whole = '', ...fractionParts] = trimmed.split('.');

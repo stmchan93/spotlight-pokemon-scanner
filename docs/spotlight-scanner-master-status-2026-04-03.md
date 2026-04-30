@@ -14,13 +14,21 @@ This is the current product/source-of-truth status doc.
 
 ## Current Backend State
 
-- backend runtime is intentionally **raw-only**
+- backend runtime is now **raw-first**, not raw-only
 - raw backend reset is landed and active
 - old slab/sync/cache backend modules were deleted
-- runtime SQLite is now exactly:
+- slab backend support exists for PSA Pokemon testing, but React Native slab parity is still incomplete
+- runtime SQLite core remains:
   - `cards`
   - `card_price_snapshots`
   - `scan_events`
+- supporting runtime tables are also now landed for:
+  - `scan_artifacts`
+  - `scan_confirmations`
+  - `deck_entries`
+  - `deck_entry_events`
+  - `sale_events`
+  - `portfolio_import_jobs`
 - active raw pricing provider:
   - Scrydex
 - active raw identity/reference migration source of truth:
@@ -73,15 +81,20 @@ Use this locked React Native execution spec for the parallel mobile migration wo
   - secondary collector user is typically `20-40`, professionally employed, has disposable income, is socially motivated, and values clear analytics without wanting overly dense detail
 - scanner UI remains intact
 - raw scan UX remains active
+- the React Native scanner now calls the backend scan endpoints for authenticated users
 - backend-backed inventory/deck persistence is now landed for:
   - add to inventory
   - quantity
   - condition
   - inventory browsing/search/sort
-- current inventory / ledger UI remains mostly mock/presentation state:
-  - no persisted buy/sell ledger yet
-  - no truthful portfolio-history endpoint yet
-  - no cost-basis tracking yet
+- backend-backed transaction/accounting surfaces are now landed for:
+  - persisted buys
+  - persisted sells
+  - cost basis tracking
+  - portfolio ledger
+  - portfolio history
+  - CSV import jobs
+- current remaining debt is mostly UX polish, observability, and production hardening rather than “missing ledger/history primitives”
 - backend now always returns a best raw candidate for valid raw scans
 - low-confidence raw scans still return a best guess plus review state
 - raw OCR runtime now uses the rewrite path while slab OCR still uses the legacy slab path
@@ -114,7 +127,7 @@ Use this locked React Native execution spec for the parallel mobile migration wo
     - `backend/data/visual-index/visual_index_active_manifest.json`
     - `backend/data/visual-models/raw_visual_adapter_active.pt`
     - `backend/data/visual-models/raw_visual_adapter_active_metadata.json`
-  - the active alias publication is currently `v004-scrydex-b8`
+  - the active alias publication is currently `v009-scrydex-cardphotos259-sweep-selected`
   - current active-alias held-out/runtime-shaped result:
     - visual top-1: `25/67`
     - visual top-5 contains-truth: `37/67`
@@ -123,7 +136,7 @@ Use this locked React Native execution spec for the parallel mobile migration wo
     - hybrid top-5 contains-truth: `40/67`
   - request-budget guardrails:
     - cached raw scans/details should issue `0` live Scrydex requests
-    - first-seen visual-hybrid top-1 hydration should issue `1` Scrydex fetch-by-id request
+    - first-seen visual-hybrid top-1 hydration should stay local against the nightly mirror / shared SQLite file
     - non-visual remote raw fallback is capped at `2` Scrydex search queries max
     - `GET /api/v1/ops/provider-status` includes `scrydexRequestStats`
   - weak fallback scan behavior:
@@ -220,7 +233,7 @@ Use this locked React Native execution spec for the parallel mobile migration wo
       - hybrid top-5 contains-truth: `35/47`
     - runtime decision:
       - `v003-b8` remains the last PokemonTCG-backed checkpoint
-      - `v004-scrydex-b8` plus matcher shortlist improvements is now the active backend visual model through the stable alias artifacts
+      - `v009-scrydex-cardphotos259-sweep-selected` is now the active backend visual model through the stable alias artifacts
       - env vars remain available for explicit override, rollback, or candidate comparison
 - the simulator-backed OCR fixture runner is landed and now writes legacy slab reference outputs under:
   - [qa/ocr-golden/simulator-legacy-v1](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-legacy-v1)

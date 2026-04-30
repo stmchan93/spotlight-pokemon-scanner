@@ -6,6 +6,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENVIRONMENT="${1:-staging}"
 SECRETS_FILE="${2:-$SCRIPT_DIR/.env}"
+AUDIT_SCRIPT="$REPO_ROOT/tools/audit_release_config.py"
 
 case "$ENVIRONMENT" in
   staging|production)
@@ -32,6 +33,14 @@ SECRETS_FILE="$(cd "$(dirname "$SECRETS_FILE")" && pwd)/$(basename "$SECRETS_FIL
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 is required on the VM." >&2
   exit 1
+fi
+
+if [ -f "$AUDIT_SCRIPT" ]; then
+  echo "Running hosted backend config audit..."
+  python3 "$AUDIT_SCRIPT" \
+    --environment "$ENVIRONMENT" \
+    --backend-secrets-file "$SECRETS_FILE" \
+    --skip-mobile
 fi
 
 if ! command -v crontab >/dev/null 2>&1; then

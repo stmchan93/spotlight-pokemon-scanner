@@ -63,6 +63,13 @@ def normalize_set(value: str) -> str:
     return str(value or "").strip().upper()
 
 
+def normalize_tier_assignment(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"tier2", "tier3"}:
+        return normalized
+    return None
+
+
 def truth_key(card_name: str, collector_number: str, set_code: str) -> str:
     return f"{normalize_name(card_name)}|{normalize_number(collector_number)}|{normalize_set(set_code)}"
 
@@ -172,6 +179,11 @@ def parse_batch_rows(path: Path) -> list[dict[str, str]]:
                 "number": row.get("number", row.get("collector_number", "")).strip(),
                 "set": row.get("set", row.get("set_code", "")).strip(),
                 "promo": row.get("promo", row.get("Promo", "")).strip(),
+                "provider_card_id": row.get("provider_card_id", row.get("card_id", "")).strip(),
+                "tier_assignment": row.get("tier_assignment", row.get("dataset_role", "")).strip(),
+                "routed_batch_id": row.get("routed_batch_id", "").strip(),
+                "labeling_session_id": row.get("labeling_session_id", "").strip(),
+                "scan_id": row.get("scan_id", "").strip(),
             }
         )
 
@@ -226,6 +238,11 @@ class BatchEntry:
     set_code: str
     promo: str
     normalized_truth_key: str
+    provider_card_id: str
+    tier_assignment: str | None
+    routed_batch_id: str | None
+    labeling_session_id: str | None
+    scan_id: str | None
     overlap_roots: list[str]
     overlap_registry: list[str]
     notes: list[str]
@@ -233,6 +250,17 @@ class BatchEntry:
     bucket: str
     reason: str
     imported_fixture_path: str | None = None
+
+    @property
+    def is_trusted_capture(self) -> bool:
+        return bool(
+            self.provider_card_id
+            and (
+                self.labeling_session_id
+                or self.scan_id
+                or self.tier_assignment
+            )
+        )
 
 
 def note_list(card_name: str, collector_number: str, set_code: str) -> list[str]:
@@ -268,16 +296,20 @@ def load_truth_index(root: Path) -> dict[str, list[str]]:
 
 def load_registry(path: Path) -> dict[str, Any]:
     if not path.exists():
-        return {"schemaVersion": 1, "updatedAt": None, "entries": []}
+        return {"schemaVersion": 2, "updatedAt": None, "providerCards": {}, "entries": []}
     payload = json.loads(path.read_text())
     if not isinstance(payload, dict):
-        return {"schemaVersion": 1, "updatedAt": None, "entries": []}
+        return {"schemaVersion": 2, "updatedAt": None, "providerCards": {}, "entries": []}
     entries = payload.get("entries")
     if not isinstance(entries, list):
         entries = []
+    provider_cards = payload.get("providerCards")
+    if not isinstance(provider_cards, dict):
+        provider_cards = {}
     return {
-        "schemaVersion": int(payload.get("schemaVersion") or 1),
+        "schemaVersion": max(int(payload.get("schemaVersion") or 1), 2),
         "updatedAt": payload.get("updatedAt"),
+        "providerCards": provider_cards,
         "entries": entries,
     }
 
@@ -297,6 +329,17 @@ def registry_indexes(registry: dict[str, Any]) -> tuple[dict[str, list[dict[str,
     return by_hash, by_truth
 
 
+def registry_provider_cards(registry: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    provider_cards = registry.get("providerCards")
+    if not isinstance(provider_cards, dict):
+        return {}
+    return {
+        str(key).strip(): value
+        for key, value in provider_cards.items()
+        if str(key).strip() and isinstance(value, dict)
+    }
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
@@ -307,7 +350,18 @@ def write_tsv(path: Path, rows: list[dict[str, str]]) -> None:
     with path.open("w", newline="") as handle:
         writer = csv.DictWriter(
             handle,
-            fieldnames=["file_name", "card_name", "number", "set", "Promo"],
+            fieldnames=[
+                "file_name",
+                "card_name",
+                "number",
+                "set",
+                "Promo",
+                "provider_card_id",
+                "tier_assignment",
+                "routed_batch_id",
+                "labeling_session_id",
+                "scan_id",
+            ],
             delimiter="\t",
         )
         writer.writeheader()
@@ -322,7 +376,38 @@ def batch_entry_tsv_row(entry: BatchEntry) -> dict[str, str]:
         "number": entry.collector_number,
         "set": entry.set_code,
         "Promo": entry.promo,
+        "provider_card_id": entry.provider_card_id,
+        "tier_assignment": entry.tier_assignment or "",
+        "routed_batch_id": entry.routed_batch_id or "",
+        "labeling_session_id": entry.labeling_session_id or "",
+        "scan_id": entry.scan_id or "",
     }
+
+
+def summarize_preassigned_holdout_truths(entries: list[BatchEntry]) -> list[dict[str, Any]]:
+    truth_groups: dict[str, list[BatchEntry]] = defaultdict(list)
+    for entry in entries:
+        truth_groups[entry.normalized_truth_key].append(entry)
+
+    summaries: list[dict[str, Any]] = []
+    for grouped in truth_groups.values():
+        ordered_entries = sorted(grouped, key=lambda entry: (entry.resolved_file_name, entry.file_hash))
+        summaries.append(
+            {
+                "cardName": ordered_entries[0].card_name,
+                "collectorNumber": ordered_entries[0].collector_number,
+                "setCode": ordered_entries[0].set_code,
+                "photoCount": len(ordered_entries),
+                "trainingPhotoCount": 0,
+                "holdoutPhotoCount": len(ordered_entries),
+                "holdoutResolvedFiles": [entry.resolved_file_name for entry in ordered_entries],
+                "trainingResolvedFiles": [],
+                "insufficientForHoldout": False,
+                "preassignedTier": "tier2",
+            }
+        )
+    summaries.sort(key=lambda entry: (entry["cardName"], entry["collectorNumber"], entry["setCode"]))
+    return summaries
 
 
 def determine_expansion_holdout_count(photo_count: int) -> int:
@@ -470,9 +555,11 @@ def main() -> int:
 
     registry = load_registry(registry_path)
     registry_by_hash, _ = registry_indexes(registry)
-    existing_hashes = discover_existing_source_scans([training_root, excluded_root, heldout_root])
+    provider_card_registry = registry_provider_cards(registry)
+    existing_hashes = discover_existing_source_scans([training_root, expansion_holdout_root, excluded_root, heldout_root])
     truth_indexes = {
         "training": load_truth_index(training_root),
+        "expansion_holdout": load_truth_index(expansion_holdout_root),
         "excluded": load_truth_index(excluded_root),
         "heldout": load_truth_index(heldout_root),
     }
@@ -509,10 +596,21 @@ def main() -> int:
             overlap_roots.append("exact_hash_overlap")
         if normalized_truth_key in truth_indexes["heldout"]:
             overlap_roots.append("heldout")
+        if normalized_truth_key in truth_indexes["expansion_holdout"]:
+            overlap_roots.append("expansion_holdout")
         if normalized_truth_key in truth_indexes["training"]:
             overlap_roots.append("training")
         if normalized_truth_key in truth_indexes["excluded"]:
             overlap_roots.append("excluded")
+
+        provider_card_id = str(row.get("provider_card_id") or "").strip()
+        registry_provider_card = provider_card_registry.get(provider_card_id) if provider_card_id else None
+        tier_assignment = normalize_tier_assignment(row.get("tier_assignment"))
+        if tier_assignment is None and registry_provider_card is not None:
+            tier_assignment = normalize_tier_assignment(registry_provider_card.get("tier"))
+        routed_batch_id = str(row.get("routed_batch_id") or "").strip() or None
+        if routed_batch_id is None and registry_provider_card is not None:
+            routed_batch_id = str(registry_provider_card.get("firstSeenBatchId") or "").strip() or None
 
         registry_overlap_statuses = sorted(
             {
@@ -533,6 +631,11 @@ def main() -> int:
                 set_code=row["set"],
                 promo=str(row.get("promo") or row.get("Promo") or "").strip(),
                 normalized_truth_key=normalized_truth_key,
+                provider_card_id=provider_card_id,
+                tier_assignment=tier_assignment,
+                routed_batch_id=routed_batch_id,
+                labeling_session_id=str(row.get("labeling_session_id") or "").strip() or None,
+                scan_id=str(row.get("scan_id") or "").strip() or None,
                 overlap_roots=overlap_roots,
                 overlap_registry=registry_overlap_statuses,
                 notes=note_list(row["card_name"], row["number"], row["set"])
@@ -560,6 +663,10 @@ def main() -> int:
         has_duplicate_file_reference = any(source_file_name_counts[entry.source_file_name] > 1 for entry in grouped)
         has_registry_hash_overlap = any(entry.overlap_registry for entry in grouped)
         source_image_issues = sorted({entry.source_image_issue for entry in grouped if entry.source_image_issue})
+        trusted_capture_group = any(entry.is_trusted_capture for entry in grouped)
+        mixed_trusted_capture_group = trusted_capture_group and not all(entry.is_trusted_capture for entry in grouped)
+        provider_card_ids = {entry.provider_card_id for entry in grouped if entry.provider_card_id}
+        trusted_tiers = {entry.tier_assignment for entry in grouped if entry.tier_assignment}
 
         if source_image_issues:
             bucket = "manual_review"
@@ -567,6 +674,9 @@ def main() -> int:
         elif has_duplicate_file_reference:
             bucket = "manual_review"
             reason = "duplicate_file_reference"
+        elif mixed_trusted_capture_group:
+            bucket = "manual_review"
+            reason = "mixed_trusted_capture_group"
         elif "heldout" in truth_roots:
             bucket = "heldout_blocked"
             reason = "heldout_overlap"
@@ -585,6 +695,32 @@ def main() -> int:
         elif has_batch_hash_duplicate:
             bucket = "manual_review"
             reason = "exact_hash_duplicate_in_batch"
+        elif trusted_capture_group:
+            if len(provider_card_ids) != 1:
+                bucket = "manual_review"
+                reason = "trusted_capture_provider_card_mismatch"
+            elif len(trusted_tiers) != 1:
+                bucket = "manual_review"
+                reason = "trusted_capture_missing_or_mixed_tier"
+            else:
+                trusted_tier = next(iter(trusted_tiers))
+                if trusted_tier == "tier2":
+                    if "training" in truth_roots:
+                        bucket = "manual_review"
+                        reason = "trusted_tier2_training_overlap"
+                    else:
+                        bucket = "safe_new"
+                        reason = "trusted_capture_tier2"
+                else:
+                    if "expansion_holdout" in truth_roots:
+                        bucket = "heldout_blocked"
+                        reason = "trusted_tier3_expansion_holdout_overlap"
+                    elif "training" in truth_roots:
+                        bucket = "safe_training_augment"
+                        reason = "trusted_capture_tier3_existing_training"
+                    else:
+                        bucket = "safe_new"
+                        reason = "trusted_capture_tier3"
         elif "training" in truth_roots:
             bucket = "safe_training_augment"
             reason = "existing_training_truth"
@@ -597,10 +733,37 @@ def main() -> int:
             entry.reason = reason
             bucket_rows[bucket].append(entry)
 
+    preassigned_training_entries = [
+        entry
+        for entry in bucket_rows["safe_new"] + bucket_rows["safe_training_augment"]
+        if entry.is_trusted_capture and entry.tier_assignment == "tier3"
+    ]
+    preassigned_holdout_entries = [
+        entry
+        for entry in bucket_rows["safe_new"] + bucket_rows["safe_training_augment"]
+        if entry.is_trusted_capture and entry.tier_assignment == "tier2"
+    ]
+    split_safe_new_entries = [
+        entry for entry in bucket_rows["safe_new"] if not entry.is_trusted_capture
+    ]
+    safe_training_augment_entries = [
+        entry for entry in bucket_rows["safe_training_augment"] if not entry.is_trusted_capture
+    ]
+
     safe_new_training_entries, expansion_holdout_entries, expansion_holdout_truths = split_safe_new_entries_for_expansion_holdout(
-        bucket_rows["safe_new"],
+        split_safe_new_entries,
         batch_id=batch_id,
     )
+    safe_new_training_entries = sorted(
+        safe_new_training_entries + preassigned_training_entries,
+        key=lambda entry: (entry.card_name, entry.collector_number, entry.set_code, entry.resolved_file_name),
+    )
+    expansion_holdout_entries = sorted(
+        expansion_holdout_entries + preassigned_holdout_entries,
+        key=lambda entry: (entry.card_name, entry.collector_number, entry.set_code, entry.resolved_file_name),
+    )
+    expansion_holdout_truths.extend(summarize_preassigned_holdout_truths(preassigned_holdout_entries))
+    expansion_holdout_truths.sort(key=lambda entry: (entry["cardName"], entry["collectorNumber"], entry["setCode"]))
 
     unreferenced_files = sorted(path.name for path in images if path.name not in resolved_files)
 
@@ -616,7 +779,7 @@ def main() -> int:
     write_tsv(
         safe_import_manifest,
         [batch_entry_tsv_row(entry) for entry in safe_new_training_entries]
-        + [batch_entry_tsv_row(entry) for entry in bucket_rows["safe_training_augment"]],
+        + [batch_entry_tsv_row(entry) for entry in safe_training_augment_entries],
     )
     write_tsv(expansion_holdout_manifest, [batch_entry_tsv_row(entry) for entry in expansion_holdout_entries])
 
@@ -667,7 +830,7 @@ def main() -> int:
         "expansionHoldoutSummary": {
             "selectedRowCount": len(expansion_holdout_entries),
             "selectedTruthCount": len({entry.normalized_truth_key for entry in expansion_holdout_entries}),
-            "trainingImportRowCount": len(safe_new_training_entries) + len(bucket_rows["safe_training_augment"]),
+            "trainingImportRowCount": len(safe_new_training_entries) + len(safe_training_augment_entries),
             "trainingSafeNewRowCount": len(safe_new_training_entries),
             "safeNewRowsReservedForHoldout": len(expansion_holdout_entries),
         },
@@ -700,7 +863,7 @@ def main() -> int:
     import_summary_path = batch_audit_root / "import_summary.json"
     expansion_holdout_import_summary_path = batch_audit_root / "expansion_holdout_import_summary.json"
 
-    if args.import_safe and (safe_new_training_entries or bucket_rows["safe_training_augment"]):
+    if args.import_safe and (safe_new_training_entries or safe_training_augment_entries):
         import_command = [
             sys.executable,
             str(REPO_ROOT / "tools" / "import_raw_visual_training_photos.py"),
@@ -762,7 +925,7 @@ def main() -> int:
         env = os.environ.copy()
         env.update(load_env_file(REPO_ROOT / "backend" / ".env"))
 
-        if safe_new_training_entries or bucket_rows["safe_training_augment"]:
+        if safe_new_training_entries or safe_training_augment_entries:
             run_command(["zsh", str(REPO_ROOT / "tools" / "generate_raw_runtime_artifacts.sh"), str(training_root)])
             visual_python = ensure_visual_python()
             run_command(
@@ -916,8 +1079,9 @@ def main() -> int:
             }
         )
 
-    registry_payload["schemaVersion"] = 1
+    registry_payload["schemaVersion"] = max(int(registry_payload.get("schemaVersion") or 1), 2)
     registry_payload["updatedAt"] = now
+    registry_payload["providerCards"] = registry_provider_cards(registry_payload)
     registry_payload["entries"] = retained_entries
     write_json(registry_path, registry_payload)
 

@@ -6,6 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from time import perf_counter
 from unittest.mock import patch
@@ -110,6 +111,26 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             """,
             (card_id, name, card_id),
         )
+
+    def _freeze_runtime_now(self, iso_timestamp: str):
+        fixed_now = datetime.fromisoformat(iso_timestamp.replace("Z", "+00:00"))
+
+        class FrozenDateTime(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                if tz is None:
+                    return cls(
+                        fixed_now.year,
+                        fixed_now.month,
+                        fixed_now.day,
+                        fixed_now.hour,
+                        fixed_now.minute,
+                        fixed_now.second,
+                        fixed_now.microsecond,
+                    )
+                return fixed_now.astimezone(tz)
+
+        return patch("server.datetime", FrozenDateTime)
 
     def test_log_scan_writes_scan_events_only(self) -> None:
         self._insert_card("obf-223")
@@ -672,16 +693,15 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             ("scan-phase7-5",),
         ).fetchone()
 
-        self.assertEqual(first["deckEntryID"], "raw|gym1-60")
-        self.assertEqual(second["deckEntryID"], "raw|gym1-60")
+        self.assertEqual(first["deckEntryID"], second["deckEntryID"])
         self.assertEqual(len(deck_rows), 1)
         self.assertEqual(deck_rows[0]["quantity"], 2)
         assert event_row is not None
         assert confirmation_row is not None
         self.assertEqual(event_row["confirmed_card_id"], "gym1-60")
         self.assertEqual(event_row["confirmation_source"], "add_top")
-        self.assertEqual(event_row["deck_entry_id"], "raw|gym1-60")
-        self.assertEqual(confirmation_row["deck_entry_id"], "raw|gym1-60")
+        self.assertEqual(event_row["deck_entry_id"], first["deckEntryID"])
+        self.assertEqual(confirmation_row["deck_entry_id"], first["deckEntryID"])
 
     def test_deck_entries_reads_sql_backed_cards_and_summary(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
@@ -754,11 +774,13 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(payload["offset"], 0)
 
         entries = payload["entries"]
-        self.assertEqual(entries[0]["id"], "slab|base1-4|PSA|10|12345|Holofoil")
-        self.assertEqual(entries[0]["itemKind"], "slab")
-        self.assertEqual(entries[0]["quantity"], 1)
+        slab_entry = next(entry for entry in entries if entry["itemKind"] == "slab")
+        raw_entry = next(entry for entry in entries if entry["itemKind"] == "raw")
+        self.assertEqual(slab_entry["card"]["id"], "base1-4")
+        self.assertEqual(slab_entry["itemKind"], "slab")
+        self.assertEqual(slab_entry["quantity"], 1)
         self.assertEqual(
-            entries[0]["slabContext"],
+            slab_entry["slabContext"],
             {
                 "grader": "PSA",
                 "grade": "10",
@@ -766,11 +788,11 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
                 "variantName": "Holofoil",
             },
         )
-        self.assertEqual(entries[0]["card"]["pricing"]["market"], 100.0)
-        self.assertEqual(entries[1]["id"], "raw|gym1-60")
-        self.assertEqual(entries[1]["quantity"], 1)
-        self.assertIsNone(entries[1]["slabContext"])
-        self.assertEqual(entries[1]["card"]["pricing"]["market"], 2.5)
+        self.assertEqual(slab_entry["card"]["pricing"]["market"], 100.0)
+        self.assertEqual(raw_entry["card"]["id"], "gym1-60")
+        self.assertEqual(raw_entry["quantity"], 1)
+        self.assertIsNone(raw_entry["slabContext"])
+        self.assertEqual(raw_entry["card"]["pricing"]["market"], 2.5)
 
     def test_record_buy_splits_raw_entries_by_condition_and_variant(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
@@ -801,71 +823,54 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         )
 
         payload = self.service.deck_entries(limit=10)
-        entry_by_id = {entry["id"]: entry for entry in payload["entries"]}
+        entry_by_identity = {
+            (entry["card"]["id"], entry["variantName"], entry["condition"]): entry
+            for entry in payload["entries"]
+        }
 
         self.assertEqual(payload["summary"]["count"], 2)
         self.assertEqual(payload["summary"]["rawCount"], 2)
         self.assertEqual(payload["summary"]["slabCount"], 0)
-        self.assertIn("raw|gym1-60", entry_by_id)
-        self.assertIn("raw|gym1-60|Reverse Holo|lightly_played", entry_by_id)
-        self.assertEqual(entry_by_id["raw|gym1-60"]["condition"], "near_mint")
-        self.assertIsNone(entry_by_id["raw|gym1-60"]["variantName"])
-        self.assertEqual(entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["condition"], "lightly_played")
-        self.assertEqual(entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["variantName"], "Reverse Holo")
-        self.assertIsNone(entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["slabContext"])
-        self.assertEqual(variant_payload["deckEntryID"], "raw|gym1-60|Reverse Holo|lightly_played")
+        self.assertIn(("gym1-60", None, "near_mint"), entry_by_identity)
+        self.assertIn(("gym1-60", "Reverse Holo", "lightly_played"), entry_by_identity)
+        self.assertEqual(entry_by_identity[("gym1-60", None, "near_mint")]["condition"], "near_mint")
+        self.assertIsNone(entry_by_identity[("gym1-60", None, "near_mint")]["variantName"])
+        self.assertEqual(entry_by_identity[("gym1-60", "Reverse Holo", "lightly_played")]["condition"], "lightly_played")
+        self.assertEqual(entry_by_identity[("gym1-60", "Reverse Holo", "lightly_played")]["variantName"], "Reverse Holo")
+        self.assertIsNone(entry_by_identity[("gym1-60", "Reverse Holo", "lightly_played")]["slabContext"])
+        self.assertTrue(str(variant_payload["deckEntryID"]).startswith("deckentry:"))
 
-    def test_record_buy_ignores_invalid_optional_scan_id(self) -> None:
+    def test_record_buy_rejects_invalid_optional_scan_id(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
 
-        buy_payload = self.service.record_buy(
-            {
-                "cardID": "gym1-60",
-                "quantity": 1,
-                "unitPrice": 6.0,
-                "currencyCode": "USD",
-                "paymentMethod": None,
-                "boughtAt": "2026-04-14T09:00:00Z",
-                "condition": "near_mint",
-                "sourceScanID": "local-capture-id-not-in-scan-events",
-            }
-        )
+        with self.assertRaisesRegex(FileNotFoundError, "source scan not found"):
+            self.service.record_buy(
+                {
+                    "cardID": "gym1-60",
+                    "quantity": 1,
+                    "unitPrice": 6.0,
+                    "currencyCode": "USD",
+                    "paymentMethod": None,
+                    "boughtAt": "2026-04-14T09:00:00Z",
+                    "condition": "near_mint",
+                    "sourceScanID": "local-capture-id-not-in-scan-events",
+                }
+            )
 
-        self.assertEqual(buy_payload["deckEntryID"], "raw|gym1-60")
-        row = self.service.connection.execute(
-            "SELECT source_scan_id FROM deck_entries WHERE id = ? LIMIT 1",
-            ("raw|gym1-60",),
-        ).fetchone()
-        self.assertIsNotNone(row)
-        assert row is not None
-        self.assertIsNone(row["source_scan_id"])
-
-    def test_create_deck_entry_adds_inventory_without_missing_scan_event(self) -> None:
+    def test_create_deck_entry_rejects_missing_scan_event(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
 
-        deck_payload = self.service.create_deck_entry(
-            {
-                "cardID": "gym1-60",
-                "sourceScanID": "scan-id-not-in-scan-events",
-                "selectionSource": "top",
-                "selectedRank": 1,
-                "wasTopPrediction": True,
-                "addedAt": "2026-04-14T20:10:00Z",
-            }
-        )
-
-        self.assertEqual(deck_payload["deckEntryID"], "raw|gym1-60")
-        self.assertIsNone(deck_payload["confirmationID"])
-        self.assertIsNone(deck_payload["sourceScanID"])
-        row = self.service.connection.execute(
-            "SELECT quantity, source_scan_id, source_confirmation_id FROM deck_entries WHERE id = ? LIMIT 1",
-            ("raw|gym1-60",),
-        ).fetchone()
-        self.assertIsNotNone(row)
-        assert row is not None
-        self.assertEqual(row["quantity"], 1)
-        self.assertIsNone(row["source_scan_id"])
-        self.assertIsNone(row["source_confirmation_id"])
+        with self.assertRaisesRegex(FileNotFoundError, "scan event not found"):
+            self.service.create_deck_entry(
+                {
+                    "cardID": "gym1-60",
+                    "sourceScanID": "scan-id-not-in-scan-events",
+                    "selectionSource": "top",
+                    "selectedRank": 1,
+                    "wasTopPrediction": True,
+                    "addedAt": "2026-04-14T20:10:00Z",
+                }
+            )
 
     def test_deck_entries_use_condition_specific_raw_market_price(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
@@ -927,10 +932,13 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         )
 
         payload = self.service.deck_entries(limit=10)
-        entry_by_id = {entry["id"]: entry for entry in payload["entries"]}
+        entry_by_identity = {
+            (entry["card"]["id"], entry["variantName"], entry["condition"]): entry
+            for entry in payload["entries"]
+        }
 
-        self.assertAlmostEqual(entry_by_id["raw|gym1-60|Holofoil|near_mint"]["card"]["pricing"]["market"], 12.5, places=2)
-        self.assertAlmostEqual(entry_by_id["raw|gym1-60|Holofoil|lightly_played"]["card"]["pricing"]["market"], 8.75, places=2)
+        self.assertAlmostEqual(entry_by_identity[("gym1-60", "Holofoil", "near_mint")]["card"]["pricing"]["market"], 12.5, places=2)
+        self.assertAlmostEqual(entry_by_identity[("gym1-60", "Holofoil", "lightly_played")]["card"]["pricing"]["market"], 8.75, places=2)
 
     def test_deck_entries_do_not_fallback_to_near_mint_for_other_raw_conditions(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
@@ -966,13 +974,15 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         payload = self.service.deck_entries(limit=10)
         entry = payload["entries"][0]
 
-        self.assertEqual(entry["id"], "raw|gym1-60|Holofoil|lightly_played")
+        self.assertEqual(entry["card"]["id"], "gym1-60")
+        self.assertEqual(entry["variantName"], "Holofoil")
+        self.assertEqual(entry["condition"], "lightly_played")
         self.assertIsNone(entry["card"].get("pricing"))
 
     def test_replace_deck_entry_moves_raw_entry_to_specific_variant_row(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
 
-        self.service.record_buy(
+        original_payload = self.service.record_buy(
             {
                 "cardID": "gym1-60",
                 "quantity": 2,
@@ -986,7 +996,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
 
         replace_payload = self.service.replace_deck_entry(
             {
-                "deckEntryID": "raw|gym1-60",
+                "deckEntryID": original_payload["deckEntryID"],
                 "cardID": "gym1-60",
                 "slabContext": None,
                 "variantName": "Reverse Holo",
@@ -1003,15 +1013,16 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         active_entry = active_payload["entries"][0]
         inactive_entry_by_id = {entry["id"]: entry for entry in inactive_payload["entries"]}
 
-        self.assertEqual(replace_payload["previousDeckEntryID"], "raw|gym1-60")
-        self.assertEqual(replace_payload["deckEntryID"], "raw|gym1-60|Reverse Holo|lightly_played")
+        self.assertEqual(replace_payload["previousDeckEntryID"], original_payload["deckEntryID"])
+        self.assertNotEqual(replace_payload["deckEntryID"], original_payload["deckEntryID"])
         self.assertEqual(active_payload["summary"]["count"], 1)
-        self.assertEqual(active_entry["id"], "raw|gym1-60|Reverse Holo|lightly_played")
+        self.assertEqual(active_entry["id"], replace_payload["deckEntryID"])
+        self.assertEqual(active_entry["card"]["id"], "gym1-60")
         self.assertEqual(active_entry["variantName"], "Reverse Holo")
         self.assertEqual(active_entry["condition"], "lightly_played")
         self.assertEqual(active_entry["quantity"], 2)
-        self.assertEqual(inactive_entry_by_id["raw|gym1-60"]["quantity"], 0)
-        self.assertEqual(inactive_entry_by_id["raw|gym1-60|Reverse Holo|lightly_played"]["quantity"], 2)
+        self.assertEqual(inactive_entry_by_id[original_payload["deckEntryID"]]["quantity"], 0)
+        self.assertEqual(inactive_entry_by_id[replace_payload["deckEntryID"]]["quantity"], 2)
 
     def test_record_sale_decrements_quantity_and_hides_inactive_entries(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
@@ -1031,7 +1042,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             source_url="https://prices.example/gym1-60",
             payload={"source": "scrydex"},
         )
-        upsert_deck_entry(
+        deck_entry_id = upsert_deck_entry(
             self.service.connection,
             card_id="gym1-60",
             quantity=1,
@@ -1054,7 +1065,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
 
         deck_row = self.service.connection.execute(
             "SELECT quantity FROM deck_entries WHERE id = ? LIMIT 1",
-            ("raw|gym1-60",),
+            (deck_entry_id,),
         ).fetchone()
         sale_row = self.service.connection.execute(
             "SELECT * FROM sale_events WHERE id = ? LIMIT 1",
@@ -1086,14 +1097,14 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
     def test_record_sales_batch_commits_multiple_sales_in_one_transaction(self) -> None:
         self._insert_card("base1-4", name="Charizard")
         self._insert_card("base1-2", name="Blastoise")
-        upsert_deck_entry(
+        base1_4_entry_id = upsert_deck_entry(
             self.service.connection,
             card_id="base1-4",
             quantity=1,
             added_at="2026-04-14T20:00:00Z",
             updated_at="2026-04-14T20:00:00Z",
         )
-        upsert_deck_entry(
+        base1_2_entry_id = upsert_deck_entry(
             self.service.connection,
             card_id="base1-2",
             quantity=2,
@@ -1127,15 +1138,15 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
 
         self.assertEqual(len(batch_payload["results"]), 2)
         remaining_rows = self.service.connection.execute(
-            "SELECT id, quantity FROM deck_entries ORDER BY id"
+            "SELECT id, card_id, quantity FROM deck_entries ORDER BY card_id, id"
         ).fetchall()
         sale_rows = self.service.connection.execute(
             "SELECT card_id, quantity, unit_price FROM sale_events ORDER BY sold_at, id"
         ).fetchall()
 
         self.assertEqual(
-            [(row["id"], row["quantity"]) for row in remaining_rows],
-            [("raw|base1-2", 0), ("raw|base1-4", 0)],
+            [(row["card_id"], row["id"], row["quantity"]) for row in remaining_rows],
+            [("base1-2", base1_2_entry_id, 0), ("base1-4", base1_4_entry_id, 0)],
         )
         self.assertEqual(
             [(row["card_id"], row["quantity"], float(row["unit_price"])) for row in sale_rows],
@@ -1189,7 +1200,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
 
     def test_apply_schema_keeps_sold_entries_inactive(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
-        upsert_deck_entry(
+        deck_entry_id = upsert_deck_entry(
             self.service.connection,
             card_id="gym1-60",
             quantity=1,
@@ -1212,7 +1223,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
 
         deck_row = self.service.connection.execute(
             "SELECT quantity FROM deck_entries WHERE id = ? LIMIT 1",
-            ("raw|gym1-60",),
+            (deck_entry_id,),
         ).fetchone()
         active_payload = self.service.deck_entries(limit=10)
         inactive_payload = self.service.deck_entries(limit=10, include_inactive=True)
@@ -1406,7 +1417,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             }
         )
 
-        ledger = self.service.portfolio_ledger(days=7)
+        ledger = self.service.portfolio_ledger(range_label="ALL")
 
         self.assertEqual(buy_payload["quantityAdded"], 2)
         self.assertEqual(sale_payload["remainingQuantity"], 1)
@@ -1431,6 +1442,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             }
         )
         self.assertEqual(buy_payload["quantityAdded"], 2)
+        deck_entry_id = buy_payload["deckEntryID"]
 
         buy_row = self.service.connection.execute(
             """
@@ -1440,7 +1452,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
               AND event_kind = 'buy'
             LIMIT 1
             """,
-            ("raw|gym1-60",),
+            (deck_entry_id,),
         ).fetchone()
         assert buy_row is not None
 
@@ -1459,9 +1471,9 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         ).fetchone()
         deck_row = self.service.connection.execute(
             "SELECT cost_basis_total, cost_basis_currency_code FROM deck_entries WHERE id = ? LIMIT 1",
-            ("raw|gym1-60",),
+            (deck_entry_id,),
         ).fetchone()
-        ledger = self.service.portfolio_ledger(days=7)
+        ledger = self.service.portfolio_ledger(range_label="ALL")
 
         assert updated_buy_row is not None
         assert deck_row is not None
@@ -1476,7 +1488,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
     def test_update_portfolio_sale_price_updates_transaction_and_ledger_summary(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
 
-        self.service.record_buy(
+        buy_payload = self.service.record_buy(
             {
                 "cardID": "gym1-60",
                 "quantity": 2,
@@ -1486,6 +1498,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
                 "condition": "near_mint",
             }
         )
+        deck_entry_id = buy_payload["deckEntryID"]
         sale_payload = self.service.record_sale(
             {
                 "cardID": "gym1-60",
@@ -1513,7 +1526,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             "SELECT unit_price, total_price, currency_code FROM deck_entry_events WHERE sale_id = ? LIMIT 1",
             (str(sale_payload["saleID"]),),
         ).fetchone()
-        ledger = self.service.portfolio_ledger(days=7)
+        ledger = self.service.portfolio_ledger(range_label="ALL")
 
         assert sale_row is not None
         assert event_row is not None
@@ -1529,7 +1542,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
     def test_update_portfolio_sale_price_accepts_linked_sale_event_row_id(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
 
-        self.service.record_buy(
+        buy_payload = self.service.record_buy(
             {
                 "cardID": "gym1-60",
                 "quantity": 2,
@@ -1539,6 +1552,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
                 "condition": "near_mint",
             }
         )
+        deck_entry_id = buy_payload["deckEntryID"]
         sale_payload = self.service.record_sale(
             {
                 "cardID": "gym1-60",
@@ -1554,9 +1568,10 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             FROM deck_entry_events
             WHERE sale_id = ?
               AND event_kind = 'sale'
+              AND deck_entry_id = ?
             LIMIT 1
             """,
-            (str(sale_payload["saleID"]),),
+            (str(sale_payload["saleID"]), deck_entry_id),
         ).fetchone()
 
         assert event_row is not None
@@ -1658,11 +1673,12 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             }
         )
 
-        ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
-        ledger_30d = self.service.portfolio_ledger(days=365, range_label="30D", time_zone_name="UTC")
-        ledger_90d = self.service.portfolio_ledger(days=365, range_label="90D", time_zone_name="UTC")
-        ledger_1y = self.service.portfolio_ledger(days=30, range_label="1Y", time_zone_name="UTC")
-        ledger_all = self.service.portfolio_ledger(days=365, range_label="ALL", time_zone_name="UTC")
+        with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
+            ledger_30d = self.service.portfolio_ledger(days=365, range_label="30D", time_zone_name="UTC")
+            ledger_90d = self.service.portfolio_ledger(days=365, range_label="90D", time_zone_name="UTC")
+            ledger_1y = self.service.portfolio_ledger(days=30, range_label="1Y", time_zone_name="UTC")
+            ledger_all = self.service.portfolio_ledger(days=365, range_label="ALL", time_zone_name="UTC")
 
         self.assertEqual(len(ledger_7d["dailySeries"]), 7)
         self.assertEqual(len(ledger_30d["dailySeries"]), 12)
@@ -1707,7 +1723,8 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             }
         )
 
-        history_1y = self.service.deck_history(days=30, range_label="1Y", time_zone_name="UTC")
+        with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            history_1y = self.service.deck_history(days=30, range_label="1Y", time_zone_name="UTC")
 
         self.assertEqual(len(history_1y["points"]), 12)
         self.assertEqual(history_1y["points"][0]["date"], "2026-04-15")
@@ -1743,8 +1760,9 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             }
         )
 
-        ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
-        history_7d = self.service.deck_history(days=365, range_label="7D", time_zone_name="UTC")
+        with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
+            history_7d = self.service.deck_history(days=365, range_label="7D", time_zone_name="UTC")
 
         self.assertEqual(ledger_7d["dailySeries"][0]["date"], "2026-04-23")
         self.assertEqual(ledger_7d["dailySeries"][-1]["date"], "2026-04-26")

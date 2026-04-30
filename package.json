@@ -1,6 +1,7 @@
 {
   "name": "spotlight",
   "private": true,
+  "version": "0.1.0",
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "backend:start:phone": "zsh tools/start_mobile_phone_dev.sh --backend-only",
@@ -24,7 +25,22 @@
     "mobile:lint": "pnpm --filter @spotlight/mobile-app lint",
     "mobile:typecheck": "pnpm --filter @spotlight/mobile-app typecheck",
     "mobile:test": "pnpm --filter @spotlight/mobile-app test",
+    "mobile:test:coverage": "pnpm --filter @spotlight/mobile-app test:coverage",
+    "mobile:test:coverage:target": "pnpm --filter @spotlight/mobile-app test:coverage:target",
     "mobile:test:watch": "pnpm --filter @spotlight/mobile-app test:watch",
-    "mobile:test:integration": "pnpm --filter @spotlight/mobile-app test:integration"
+    "mobile:test:integration": "pnpm --filter @spotlight/mobile-app test:integration",
+    "mobile:visual:design": "pnpm --filter @spotlight/mobile-app visual:design",
+    "backend:test": "bash backend/run_all_tests.sh",
+    "backend:test:coverage": "bash backend/run_all_tests.sh coverage",
+    "backend:test:discover": "bash backend/run_all_tests.sh discover",
+    "backend:test:coverage:discover": "bash backend/run_all_tests.sh coverage-discover",
+    "release:check:mobile": "pnpm mobile:lint && pnpm mobile:typecheck && pnpm mobile:test:coverage",
+    "release:check:backend": "pnpm backend:test:coverage",
+    "release:check": "pnpm release:check:mobile && pnpm release:check:backend",
+    "release:audit:staging": "python3 tools/audit_release_config.py --environment staging --backend-secrets-file backend/.env",
+    "release:audit:production": "python3 tools/audit_release_config.py --environment production --backend-secrets-file backend/.env",
+    "release:notes:preview": "node tools/release_notes.mjs --format preview",
+    "release:notes:testflight": "node tools/release_notes.mjs --format testflight",
+    "release:notes:build-message": "node tools/release_notes.mjs --format build-message"
   }
 }

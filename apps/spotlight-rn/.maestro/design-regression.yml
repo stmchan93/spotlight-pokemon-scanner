@@ -1,0 +1,11 @@
+appId: com.looty.staging
+---
+- launchApp
+- assertVisible: "Portfolio"
+- takeScreenshot: "portfolio-home"
+- tapOn: "Scan"
+- assertVisible: "Tap anywhere to scan"
+- takeScreenshot: "scanner-empty"
+- openLink: spotlight://design-system
+- assertVisible: "Design System"
+- takeScreenshot: "design-system-catalog"

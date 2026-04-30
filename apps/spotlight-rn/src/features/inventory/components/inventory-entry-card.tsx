@@ -1,10 +1,12 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
 import { SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
 
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { resolveConditionDisplayLabel } from '@/lib/condition-display';
+import { getCardImageSource } from '@/lib/card-images';
 
 type InventoryEntryCardProps = {
   entry: InventoryCardEntry;
@@ -98,7 +100,12 @@ export function InventoryEntryCard({
             },
           ]}
         >
-          <Image source={{ uri: entry.imageUrl }} style={styles.cardArt} />
+          <CachedImage
+            cachePolicy={imageCachePolicy.thumbnail}
+            contentFit="contain"
+            source={getCardImageSource(entry, 'small')}
+            style={styles.cardArt}
+          />
 
           {isSelected ? (
             <View

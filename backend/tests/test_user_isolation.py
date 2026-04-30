@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -110,6 +112,26 @@ class UserIsolationTests(unittest.TestCase):
         self.assertEqual([entry["id"] for entry in user_a_entries], [first["deckEntryID"]])
         self.assertEqual([entry["id"] for entry in user_b_entries], [second["deckEntryID"]])
 
+    def test_local_service_prefers_legacy_owner_for_fallback_identity(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SPOTLIGHT_LEGACY_OWNER_USER_ID": "legacy-owner",
+            },
+            clear=False,
+        ):
+            previous_fallback = os.environ.pop("SPOTLIGHT_AUTH_FALLBACK_USER_ID", None)
+            previous_auth_required = os.environ.pop("SPOTLIGHT_AUTH_REQUIRED", None)
+            try:
+                service = SpotlightScanService(self.database_path, REPO_ROOT)
+                self.addCleanup(service.connection.close)
+                self.assertEqual(service.authenticator.fallback_user_id, "legacy-owner")
+            finally:
+                if previous_fallback is not None:
+                    os.environ["SPOTLIGHT_AUTH_FALLBACK_USER_ID"] = previous_fallback
+                if previous_auth_required is not None:
+                    os.environ["SPOTLIGHT_AUTH_REQUIRED"] = previous_auth_required
+
     def test_cross_user_scan_ids_cannot_create_deck_entries_or_store_artifacts(self) -> None:
         self._insert_card(card_id="gym1-60", name="Sabrina's Slowbro")
 
@@ -184,6 +206,60 @@ class UserIsolationTests(unittest.TestCase):
                 self.service.portfolio_import_job(preview["jobID"])
             with self.assertRaises(FileNotFoundError):
                 self.service.commit_portfolio_import(preview["jobID"])
+
+    def test_cross_user_buy_and_sale_transaction_edits_are_rejected(self) -> None:
+        self._insert_card(card_id="gym1-60", name="Sabrina's Slowbro")
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            buy_payload = self.service.record_buy(
+                {
+                    "cardID": "gym1-60",
+                    "quantity": 2,
+                    "unitPrice": 6.0,
+                    "currencyCode": "USD",
+                    "boughtAt": "2026-04-14T09:00:00Z",
+                    "condition": "near_mint",
+                }
+            )
+            sale_payload = self.service.record_sale(
+                {
+                    "deckEntryID": buy_payload["deckEntryID"],
+                    "quantity": 1,
+                    "soldAt": "2026-04-15T20:00:00Z",
+                    "unitPrice": 10.0,
+                    "currencyCode": "USD",
+                }
+            )
+            buy_event_row = self.service.connection.execute(
+                """
+                SELECT id
+                FROM deck_entry_events
+                WHERE deck_entry_id = ?
+                  AND event_kind = 'buy'
+                LIMIT 1
+                """,
+                (buy_payload["deckEntryID"],),
+            ).fetchone()
+
+        assert buy_event_row is not None
+
+        with self.service.request_identity_context(self._identity("user-b")):
+            with self.assertRaises(FileNotFoundError):
+                self.service.update_portfolio_buy_price(
+                    str(buy_event_row["id"]),
+                    {
+                        "unitPrice": 8.0,
+                        "currencyCode": "USD",
+                    },
+                )
+            with self.assertRaises(FileNotFoundError):
+                self.service.update_portfolio_sale_price(
+                    str(sale_payload["saleID"]),
+                    {
+                        "unitPrice": 12.0,
+                        "currencyCode": "USD",
+                    },
+                )
 
 
 if __name__ == "__main__":

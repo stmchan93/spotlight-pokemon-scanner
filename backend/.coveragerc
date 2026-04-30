@@ -1,0 +1,17 @@
+[run]
+branch = True
+include =
+    backend/catalog_tools.py
+    backend/env_loader.py
+    backend/scan_artifact_store.py
+    backend/server.py
+    backend/slab_cert_resolver.py
+    backend/slab_set_aliases.py
+
+[report]
+show_missing = True
+skip_covered = True
+precision = 2
+exclude_lines =
+    pragma: no cover
+    if __name__ == .__main__.:

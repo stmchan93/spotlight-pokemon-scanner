@@ -43,6 +43,20 @@ describe('HttpSpotlightRepository', () => {
     await expect(repository.getInventoryEntries()).resolves.toEqual([]);
   });
 
+  it('attaches the bearer token to backend requests when an access token provider is configured', async () => {
+    global.fetch = jest.fn().mockResolvedValue(jsonResponse(200, { entries: [] })) as typeof fetch;
+    const repository = new HttpSpotlightRepository('http://example.test', {
+      getAccessToken: () => 'test-access-token',
+    });
+
+    await repository.getInventoryEntries();
+
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+    const [, init] = (global.fetch as jest.Mock).mock.calls[0] as [string, RequestInit | undefined];
+    const headers = new Headers(init?.headers);
+    expect(headers.get('Authorization')).toBe('Bearer test-access-token');
+  });
+
   it('surfaces not-found for card detail lookups and add-to-collection options', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (url.includes('/api/v1/cards/missing-card/market-history')) {
@@ -376,6 +390,103 @@ describe('HttpSpotlightRepository', () => {
     });
   });
 
+  it('maps generic fetch transport errors to a friendlier backend-reachability message', async () => {
+    global.fetch = jest.fn().mockRejectedValue(new Error('Network request failed')) as typeof fetch;
+    const repository = new HttpSpotlightRepository('http://example.test');
+
+    const loadResult = await repository.loadPortfolioDashboard();
+
+    expect(loadResult.state).toBe('error');
+    expect(loadResult.errorMessage).toBe('Could not reach the Spotlight backend.');
+  });
+
+  it('prefers small image URLs for portfolio thumbnails while preserving large image URLs for detail previews', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(200, {
+          entries: [
+            {
+              id: 'entry-oshawott',
+              itemKind: 'raw',
+              quantity: 1,
+              card: {
+                id: 'catalog-oshawott-real',
+                name: 'Oshawott',
+                setName: "McDonald's Collection 2021",
+                number: '21/25',
+                imageSmallURL: 'https://cdn.example/oshawott-small.png',
+                imageLargeURL: 'https://cdn.example/oshawott-large.png',
+                pricing: {
+                  currencyCode: 'usd',
+                  market: 1.23,
+                  payload: {
+                    condition: 'NM',
+                  },
+                },
+              },
+              condition: 'near_mint',
+              addedAt: '2026-04-29T18:00:00Z',
+            },
+          ],
+        });
+      }
+
+      if (url.includes('/api/v1/portfolio/history')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          summary: {
+            currentValue: 1.23,
+            deltaValue: 0,
+            deltaPercent: 0,
+          },
+          points: [],
+        });
+      }
+
+      if (url.includes('/api/v1/portfolio/ledger')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          transactions: [
+            {
+              id: 'sale-oshawott',
+              kind: 'sell',
+              quantity: 1,
+              unitPrice: 2.5,
+              totalPrice: 2.5,
+              currencyCode: 'USD',
+              occurredAt: '2026-04-29T19:00:00Z',
+              card: {
+                id: 'catalog-oshawott-real',
+                name: 'Oshawott',
+                setName: "McDonald's Collection 2021",
+                number: '21/25',
+                imageSmallURL: 'https://cdn.example/oshawott-small.png',
+                imageLargeURL: 'https://cdn.example/oshawott-large.png',
+              },
+            },
+          ],
+          dailySeries: [],
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const dashboard = await repository.getPortfolioDashboard();
+
+    expect(dashboard.inventoryItems[0]).toMatchObject({
+      imageUrl: 'https://cdn.example/oshawott-small.png',
+      smallImageUrl: 'https://cdn.example/oshawott-small.png',
+      largeImageUrl: 'https://cdn.example/oshawott-large.png',
+    });
+    expect(dashboard.recentSales[0]).toMatchObject({
+      imageUrl: 'https://cdn.example/oshawott-small.png',
+      smallImageUrl: 'https://cdn.example/oshawott-small.png',
+      largeImageUrl: 'https://cdn.example/oshawott-large.png',
+    });
+  });
+
   it('matches raw scanner captures through the backend visual-only endpoint and exposes real candidate ids', async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     (process.env as Record<string, string | undefined>).NODE_ENV = 'development';
@@ -490,6 +601,35 @@ describe('HttpSpotlightRepository', () => {
         }),
       ],
     ]);
+  });
+
+  it('preserves slab review reasons when scan match returns unsupported without candidates', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.startsWith('http://example.test/api/v1/scan/match')) {
+        return jsonResponse(200, {
+          scanID: 'scan-slab-empty',
+          reviewDisposition: 'unsupported',
+          reviewReason: 'Could not extract a confident slab grader and grade.',
+          topCandidates: [],
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const result = await repository.matchScannerCapture({
+      height: 880,
+      jpegBase64: 'c2xhYi1zY2Fu',
+      mode: 'slabs',
+      width: 630,
+    });
+
+    expect(result.scanID).toBe('scan-slab-empty');
+    expect(result.candidates).toEqual([]);
+    expect(result.endpointPath).toBe('api/v1/scan/match');
+    expect(result.reviewDisposition).toBe('unsupported');
+    expect(result.reviewReason).toBe('Could not extract a confident slab grader and grade.');
   });
 
   it('times out unreachable backend requests instead of hanging forever', async () => {

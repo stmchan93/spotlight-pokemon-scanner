@@ -1,5 +1,4 @@
 import {
-  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -20,6 +19,8 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { getCardImageSource } from '@/lib/card-images';
 import { formatCurrency } from './portfolio-formatting';
 
 type SalePriceEditSheetProps = {
@@ -80,9 +81,10 @@ export function SalePriceEditSheet({
           <SurfaceCard padding={18} radius={24} style={styles.sheet}>
             <SheetHeader
               leadingAccessory={(
-                <Image
-                  resizeMode="cover"
-                  source={{ uri: sale.imageUrl }}
+                <CachedImage
+                  cachePolicy={imageCachePolicy.thumbnail}
+                  contentFit="cover"
+                  source={getCardImageSource(sale, 'small')}
                   style={[
                     styles.saleArt,
                     {

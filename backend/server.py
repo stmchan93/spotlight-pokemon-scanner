@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import re
@@ -8,6 +9,8 @@ import sqlite3
 import sys
 import traceback
 import threading
+import uuid
+from contextlib import contextmanager, nullcontext
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from http import HTTPStatus
@@ -121,12 +124,16 @@ from scan_artifact_store import (
     SCAN_ARTIFACTS_ROOT_ENV,
     build_scan_artifact_store,
 )
+from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
 
 _OMIT_STRUCTURED_LOG_VALUE = object()
 
 MANUAL_SCRYDEX_MIRROR_ENV = "SPOTLIGHT_MANUAL_SCRYDEX_MIRROR"
 LIVE_PRICING_ENABLED_ENV = "SPOTLIGHT_LIVE_PRICING_ENABLED"
 SCAN_ARTIFACT_UPLOADS_ENABLED_ENV = "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED"
+SUPABASE_URL_ENV = "SUPABASE_URL"
+AUTH_REQUIRED_ENV = "SPOTLIGHT_AUTH_REQUIRED"
+AUTH_FALLBACK_USER_ID_ENV = "SPOTLIGHT_AUTH_FALLBACK_USER_ID"
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
 SCAN_ARTIFACT_UPLOADS_SETTING_KEY = "scan_artifact_uploads"
@@ -141,6 +148,115 @@ DECK_CARD_CONDITIONS = {
     "heavily_played",
     "damaged",
 }
+LABELING_SESSION_REQUIRED_ANGLE_COUNT = 4
+LABELING_REGISTRY_SCHEMA_VERSION = 2
+LABELING_ACTIVE_BATCH_ID_ENV = "SPOTLIGHT_LABELING_ACTIVE_BATCH_ID"
+LABELING_TIER2_PERCENT_ENV = "SPOTLIGHT_LABELING_TIER2_PERCENT"
+DEFAULT_LABELING_TIER2_PERCENT = 20
+
+
+def _labeling_session_id_from_path(path: str, suffix: str) -> str | None:
+    prefix = "/api/v1/labeling-sessions/"
+    if not path.startswith(prefix) or not path.endswith(suffix):
+        return None
+    raw_session_id = path[len(prefix) : len(path) - len(suffix)]
+    session_id = unquote(raw_session_id)
+    if not session_id or "/" in session_id:
+        return ""
+    return session_id
+
+
+def _is_large_image_upload_path(path: str) -> bool:
+    if path == "/api/v1/scan-artifacts":
+        return True
+    return _labeling_session_id_from_path(path, "/artifacts") is not None
+
+
+def _default_dataset_root() -> Path:
+    configured = str(os.environ.get("SPOTLIGHT_DATASET_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return Path.home() / "spotlight-datasets"
+
+
+def _default_raw_visual_train_root() -> Path:
+    configured = str(os.environ.get("SPOTLIGHT_RAW_VISUAL_TRAIN_ROOT") or "").strip()
+    if configured:
+        return Path(configured).expanduser()
+    return _default_dataset_root() / "raw-visual-train"
+
+
+def _default_labeling_registry_path() -> Path:
+    return _default_raw_visual_train_root() / "raw_scan_registry.json"
+
+
+def _normalize_labeling_tier(value: Any) -> str | None:
+    normalized = str(value or "").strip().lower()
+    if normalized in {"tier2", "tier3"}:
+        return normalized
+    return None
+
+
+def _deterministic_labeling_tier_bucket(provider_card_id: str, batch_id: str) -> int:
+    digest = hashlib.sha256(f"{provider_card_id}|{batch_id}".encode("utf-8")).hexdigest()
+    return int(digest[:8], 16) % 100
+
+
+def _sqlite_table_exists(connection: sqlite3.Connection, table_name: str) -> bool:
+    row = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+        (table_name,),
+    ).fetchone()
+    return row is not None
+
+
+def _sqlite_add_column_if_missing(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    column_sql: str,
+) -> None:
+    if not _sqlite_table_exists(connection, table_name):
+        return
+    columns = {
+        str(row["name"])
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name in columns:
+        return
+    connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
+
+
+def _apply_labeling_pipeline_schema_patch(connection: sqlite3.Connection) -> None:
+    _sqlite_add_column_if_missing(connection, "labeling_sessions", "labeler_user_id", "TEXT")
+    _sqlite_add_column_if_missing(connection, "labeling_sessions", "provider_card_id", "TEXT")
+    _sqlite_add_column_if_missing(
+        connection,
+        "labeling_sessions",
+        "tier_assignment",
+        "TEXT CHECK(tier_assignment IN ('tier2', 'tier3'))",
+    )
+    _sqlite_add_column_if_missing(connection, "labeling_sessions", "routed_batch_id", "TEXT")
+    _sqlite_add_column_if_missing(connection, "labeling_sessions", "first_capture_scan_id", "TEXT")
+    _sqlite_add_column_if_missing(connection, "labeling_session_artifacts", "scan_id", "TEXT")
+    _sqlite_add_column_if_missing(
+        connection,
+        "labeling_session_artifacts",
+        "dataset_role",
+        "TEXT CHECK(dataset_role IN ('tier2', 'tier3'))",
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_labeling_sessions_provider_card
+        ON labeling_sessions(provider_card_id, created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_labeling_session_artifacts_scan_id
+        ON labeling_session_artifacts(scan_id)
+        """
+    )
 
 
 def _env_flag(name: str, *, default: bool = False) -> bool:
@@ -281,6 +397,7 @@ class CandidateEncodingItem:
 @dataclass
 class PendingVisualScan:
     scan_id: str
+    owner_user_id: str
     created_at: float
     visual_matches: list[Any]
     visual_debug: dict[str, Any]
@@ -294,8 +411,22 @@ class SpotlightScanService:
         self.repo_root = repo_root
         self._thread_local = threading.local()
         self._state_lock = threading.RLock()
+        supabase_url = os.environ.get(SUPABASE_URL_ENV) or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+        auth_required = _env_flag(AUTH_REQUIRED_ENV, default=False)
+        fallback_user_id = (
+            os.environ.get(AUTH_FALLBACK_USER_ID_ENV)
+            or os.environ.get("SPOTLIGHT_LEGACY_OWNER_USER_ID")
+            or ("local-dev-user" if not auth_required else None)
+        )
+        self.authenticator = SupabaseRequestAuthenticator(
+            supabase_url=supabase_url,
+            auth_required=auth_required,
+            fallback_user_id=fallback_user_id,
+        )
         bootstrap_connection = connect(database_path)
         try:
+            _apply_labeling_pipeline_schema_patch(bootstrap_connection)
+            bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
             bootstrap_connection.close()
@@ -332,6 +463,170 @@ class SpotlightScanService:
 
     def _new_connection(self) -> sqlite3.Connection:
         return connect(self.database_path)
+
+    @contextmanager
+    def request_identity_context(self, identity: RequestIdentity | None):
+        previous_identity = getattr(self._thread_local, "request_identity", None)
+        if identity is None:
+            if hasattr(self._thread_local, "request_identity"):
+                delattr(self._thread_local, "request_identity")
+        else:
+            self._thread_local.request_identity = identity
+        try:
+            yield
+        finally:
+            if previous_identity is None:
+                if hasattr(self._thread_local, "request_identity"):
+                    delattr(self._thread_local, "request_identity")
+            else:
+                self._thread_local.request_identity = previous_identity
+
+    def _current_request_identity(self) -> RequestIdentity:
+        identity = getattr(self._thread_local, "request_identity", None)
+        if isinstance(identity, RequestIdentity):
+            return identity
+        fallback_user_id = self.authenticator.fallback_user_id
+        if fallback_user_id:
+            return RequestIdentity(user_id=fallback_user_id, auth_source="service_fallback")
+        raise RequestAuthError("Authenticated request identity is required.")
+
+    def _current_owner_user_id(self) -> str:
+        return self._current_request_identity().user_id
+
+    @staticmethod
+    def _labeling_scan_id(session_id: str, angle_index: int) -> str:
+        return f"labeling-scan:{session_id}:{int(angle_index):02d}"
+
+    def _assert_labeling_session_owner(self, row: sqlite3.Row, owner_user_id: str) -> None:
+        session_owner_user_id = str(row["labeler_user_id"] or "").strip()
+        if session_owner_user_id and session_owner_user_id != owner_user_id:
+            raise FileNotFoundError("labeling session not found")
+
+    @staticmethod
+    def _labeling_batch_config() -> tuple[str, int]:
+        configured_batch_id = str(os.environ.get(LABELING_ACTIVE_BATCH_ID_ENV) or "").strip()
+        batch_id = configured_batch_id or f"labeling-auto-{datetime.now(timezone.utc).strftime('%Y%m%d')}"
+        tier2_pct_raw = str(os.environ.get(LABELING_TIER2_PERCENT_ENV) or "").strip()
+        try:
+            tier2_pct = int(tier2_pct_raw) if tier2_pct_raw else DEFAULT_LABELING_TIER2_PERCENT
+        except ValueError:
+            tier2_pct = DEFAULT_LABELING_TIER2_PERCENT
+        return batch_id, max(0, min(100, tier2_pct))
+
+    def _load_labeling_registry(self) -> dict[str, Any]:
+        path = _default_labeling_registry_path()
+        if not path.exists():
+            return {
+                "schemaVersion": LABELING_REGISTRY_SCHEMA_VERSION,
+                "updatedAt": None,
+                "providerCards": {},
+                "entries": [],
+            }
+        try:
+            payload = json.loads(path.read_text())
+        except Exception:  # noqa: BLE001
+            payload = {}
+        if not isinstance(payload, dict):
+            payload = {}
+        provider_cards = payload.get("providerCards")
+        if not isinstance(provider_cards, dict):
+            provider_cards = {}
+        entries = payload.get("entries")
+        if not isinstance(entries, list):
+            entries = []
+        return {
+            "schemaVersion": max(int(payload.get("schemaVersion") or 1), LABELING_REGISTRY_SCHEMA_VERSION),
+            "updatedAt": payload.get("updatedAt"),
+            "providerCards": provider_cards,
+            "entries": entries,
+        }
+
+    def _save_labeling_registry(self, payload: dict[str, Any]) -> None:
+        path = _default_labeling_registry_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+        payload["schemaVersion"] = LABELING_REGISTRY_SCHEMA_VERSION
+        payload["updatedAt"] = utc_now()
+        path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+    def _route_labeling_provider_card(
+        self,
+        *,
+        provider_card_id: str,
+        first_scan_id: str,
+        labeling_session_id: str,
+        source_type: str,
+    ) -> tuple[str, str]:
+        batch_id, tier2_pct = self._labeling_batch_config()
+        with self._state_lock:
+            registry = self._load_labeling_registry()
+            provider_cards = registry.setdefault("providerCards", {})
+            existing = provider_cards.get(provider_card_id)
+            existing_tier = _normalize_labeling_tier(existing.get("tier")) if isinstance(existing, dict) else None
+            if existing_tier:
+                existing_batch_id = str(existing.get("firstSeenBatchId") or "").strip() or batch_id
+                return existing_tier, existing_batch_id
+
+            bucket = _deterministic_labeling_tier_bucket(provider_card_id, batch_id)
+            tier = "tier2" if bucket < tier2_pct else "tier3"
+            provider_cards[provider_card_id] = {
+                "providerCardId": provider_card_id,
+                "tier": tier,
+                "firstSeenScanId": first_scan_id,
+                "firstSeenBatchId": batch_id,
+                "firstSeenSource": source_type,
+                "firstSeenLabelingSessionId": labeling_session_id,
+                "assignedTierAt": utc_now(),
+            }
+            self._save_labeling_registry(registry)
+            return tier, batch_id
+
+    def _owned_deck_entry_row_by_reference(self, deck_entry_reference: str) -> sqlite3.Row | None:
+        normalized_reference = str(deck_entry_reference or "").strip()
+        if not normalized_reference:
+            return None
+        owner_user_id = self._current_owner_user_id()
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM deck_entries
+            WHERE owner_user_id = ?
+              AND (id = ? OR identity_key = ?)
+            ORDER BY CASE WHEN id = ? THEN 0 ELSE 1 END
+            LIMIT 1
+            """,
+            (owner_user_id, normalized_reference, normalized_reference, normalized_reference),
+        ).fetchone()
+
+    def _resolve_owned_deck_entry_id(
+        self,
+        *,
+        card_id: str,
+        grader: str | None = None,
+        grade: str | None = None,
+        cert_number: str | None = None,
+        variant_name: str | None = None,
+        condition: str | None = None,
+    ) -> str | None:
+        owner_user_id = self._current_owner_user_id()
+        identity_key = deck_entry_storage_key(
+            card_id=card_id,
+            grader=grader,
+            grade=grade,
+            cert_number=cert_number,
+            variant_name=variant_name,
+            condition=condition,
+        )
+        row = self.connection.execute(
+            """
+            SELECT id
+            FROM deck_entries
+            WHERE owner_user_id = ?
+              AND identity_key = ?
+            LIMIT 1
+            """,
+            (owner_user_id, identity_key),
+        ).fetchone()
+        return str(row["id"] or "").strip() or None if row is not None else None
 
     def refresh_index(self) -> None:
         connection = self._new_connection()
@@ -370,8 +665,10 @@ class SpotlightScanService:
         scan_id = str(scan_id or "").strip()
         if not scan_id:
             return
+        owner_user_id = self._current_owner_user_id()
         pending = PendingVisualScan(
             scan_id=scan_id,
+            owner_user_id=owner_user_id,
             created_at=perf_counter(),
             visual_matches=list(visual_matches),
             visual_debug=dict(visual_debug or {}),
@@ -393,13 +690,21 @@ class SpotlightScanService:
             f"top1={top_candidate_id or '<none>'}"
         )
 
-    def _pending_visual_scan(self, scan_id: str) -> PendingVisualScan | None:
+    def _pending_visual_scan(self, scan_id: str, *, owner_user_id: str | None = None) -> PendingVisualScan | None:
         scan_id = str(scan_id or "").strip()
         if not scan_id:
             return None
         with self._state_lock:
             self._prune_pending_visual_scans()
             pending = self._pending_visual_scans.get(scan_id)
+        if pending is not None and owner_user_id is not None and pending.owner_user_id != owner_user_id:
+            print(
+                "[SCAN CACHE] Rejected visual shortlist owner mismatch: "
+                f"scanID={scan_id} "
+                f"owner={owner_user_id} "
+                f"cachedOwner={pending.owner_user_id}"
+            )
+            return None
         if pending is None:
             print(f"[SCAN CACHE] Missed visual shortlist: scanID={scan_id}")
             return None
@@ -413,13 +718,17 @@ class SpotlightScanService:
         )
         return pending
 
-    def _take_pending_visual_scan(self, scan_id: str) -> PendingVisualScan | None:
+    def _take_pending_visual_scan(self, scan_id: str, *, owner_user_id: str | None = None) -> PendingVisualScan | None:
         scan_id = str(scan_id or "").strip()
         if not scan_id:
             return None
         with self._state_lock:
             self._prune_pending_visual_scans()
-            pending = self._pending_visual_scans.pop(scan_id, None)
+            pending = self._pending_visual_scans.get(scan_id)
+            if pending is not None and owner_user_id is not None and pending.owner_user_id != owner_user_id:
+                pending = None
+            elif pending is not None:
+                self._pending_visual_scans.pop(scan_id, None)
         if pending is None:
             print(f"[SCAN CACHE] Missed visual shortlist: scanID={scan_id}")
             return None
@@ -629,17 +938,25 @@ class SpotlightScanService:
         return time_zone, start_date, end_date
 
     def _portfolio_earliest_activity_at(self) -> datetime | None:
+        owner_user_id = self._current_owner_user_id()
         earliest_row = self.connection.execute(
             """
             SELECT MIN(created_at) AS earliest_at
             FROM (
-                SELECT created_at AS created_at FROM deck_entry_events
+                SELECT created_at AS created_at
+                FROM deck_entry_events
+                WHERE owner_user_id = ?
                 UNION ALL
-                SELECT sold_at AS created_at FROM sale_events
+                SELECT sold_at AS created_at
+                FROM sale_events
+                WHERE owner_user_id = ?
                 UNION ALL
-                SELECT added_at AS created_at FROM deck_entries
+                SELECT added_at AS created_at
+                FROM deck_entries
+                WHERE owner_user_id = ?
             )
-            """
+            """,
+            (owner_user_id, owner_user_id, owner_user_id),
         ).fetchone()
         earliest_raw = str(earliest_row["earliest_at"] if earliest_row is not None else "").strip()
         return self._coerce_utc_datetime(earliest_raw)
@@ -2053,6 +2370,7 @@ class SpotlightScanService:
         range_label: str | None = None,
         time_zone_name: str | None = None,
     ) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         normalized_range = str(range_label or "").strip().upper() or None
         earliest_at: datetime | None = None
         if normalized_range in {"7D", "30D", "90D", "1Y", "ALL"}:
@@ -2080,8 +2398,11 @@ class SpotlightScanService:
                 cost_basis_currency_code,
                 added_at
             FROM deck_entries
+            WHERE owner_user_id = ?
             ORDER BY added_at ASC, id ASC
             """
+            ,
+            (owner_user_id,),
         ).fetchall()
         if not entry_rows:
             return {
@@ -2150,8 +2471,11 @@ class SpotlightScanService:
             FROM deck_entry_events
             LEFT JOIN sale_events
                 ON sale_events.id = deck_entry_events.sale_id
+            WHERE deck_entry_events.owner_user_id = ?
             ORDER BY deck_entry_events.created_at ASC, deck_entry_events.id ASC
             """
+            ,
+            (owner_user_id,),
         ).fetchall()
 
         seen_event_entries: set[str] = set()
@@ -2402,6 +2726,7 @@ class SpotlightScanService:
         limit: int = 200,
         offset: int = 0,
     ) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         normalized_range = str(range_label or "").strip().upper() or None
         earliest_at: datetime | None = None
         if normalized_range in {"7D", "30D", "90D", "1Y", "ALL"}:
@@ -2437,11 +2762,12 @@ class SpotlightScanService:
                 deck_entry_events.created_at
             FROM deck_entry_events
             WHERE event_kind = 'buy'
+              AND owner_user_id = ?
               AND created_at >= ?
               AND created_at < ?
             ORDER BY deck_entry_events.created_at DESC, deck_entry_events.id DESC
             """,
-            (start_dt, end_dt),
+            (owner_user_id, start_dt, end_dt),
         ).fetchall()
         sale_rows = self.connection.execute(
             """
@@ -2468,10 +2794,11 @@ class SpotlightScanService:
                 ON deck_entries.id = sale_events.deck_entry_id
             WHERE sold_at >= ?
               AND sold_at < ?
+              AND sale_events.owner_user_id = ?
               AND COALESCE(sale_events.sale_source, 'manual') != 'inventory_adjustment'
             ORDER BY sale_events.sold_at DESC, sale_events.id DESC
             """,
-            (start_dt, end_dt),
+            (start_dt, end_dt, owner_user_id),
         ).fetchall()
         cards_by_id_map = cards_by_ids(
             self.connection,
@@ -2610,6 +2937,7 @@ class SpotlightScanService:
         }
 
     def record_buy(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         card_id = str(payload.get("cardID") or "").strip()
         if not card_id:
             raise ValueError("cardID is required")
@@ -2647,19 +2975,19 @@ class SpotlightScanService:
         source_confirmation_id = str(payload.get("sourceConfirmationID") or "").strip() or None
         if source_scan_id:
             scan_exists = self.connection.execute(
-                "SELECT 1 FROM scan_events WHERE scan_id = ? LIMIT 1",
-                (source_scan_id,),
+                "SELECT 1 FROM scan_events WHERE scan_id = ? AND owner_user_id = ? LIMIT 1",
+                (source_scan_id, owner_user_id),
             ).fetchone() is not None
             if not scan_exists:
-                source_scan_id = None
+                raise FileNotFoundError("source scan not found")
         if source_confirmation_id:
             confirmation_exists = self.connection.execute(
-                "SELECT 1 FROM scan_confirmations WHERE id = ? LIMIT 1",
-                (source_confirmation_id,),
+                "SELECT 1 FROM scan_confirmations WHERE id = ? AND owner_user_id = ? LIMIT 1",
+                (source_confirmation_id, owner_user_id),
             ).fetchone() is not None
             if not confirmation_exists:
-                source_confirmation_id = None
-        deck_entry_id = deck_entry_storage_key(
+                raise FileNotFoundError("source confirmation not found")
+        identity_key = deck_entry_storage_key(
             card_id=card_id,
             grader=grader,
             grade=grade,
@@ -2670,11 +2998,12 @@ class SpotlightScanService:
 
         try:
             inserted = self.connection.execute(
-                "SELECT 1 FROM deck_entries WHERE id = ? LIMIT 1",
-                (deck_entry_id,),
+                "SELECT 1 FROM deck_entries WHERE owner_user_id = ? AND identity_key = ? LIMIT 1",
+                (owner_user_id, identity_key),
             ).fetchone() is None
             deck_entry_id = upsert_deck_entry(
                 self.connection,
+                owner_user_id=owner_user_id,
                 card_id=card_id,
                 grader=grader,
                 grade=grade,
@@ -2707,6 +3036,7 @@ class SpotlightScanService:
         }
 
     def replace_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         previous_deck_entry_id = str(payload.get("deckEntryID") or "").strip()
         if not previous_deck_entry_id:
             raise ValueError("deckEntryID is required")
@@ -2744,24 +3074,17 @@ class SpotlightScanService:
         currency_code = str(payload.get("currencyCode") or "").strip() or "USD"
         updated_at = str(payload.get("updatedAt") or utc_now()).strip() or utc_now()
 
-        existing_row = self.connection.execute(
-            """
-            SELECT id, card_id, quantity, condition, grader, grade, cert_number, variant_name,
-                   source_scan_id, source_confirmation_id
-            FROM deck_entries
-            WHERE id = ?
-            LIMIT 1
-            """,
-            (previous_deck_entry_id,),
-        ).fetchone()
+        existing_row = self._owned_deck_entry_row_by_reference(previous_deck_entry_id)
         if existing_row is None:
             raise FileNotFoundError("deck entry not found")
+        previous_deck_entry_id = str(existing_row["id"] or "").strip()
 
         existing_card_id = str(existing_row["card_id"] or "").strip()
         if existing_card_id and existing_card_id != card_id:
             raise ValueError("cardID does not match the deck entry")
 
-        next_deck_entry_id = deck_entry_storage_key(
+        existing_identity_key = str(existing_row["identity_key"] or "").strip()
+        next_identity_key = deck_entry_storage_key(
             card_id=card_id,
             grader=grader,
             grade=grade,
@@ -2770,9 +3093,10 @@ class SpotlightScanService:
             condition=condition,
         )
         existing_quantity = max(0, int(existing_row["quantity"] or 0))
+        next_deck_entry_id = previous_deck_entry_id
 
         try:
-            if next_deck_entry_id == previous_deck_entry_id:
+            if next_identity_key == existing_identity_key:
                 self.connection.execute(
                     """
                     UPDATE deck_entries
@@ -2802,6 +3126,7 @@ class SpotlightScanService:
                 )
                 append_deck_entry_event(
                     self.connection,
+                    owner_user_id=owner_user_id,
                     deck_entry_id=previous_deck_entry_id,
                     card_id=card_id,
                     event_kind="replace",
@@ -2817,8 +3142,9 @@ class SpotlightScanService:
                     created_at=updated_at,
                 )
             else:
-                upsert_deck_entry(
+                next_deck_entry_id = upsert_deck_entry(
                     self.connection,
+                    owner_user_id=owner_user_id,
                     card_id=card_id,
                     grader=grader,
                     grade=grade,
@@ -2841,11 +3167,13 @@ class SpotlightScanService:
                         cost_basis_total = 0,
                         updated_at = ?
                     WHERE id = ?
+                      AND owner_user_id = ?
                     """,
-                    (updated_at, previous_deck_entry_id),
+                    (updated_at, previous_deck_entry_id, owner_user_id),
                 )
                 append_deck_entry_event(
                     self.connection,
+                    owner_user_id=owner_user_id,
                     deck_entry_id=previous_deck_entry_id,
                     card_id=card_id,
                     event_kind="replace_out",
@@ -2875,7 +3203,7 @@ class SpotlightScanService:
         }
 
     def preview_portfolio_import(self, payload: dict[str, Any]) -> dict[str, Any]:
-        return preview_portfolio_import(self.connection, payload)
+        return preview_portfolio_import(self.connection, payload, owner_user_id=self._current_owner_user_id())
 
     def portfolio_import_job(
         self,
@@ -2888,43 +3216,40 @@ class SpotlightScanService:
         return get_portfolio_import_job(
             self.connection,
             job_id,
+            owner_user_id=self._current_owner_user_id(),
             status_filter=status_filter,
             limit=limit,
             offset=offset,
         )
 
     def resolve_portfolio_import(self, job_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-        return resolve_portfolio_import(self.connection, job_id, payload)
+        return resolve_portfolio_import(self.connection, job_id, payload, owner_user_id=self._current_owner_user_id())
 
     def commit_portfolio_import(self, job_id: str) -> dict[str, Any]:
-        return commit_portfolio_import(self.connection, job_id)
+        return commit_portfolio_import(self.connection, job_id, owner_user_id=self._current_owner_user_id())
 
     def _record_sale_without_commit(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         deck_entry_id = str(payload.get("deckEntryID") or "").strip()
         card_id = str(payload.get("cardID") or "").strip()
         slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
         if not deck_entry_id:
             if not card_id:
                 raise ValueError("deckEntryID or cardID is required")
-            deck_entry_id = deck_entry_storage_key(
+            deck_entry_id = self._resolve_owned_deck_entry_id(
                 card_id=card_id,
                 grader=str(slab_context.get("grader") or "").strip() or None,
                 grade=str(slab_context.get("grade") or "").strip() or None,
                 cert_number=str(slab_context.get("certNumber") or "").strip() or None,
                 variant_name=str(slab_context.get("variantName") or "").strip() or None,
             )
+            if not deck_entry_id:
+                raise FileNotFoundError("deck entry not found")
 
-        row = self.connection.execute(
-            """
-            SELECT id, card_id, quantity, item_kind, grader, grade, cert_number, variant_name, condition
-            FROM deck_entries
-            WHERE id = ?
-            LIMIT 1
-            """,
-            (deck_entry_id,),
-        ).fetchone()
+        row = self._owned_deck_entry_row_by_reference(deck_entry_id)
         if row is None:
             raise FileNotFoundError("deck entry not found")
+        deck_entry_id = str(row["id"] or "").strip()
 
         resolved_card_id = str(row["card_id"] or "").strip()
         if card_id and resolved_card_id and card_id != resolved_card_id:
@@ -2961,8 +3286,23 @@ class SpotlightScanService:
 
         source_scan_id = str(payload.get("sourceScanID") or "").strip() or None
         source_confirmation_id = str(payload.get("sourceConfirmationID") or "").strip() or None
+        if source_scan_id:
+            scan_row = self.connection.execute(
+                "SELECT 1 FROM scan_events WHERE scan_id = ? AND owner_user_id = ? LIMIT 1",
+                (source_scan_id, owner_user_id),
+            ).fetchone()
+            if scan_row is None:
+                raise FileNotFoundError("scan event not found")
+        if source_confirmation_id:
+            confirmation_row = self.connection.execute(
+                "SELECT 1 FROM scan_confirmations WHERE id = ? AND owner_user_id = ? LIMIT 1",
+                (source_confirmation_id, owner_user_id),
+            ).fetchone()
+            if confirmation_row is None:
+                raise FileNotFoundError("scan confirmation not found")
         sale_id = record_sale_event(
             self.connection,
+            owner_user_id=owner_user_id,
             deck_entry_id=deck_entry_id,
             card_id=card_id,
             quantity=quantity,
@@ -2979,8 +3319,8 @@ class SpotlightScanService:
         if sale_id is None:
             raise RuntimeError("sale events table not available")
         remaining_row = self.connection.execute(
-            "SELECT quantity FROM deck_entries WHERE id = ? LIMIT 1",
-            (deck_entry_id,),
+            "SELECT quantity FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            (deck_entry_id, owner_user_id),
         ).fetchone()
         return {
             "saleID": sale_id,
@@ -5343,7 +5683,7 @@ class SpotlightScanService:
             response["matcherSource"] = "visualIndex"
             self._finalize_scan_response(payload, response, [])
             return response
-        response, _, _ = self._build_raw_visual_only_response(
+        response, scored_candidates, _ = self._build_raw_visual_only_response(
             payload,
             matches=matches,
             debug=debug,
@@ -5609,6 +5949,7 @@ class SpotlightScanService:
             response["matcherSource"] = "visualIndex"
             response["isProvisional"] = True
             response["matchingStage"] = "visual"
+            self._finalize_scan_response(payload, response, [])
             self._log_scrydex_match_usage(
                 scan_id,
                 before_total=scrydex_before_total,
@@ -5617,7 +5958,7 @@ class SpotlightScanService:
             )
             return response
 
-        response, _, _ = self._build_raw_visual_only_response(
+        response, scored_candidates, _ = self._build_raw_visual_only_response(
             payload,
             matches=matches,
             debug=debug,
@@ -5633,6 +5974,7 @@ class SpotlightScanService:
             requested_top_k=10,
             visual_match_ms=visual_match_ms,
         )
+        self._finalize_scan_response(payload, response, scored_candidates)
         print(
             "[SCAN CACHE] Visual phase ready for rerank: "
             f"scanID={scan_id} "
@@ -5657,9 +5999,10 @@ class SpotlightScanService:
         self._emit_structured_log(self._scan_request_log_payload(payload))
         scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
         scan_id = str(payload.get("scanID") or "")
+        owner_user_id = self._current_owner_user_id()
         match_started = perf_counter()
         cache_lookup_started_at = perf_counter()
-        pending = self._take_pending_visual_scan(scan_id)
+        pending = self._take_pending_visual_scan(scan_id, owner_user_id=owner_user_id)
         cache_lookup_ms = (perf_counter() - cache_lookup_started_at) * 1000.0
         if pending is None:
             image_payload = payload.get("image") if isinstance(payload.get("image"), dict) else {}
@@ -6476,6 +6819,7 @@ class SpotlightScanService:
         return response
 
     def log_feedback(self, payload: dict[str, Any]) -> None:
+        owner_user_id = self._current_owner_user_id()
         existing_event = self.connection.execute(
             """
             SELECT
@@ -6499,10 +6843,13 @@ class SpotlightScanService:
                 confirmed_at
             FROM scan_events
             WHERE scan_id = ?
+              AND owner_user_id = ?
             LIMIT 1
             """,
-            (payload["scanID"],),
+            (payload["scanID"], owner_user_id),
         ).fetchone()
+        if existing_event is None:
+            raise FileNotFoundError("scan event not found")
 
         request_payload = json.loads(existing_event["request_json"] or "{}") if existing_event else {}
         response_payload = json.loads(existing_event["response_json"] or "{}") if existing_event else {}
@@ -6530,6 +6877,7 @@ class SpotlightScanService:
         upsert_scan_event(
             self.connection,
             scan_id=payload["scanID"],
+            owner_user_id=owner_user_id,
             request_payload=request_payload,
             response_payload=response_payload,
             matcher_source=(response_payload.get("matcherSource") or (existing_event["matcher_source"] if existing_event else None) or "remoteHybrid"),
@@ -6616,6 +6964,564 @@ class SpotlightScanService:
         return None
 
     @staticmethod
+    def _selected_card_summary(card: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "id": card.get("id"),
+            "name": card.get("name"),
+            "setName": card.get("setName"),
+            "number": card.get("number"),
+            "imageURL": card.get("imageURL"),
+            "imageSmallURL": card.get("imageSmallURL"),
+        }
+
+    @staticmethod
+    def _json_object_payload(payload: dict[str, Any], field_name: str) -> dict[str, Any]:
+        value = payload.get(field_name)
+        if value is None:
+            return {}
+        if not isinstance(value, dict):
+            raise ValueError(f"{field_name} must be an object")
+        return value
+
+    @staticmethod
+    def _json_load_object(value: Any) -> dict[str, Any]:
+        if isinstance(value, dict):
+            return value
+        try:
+            decoded = json.loads(str(value or "{}"))
+        except json.JSONDecodeError:
+            return {}
+        return decoded if isinstance(decoded, dict) else {}
+
+    @staticmethod
+    def _json_dump_object(value: dict[str, Any]) -> str:
+        return json.dumps(value or {}, separators=(",", ":"), sort_keys=True)
+
+    @staticmethod
+    def _required_non_negative_int(payload: dict[str, Any], field_name: str) -> int:
+        value = payload.get(field_name)
+        if isinstance(value, bool) or value is None:
+            raise ValueError(f"{field_name} is required")
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field_name} must be an integer") from exc
+        if parsed < 0:
+            raise ValueError(f"{field_name} must be non-negative")
+        return parsed
+
+    @staticmethod
+    def _optional_float(payload: dict[str, Any], field_name: str) -> float | None:
+        if field_name not in payload:
+            return None
+        value = payload.get(field_name)
+        if value is None or value == "":
+            return None
+        if isinstance(value, bool):
+            raise ValueError(f"{field_name} must be a number")
+        try:
+            return float(value)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(f"{field_name} must be a number") from exc
+
+    def _labeling_session_row(self, session_id: str) -> sqlite3.Row | None:
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM labeling_sessions
+            WHERE session_id = ?
+            LIMIT 1
+            """,
+            (session_id,),
+        ).fetchone()
+
+    def _labeling_session_artifact_count(self, session_id: str) -> int:
+        row = self.connection.execute(
+            """
+            SELECT COUNT(*) AS count
+            FROM labeling_session_artifacts
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        ).fetchone()
+        return int(row["count"] or 0) if row is not None else 0
+
+    def _labeling_session_payload(
+        self,
+        row: sqlite3.Row,
+        *,
+        artifact_count: int | None = None,
+    ) -> dict[str, Any]:
+        selected_card = self._json_load_object(row["selected_card_json"])
+        return {
+            "sessionID": row["session_id"],
+            "labelerUserID": str(row["labeler_user_id"] or "").strip() or None,
+            "cardID": row["card_id"],
+            "providerCardID": str(row["provider_card_id"] or "").strip() or str(row["card_id"] or "").strip(),
+            "status": row["status"],
+            "tierAssignment": _normalize_labeling_tier(row["tier_assignment"]),
+            "routedBatchID": str(row["routed_batch_id"] or "").strip() or None,
+            "firstCaptureScanID": str(row["first_capture_scan_id"] or "").strip() or None,
+            "selectedCard": selected_card if selected_card else None,
+            "artifactCount": (
+                self._labeling_session_artifact_count(str(row["session_id"]))
+                if artifact_count is None
+                else artifact_count
+            ),
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+            "completedAt": row["completed_at"],
+            "abortedAt": row["aborted_at"],
+            "abortReason": row["abort_reason"],
+        }
+
+    def _labeling_session_artifact_payload(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "artifactID": row["id"],
+            "sessionID": row["session_id"],
+            "cardID": row["card_id"],
+            "scanID": str(row["scan_id"] or "").strip() or None,
+            "angleIndex": row["angle_index"],
+            "angleLabel": row["angle_label"],
+            "datasetRole": _normalize_labeling_tier(row["dataset_role"]),
+            "sourceObjectPath": row["source_object_path"],
+            "normalizedObjectPath": row["normalized_object_path"],
+            "sourceWidth": row["source_width"],
+            "sourceHeight": row["source_height"],
+            "normalizedWidth": row["normalized_width"],
+            "normalizedHeight": row["normalized_height"],
+            "nativeMetadata": self._json_load_object(row["native_metadata_json"]),
+            "cropMetadata": self._json_load_object(row["crop_metadata_json"]),
+            "normalizationMetadata": self._json_load_object(row["normalization_metadata_json"]),
+            "sourceBranch": row["source_branch"],
+            "pixelsPerCardHeight": row["pixels_per_card_height"],
+            "processingMs": row["processing_ms"],
+            "scannerFrontHalfVersion": row["scanner_front_half_version"],
+            "submittedAt": row["submitted_at"],
+            "createdAt": row["created_at"],
+            "updatedAt": row["updated_at"],
+        }
+
+    def create_labeling_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        card_id = str(payload.get("cardID") or "").strip()
+        if not card_id:
+            raise ValueError("cardID is required")
+
+        card = card_by_id(self.connection, card_id)
+        if card is None:
+            raise FileNotFoundError("card not found")
+
+        session_id = str(payload.get("sessionID") or "").strip() or f"labeling-session:{uuid.uuid4().hex}"
+        if "/" in session_id:
+            raise ValueError("sessionID cannot contain /")
+
+        selected_card = payload.get("selectedCard")
+        if selected_card is None:
+            selected_card = self._selected_card_summary(card)
+        elif not isinstance(selected_card, dict):
+            raise ValueError("selectedCard must be an object")
+
+        existing = self._labeling_session_row(session_id)
+        if existing is not None:
+            self._assert_labeling_session_owner(existing, owner_user_id)
+            if str(existing["card_id"] or "").strip() != card_id:
+                raise ValueError("sessionID already exists for another cardID")
+            return self._labeling_session_payload(existing)
+
+        created_at = str(payload.get("createdAt") or utc_now()).strip() or utc_now()
+        provider_card_id = card_id
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO labeling_sessions (
+                    session_id, labeler_user_id, card_id, provider_card_id, status,
+                    selected_card_json, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, 'capturing', ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    owner_user_id,
+                    card_id,
+                    provider_card_id,
+                    self._json_dump_object(selected_card),
+                    created_at,
+                    created_at,
+                ),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        row = self._labeling_session_row(session_id)
+        if row is None:
+            raise RuntimeError("labeling session was not persisted")
+        return self._labeling_session_payload(row, artifact_count=0)
+
+    def store_labeling_session_artifact(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("sessionID is required")
+
+        session_row = self._labeling_session_row(normalized_session_id)
+        if session_row is None:
+            raise FileNotFoundError("labeling session not found")
+        self._assert_labeling_session_owner(session_row, owner_user_id)
+        if str(session_row["status"] or "") != "capturing":
+            raise ValueError("labeling session is not capturing")
+
+        angle_index = self._required_non_negative_int(payload, "angleIndex")
+        if angle_index < 1 or angle_index > LABELING_SESSION_REQUIRED_ANGLE_COUNT:
+            raise ValueError(f"angleIndex must be between 1 and {LABELING_SESSION_REQUIRED_ANGLE_COUNT}")
+        angle_label = str(payload.get("angleLabel") or "").strip()
+        if not angle_label:
+            raise ValueError("angleLabel is required")
+
+        source_bytes, source_width, source_height = self._decode_scan_image_payload(payload, field_name="sourceImage")
+        normalized_bytes, normalized_width, normalized_height = self._decode_scan_image_payload(payload, field_name="normalizedImage")
+        submitted_at = str(payload.get("submittedAt") or utc_now()).strip() or utc_now()
+        card_id = str(session_row["card_id"] or "").strip()
+        existing_artifact_row = self.connection.execute(
+            """
+            SELECT *
+            FROM labeling_session_artifacts
+            WHERE session_id = ? AND angle_index = ?
+            LIMIT 1
+            """,
+            (normalized_session_id, angle_index),
+        ).fetchone()
+        artifact_id = (
+            str(existing_artifact_row["id"] or "").strip()
+            if existing_artifact_row is not None
+            else f"labeling-artifact:{uuid.uuid4().hex}"
+        )
+        scan_id = (
+            str(existing_artifact_row["scan_id"] or "").strip()
+            if existing_artifact_row is not None and str(existing_artifact_row["scan_id"] or "").strip()
+            else self._labeling_scan_id(normalized_session_id, angle_index)
+        )
+
+        native_metadata = self._json_object_payload(payload, "nativeMetadata")
+        if not native_metadata:
+            native_metadata = {
+                "sourceWidth": self._optional_float(payload, "nativeSourceWidth"),
+                "sourceHeight": self._optional_float(payload, "nativeSourceHeight"),
+            }
+        crop_metadata = self._json_object_payload(payload, "cropMetadata")
+        if not crop_metadata:
+            crop_metadata = {
+                "x": self._optional_float(payload, "cropX"),
+                "y": self._optional_float(payload, "cropY"),
+                "width": self._optional_float(payload, "cropWidth"),
+                "height": self._optional_float(payload, "cropHeight"),
+            }
+        normalization_metadata = self._json_object_payload(payload, "normalizationMetadata")
+        if not normalization_metadata:
+            normalization_metadata = {
+                "rotationDegrees": self._optional_float(payload, "normalizationRotationDegrees"),
+                "reason": str(payload.get("normalizationReason") or "").strip() or None,
+            }
+
+        try:
+            stored = self.artifact_store.store_labeling_session_artifact(
+                session_id=normalized_session_id,
+                angle_index=angle_index,
+                angle_label=angle_label,
+                source_bytes=source_bytes,
+                normalized_bytes=normalized_bytes,
+            )
+            upsert_scan_event(
+                self.connection,
+                scan_id=scan_id,
+                owner_user_id=owner_user_id,
+                request_payload={
+                    "sourceType": "labeling_session",
+                    "labelingSessionID": normalized_session_id,
+                    "angleIndex": angle_index,
+                    "angleLabel": angle_label,
+                    "cardID": card_id,
+                },
+                response_payload={
+                    "labelingSessionID": normalized_session_id,
+                    "selectedCardID": card_id,
+                    "providerCardID": str(session_row["provider_card_id"] or "").strip() or card_id,
+                },
+                matcher_source="labeling_session",
+                matcher_version="labeling-session-v1",
+                created_at=submitted_at,
+                selected_card_id=card_id,
+                selection_source="labeling_session",
+                resolver_mode="labeling_session",
+                resolver_path="labeling_session",
+                completed_at=submitted_at,
+            )
+            upsert_scan_artifact(
+                self.connection,
+                scan_id=scan_id,
+                owner_user_id=owner_user_id,
+                source_object_path=stored.source_object_path,
+                normalized_object_path=stored.normalized_object_path,
+                source_width=source_width,
+                source_height=source_height,
+                normalized_width=normalized_width,
+                normalized_height=normalized_height,
+                camera_zoom_factor=float(payload["cameraZoomFactor"]) if isinstance(payload.get("cameraZoomFactor"), (int, float)) else None,
+                capture_source="labeling_session",
+                uploaded_at=submitted_at,
+                created_at=submitted_at,
+            )
+            self.connection.execute(
+                """
+                INSERT INTO labeling_session_artifacts (
+                    id, session_id, card_id, scan_id, angle_index, angle_label, dataset_role,
+                    source_object_path, normalized_object_path,
+                    source_width, source_height, normalized_width, normalized_height,
+                    native_metadata_json, crop_metadata_json, normalization_metadata_json,
+                    source_branch, pixels_per_card_height, processing_ms,
+                    scanner_front_half_version, submitted_at, created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(session_id, angle_index) DO UPDATE SET
+                    card_id=excluded.card_id,
+                    scan_id=excluded.scan_id,
+                    angle_label=excluded.angle_label,
+                    dataset_role=excluded.dataset_role,
+                    source_object_path=excluded.source_object_path,
+                    normalized_object_path=excluded.normalized_object_path,
+                    source_width=excluded.source_width,
+                    source_height=excluded.source_height,
+                    normalized_width=excluded.normalized_width,
+                    normalized_height=excluded.normalized_height,
+                    native_metadata_json=excluded.native_metadata_json,
+                    crop_metadata_json=excluded.crop_metadata_json,
+                    normalization_metadata_json=excluded.normalization_metadata_json,
+                    source_branch=excluded.source_branch,
+                    pixels_per_card_height=excluded.pixels_per_card_height,
+                    processing_ms=excluded.processing_ms,
+                    scanner_front_half_version=excluded.scanner_front_half_version,
+                    submitted_at=excluded.submitted_at,
+                    updated_at=excluded.updated_at
+                """,
+                (
+                    artifact_id,
+                    normalized_session_id,
+                    card_id,
+                    scan_id,
+                    angle_index,
+                    angle_label,
+                    _normalize_labeling_tier(existing_artifact_row["dataset_role"]) if existing_artifact_row is not None else None,
+                    stored.source_object_path,
+                    stored.normalized_object_path,
+                    source_width,
+                    source_height,
+                    normalized_width,
+                    normalized_height,
+                    self._json_dump_object(native_metadata),
+                    self._json_dump_object(crop_metadata),
+                    self._json_dump_object(normalization_metadata),
+                    str(payload.get("sourceBranch") or "").strip() or None,
+                    self._optional_float(payload, "pixelsPerCardHeight"),
+                    self._optional_float(payload, "processingMs"),
+                    str(payload.get("scannerFrontHalfVersion") or "").strip() or None,
+                    submitted_at,
+                    submitted_at,
+                    submitted_at,
+                ),
+            )
+            self.connection.execute(
+                """
+                UPDATE labeling_sessions
+                SET updated_at = ?,
+                    first_capture_scan_id = COALESCE(first_capture_scan_id, ?)
+                WHERE session_id = ?
+                """,
+                (submitted_at, scan_id, normalized_session_id),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        row = self.connection.execute(
+            """
+            SELECT *
+            FROM labeling_session_artifacts
+            WHERE session_id = ? AND angle_index = ?
+            LIMIT 1
+            """,
+            (normalized_session_id, angle_index),
+        ).fetchone()
+        if row is None:
+            raise RuntimeError("labeling session artifact was not persisted")
+        return self._labeling_session_artifact_payload(row)
+
+    def complete_labeling_session(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("sessionID is required")
+
+        session_row = self._labeling_session_row(normalized_session_id)
+        if session_row is None:
+            raise FileNotFoundError("labeling session not found")
+        self._assert_labeling_session_owner(session_row, owner_user_id)
+
+        status = str(session_row["status"] or "")
+        if status == "aborted":
+            raise ValueError("labeling session already aborted")
+
+        artifact_count = self._labeling_session_artifact_count(normalized_session_id)
+        if artifact_count < LABELING_SESSION_REQUIRED_ANGLE_COUNT:
+            raise ValueError(
+                f"labeling session requires {LABELING_SESSION_REQUIRED_ANGLE_COUNT} artifacts"
+            )
+
+        provider_card_id = str(session_row["provider_card_id"] or "").strip() or str(session_row["card_id"] or "").strip()
+        first_capture_scan_id = str(session_row["first_capture_scan_id"] or "").strip()
+        if not first_capture_scan_id:
+            first_capture_row = self.connection.execute(
+                """
+                SELECT scan_id
+                FROM labeling_session_artifacts
+                WHERE session_id = ? AND scan_id IS NOT NULL AND TRIM(scan_id) <> ''
+                ORDER BY angle_index ASC, submitted_at ASC
+                LIMIT 1
+                """,
+                (normalized_session_id,),
+            ).fetchone()
+            first_capture_scan_id = str(first_capture_row["scan_id"] or "").strip() if first_capture_row is not None else ""
+        if not first_capture_scan_id:
+            raise ValueError("labeling session requires linked scan artifacts")
+
+        tier_assignment, routed_batch_id = self._route_labeling_provider_card(
+            provider_card_id=provider_card_id,
+            first_scan_id=first_capture_scan_id,
+            labeling_session_id=normalized_session_id,
+            source_type="labeling_session",
+        )
+        completed_at = str(payload.get("completedAt") or payload.get("submittedAt") or utc_now()).strip() or utc_now()
+        try:
+            scan_rows = self.connection.execute(
+                """
+                SELECT scan_id
+                FROM labeling_session_artifacts
+                WHERE session_id = ? AND scan_id IS NOT NULL AND TRIM(scan_id) <> ''
+                ORDER BY angle_index ASC
+                """,
+                (normalized_session_id,),
+            ).fetchall()
+            for scan_row in scan_rows:
+                linked_scan_id = str(scan_row["scan_id"] or "").strip()
+                if not linked_scan_id:
+                    continue
+                upsert_scan_event(
+                    self.connection,
+                    scan_id=linked_scan_id,
+                    owner_user_id=owner_user_id,
+                    request_payload={
+                        "sourceType": "labeling_session",
+                        "labelingSessionID": normalized_session_id,
+                        "cardID": str(session_row["card_id"] or "").strip(),
+                    },
+                    response_payload={
+                        "labelingSessionID": normalized_session_id,
+                        "selectedCardID": str(session_row["card_id"] or "").strip(),
+                        "providerCardID": provider_card_id,
+                        "tierAssignment": tier_assignment,
+                    },
+                    matcher_source="labeling_session",
+                    matcher_version="labeling-session-v1",
+                    created_at=completed_at,
+                    selected_card_id=str(session_row["card_id"] or "").strip(),
+                    selection_source="labeling_session",
+                    confirmed_card_id=str(session_row["card_id"] or "").strip(),
+                    confirmation_source="labeling_session",
+                    resolver_mode="labeling_session",
+                    resolver_path="labeling_session",
+                    completed_at=completed_at,
+                    confirmed_at=completed_at,
+                )
+
+            self.connection.execute(
+                """
+                UPDATE labeling_session_artifacts
+                SET dataset_role = ?, updated_at = ?
+                WHERE session_id = ?
+                """,
+                (tier_assignment, completed_at, normalized_session_id),
+            )
+            self.connection.execute(
+                """
+                UPDATE labeling_sessions
+                SET status = 'completed',
+                    provider_card_id = ?,
+                    tier_assignment = ?,
+                    routed_batch_id = ?,
+                    first_capture_scan_id = COALESCE(first_capture_scan_id, ?),
+                    completed_at = COALESCE(completed_at, ?),
+                    updated_at = ?
+                WHERE session_id = ?
+                """,
+                (
+                    provider_card_id,
+                    tier_assignment,
+                    routed_batch_id,
+                    first_capture_scan_id,
+                    completed_at,
+                    completed_at,
+                    normalized_session_id,
+                ),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        session_row = self._labeling_session_row(normalized_session_id)
+        if session_row is None:
+            raise RuntimeError("labeling session was not persisted")
+
+        return self._labeling_session_payload(session_row, artifact_count=artifact_count)
+
+    def abort_labeling_session(self, session_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        normalized_session_id = str(session_id or "").strip()
+        if not normalized_session_id:
+            raise ValueError("sessionID is required")
+
+        session_row = self._labeling_session_row(normalized_session_id)
+        if session_row is None:
+            raise FileNotFoundError("labeling session not found")
+        self._assert_labeling_session_owner(session_row, owner_user_id)
+
+        status = str(session_row["status"] or "")
+        if status == "completed":
+            raise ValueError("labeling session already completed")
+        if status != "aborted":
+            aborted_at = str(payload.get("abortedAt") or payload.get("submittedAt") or utc_now()).strip() or utc_now()
+            abort_reason = str(payload.get("abortReason") or payload.get("reason") or "").strip() or None
+            try:
+                self.connection.execute(
+                    """
+                    UPDATE labeling_sessions
+                    SET status = 'aborted', aborted_at = ?, abort_reason = ?, updated_at = ?
+                    WHERE session_id = ?
+                    """,
+                    (aborted_at, abort_reason, aborted_at, normalized_session_id),
+                )
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
+            session_row = self._labeling_session_row(normalized_session_id)
+            if session_row is None:
+                raise RuntimeError("labeling session was not persisted")
+
+        return self._labeling_session_payload(session_row)
+
+    @staticmethod
     def _decode_scan_image_payload(payload: dict[str, Any], *, field_name: str) -> tuple[bytes, int | None, int | None]:
         image_payload = payload.get(field_name)
         if not isinstance(image_payload, dict):
@@ -6634,13 +7540,14 @@ class SpotlightScanService:
         return raw_bytes, width, height
 
     def store_scan_artifacts(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         scan_id = str(payload.get("scanID") or "").strip()
         if not scan_id:
             raise ValueError("scanID is required")
 
         scan_row = self.connection.execute(
-            "SELECT scan_id FROM scan_events WHERE scan_id = ? LIMIT 1",
-            (scan_id,),
+            "SELECT scan_id FROM scan_events WHERE scan_id = ? AND owner_user_id = ? LIMIT 1",
+            (scan_id, owner_user_id),
         ).fetchone()
         if scan_row is None:
             raise FileNotFoundError("scan event not found")
@@ -6675,6 +7582,7 @@ class SpotlightScanService:
             upsert_scan_artifact(
                 self.connection,
                 scan_id=scan_id,
+                owner_user_id=owner_user_id,
                 source_object_path=stored.source_object_path,
                 normalized_object_path=stored.normalized_object_path,
                 source_width=source_width,
@@ -6700,6 +7608,7 @@ class SpotlightScanService:
         }
 
     def create_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         card_id = str(payload.get("cardID") or "").strip()
         if not card_id:
             raise ValueError("cardID is required")
@@ -6715,12 +7624,13 @@ class SpotlightScanService:
                        predicted_card_id
                 FROM scan_events
                 WHERE scan_id = ?
+                  AND owner_user_id = ?
                 LIMIT 1
                 """,
-                (scan_id,),
+                (scan_id, owner_user_id),
             ).fetchone()
             if existing_event is None:
-                scan_id = None
+                raise FileNotFoundError("scan event not found")
 
         slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
         grader = str(slab_context.get("grader") or "").strip() or None
@@ -6746,6 +7656,7 @@ class SpotlightScanService:
         try:
             deck_entry_id = upsert_deck_entry(
                 self.connection,
+                owner_user_id=owner_user_id,
                 card_id=card_id,
                 grader=grader,
                 grade=grade,
@@ -6763,6 +7674,7 @@ class SpotlightScanService:
                 confirmation_id = upsert_scan_confirmation(
                     self.connection,
                     scan_id=scan_id,
+                    owner_user_id=owner_user_id,
                     confirmed_card_id=card_id,
                     confirmation_source=confirmation_source,
                     selected_rank=selected_rank,
@@ -6788,6 +7700,7 @@ class SpotlightScanService:
                 upsert_scan_event(
                     self.connection,
                     scan_id=scan_id,
+                    owner_user_id=owner_user_id,
                     request_payload=request_payload,
                     response_payload=response_payload,
                     matcher_source=str(existing_event["matcher_source"] or "remoteHybrid"),
@@ -6825,6 +7738,7 @@ class SpotlightScanService:
         }
 
     def update_deck_entry_condition(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         card_id = str(payload.get("cardID") or "").strip()
         if not card_id:
             raise ValueError("cardID is required")
@@ -6840,18 +7754,20 @@ class SpotlightScanService:
         grade = str(slab_context.get("grade") or "").strip() or None
         cert_number = str(slab_context.get("certNumber") or "").strip() or None
         variant_name = str(slab_context.get("variantName") or "").strip() or None
-        deck_entry_id = deck_entry_storage_key(
+        deck_entry_id = self._resolve_owned_deck_entry_id(
             card_id=card_id,
             grader=grader,
             grade=grade,
             cert_number=cert_number,
             variant_name=variant_name,
         )
+        if not deck_entry_id:
+            raise FileNotFoundError("deck entry not found")
 
         updated_at = str(payload.get("updatedAt") or utc_now()).strip() or utc_now()
         row = self.connection.execute(
-            "SELECT id FROM deck_entries WHERE id = ? LIMIT 1",
-            (deck_entry_id,),
+            "SELECT id FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            (deck_entry_id, owner_user_id),
         ).fetchone()
         if row is None:
             raise FileNotFoundError("deck entry not found")
@@ -6861,11 +7777,13 @@ class SpotlightScanService:
             UPDATE deck_entries
             SET condition = ?, updated_at = ?
             WHERE id = ?
+              AND owner_user_id = ?
             """,
-            (condition, updated_at, deck_entry_id),
+            (condition, updated_at, deck_entry_id, owner_user_id),
         )
         append_deck_entry_event(
             self.connection,
+            owner_user_id=owner_user_id,
             deck_entry_id=deck_entry_id,
             card_id=card_id,
             event_kind="condition",
@@ -6886,6 +7804,7 @@ class SpotlightScanService:
         }
 
     def update_deck_entry_purchase_price(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         card_id = str(payload.get("cardID") or "").strip()
         if not card_id:
             raise ValueError("cardID is required")
@@ -6905,13 +7824,15 @@ class SpotlightScanService:
         grade = str(slab_context.get("grade") or "").strip() or None
         cert_number = str(slab_context.get("certNumber") or "").strip() or None
         variant_name = str(slab_context.get("variantName") or "").strip() or None
-        deck_entry_id = deck_entry_storage_key(
+        deck_entry_id = self._resolve_owned_deck_entry_id(
             card_id=card_id,
             grader=grader,
             grade=grade,
             cert_number=cert_number,
             variant_name=variant_name,
         )
+        if not deck_entry_id:
+            raise FileNotFoundError("deck entry not found")
 
         updated_at = str(payload.get("updatedAt") or utc_now()).strip() or utc_now()
         currency_code = str(payload.get("currencyCode") or "").strip() or "USD"
@@ -6921,9 +7842,10 @@ class SpotlightScanService:
             SELECT quantity, condition, grader, grade, cert_number, variant_name
             FROM deck_entries
             WHERE id = ?
+              AND owner_user_id = ?
             LIMIT 1
             """,
-            (deck_entry_id,),
+            (deck_entry_id, owner_user_id),
         ).fetchone()
         if row is None:
             raise FileNotFoundError("deck entry not found")
@@ -6936,11 +7858,13 @@ class SpotlightScanService:
             UPDATE deck_entries
             SET cost_basis_total = ?, cost_basis_currency_code = ?, updated_at = ?
             WHERE id = ?
+              AND owner_user_id = ?
             """,
-            (cost_basis_total, currency_code, updated_at, deck_entry_id),
+            (cost_basis_total, currency_code, updated_at, deck_entry_id, owner_user_id),
         )
         append_deck_entry_event(
             self.connection,
+            owner_user_id=owner_user_id,
             deck_entry_id=deck_entry_id,
             card_id=card_id,
             event_kind="cost_basis",
@@ -7029,6 +7953,7 @@ class SpotlightScanService:
         return remaining_cost_basis_total
 
     def update_portfolio_buy_price(self, transaction_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         normalized_transaction_id = str(transaction_id or "").strip()
         if not normalized_transaction_id:
             raise ValueError("transactionID is required")
@@ -7052,9 +7977,10 @@ class SpotlightScanService:
             FROM deck_entry_events
             WHERE id = ?
               AND event_kind = 'buy'
+              AND owner_user_id = ?
             LIMIT 1
             """,
-            (normalized_transaction_id,),
+            (normalized_transaction_id, owner_user_id),
         ).fetchone()
         if row is None:
             raise FileNotFoundError("buy transaction not found")
@@ -7071,8 +7997,9 @@ class SpotlightScanService:
             UPDATE deck_entry_events
             SET unit_price = ?, total_price = ?, currency_code = ?
             WHERE id = ?
+              AND owner_user_id = ?
             """,
-            (unit_price, total_price, currency_code, normalized_transaction_id),
+            (unit_price, total_price, currency_code, normalized_transaction_id, owner_user_id),
         )
         remaining_cost_basis_total = self._recompute_deck_entry_cost_basis_total(
             deck_entry_id,
@@ -7091,6 +8018,7 @@ class SpotlightScanService:
         }
 
     def update_portfolio_sale_price(self, transaction_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         normalized_transaction_id = str(transaction_id or "").strip()
         if not normalized_transaction_id:
             raise ValueError("transactionID is required")
@@ -7113,9 +8041,10 @@ class SpotlightScanService:
             SELECT id, deck_entry_id, quantity
             FROM sale_events
             WHERE id = ?
+              AND owner_user_id = ?
             LIMIT 1
             """,
-            (normalized_transaction_id,),
+            (normalized_transaction_id, owner_user_id),
         ).fetchone()
         resolved_transaction_id = normalized_transaction_id
         if row is None:
@@ -7125,9 +8054,10 @@ class SpotlightScanService:
                 FROM deck_entry_events
                 WHERE id = ?
                   AND event_kind = 'sale'
+                  AND owner_user_id = ?
                 LIMIT 1
                 """,
-                (normalized_transaction_id,),
+                (normalized_transaction_id, owner_user_id),
             ).fetchone()
             fallback_sale_id = str(fallback_row["sale_id"] or "").strip() if fallback_row is not None else ""
             if fallback_sale_id:
@@ -7136,9 +8066,10 @@ class SpotlightScanService:
                     SELECT id, deck_entry_id, quantity
                     FROM sale_events
                     WHERE id = ?
+                      AND owner_user_id = ?
                     LIMIT 1
                     """,
-                    (fallback_sale_id,),
+                    (fallback_sale_id, owner_user_id),
                 ).fetchone()
                 if row is not None:
                     resolved_transaction_id = fallback_sale_id
@@ -7154,8 +8085,9 @@ class SpotlightScanService:
             UPDATE sale_events
             SET unit_price = ?, total_price = ?, currency_code = ?
             WHERE id = ?
+              AND owner_user_id = ?
             """,
-            (unit_price, total_price, currency_code, resolved_transaction_id),
+            (unit_price, total_price, currency_code, resolved_transaction_id, owner_user_id),
         )
         self.connection.execute(
             """
@@ -7163,16 +8095,18 @@ class SpotlightScanService:
             SET unit_price = ?, total_price = ?, currency_code = ?
             WHERE sale_id = ?
               AND event_kind = 'sale'
+              AND owner_user_id = ?
             """,
-            (unit_price, total_price, currency_code, resolved_transaction_id),
+            (unit_price, total_price, currency_code, resolved_transaction_id, owner_user_id),
         )
         self.connection.execute(
             """
             UPDATE deck_entries
             SET updated_at = ?
             WHERE id = ?
+              AND owner_user_id = ?
             """,
-            (updated_at, deck_entry_id),
+            (updated_at, deck_entry_id, owner_user_id),
         )
         self.connection.commit()
         return {
@@ -7185,11 +8119,13 @@ class SpotlightScanService:
         }
 
     def deck_entries(self, *, limit: int = 200, offset: int = 0, include_inactive: bool = False) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
         safe_limit = max(0, min(int(limit), 1000))
         safe_offset = max(0, int(offset))
-        where_clause = ""
+        where_clauses = ["owner_user_id = ?"]
         if not include_inactive:
-            where_clause = "WHERE quantity > 0"
+            where_clauses.append("quantity > 0")
+        where_clause = f"WHERE {' AND '.join(where_clauses)}"
         rows = self.connection.execute(
             """
             SELECT
@@ -7213,7 +8149,7 @@ class SpotlightScanService:
             ORDER BY added_at DESC, id DESC
             LIMIT ? OFFSET ?
             """.format(where_clause=where_clause),
-            (safe_limit, safe_offset),
+            (owner_user_id, safe_limit, safe_offset),
         ).fetchall()
         cards_by_id_map = cards_by_ids(
             self.connection,
@@ -7322,12 +8258,14 @@ class SpotlightScanService:
     def _log_scan(self, request_payload: dict[str, Any], response_payload: dict[str, Any], top_candidates: list[dict[str, Any]]) -> None:
         scan_id = request_payload["scanID"]
         now = utc_now()
+        owner_user_id = self._current_owner_user_id()
         predicted_card_id = self._predicted_card_id(response_payload)
         if predicted_card_id is None and top_candidates:
             predicted_card_id = str(((top_candidates[0].get("candidate") or {}).get("id")) or "").strip() or None
         upsert_scan_event(
             self.connection,
             scan_id=scan_id,
+            owner_user_id=owner_user_id,
             request_payload=self._request_payload_for_scan_event(request_payload),
             response_payload=response_payload,
             matcher_source=response_payload["matcherSource"],
@@ -7348,6 +8286,13 @@ class SpotlightScanService:
 
 class SpotlightRequestHandler(BaseHTTPRequestHandler):
     service: SpotlightScanService
+
+    def _require_request_identity(self) -> RequestIdentity | None:
+        try:
+            return self.service.authenticator.resolve_identity(self.headers.get("Authorization"))
+        except RequestAuthError as error:
+            self._write_json(HTTPStatus.UNAUTHORIZED, {"error": str(error)})
+            return None
 
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
@@ -7389,6 +8334,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/deck/entries":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
                 limit = int(query.get("limit", ["200"])[0])
             except (TypeError, ValueError):
@@ -7400,13 +8348,17 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
                 return
             include_inactive = str(query.get("includeInactive", ["0"])[0]).strip().lower() in {"1", "true", "yes", "on"}
-            self._write_json(
-                HTTPStatus.OK,
-                self.service.deck_entries(limit=limit, offset=offset, include_inactive=include_inactive),
-            )
+            with self.service.request_identity_context(identity):
+                self._write_json(
+                    HTTPStatus.OK,
+                    self.service.deck_entries(limit=limit, offset=offset, include_inactive=include_inactive),
+                )
             return
 
         if parsed.path in {"/api/v1/deck/history", "/api/v1/portfolio/history"}:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             query = parse_qs(parsed.query)
             days_value = query.get("days", ["30"])[0]
             range_value = query.get("range", [""])[0].strip() or None
@@ -7417,7 +8369,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "days must be an integer"})
                 return
             try:
-                payload = self.service.deck_history(days=days, range_label=range_value, time_zone_name=time_zone_name)
+                with self.service.request_identity_context(identity):
+                    payload = self.service.deck_history(days=days, range_label=range_value, time_zone_name=time_zone_name)
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Deck history failed: {error}"})
                 return
@@ -7425,6 +8378,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path in {"/api/v1/ledger", "/api/v1/portfolio/ledger", "/api/v1/deals"}:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             query = parse_qs(parsed.query)
             days_value = query.get("days", ["30"])[0]
             range_value = query.get("range", [""])[0].strip() or None
@@ -7445,13 +8401,14 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
                 return
             try:
-                payload = self.service.portfolio_ledger(
-                    days=days,
-                    range_label=range_value,
-                    time_zone_name=time_zone_name,
-                    limit=limit,
-                    offset=offset,
-                )
+                with self.service.request_identity_context(identity):
+                    payload = self.service.portfolio_ledger(
+                        days=days,
+                        range_label=range_value,
+                        time_zone_name=time_zone_name,
+                        limit=limit,
+                        offset=offset,
+                    )
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Portfolio ledger failed: {error}"})
                 return
@@ -7459,6 +8416,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/api/v1/portfolio/imports/"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             job_id = unquote(parsed.path.removeprefix("/api/v1/portfolio/imports/").strip("/"))
             if not job_id or "/" in job_id:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
@@ -7476,12 +8436,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             status_filter = query_params.get("filter", [""])[0].strip() or query_params.get("status", [""])[0].strip() or None
             try:
-                payload = self.service.portfolio_import_job(
-                    job_id,
-                    status_filter=status_filter,
-                    limit=limit,
-                    offset=offset,
-                )
+                with self.service.request_identity_context(identity):
+                    payload = self.service.portfolio_import_job(
+                        job_id,
+                        status_filter=status_filter,
+                        limit=limit,
+                        offset=offset,
+                    )
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7657,6 +8618,91 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
+        if parsed.path == "/api/v1/labeling-sessions":
+            try:
+                session_payload = self.service.create_labeling_session(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Labeling session creation failed: {error}"})
+                return
+            self._write_json(HTTPStatus.CREATED, session_payload)
+            return
+
+        labeling_artifact_session_id = _labeling_session_id_from_path(parsed.path, "/artifacts")
+        if labeling_artifact_session_id is not None:
+            if not labeling_artifact_session_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            try:
+                artifact_payload = self.service.store_labeling_session_artifact(
+                    labeling_artifact_session_id,
+                    payload,
+                )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Labeling artifact upload failed: {error}"})
+                return
+            self._write_json(HTTPStatus.CREATED, artifact_payload)
+            return
+
+        complete_labeling_session_id = _labeling_session_id_from_path(parsed.path, "/complete")
+        if complete_labeling_session_id is not None:
+            if not complete_labeling_session_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            try:
+                session_payload = self.service.complete_labeling_session(
+                    complete_labeling_session_id,
+                    payload,
+                )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Labeling session completion failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, session_payload)
+            return
+
+        abort_labeling_session_id = _labeling_session_id_from_path(parsed.path, "/abort")
+        if abort_labeling_session_id is not None:
+            if not abort_labeling_session_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            try:
+                session_payload = self.service.abort_labeling_session(
+                    abort_labeling_session_id,
+                    payload,
+                )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Labeling session abort failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, session_payload)
+            return
+
         if parsed.path == "/api/v1/admin/scrydex-sync":
             try:
                 page_size = int(payload.get("pageSize", 100))
@@ -7773,8 +8819,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/portfolio/imports/preview":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                import_payload = self.service.preview_portfolio_import(payload)
+                with self.service.request_identity_context(identity):
+                    import_payload = self.service.preview_portfolio_import(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7786,6 +8836,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/api/v1/portfolio/imports/") and parsed.path.endswith("/resolve"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             job_id = unquote(
                 parsed.path.removeprefix("/api/v1/portfolio/imports/").removesuffix("/resolve").strip("/")
             )
@@ -7793,7 +8846,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "jobID is required"})
                 return
             try:
-                import_payload = self.service.resolve_portfolio_import(job_id, payload)
+                with self.service.request_identity_context(identity):
+                    import_payload = self.service.resolve_portfolio_import(job_id, payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7808,6 +8862,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/api/v1/portfolio/imports/") and parsed.path.endswith("/commit"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             job_id = unquote(
                 parsed.path.removeprefix("/api/v1/portfolio/imports/").removesuffix("/commit").strip("/")
             )
@@ -7815,7 +8872,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "jobID is required"})
                 return
             try:
-                import_payload = self.service.commit_portfolio_import(job_id)
+                with self.service.request_identity_context(identity):
+                    import_payload = self.service.commit_portfolio_import(job_id)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7830,8 +8888,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path in {"/api/v1/sales/batch", "/api/v1/deck/sales/batch", "/api/v1/portfolio/sales/batch"}:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                sale_payload = self.service.record_sales_batch(payload)
+                with self.service.request_identity_context(identity):
+                    sale_payload = self.service.record_sales_batch(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7846,8 +8908,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path in {"/api/v1/sales", "/api/v1/deck/sales", "/api/v1/portfolio/sales"}:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                sale_payload = self.service.record_sale(payload)
+                with self.service.request_identity_context(identity):
+                    sale_payload = self.service.record_sale(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7862,6 +8928,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/api/v1/portfolio/sales/") and parsed.path.endswith("/price"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             transaction_id = unquote(
                 parsed.path.removeprefix("/api/v1/portfolio/sales/").removesuffix("/price").strip("/")
             )
@@ -7869,7 +8938,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "transactionID is required"})
                 return
             try:
-                update_payload = self.service.update_portfolio_sale_price(transaction_id, payload)
+                with self.service.request_identity_context(identity):
+                    update_payload = self.service.update_portfolio_sale_price(transaction_id, payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7884,8 +8954,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path in {"/api/v1/buys", "/api/v1/deck/buys", "/api/v1/portfolio/buys"}:
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                buy_payload = self.service.record_buy(payload)
+                with self.service.request_identity_context(identity):
+                    buy_payload = self.service.record_buy(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7900,6 +8974,9 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path.startswith("/api/v1/portfolio/buys/") and parsed.path.endswith("/price"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             transaction_id = unquote(
                 parsed.path.removeprefix("/api/v1/portfolio/buys/").removesuffix("/price").strip("/")
             )
@@ -7907,7 +8984,8 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "transactionID is required"})
                 return
             try:
-                update_payload = self.service.update_portfolio_buy_price(transaction_id, payload)
+                with self.service.request_identity_context(identity):
+                    update_payload = self.service.update_portfolio_buy_price(transaction_id, payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -7922,17 +9000,22 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/scan/match":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             request_started_at = perf_counter()
             try:
-                self._write_json_timed(
-                    HTTPStatus.OK,
-                    self.service.match_scan(payload),
-                    label="scan_match",
-                    started_at=request_started_at,
-                )
+                with self.service.request_identity_context(identity):
+                    self._write_json_timed(
+                        HTTPStatus.OK,
+                        self.service.match_scan(payload),
+                        label="scan_match",
+                        started_at=request_started_at,
+                    )
             except Exception as error:
                 traceback.print_exc()
-                self.service._emit_structured_log(self.service._scan_error_log_payload(payload, error))
+                with self.service.request_identity_context(identity):
+                    self.service._emit_structured_log(self.service._scan_error_log_payload(payload, error))
                 self._write_json_timed(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {
@@ -7945,14 +9028,18 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/scan/visual-match":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             request_started_at = perf_counter()
             try:
-                self._write_json_timed(
-                    HTTPStatus.OK,
-                    self.service.visual_match_scan(payload),
-                    label="scan_visual_match",
-                    started_at=request_started_at,
-                )
+                with self.service.request_identity_context(identity):
+                    self._write_json_timed(
+                        HTTPStatus.OK,
+                        self.service.visual_match_scan(payload),
+                        label="scan_visual_match",
+                        started_at=request_started_at,
+                    )
             except Exception as error:
                 traceback.print_exc()
                 self._write_json_timed(
@@ -7967,14 +9054,18 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/scan/rerank":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             request_started_at = perf_counter()
             try:
-                self._write_json_timed(
-                    HTTPStatus.OK,
-                    self.service.rerank_visual_match(payload),
-                    label="scan_rerank",
-                    started_at=request_started_at,
-                )
+                with self.service.request_identity_context(identity):
+                    self._write_json_timed(
+                        HTTPStatus.OK,
+                        self.service.rerank_visual_match(payload),
+                        label="scan_rerank",
+                        started_at=request_started_at,
+                    )
             except ValueError as error:
                 self._write_json_timed(
                     HTTPStatus.CONFLICT,
@@ -7999,8 +9090,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/scan-artifacts":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                artifact_payload = self.service.store_scan_artifacts(payload)
+                with self.service.request_identity_context(identity):
+                    artifact_payload = self.service.store_scan_artifacts(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -8015,13 +9110,32 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/scan/feedback":
-            self.service.log_feedback(payload)
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    self.service.log_feedback(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Scan feedback failed: {error}"})
+                return
             self._write_json(HTTPStatus.ACCEPTED, {"status": "accepted"})
             return
 
         if parsed.path == "/api/v1/deck/entries":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                deck_payload = self.service.create_deck_entry(payload)
+                with self.service.request_identity_context(identity):
+                    deck_payload = self.service.create_deck_entry(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -8036,8 +9150,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/deck/entries/condition":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                update_payload = self.service.update_deck_entry_condition(payload)
+                with self.service.request_identity_context(identity):
+                    update_payload = self.service.update_deck_entry_condition(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -8052,8 +9170,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/deck/entries/replace":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                update_payload = self.service.replace_deck_entry(payload)
+                with self.service.request_identity_context(identity):
+                    update_payload = self.service.replace_deck_entry(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -8068,8 +9190,12 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             return
 
         if parsed.path == "/api/v1/deck/entries/purchase-price":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                update_payload = self.service.update_deck_entry_purchase_price(payload)
+                with self.service.request_identity_context(identity):
+                    update_payload = self.service.update_deck_entry_purchase_price(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -8101,9 +9227,10 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._json_body_error_status = HTTPStatus.BAD_REQUEST
             self._json_body_error_message = "Content-Length must be non-negative"
             return None
+        request_path = urlparse(getattr(self, "path", "")).path
         max_body_bytes = (
             SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES
-            if urlparse(getattr(self, "path", "")).path == "/api/v1/scan-artifacts"
+            if _is_large_image_upload_path(request_path)
             else DEFAULT_JSON_BODY_LIMIT_BYTES
         )
         if content_length > max_body_bytes:

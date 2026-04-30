@@ -14,9 +14,9 @@ React Native mobile shell for the Spotlight/Looty product.
 
 - Portfolio, inventory, catalog, card detail, and sell flows run in React Native.
 - The Python backend remains the shared runtime backend.
-- The React Native scanner screen can open the camera and capture a local photo into the tray.
-- The React Native scanner screen still does not call the backend scan endpoints or return card matches.
-- Real live card scanning still belongs to the Swift iOS app until the RN scanner bridge lands.
+- The React Native scanner now calls the backend scan endpoints for authenticated users and returns raw-card matches from the normalized-target path.
+- Scan artifact uploads and deck/portfolio mutations are user-scoped on the backend; staging/production should run with `SPOTLIGHT_AUTH_REQUIRED=1`.
+- Slab scan parity is still incomplete in React Native and remains behind the native iOS path.
 
 ## Fastest iPhone workflow
 
@@ -41,7 +41,7 @@ Install `Expo Go` from the App Store first, then scan the Expo QR with:
 - the iPhone Camera app
 - or the Expo Go app
 
-Do not try to scan the Expo QR with the app's own scanner surface. That scanner UI can capture a local photo, but the RN scan-to-backend flow is not wired yet.
+Do not try to scan the Expo QR with the app's own scanner surface.
 
 This project currently uses Expo SDK `55` (`expo ~55.0.17` in `package.json`). If Expo Go says the project is incompatible, the fastest fix is:
 
@@ -82,8 +82,8 @@ What this gives you:
 
 What this does not give you yet:
 
-- real RN scan-to-backend card matching
-- real RN scanner results beyond local photo capture
+- slab scan parity with the native iOS app
+- production-ready Android validation
 
 If `pnpm mobile:ios -- --device` fails, open `apps/spotlight-rn/ios/Spotlight.xcworkspace` in Xcode and run the `Spotlight` target on the connected device.
 
@@ -117,8 +117,8 @@ SPOTLIGHT_PHONE_IP=192.168.1.23 pnpm mobile:start:phone
 
 ## Important limits
 
-- The RN scanner route can capture a photo locally, but it does not call the backend scan endpoints yet.
-- If you need to test real scanning on device right now, use the Swift Spotlight app instead of the RN app.
+- The RN scanner now depends on authenticated backend access for scan/deck/portfolio flows. In staging/production, make sure the Supabase session is live and the backend is running with `SPOTLIGHT_AUTH_REQUIRED=1`.
+- Raw scanning is the supported RN lane right now. Slab scanning still lacks full parity with the native iOS app.
 - The Swift app lives at the repo root in `Spotlight.xcodeproj`.
 - If portfolio/inventory/search fail on phone, the first thing to check is that the backend is reachable at `http://<your-mac-lan-ip>:8788/api/v1/health`.
 
@@ -200,6 +200,87 @@ What they do:
 
 The helper script [tools/run_mobile_eas.sh](/Users/stephenchan/Code/spotlight/tools/run_mobile_eas.sh:1) automatically loads the matching env file and sets `SPOTLIGHT_APP_ENV` before invoking EAS CLI.
 It also fails fast if the env file still contains placeholder values like `example.com` or `com.yourcompany.*`.
+For staging/production iOS builds and submissions, it now also auto-generates:
+
+- a short EAS build message
+- a TestFlight `What to Test` summary for preview/manual use
+
+Those notes come from [CHANGELOG.md](/Users/stephenchan/Code/spotlight/CHANGELOG.md) when you are exactly on a released commit, or from commits since the latest tag when you are ahead of the last release. You can preview them locally with:
+
+```bash
+pnpm release:notes:preview
+pnpm release:notes:testflight
+pnpm release:notes:build-message
+```
+
+By default, `run_mobile_eas.sh` does **not** pass the generated TestFlight summary to EAS because EAS submits it as a changelog field that requires an Expo Enterprise plan. If the account supports that feature, opt in with `SPOTLIGHT_EAS_TESTFLIGHT_CHANGELOG_ENABLED=1`.
+
+## Release automation
+
+The repo now supports automated release/changelog flow through GitHub Actions and Release Please:
+
+- `.github/workflows/release-please.yml`
+- `release-please-config.json`
+- `.release-please-manifest.json`
+- [CHANGELOG.md](/Users/stephenchan/Code/spotlight/CHANGELOG.md)
+
+Recommended workflow:
+
+1. Merge conventional-commit changes into `main`, ideally through squash merges with semantic PR titles such as:
+   - `feat(scanner): improve visual match tray`
+   - `fix(portfolio): keep cached data visible on first open`
+2. Release Please opens or updates a release PR automatically.
+3. Merge the release PR.
+4. Release Please creates the GitHub Release and updates `CHANGELOG.md`.
+5. Run the manual GitHub Action `.github/workflows/ios-testflight-release.yml` for `staging` or `production`.
+
+Before a staged/prod backend deploy or TestFlight build, run:
+
+```bash
+pnpm release:audit:staging
+pnpm release:audit:production
+```
+
+That preflight checks:
+- hosted backend auth settings (`SPOTLIGHT_AUTH_REQUIRED=1`, `SUPABASE_URL`, no auth fallback user)
+- backend artifact bucket/storage config
+- mobile release env values used by `run_mobile_eas.sh`
+
+The TestFlight workflow uses the same release-note generator for previews/build messages. Passing generated TestFlight text into EAS via `--what-to-test` is opt-in with `SPOTLIGHT_EAS_TESTFLIGHT_CHANGELOG_ENABLED=1` because EAS changelog submission requires an Expo Enterprise plan.
+
+### GitHub setup needed
+
+Repo-level secret:
+
+- `EXPO_TOKEN`
+
+Optional repo-level secret:
+
+- `RELEASE_PLEASE_TOKEN`
+  - only needed if you want Release Please PRs/releases to trigger additional workflows that the default `GITHUB_TOKEN` would suppress
+
+GitHub environment setup:
+
+- create `staging` and `production` environments
+- add the following variables/secrets per environment so the iOS TestFlight workflow can run without local `.env` files:
+  - `EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL`
+  - `EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL`
+  - `EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY`
+  - `EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL`
+  - `EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME`
+  - `SPOTLIGHT_APP_SCHEME`
+  - `SPOTLIGHT_EXPO_OWNER`
+  - `SPOTLIGHT_EAS_PROJECT_ID`
+  - `SPOTLIGHT_IOS_BUNDLE_IDENTIFIER`
+
+Optional local/CI overrides supported by `tools/run_mobile_eas.sh`:
+
+- `MOBILE_EAS_ENV_FILE`
+- `SPOTLIGHT_BUILD_MESSAGE`
+- `SPOTLIGHT_TESTFLIGHT_NOTES`
+- `SPOTLIGHT_TESTFLIGHT_NOTES_FILE`
+
+The GitHub workflow is intentionally iOS-only for now because your existing automated release path is currently TestFlight-focused.
 
 For physical-phone local development, prefer the phone helper launcher instead of editing `.env.development` to your current LAN IP:
 

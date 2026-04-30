@@ -74,10 +74,12 @@ describe('AuthGate', () => {
   it('renders the profile onboarding screen when a display name is required', () => {
     const { onChangeProfileDraftName, onSubmitProfile } = renderAuthGate({
       currentUser: {
+        adminEnabled: false,
         avatarURL: null,
         displayName: null,
         email: 'collector@example.com',
         id: 'user-1',
+        labelerEnabled: false,
         providers: ['google'],
       },
       profileDraftName: 'Table Steve',

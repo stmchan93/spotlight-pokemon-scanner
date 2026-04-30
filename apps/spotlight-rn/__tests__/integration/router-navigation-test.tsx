@@ -41,6 +41,13 @@ describe('mobile app routing', () => {
     expect(await screen.findByText('All Transactions')).toBeTruthy();
   });
 
+  it('renders the labeler session route directly', async () => {
+    renderAppRouter('/labeling/session');
+
+    expect(await screen.findByText('Label Session')).toBeTruthy();
+    expect(screen.getByTestId('labeler-search-input')).toBeTruthy();
+  });
+
   it('does not render tab chrome on card detail stack routes', async () => {
     renderAppRouter('/cards/mcdonalds25-21');
 

@@ -105,6 +105,14 @@ type SellFormFieldsProps = {
   yourPriceText: string;
 };
 
+type SellStatusOverlayProps = {
+  detail: string;
+  headline: string;
+  state: 'processing' | 'success';
+  testIDPrefix: string;
+  title: string;
+};
+
 function CameraIcon() {
   return (
     <Svg fill="none" height={24} viewBox="0 0 24 24" width={24}>
@@ -201,6 +209,36 @@ export function SellBackdrop({
           fill="url(#sell-backdrop-floor)"
         />
       </Svg>
+    </View>
+  );
+}
+
+export function SellStatusOverlay({
+  detail,
+  headline,
+  state,
+  testIDPrefix,
+  title,
+}: SellStatusOverlayProps) {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View
+      style={[styles.statusOverlay, { backgroundColor: theme.colors.brand }]}
+      testID={`${testIDPrefix}-status-screen`}
+    >
+      <View style={styles.statusOverlayBody}>
+        <View style={styles.statusOverlayIconWrap}>
+          {state === 'success' ? (
+            <Text style={styles.statusOverlayCheckmark}>✓</Text>
+          ) : (
+            <ActivityIndicator color="rgba(0, 0, 0, 0.78)" size="large" />
+          )}
+        </View>
+        <Text style={[theme.typography.caption, styles.statusOverlayTitle]}>{title}</Text>
+        <Text style={[theme.typography.bodyStrong, styles.statusOverlayHeadline]}>{headline}</Text>
+        <Text style={[theme.typography.body, styles.statusOverlayDetail]}>{detail}</Text>
+      </View>
     </View>
   );
 }
@@ -823,6 +861,48 @@ const styles = StyleSheet.create({
     height: 42,
     resizeMode: 'cover',
     width: 42,
+  },
+  statusOverlay: {
+    alignItems: 'center',
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 28,
+    width: '100%',
+  },
+  statusOverlayBody: {
+    alignItems: 'center',
+    maxWidth: 320,
+    width: '100%',
+  },
+  statusOverlayCheckmark: {
+    color: 'rgba(0, 0, 0, 0.84)',
+    fontSize: 32,
+    fontWeight: '800',
+    lineHeight: 36,
+  },
+  statusOverlayDetail: {
+    color: 'rgba(0, 0, 0, 0.66)',
+    fontSize: 16,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  statusOverlayHeadline: {
+    color: 'rgba(0, 0, 0, 0.9)',
+    fontSize: 18,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  statusOverlayIconWrap: {
+    alignItems: 'center',
+    height: 44,
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  statusOverlayTitle: {
+    color: 'rgba(0, 0, 0, 0.58)',
+    fontSize: 14,
+    lineHeight: 18,
+    marginBottom: 10,
   },
   photoTriggerButton: {
     alignItems: 'center',

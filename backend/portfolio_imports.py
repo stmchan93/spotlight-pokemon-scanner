@@ -51,7 +51,12 @@ _CONDITION_ALIASES = {
 }
 
 
-def preview_portfolio_import(connection: sqlite3.Connection, payload: dict[str, Any]) -> dict[str, Any]:
+def preview_portfolio_import(
+    connection: sqlite3.Connection,
+    payload: dict[str, Any],
+    *,
+    owner_user_id: str,
+) -> dict[str, Any]:
     source_type = str(payload.get("sourceType") or "").strip()
     file_name = str(payload.get("fileName") or "").strip() or None
     csv_text = str(payload.get("csvText") or "")
@@ -70,15 +75,16 @@ def preview_portfolio_import(connection: sqlite3.Connection, payload: dict[str, 
         connection.execute(
             """
             INSERT INTO portfolio_import_jobs (
-                id, source_type, status, source_file_name, source_sha256,
+                id, owner_user_id, source_type, status, source_file_name, source_sha256,
                 row_count, matched_count, ambiguous_count, unresolved_count,
                 unsupported_count, committed_count, skipped_count, summary_json,
                 error_text, created_at, updated_at, committed_at
             )
-            VALUES (?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, ?, NULL, ?, ?, NULL)
+            VALUES (?, ?, ?, ?, ?, ?, 0, 0, 0, 0, 0, 0, 0, ?, NULL, ?, ?, NULL)
             """,
             (
                 job_id,
+                owner_user_id,
                 source_type,
                 "preview_building",
                 file_name,
@@ -114,6 +120,7 @@ def preview_portfolio_import(connection: sqlite3.Connection, payload: dict[str, 
     return get_portfolio_import_job(
         connection,
         job_id,
+        owner_user_id=owner_user_id,
         status_filter=None,
         limit=safe_limit,
         offset=safe_offset,
@@ -124,11 +131,12 @@ def get_portfolio_import_job(
     connection: sqlite3.Connection,
     job_id: str,
     *,
+    owner_user_id: str,
     status_filter: str | None,
     limit: int | None = None,
     offset: int | None = None,
 ) -> dict[str, Any]:
-    job_row = _job_row(connection, job_id)
+    job_row = _job_row(connection, job_id, owner_user_id=owner_user_id)
     if job_row is None:
         raise FileNotFoundError("import job not found")
 
@@ -200,8 +208,10 @@ def resolve_portfolio_import(
     connection: sqlite3.Connection,
     job_id: str,
     payload: dict[str, Any],
+    *,
+    owner_user_id: str,
 ) -> dict[str, Any]:
-    if _job_row(connection, job_id) is None:
+    if _job_row(connection, job_id, owner_user_id=owner_user_id) is None:
         raise FileNotFoundError("import job not found")
 
     raw_updates = payload.get("rows")
@@ -217,7 +227,7 @@ def resolve_portfolio_import(
         for raw_update in updates:
             if not isinstance(raw_update, dict):
                 raise ValueError("each resolve row update must be an object")
-            row = _find_job_row(connection, job_id, raw_update)
+            row = _find_job_row(connection, job_id, raw_update, owner_user_id=owner_user_id)
             if row is None:
                 raise FileNotFoundError("import row not found")
             if str(row["commit_result_json"] or "").strip():
@@ -284,6 +294,7 @@ def resolve_portfolio_import(
     summary_payload = get_portfolio_import_job(
         connection,
         job_id,
+        owner_user_id=owner_user_id,
         status_filter=None,
         limit=DEFAULT_IMPORT_PAGE_LIMIT,
         offset=0,
@@ -292,8 +303,13 @@ def resolve_portfolio_import(
     return summary_payload
 
 
-def commit_portfolio_import(connection: sqlite3.Connection, job_id: str) -> dict[str, Any]:
-    job = _job_row(connection, job_id)
+def commit_portfolio_import(
+    connection: sqlite3.Connection,
+    job_id: str,
+    *,
+    owner_user_id: str,
+) -> dict[str, Any]:
+    job = _job_row(connection, job_id, owner_user_id=owner_user_id)
     if job is None:
         raise FileNotFoundError("import job not found")
 
@@ -318,7 +334,7 @@ def commit_portfolio_import(connection: sqlite3.Connection, job_id: str) -> dict
             savepoint_name = f"portfolio_import_row_{index}"
             connection.execute(f"SAVEPOINT {savepoint_name}")
             try:
-                commit_result = _commit_ready_row(connection, row)
+                commit_result = _commit_ready_row(connection, row, owner_user_id=owner_user_id)
                 connection.execute(f"RELEASE SAVEPOINT {savepoint_name}")
                 committed_rows.append(commit_result)
             except Exception as error:
@@ -354,7 +370,14 @@ def commit_portfolio_import(connection: sqlite3.Connection, job_id: str) -> dict
         connection.rollback()
         raise
 
-    summary_payload = get_portfolio_import_job(connection, job_id, status_filter=None, limit=DEFAULT_IMPORT_PAGE_LIMIT, offset=0)
+    summary_payload = get_portfolio_import_job(
+        connection,
+        job_id,
+        owner_user_id=owner_user_id,
+        status_filter=None,
+        limit=DEFAULT_IMPORT_PAGE_LIMIT,
+        offset=0,
+    )
     committed_count = int(summary_payload["summary"].get("committedCount") or 0)
     return {
         "jobID": job_id,
@@ -734,7 +757,12 @@ def _candidate_exact_match(candidate: dict[str, Any], normalized_row: dict[str, 
     return True
 
 
-def _commit_ready_row(connection: sqlite3.Connection, row: sqlite3.Row) -> dict[str, Any]:
+def _commit_ready_row(
+    connection: sqlite3.Connection,
+    row: sqlite3.Row,
+    *,
+    owner_user_id: str,
+) -> dict[str, Any]:
     matched_card_id = str(row["matched_card_id"] or "").strip()
     if not matched_card_id:
         raise ValueError("matched card is required")
@@ -757,6 +785,7 @@ def _commit_ready_row(connection: sqlite3.Connection, row: sqlite3.Row) -> dict[
         currency_code = None
     deck_entry_id = upsert_deck_entry(
         connection,
+        owner_user_id=owner_user_id,
         card_id=matched_card_id,
         condition=_normalized_condition(normalized_row.get("condition")),
         quantity=quantity,
@@ -875,15 +904,21 @@ def _row_filter_clause(status_filter: str | None) -> tuple[str, tuple[Any, ...]]
     return "AND match_status = ?", (normalized_filter,)
 
 
-def _job_row(connection: sqlite3.Connection, job_id: str) -> sqlite3.Row | None:
+def _job_row(
+    connection: sqlite3.Connection,
+    job_id: str,
+    *,
+    owner_user_id: str,
+) -> sqlite3.Row | None:
     return connection.execute(
         """
         SELECT *
         FROM portfolio_import_jobs
         WHERE id = ?
+          AND owner_user_id = ?
         LIMIT 1
         """,
-        (job_id,),
+        (job_id, owner_user_id),
     ).fetchone()
 
 
@@ -1031,7 +1066,15 @@ def _row_is_ready_to_commit(row: sqlite3.Row) -> bool:
     )
 
 
-def _find_job_row(connection: sqlite3.Connection, job_id: str, payload: dict[str, Any]) -> sqlite3.Row | None:
+def _find_job_row(
+    connection: sqlite3.Connection,
+    job_id: str,
+    payload: dict[str, Any],
+    *,
+    owner_user_id: str,
+) -> sqlite3.Row | None:
+    if _job_row(connection, job_id, owner_user_id=owner_user_id) is None:
+        raise FileNotFoundError("import job not found")
     row_id = str(payload.get("rowID") or "").strip()
     if row_id:
         return connection.execute(

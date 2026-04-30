@@ -1,0 +1,71 @@
+name: ios-testflight-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Release environment"
+        required: true
+        default: staging
+        type: choice
+        options:
+          - staging
+          - production
+      action:
+        description: "EAS action to run"
+        required: true
+        default: release
+        type: choice
+        options:
+          - build
+          - submit
+          - release
+
+permissions:
+  contents: read
+
+jobs:
+  ios-testflight-release:
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    concurrency: ios-testflight-${{ inputs.environment }}
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL: ${{ vars.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL }}
+      EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL }}
+      EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL: ${{ vars.EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL }}
+      EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME: ${{ vars.EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME }}
+      SPOTLIGHT_APP_SCHEME: ${{ vars.SPOTLIGHT_APP_SCHEME }}
+      SPOTLIGHT_EXPO_OWNER: ${{ vars.SPOTLIGHT_EXPO_OWNER }}
+      SPOTLIGHT_EAS_PROJECT_ID: ${{ vars.SPOTLIGHT_EAS_PROJECT_ID }}
+      SPOTLIGHT_IOS_BUNDLE_IDENTIFIER: ${{ vars.SPOTLIGHT_IOS_BUNDLE_IDENTIFIER }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Preview TestFlight notes
+        run: |
+          echo "### TestFlight notes" >> "$GITHUB_STEP_SUMMARY"
+          echo '```text' >> "$GITHUB_STEP_SUMMARY"
+          pnpm release:notes:testflight >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Run iOS TestFlight action
+        run: bash tools/run_mobile_eas.sh "${{ inputs.environment }}" "${{ inputs.action }}" ios "${{ inputs.environment }}"

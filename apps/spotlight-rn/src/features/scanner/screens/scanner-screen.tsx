@@ -34,7 +34,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
+import { ChromeBackButton } from '@/components/chrome-back-button';
 import {
   clampRecentCaptureSwipeTranslate,
   recentCaptureDeleteRevealWidth,
@@ -51,9 +51,16 @@ import {
   buildNormalizedScannerTarget,
   makeOrientationFixedSourceImageDimensions,
   makeReticleSourceImageCrop,
-  rawCardReticleAspectRatio,
 } from '@/features/scanner/scanner-normalized-target';
+import {
+  chooseRawVisualPictureSize,
+  makeRawScannerCaptureLayout,
+  RawScannerCaptureSurface,
+  rawScannerTrayReservedHeight,
+  rawVisualCaptureQuality,
+} from '@/features/scanner/raw-scanner-capture-surface';
 import { useAppServices } from '@/providers/app-providers';
+import { useAuth } from '@/providers/auth-provider';
 
 type ScannerMode = 'raw' | 'slabs';
 
@@ -62,6 +69,8 @@ type RecentCapture = {
   id: string;
   isAddingToInventory: boolean;
   isLoadingCandidates: boolean;
+  matchReviewDisposition: string | null;
+  matchReviewReason: string | null;
   mode: ScannerMode;
   normalizedImageDimensions: ScanSourceImageDimensions | null;
   normalizedImageUri: string | null;
@@ -78,16 +87,12 @@ const scannerModes: readonly { label: string; value: ScannerMode }[] = [
   { label: 'SLABS', value: 'slabs' },
 ];
 
-const sharedFrameAspectRatio = rawCardReticleAspectRatio;
 const maxStoredCaptures = 12;
 const collapsedVisibleCaptures = 1;
 const captureRowHeight = 74;
 const captureRowGap = 8;
 const traySwipeThreshold = 20;
 const trayVelocityThreshold = 0.22;
-const rawVisualCaptureQuality = 0.45;
-const rawVisualPreferredLongSide = 1280;
-const rawVisualMinimumLongSide = 900;
 const scannerTrayLayoutAnimation = {
   create: {
     property: LayoutAnimation.Properties.opacity,
@@ -116,43 +121,32 @@ function scannerErrorMessage(error: unknown) {
   return 'Unknown scanner error';
 }
 
+function logScannerDiagnostic(message: string, error?: unknown) {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  // Keep scanner failures out of React Native LogBox. These are expected runtime
+  // failures when the network/auth/backend flakes and should not appear as UI.
+  const suffix = error ? ` native=${scannerErrorMessage(error)}` : '';
+  console.info(`${message}${suffix}`);
+}
+
 function alignToFourPointGrid(value: number) {
   return Math.max(0, Math.round(value / 4) * 4);
 }
 
-function makeReticleLayout({
-  containerHeight,
-  containerWidth,
-  safeAreaTop,
-  trayReservedHeight,
-}: {
-  containerHeight: number;
-  containerWidth: number;
-  safeAreaTop: number;
-  trayReservedHeight: number;
-}) {
-  const horizontalInset = Math.max(16, Math.round(containerWidth * 0.04));
-  const topSpacing = Math.max(safeAreaTop + 22, 74);
-  const controlsTopSpacing = 12;
-  const modeToggleReservedHeight = 64;
-  const maxHeight = Math.max(
-    360,
-    containerHeight - topSpacing - controlsTopSpacing - modeToggleReservedHeight - trayReservedHeight,
-  );
-  const widthFromHeightLimit = Math.floor(maxHeight / sharedFrameAspectRatio);
-  const width = Math.max(284, Math.min(containerWidth - horizontalInset * 2, widthFromHeightLimit));
-  const height = Math.round(width * sharedFrameAspectRatio);
-
-  return {
-    controlsTopSpacing,
-    height,
-    topSpacing,
-    width,
-  };
-}
-
 function capturePrimaryLabel(mode: ScannerMode) {
   return mode === 'slabs' ? 'SLAB scan' : 'RAW scan';
+}
+
+function captureFailureSubtitle(capture: RecentCapture) {
+  const reviewReason = capture.matchReviewReason?.trim();
+  if (reviewReason) {
+    return reviewReason;
+  }
+
+  return 'Photo captured, but matches could not load';
 }
 
 function activeCandidateForCapture(capture: RecentCapture) {
@@ -214,49 +208,6 @@ function withOptimisticInventoryAdd(
   ];
 }
 
-function parsePictureSize(size: string) {
-  const match = size.trim().match(/^(\d+)x(\d+)$/);
-  if (!match) {
-    return null;
-  }
-
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return null;
-  }
-
-  return {
-    area: width * height,
-    longSide: Math.max(width, height),
-    raw: size,
-  };
-}
-
-function chooseRawVisualPictureSize(sizes: readonly string[]) {
-  const parsed = sizes
-    .map(parsePictureSize)
-    .filter((size): size is NonNullable<ReturnType<typeof parsePictureSize>> => size != null);
-  if (parsed.length === 0) {
-    return null;
-  }
-
-  const preferred = parsed
-    .filter((size) => size.longSide >= rawVisualMinimumLongSide && size.longSide <= rawVisualPreferredLongSide)
-    .sort((a, b) => a.area - b.area);
-  if (preferred[0]) {
-    return preferred[0].raw;
-  }
-
-  const largerFallback = parsed
-    .filter((size) => size.longSide > rawVisualPreferredLongSide)
-    .sort((a, b) => a.area - b.area);
-  if (largerFallback[0]) {
-    return largerFallback[0].raw;
-  }
-
-  return parsed.sort((a, b) => b.area - a.area)[0]?.raw ?? null;
-}
 
 async function triggerScannerHaptic() {
   if (process.env.NODE_ENV === 'test') {
@@ -416,6 +367,7 @@ function RefreshIcon({ color, size = 18 }: { color: string; size?: number }) {
 export function ScannerScreen() {
   const theme = useSpotlightTheme();
   const router = useRouter();
+  const { currentUser } = useAuth();
   const { dataVersion, refreshData, spotlightRepository } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
@@ -436,28 +388,22 @@ export function ScannerScreen() {
   const reticleSnapshotRef = useRef({ height: 0, previewHeight: 0, previewWidth: 0, width: 0, x: 0, y: 0 });
 
   const trayBottomInset = insets.bottom + 14;
-  const collapsedTrayReservedHeight = 196;
-  const reticleLayout = makeReticleLayout({
+  const captureSurfaceLayout = makeRawScannerCaptureLayout({
     containerHeight: windowHeight,
     containerWidth: windowWidth,
     safeAreaTop: insets.top,
-    trayReservedHeight: collapsedTrayReservedHeight,
+    trayReservedHeight: rawScannerTrayReservedHeight,
   });
-  const reticleLeft = (windowWidth - reticleLayout.width) / 2;
-  const reticleTop = reticleLayout.topSpacing + 16;
   reticleSnapshotRef.current = {
-    height: reticleLayout.height,
-    previewHeight: windowHeight,
-    previewWidth: windowWidth,
-    width: reticleLayout.width,
-    x: reticleLeft,
-    y: reticleTop,
+    height: captureSurfaceLayout.reticle.height,
+    previewHeight: captureSurfaceLayout.previewHeight,
+    previewWidth: captureSurfaceLayout.previewWidth,
+    width: captureSurfaceLayout.reticle.width,
+    x: captureSurfaceLayout.reticle.x,
+    y: captureSurfaceLayout.reticle.y,
   };
-  const scannerBackTop = insets.top + 2;
-  const promptTop = Math.max(insets.top + chromeBackButtonSize + 20, reticleTop - 36);
-  const controlsTop = reticleTop + reticleLayout.height + reticleLayout.controlsTopSpacing;
-  const modeToggleWidth = Math.min(windowWidth - 48, 264);
   const hasCameraAccess = permission?.granted ?? false;
+  const canStartLabelingSession = !!(currentUser?.labelerEnabled || currentUser?.adminEnabled);
   const canCapture = hasCameraAccess && isCameraReady && !isCapturing;
   const canToggleTray = recentCaptures.length > 0;
   const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures);
@@ -636,6 +582,8 @@ export function ScannerScreen() {
         id: captureId,
         isAddingToInventory: false,
         isLoadingCandidates: true,
+        matchReviewDisposition: null,
+        matchReviewReason: null,
         mode: scannerMode,
         normalizedImageDimensions: null,
         normalizedImageUri: null,
@@ -674,6 +622,8 @@ export function ScannerScreen() {
             isLoadingCandidates: false,
             normalizedImageDimensions: null,
             normalizedImageUri: null,
+            matchReviewDisposition: null,
+            matchReviewReason: null,
             sourceImageCrop: null,
             sourceImageDimensions: photo?.width && photo.height
               ? { height: photo.height, width: photo.width }
@@ -714,6 +664,8 @@ export function ScannerScreen() {
 
         return {
           ...capture,
+          matchReviewDisposition: null,
+          matchReviewReason: null,
           normalizedImageDimensions: null,
           normalizedImageUri: null,
           sourceImageCrop,
@@ -822,14 +774,16 @@ export function ScannerScreen() {
               activeCandidateIndex: 0,
               candidates: matchResult.candidates,
               isLoadingCandidates: false,
+              matchReviewDisposition: matchResult.reviewDisposition ?? null,
+              matchReviewReason: matchResult.reviewReason ?? null,
               normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
               normalizedImageUri: normalizedTarget.normalizedImageUri,
               scanID: matchResult.scanID,
             };
           }));
         } catch (error) {
-          if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
-            console.error(
+          if (scannerMode === 'raw') {
+            logScannerDiagnostic(
               `[SCANNER VISUAL TEST] matchError `
               + `message=${scannerErrorMessage(error)} `
               + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
@@ -848,6 +802,8 @@ export function ScannerScreen() {
               ...capture,
               candidates: [],
               isLoadingCandidates: false,
+              matchReviewDisposition: null,
+              matchReviewReason: null,
               normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
               normalizedImageUri: normalizedTarget.normalizedImageUri,
               scanID: null,
@@ -856,8 +812,8 @@ export function ScannerScreen() {
         }
       })();
     } catch (error) {
-      if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
-        console.error(
+      if (scannerMode === 'raw') {
+        logScannerDiagnostic(
           `[SCANNER VISUAL TEST] capturePrepError `
           + `message=${scannerErrorMessage(error)} `
           + `photoUri=${capturedPhotoUri || 'n/a'} `
@@ -875,6 +831,8 @@ export function ScannerScreen() {
         return {
           ...capture,
           isLoadingCandidates: false,
+          matchReviewDisposition: null,
+          matchReviewReason: null,
           normalizedImageDimensions: null,
           normalizedImageUri: null,
           sourceImageCrop: capturedSourceImageCrop,
@@ -949,9 +907,7 @@ export function ScannerScreen() {
       refreshData();
     } catch (error) {
       setInventoryEntries(previousInventoryEntries);
-      if (process.env.NODE_ENV !== 'test') {
-        console.warn(`[SCANNER] addToInventory failed: ${scannerErrorMessage(error)}`);
-      }
+      logScannerDiagnostic(`[SCANNER] addToInventory failed: ${scannerErrorMessage(error)}`, error);
     } finally {
       setRecentCaptures((current) => current.map((entry) => {
         if (entry.id !== captureId) {
@@ -1005,6 +961,10 @@ export function ScannerScreen() {
 
   const handleExitScanner = useCallback(() => {
     router.replace('/portfolio');
+  }, [router]);
+
+  const handleOpenLabelingSession = useCallback(() => {
+    router.push('/labeling/session');
   }, [router]);
 
   const trayHeaderPanResponder = useMemo(() => PanResponder.create({
@@ -1163,7 +1123,7 @@ export function ScannerScreen() {
               ) : (
                 <>
                   <Text numberOfLines={1} style={styles.captureTitle}>{capturePrimaryLabel(capture.mode)}</Text>
-                  <Text numberOfLines={2} style={styles.captureSubtitle}>Photo captured, but matches could not load</Text>
+                  <Text numberOfLines={2} style={styles.captureSubtitle}>{captureFailureSubtitle(capture)}</Text>
                 </>
               )}
             </View>
@@ -1211,75 +1171,36 @@ export function ScannerScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
-      <View style={styles.previewCanvas}>
-        {hasCameraAccess ? (
-          <CameraView
-            facing="back"
-            key={cameraSessionKey}
-            onCameraReady={() => {
-              setIsCameraReady(true);
-              resolveRawVisualPictureSize();
-              void cameraRef.current?.resumePreview?.();
-            }}
-            pictureSize={Platform.OS === 'android' && scannerMode === 'raw' ? rawVisualPictureSize : undefined}
-            ref={cameraRef}
-            style={StyleSheet.absoluteFillObject}
-            testID="scanner-camera"
-          />
-        ) : (
-          <View style={[StyleSheet.absoluteFillObject, styles.cameraFallback]} testID="scanner-camera-fallback" />
-        )}
-
-        {hasCameraAccess ? (
-          <Pressable
-            accessibilityLabel="Capture scan inside frame"
-            accessibilityRole="button"
-            disabled={!canCapture}
-            onPress={() => {
-              void handleCapture();
-            }}
-            style={[
-              styles.reticleCaptureButton,
-              {
-                height: reticleLayout.height,
-                left: reticleLeft,
-                top: reticleTop,
-                width: reticleLayout.width,
-              },
-            ]}
-            testID="scanner-preview"
-          />
-        ) : null}
-
-        {!hasCameraAccess ? (
-          <View style={styles.permissionOverlay}>
-            <View style={styles.permissionCard} testID="scanner-permission-card">
-              {!permission ? (
-                <ActivityIndicator color={theme.colors.scannerTextPrimary} />
-              ) : null}
-              <Text style={styles.permissionHeadline}>Camera access needed</Text>
-              <Text style={styles.permissionBody}>
-                Spotlight needs a real camera preview here so tap-to-scan can capture a photo.
-              </Text>
-              <Button
-                label={permission?.canAskAgain === false ? 'Open Settings and enable camera' : 'Enable camera'}
-                onPress={() => {
-                  void requestPermission();
-                }}
-                style={styles.permissionButton}
-                testID="scanner-enable-camera"
-                variant="primary"
-              />
-            </View>
-          </View>
-        ) : null}
-
+      <RawScannerCaptureSurface
+        cameraRef={cameraRef}
+        cameraSessionKey={cameraSessionKey}
+        canCapture={canCapture}
+        hasCameraAccess={hasCameraAccess}
+        layout={captureSurfaceLayout}
+        onCameraReady={() => {
+          setIsCameraReady(true);
+          resolveRawVisualPictureSize();
+          void cameraRef.current?.resumePreview?.();
+        }}
+        onCapture={() => {
+          void handleCapture();
+        }}
+        onRequestPermission={() => {
+          void requestPermission();
+        }}
+        permissionCanAskAgain={permission?.canAskAgain}
+        permissionResolved={!!permission}
+        pictureSize={scannerMode === 'raw' ? rawVisualPictureSize : undefined}
+        prompt={promptCopy}
+        showSlabGuide={scannerMode === 'slabs'}
+        testIDPrefix="scanner"
+      >
         <View
           style={[
             styles.backButtonWrap,
             {
               left: 18,
-              top: scannerBackTop,
+              top: captureSurfaceLayout.backButtonTop,
             },
           ]}
         >
@@ -1290,51 +1211,36 @@ export function ScannerScreen() {
           />
         </View>
 
-        <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
-          <Text style={[styles.scanPrompt, { top: promptTop }]} testID="scanner-prompt">
-            {promptCopy}
-          </Text>
-
+        {canStartLabelingSession ? (
           <View
             style={[
-              styles.reticleShell,
+              styles.labelerEntryWrap,
               {
-                height: reticleLayout.height,
-                left: reticleLeft,
-                top: reticleTop,
-                width: reticleLayout.width,
+                right: 18,
+                top: captureSurfaceLayout.backButtonTop,
               },
             ]}
-            testID="scanner-reticle"
           >
-            {scannerMode === 'slabs' ? (
-              <View
-                style={[
-                  styles.slabGuide,
-                  {
-                    top: reticleLayout.height * 0.28,
-                  },
-                ]}
-                testID="scanner-slab-guide"
-              />
-            ) : null}
-
-            <View style={[styles.reticleCorner, styles.reticleTopLeft, styles.reticleTopLeftPosition]} />
-            <View style={[styles.reticleCorner, styles.reticleTopRight, styles.reticleTopRightPosition]} />
-            <View style={[styles.reticleCorner, styles.reticleBottomLeft, styles.reticleBottomLeftPosition]} />
-            <View style={[styles.reticleCorner, styles.reticleBottomRight, styles.reticleBottomRightPosition]} />
+            <Button
+              label="New label session"
+              labelStyleVariant="caption"
+              onPress={handleOpenLabelingSession}
+              size="sm"
+              testID="labeler-entry-button"
+              variant="secondary"
+            />
           </View>
-        </View>
+        ) : null}
 
         <View
           style={[
             styles.modeToggleWrap,
             {
-              top: controlsTop,
+              top: captureSurfaceLayout.controlsTop,
             },
           ]}
         >
-          <View style={{ width: modeToggleWidth }}>
+          <View style={{ width: captureSurfaceLayout.modeToggleWidth }}>
             <SegmentedControl
               items={scannerModes}
               onChange={setScannerMode}
@@ -1433,7 +1339,7 @@ export function ScannerScreen() {
             )}
           </View>
         </View>
-      </View>
+      </RawScannerCaptureSurface>
     </SafeAreaView>
   );
 }
@@ -1443,8 +1349,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 5,
   },
-  cameraFallback: {
-    backgroundColor: colors.scannerCanvas,
+  labelerEntryWrap: {
+    position: 'absolute',
+    zIndex: 5,
   },
   captureActionWrap: {
     alignItems: 'center',
@@ -1660,42 +1567,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
   },
-  permissionBody: {
-    ...textStyles.body,
-    color: colors.scannerTextSecondary,
-    textAlign: 'center',
-  },
-  permissionButton: {
-    marginTop: 6,
-    minWidth: 220,
-    width: '100%',
-  },
-  permissionCard: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(8, 8, 10, 0.9)',
-    borderColor: colors.scannerOutline,
-    borderRadius: 28,
-    borderWidth: 1,
-    gap: 10,
-    maxWidth: 300,
-    paddingHorizontal: 24,
-    paddingVertical: 24,
-  },
-  permissionHeadline: {
-    ...textStyles.titleCompact,
-    color: colors.scannerTextPrimary,
-    textAlign: 'center',
-  },
-  permissionOverlay: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    ...StyleSheet.absoluteFillObject,
-    paddingHorizontal: 28,
-  },
-  previewCanvas: {
-    flex: 1,
-    overflow: 'hidden',
-  },
   recentScansActions: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -1719,69 +1590,9 @@ const styles = StyleSheet.create({
     ...textStyles.headline,
     color: colors.scannerTextPrimary,
   },
-  reticleBottomLeft: {
-    borderBottomWidth: 1.7,
-    borderLeftWidth: 1.7,
-  },
-  reticleBottomLeftPosition: {
-    bottom: 2,
-    left: 2,
-  },
-  reticleBottomRight: {
-    borderBottomWidth: 1.7,
-    borderRightWidth: 1.7,
-  },
-  reticleBottomRightPosition: {
-    bottom: 2,
-    right: 2,
-  },
-  reticleCaptureButton: {
-    position: 'absolute',
-  },
-  reticleCorner: {
-    borderColor: colors.scannerTextPrimary,
-    height: 30,
-    position: 'absolute',
-    width: 30,
-  },
-  reticleShell: {
-    borderColor: colors.scannerOutline,
-    borderRadius: 20,
-    borderWidth: 1,
-    position: 'absolute',
-  },
-  reticleTopLeft: {
-    borderLeftWidth: 1.7,
-    borderTopWidth: 1.7,
-  },
-  reticleTopLeftPosition: {
-    left: 2,
-    top: 2,
-  },
-  reticleTopRight: {
-    borderRightWidth: 1.7,
-    borderTopWidth: 1.7,
-  },
-  reticleTopRightPosition: {
-    right: 2,
-    top: 2,
-  },
   safeArea: {
     backgroundColor: colors.scannerCanvas,
     flex: 1,
-  },
-  scanPrompt: {
-    alignSelf: 'center',
-    ...textStyles.headline,
-    color: colors.scannerTextPrimary,
-    position: 'absolute',
-    textShadowColor: 'rgba(0, 0, 0, 0.32)',
-    textShadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    textShadowRadius: 8,
-    top: 0,
   },
   matchesButton: {
     minWidth: 116,
@@ -1846,13 +1657,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 6,
     paddingTop: 6,
-  },
-  slabGuide: {
-    backgroundColor: colors.scannerTextPrimary,
-    height: 1,
-    left: 20,
-    position: 'absolute',
-    right: 20,
   },
   trayBody: {
     gap: 12,

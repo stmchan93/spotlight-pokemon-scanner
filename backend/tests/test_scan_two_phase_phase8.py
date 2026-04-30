@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import contextlib
 import io
 import sys
 import tempfile
@@ -216,6 +217,86 @@ class TwoPhaseScanTests(unittest.TestCase):
         pending = self.service._pending_visual_scan("scan-phase8")
         self.assertIsNotNone(pending)
         self.assertEqual(len(pending.visual_matches), 2)
+        scan_row = self.service.connection.execute(
+            """
+            SELECT predicted_card_id, review_disposition, resolver_path
+            FROM scan_events
+            WHERE scan_id = ?
+            LIMIT 1
+            """,
+            ("scan-phase8",),
+        ).fetchone()
+        self.assertIsNotNone(scan_row)
+        assert scan_row is not None
+        self.assertEqual(scan_row["predicted_card_id"], "obf-223")
+        self.assertEqual(scan_row["review_disposition"], "ready")
+        self.assertEqual(scan_row["resolver_path"], "visual_only_index")
+
+    def test_visual_match_scan_creates_source_scan_for_deck_add(self) -> None:
+        class FakeVisualMatcher:
+            def prewarm(self):
+                return {"available": True, "prewarmed": True}
+
+            def match_payload(self, payload: dict[str, object], *, top_k: int = 10):  # noqa: ARG002
+                return (
+                    [
+                        SimpleNamespace(
+                            row_index=0,
+                            similarity=0.91,
+                            entry={
+                                "providerCardId": "obf-223",
+                                "name": "Charizard ex",
+                                "collectorNumber": "223/197",
+                                "setId": "obf",
+                                "setName": "Obsidian Flames",
+                                "setSeries": "Scarlet & Violet",
+                                "setPtcgoCode": "OBF",
+                                "sourceProvider": "scrydex",
+                                "sourceRecordID": "obf-223",
+                                "imageUrl": "https://images.example/obf-223-large.png",
+                                "language": "English",
+                            },
+                        ),
+                    ],
+                    {
+                        "source": "fake",
+                        "timings": {
+                            "imageDecodeMs": 1.0,
+                            "ensureRuntimeMs": 2.0,
+                            "embeddingMs": 3.0,
+                            "indexSearchMs": 4.0,
+                            "matchPayloadMs": 5.0,
+                        },
+                    },
+                )
+
+        self.service._raw_visual_matcher = FakeVisualMatcher()
+
+        self.service.visual_match_scan(
+            raw_payload(
+                scan_id="scan-visual-add",
+                title_text_primary="Charizard ex",
+                whole_card_text="Charizard ex",
+                footer_band_text="OBF 223/197",
+                collector_number_exact="223/197",
+                set_hint_tokens=["OBF"],
+            )
+        )
+
+        payload = self.service.create_deck_entry(
+            {
+                "cardID": "obf-223",
+                "sourceScanID": "scan-visual-add",
+                "selectionSource": "top",
+                "selectedRank": 1,
+                "wasTopPrediction": True,
+                "condition": "near_mint",
+                "addedAt": "2026-04-30T00:20:00Z",
+            }
+        )
+
+        self.assertEqual(payload["cardID"], "obf-223")
+        self.assertEqual(payload["sourceScanID"], "scan-visual-add")
 
     def test_rerank_uses_cached_shortlist_and_marks_final_result(self) -> None:
         class FakeVisualMatcher:
@@ -322,6 +403,7 @@ class TwoPhaseScanTests(unittest.TestCase):
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = "/api/v1/scan/visual-match"
         handler.service = Mock()
+        handler.service.request_identity_context.return_value = contextlib.nullcontext()
         handler.service.visual_match_scan.return_value = {"stage": "visual"}
         captured: dict[str, object] = {}
 
@@ -330,6 +412,7 @@ class TwoPhaseScanTests(unittest.TestCase):
             captured["payload"] = payload
 
         handler._read_json_body = lambda: {"scanID": "scan-phase8"}  # type: ignore[method-assign]
+        handler._require_request_identity = lambda: object()  # type: ignore[method-assign]
         handler._write_json = write_json  # type: ignore[method-assign]
         handler.do_POST()
 
@@ -340,9 +423,11 @@ class TwoPhaseScanTests(unittest.TestCase):
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = "/api/v1/scan/rerank"
         handler.service = Mock()
+        handler.service.request_identity_context.return_value = contextlib.nullcontext()
         handler.service.rerank_visual_match.return_value = {"stage": "rerank"}
         captured = {}
         handler._read_json_body = lambda: {"scanID": "scan-phase8"}  # type: ignore[method-assign]
+        handler._require_request_identity = lambda: object()  # type: ignore[method-assign]
         handler._write_json = write_json  # type: ignore[method-assign]
         handler.do_POST()
 
@@ -354,6 +439,7 @@ class TwoPhaseScanTests(unittest.TestCase):
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = "/api/v1/scan/rerank"
         handler.service = Mock()
+        handler.service.request_identity_context.return_value = contextlib.nullcontext()
         handler.service.rerank_visual_match.side_effect = ValueError("Cached visual shortlist expired")
         captured: dict[str, object] = {}
 
@@ -362,6 +448,7 @@ class TwoPhaseScanTests(unittest.TestCase):
             captured["payload"] = payload
 
         handler._read_json_body = lambda: {"scanID": "scan-phase8"}  # type: ignore[method-assign]
+        handler._require_request_identity = lambda: object()  # type: ignore[method-assign]
         handler._write_json_timed = write_json_timed  # type: ignore[method-assign]
         handler.do_POST()
 

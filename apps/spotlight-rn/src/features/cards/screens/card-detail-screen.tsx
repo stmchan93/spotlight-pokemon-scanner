@@ -92,14 +92,6 @@ type CardDetailScreenProps = {
   scanReviewId?: string;
 };
 
-function isGenericRawVariantLabel(value?: string | null) {
-  const normalized = value?.trim().toLowerCase();
-  return normalized === 'normal'
-    || normalized === 'raw'
-    || normalized === 'standard'
-    || normalized === 'default';
-}
-
 function buildPath(points: { x: number; y: number }[]) {
   if (points.length === 0) {
     return '';
@@ -125,10 +117,7 @@ function compactCurrency(value: number, currencyCode: string) {
   }).format(value);
 }
 
-function ownedCollectionLabel(
-  entry: CardDetailRecord['ownedEntries'][number],
-  defaultRawVariantLabel?: string | null,
-) {
+function ownedCollectionLabel(entry: CardDetailRecord['ownedEntries'][number]) {
   if (entry.kind === 'graded') {
     return collectionSummaryLine(entry);
   }
@@ -138,12 +127,7 @@ function ownedCollectionLabel(
     conditionLabel: entry.conditionLabel,
     conditionShortLabel: entry.conditionShortLabel,
   });
-  const variantName = entry.variantName?.trim() || (isGenericRawVariantLabel(defaultRawVariantLabel) ? null : defaultRawVariantLabel?.trim() || null);
-  if (variantName) {
-    return `${condition} • ${variantName}`;
-  }
-
-  return condition === 'Raw' ? 'Raw' : `${condition} • Raw`;
+  return condition;
 }
 
 function normalizeMarketConditionId(value?: string | null) {
@@ -550,30 +534,6 @@ export function CardDetailScreen({
     };
   }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, spotlightRepository]);
 
-  useEffect(() => {
-    let cancelled = false;
-    setEbayListingsState(null);
-
-    void spotlightRepository.getCardEbayListings({
-      cardId,
-      limit: 5,
-    })
-      .then((nextListings) => {
-        if (!cancelled) {
-          setEbayListingsState(nextListings);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setEbayListingsState(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cardId, dataVersion, spotlightRepository]);
-
   const selectedEntry = useMemo(() => {
     if (!detail) {
       const previewEntry = detailPreview?.ownedEntry ?? null;
@@ -601,6 +561,46 @@ export function CardDetailScreen({
       ...detail.ownedEntries.filter((entry) => entry.id !== selectedEntry.id),
     ];
   }, [detail, selectedEntry]);
+
+  const shouldShowEbayListings = selectedEntry?.kind === 'graded' || selectedEntry?.slabContext != null;
+  const selectedSlabContext = selectedEntry?.slabContext ?? null;
+
+  useEffect(() => {
+    let cancelled = false;
+    setEbayListingsState(null);
+
+    if (!shouldShowEbayListings) {
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    void spotlightRepository.getCardEbayListings({
+      cardId,
+      limit: 5,
+      slabContext: selectedSlabContext,
+    })
+      .then((nextListings) => {
+        if (!cancelled) {
+          setEbayListingsState(nextListings);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setEbayListingsState(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cardId,
+    dataVersion,
+    selectedSlabContext,
+    shouldShowEbayListings,
+    spotlightRepository,
+  ]);
 
   const effectiveMarketHistory = marketHistory ?? detail?.marketHistory ?? null;
 
@@ -754,8 +754,7 @@ export function CardDetailScreen({
     : `${detailPreview ? displayNumber(detailPreview.cardNumber) : '#--'} • ${detailPreview?.setName ?? ''}`;
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
-  const ebayListings = ebayListingsState ?? detail?.ebayListings ?? null;
-  const defaultRawVariantLabel = detail?.variantOptions[0]?.label ?? null;
+  const ebayListings = shouldShowEbayListings ? (ebayListingsState ?? detail?.ebayListings ?? null) : null;
   const ownedCopiesCount = ownedEntries.reduce((sum, entry) => sum + Math.max(0, entry.quantity), 0);
   const collectionTitle = ownedCopiesCount > 1
     ? `In your collection (${ownedCopiesCount})`
@@ -924,7 +923,7 @@ export function CardDetailScreen({
                             style={[theme.typography.bodyStrong, styles.collectionSummary]}
                             testID={`detail-collection-summary-${entry.id}`}
                           >
-                            {ownedCollectionLabel(entry, defaultRawVariantLabel)}
+                            {ownedCollectionLabel(entry)}
                           </Text>
                         </View>
 

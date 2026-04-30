@@ -37,7 +37,7 @@ If a proposed change improves top-10 at the cost of top-1, reject it unless it i
 - The active v009 adapter was trained on the 259-card corpus.
 - Training-corpus size, not backbone capacity, is now the primary ceiling for visual retrieval quality.
 
-### Scanner front half (iOS)
+### Scanner front half
 
 - `CameraSessionController.swift:41,344`: zoom fixed at `1.5×`.
 - `ScannerReticleLayout.swift:34–69`: reticle aspect `88:63`, sized from container.
@@ -45,6 +45,8 @@ If a proposed change improves top-10 at the cost of top-1, reject it unless it i
 - `TargetSelection.swift`: rectangle detection min confidence `0.20`, min area `0.10`, selection threshold `0.62` for raw, fallback capped at `0.58` with `0.18` penalty.
 - `PerspectiveNormalization.swift:5`: canonical canvas is `630×880` px, black-letterboxed.
 - Fallback branch and rectangle branch produce differently-framed normalized crops, which is the primary scan-to-scan inconsistency source.
+- React Native scanner is no longer just a placeholder. `apps/spotlight-rn/src/features/scanner/screens/scanner-screen.tsx` uses `expo-camera`, the app reticle, and `buildNormalizedScannerTarget` for a `630×880` normalized target. This is the current RN scanner surface to reuse for guided labeling sessions.
+- React Native labeling sessions exist, but currently use a separate capped preview frame in `apps/spotlight-rn/src/features/labeling/screens/labeling-session-screen.tsx`. That is a data-quality mismatch: guided labeling should use the same scanner surface and reticle geometry as normal scan mode.
 
 ### Backend retrieval
 
@@ -56,13 +58,15 @@ If a proposed change improves top-10 at the cost of top-1, reject it unless it i
 
 ### Gaps
 
-1. No connector from backend confirmed scans → training corpus. Training currently requires manual spreadsheet uploads into `~/spotlight-datasets/raw-visual-train/`.
+1. No tier-safe connector from backend confirmed scans → training/eval corpus. Training currently still depends on manual or semi-manual batch export/import.
 2. OCR rerank is not gated on OCR confidence; rerank runs whenever a visual response exists.
-3. `scan_artifacts`, `scan_events`, `scan_confirmations` do not yet carry `user_id`. `request_auth.py` exists but is not wired into scan ingestion.
+3. `scan_events`, `scan_artifacts`, and `scan_confirmations` now carry `owner_user_id`, but the data-loop docs/tools still need to converge on that naming and ensure every scan/labeling write path stamps it.
 4. No explicit pixels-per-card-height metric is logged from the iOS front half. Camera zoom factor is persisted per scan but effective card resolution is not derived.
 5. No "consistency@same-card" metric anywhere. The closest we have is per-fixture replay, not repeated live captures of the same physical card.
-6. React Native scanner screen is a UI placeholder. Phase 4–5 scanner bridge has no camera library chosen and no frame-processor contract.
+6. React Native scanner is functional for the current Expo path, but it is not yet extracted into a shared capture surface for normal scan and labeling session capture.
 7. `scan_prediction_candidates` stores the top-K but the app's scan-review tray does not yet feed a manual-label queue that updates the training pipeline.
+8. `labeling_sessions` / `labeling_session_artifacts` are landed, but the backend does not yet route completed sessions to Tier 2/Tier 3, does not stamp `provider_card_id` / `tier_assignment`, and does not link each angle to a normal `scan_event`.
+9. `tools/process_raw_visual_batch.py` currently performs image-level expansion holdout selection. Product model-release data must use provider-card-level tier routing so one card's angles cannot be split across train and eval.
 
 ## Target Architecture
 
@@ -123,7 +127,7 @@ Keep:
 
 Change:
 - After the scan tray shows top-10, every alternate selection the user taps should write `selected_card_id` and `selected_rank` on the scan immediately (today it happens only at deck add). This is the key to the data loop: alternate-pick = free label.
-- A new friend-labeling UI (iOS + later RN) reuses the scan review tray to let a trusted reviewer label other users' scans. Details in the data pipeline spec.
+- A new friend-labeling UI reuses the scan review tray to let a trusted reviewer label other users' scans. Details in the data pipeline spec.
 
 ## OCR: Present and Future
 
@@ -156,7 +160,7 @@ Each phase has entry prerequisites, exit gates, and no-regressions guardrails. D
 Entry: none.
 
 Work:
-1. Correct the active alias. Either republish `v006` if v006 is still the chosen runtime (document this decision), or promote a newer candidate following the gate rules below.
+1. Keep the active alias documented against `raw_visual_runtime_active.json`; as of 2026-04-28 this is `v009-scrydex-cardphotos259-sweep-selected`.
 2. Add `matcher_version` stamping to every raw scan response. Surface it in the scan-review tray in Debug builds so it's visible to the friend tester.
 3. Log `pixels_per_card_height` in `scan_artifacts`. Add it to the `scan_artifacts` table via migration.
 4. Log `rerank_source` on every scan response.
@@ -194,16 +198,21 @@ No regressions:
 Entry: Phase 2 complete. See [scan-data-labeling-pipeline-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scan-data-labeling-pipeline-spec-2026-04-23.md) for details.
 
 Work:
-1. Add `user_id` (nullable for now) to `scan_events`, `scan_artifacts`, `scan_confirmations`.
-2. Build the friend-labeling surface: a "label this scan" tray that shows the top-10 and lets a reviewer pick the correct card or mark `unclear`.
-3. Wire `selected_card_id` writes on alternate-pick in the normal scan flow, not just on deck add.
-4. Add a new `scan_labeling_reviews` table for friend-review labels that are not `Add-to-deck` events.
-5. Build `tools/export_scan_training_rows.py` that joins `scan_events`, `scan_artifacts`, `scan_confirmations`, and `scan_labeling_reviews` into a CSV suitable for downstream training-manifest import.
-6. Build `tools/import_confirmed_scans_to_training.py` that takes exported CSV rows, validates, deduplicates by perceptual hash, and stages them into the existing `safe_new` / `safe_training_augment` bucket layout.
+1. Normalize on `owner_user_id` across docs/tools/API payloads; do not introduce a parallel `user_id` naming path.
+2. Extract the RN scanner capture surface so normal scan mode and guided labeling sessions use the same camera preview, reticle geometry, tap region, and `buildNormalizedScannerTarget` path.
+3. Update the RN labeling session to prompt four required captures on that scanner surface: `front`, `tilt_left`, `tilt_right`, `tilt_forward`.
+4. Build the friend-labeling surface: a "label this scan" tray that shows the top-10 and lets a reviewer pick the correct card or mark `unclear` / `not in top 10`.
+5. Wire `selected_card_id` writes on alternate-pick in the normal scan flow, not just on inventory add.
+6. Add a new `scan_labeling_reviews` table for friend-review labels that are not inventory/deck events.
+7. Extend `labeling_sessions` with `labeler_user_id`, `provider_card_id`, `tier_assignment`, `routed_batch_id`, and `first_capture_scan_id`; link each labeling artifact to a normal `scan_event`.
+8. Build provider-card-level `raw_scan_registry.json` v2 routing. Every trusted `providerCardId` is assigned once to Tier 2 or Tier 3 and never moves.
+9. Build `tools/export_scan_training_rows.py` that joins `scan_events`, `scan_artifacts`, `scan_confirmations`, and `scan_labeling_reviews` into a CSV suitable for downstream training/eval import.
+10. Update `tools/process_raw_visual_batch.py` or add a replacement product-data importer so confirmed scan exports route capture groups into Tier 2/Tier 3 without image-level train/eval splitting.
 
 Exit gate:
-- Exported CSV is importable into the existing `process_raw_visual_batch.py` flow with `0` contamination into the `qa/raw-footer-layout-check/` frozen suite.
-- 50 scans labeled by a friend produce 50 training-ready rows.
+- Exported CSV is importable into the dataset pipeline with `0` contamination into the `qa/raw-footer-layout-check/` frozen suite.
+- 50 trusted capture groups from normal scan confirmations and labeling sessions produce routed Tier 2/Tier 3 artifacts.
+- No `providerCardId` appears in both training and expansion holdout roots.
 
 No regressions:
 - Scan UX latency unchanged.
@@ -324,15 +333,16 @@ Write these to the bottom of this spec or a paired `scanner-model-rewrite-decisi
 
 The three previously-open Phase 2 entry questions are resolved. See the data pipeline spec's "Decisions Locked 2026-04-23" section for the full list; the ones that affect this spec are:
 
-1. **Friend-label UI lives in the iOS scan review tray** (and later the RN equivalent). No separate `Label` tab, no web tool. The Swift `AlternateMatchesView` + `ScannerRootView` are the integration points.
+1. **Friend-label UI lives in the scan review tray.** No separate `Label` tab, no web tool. RN should reuse the same scanner tray/candidate components used by normal scanning; Swift references are historical for the old native surface.
 2. **Storage split by purpose, not by phase:**
-   - Labeling-session captures (admin-gated `labeler` role, multi-angle per card) upload to GCS from day one. Layout: `gs://spotlight-labeling-sessions/<user_id>/<yyyy>/<mm>/<dd>/<labeling_session_id>/...`. These are treated as canonical training data; we do not want to pay a migration cost later.
+   - Labeling-session captures (admin-gated `labeler` role, multi-angle per card) upload to GCS from day one. Layout: `gs://spotlight-labeling-sessions/<user_id>/<yyyy>/<mm>/<dd>/<labeling_session_id>/...`. These are treated as canonical labeled data and then routed to Tier 2 or Tier 3; we do not want to pay a migration cost later.
    - Regular (non-labeling-session) `scan_artifacts` follow the existing local-first path and migrate to GCS on the timeline in the data pipeline spec. This is a deliberate split — labeling sessions are the long-term artifact, normal scans are operational data.
 3. **Phase 6 OCR removal is delete-with-git-history.** When the gates are met, remove OCR from the raw path outright. Do not keep the coordinator as dead-code rollback insurance. The git history is the rollback path.
 
 Additional decisions from the same session, relevant to this spec:
 
 4. **Labeling-session capture is admin-gated.** Users get a `labeler_enabled` flag, flipped only by the admin. The "Start labeling session" entry point is hidden in the scanner unless the flag is set. Normal scanning is unaffected.
-5. **Multi-angle per card, single label per session.** A labeling session captures 3–8 angles of one physical card; the label is applied once and inherited by every angle. Friends never label per-angle.
-6. **Tier 1/2/3 train/test discipline is the source of truth for split decisions.** See the data pipeline spec for the automated routing algorithm. This spec's eval gates in Phase 4 read from those tiers, not from ad-hoc folder contents.
-7. **Target throughput is ~50 gold-labeled cards per friend per week.** Phase 4's corpus growth plan (33 → 200) assumes this pace.
+5. **Multi-angle per card, single label per session.** A labeling session captures the required 4 angles of one physical card; the label is applied once and inherited by every angle. Friends never label per-angle.
+6. **No train/eval split within a card.** Tier routing is by `providerCardId`. If a card is Tier 3, all trusted captures of that card are training-eligible. If a card is Tier 2, all trusted captures of that card are eval-only, including later normal scans.
+7. **Tier 1/2/3 train/test discipline is the source of truth for split decisions.** See the data pipeline spec for the automated routing algorithm. This spec's eval gates in Phase 4 read from those tiers, not from ad-hoc folder contents.
+8. **Target throughput is ~50 gold-labeled cards per friend per week.** Phase 4's corpus growth plan (33 → 200) assumes this pace.

@@ -73,6 +73,10 @@ export function createTestSpotlightRepository(
       return overrides.getScannerCandidates?.(...args)
         ?? baseRepository.getScannerCandidates(...args);
     },
+    submitScanFeedback: (...args) => {
+      return overrides.submitScanFeedback?.(...args)
+        ?? baseRepository.submitScanFeedback(...args);
+    },
     loadCardDetail: (...args) => {
       return overrides.loadCardDetail?.(...args)
         ?? baseRepository.loadCardDetail(...args);
@@ -128,6 +132,22 @@ export function createTestSpotlightRepository(
     commitPortfolioImportJob: (...args) => {
       return overrides.commitPortfolioImportJob?.(...args)
         ?? baseRepository.commitPortfolioImportJob(...args);
+    },
+    createLabelingSession: async (...args) => {
+      return overrides.createLabelingSession?.(...args)
+        ?? baseRepository.createLabelingSession(...args);
+    },
+    uploadLabelingSessionArtifact: async (...args) => {
+      return overrides.uploadLabelingSessionArtifact?.(...args)
+        ?? baseRepository.uploadLabelingSessionArtifact(...args);
+    },
+    completeLabelingSession: async (...args) => {
+      return overrides.completeLabelingSession?.(...args)
+        ?? baseRepository.completeLabelingSession(...args);
+    },
+    abortLabelingSession: async (...args) => {
+      return overrides.abortLabelingSession?.(...args)
+        ?? baseRepository.abortLabelingSession(...args);
     },
   };
 }
@@ -240,6 +260,13 @@ export function renderAppRouter(
     candidates: [
       { key: '(stack)/cards/[cardId]', modulePath: '@/app/(stack)/cards/[cardId]' },
       { key: 'cards/[cardId]', modulePath: '@/app/cards/[cardId]' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(stack)/labeling/session', modulePath: '@/app/(stack)/labeling/session' },
+      { key: 'labeling/session', modulePath: '@/app/labeling/session' },
     ],
     optional: true,
   });

@@ -5,12 +5,13 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="$REPO_ROOT/apps/spotlight-rn"
+RELEASE_NOTES_SCRIPT="$REPO_ROOT/tools/release_notes.mjs"
 
 ENVIRONMENT="${1:-}"
 ACTION="${2:-}"
 PLATFORM="${3:-ios}"
 PROFILE="${4:-$ENVIRONMENT}"
-ENV_FILE="$APP_DIR/.env.${ENVIRONMENT}"
+ENV_FILE="${MOBILE_EAS_ENV_FILE:-$APP_DIR/.env.${ENVIRONMENT}}"
 
 if [ -z "$ENVIRONMENT" ] || [ -z "$ACTION" ]; then
   echo "Usage: $0 <development|staging|production> <build|submit|release> [ios|android] [profile]" >&2
@@ -50,23 +51,30 @@ require_non_placeholder_env() {
   esac
 }
 
-if [ ! -f "$ENV_FILE" ]; then
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  # shellcheck disable=SC1090
+  . "$ENV_FILE"
+  export SPOTLIGHT_APP_ENV="$ENVIRONMENT"
+  export EXPO_NO_DOTENV=1
+  set +a
+elif [ "${CI:-}" != "true" ] && [ "${GITHUB_ACTIONS:-}" != "true" ]; then
   echo "Missing env file: $ENV_FILE" >&2
   echo "Create it from apps/spotlight-rn/.env.${ENVIRONMENT}.example" >&2
   exit 1
 fi
 
-set -a
-# shellcheck disable=SC1090
-. "$ENV_FILE"
 export SPOTLIGHT_APP_ENV="$ENVIRONMENT"
 export EXPO_NO_DOTENV=1
-set +a
 
 require_non_placeholder_env "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL"
 require_non_placeholder_env "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL"
 require_non_placeholder_env "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY"
+require_non_placeholder_env "EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL"
+require_non_placeholder_env "EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME"
+require_non_placeholder_env "SPOTLIGHT_APP_SCHEME"
 require_non_placeholder_env "SPOTLIGHT_EXPO_OWNER"
+require_non_placeholder_env "SPOTLIGHT_EAS_PROJECT_ID"
 
 if [ "$PLATFORM" = "ios" ]; then
   require_non_placeholder_env "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER"
@@ -78,8 +86,62 @@ fi
 
 cd "$APP_DIR"
 
+resolve_build_message() {
+  if [ -n "${SPOTLIGHT_BUILD_MESSAGE:-}" ]; then
+    printf '%s' "$SPOTLIGHT_BUILD_MESSAGE"
+    return 0
+  fi
+
+  if [ -f "$RELEASE_NOTES_SCRIPT" ]; then
+    node "$RELEASE_NOTES_SCRIPT" --format build-message 2>/dev/null || true
+  fi
+}
+
+resolve_testflight_notes() {
+  if [ -n "${SPOTLIGHT_TESTFLIGHT_NOTES:-}" ]; then
+    printf '%s' "$SPOTLIGHT_TESTFLIGHT_NOTES"
+    return 0
+  fi
+
+  if [ -n "${SPOTLIGHT_TESTFLIGHT_NOTES_FILE:-}" ] && [ -f "$SPOTLIGHT_TESTFLIGHT_NOTES_FILE" ]; then
+    cat "$SPOTLIGHT_TESTFLIGHT_NOTES_FILE"
+    return 0
+  fi
+
+  if [ -f "$RELEASE_NOTES_SCRIPT" ]; then
+    node "$RELEASE_NOTES_SCRIPT" --format testflight 2>/dev/null || true
+  fi
+}
+
+BUILD_MESSAGE="$(resolve_build_message)"
+TESTFLIGHT_NOTES=""
+if [ "$PLATFORM" = "ios" ] && [ "$ENVIRONMENT" != "development" ]; then
+  TESTFLIGHT_NOTES="$(resolve_testflight_notes)"
+fi
+
+TESTFLIGHT_CHANGELOG_ENABLED="${SPOTLIGHT_EAS_TESTFLIGHT_CHANGELOG_ENABLED:-0}"
+testflight_changelog_enabled() {
+  case "$TESTFLIGHT_CHANGELOG_ENABLED" in
+    1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+log_testflight_notes_skipped() {
+  echo "Skipping TestFlight changelog notes because EAS changelog submission requires an Enterprise plan." >&2
+  echo "Set SPOTLIGHT_EAS_TESTFLIGHT_CHANGELOG_ENABLED=1 to pass --what-to-test explicitly." >&2
+}
+
 if [ "$ACTION" = "build" ]; then
-  exec pnpm dlx eas-cli build --platform "$PLATFORM" --profile "$PROFILE"
+  BUILD_ARGS=(build --platform "$PLATFORM" --profile "$PROFILE")
+  if [ -n "$BUILD_MESSAGE" ]; then
+    BUILD_ARGS+=(--message "$BUILD_MESSAGE")
+  fi
+  exec pnpm dlx eas-cli "${BUILD_ARGS[@]}"
 fi
 
 if [ "$ACTION" = "release" ]; then
@@ -91,7 +153,26 @@ if [ "$ACTION" = "release" ]; then
     echo "The release action is currently intended for iOS/TestFlight." >&2
     exit 1
   fi
-  exec pnpm dlx eas-cli build --platform "$PLATFORM" --profile "$PROFILE" --auto-submit
+  BUILD_ARGS=(build --platform "$PLATFORM" --profile "$PROFILE" --auto-submit)
+  if [ -n "$BUILD_MESSAGE" ]; then
+    BUILD_ARGS+=(--message "$BUILD_MESSAGE")
+  fi
+  if [ -n "$TESTFLIGHT_NOTES" ]; then
+    if testflight_changelog_enabled; then
+      BUILD_ARGS+=(--what-to-test "$TESTFLIGHT_NOTES")
+    else
+      log_testflight_notes_skipped
+    fi
+  fi
+  exec pnpm dlx eas-cli "${BUILD_ARGS[@]}"
 fi
 
-exec pnpm dlx eas-cli submit --platform "$PLATFORM" --profile "$PROFILE"
+SUBMIT_ARGS=(submit --platform "$PLATFORM" --profile "$PROFILE")
+if [ -n "$TESTFLIGHT_NOTES" ]; then
+  if testflight_changelog_enabled; then
+    SUBMIT_ARGS+=(--what-to-test "$TESTFLIGHT_NOTES")
+  else
+    log_testflight_notes_skipped
+  fi
+fi
+exec pnpm dlx eas-cli "${SUBMIT_ARGS[@]}"

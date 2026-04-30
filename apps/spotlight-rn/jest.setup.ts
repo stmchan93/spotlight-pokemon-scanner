@@ -41,6 +41,23 @@ jest.mock('expo-blur', () => {
   };
 });
 
+jest.mock('expo-image', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+
+  const MockExpoImage = React.forwardRef(({ children, ...props }: any, ref: any) =>
+    React.createElement(View, { ...props, ref }, children),
+  );
+  MockExpoImage.displayName = 'MockExpoImage';
+  MockExpoImage.prefetch = jest.fn(async () => true);
+
+  return {
+    Image: MockExpoImage,
+  };
+});
+
 jest.mock('expo-apple-authentication', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');

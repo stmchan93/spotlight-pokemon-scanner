@@ -93,6 +93,7 @@ CREATE TABLE IF NOT EXISTS fx_rate_snapshots (
 
 CREATE TABLE IF NOT EXISTS scan_events (
     scan_id TEXT PRIMARY KEY,
+    owner_user_id TEXT,
     created_at TEXT NOT NULL,
     resolver_mode TEXT,
     resolver_path TEXT,
@@ -117,6 +118,7 @@ CREATE TABLE IF NOT EXISTS scan_events (
 
 CREATE TABLE IF NOT EXISTS scan_artifacts (
     scan_id TEXT PRIMARY KEY REFERENCES scan_events(scan_id) ON DELETE CASCADE,
+    owner_user_id TEXT,
     source_object_path TEXT NOT NULL,
     normalized_object_path TEXT NOT NULL,
     source_width INTEGER,
@@ -129,6 +131,50 @@ CREATE TABLE IF NOT EXISTS scan_artifacts (
     uploaded_at TEXT,
     artifact_version TEXT NOT NULL,
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS labeling_sessions (
+    session_id TEXT PRIMARY KEY,
+    labeler_user_id TEXT,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    provider_card_id TEXT,
+    status TEXT NOT NULL CHECK(status IN ('capturing', 'completed', 'aborted')),
+    tier_assignment TEXT CHECK(tier_assignment IN ('tier2', 'tier3')),
+    routed_batch_id TEXT,
+    first_capture_scan_id TEXT REFERENCES scan_events(scan_id),
+    selected_card_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    completed_at TEXT,
+    aborted_at TEXT,
+    abort_reason TEXT
+);
+
+CREATE TABLE IF NOT EXISTS labeling_session_artifacts (
+    id TEXT PRIMARY KEY,
+    session_id TEXT NOT NULL REFERENCES labeling_sessions(session_id) ON DELETE CASCADE,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    scan_id TEXT REFERENCES scan_events(scan_id) ON DELETE CASCADE,
+    angle_index INTEGER NOT NULL,
+    angle_label TEXT NOT NULL,
+    dataset_role TEXT CHECK(dataset_role IN ('tier2', 'tier3')),
+    source_object_path TEXT NOT NULL,
+    normalized_object_path TEXT NOT NULL,
+    source_width INTEGER,
+    source_height INTEGER,
+    normalized_width INTEGER,
+    normalized_height INTEGER,
+    native_metadata_json TEXT NOT NULL DEFAULT '{}',
+    crop_metadata_json TEXT NOT NULL DEFAULT '{}',
+    normalization_metadata_json TEXT NOT NULL DEFAULT '{}',
+    source_branch TEXT,
+    pixels_per_card_height REAL,
+    processing_ms REAL,
+    scanner_front_half_version TEXT,
+    submitted_at TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    UNIQUE(session_id, angle_index)
 );
 
 CREATE TABLE IF NOT EXISTS scan_prediction_candidates (
@@ -165,6 +211,7 @@ CREATE TABLE IF NOT EXISTS scan_price_observations (
 CREATE TABLE IF NOT EXISTS scan_confirmations (
     id TEXT PRIMARY KEY,
     scan_id TEXT NOT NULL REFERENCES scan_events(scan_id) ON DELETE CASCADE,
+    owner_user_id TEXT,
     confirmed_card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     confirmation_source TEXT NOT NULL,
     selected_rank INTEGER,
@@ -175,6 +222,8 @@ CREATE TABLE IF NOT EXISTS scan_confirmations (
 
 CREATE TABLE IF NOT EXISTS deck_entries (
     id TEXT PRIMARY KEY,
+    owner_user_id TEXT,
+    identity_key TEXT,
     item_kind TEXT NOT NULL,
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     grader TEXT,
@@ -193,6 +242,7 @@ CREATE TABLE IF NOT EXISTS deck_entries (
 
 CREATE TABLE IF NOT EXISTS sale_events (
     id TEXT PRIMARY KEY,
+    owner_user_id TEXT,
     deck_entry_id TEXT NOT NULL REFERENCES deck_entries(id) ON DELETE CASCADE,
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     quantity INTEGER NOT NULL DEFAULT 1,
@@ -213,6 +263,7 @@ CREATE TABLE IF NOT EXISTS sale_events (
 
 CREATE TABLE IF NOT EXISTS deck_entry_events (
     id TEXT PRIMARY KEY,
+    owner_user_id TEXT,
     deck_entry_id TEXT NOT NULL REFERENCES deck_entries(id) ON DELETE CASCADE,
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     event_kind TEXT NOT NULL,
@@ -261,6 +312,7 @@ CREATE TABLE IF NOT EXISTS runtime_settings (
 
 CREATE TABLE IF NOT EXISTS portfolio_import_jobs (
     id TEXT PRIMARY KEY,
+    owner_user_id TEXT,
     source_type TEXT NOT NULL,
     status TEXT NOT NULL,
     source_file_name TEXT,
@@ -356,6 +408,8 @@ CREATE INDEX IF NOT EXISTS idx_fx_rate_snapshots_lookup
 
 CREATE INDEX IF NOT EXISTS idx_scan_events_created_at
     ON scan_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scan_events_owner_user_id
+    ON scan_events(owner_user_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_scan_events_selected_card_id
     ON scan_events(selected_card_id);
@@ -369,6 +423,21 @@ CREATE INDEX IF NOT EXISTS idx_scan_events_confirmed_card_id
 CREATE INDEX IF NOT EXISTS idx_scan_events_deck_entry_id
     ON scan_events(deck_entry_id);
 
+CREATE INDEX IF NOT EXISTS idx_labeling_sessions_card_status
+    ON labeling_sessions(card_id, status, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_labeling_sessions_provider_card
+    ON labeling_sessions(provider_card_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_labeling_session_artifacts_session_angle
+    ON labeling_session_artifacts(session_id, angle_index);
+
+CREATE INDEX IF NOT EXISTS idx_labeling_session_artifacts_card
+    ON labeling_session_artifacts(card_id, submitted_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_labeling_session_artifacts_scan_id
+    ON labeling_session_artifacts(scan_id);
+
 CREATE INDEX IF NOT EXISTS idx_scan_prediction_candidates_scan_rank
     ON scan_prediction_candidates(scan_id, rank);
 
@@ -377,9 +446,17 @@ CREATE INDEX IF NOT EXISTS idx_scan_price_observations_scan_rank
 
 CREATE INDEX IF NOT EXISTS idx_scan_confirmations_scan_id
     ON scan_confirmations(scan_id);
+CREATE INDEX IF NOT EXISTS idx_scan_confirmations_owner_user_id
+    ON scan_confirmations(owner_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scan_artifacts_owner_user_id
+    ON scan_artifacts(owner_user_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_deck_entries_card_id
     ON deck_entries(card_id);
+CREATE INDEX IF NOT EXISTS idx_deck_entries_owner_user_id
+    ON deck_entries(owner_user_id, added_at DESC, id DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_deck_entries_owner_identity
+    ON deck_entries(owner_user_id, identity_key);
 
 CREATE INDEX IF NOT EXISTS idx_deck_entries_added_at
     ON deck_entries(added_at DESC, id DESC);
@@ -389,12 +466,16 @@ CREATE INDEX IF NOT EXISTS idx_deck_entries_quantity
 
 CREATE INDEX IF NOT EXISTS idx_sale_events_deck_entry_id
     ON sale_events(deck_entry_id, sold_at DESC, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_sale_events_owner_user_id
+    ON sale_events(owner_user_id, sold_at DESC, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_sale_events_sold_at
     ON sale_events(sold_at DESC, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_deck_entry_events_deck_entry_id
     ON deck_entry_events(deck_entry_id, created_at DESC, id DESC);
+CREATE INDEX IF NOT EXISTS idx_deck_entry_events_owner_user_id
+    ON deck_entry_events(owner_user_id, created_at DESC, id DESC);
 
 CREATE INDEX IF NOT EXISTS idx_deck_entry_events_created_at
     ON deck_entry_events(created_at DESC, id DESC);
@@ -410,6 +491,8 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_import_jobs_created_at
 
 CREATE INDEX IF NOT EXISTS idx_portfolio_import_jobs_status
     ON portfolio_import_jobs(status, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_portfolio_import_jobs_owner_user_id
+    ON portfolio_import_jobs(owner_user_id, created_at DESC, id DESC);
 
 CREATE INDEX IF NOT EXISTS idx_portfolio_import_rows_job_row
     ON portfolio_import_rows(job_id, row_index ASC, id ASC);

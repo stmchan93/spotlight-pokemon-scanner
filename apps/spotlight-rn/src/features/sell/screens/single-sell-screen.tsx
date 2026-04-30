@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  ActivityIndicator,
   Animated,
   Easing,
   type GestureResponderHandlers,
@@ -33,11 +32,13 @@ import {
   isSellSwipeReleaseArmed,
   parseSellPrice,
   sellOrderProcessingMinimumDurationMs,
+  scheduleSellStatusCompletion,
   sellOrderSwipeRailHeight,
 } from '@/features/sell/sell-order-helpers';
 import {
   SellBackdrop,
   SellFormFields,
+  SellStatusOverlay,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
 import { useAppServices } from '@/providers/app-providers';
@@ -403,15 +404,24 @@ export function SingleSellScreen({
         const elapsed = Date.now() - startedAt;
         const remaining = Math.max(0, sellOrderProcessingMinimumDurationMs - elapsed);
 
-        processingTimerRef.current = setTimeout(() => {
-          if (!isMountedRef.current) {
-            return;
-          }
+        processingTimerRef.current = scheduleSellStatusCompletion({
+          onComplete: () => {
+            if (!isMountedRef.current) {
+              return;
+            }
 
-          void triggerSellHaptic('success');
-          setSubmitState('success');
-          onComplete();
-        }, remaining);
+            onComplete();
+          },
+          onSuccess: () => {
+            if (!isMountedRef.current) {
+              return;
+            }
+
+            void triggerSellHaptic('success');
+            setSubmitState('success');
+          },
+          processingDurationMs: remaining,
+        });
       })
       .catch((error: unknown) => {
         if (!isMountedRef.current) {
@@ -512,12 +522,28 @@ export function SingleSellScreen({
     );
   }
 
+  if (submitState !== 'idle') {
+    return (
+      <SafeAreaView
+        edges={['top', 'left', 'right', 'bottom']}
+        style={[styles.safeArea, { backgroundColor: theme.colors.brand }]}
+      >
+        <SellStatusOverlay
+          detail={statusCopy.detail}
+          headline={statusCopy.headline}
+          state={submitState}
+          testIDPrefix="single-sell"
+          title={statusCopy.title}
+        />
+      </SafeAreaView>
+    );
+  }
+
   const boughtPriceText = formatSellOrderBoughtPriceLabel(
     displayEntry.costBasisPerUnit,
     formatCurrency(displayEntry.costBasisPerUnit ?? 0, displayEntry.currencyCode),
     revealsBoughtPrice,
   );
-  const showsStatusSheet = submitState !== 'idle';
   const confirmationPrompt = releaseToConfirmArmed ? 'Release to confirm sale' : 'Swipe up to confirm sale';
 
   return (
@@ -639,7 +665,7 @@ export function SingleSellScreen({
 
         <View pointerEvents="box-none" style={styles.swipeSheetWrap}>
           <Animated.View
-            {...(showsStatusSheet ? {} : panResponder.panHandlers)}
+            {...panResponder.panHandlers}
             style={[
               styles.swipeSheet,
               {
@@ -651,37 +677,20 @@ export function SingleSellScreen({
             ]}
             testID="single-sell-swipe-rail"
           >
-            {showsStatusSheet ? (
-              <View style={styles.statusScreen}>
-                <View style={styles.statusBody}>
-                  <View style={styles.statusIconWrap}>
-                    {submitState === 'success' ? (
-                      <Text style={styles.statusCheckmark}>✓</Text>
-                    ) : (
-                      <ActivityIndicator color="rgba(0, 0, 0, 0.78)" size="large" />
-                    )}
-                  </View>
-                  <Text style={[theme.typography.caption, styles.statusTitle]}>{statusCopy.title}</Text>
-                  <Text style={[theme.typography.bodyStrong, styles.statusHeadline]}>{statusCopy.headline}</Text>
-                  <Text style={[theme.typography.body, styles.statusDetail]}>{statusCopy.detail}</Text>
-                </View>
-              </View>
-            ) : (
-              <Animated.View
-                pointerEvents="none"
-                style={[
-                  styles.confirmationPrompt,
-                  {
-                    opacity: confirmationPromptOpacity,
-                    transform: [{ scale: confirmationPromptScale }],
-                  },
-                ]}
-                testID="single-sell-confirmation-prompt"
-              >
-                <Text style={styles.swipeChevron}>⌃</Text>
-                <Text style={[theme.typography.body, styles.swipeRailTitle]}>{confirmationPrompt}</Text>
-              </Animated.View>
-            )}
+            <Animated.View
+              pointerEvents="none"
+              style={[
+                styles.confirmationPrompt,
+                {
+                  opacity: confirmationPromptOpacity,
+                  transform: [{ scale: confirmationPromptScale }],
+                },
+              ]}
+              testID="single-sell-confirmation-prompt"
+            >
+              <Text style={styles.swipeChevron}>⌃</Text>
+              <Text style={[theme.typography.body, styles.swipeRailTitle]}>{confirmationPrompt}</Text>
+            </Animated.View>
           </Animated.View>
         </View>
       </Animated.View>
@@ -773,49 +782,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-  },
-  statusBody: {
-    alignItems: 'center',
-    maxWidth: 320,
-    paddingBottom: 96,
-    paddingHorizontal: 28,
-    paddingTop: 148,
-  },
-  statusCheckmark: {
-    color: 'rgba(0, 0, 0, 0.84)',
-    fontSize: 32,
-    fontWeight: '800',
-    lineHeight: 36,
-  },
-  statusDetail: {
-    color: 'rgba(0, 0, 0, 0.66)',
-    fontSize: 16,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  statusHeadline: {
-    color: 'rgba(0, 0, 0, 0.9)',
-    fontSize: 18,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  statusIconWrap: {
-    alignItems: 'center',
-    height: 44,
-    justifyContent: 'center',
-    marginBottom: 20,
-  },
-  statusScreen: {
-    alignItems: 'center',
-    flex: 1,
-    justifyContent: 'center',
-    width: '100%',
-  },
-  statusTitle: {
-    color: 'rgba(0, 0, 0, 0.58)',
-    fontSize: 14,
-    lineHeight: 18,
-    marginBottom: 10,
   },
   swipeChevron: {
     color: 'rgba(15, 15, 18, 0.7)',

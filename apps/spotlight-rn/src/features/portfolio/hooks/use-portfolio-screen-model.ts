@@ -14,6 +14,7 @@ import type {
   RecentSaleRecord,
 } from '@spotlight/api-client';
 
+import { prefetchCardImages } from '@/lib/card-images';
 import {
   formatEditableSellPrice,
   parseSellPrice,
@@ -263,6 +264,15 @@ export function usePortfolioScreenModel() {
     void loadInventory();
     void loadDashboard();
   }, [dataVersion, loadDashboard, loadInventory]);
+
+  useEffect(() => {
+    if (dashboard.inventoryItems.length === 0 && dashboard.recentSales.length === 0) {
+      return;
+    }
+
+    void prefetchCardImages(dashboard.inventoryItems.slice(0, 12), 'small');
+    void prefetchCardImages(dashboard.recentSales.slice(0, maxRecentSales), 'small');
+  }, [dashboard.inventoryItems, dashboard.recentSales]);
 
   const filteredInventory = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();

@@ -72,6 +72,7 @@ export function cardDetailPreviewFromInventoryEntry(entry: InventoryCardEntry): 
     entryId: entry.id,
     id: entry.id,
     imageUrl: entry.imageUrl,
+    largeImageUrl: entry.largeImageUrl ?? null,
     marketPrice: entry.hasMarketPrice ? entry.marketPrice : null,
     name: entry.name,
     ownedEntry: entry,

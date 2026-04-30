@@ -12,10 +12,22 @@ export type ScannerCapturePayload = {
   height: number;
 };
 
+export type ScanFeedbackPayload = {
+  scanID: string;
+  selectedCardID?: string | null;
+  correctionType: string;
+  submittedAt: string;
+  selectionSource?: 'top' | 'alternate' | 'manual_search' | 'abandoned' | 'unknown' | null;
+  selectedRank?: number | null;
+  wasTopPrediction?: boolean | null;
+};
+
 export type ScannerMatchResult = {
   scanID: string | null;
   candidates: CatalogSearchResult[];
   endpointPath?: string;
+  reviewDisposition?: string | null;
+  reviewReason?: string | null;
   roundTripMs?: number | null;
   serverProcessingMs?: number | null;
   requestUrl?: string | null;
@@ -30,6 +42,74 @@ export type SpotlightRepositoryLoadResult<T> = {
   state: SpotlightRepositoryLoadState;
   data: T | null;
   errorMessage: string | null;
+};
+
+export const labelingSessionAngleLabels = [
+  'front',
+  'tilt_left',
+  'tilt_right',
+  'tilt_forward',
+] as const;
+
+export type LabelingSessionAngleLabel = (typeof labelingSessionAngleLabels)[number];
+
+export type LabelingSessionCreatePayload = {
+  sessionID?: string | null;
+  cardID: string;
+  cardName?: string | null;
+  cardNumber?: string | null;
+  setName?: string | null;
+  isPromo?: boolean | null;
+  createdAt?: string | null;
+};
+
+export type LabelingSessionRecord = {
+  sessionID: string;
+  cardID: string;
+  status: 'capturing' | 'completed' | 'aborted';
+  createdAt: string;
+  completedAt?: string | null;
+  abortedAt?: string | null;
+  artifactCount?: number;
+};
+
+export type LabelingSessionArtifactUploadPayload = {
+  sessionID: string;
+  angleIndex: number;
+  angleLabel: LabelingSessionAngleLabel;
+  submittedAt: string;
+  sourceImage: {
+    jpegBase64: string;
+    width: number;
+    height: number;
+  };
+  normalizedImage: {
+    jpegBase64: string;
+    width: number;
+    height: number;
+  };
+  nativeSourceWidth: number;
+  nativeSourceHeight: number;
+  cropX: number;
+  cropY: number;
+  cropWidth: number;
+  cropHeight: number;
+  normalizationRotationDegrees: number;
+  normalizationReason: string;
+  scannerFrontHalfVersion: string;
+  sourceBranch?: string | null;
+  pixelsPerCardHeight?: number | null;
+  processingMs?: number | null;
+};
+
+export type LabelingSessionArtifactRecord = {
+  artifactID: string;
+  sessionID: string;
+  angleIndex: number;
+  angleLabel: LabelingSessionAngleLabel;
+  sourceObjectPath?: string | null;
+  normalizedObjectPath?: string | null;
+  uploadedAt?: string | null;
 };
 
 export type InventorySortOption = 'recent' | 'value' | 'a-z';
@@ -91,6 +171,8 @@ export type InventoryCardEntry = {
   cardNumber: string;
   setName: string;
   imageUrl: string;
+  smallImageUrl?: string | null;
+  largeImageUrl?: string | null;
   marketPrice: number;
   hasMarketPrice: boolean;
   currencyCode: string;
@@ -122,6 +204,8 @@ export type RecentSaleRecord = {
   soldAtLabel: string;
   soldAtISO: string;
   imageUrl: string;
+  smallImageUrl?: string | null;
+  largeImageUrl?: string | null;
 };
 
 export type PortfolioDashboard = {

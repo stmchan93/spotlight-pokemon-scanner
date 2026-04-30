@@ -10,6 +10,7 @@ import {
   seedMockScannerCandidates,
   updateInventoryForSale,
 } from './mock-data';
+import { labelingSessionAngleLabels } from './types';
 import type {
   AddToCollectionOptions,
   CardDetailQuery,
@@ -21,6 +22,10 @@ import type {
   InventoryEntryCreateRequestPayload,
   InventoryEntryCreateResponsePayload,
   InventoryCardEntry,
+  LabelingSessionArtifactRecord,
+  LabelingSessionArtifactUploadPayload,
+  LabelingSessionCreatePayload,
+  LabelingSessionRecord,
   PortfolioEntryReplaceRequestPayload,
   PortfolioEntryReplaceResponsePayload,
   PortfolioImportCommitResponsePayload,
@@ -40,6 +45,7 @@ import type {
   PortfolioSaleResponsePayload,
   RecentSaleRecord,
   ScannerCapturePayload,
+  ScanFeedbackPayload,
   ScannerMatchResult,
   ScannerMode,
   SlabContext,
@@ -55,6 +61,17 @@ export interface SpotlightRepository {
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
   matchScannerCapture(payload: ScannerCapturePayload): Promise<ScannerMatchResult>;
   getScannerCandidates(mode: ScannerMode, limit?: number): Promise<CatalogSearchResult[]>;
+  submitScanFeedback(payload: ScanFeedbackPayload): Promise<void>;
+  createLabelingSession(payload: LabelingSessionCreatePayload): Promise<LabelingSessionRecord>;
+  uploadLabelingSessionArtifact(payload: LabelingSessionArtifactUploadPayload): Promise<LabelingSessionArtifactRecord>;
+  completeLabelingSession(
+    sessionID: string,
+    payload?: { completedAt?: string | null },
+  ): Promise<LabelingSessionRecord>;
+  abortLabelingSession(
+    sessionID: string,
+    payload?: { abortedAt?: string | null },
+  ): Promise<LabelingSessionRecord>;
   loadCardDetail(query: CardDetailQuery): Promise<SpotlightRepositoryLoadResult<CardDetailRecord | null>>;
   getCardDetail(query: CardDetailQuery): Promise<CardDetailRecord | null>;
   getCardMarketHistory(query: CardDetailQuery & {
@@ -200,6 +217,8 @@ type ScanMatchCandidateDTO = {
 type ScanMatchResponseDTO = {
   scanID?: string | null;
   topCandidates?: ScanMatchCandidateDTO[] | null;
+  reviewDisposition?: string | null;
+  reviewReason?: string | null;
   performance?: {
     serverProcessingMs?: number | null;
   } | null;
@@ -1057,7 +1076,9 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     name: card.name,
     cardNumber: withCardNumberPrefix(card.number),
     setName: card.setName,
-    imageUrl: pickImageUrl([card.imageLargeURL, card.imageSmallURL], baseUrl),
+    imageUrl: pickImageUrl([card.imageSmallURL, card.imageLargeURL], baseUrl),
+    smallImageUrl: pickImageUrl([card.imageSmallURL], baseUrl) || null,
+    largeImageUrl: pickImageUrl([card.imageLargeURL], baseUrl) || null,
     marketPrice: card.pricing.market ?? 0,
     hasMarketPrice,
     currencyCode: card.pricing.currencyCode,
@@ -1098,7 +1119,9 @@ function buildRecentSales(transactions: PortfolioLedgerDTO['transactions'], base
         currencyCode: normalizeCurrencyCode(transaction.currencyCode),
         soldAtLabel: transaction.kind === 'sell' ? formatSoldAtLabel(occurredAt) : formatTradedAtLabel(occurredAt),
         soldAtISO: occurredAt,
-        imageUrl: pickImageUrl([card.imageLargeURL, card.imageSmallURL], baseUrl),
+        imageUrl: pickImageUrl([card.imageSmallURL, card.imageLargeURL], baseUrl),
+        smallImageUrl: pickImageUrl([card.imageSmallURL], baseUrl) || null,
+        largeImageUrl: pickImageUrl([card.imageLargeURL], baseUrl) || null,
       } satisfies RecentSaleRecord];
     });
 }
@@ -1604,6 +1627,10 @@ function buildCardEbayListingsRecord(
 
 function errorMessageFromUnknown(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) {
+    const normalizedMessage = error.message.trim().toLowerCase();
+    if (normalizedMessage === 'network request failed' || normalizedMessage === 'failed to fetch') {
+      return fallback;
+    }
     return error.message;
   }
 
@@ -1628,6 +1655,8 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private catalogResults = seedMockCatalogResults();
   private cardDetails = seedMockCardDetails();
   private portfolioImportJobs = new Map<string, PortfolioImportJobRecord>();
+  private labelingSessions = new Map<string, LabelingSessionRecord>();
+  private labelingSessionArtifacts = new Map<string, LabelingSessionArtifactRecord>();
 
   async loadPortfolioDashboard() {
     const dashboard = buildMockDashboard(this.inventoryEntries, this.recentSales);
@@ -1696,6 +1725,100 @@ export class MockSpotlightRepository implements SpotlightRepository {
 
   async getScannerCandidates(mode: ScannerMode, limit = 10) {
     return buildScannerCandidates(mode, limit);
+  }
+
+  async submitScanFeedback(_payload: ScanFeedbackPayload) {
+    return undefined;
+  }
+
+  async createLabelingSession(payload: LabelingSessionCreatePayload) {
+    const cardID = normalizeString(payload.cardID);
+    if (!cardID) {
+      throw new SpotlightRepositoryRequestError('cardID is required.', 'request_failed');
+    }
+
+    const sessionID = normalizeString(payload.sessionID) ?? createPseudoUUID();
+    const createdAt = normalizeString(payload.createdAt) ?? new Date().toISOString();
+    const session: LabelingSessionRecord = {
+      sessionID,
+      cardID,
+      status: 'capturing',
+      createdAt,
+      completedAt: null,
+      abortedAt: null,
+      artifactCount: 0,
+    };
+    this.labelingSessions.set(sessionID, { ...session });
+    return { ...session };
+  }
+
+  async uploadLabelingSessionArtifact(payload: LabelingSessionArtifactUploadPayload) {
+    const session = this.labelingSessions.get(payload.sessionID);
+    if (!session) {
+      throw new SpotlightRepositoryRequestError('Labeling session not found.', 'not_found', 404);
+    }
+
+    const artifactID = createPseudoUUID();
+    const artifact: LabelingSessionArtifactRecord = {
+      artifactID,
+      sessionID: payload.sessionID,
+      angleIndex: payload.angleIndex,
+      angleLabel: payload.angleLabel,
+      sourceObjectPath: `mock://labeling-sessions/${payload.sessionID}/${artifactID}/source.jpg`,
+      normalizedObjectPath: `mock://labeling-sessions/${payload.sessionID}/${artifactID}/normalized.jpg`,
+      uploadedAt: payload.submittedAt,
+    };
+
+    this.labelingSessionArtifacts.set(artifactID, { ...artifact });
+    this.labelingSessions.set(payload.sessionID, {
+      ...session,
+      artifactCount: (session.artifactCount ?? 0) + 1,
+    });
+    return { ...artifact };
+  }
+
+  async completeLabelingSession(
+    sessionID: string,
+    payload: { completedAt?: string | null } = {},
+  ) {
+    const session = this.labelingSessions.get(sessionID);
+    if (!session) {
+      throw new SpotlightRepositoryRequestError('Labeling session not found.', 'not_found', 404);
+    }
+    if ((session.artifactCount ?? 0) < labelingSessionAngleLabels.length) {
+      throw new SpotlightRepositoryRequestError(
+        `Labeling session requires ${labelingSessionAngleLabels.length} artifacts.`,
+        'request_failed',
+      );
+    }
+
+    const nextSession: LabelingSessionRecord = {
+      ...session,
+      status: 'completed',
+      completedAt: normalizeString(payload.completedAt) ?? new Date().toISOString(),
+      abortedAt: null,
+    };
+    this.labelingSessions.set(sessionID, { ...nextSession });
+    return { ...nextSession };
+  }
+
+  async abortLabelingSession(
+    sessionID: string,
+    payload: { abortedAt?: string | null } = {},
+  ) {
+    const session = this.labelingSessions.get(sessionID);
+    if (!session) {
+      throw new SpotlightRepositoryRequestError('Labeling session not found.', 'not_found', 404);
+    }
+
+    const nextSession: LabelingSessionRecord = {
+      ...session,
+      status: 'aborted',
+      completedAt: null,
+      abortedAt: normalizeString(payload.abortedAt) ?? new Date().toISOString(),
+    };
+    this.labelingSessions.set(sessionID, { ...nextSession });
+    return { ...nextSession };
   }
 
   async loadCardDetail(query: CardDetailQuery) {
@@ -2021,10 +2144,16 @@ export class MockSpotlightRepository implements SpotlightRepository {
 
 export class HttpSpotlightRepository implements SpotlightRepository {
   private readonly baseUrls: string[];
+  private readonly getAccessToken: (() => string | null | Promise<string | null>) | null;
 
   private activeBaseUrl: string;
 
-  constructor(baseUrl: string | string[]) {
+  constructor(
+    baseUrl: string | string[],
+    options?: {
+      getAccessToken?: (() => string | null | Promise<string | null>) | null;
+    },
+  ) {
     const candidates = (Array.isArray(baseUrl) ? baseUrl : [baseUrl])
       .map((candidate) => candidate.trim().replace(/\/+$/, ''))
       .filter((candidate, index, collection) => {
@@ -2033,6 +2162,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
     this.baseUrls = candidates.length > 0 ? candidates : ['http://127.0.0.1:8788'];
     this.activeBaseUrl = this.baseUrls[0];
+    this.getAccessToken = options?.getAccessToken ?? null;
   }
 
   private get baseUrl() {
@@ -2052,6 +2182,24 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       .map(([key, value]) => `${key}=${value ?? 'n/a'}`)
       .join(' ');
     console.info(`[SPOTLIGHT API] ${label}${details ? ` ${details}` : ''}`);
+  }
+
+  private async requestInitWithAuth(init?: RequestInit) {
+    if (!this.getAccessToken) {
+      return init;
+    }
+
+    const accessToken = await this.getAccessToken();
+    if (!accessToken) {
+      return init;
+    }
+
+    const headers = new Headers(init?.headers ?? undefined);
+    headers.set('Authorization', `Bearer ${accessToken}`);
+    return {
+      ...init,
+      headers,
+    } satisfies RequestInit;
   }
 
   private async searchCatalogCardsForScanner(query: string, limit = 12) {
@@ -2328,6 +2476,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       scanID: normalizeString(response.data?.scanID),
       candidates: mapScannerMatchCandidates(response.data, this.baseUrl),
       endpointPath,
+      reviewDisposition: normalizeString(response.data?.reviewDisposition),
+      reviewReason: normalizeString(response.data?.reviewReason),
       requestAttemptCount: response.meta.attemptCount,
       requestUrl: response.meta.requestUrl,
       roundTripMs,
@@ -2341,6 +2491,74 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       seededCandidates.map((candidate) => this.resolveScannerCandidate(candidate)),
     );
     return resolvedCandidates;
+  }
+
+  async submitScanFeedback(payload: ScanFeedbackPayload) {
+    await this.requestJsonOrThrow<{ status?: string }>(`${this.baseUrl}/api/v1/scan/feedback`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async createLabelingSession(payload: LabelingSessionCreatePayload) {
+    return this.requestJsonOrThrow<LabelingSessionRecord>(`${this.baseUrl}/api/v1/labeling-sessions`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async uploadLabelingSessionArtifact(payload: LabelingSessionArtifactUploadPayload) {
+    const encodedSessionID = encodeURIComponent(payload.sessionID);
+    return this.requestJsonOrThrow<LabelingSessionArtifactRecord>(
+      `${this.baseUrl}/api/v1/labeling-sessions/${encodedSessionID}/artifacts`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+  }
+
+  async completeLabelingSession(
+    sessionID: string,
+    payload: { completedAt?: string | null } = {},
+  ) {
+    const encodedSessionID = encodeURIComponent(sessionID);
+    return this.requestJsonOrThrow<LabelingSessionRecord>(
+      `${this.baseUrl}/api/v1/labeling-sessions/${encodedSessionID}/complete`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+  }
+
+  async abortLabelingSession(
+    sessionID: string,
+    payload: { abortedAt?: string | null } = {},
+  ) {
+    const encodedSessionID = encodeURIComponent(sessionID);
+    return this.requestJsonOrThrow<LabelingSessionRecord>(
+      `${this.baseUrl}/api/v1/labeling-sessions/${encodedSessionID}/abort`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
   }
 
   async loadCardDetail(query: CardDetailQuery) {
@@ -2680,6 +2898,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const candidateUrls = this.expandRequestCandidateUrls(url, options?.candidateStrategy);
     let lastNetworkError: SpotlightRepositoryRequestError | null = null;
     let lastRequestMeta: JsonRequestMeta | null = null;
+    const requestInit = await this.requestInitWithAuth(init);
 
     for (const [index, candidateUrl] of candidateUrls.entries()) {
       const attemptCount = index + 1;
@@ -2693,7 +2912,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         : null;
 
       try {
-        response = await fetch(candidateUrl, controller ? { ...init, signal: controller.signal } : init);
+        response = await fetch(
+          candidateUrl,
+          controller ? { ...requestInit, signal: controller.signal } : requestInit,
+        );
       } catch (error) {
         const elapsedMs = Date.now() - attemptStartedAt;
         lastRequestMeta = {

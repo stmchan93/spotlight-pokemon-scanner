@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 import sqlite3
@@ -307,6 +308,7 @@ def _add_column_if_missing(
 def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     # Additive scan/dataset schema changes must not trigger the destructive reset path.
     scan_event_columns = {
+        "owner_user_id": "TEXT",
         "predicted_card_id": "TEXT",
         "selected_rank": "INTEGER",
         "was_top_prediction": "INTEGER",
@@ -319,17 +321,144 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     for column_name, column_sql in scan_event_columns.items():
         _add_column_if_missing(connection, "scan_events", column_name, column_sql)
 
+    labeling_session_columns = {
+        "labeler_user_id": "TEXT",
+        "provider_card_id": "TEXT",
+        "tier_assignment": "TEXT CHECK(tier_assignment IN ('tier2', 'tier3'))",
+        "routed_batch_id": "TEXT",
+        "first_capture_scan_id": "TEXT",
+    }
+    for column_name, column_sql in labeling_session_columns.items():
+        _add_column_if_missing(connection, "labeling_sessions", column_name, column_sql)
+
+    labeling_artifact_columns = {
+        "scan_id": "TEXT",
+        "dataset_role": "TEXT CHECK(dataset_role IN ('tier2', 'tier3'))",
+    }
+    for column_name, column_sql in labeling_artifact_columns.items():
+        _add_column_if_missing(connection, "labeling_session_artifacts", column_name, column_sql)
+
+    _add_column_if_missing(connection, "scan_artifacts", "owner_user_id", "TEXT")
+    _add_column_if_missing(connection, "scan_confirmations", "owner_user_id", "TEXT")
+    _add_column_if_missing(connection, "deck_entries", "owner_user_id", "TEXT")
+    _add_column_if_missing(connection, "deck_entries", "identity_key", "TEXT")
     _add_column_if_missing(connection, "deck_entries", "quantity", "INTEGER NOT NULL DEFAULT 1")
     _add_column_if_missing(connection, "deck_entries", "cost_basis_total", "REAL NOT NULL DEFAULT 0")
     _add_column_if_missing(connection, "deck_entries", "cost_basis_currency_code", "TEXT")
     _add_column_if_missing(connection, "deck_entries", "condition", "TEXT")
+    _add_column_if_missing(connection, "sale_events", "owner_user_id", "TEXT")
     _add_column_if_missing(connection, "sale_events", "cost_basis_total", "REAL")
     _add_column_if_missing(connection, "sale_events", "cost_basis_unit_price", "REAL")
+    _add_column_if_missing(connection, "deck_entry_events", "owner_user_id", "TEXT")
     _add_column_if_missing(connection, "deck_entry_events", "unit_price", "REAL")
     _add_column_if_missing(connection, "deck_entry_events", "total_price", "REAL")
     _add_column_if_missing(connection, "deck_entry_events", "currency_code", "TEXT")
     _add_column_if_missing(connection, "deck_entry_events", "payment_method", "TEXT")
+    _add_column_if_missing(connection, "portfolio_import_jobs", "owner_user_id", "TEXT")
+    if _table_exists(connection, "labeling_sessions"):
+        labeling_session_table_columns = _table_columns(connection, "labeling_sessions")
+        if {"provider_card_id", "created_at"}.issubset(labeling_session_table_columns):
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_labeling_sessions_provider_card
+                ON labeling_sessions(provider_card_id, created_at DESC)
+                """
+            )
+    if _table_exists(connection, "labeling_session_artifacts"):
+        labeling_artifact_table_columns = _table_columns(connection, "labeling_session_artifacts")
+        if "scan_id" in labeling_artifact_table_columns:
+            connection.execute(
+                """
+                CREATE INDEX IF NOT EXISTS idx_labeling_session_artifacts_scan_id
+                ON labeling_session_artifacts(scan_id)
+                """
+            )
     _backfill_deck_entry_quantities(connection)
+    _backfill_user_isolation_columns(connection)
+
+
+def _user_isolation_backfill_owner_user_id() -> str | None:
+    candidates = [
+        os.environ.get("SPOTLIGHT_LEGACY_OWNER_USER_ID"),
+        os.environ.get("SPOTLIGHT_AUTH_FALLBACK_USER_ID"),
+    ]
+    for raw_value in candidates:
+        normalized = str(raw_value or "").strip()
+        if normalized:
+            return normalized
+    return None
+
+
+def _runtime_default_owner_user_id() -> str | None:
+    auth_fallback_user_id = str(os.environ.get("SPOTLIGHT_AUTH_FALLBACK_USER_ID") or "").strip()
+    if auth_fallback_user_id:
+        return auth_fallback_user_id
+    auth_required_raw = str(os.environ.get("SPOTLIGHT_AUTH_REQUIRED") or "").strip().lower()
+    auth_required = auth_required_raw in {"1", "true", "yes", "on"}
+    if not auth_required:
+        return "local-dev-user"
+    return None
+
+
+def _backfill_user_isolation_columns(connection: sqlite3.Connection) -> None:
+    fallback_owner_user_id = _user_isolation_backfill_owner_user_id()
+
+    if _table_exists(connection, "deck_entries"):
+        deck_entry_columns = _table_columns(connection, "deck_entries")
+        if "identity_key" in deck_entry_columns:
+            rows = connection.execute(
+                """
+                SELECT id, card_id, grader, grade, cert_number, variant_name, condition
+                FROM deck_entries
+                WHERE identity_key IS NULL OR TRIM(identity_key) = ''
+                """
+            ).fetchall()
+            for row in rows:
+                identity_key = deck_entry_storage_key(
+                    card_id=str(row["card_id"] or "").strip(),
+                    grader=str(row["grader"] or "").strip() or None,
+                    grade=str(row["grade"] or "").strip() or None,
+                    cert_number=str(row["cert_number"] or "").strip() or None,
+                    variant_name=str(row["variant_name"] or "").strip() or None,
+                    condition=str(row["condition"] or "").strip() or None,
+                )
+                connection.execute(
+                    "UPDATE deck_entries SET identity_key = ? WHERE id = ?",
+                    (identity_key, str(row["id"] or "").strip()),
+                )
+
+        if fallback_owner_user_id and "owner_user_id" in deck_entry_columns:
+            connection.execute(
+                """
+                UPDATE deck_entries
+                SET owner_user_id = ?
+                WHERE owner_user_id IS NULL OR TRIM(owner_user_id) = ''
+                """,
+                (fallback_owner_user_id,),
+            )
+
+    owner_backfill_tables = (
+        "scan_events",
+        "scan_artifacts",
+        "scan_confirmations",
+        "sale_events",
+        "deck_entry_events",
+        "portfolio_import_jobs",
+    )
+    if fallback_owner_user_id:
+        for table_name in owner_backfill_tables:
+            if not _table_exists(connection, table_name):
+                continue
+            if "owner_user_id" not in _table_columns(connection, table_name):
+                continue
+            connection.execute(
+                f"""
+                UPDATE {table_name}
+                SET owner_user_id = ?
+                WHERE owner_user_id IS NULL OR TRIM(owner_user_id) = ''
+                """,
+                (fallback_owner_user_id,),
+            )
 
 
 def _rebuild_pricing_tables_if_needed(connection: sqlite3.Connection) -> None:
@@ -486,6 +615,7 @@ def _seed_deck_entry_events_from_existing_rows(connection: sqlite3.Connection) -
             """
             SELECT
                 id,
+                owner_user_id,
                 card_id,
                 grader,
                 grade,
@@ -513,6 +643,7 @@ def _seed_deck_entry_events_from_existing_rows(connection: sqlite3.Connection) -
                 continue
             append_deck_entry_event(
                 connection,
+                owner_user_id=str(row["owner_user_id"] or "").strip() or None,
                 deck_entry_id=deck_entry_id,
                 card_id=str(row["card_id"] or "").strip(),
                 event_kind="seed",
@@ -568,12 +699,12 @@ def _backfill_deck_entry_quantities(connection: sqlite3.Connection) -> None:
             """
             UPDATE deck_entries
             SET quantity = CASE
-                WHEN quantity IS NULL THEN ?
+                WHEN quantity IS NULL OR quantity < ? THEN ?
                 ELSE quantity
             END
             WHERE id = ?
             """,
-            (confirmation_count, deck_entry_id),
+            (confirmation_count, confirmation_count, deck_entry_id),
         )
 
 
@@ -2155,6 +2286,101 @@ def _manual_search_number_forms(value: str) -> tuple[str, ...]:
     return tuple(forms)
 
 
+_MANUAL_SEARCH_EXACT_NUMBER_PATTERN = re.compile(
+    r"(?<![\w])#?([a-z]*\d+[a-z0-9-]*\s*[/／\\]\s*[a-z0-9-]+)(?![\w])",
+    flags=re.IGNORECASE,
+)
+
+
+def _manual_search_exact_number_forms_from_query(
+    query: str,
+    structured_filters: dict[str, tuple[str, ...]],
+) -> tuple[str, ...]:
+    forms: list[str] = []
+    seen: set[str] = set()
+
+    def add(value: str) -> None:
+        normalized = canonicalize_collector_number(value)
+        if not normalized or normalized in seen:
+            return
+        seen.add(normalized)
+        forms.append(normalized)
+
+        match = re.fullmatch(r"(\d+)/(\d+)", normalized)
+        if not match:
+            return
+
+        left, right = match.groups()
+        for left_form in (left.lstrip("0") or "0", left.zfill(3)):
+            for right_form in (right.lstrip("0") or "0", right.zfill(3)):
+                variant = f"{left_form}/{right_form}"
+                if variant and variant not in seen:
+                    seen.add(variant)
+                    forms.append(variant)
+
+    for clause in structured_filters.get("number", ()):
+        add(clause)
+
+    for match in _MANUAL_SEARCH_EXACT_NUMBER_PATTERN.finditer(str(query or "")):
+        add(match.group(1))
+
+    return tuple(forms)
+
+
+def _manual_search_candidate_rows_for_exact_numbers(
+    connection: sqlite3.Connection,
+    number_forms: tuple[str, ...],
+    *,
+    limit: int,
+) -> list[tuple[str, float]]:
+    if not number_forms:
+        return []
+
+    clause_limit = max(1, min(int(limit), 50))
+    fetch_limit = min(max(clause_limit * 2, clause_limit), 100)
+    best_scores: dict[str, float] = {}
+    ordered_ids: list[str] = []
+    seen_ids: set[str] = set()
+
+    for number_form in number_forms:
+        rows = connection.execute(
+            """
+            SELECT id AS id,
+                   CASE WHEN number = ? THEN 760.0 ELSE 620.0 END AS score
+            FROM cards
+            WHERE number = ?
+               OR number >= ? AND number < ?
+            ORDER BY
+                CASE WHEN number = ? THEN 0 ELSE 1 END,
+                CASE WHEN language = 'English' THEN 0 ELSE 1 END,
+                name,
+                set_name,
+                id
+            LIMIT ?
+            """,
+            (
+                number_form,
+                number_form,
+                *(_manual_search_prefix_bounds(f"{number_form}/")),
+                number_form,
+                fetch_limit,
+            ),
+        ).fetchall()
+
+        for row in rows:
+            card_id = str(row["id"] or "").strip()
+            if not card_id:
+                continue
+            score = float(row["score"] or 0.0)
+            if card_id not in seen_ids:
+                seen_ids.add(card_id)
+                ordered_ids.append(card_id)
+            best_scores[card_id] = max(best_scores.get(card_id, 0.0), score)
+
+    ordered_ids.sort(key=lambda card_id: (-best_scores.get(card_id, 0.0), card_id))
+    return [(card_id, best_scores[card_id]) for card_id in ordered_ids[:clause_limit]]
+
+
 def _manual_search_prefix_bounds(prefix: str) -> tuple[str, str]:
     normalized_prefix = str(prefix or "").strip()
     if not normalized_prefix:
@@ -2393,6 +2619,7 @@ def _manual_search_score(
     query: str,
     tokens: list[str],
     structured_filters: dict[str, tuple[str, ...]] | None = None,
+    explicit_number_forms: tuple[str, ...] = tuple(),
 ) -> float:
     if structured_filters is None:
         structured_filters = {field: tuple() for field in _MANUAL_SEARCH_FIELD_NAMES}
@@ -2419,6 +2646,14 @@ def _manual_search_score(
     query_token_set = set(tokens)
     card_number = canonicalize_collector_number(str(card.get("number") or ""))
     score = 0.0
+
+    if card_number and explicit_number_forms:
+        if card_number in explicit_number_forms:
+            score += 280.0
+            if str(card.get("language") or "").strip().lower() == "english":
+                score += 45.0
+        elif any(card_number.startswith(f"{number_form}/") for number_form in explicit_number_forms):
+            score += 190.0
 
     if normalized_query:
         if normalized_query in normalized_title_values:
@@ -2516,6 +2751,7 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
     tokens = tokenize(search_text)
     requested_limit = _normalized_manual_search_limit(limit)
     query_phrases = _manual_search_query_phrases(tokens)
+    explicit_number_forms = _manual_search_exact_number_forms_from_query(search_text, structured_filters)
     candidate_scores: dict[str, float] = {}
     candidate_order: list[str] = []
     seen_candidates: set[str] = set()
@@ -2530,6 +2766,13 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
         candidate_scores[normalized_card_id] = max(candidate_scores.get(normalized_card_id, 0.0), float(score))
 
     per_phrase_limit = max(8, min(50, requested_limit * 3))
+    for card_id, score in _manual_search_candidate_rows_for_exact_numbers(
+        connection,
+        explicit_number_forms,
+        limit=per_phrase_limit,
+    ):
+        add_candidate(card_id, score)
+
     for phrase in query_phrases:
         for card_id, score in _manual_search_candidate_rows_for_phrase(
             connection,
@@ -2549,7 +2792,13 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
             continue
         if not _manual_search_card_matches_structured_filters(card, structured_filters):
             continue
-        search_score = _manual_search_score(card, search_text, tokens, structured_filters)
+        search_score = _manual_search_score(
+            card,
+            search_text,
+            tokens,
+            structured_filters,
+            explicit_number_forms=explicit_number_forms,
+        )
         retrieval_score = candidate_scores.get(card_id, 0.0)
         final_score = retrieval_score + search_score
         if final_score <= 0:
@@ -3349,6 +3598,7 @@ def upsert_scan_event(
     connection: sqlite3.Connection,
     *,
     scan_id: str,
+    owner_user_id: str | None = None,
     request_payload: dict[str, Any],
     response_payload: dict[str, Any],
     matcher_source: str,
@@ -3373,14 +3623,15 @@ def upsert_scan_event(
     connection.execute(
         """
         INSERT INTO scan_events (
-            scan_id, created_at, resolver_mode, resolver_path,
+            scan_id, owner_user_id, created_at, resolver_mode, resolver_path,
             request_json, response_json, matcher_source, matcher_version,
             predicted_card_id, selected_card_id, selected_rank, was_top_prediction,
             selection_source, confirmed_card_id, confirmation_source, deck_entry_id,
             confidence, review_disposition, correction_type, completed_at, confirmed_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(scan_id) DO UPDATE SET
+            owner_user_id=COALESCE(excluded.owner_user_id, scan_events.owner_user_id),
             resolver_mode=excluded.resolver_mode,
             resolver_path=excluded.resolver_path,
             request_json=excluded.request_json,
@@ -3403,6 +3654,7 @@ def upsert_scan_event(
         """,
         (
             scan_id,
+            owner_user_id,
             created_at or utc_now(),
             resolver_mode,
             resolver_path,
@@ -3512,6 +3764,7 @@ def upsert_scan_artifact(
     connection: sqlite3.Connection,
     *,
     scan_id: str,
+    owner_user_id: str | None = None,
     source_object_path: str,
     normalized_object_path: str,
     source_width: int | None = None,
@@ -3528,12 +3781,13 @@ def upsert_scan_artifact(
     connection.execute(
         """
         INSERT INTO scan_artifacts (
-            scan_id, source_object_path, normalized_object_path, source_width, source_height,
+            scan_id, owner_user_id, source_object_path, normalized_object_path, source_width, source_height,
             normalized_width, normalized_height, camera_zoom_factor, capture_source,
             upload_status, uploaded_at, artifact_version, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(scan_id) DO UPDATE SET
+            owner_user_id=COALESCE(excluded.owner_user_id, scan_artifacts.owner_user_id),
             source_object_path=excluded.source_object_path,
             normalized_object_path=excluded.normalized_object_path,
             source_width=excluded.source_width,
@@ -3548,6 +3802,7 @@ def upsert_scan_artifact(
         """,
         (
             scan_id,
+            owner_user_id,
             source_object_path,
             normalized_object_path,
             source_width,
@@ -3607,6 +3862,7 @@ def deck_entry_storage_key(
 def append_deck_entry_event(
     connection: sqlite3.Connection,
     *,
+    owner_user_id: str | None = None,
     deck_entry_id: str,
     card_id: str,
     event_kind: str,
@@ -3633,13 +3889,14 @@ def append_deck_entry_event(
     connection.execute(
         """
         INSERT INTO deck_entry_events (
-            id, deck_entry_id, card_id, event_kind, quantity_delta, unit_price,
+            id, owner_user_id, deck_entry_id, card_id, event_kind, quantity_delta, unit_price,
             total_price, currency_code, payment_method, condition,
             grader, grade, cert_number, variant_name, sale_id,
             source_scan_id, source_confirmation_id, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
+            owner_user_id=COALESCE(excluded.owner_user_id, deck_entry_events.owner_user_id),
             deck_entry_id=excluded.deck_entry_id,
             card_id=excluded.card_id,
             event_kind=excluded.event_kind,
@@ -3660,6 +3917,7 @@ def append_deck_entry_event(
         """,
         (
             normalized_event_id,
+            owner_user_id,
             deck_entry_id,
             card_id,
             event_kind,
@@ -3685,6 +3943,7 @@ def append_deck_entry_event(
 def record_sale_event(
     connection: sqlite3.Connection,
     *,
+    owner_user_id: str,
     deck_entry_id: str,
     card_id: str,
     quantity: int = 1,
@@ -3706,9 +3965,10 @@ def record_sale_event(
         SELECT quantity, cost_basis_total, condition, grader, grade, cert_number, variant_name
         FROM deck_entries
         WHERE id = ?
+          AND owner_user_id = ?
         LIMIT 1
         """,
-        (deck_entry_id,),
+        (deck_entry_id, owner_user_id),
     ).fetchone()
     if row is None:
         return None
@@ -3732,15 +3992,16 @@ def record_sale_event(
     connection.execute(
         """
         INSERT INTO sale_events (
-            id, deck_entry_id, card_id, quantity, unit_price, total_price,
+            id, owner_user_id, deck_entry_id, card_id, quantity, unit_price, total_price,
             currency_code, payment_method, cost_basis_total, cost_basis_unit_price,
             sale_source, show_session_id, note, sold_at,
             source_scan_id, source_confirmation_id, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             sale_id,
+            owner_user_id,
             deck_entry_id,
             card_id,
             normalized_quantity,
@@ -3766,16 +4027,19 @@ def record_sale_event(
             cost_basis_total = ?,
             updated_at = ?
         WHERE id = ?
+          AND owner_user_id = ?
         """,
         (
             normalized_quantity,
             remaining_cost_basis_total,
             normalized_sold_at,
             deck_entry_id,
+            owner_user_id,
         ),
     )
     append_deck_entry_event(
         connection,
+        owner_user_id=owner_user_id,
         deck_entry_id=deck_entry_id,
         card_id=card_id,
         event_kind="sale",
@@ -3795,6 +4059,7 @@ def record_sale_event(
 def upsert_deck_entry(
     connection: sqlite3.Connection,
     *,
+    owner_user_id: str | None = None,
     card_id: str,
     grader: str | None = None,
     grade: str | None = None,
@@ -3811,7 +4076,14 @@ def upsert_deck_entry(
     source_confirmation_id: str | None = None,
     event_kind: str = "add",
 ) -> str:
-    deck_entry_id = deck_entry_storage_key(
+    normalized_owner_user_id = (
+        str(owner_user_id or "").strip()
+        or _runtime_default_owner_user_id()
+        or _user_isolation_backfill_owner_user_id()
+    )
+    if not normalized_owner_user_id:
+        raise ValueError("owner_user_id is required when auth is enabled")
+    identity_key = deck_entry_storage_key(
         card_id=card_id,
         grader=grader,
         grade=grade,
@@ -3822,48 +4094,86 @@ def upsert_deck_entry(
     item_kind = "slab" if any(str(value or "").strip() for value in (grader, grade, cert_number)) else "raw"
     normalized_quantity = max(1, int(quantity))
     cost_basis_total = 0.0 if unit_price is None else round(float(unit_price) * normalized_quantity, 2)
-    connection.execute(
+    existing_row = connection.execute(
         """
-        INSERT INTO deck_entries (
-            id, item_kind, card_id, grader, grade, cert_number, variant_name,
-            condition, quantity, cost_basis_total, cost_basis_currency_code,
-            added_at, updated_at, source_scan_id, source_confirmation_id
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(id) DO UPDATE SET
-            card_id=excluded.card_id,
-            grader=excluded.grader,
-            grade=excluded.grade,
-            cert_number=excluded.cert_number,
-            variant_name=excluded.variant_name,
-            condition=COALESCE(excluded.condition, deck_entries.condition),
-            quantity=deck_entries.quantity + excluded.quantity,
-            cost_basis_total=round(COALESCE(deck_entries.cost_basis_total, 0) + COALESCE(excluded.cost_basis_total, 0), 2),
-            cost_basis_currency_code=COALESCE(excluded.cost_basis_currency_code, deck_entries.cost_basis_currency_code),
-            updated_at=excluded.updated_at,
-            source_scan_id=excluded.source_scan_id,
-            source_confirmation_id=excluded.source_confirmation_id
+        SELECT id
+        FROM deck_entries
+        WHERE owner_user_id = ?
+          AND identity_key = ?
+        LIMIT 1
         """,
-        (
-            deck_entry_id,
-            item_kind,
-            card_id,
-            grader,
-            grade,
-            cert_number,
-            variant_name,
-            str(condition or "").strip() or None,
-            normalized_quantity,
-            cost_basis_total,
-            str(currency_code or "").strip() or None,
-            added_at or utc_now(),
-            updated_at or utc_now(),
-            source_scan_id,
-            source_confirmation_id,
-        ),
-    )
+        (normalized_owner_user_id, identity_key),
+    ).fetchone()
+    deck_entry_id = str(existing_row["id"] or "").strip() if existing_row is not None else f"deckentry:{uuid.uuid4().hex}"
+    if existing_row is None:
+        connection.execute(
+            """
+            INSERT INTO deck_entries (
+                id, owner_user_id, identity_key, item_kind, card_id, grader, grade, cert_number, variant_name,
+                condition, quantity, cost_basis_total, cost_basis_currency_code,
+                added_at, updated_at, source_scan_id, source_confirmation_id
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                deck_entry_id,
+                normalized_owner_user_id,
+                identity_key,
+                item_kind,
+                card_id,
+                grader,
+                grade,
+                cert_number,
+                variant_name,
+                str(condition or "").strip() or None,
+                normalized_quantity,
+                cost_basis_total,
+                str(currency_code or "").strip() or None,
+                added_at or utc_now(),
+                updated_at or utc_now(),
+                source_scan_id,
+                source_confirmation_id,
+            ),
+        )
+    else:
+        connection.execute(
+            """
+            UPDATE deck_entries
+            SET card_id = ?,
+                grader = ?,
+                grade = ?,
+                cert_number = ?,
+                variant_name = ?,
+                condition = COALESCE(?, condition),
+                quantity = quantity + ?,
+                cost_basis_total = round(COALESCE(cost_basis_total, 0) + ?, 2),
+                cost_basis_currency_code = COALESCE(?, cost_basis_currency_code),
+                updated_at = ?,
+                source_scan_id = COALESCE(?, source_scan_id),
+                source_confirmation_id = COALESCE(?, source_confirmation_id)
+            WHERE id = ?
+              AND owner_user_id = ?
+            """,
+            (
+                card_id,
+                grader,
+                grade,
+                cert_number,
+                variant_name,
+                str(condition or "").strip() or None,
+                normalized_quantity,
+                cost_basis_total,
+                str(currency_code or "").strip() or None,
+                updated_at or utc_now(),
+                source_scan_id,
+                source_confirmation_id,
+                deck_entry_id,
+                normalized_owner_user_id,
+            ),
+        )
     append_deck_entry_event(
         connection,
+        owner_user_id=normalized_owner_user_id,
         deck_entry_id=deck_entry_id,
         card_id=str(card_id or "").strip(),
         event_kind=event_kind,
@@ -3888,6 +4198,7 @@ def upsert_scan_confirmation(
     connection: sqlite3.Connection,
     *,
     scan_id: str,
+    owner_user_id: str | None = None,
     confirmed_card_id: str,
     confirmation_source: str,
     selected_rank: int | None = None,
@@ -3899,11 +4210,12 @@ def upsert_scan_confirmation(
     connection.execute(
         """
         INSERT INTO scan_confirmations (
-            id, scan_id, confirmed_card_id, confirmation_source,
+            id, scan_id, owner_user_id, confirmed_card_id, confirmation_source,
             selected_rank, was_top_prediction, deck_entry_id, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(id) DO UPDATE SET
+            owner_user_id=COALESCE(excluded.owner_user_id, scan_confirmations.owner_user_id),
             confirmed_card_id=excluded.confirmed_card_id,
             confirmation_source=excluded.confirmation_source,
             selected_rank=excluded.selected_rank,
@@ -3914,6 +4226,7 @@ def upsert_scan_confirmation(
         (
             confirmation_id,
             scan_id,
+            owner_user_id,
             confirmed_card_id,
             confirmation_source,
             selected_rank,

@@ -1,4 +1,4 @@
-import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { RecentSaleRecord } from '@spotlight/api-client';
 import {
@@ -8,6 +8,8 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
+import { getCardImageSource } from '@/lib/card-images';
 import { formatCurrency } from './portfolio-formatting';
 
 function formattedCardNumber(cardNumber: string) {
@@ -35,7 +37,12 @@ function RecentSaleCard({
       testID={`recent-sale-card-${sale.id}`}
     >
       <SurfaceCard padding={cardPadding} radius={16} style={[styles.card, { minHeight: cardHeight }]}>
-        <Image source={{ uri: sale.imageUrl }} style={[styles.art, { height: artHeight }]} />
+        <CachedImage
+          cachePolicy={imageCachePolicy.thumbnail}
+          contentFit="contain"
+          source={getCardImageSource(sale, 'small')}
+          style={[styles.art, { height: artHeight }]}
+        />
 
         <View style={[styles.copy, { minHeight: artHeight }]}>
           <View style={styles.titleRow}>

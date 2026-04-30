@@ -24,6 +24,8 @@ def catalog_card(
     set_name: str,
     number: str,
     set_id: str,
+    language: str = "English",
+    set_ptcgo_code: str | None = None,
     source_provider: str = "scrydex",
 ) -> dict[str, object]:
     return {
@@ -33,12 +35,12 @@ def catalog_card(
         "number": number,
         "rarity": "Rare",
         "variant": "Raw",
-        "language": "English",
+        "language": language,
         "source": source_provider,
         "source_record_id": card_id,
         "set_id": set_id,
         "set_series": "Test Series",
-        "set_ptcgo_code": set_id.upper(),
+        "set_ptcgo_code": set_ptcgo_code or set_id.upper(),
         "set_release_date": "2024-01-01",
         "supertype": "Pokémon",
         "subtypes": [],
@@ -89,6 +91,39 @@ class ManualCardSearchTests(unittest.TestCase):
                 set_name="TCGP Digital",
                 number="4/102",
                 set_id="tcgp-digital",
+            ),
+            catalog_card(
+                card_id="perfect-order-rattata-60",
+                name="Rattata",
+                set_name="Perfect Order",
+                number="060/088",
+                set_id="me3",
+                set_ptcgo_code="POR",
+            ),
+            catalog_card(
+                card_id="phantom-gate-florges-60",
+                name="Florges-EX",
+                set_name="Phantom Gate",
+                number="060/088",
+                set_id="xy4_ja",
+                language="Japanese",
+                set_ptcgo_code="XY4",
+            ),
+            catalog_card(
+                card_id="scarlet-violet-aegislash-60",
+                name="Aegislash",
+                set_name="Scarlet & Violet Black Star Promos",
+                number="060",
+                set_id="svp",
+                set_ptcgo_code="PR-SV",
+            ),
+            catalog_card(
+                card_id="scarlet-violet-pikachu-88",
+                name="Pikachu",
+                set_name="Scarlet & Violet Black Star Promos",
+                number="088",
+                set_id="svp",
+                set_ptcgo_code="PR-SV",
             ),
         ]
 
@@ -158,6 +193,21 @@ class ManualCardSearchTests(unittest.TestCase):
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "base-charizard-4")
         self.assertEqual(results[0]["number"], "4/102")
+
+    def test_search_preserves_slash_collector_number_queries(self) -> None:
+        results = search_cards(self.connection, "060/088", limit=10)
+
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0]["id"], "perfect-order-rattata-60")
+        self.assertEqual(results[0]["number"], "060/088")
+        self.assertNotIn("scarlet-violet-aegislash-60", [result["id"] for result in results[:2]])
+
+    def test_search_preserves_structured_slash_collector_number_queries(self) -> None:
+        results = search_cards(self.connection, "number:060/088", limit=10)
+
+        self.assertGreater(len(results), 0)
+        self.assertEqual(results[0]["id"], "perfect-order-rattata-60")
+        self.assertTrue(all(result["number"] == "060/088" for result in results))
 
     def test_search_supports_combined_structured_and_free_text_queries(self) -> None:
         results = search_cards(self.connection, "set:obf charizard", limit=10)

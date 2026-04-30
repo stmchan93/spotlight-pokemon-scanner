@@ -32,7 +32,7 @@ describe('CatalogSearchScreen', () => {
     jest.restoreAllMocks();
   });
 
-  it('renders the modal chrome, groups matches by set, then opens a card from the selected set', async () => {
+  it('renders the modal chrome, lists card matches directly, then opens a card', async () => {
     const onOpenCard = jest.fn();
     const onClose = jest.fn();
     let resolveSearch: ((results: Awaited<ReturnType<MockSpotlightRepository['searchCatalogCards']>>) => void) | null = null;
@@ -65,19 +65,43 @@ describe('CatalogSearchScreen', () => {
       await Promise.resolve();
     });
 
-    expect(await screen.findByTestId('catalog-set-group-sm7-1')).toBeTruthy();
-    expect(screen.getByTestId('catalog-set-group-np-3')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('catalog-set-group-sm7-1'));
-
     expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
     expect(screen.getByTestId('catalog-result-sm7-2')).toBeTruthy();
+    expect(screen.getByTestId('catalog-result-np-3')).toBeTruthy();
+    expect(screen.queryByTestId('catalog-set-group-sm7-1')).toBeNull();
 
     fireEvent.press(screen.getByTestId('catalog-result-sm7-1'));
     expect(onOpenCard).toHaveBeenCalledWith(expect.objectContaining({
       cardId: 'sm7-1',
       name: 'Treecko',
     }));
+  });
+
+  it('clears the opening spinner after navigation starts so a returned result can be tapped again', async () => {
+    const onOpenCard = jest.fn();
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockResolvedValue(ownedCatalogResults);
+
+    renderWithProviders(
+      <CatalogSearchScreen onClose={jest.fn()} onOpenCard={onOpenCard} />,
+    );
+
+    fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
+    await advanceDebounce();
+
+    const resultRow = await screen.findByTestId('catalog-result-sm7-1');
+    fireEvent.press(resultRow);
+    expect(onOpenCard).toHaveBeenCalledTimes(1);
+
+    fireEvent.press(resultRow);
+    expect(onOpenCard).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      jest.advanceTimersByTime(350);
+      await Promise.resolve();
+    });
+
+    fireEvent.press(resultRow);
+    expect(onOpenCard).toHaveBeenCalledTimes(2);
   });
 
   it('renders the empty state when a query returns no matches', async () => {

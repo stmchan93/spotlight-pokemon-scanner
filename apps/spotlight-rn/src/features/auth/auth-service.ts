@@ -35,9 +35,14 @@ try {
 
 type UserProfileRow = {
   avatar_url: string | null;
+  admin_enabled?: boolean | null;
   display_name: string | null;
+  labeler_enabled?: boolean | null;
   user_id: string;
 };
+
+const profileSelectBase = 'user_id, display_name, avatar_url';
+const profileSelectWithCapabilities = `${profileSelectBase}, labeler_enabled, admin_enabled`;
 
 export class AuthCanceledError extends Error {
   constructor(message = 'Authentication was canceled.') {
@@ -105,8 +110,10 @@ function dedupeProviders(user: User) {
 
 function mapUserProfile(row: UserProfileRow): UserProfile {
   return {
+    adminEnabled: row.admin_enabled === true,
     avatarURL: row.avatar_url,
     displayName: row.display_name,
+    labelerEnabled: row.labeler_enabled === true,
     userID: row.user_id,
   };
 }
@@ -185,15 +192,25 @@ export async function fetchProfile(userID: string) {
   try {
     const { data, error } = await supabase
       .from('user_profiles')
-      .select('user_id, display_name, avatar_url')
+      .select(profileSelectWithCapabilities)
       .eq('user_id', userID)
       .single();
 
-    if (error || !data) {
+    if (!error && data) {
+      return mapUserProfile(data as UserProfileRow);
+    }
+
+    const fallback = await supabase
+      .from('user_profiles')
+      .select(profileSelectBase)
+      .eq('user_id', userID)
+      .single();
+
+    if (fallback.error || !fallback.data) {
       return null;
     }
 
-    return mapUserProfile(data as UserProfileRow);
+    return mapUserProfile(fallback.data as UserProfileRow);
   } catch {
     return null;
   }
@@ -215,8 +232,10 @@ export async function upsertProfile(
 ) {
   const normalizedDisplayName = normalizeDisplayName(displayName) ?? displayName;
   const profile: UserProfile = {
+    adminEnabled: false,
     avatarURL,
     displayName: normalizedDisplayName,
+    labelerEnabled: false,
     userID,
   };
 
@@ -235,11 +254,11 @@ export async function upsertProfile(
       }, {
         onConflict: 'user_id',
       })
-      .select('user_id, display_name, avatar_url')
+      .select(profileSelectBase)
       .single();
 
     if (data) {
-      return mapUserProfile(data as UserProfileRow);
+      return await fetchProfile(userID) ?? mapUserProfile(data as UserProfileRow);
     }
   } catch (error) {
     console.warn('[AUTH] Failed to upsert user profile.', error);
@@ -255,10 +274,12 @@ export async function resolveAppUserFromSession(session: Session): Promise<AppUs
   const avatarURL = profile?.avatarURL ?? fallbackAvatarURL(authUser);
 
   return {
+    adminEnabled: profile?.adminEnabled ?? false,
     avatarURL,
     displayName,
     email: authUser.email ?? null,
     id: authUser.id,
+    labelerEnabled: profile?.labelerEnabled ?? false,
     providers: dedupeProviders(authUser),
   };
 }

@@ -205,6 +205,7 @@ class PortfolioImportTests(unittest.TestCase):
         commit = self.service.commit_portfolio_import(job_id)
         self.assertEqual(commit["summary"]["committedCount"], 1)
         self.assertEqual(len(commit["failedRows"]), 0)
+        deck_entry_id = commit["committedRows"][0]["deckEntryID"]
 
         deck_row = self.service.connection.execute(
             """
@@ -213,7 +214,7 @@ class PortfolioImportTests(unittest.TestCase):
             WHERE id = ?
             LIMIT 1
             """,
-            ("raw|obf-charizard-ex-223",),
+            (deck_entry_id,),
         ).fetchone()
         self.assertIsNotNone(deck_row)
         assert deck_row is not None
@@ -229,7 +230,7 @@ class PortfolioImportTests(unittest.TestCase):
             ORDER BY created_at DESC, id DESC
             LIMIT 1
             """,
-            ("raw|obf-charizard-ex-223",),
+            (deck_entry_id,),
         ).fetchone()
         self.assertIsNotNone(event_row)
         assert event_row is not None
@@ -267,6 +268,7 @@ class PortfolioImportTests(unittest.TestCase):
         commit = self.service.commit_portfolio_import(job_id)
         self.assertEqual(commit["summary"]["committedCount"], 1)
         self.assertEqual(commit["summary"]["unresolvedCount"], 1)
+        deck_entry_id = commit["committedRows"][0]["deckEntryID"]
 
         deck_row = self.service.connection.execute(
             """
@@ -275,7 +277,7 @@ class PortfolioImportTests(unittest.TestCase):
             WHERE id = ?
             LIMIT 1
             """,
-            ("raw|base-pikachu-58",),
+            (deck_entry_id,),
         ).fetchone()
         self.assertIsNotNone(deck_row)
         assert deck_row is not None
@@ -291,7 +293,7 @@ class PortfolioImportTests(unittest.TestCase):
             ORDER BY created_at DESC, id DESC
             LIMIT 1
             """,
-            ("raw|base-pikachu-58",),
+            (deck_entry_id,),
         ).fetchone()
         self.assertIsNotNone(event_row)
         assert event_row is not None
@@ -324,6 +326,7 @@ class PortfolioImportTests(unittest.TestCase):
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
         handler.path = f"/api/v1/portfolio/imports/{preview['jobID']}?filter=ready_to_commit&limit=10"
         handler.service = self.service
+        handler.headers = {}
         captured: dict[str, object] = {}
 
         def write_json(status: HTTPStatus, payload: dict[str, object]) -> None:

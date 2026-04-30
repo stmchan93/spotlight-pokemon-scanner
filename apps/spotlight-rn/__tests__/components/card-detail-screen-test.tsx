@@ -24,6 +24,7 @@ describe('CardDetailScreen', () => {
   it('shows the hero and add-to-collection CTA for cards not yet owned', async () => {
     const onBack = jest.fn();
     const onOpenAddToCollection = jest.fn();
+    const getCardEbayListings = jest.fn(async () => null);
 
     renderWithProviders(
       <CardDetailScreen
@@ -31,6 +32,11 @@ describe('CardDetailScreen', () => {
         onBack={onBack}
         onOpenAddToCollection={onOpenAddToCollection}
       />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardEbayListings,
+        }),
+      },
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
@@ -38,19 +44,20 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('sell-backdrop')).toBeTruthy();
     expect(screen.getByTestId('detail-hero-card')).toBeTruthy();
     expect(screen.getByTestId('detail-market-card')).toBeTruthy();
-    expect(screen.getByTestId('detail-ebay-card')).toBeTruthy();
+    expect(screen.queryByTestId('detail-ebay-card')).toBeNull();
     expect(screen.getByTestId('detail-marketplace-cta')).toBeTruthy();
     expect(screen.getByTestId('detail-marketplace-icon')).toBeTruthy();
     expect(screen.getByText('ADD TO COLLECTION')).toBeTruthy();
     expect(screen.getByText('TCGPLAYER BUYING OPTIONS')).toBeTruthy();
-    expect(screen.getByText('Lowest active eBay listings')).toBeTruthy();
+    expect(screen.queryByText('Lowest active eBay listings')).toBeNull();
     expect(screen.getByText('NM')).toBeTruthy();
     expect(screen.getByText('LP')).toBeTruthy();
     expect(screen.getByText('MP')).toBeTruthy();
     expect(screen.getByText('HP')).toBeTruthy();
     expect(screen.getByText('DMG')).toBeTruthy();
     expect(screen.getByText('#001/096 • 裂空のカリスマ')).toBeTruthy();
-    expect(screen.getByText('View all on eBay')).toBeTruthy();
+    expect(screen.queryByText('View all on eBay')).toBeNull();
+    expect(getCardEbayListings).not.toHaveBeenCalled();
     expect(screen.queryByText('Not in collection')).toBeNull();
     expect(screen.queryByText('Add to track pricing')).toBeNull();
     expect(screen.queryByText('Confirm the exact card details before adding it to your collection.')).toBeNull();
@@ -75,10 +82,6 @@ describe('CardDetailScreen', () => {
       fontSize: 15,
       lineHeight: 20,
     });
-    expect(StyleSheet.flatten(screen.getByText('View all on eBay').props.style)).toMatchObject({
-      fontSize: 15,
-      lineHeight: 20,
-    });
     expect(StyleSheet.flatten(screen.getByTestId('detail-market-header-label').props.style)).toMatchObject({
       fontSize: 18,
       lineHeight: 22,
@@ -89,6 +92,76 @@ describe('CardDetailScreen', () => {
 
     fireEvent.press(screen.getByTestId('detail-add-to-collection'));
     expect(onOpenAddToCollection).toHaveBeenCalledWith('sm7-1');
+  });
+
+  it('keeps the lowest active eBay listings section for slab entries', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-treecko-entry',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity: 1,
+      setName: '裂空のカリスマ',
+      slabContext: {
+        certNumber: '12345678',
+        grade: '10',
+        grader: 'PSA',
+        variantName: 'PSA 10',
+      },
+      variantName: 'PSA 10',
+    };
+    const getCardEbayListings = jest.fn(async () => {
+      const detail = await baseRepository.getCardDetail({ cardId: 'sm7-1' });
+      return detail?.ebayListings ?? null;
+    });
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="graded-treecko-entry"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        onOpenSell={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? {
+                  ...detail,
+                  ownedEntries: [gradedEntry],
+                } satisfies CardDetailRecord
+              : null;
+          },
+          getCardEbayListings,
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.getByTestId('detail-ebay-card')).toBeTruthy();
+    expect(screen.getByText('Lowest active eBay listings')).toBeTruthy();
+    expect(screen.getByText('View all on eBay')).toBeTruthy();
+    await waitFor(() => {
+      expect(getCardEbayListings).toHaveBeenCalledWith({
+        cardId: 'sm7-1',
+        limit: 5,
+        slabContext: gradedEntry.slabContext,
+      });
+    });
   });
 
   it('renders market condition prices when the backend returns short condition ids', async () => {
@@ -304,7 +377,7 @@ describe('CardDetailScreen', () => {
     expect(screen.getByText('SELL CARD')).toBeTruthy();
     expect(screen.queryByTestId('detail-add-to-collection')).toBeNull();
     expect(screen.queryByText('In collection')).toBeNull();
-    expect(screen.getByText('Near Mint • Raw')).toBeTruthy();
+    expect(screen.getByText('Near Mint')).toBeTruthy();
     expect(screen.queryByText('Qty 1 in collection')).toBeNull();
     expect(screen.queryByText('Ready to sell')).toBeNull();
     expect(screen.queryByText('Open the sell sheet for this owned card.')).toBeNull();
@@ -607,8 +680,8 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-collection-row-entry-3')).toBeTruthy();
     expect(screen.getByTestId(`detail-collection-row-${addedVariant.deckEntryID}`)).toBeTruthy();
     expect(screen.getByTestId('detail-collection-divider-1')).toBeTruthy();
-    expect(screen.getByText('Near Mint • Raw')).toBeTruthy();
-    expect(screen.getByText('Lightly Played • Reverse Holo')).toBeTruthy();
+    expect(screen.getByText('Near Mint')).toBeTruthy();
+    expect(screen.getByText('Lightly Played')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId(`detail-collection-edit-${addedVariant.deckEntryID}`));
     expect(onOpenAddToCollection).toHaveBeenCalledWith('xyp-111', addedVariant.deckEntryID);
@@ -656,7 +729,7 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Celebi')).toBeTruthy();
-    expect(screen.getByText('Near Mint • Holofoil')).toBeTruthy();
+    expect(screen.getByText('Near Mint')).toBeTruthy();
   });
 
   it('decrements quantity from the trash control without opening sell', async () => {

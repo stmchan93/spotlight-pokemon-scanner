@@ -1,6 +1,5 @@
 import { type ReactNode, useMemo, useState } from 'react';
 import {
-  Image,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -17,7 +16,9 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { getCardImageSource } from '@/lib/card-images';
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
@@ -113,7 +114,12 @@ function SaleCard({
       testID={`sales-card-${sale.id}`}
     >
       <SurfaceCard padding={16} radius={16} style={styles.saleCard}>
-        <Image source={{ uri: sale.imageUrl }} style={styles.saleArt} />
+        <CachedImage
+          cachePolicy={imageCachePolicy.thumbnail}
+          contentFit="contain"
+          source={getCardImageSource(sale, 'small')}
+          style={styles.saleArt}
+        />
 
         <View style={styles.saleCopy}>
           <View style={styles.saleTitleRow}>

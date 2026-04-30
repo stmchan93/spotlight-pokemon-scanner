@@ -10,7 +10,9 @@ import {
   formatSellOrderBoughtPriceLabel,
   getSellSwipeConfirmThreshold,
   parseSellPrice,
+  scheduleSellStatusCompletion,
   sanitizeSellPriceText,
+  sellOrderSuccessDisplayDurationMs,
 } from '@/features/sell/sell-order-helpers';
 
 describe('sell order helpers', () => {
@@ -67,6 +69,36 @@ describe('sell order helpers', () => {
       headline: 'Sale confirmed',
       detail: 'Celebi sold for $37.54.',
     });
+  });
+
+  it('holds success confirmation before final completion', () => {
+    jest.useFakeTimers();
+    const events: string[] = [];
+
+    scheduleSellStatusCompletion({
+      onComplete: () => {
+        events.push('complete');
+      },
+      onSuccess: () => {
+        events.push('success');
+      },
+      processingDurationMs: 320,
+    });
+
+    expect(events).toEqual([]);
+
+    jest.advanceTimersByTime(319);
+    expect(events).toEqual([]);
+
+    jest.advanceTimersByTime(1);
+    expect(events).toEqual(['success']);
+
+    jest.advanceTimersByTime(sellOrderSuccessDisplayDurationMs - 1);
+    expect(events).toEqual(['success']);
+
+    jest.advanceTimersByTime(1);
+    expect(events).toEqual(['success', 'complete']);
+    jest.useRealTimers();
   });
 
   it('builds the collection summary line for raw and graded entries', async () => {

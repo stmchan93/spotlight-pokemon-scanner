@@ -11,6 +11,7 @@ import {
 import * as SplashScreen from 'expo-splash-screen';
 import { StatusBar } from 'expo-status-bar';
 import {
+  type ReactNode,
   useEffect,
 } from 'react';
 import {
@@ -133,6 +134,19 @@ function AuthenticatedRoot() {
   );
 }
 
+function AuthenticatedAppProviders({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const auth = useAuth();
+  return (
+    <AppProviders accessToken={auth.accessToken}>
+      {children}
+    </AppProviders>
+  );
+}
+
 export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
@@ -140,11 +154,11 @@ export default function RootLayout() {
         <SpotlightThemeProvider>
           <NavigationThemeProvider value={navigationTheme}>
             <AuthProvider>
-              <AppProviders>
+              <AuthenticatedAppProviders>
                 <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
                   <RootNavigator />
                 </View>
-              </AppProviders>
+              </AuthenticatedAppProviders>
             </AuthProvider>
           </NavigationThemeProvider>
         </SpotlightThemeProvider>

@@ -42,10 +42,12 @@ type AuthContextValue = {
 };
 
 const testUser: AppUser = {
+  adminEnabled: false,
   avatarURL: null,
   displayName: 'UI Test User',
   email: 'ui-tests@spotlight.local',
   id: '00000000-0000-0000-0000-000000000001',
+  labelerEnabled: true,
   providers: ['ui-tests'],
 };
 

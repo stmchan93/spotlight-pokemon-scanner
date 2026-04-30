@@ -4,6 +4,8 @@ export type UserProfile = {
   userID: string;
   displayName: string | null;
   avatarURL: string | null;
+  labelerEnabled: boolean;
+  adminEnabled: boolean;
 };
 
 export type AppUser = {
@@ -12,6 +14,8 @@ export type AppUser = {
   displayName: string | null;
   avatarURL: string | null;
   providers: string[];
+  labelerEnabled: boolean;
+  adminEnabled: boolean;
 };
 
 export function normalizeDisplayName(value: string | null | undefined) {

@@ -26,6 +26,20 @@ jest.mock('expo-router', () => {
   };
 });
 
+jest.mock('@/providers/auth-provider', () => ({
+  useAuth: () => ({
+    currentUser: {
+      adminEnabled: false,
+      avatarURL: null,
+      displayName: 'UI Test User',
+      email: 'ui-tests@spotlight.local',
+      id: '00000000-0000-0000-0000-000000000001',
+      labelerEnabled: true,
+      providers: ['ui-tests'],
+    },
+  }),
+}));
+
 function renderScannerScreen(options?: Parameters<typeof renderWithProviders>[1]) {
   return renderWithProviders(<ScannerScreen />, options);
 }
@@ -52,6 +66,7 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
     expect(screen.getByTestId('scanner-mode-toggle')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
+    expect(screen.getByTestId('labeler-entry-button')).toBeTruthy();
     expect(screen.getByText('RAW')).toBeTruthy();
     expect(screen.getByText('SLABS')).toBeTruthy();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
@@ -71,6 +86,14 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByText('SLABS'));
 
     expect(screen.getByTestId('scanner-slab-guide')).toBeTruthy();
+  });
+
+  it('opens the labeler session route from the scanner entry point', () => {
+    renderScannerScreen();
+
+    fireEvent.press(screen.getByTestId('labeler-entry-button'));
+
+    expect(mockPush).toHaveBeenCalledWith('/labeling/session');
   });
 
   it('renders an empty recent scans tray with no placeholder rows', () => {
@@ -133,7 +156,7 @@ describe('ScannerScreen', () => {
   });
 
   it('sends a normalized reticle target to scanner matching', async () => {
-    const payloads: Array<{ height: number; jpegBase64: string; width: number }> = [];
+    const payloads: { height: number; jpegBase64: string; width: number }[] = [];
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async (payload) => {
         payloads.push({
@@ -294,6 +317,31 @@ describe('ScannerScreen', () => {
     });
 
     expect(await screen.findByText('Oshawott')).toBeTruthy();
+  });
+
+  it('shows the backend slab review reason instead of a generic load failure', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-slab-unsupported',
+        candidates: [],
+        reviewDisposition: 'unsupported',
+        reviewReason: 'Could not extract a confident slab grader and grade.',
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByText('SLABS'));
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    expect(screen.getByText('SLAB scan')).toBeTruthy();
+    expect(screen.getByText('Could not extract a confident slab grader and grade.')).toBeTruthy();
+    expect(screen.queryByText('Photo captured, but matches could not load')).toBeNull();
   });
 
   it('allows another scan while earlier scans are still processing', async () => {
