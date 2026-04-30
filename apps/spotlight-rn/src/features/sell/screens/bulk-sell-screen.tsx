@@ -19,6 +19,7 @@ import type { InventoryCardEntry } from '@spotlight/api-client';
 import { SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
+import { makeBulkSellSmokeTestID } from '@/features/inventory/inventory-smoke-selectors';
 import { formatCurrency, formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import {
   buildBulkSellPayloads,
@@ -49,6 +50,7 @@ import {
   SellStatusOverlay,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
 const sheetDismissPreviewDistance = 132;
@@ -118,72 +120,74 @@ function LineCard({
 
   return (
     <View testID={`bulk-sell-line-${entry.id}`}>
-      <SurfaceCard padding={18} radius={32} style={[styles.lineCard, !metrics.isActive && styles.inactiveLine]}>
-        <View style={styles.lineHeaderSection}>
-          <View style={styles.lineHeader}>
-            <Image source={{ uri: entry.imageUrl }} style={styles.lineArt} />
+      <View testID={makeBulkSellSmokeTestID('bulk-sell-line', entry)}>
+        <SurfaceCard padding={18} radius={32} style={[styles.lineCard, !metrics.isActive && styles.inactiveLine]}>
+          <View style={styles.lineHeaderSection}>
+            <View style={styles.lineHeader}>
+              <Image source={{ uri: entry.imageUrl }} style={styles.lineArt} />
 
-            <View style={styles.lineCopy}>
-              <Text numberOfLines={2} style={[theme.typography.title, styles.lineTitle]}>
-                {entry.name}
-              </Text>
-              <Text numberOfLines={1} style={[theme.typography.caption, styles.lineSubtitle]}>
-                {entry.setName}
-                {' • '}
-                {entry.cardNumber}
-              </Text>
-              {collectionSummary ? (
-                <Text numberOfLines={1} style={[theme.typography.caption, styles.lineDescriptor]}>
-                  {collectionSummary}
+              <View style={styles.lineCopy}>
+                <Text numberOfLines={2} style={[theme.typography.title, styles.lineTitle]}>
+                  {entry.name}
                 </Text>
+                <Text numberOfLines={1} style={[theme.typography.caption, styles.lineSubtitle]}>
+                  {entry.setName}
+                  {' • '}
+                  {entry.cardNumber}
+                </Text>
+                {collectionSummary ? (
+                  <Text numberOfLines={1} style={[theme.typography.caption, styles.lineDescriptor]}>
+                    {collectionSummary}
+                  </Text>
+                ) : null}
+              </View>
+
+              {!metrics.isActive ? (
+                <View style={styles.notIncludedBadge}>
+                  <Text style={[theme.typography.caption, styles.notIncludedText]}>Not included</Text>
+                </View>
               ) : null}
             </View>
 
-            {!metrics.isActive ? (
-              <View style={styles.notIncludedBadge}>
-                <Text style={[theme.typography.caption, styles.notIncludedText]}>Not included</Text>
-              </View>
-            ) : null}
+            <View style={styles.divider} />
           </View>
 
-          <View style={styles.divider} />
-        </View>
-
-        <SellFormFields
-          boughtPriceLabel={boughtPriceText}
-          boughtPriceToggleDisabled={entry.costBasisPerUnit == null}
-          decrementDisabled={metrics.quantity <= 0}
-          incrementDisabled={metrics.quantity >= Math.max(0, entry.quantity)}
-          marketPriceLabel={formatOptionalCurrency(
-            entry.hasMarketPrice ? entry.marketPrice : null,
-            entry.currencyCode,
-          )}
-          offerPriceTestID={`bulk-sell-offer-${entry.id}`}
-          offerPriceText={line.offerPriceText}
-          onBlur={onFieldBlur}
-          onDecrement={() => onChangeLine({ ...line, quantity: Math.max(0, line.quantity - 1) })}
-          onFocus={onFieldFocus}
-          onIncrement={() => onChangeLine({ ...line, quantity: Math.min(entry.quantity, line.quantity + 1) })}
-          onOfferPriceChangeText={(value) => onChangeLine({ ...line, offerPriceText: value })}
-          onSoldPriceChangeText={(value) => onChangeLine({ ...line, soldPriceText: value })}
-          onToggleBoughtPrice={() => onChangeLine({ ...line, revealsBoughtPrice: !line.revealsBoughtPrice })}
-          onYourPriceChangeText={(value) => onChangeLine({ ...line, yourPriceText: value })}
-          quantity={metrics.quantity}
-          revealsBoughtPrice={line.revealsBoughtPrice}
-          soldPriceErrorMessage={showsSellPriceValidation ? 'Enter a sell price before confirming sale.' : null}
-          soldPriceTestID={`bulk-sell-sold-price-${entry.id}`}
-          soldPriceText={line.soldPriceText}
-          stepperTestIDs={{
-            decrement: `bulk-sell-decrement-${entry.id}`,
-            increment: `bulk-sell-increment-${entry.id}`,
-          }}
-          testIDPrefix={`bulk-sell-${entry.id}`}
-          toggleBoughtPriceTestID={`bulk-sell-toggle-bought-price-${entry.id}`}
-          ypPercentText={metrics.ypPercentText}
-          yourPriceTestID={`bulk-sell-your-price-${entry.id}`}
-          yourPriceText={line.yourPriceText}
-        />
-      </SurfaceCard>
+          <SellFormFields
+            boughtPriceLabel={boughtPriceText}
+            boughtPriceToggleDisabled={entry.costBasisPerUnit == null}
+            decrementDisabled={metrics.quantity <= 0}
+            incrementDisabled={metrics.quantity >= Math.max(0, entry.quantity)}
+            marketPriceLabel={formatOptionalCurrency(
+              entry.hasMarketPrice ? entry.marketPrice : null,
+              entry.currencyCode,
+            )}
+            offerPriceTestID={makeBulkSellSmokeTestID('bulk-sell-offer', entry)}
+            offerPriceText={line.offerPriceText}
+            onBlur={onFieldBlur}
+            onDecrement={() => onChangeLine({ ...line, quantity: Math.max(0, line.quantity - 1) })}
+            onFocus={onFieldFocus}
+            onIncrement={() => onChangeLine({ ...line, quantity: Math.min(entry.quantity, line.quantity + 1) })}
+            onOfferPriceChangeText={(value) => onChangeLine({ ...line, offerPriceText: value })}
+            onSoldPriceChangeText={(value) => onChangeLine({ ...line, soldPriceText: value })}
+            onToggleBoughtPrice={() => onChangeLine({ ...line, revealsBoughtPrice: !line.revealsBoughtPrice })}
+            onYourPriceChangeText={(value) => onChangeLine({ ...line, yourPriceText: value })}
+            quantity={metrics.quantity}
+            revealsBoughtPrice={line.revealsBoughtPrice}
+            soldPriceErrorMessage={showsSellPriceValidation ? 'Enter a sell price before confirming sale.' : null}
+            soldPriceTestID={makeBulkSellSmokeTestID('bulk-sell-sold-price', entry)}
+            soldPriceText={line.soldPriceText}
+            stepperTestIDs={{
+              decrement: makeBulkSellSmokeTestID('bulk-sell-decrement', entry),
+              increment: makeBulkSellSmokeTestID('bulk-sell-increment', entry),
+            }}
+            testIDPrefix={`bulk-sell-${entry.id}`}
+            toggleBoughtPriceTestID={makeBulkSellSmokeTestID('bulk-sell-toggle-bought-price', entry)}
+            ypPercentText={metrics.ypPercentText}
+            yourPriceTestID={makeBulkSellSmokeTestID('bulk-sell-your-price', entry)}
+            yourPriceText={line.yourPriceText}
+          />
+        </SurfaceCard>
+      </View>
     </View>
   );
 }
@@ -468,6 +472,9 @@ export function BulkSellScreen({
           return;
         }
 
+        capturePostHogEvent('sale_batch_succeeded', {
+          item_count: payloads.reduce((sum, payload) => sum + payload.quantity, 0),
+        });
         refreshData();
         const elapsed = Date.now() - startedAt;
         const remaining = Math.max(0, sellOrderProcessingMinimumDurationMs - elapsed);

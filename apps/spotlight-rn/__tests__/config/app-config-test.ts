@@ -85,11 +85,19 @@ describe('app config local overrides bridge', () => {
       EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_HOST: 'android-callback',
       EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL: 'spotlight://android-callback',
       EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME: 'spotlight',
+      EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY: 'phc_test_123',
+      EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST: 'https://us.i.posthog.com',
+      EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED: '1',
+      EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED: '1',
     })).toEqual({
       spotlightApiBaseUrl: 'http://10.0.2.2:8788',
       spotlightAuthRedirectHost: 'android-callback',
       spotlightAuthRedirectUrl: 'spotlight://android-callback',
       spotlightAuthScheme: 'spotlight',
+      spotlightPosthogApiKey: 'phc_test_123',
+      spotlightPosthogEnabled: '1',
+      spotlightPosthogHost: 'https://us.i.posthog.com',
+      spotlightScannerSmokeEnabled: '1',
       spotlightSupabaseAnonKey: 'sb_publishable_env',
       spotlightSupabaseUrl: 'https://env.supabase.co',
     });
@@ -300,5 +308,22 @@ describe('app config local overrides bridge', () => {
 
     existsSpy.mockRestore();
     readSpy.mockRestore();
+  });
+
+  it('adds localization plugin with PostHog observability env values', () => {
+    const config = buildExpoConfigForEnv({
+      EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY: 'phc_test_123',
+      EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED: '1',
+      EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST: 'https://us.i.posthog.com',
+    }, '/virtual/LocalOverrides.xcconfig');
+
+    expect(config.extra).toEqual(expect.objectContaining({
+      spotlightPosthogApiKey: 'phc_test_123',
+      spotlightPosthogEnabled: '1',
+      spotlightPosthogHost: 'https://us.i.posthog.com',
+    }));
+    expect(config.plugins).toEqual(expect.arrayContaining([
+      'expo-localization',
+    ]));
   });
 });

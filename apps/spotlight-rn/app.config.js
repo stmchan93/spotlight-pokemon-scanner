@@ -21,6 +21,10 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_HOST', 'spotlightAuthRedirectHost'],
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL', 'spotlightAuthRedirectUrl'],
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME', 'spotlightAuthScheme'],
+  ['EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED', 'spotlightScannerSmokeEnabled'],
+  ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY', 'spotlightPosthogApiKey'],
+  ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST', 'spotlightPosthogHost'],
+  ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED', 'spotlightPosthogEnabled'],
 ];
 
 const PLACEHOLDER_ENV_VALUES = new Set([
@@ -201,6 +205,24 @@ function loadSpotlightExpoExtra(overridesPath = LOCAL_OVERRIDES_PATH, env = proc
   };
 }
 
+function getPluginIdentifier(pluginEntry) {
+  return Array.isArray(pluginEntry) ? pluginEntry[0] : pluginEntry;
+}
+
+function withPlugin(existingPlugins, pluginEntry) {
+  const nextPlugins = [...existingPlugins];
+  const pluginIdentifier = getPluginIdentifier(pluginEntry);
+  const existingIndex = nextPlugins.findIndex((entry) => getPluginIdentifier(entry) === pluginIdentifier);
+
+  if (existingIndex >= 0) {
+    nextPlugins[existingIndex] = pluginEntry;
+    return nextPlugins;
+  }
+
+  nextPlugins.push(pluginEntry);
+  return nextPlugins;
+}
+
 function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDES_PATH) {
   const resolvedEnv = resolveSpotlightConfigEnv(env);
   const releaseOverrides = loadSpotlightReleaseOverridesFromEnv(resolvedEnv);
@@ -252,6 +274,7 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
     ...baseExpoConfig,
     android,
     ios,
+    plugins: withPlugin([...(baseExpoConfig.plugins ?? [])], 'expo-localization'),
     scheme: resolvedScheme || undefined,
     updates,
     extra,
@@ -283,3 +306,5 @@ module.exports.loadSpotlightExpoExtraFromEnv = loadSpotlightExpoExtraFromEnv;
 module.exports.loadSpotlightExpoExtraFromXcconfig = loadSpotlightExpoExtraFromXcconfig;
 module.exports.loadSpotlightExpoExtra = loadSpotlightExpoExtra;
 module.exports.loadSpotlightReleaseOverridesFromEnv = loadSpotlightReleaseOverridesFromEnv;
+module.exports.getPluginIdentifier = getPluginIdentifier;
+module.exports.withPlugin = withPlugin;

@@ -23,7 +23,15 @@ jest.mock('expo-auth-session/build/QueryParams', () => ({
 const mockedExpoConstants = {
   expoConfig: {
     extra: {},
+    name: 'Spotlight',
     scheme: 'spotlight',
+    version: '1.0.0',
+    ios: {
+      buildNumber: '11',
+    },
+    android: {
+      versionCode: 11,
+    },
   },
 };
 
@@ -31,6 +39,55 @@ jest.mock('expo-constants', () => ({
   __esModule: true,
   default: mockedExpoConstants,
 }));
+
+jest.mock('expo-application', () => ({
+  applicationId: 'com.spotlight.tests',
+  nativeApplicationVersion: '1.0.0',
+  nativeBuildVersion: '11',
+}));
+
+jest.mock('expo-device', () => ({
+  DeviceType: {
+    PHONE: 1,
+    TABLET: 2,
+    DESKTOP: 3,
+    TV: 4,
+  },
+  brand: 'Apple',
+  deviceType: 1,
+  isDevice: true,
+  manufacturer: 'Apple',
+  modelName: 'iPhone 16 Pro',
+  osName: 'iOS',
+  osVersion: '18.0',
+}));
+
+jest.mock('expo-localization', () => ({
+  getCalendars: jest.fn(() => [{
+    timeZone: 'America/Los_Angeles',
+  }]),
+  getLocales: jest.fn(() => [{
+    languageTag: 'en-US',
+  }]),
+}));
+
+jest.mock('posthog-react-native', () => {
+  const React = require('react');
+
+  class MockPostHog {
+    capture = jest.fn();
+    identify = jest.fn();
+    register = jest.fn();
+    reset = jest.fn();
+    screen = jest.fn(async () => {});
+  }
+
+  return {
+    PostHog: MockPostHog,
+    PostHogProvider: ({ children }: { children?: React.ReactNode }) =>
+      React.createElement(React.Fragment, null, children),
+  };
+});
 
 jest.mock('expo-blur', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports

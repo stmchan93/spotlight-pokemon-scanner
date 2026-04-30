@@ -1,0 +1,10 @@
+# Assumes the simulator already has a valid staging session restored,
+# or that CI opened an auth bootstrap deep link before running this suite.
+---
+- assertVisible:
+    id: portfolio-account-button
+- assertVisible: "Portfolio"
+- assertNotVisible: "Could not load your backend data"
+- assertNotVisible:
+    id: auth-sign-in-screen
+- takeScreenshot: staging-smoke-portfolio

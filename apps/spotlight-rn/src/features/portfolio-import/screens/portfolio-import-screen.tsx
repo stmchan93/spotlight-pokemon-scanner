@@ -28,6 +28,7 @@ import {
 } from '@spotlight/design-system';
 
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
 import {
@@ -620,6 +621,9 @@ export function PortfolioImportScreen({ onClose }: PortfolioImportScreenProps) {
         csvText: selectedFile.csvText,
       });
       applyJob(previewJob);
+      capturePostHogEvent('portfolio_import_preview_succeeded', {
+        row_count: previewJob.summary.totalRowCount,
+      });
     } catch (error) {
       setErrorMessage(errorMessageFromUnknown(error, 'Import preview failed.'));
     } finally {
@@ -716,6 +720,9 @@ export function PortfolioImportScreen({ onClose }: PortfolioImportScreenProps) {
         const refreshedJob = await spotlightRepository.fetchPortfolioImportJob(job.id);
         applyJob(refreshedJob);
       }
+      capturePostHogEvent('portfolio_import_commit_succeeded', {
+        committed_count: response.summary.committedCount,
+      });
       refreshData();
       setBannerMessage(
         response.message?.trim()

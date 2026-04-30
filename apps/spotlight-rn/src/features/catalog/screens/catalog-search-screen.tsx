@@ -80,67 +80,69 @@ function SearchResultRow({
   const subtitle = result.subtitle?.trim() ? result.subtitle : result.setName;
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      disabled={isOpening}
-      onPress={onPress}
-      style={({ pressed }) => ({ opacity: isOpening ? 0.82 : pressed ? 0.94 : 1 })}
-      testID={`catalog-result-${result.id}`}
-    >
-      <View
-        style={[
-          styles.resultRow,
-          {
-            backgroundColor: theme.colors.surface,
-            borderColor: theme.colors.outlineSubtle,
-          },
-        ]}
+    <View testID={`catalog-result-${result.id}`}>
+      <Pressable
+        accessibilityRole="button"
+        disabled={isOpening}
+        onPress={onPress}
+        style={({ pressed }) => ({ opacity: isOpening ? 0.82 : pressed ? 0.94 : 1 })}
+        testID={`catalog-result-smoke-${result.cardId}`}
       >
-        <ResultArtwork
-          fallbackTestID={`catalog-artwork-fallback-${result.id}`}
-          imageUrl={result.imageUrl}
-          title={result.name}
-        />
+        <View
+          style={[
+            styles.resultRow,
+            {
+              backgroundColor: theme.colors.surface,
+              borderColor: theme.colors.outlineSubtle,
+            },
+          ]}
+        >
+          <ResultArtwork
+            fallbackTestID={`catalog-artwork-fallback-${result.id}`}
+            imageUrl={result.imageUrl}
+            title={result.name}
+          />
 
-        <View style={styles.resultCopy}>
-          <View style={styles.resultHeader}>
-            <Text numberOfLines={2} style={[styles.resultTitle, { color: theme.colors.textPrimary }]}>
-              {result.name}
-            </Text>
-
-            {result.ownedQuantity ? (
-              <View style={[styles.ownedBadge, { backgroundColor: theme.colors.surfaceMuted }]}>
-                <Text style={[theme.typography.caption, { color: theme.colors.textPrimary }]}>
-                  Owned {result.ownedQuantity}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-
-          <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.colors.textSecondary }]}>
-            {subtitle}
-          </Text>
-
-          <View style={styles.resultMetaRow}>
-            <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-              {resultNumberLabel(result)}
-            </Text>
-
-            {result.marketPrice != null ? (
-              <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                {formatCurrency(result.marketPrice, result.currencyCode ?? 'USD')}
+          <View style={styles.resultCopy}>
+            <View style={styles.resultHeader}>
+              <Text numberOfLines={2} style={[styles.resultTitle, { color: theme.colors.textPrimary }]}>
+                {result.name}
               </Text>
-            ) : null}
-          </View>
-        </View>
 
-        {isOpening ? (
-          <ActivityIndicator color={theme.colors.brand} style={styles.resultActivity} />
-        ) : (
-          <Text style={[styles.resultChevron, { color: theme.colors.textSecondary }]}>›</Text>
-        )}
-      </View>
-    </Pressable>
+              {result.ownedQuantity ? (
+                <View style={[styles.ownedBadge, { backgroundColor: theme.colors.surfaceMuted }]}>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textPrimary }]}>
+                    Owned {result.ownedQuantity}
+                  </Text>
+                </View>
+              ) : null}
+            </View>
+
+            <Text numberOfLines={2} style={[styles.resultSubtitle, { color: theme.colors.textSecondary }]}>
+              {subtitle}
+            </Text>
+
+            <View style={styles.resultMetaRow}>
+              <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+                {resultNumberLabel(result)}
+              </Text>
+
+              {result.marketPrice != null ? (
+                <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+                  {formatCurrency(result.marketPrice, result.currencyCode ?? 'USD')}
+                </Text>
+              ) : null}
+            </View>
+          </View>
+
+          {isOpening ? (
+            <ActivityIndicator color={theme.colors.brand} style={styles.resultActivity} />
+          ) : (
+            <Text style={[styles.resultChevron, { color: theme.colors.textSecondary }]}>›</Text>
+          )}
+        </View>
+      </Pressable>
+    </View>
   );
 }
 

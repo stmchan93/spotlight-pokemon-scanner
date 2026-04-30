@@ -5,17 +5,22 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 ENVIRONMENT="${1:-staging}"
-SECRETS_FILE="${2:-$SCRIPT_DIR/.env}"
-AUDIT_SCRIPT="$REPO_ROOT/tools/audit_release_config.py"
+SECRETS_FILE="${2:-$SCRIPT_DIR/.env.$ENVIRONMENT.secrets}"
 
 case "$ENVIRONMENT" in
   staging|production)
     ;;
   *)
-    echo "Usage: $0 [staging|production] [secrets-file]" >&2
+    echo "Usage: $0 [staging|production] [backend/.env.<environment>.secrets]" >&2
     exit 1
     ;;
 esac
+
+if [ "$(uname -s)" != "Linux" ]; then
+  echo "backend/deploy_to_vm.sh configures the Linux VM host directly." >&2
+  echo "From your local machine, use tools/deploy_vm_one_shot.sh instead." >&2
+  exit 1
+fi
 
 ENV_FILE="$SCRIPT_DIR/.env.$ENVIRONMENT"
 if [ ! -f "$ENV_FILE" ]; then
@@ -29,6 +34,25 @@ if [ ! -f "$SECRETS_FILE" ]; then
 fi
 
 SECRETS_FILE="$(cd "$(dirname "$SECRETS_FILE")" && pwd)/$(basename "$SECRETS_FILE")"
+PERSISTED_SECRETS_FILE="$SCRIPT_DIR/.env.$ENVIRONMENT.secrets"
+if [ "$SECRETS_FILE" != "$PERSISTED_SECRETS_FILE" ]; then
+  cp "$SECRETS_FILE" "$PERSISTED_SECRETS_FILE"
+  chmod 600 "$PERSISTED_SECRETS_FILE"
+  SECRETS_FILE="$PERSISTED_SECRETS_FILE"
+else
+  chmod 600 "$SECRETS_FILE"
+fi
+
+AUDIT_SCRIPT=""
+for candidate in \
+  "$REPO_ROOT/tools/audit_release_config.py" \
+  "$SCRIPT_DIR/tools/audit_release_config.py"
+do
+  if [ -f "$candidate" ]; then
+    AUDIT_SCRIPT="$candidate"
+    break
+  fi
+done
 
 if ! command -v python3 >/dev/null 2>&1; then
   echo "python3 is required on the VM." >&2
@@ -51,6 +75,11 @@ fi
 if ! command -v flock >/dev/null 2>&1; then
   echo "flock is required on the VM." >&2
   echo "On Ubuntu/Debian install util-linux." >&2
+  exit 1
+fi
+
+if ! command -v systemctl >/dev/null 2>&1; then
+  echo "systemctl is required on the VM." >&2
   exit 1
 fi
 
@@ -405,7 +434,34 @@ pkill -f "$SCRIPT_DIR/run_backend_vm_forever.sh" 2>/dev/null || true
 pkill -f "$SCRIPT_DIR/server.py" 2>/dev/null || true
 sudo systemctl daemon-reload
 sudo systemctl enable "$SERVICE_NAME"
-sudo systemctl restart "$SERVICE_NAME"
+restart_failed=0
+if ! sudo systemctl restart "$SERVICE_NAME"; then
+  restart_failed=1
+  echo "systemctl restart returned non-zero; waiting for service recovery..." >&2
+fi
+
+wait_for_backend_service() {
+  local attempt=""
+  local state=""
+  for attempt in $(seq 1 90); do
+    state="$(systemctl is-active "$SERVICE_NAME" 2>/dev/null || true)"
+    if [ "$state" = "active" ]; then
+      return 0
+    fi
+    sleep 1
+  done
+  return 1
+}
+
+if ! wait_for_backend_service; then
+  echo "Backend service did not reach active state after restart." >&2
+  systemctl status "$SERVICE_NAME" --no-pager --lines=60 || true
+  exit 1
+fi
+
+if [ "$restart_failed" -ne 0 ]; then
+  echo "Backend service recovered after a transient restart failure." >&2
+fi
 
 echo "VM deploy complete"
 echo "  Environment: $ENVIRONMENT"

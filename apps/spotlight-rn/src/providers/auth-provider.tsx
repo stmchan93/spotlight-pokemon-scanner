@@ -21,6 +21,7 @@ import {
   upsertProfile,
 } from '@/features/auth/auth-service';
 import { getResolvedDisplayName } from '@/features/auth/auth-models';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { supabase } from '@/lib/supabase';
 
 type AuthContextValue = {
@@ -67,6 +68,47 @@ function errorMessageFromUnknown(error: unknown) {
   return 'Authentication failed.';
 }
 
+function authReasonClassFromUnknown(error: unknown) {
+  if (error instanceof AuthCanceledError || isAuthCanceledError(error)) {
+    return null;
+  }
+
+  if (error instanceof Error) {
+    return error.name || error.constructor.name || 'Error';
+  }
+
+  if (typeof error === 'object' && error && 'constructor' in error) {
+    const constructorName = (error as { constructor?: { name?: unknown } }).constructor?.name;
+    if (typeof constructorName === 'string' && constructorName.length > 0) {
+      return constructorName;
+    }
+  }
+
+  return 'UnknownError';
+}
+
+function captureAuthSignInSucceeded(provider: 'apple' | 'google') {
+  capturePostHogEvent('auth_sign_in_succeeded', {
+    provider,
+  });
+}
+
+function captureAuthSignInFailed(provider: 'apple' | 'google', error: unknown) {
+  const reasonClass = authReasonClassFromUnknown(error);
+  if (!reasonClass) {
+    return;
+  }
+
+  capturePostHogEvent('auth_sign_in_failed', {
+    provider,
+    reason_class: reasonClass,
+  });
+}
+
+function captureProfileCompleted() {
+  capturePostHogEvent('profile_completed');
+}
+
 export function AuthProvider({ children }: PropsWithChildren) {
   const [state, setState] = useState<AuthState>(shouldBypassAuthForTests ? 'signedIn' : 'loading');
   const [currentUser, setCurrentUser] = useState<AppUser | null>(shouldBypassAuthForTests ? testUser : null);
@@ -106,7 +148,13 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, [updateFromSession]);
 
-  const performAuthAction = useCallback(async (operation: () => Promise<void>) => {
+  const performAuthAction = useCallback(async (
+    operation: () => Promise<void>,
+    options?: {
+      onError?: (error: unknown) => void;
+      onSuccess?: () => void;
+    },
+  ) => {
     if (isBusy) {
       return;
     }
@@ -116,7 +164,9 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
     try {
       await operation();
+      options?.onSuccess?.();
     } catch (error) {
+      options?.onError?.(error);
       const nextMessage = errorMessageFromUnknown(error);
       if (nextMessage) {
         setErrorMessage(nextMessage);
@@ -199,7 +249,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const session = await signInWithApple();
         if (session) {
           await updateFromSession(session);
+          captureAuthSignInSucceeded('apple');
         }
+      }, {
+        onError: (error) => {
+          captureAuthSignInFailed('apple', error);
+        },
       });
     },
     signInWithGoogle: async () => {
@@ -208,7 +263,12 @@ export function AuthProvider({ children }: PropsWithChildren) {
         if (session) {
           await bootstrapProfileIfNeeded(session.user, null, null);
           await updateFromSession(session);
+          captureAuthSignInSucceeded('google');
         }
+      }, {
+        onError: (error) => {
+          captureAuthSignInFailed('google', error);
+        },
       });
     },
     signOut: async () => {
@@ -218,6 +278,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
         setCurrentUser(null);
         setProfileDraftName('');
         setState('signedOut');
+        capturePostHogEvent('auth_sign_out');
       });
     },
     state,
@@ -237,12 +298,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
         const refreshedSession = currentSession ?? await getCurrentSession();
         if (refreshedSession) {
           await updateFromSession(refreshedSession);
+          captureProfileCompleted();
           return;
         }
 
         setCurrentUser((previous) => previous ? { ...previous, displayName: trimmedName } : previous);
         setProfileDraftName(trimmedName);
         setState('signedIn');
+        captureProfileCompleted();
       });
     },
   }), [

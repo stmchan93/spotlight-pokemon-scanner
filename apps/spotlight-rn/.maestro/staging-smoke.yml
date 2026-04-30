@@ -1,0 +1,9 @@
+appId: com.looty.staging
+---
+- launchApp
+- runFlow: staging-smoke-auth-restore-portfolio.yml
+- runFlow: staging-smoke-scan-shell.yml
+- runFlow: staging-smoke-catalog-add-to-collection.yml
+- runFlow: staging-smoke-single-sell.yml
+- runFlow: staging-smoke-bulk-sell.yml
+- runFlow: staging-smoke-sales-history.yml

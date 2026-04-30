@@ -9,6 +9,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
+import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 
 import {
@@ -54,6 +55,19 @@ function resolveRepositoryRuntimeAppEnv() {
   return normalizeBaseUrl(resolveRuntimeValue([], ['spotlightAppEnv']));
 }
 
+function resolveRepositoryClientContext() {
+  const configuredBuildNumber = typeof Constants.expoConfig?.ios?.buildNumber === 'string'
+    ? Constants.expoConfig.ios.buildNumber
+    : typeof Constants.expoConfig?.android?.versionCode === 'number'
+      ? String(Constants.expoConfig.android.versionCode)
+      : null;
+
+  return {
+    appVersion: Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '0',
+    buildNumber: Application.nativeBuildVersion ?? configuredBuildNumber ?? '0',
+  };
+}
+
 export function resolveRepositoryBaseUrls() {
   if (process.env.NODE_ENV === 'test') {
     const explicitTestUrl = normalizeBaseUrl(process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL);
@@ -97,6 +111,7 @@ export function createDefaultSpotlightRepository(accessToken?: string | null): S
   }
   if (repositoryBaseUrls.length > 0) {
     return new HttpSpotlightRepository(repositoryBaseUrls, {
+      clientContext: resolveRepositoryClientContext(),
       getAccessToken: () => accessToken ?? null,
     });
   }
@@ -121,23 +136,59 @@ type AppServices = {
 
 const AppServicesContext = createContext<AppServices | null>(null);
 
+type ScopedCache<T> = {
+  ownerKey: string;
+  value: T;
+};
+
 type AppProvidersProps = PropsWithChildren<{
   accessToken?: string | null;
+  sessionOwnerKey?: string | null;
   spotlightRepository?: SpotlightRepository | null;
 }>;
 
 export function AppProviders({
   accessToken,
   children,
+  sessionOwnerKey,
   spotlightRepository: repositoryOverride,
 }: AppProvidersProps) {
+  const activeSessionOwnerKey = sessionOwnerKey?.trim() || 'anonymous';
   const [dataVersion, setDataVersion] = useState(0);
-  const [inventoryEntriesCache, setInventoryEntriesCache] = useState<InventoryCardEntry[] | null>(null);
-  const [portfolioDashboardCache, setPortfolioDashboardCache] = useState<PortfolioDashboard | null>(null);
+  const [inventoryEntriesCacheState, setInventoryEntriesCacheState] = useState<ScopedCache<InventoryCardEntry[]> | null>(null);
+  const [portfolioDashboardCacheState, setPortfolioDashboardCacheState] = useState<ScopedCache<PortfolioDashboard> | null>(null);
 
   const spotlightRepository = useMemo<SpotlightRepository>(() => {
     return repositoryOverride ?? createDefaultSpotlightRepository(accessToken);
   }, [accessToken, repositoryOverride]);
+
+  const inventoryEntriesCache = useMemo(() => {
+    return inventoryEntriesCacheState?.ownerKey === activeSessionOwnerKey
+      ? inventoryEntriesCacheState.value
+      : null;
+  }, [activeSessionOwnerKey, inventoryEntriesCacheState]);
+
+  const portfolioDashboardCache = useMemo(() => {
+    return portfolioDashboardCacheState?.ownerKey === activeSessionOwnerKey
+      ? portfolioDashboardCacheState.value
+      : null;
+  }, [activeSessionOwnerKey, portfolioDashboardCacheState]);
+
+  const setInventoryEntriesCache = useCallback<Dispatch<SetStateAction<InventoryCardEntry[] | null>>>((value) => {
+    setInventoryEntriesCacheState((current) => {
+      const currentValue = current?.ownerKey === activeSessionOwnerKey ? current.value : null;
+      const nextValue = typeof value === 'function' ? value(currentValue) : value;
+      return nextValue ? { ownerKey: activeSessionOwnerKey, value: nextValue } : null;
+    });
+  }, [activeSessionOwnerKey]);
+
+  const setPortfolioDashboardCache = useCallback<Dispatch<SetStateAction<PortfolioDashboard | null>>>((value) => {
+    setPortfolioDashboardCacheState((current) => {
+      const currentValue = current?.ownerKey === activeSessionOwnerKey ? current.value : null;
+      const nextValue = typeof value === 'function' ? value(currentValue) : value;
+      return nextValue ? { ownerKey: activeSessionOwnerKey, value: nextValue } : null;
+    });
+  }, [activeSessionOwnerKey]);
 
   const refreshData = useCallback(() => {
     setDataVersion((value) => value + 1);

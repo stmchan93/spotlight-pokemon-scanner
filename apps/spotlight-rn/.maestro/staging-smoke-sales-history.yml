@@ -1,0 +1,12 @@
+---
+- tapOn:
+    id: latest-sales-see-more
+- assertVisible:
+    id: sales-sort-recent
+- assertVisible:
+    id: sales-filter-all
+- takeScreenshot: staging-smoke-sales-history
+- tapOn:
+    id: sales-history-back
+- assertVisible:
+    id: portfolio-account-button

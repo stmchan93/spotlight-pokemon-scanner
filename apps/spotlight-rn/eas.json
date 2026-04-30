@@ -7,6 +7,7 @@
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "environment": "development",
       "env": {
         "EXPO_NO_DOTENV": "1",
         "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL": "http://127.0.0.1:8788",
@@ -24,6 +25,7 @@
       "channel": "development"
     },
     "staging": {
+      "environment": "preview",
       "env": {
         "EXPO_NO_DOTENV": "1",
         "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL": "https://looty.34.59.188.129.sslip.io",
@@ -42,6 +44,7 @@
       "autoIncrement": true
     },
     "production": {
+      "environment": "production",
       "env": {
         "SPOTLIGHT_APP_ENV": "production"
       },

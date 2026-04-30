@@ -2,10 +2,18 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import sys
 from pathlib import Path
+from urllib.error import URLError
+from urllib.request import urlopen
 from urllib.parse import urlparse
+
+try:
+    from tools.mobile_env_resolver import parse_dotenv, resolve_mobile_env_values
+except ModuleNotFoundError:  # pragma: no cover - direct script execution path
+    from mobile_env_resolver import parse_dotenv, resolve_mobile_env_values
 
 
 PLACEHOLDER_SUBSTRINGS = (
@@ -18,37 +26,19 @@ PLACEHOLDER_SUBSTRINGS = (
 )
 
 
-def parse_dotenv(path: Path) -> dict[str, str]:
-    values: dict[str, str] = {}
-    if not path.exists():
-        raise FileNotFoundError(f"Missing env file: {path}")
-    for raw_line in path.read_text(encoding="utf-8").splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[len("export "):].strip()
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if (
-            value
-            and len(value) >= 2
-            and value[0] == value[-1]
-            and value[0] in {"'", '"'}
-        ):
-            value = value[1:-1]
-        values[key] = value
-    return values
+def parse_required_dotenv(path: Path) -> dict[str, str]:
+    resolved_path = path.expanduser().resolve()
+    if not resolved_path.exists():
+        raise FileNotFoundError(f"Missing env file: {resolved_path}")
+    return parse_dotenv(resolved_path)
 
 
 def has_placeholder(value: str) -> bool:
     normalized = value.strip()
     if not normalized:
         return True
-    return any(token in normalized for token in PLACEHOLDER_SUBSTRINGS)
+    lowered = normalized.lower()
+    return lowered.startswith("your_") or "placeholder" in lowered or any(token in normalized for token in PLACEHOLDER_SUBSTRINGS)
 
 
 def flag_enabled(value: str | None) -> bool:
@@ -86,6 +76,47 @@ def require_https_url(values: dict[str, str], key: str, failures: list[str]) -> 
     )
 
 
+def resolve_supabase_jwks_url(env_values: dict[str, str], secret_values: dict[str, str]) -> str:
+    explicit_url = (
+        env_values.get("SUPABASE_JWKS_URL", "").strip()
+        or env_values.get("SPOTLIGHT_SUPABASE_JWKS_URL", "").strip()
+        or secret_values.get("SUPABASE_JWKS_URL", "").strip()
+        or secret_values.get("SPOTLIGHT_SUPABASE_JWKS_URL", "").strip()
+    )
+    if explicit_url:
+        return explicit_url
+    supabase_url = env_values.get("SUPABASE_URL", "").strip().rstrip("/")
+    if not supabase_url:
+        return ""
+    return f"{supabase_url}/auth/v1/.well-known/jwks.json"
+
+
+def hosted_auth_ready(
+    env_values: dict[str, str],
+    secret_values: dict[str, str],
+) -> tuple[bool, str | None]:
+    supabase_jwt_secret = (
+        secret_values.get("SUPABASE_JWT_SECRET", "").strip()
+        or env_values.get("SUPABASE_JWT_SECRET", "").strip()
+    )
+    if supabase_jwt_secret and not has_placeholder(supabase_jwt_secret):
+        return True, None
+
+    jwks_url = resolve_supabase_jwks_url(env_values, secret_values)
+    if not jwks_url:
+        return False, "missing SUPABASE_JWKS_URL and unable to derive one from SUPABASE_URL"
+    try:
+        with urlopen(jwks_url, timeout=10) as response:
+            payload = json.load(response)
+    except (OSError, URLError, ValueError) as error:
+        return False, f"could not load JWKS from {jwks_url}: {error}"
+
+    keys = payload.get("keys")
+    if not isinstance(keys, list) or not keys:
+        return False, f"JWKS endpoint {jwks_url} returned no signing keys"
+    return True, None
+
+
 def audit_backend(
     *,
     environment: str,
@@ -94,8 +125,8 @@ def audit_backend(
     failures: list[str],
     warnings: list[str],
 ) -> None:
-    env_values = parse_dotenv(backend_env_path)
-    secret_values = parse_dotenv(backend_secrets_path)
+    env_values = parse_required_dotenv(backend_env_path)
+    secret_values = parse_required_dotenv(backend_secrets_path)
 
     require(
         flag_enabled(env_values.get("SPOTLIGHT_AUTH_REQUIRED")),
@@ -103,6 +134,15 @@ def audit_backend(
         failures,
     )
     require_https_url(env_values, "SUPABASE_URL", failures)
+    auth_ready, auth_error = hosted_auth_ready(env_values, secret_values)
+    require(
+        auth_ready,
+        (
+            f"Hosted auth verification requires either a valid SUPABASE_JWT_SECRET or "
+            f"a reachable Supabase JWKS endpoint. {auth_error}"
+        ),
+        failures,
+    )
     require_non_placeholder(secret_values, "SCRYDEX_API_KEY", failures)
     require_non_placeholder(secret_values, "SCRYDEX_TEAM_ID", failures)
     require(
@@ -113,6 +153,16 @@ def audit_backend(
     require(
         not env_values.get("SPOTLIGHT_AUTH_FALLBACK_USER_ID", "").strip(),
         f"{backend_env_path.name} must not set SPOTLIGHT_AUTH_FALLBACK_USER_ID for {environment}",
+        failures,
+    )
+    require(
+        not secret_values.get("SPOTLIGHT_LEGACY_OWNER_USER_ID", "").strip(),
+        f"{backend_secrets_path.name} must not set SPOTLIGHT_LEGACY_OWNER_USER_ID for {environment}; it is migration-only",
+        failures,
+    )
+    require(
+        not env_values.get("SPOTLIGHT_LEGACY_OWNER_USER_ID", "").strip(),
+        f"{backend_env_path.name} must not set SPOTLIGHT_LEGACY_OWNER_USER_ID for {environment}; it is migration-only",
         failures,
     )
     require(
@@ -138,7 +188,7 @@ def audit_backend(
     counterpart_name = ".env.production" if environment == "staging" else ".env.staging"
     counterpart_path = backend_env_path.with_name(counterpart_name)
     if counterpart_path.exists():
-        counterpart_values = parse_dotenv(counterpart_path)
+        counterpart_values = parse_required_dotenv(counterpart_path)
         current_bucket = env_values.get("SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET", "").strip()
         other_bucket = counterpart_values.get("SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET", "").strip()
         require(
@@ -151,11 +201,11 @@ def audit_backend(
 def audit_mobile(
     *,
     environment: str,
-    mobile_env_path: Path,
     failures: list[str],
     warnings: list[str],
 ) -> None:
-    values = parse_dotenv(mobile_env_path)
+    repo_root_path = Path(__file__).resolve().parents[1]
+    values = resolve_mobile_env_values(repo_root_path, environment, environment)
     require_https_url(values, "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL", failures)
     require_https_url(values, "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL", failures)
     require_non_placeholder(values, "EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY", failures)
@@ -166,13 +216,16 @@ def audit_mobile(
     require_non_placeholder(values, "SPOTLIGHT_EAS_PROJECT_ID", failures)
     require_non_placeholder(values, "SPOTLIGHT_IOS_BUNDLE_IDENTIFIER", failures)
 
+    if flag_enabled(values.get("EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED")):
+        require_non_placeholder(values, "EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY", failures)
+        require_https_url(values, "EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST", failures)
+
     android_package = values.get("SPOTLIGHT_ANDROID_PACKAGE", "").strip()
     warn(bool(android_package) and not has_placeholder(android_package), "SPOTLIGHT_ANDROID_PACKAGE is still unset or placeholder", warnings)
 
-    counterpart_name = ".env.production" if environment == "staging" else ".env.staging"
-    counterpart_path = mobile_env_path.with_name(counterpart_name)
-    if counterpart_path.exists():
-        counterpart_values = parse_dotenv(counterpart_path)
+    counterpart_environment = "production" if environment == "staging" else "staging"
+    try:
+        counterpart_values = resolve_mobile_env_values(repo_root_path, counterpart_environment, counterpart_environment)
         current_bundle = values.get("SPOTLIGHT_IOS_BUNDLE_IDENTIFIER", "").strip()
         other_bundle = counterpart_values.get("SPOTLIGHT_IOS_BUNDLE_IDENTIFIER", "").strip()
         warn(
@@ -180,15 +233,36 @@ def audit_mobile(
             "Staging and production iOS bundle identifiers are identical; separate bundle IDs are safer for parallel installs/TestFlight lanes",
             warnings,
         )
+    except Exception:
+        pass
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Audit staged release configuration before deploy/build.")
     parser.add_argument("--environment", required=True, choices=("staging", "production"))
-    parser.add_argument("--backend-secrets-file", default="backend/.env")
+    parser.add_argument("--backend-secrets-file")
     parser.add_argument("--skip-backend", action="store_true")
     parser.add_argument("--skip-mobile", action="store_true")
     return parser
+
+
+def default_backend_secrets_file(repo_root: Path, environment: str) -> Path:
+    backend_dir = resolve_backend_dir(repo_root)
+    env_key = f"SPOTLIGHT_BACKEND_{environment.upper()}_SECRETS_FILE"
+    generic_override = os.environ.get("SPOTLIGHT_BACKEND_SECRETS_FILE", "").strip()
+    env_override = os.environ.get(env_key, "").strip()
+    candidate = env_override or generic_override or str(backend_dir / f".env.{environment}.secrets")
+    path = Path(candidate)
+    if not path.is_absolute():
+        path = (repo_root / path).resolve()
+    return path
+
+
+def resolve_backend_dir(repo_root: Path) -> Path:
+    candidate = repo_root / "backend"
+    if candidate.exists():
+        return candidate
+    return repo_root
 
 
 def main() -> int:
@@ -196,14 +270,18 @@ def main() -> int:
     repo_root = Path(__file__).resolve().parents[1]
     failures: list[str] = []
     warnings: list[str] = []
+    backend_dir = resolve_backend_dir(repo_root)
 
     if not args.skip_backend:
+        backend_secrets_path = (
+            Path(args.backend_secrets_file).resolve()
+            if args.backend_secrets_file
+            else default_backend_secrets_file(repo_root, args.environment)
+        )
         audit_backend(
             environment=args.environment,
-            backend_env_path=repo_root / "backend" / f".env.{args.environment}",
-            backend_secrets_path=(repo_root / args.backend_secrets_file).resolve()
-            if not Path(args.backend_secrets_file).is_absolute()
-            else Path(args.backend_secrets_file),
+            backend_env_path=backend_dir / f".env.{args.environment}",
+            backend_secrets_path=backend_secrets_path,
             failures=failures,
             warnings=warnings,
         )
@@ -211,7 +289,6 @@ def main() -> int:
     if not args.skip_mobile:
         audit_mobile(
             environment=args.environment,
-            mobile_env_path=repo_root / "apps" / "spotlight-rn" / f".env.{args.environment}",
             failures=failures,
             warnings=warnings,
         )
@@ -232,7 +309,7 @@ def main() -> int:
     if not args.skip_backend:
         print("- backend hosted env + secrets look production-safe")
     if not args.skip_mobile:
-        print("- mobile release env file looks production-safe")
+        print("- resolved mobile release config looks production-safe")
     return 0
 
 

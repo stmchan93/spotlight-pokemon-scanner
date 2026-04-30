@@ -20,6 +20,7 @@ import {
 import { PillButton, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
 type AddToCollectionScreenProps = {
@@ -292,6 +293,7 @@ export function AddToCollectionScreen({
     setIsSubmitting(true);
 
     const selectedVariantLabel = variantChoices.find((variant) => variant.id === selectedVariant)?.label ?? selectedVariant;
+    const nextKind = selectedGrader === 'Raw' ? 'raw' : 'graded';
     const rawVariantName = selectedGrader === 'Raw' && !isGenericRawVariantLabel(selectedVariantLabel)
       ? selectedVariantLabel
       : null;
@@ -330,6 +332,12 @@ export function AddToCollectionScreen({
         });
 
     void request.then(() => {
+      if (!isEditingEntry) {
+        capturePostHogEvent('collection_add_succeeded', {
+          kind: nextKind,
+          quantity,
+        });
+      }
       refreshData();
       onClose();
     }).catch(() => {

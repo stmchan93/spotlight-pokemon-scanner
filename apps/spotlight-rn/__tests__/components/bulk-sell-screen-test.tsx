@@ -1,9 +1,16 @@
-import { act, fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
+import { mockInventoryEntries } from '@spotlight/api-client';
 
 import { BulkSellScreen } from '@/features/sell/screens/bulk-sell-screen';
 
-import { renderWithProviders } from '../test-utils';
+import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
+
+function makeBulkSellRepository(entries = mockInventoryEntries) {
+  return createTestSpotlightRepository({
+    getInventoryEntries: async () => entries,
+  });
+}
 
 describe('BulkSellScreen', () => {
   it('renders the batch summary and updates selected quantity per line', async () => {
@@ -13,32 +20,35 @@ describe('BulkSellScreen', () => {
         onClose={jest.fn()}
         onComplete={jest.fn()}
       />,
+      {
+        spotlightRepository: makeBulkSellRepository(),
+      },
     );
 
     expect(await screen.findByText('3 cards selected')).toBeTruthy();
     expect(screen.getByTestId('bulk-sell-summary-card')).toBeTruthy();
-    expect(screen.getByTestId('bulk-sell-line-entry-1')).toBeTruthy();
-    expect(screen.getByTestId('bulk-sell-line-entry-2')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-line-smoke-raw-mcdonalds25-16')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-line-smoke-raw-mcdonalds25-21')).toBeTruthy();
     expect(screen.getByText('Swipe up to confirm sale')).toBeTruthy();
     expect(screen.getAllByText('Near Mint').length).toBeGreaterThan(0);
     expect(screen.getAllByText('*****').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('bulk-sell-toggle-bought-price-entry-1-hidden-icon')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-toggle-bought-price-smoke-raw-mcdonalds25-16-hidden-icon')).toBeTruthy();
     expect(screen.queryByText('Show')).toBeNull();
-    expect(screen.getByTestId('bulk-sell-offer-entry-1').props.placeholder).toBe('$0.00');
-    expect(screen.getByTestId('bulk-sell-your-price-entry-1').props.placeholder).toBe('$0.00');
-    expect(screen.getByTestId('bulk-sell-sold-price-entry-1').props.placeholder).toBe('$0.00');
+    expect(screen.getByTestId('bulk-sell-offer-smoke-raw-mcdonalds25-16').props.placeholder).toBe('$0.00');
+    expect(screen.getByTestId('bulk-sell-your-price-smoke-raw-mcdonalds25-16').props.placeholder).toBe('$0.00');
+    expect(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-16').props.placeholder).toBe('$0.00');
 
-    fireEvent.press(screen.getByTestId('bulk-sell-toggle-bought-price-entry-1'));
+    fireEvent.press(screen.getByTestId('bulk-sell-toggle-bought-price-smoke-raw-mcdonalds25-16'));
 
     expect(screen.getByText('$0.18')).toBeTruthy();
-    expect(screen.getByTestId('bulk-sell-toggle-bought-price-entry-1-visible-icon')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-toggle-bought-price-smoke-raw-mcdonalds25-16-visible-icon')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('bulk-sell-toggle-bought-price-entry-1'));
+    fireEvent.press(screen.getByTestId('bulk-sell-toggle-bought-price-smoke-raw-mcdonalds25-16'));
 
     expect(screen.getAllByText('*****').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('bulk-sell-toggle-bought-price-entry-1-hidden-icon')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-toggle-bought-price-smoke-raw-mcdonalds25-16-hidden-icon')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('bulk-sell-decrement-entry-1'));
+    fireEvent.press(screen.getByTestId('bulk-sell-decrement-smoke-raw-mcdonalds25-16'));
 
     expect(await screen.findByText('2 cards selected')).toBeTruthy();
     expect(screen.getByText('Not included')).toBeTruthy();
@@ -51,12 +61,15 @@ describe('BulkSellScreen', () => {
         onClose={jest.fn()}
         onComplete={jest.fn()}
       />,
+      {
+        spotlightRepository: makeBulkSellRepository(),
+      },
     );
 
     await screen.findByText('1 card selected');
 
-    fireEvent.changeText(screen.getByTestId('bulk-sell-offer-entry-1'), '0.45');
-    fireEvent.changeText(screen.getByTestId('bulk-sell-your-price-entry-1'), '0.51');
+    fireEvent.changeText(screen.getByTestId('bulk-sell-offer-smoke-raw-mcdonalds25-16'), '0.45');
+    fireEvent.changeText(screen.getByTestId('bulk-sell-your-price-smoke-raw-mcdonalds25-16'), '0.51');
 
     expect(screen.getByText('88.23% YP')).toBeTruthy();
   });
@@ -68,6 +81,9 @@ describe('BulkSellScreen', () => {
         onClose={jest.fn()}
         onComplete={jest.fn()}
       />,
+      {
+        spotlightRepository: makeBulkSellRepository(),
+      },
     );
 
     await screen.findByText('3 cards selected');
@@ -92,6 +108,9 @@ describe('BulkSellScreen', () => {
         onClose={onClose}
         onComplete={jest.fn()}
       />,
+      {
+        spotlightRepository: makeBulkSellRepository(),
+      },
     );
 
     expect(await screen.findByText('1 card selected')).toBeTruthy();
@@ -107,6 +126,9 @@ describe('BulkSellScreen', () => {
         onClose={jest.fn()}
         onComplete={jest.fn()}
       />,
+      {
+        spotlightRepository: makeBulkSellRepository(),
+      },
     );
 
     expect(await screen.findByText('1 card selected')).toBeTruthy();
@@ -122,6 +144,9 @@ describe('BulkSellScreen', () => {
         onClose={jest.fn()}
         onComplete={jest.fn()}
       />,
+      {
+        spotlightRepository: makeBulkSellRepository(),
+      },
     );
 
     expect(await screen.findByText('1 card selected')).toBeTruthy();
@@ -136,5 +161,33 @@ describe('BulkSellScreen', () => {
       fontSize: 16,
       lineHeight: 22,
     });
+  });
+
+  it('keeps the bulk sell smoke selectors stable even if entry ids change', async () => {
+    renderWithProviders(
+      <BulkSellScreen
+        entryIds={['entry-1-rekeyed', 'entry-2-rekeyed']}
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getInventoryEntries: async () => [
+            {
+              ...mockInventoryEntries[0],
+              id: 'entry-1-rekeyed',
+            },
+            {
+              ...mockInventoryEntries[1],
+              id: 'entry-2-rekeyed',
+            },
+          ],
+        }),
+      },
+    );
+
+    expect(await screen.findByText('3 cards selected')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-line-smoke-raw-mcdonalds25-16')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-line-smoke-raw-mcdonalds25-21')).toBeTruthy();
   });
 });

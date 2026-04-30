@@ -487,6 +487,50 @@ describe('HttpSpotlightRepository', () => {
     });
   });
 
+  it('treats backend raw condition codes as priced inventory matches for the fast portfolio fallback', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(200, {
+          entries: [
+            {
+              id: 'entry-oshawott',
+              itemKind: 'raw',
+              quantity: 1,
+              card: {
+                id: 'catalog-oshawott-real',
+                name: 'Oshawott',
+                setName: "McDonald's Collection 2021",
+                number: '21/25',
+                imageSmallURL: 'https://cdn.example/oshawott-small.png',
+                imageLargeURL: 'https://cdn.example/oshawott-large.png',
+                pricing: {
+                  currencyCode: 'usd',
+                  market: 1.23,
+                  payload: {
+                    condition: 'near_mint',
+                  },
+                },
+              },
+              condition: 'near_mint',
+              addedAt: '2026-04-29T18:00:00Z',
+            },
+          ],
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const entries = await repository.getInventoryEntries();
+
+    expect(entries[0]).toMatchObject({
+      conditionCode: 'near_mint',
+      hasMarketPrice: true,
+      marketPrice: 1.23,
+    });
+  });
+
   it('matches raw scanner captures through the backend visual-only endpoint and exposes real candidate ids', async () => {
     const previousNodeEnv = process.env.NODE_ENV;
     (process.env as Record<string, string | undefined>).NODE_ENV = 'development';
@@ -525,7 +569,12 @@ describe('HttpSpotlightRepository', () => {
         throw new Error(`Unexpected URL: ${url}`);
       }) as typeof fetch;
 
-      const repository = new HttpSpotlightRepository('http://example.test');
+      const repository = new HttpSpotlightRepository('http://example.test', {
+        clientContext: {
+          appVersion: '1.0.0',
+          buildNumber: '11',
+        },
+      });
       const result = await repository.matchScannerCapture({
         jpegBase64: 'bW9jay1zY2Fu',
         height: 1620,
@@ -541,6 +590,11 @@ describe('HttpSpotlightRepository', () => {
         marketPrice: 1.23,
       });
       expect(requestBody).toMatchObject({
+        clientContext: {
+          appVersion: '1.0.0',
+          buildNumber: '11',
+          platform: 'react_native',
+        },
         resolverModeHint: 'raw_card',
         rawResolverMode: 'visual',
         recognizedTokens: [],
@@ -661,6 +715,47 @@ describe('HttpSpotlightRepository', () => {
       state: 'error',
       data: [],
       errorMessage: 'Request timed out while contacting the Spotlight backend.',
+    });
+  });
+
+  it('uses a longer timeout budget for scanner match requests', async () => {
+    jest.useFakeTimers();
+    global.fetch = jest.fn().mockImplementation((_url: string, init?: RequestInit) => {
+      return new Promise<Response>((_, reject) => {
+        const signal = init?.signal;
+        const abort = () => {
+          const error = new Error('Request aborted');
+          error.name = 'AbortError';
+          reject(error);
+        };
+
+        if (signal?.aborted) {
+          abort();
+          return;
+        }
+
+        signal?.addEventListener('abort', abort, { once: true });
+      });
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const matchPromise = repository.matchScannerCapture({
+      height: 880,
+      jpegBase64: 'bW9jay1zY2Fu',
+      mode: 'raw',
+      width: 630,
+    });
+    const capturedRejection = matchPromise.catch((error: unknown) => error);
+
+    await jest.advanceTimersByTimeAsync(9000);
+    await Promise.resolve();
+    expect(global.fetch).toHaveBeenCalledTimes(1);
+
+    await jest.advanceTimersByTimeAsync(1000);
+
+    await expect(capturedRejection).resolves.toMatchObject({
+      kind: 'request_failed',
+      message: 'Request timed out while contacting the Spotlight backend.',
     });
   });
 

@@ -1,4 +1,5 @@
-import { render, screen } from '@testing-library/react-native';
+import { useEffect } from 'react';
+import { act, render, screen, waitFor } from '@testing-library/react-native';
 import { Text } from 'react-native';
 import Constants from 'expo-constants';
 
@@ -43,6 +44,39 @@ function ProbeText({
   return (
     <Text>
       {spotlightRepository instanceof HttpSpotlightRepository ? 'http' : 'mock'}
+    </Text>
+  );
+}
+
+function CacheProbe({
+  seedInventory,
+  seedPortfolio,
+}: {
+  seedInventory?: Awaited<ReturnType<MockSpotlightRepository['getInventoryEntries']>>;
+  seedPortfolio?: Awaited<ReturnType<MockSpotlightRepository['getPortfolioDashboard']>>;
+}) {
+  const {
+    inventoryEntriesCache,
+    portfolioDashboardCache,
+    setInventoryEntriesCache,
+    setPortfolioDashboardCache,
+  } = useAppServices();
+
+  useEffect(() => {
+    if (seedInventory) {
+      setInventoryEntriesCache(seedInventory);
+    }
+
+    if (seedPortfolio) {
+      setPortfolioDashboardCache(seedPortfolio);
+    }
+  }, [seedInventory, seedPortfolio, setInventoryEntriesCache, setPortfolioDashboardCache]);
+
+  return (
+    <Text testID="cache-state">
+      {inventoryEntriesCache?.[0]?.name ?? 'no-inventory'}
+      {'|'}
+      {portfolioDashboardCache?.inventoryCount ?? 'no-dashboard'}
     </Text>
   );
 }
@@ -200,5 +234,32 @@ describe('AppProviders', () => {
     render(<RepositoryProbe repositoryOverride={repositoryOverride} />);
 
     expect(screen.getByText('override')).toBeTruthy();
+  });
+
+  it('clears user-scoped caches immediately when the session owner changes', async () => {
+    setNodeEnv('test');
+    const repository = new MockSpotlightRepository();
+    const seedInventory = await repository.getInventoryEntries();
+    const seedPortfolio = await repository.getPortfolioDashboard();
+
+    const view = render(
+      <AppProviders sessionOwnerKey="user-a">
+        <CacheProbe seedInventory={seedInventory} seedPortfolio={seedPortfolio} />
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText(/Scorbunny\|/)).toBeTruthy();
+    });
+
+    await act(async () => {
+      view.rerender(
+        <AppProviders sessionOwnerKey="user-b">
+          <CacheProbe />
+        </AppProviders>,
+      );
+    });
+
+    expect(screen.getByText('no-inventory|no-dashboard')).toBeTruthy();
   });
 });

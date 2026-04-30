@@ -1,0 +1,23 @@
+---
+- tapOn:
+    id: portfolio-see-more
+- assertVisible: "All cards"
+- tapOn:
+    id: "${SPOTLIGHT_MAESTRO_SINGLE_SELL_ENTRY_ID}"
+- assertVisible:
+    id: detail-sell-card
+- tapOn:
+    id: detail-sell-card
+- assertVisible:
+    id: single-sell-summary-card
+- tapOn:
+    id: single-sell-sold-price
+- inputText: "${SPOTLIGHT_MAESTRO_SINGLE_SELL_PRICE}"
+- swipe:
+    from:
+      id: single-sell-swipe-rail
+    direction: UP
+    duration: 400
+- assertVisible:
+    id: single-sell-status-screen
+- takeScreenshot: staging-smoke-single-sell

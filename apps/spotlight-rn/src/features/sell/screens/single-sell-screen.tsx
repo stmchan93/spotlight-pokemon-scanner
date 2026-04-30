@@ -41,6 +41,7 @@ import {
   SellStatusOverlay,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
 const sheetDismissPreviewDistance = 132;
@@ -400,6 +401,10 @@ export function SingleSellScreen({
           return;
         }
 
+        capturePostHogEvent('sale_single_succeeded', {
+          kind: displayEntry.kind,
+          quantity,
+        });
         refreshData();
         const elapsed = Date.now() - startedAt;
         const remaining = Math.max(0, sellOrderProcessingMinimumDurationMs - elapsed);

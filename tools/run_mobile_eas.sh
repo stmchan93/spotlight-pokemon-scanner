@@ -6,12 +6,14 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 APP_DIR="$REPO_ROOT/apps/spotlight-rn"
 RELEASE_NOTES_SCRIPT="$REPO_ROOT/tools/release_notes.mjs"
+ENV_RESOLVER_SCRIPT="$REPO_ROOT/tools/mobile_env_resolver.py"
 
 ENVIRONMENT="${1:-}"
 ACTION="${2:-}"
 PLATFORM="${3:-ios}"
 PROFILE="${4:-$ENVIRONMENT}"
 ENV_FILE="${MOBILE_EAS_ENV_FILE:-$APP_DIR/.env.${ENVIRONMENT}}"
+TEMP_ENV_FILE=""
 
 if [ -z "$ENVIRONMENT" ] || [ -z "$ACTION" ]; then
   echo "Usage: $0 <development|staging|production> <build|submit|release> [ios|android] [profile]" >&2
@@ -51,6 +53,40 @@ require_non_placeholder_env() {
   esac
 }
 
+require_non_empty_env() {
+  local key="$1"
+  local value="${!key:-}"
+  if [ -z "$value" ]; then
+    echo "Missing required value for $key." >&2
+    exit 1
+  fi
+}
+
+is_enabled_flag() {
+  case "${1:-}" in
+    1|true|TRUE|True|yes|YES|Yes|on|ON|On)
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+cleanup() {
+  if [ -n "$TEMP_ENV_FILE" ] && [ -f "$TEMP_ENV_FILE" ]; then
+    rm -f "$TEMP_ENV_FILE"
+  fi
+}
+
+trap cleanup EXIT INT TERM
+
+if [ -z "${MOBILE_EAS_ENV_FILE:-}" ] && [ "$ENVIRONMENT" = "staging" ]; then
+  TEMP_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/spotlight-mobile-${ENVIRONMENT}.XXXXXX.env")"
+  python3 "$ENV_RESOLVER_SCRIPT" --environment "$ENVIRONMENT" --profile "$PROFILE" --output "$TEMP_ENV_FILE"
+  ENV_FILE="$TEMP_ENV_FILE"
+fi
+
 if [ -f "$ENV_FILE" ]; then
   set -a
   # shellcheck disable=SC1090
@@ -82,6 +118,13 @@ fi
 
 if [ "$PLATFORM" = "android" ]; then
   require_non_placeholder_env "SPOTLIGHT_ANDROID_PACKAGE"
+fi
+
+if is_enabled_flag "${EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED:-0}"; then
+  require_non_empty_env "EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY"
+  if [ -n "${EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST:-}" ]; then
+    require_non_placeholder_env "EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST"
+  fi
 fi
 
 cd "$APP_DIR"

@@ -28,7 +28,7 @@ describe('InventoryBrowserScreen', () => {
       minHeight: 56,
     });
 
-    fireEvent.press(screen.getByTestId('inventory-entry-entry-1'));
+    fireEvent.press(screen.getByTestId('inventory-entry-smoke-raw-mcdonalds25-16'));
     fireEvent.press(screen.getByTestId('inventory-sell-selected'));
 
     expect(onOpenBulkSell).toHaveBeenCalledWith(['entry-1']);
@@ -54,7 +54,7 @@ describe('InventoryBrowserScreen', () => {
 
     expect(screen.getByText('Sell selected')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('inventory-entry-entry-2'));
+    fireEvent.press(screen.getByTestId('inventory-entry-smoke-raw-mcdonalds25-21'));
     fireEvent.press(screen.getByTestId('inventory-sell-selected'));
 
     expect(onOpenBulkSell).toHaveBeenCalledWith(['entry-2']);

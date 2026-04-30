@@ -51,6 +51,7 @@ import {
   buildNormalizedScannerTarget,
   makeOrientationFixedSourceImageDimensions,
   makeReticleSourceImageCrop,
+  type NormalizedScannerTarget,
 } from '@/features/scanner/scanner-normalized-target';
 import {
   chooseRawVisualPictureSize,
@@ -59,6 +60,9 @@ import {
   rawScannerTrayReservedHeight,
   rawVisualCaptureQuality,
 } from '@/features/scanner/raw-scanner-capture-surface';
+import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fixtures';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
+import { resolveRuntimeBoolean, resolveRuntimeValue } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -66,6 +70,7 @@ type ScannerMode = 'raw' | 'slabs';
 
 type RecentCapture = {
   candidates: CatalogSearchResult[];
+  hasTrackedSelectionEvent: boolean;
   id: string;
   isAddingToInventory: boolean;
   isLoadingCandidates: boolean;
@@ -80,6 +85,18 @@ type RecentCapture = {
   sourceImageRotationDegrees: number;
   uri: string;
   activeCandidateIndex: number;
+};
+
+type CaptureMatchParams = {
+  captureId: string;
+  captureMs: number;
+  captureSource: 'camera' | 'smoke_fixture';
+  mode: ScannerMode;
+  normalizeMs: number;
+  normalizedTarget: NormalizedScannerTarget;
+  rawSourceImageDimensions: ScanSourceImageDimensions;
+  scanStartedAt: number;
+  sourceImageDimensions: ScanSourceImageDimensions;
 };
 
 const scannerModes: readonly { label: string; value: ScannerMode }[] = [
@@ -121,6 +138,23 @@ function scannerErrorMessage(error: unknown) {
   return 'Unknown scanner error';
 }
 
+function scannerErrorKind(error: unknown) {
+  if (isSpotlightRepositoryRequestError(error)) {
+    return error.kind;
+  }
+
+  if (error instanceof Error) {
+    const trimmedMessage = error.message.trim();
+    if (/^[a-z0-9_:-]+$/i.test(trimmedMessage) && trimmedMessage.length > 0) {
+      return trimmedMessage;
+    }
+
+    return error.name || error.constructor.name || 'Error';
+  }
+
+  return 'UnknownError';
+}
+
 function logScannerDiagnostic(message: string, error?: unknown) {
   if (process.env.NODE_ENV === 'test') {
     return;
@@ -151,6 +185,46 @@ function captureFailureSubtitle(capture: RecentCapture) {
 
 function activeCandidateForCapture(capture: RecentCapture) {
   return capture.candidates[capture.activeCandidateIndex] ?? null;
+}
+
+function buildScanSelectionProperties(capture: RecentCapture) {
+  return {
+    candidate_count: capture.candidates.length,
+    mode: capture.mode,
+    selection_rank: capture.activeCandidateIndex + 1,
+  };
+}
+
+function buildScanMatchSuccessProperties(params: {
+  candidateCount: number;
+  mode: ScannerMode;
+  requestAttemptCount?: number | null;
+  reviewDisposition?: string | null;
+  roundTripMs?: number | null;
+  serverProcessingMs?: number | null;
+}) {
+  const properties: Record<string, number | string> = {
+    candidate_count: params.candidateCount,
+    mode: params.mode,
+  };
+
+  if (typeof params.requestAttemptCount === 'number') {
+    properties.request_attempt_count = params.requestAttemptCount;
+  }
+
+  if (typeof params.reviewDisposition === 'string' && params.reviewDisposition.length > 0) {
+    properties.review_disposition = params.reviewDisposition;
+  }
+
+  if (typeof params.roundTripMs === 'number') {
+    properties.round_trip_ms = params.roundTripMs;
+  }
+
+  if (typeof params.serverProcessingMs === 'number') {
+    properties.server_processing_ms = params.serverProcessingMs;
+  }
+
+  return properties;
 }
 
 function formatCurrency(amount: number, currencyCode = 'USD') {
@@ -394,6 +468,7 @@ export function ScannerScreen() {
     safeAreaTop: insets.top,
     trayReservedHeight: rawScannerTrayReservedHeight,
   });
+  const runtimeAppEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
   reticleSnapshotRef.current = {
     height: captureSurfaceLayout.reticle.height,
     previewHeight: captureSurfaceLayout.previewHeight,
@@ -404,6 +479,10 @@ export function ScannerScreen() {
   };
   const hasCameraAccess = permission?.granted ?? false;
   const canStartLabelingSession = !!(currentUser?.labelerEnabled || currentUser?.adminEnabled);
+  const scannerSmokeEnabled = resolveRuntimeBoolean(
+    ['EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED'],
+    ['spotlightScannerSmokeEnabled'],
+  ) && (runtimeAppEnv === 'staging' || __DEV__);
   const canCapture = hasCameraAccess && isCameraReady && !isCapturing;
   const canToggleTray = recentCaptures.length > 0;
   const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures);
@@ -558,6 +637,151 @@ export function ScannerScreen() {
     setRecentCaptures((current) => current.filter((capture) => capture.id !== captureId));
   }, []);
 
+  const updateRecentCapture = useCallback((
+    captureId: string,
+    transform: (capture: RecentCapture) => RecentCapture,
+  ) => {
+    setRecentCaptures((current) => current.map((capture) => (
+      capture.id === captureId ? transform(capture) : capture
+    )));
+  }, []);
+
+  const trackCandidateSelectionIfNeeded = useCallback((capture: RecentCapture) => {
+    if (capture.hasTrackedSelectionEvent) {
+      return;
+    }
+
+    capturePostHogEvent('scan_candidate_selected', buildScanSelectionProperties(capture));
+    updateRecentCapture(capture.id, (current) => {
+      if (current.hasTrackedSelectionEvent) {
+        return current;
+      }
+
+      return {
+        ...current,
+        hasTrackedSelectionEvent: true,
+      };
+    });
+  }, [updateRecentCapture]);
+
+  const runMatchForCapture = useCallback(async ({
+    captureId,
+    captureMs,
+    captureSource,
+    mode,
+    normalizeMs,
+    normalizedTarget,
+    rawSourceImageDimensions,
+    scanStartedAt,
+    sourceImageDimensions,
+  }: CaptureMatchParams) => {
+    try {
+      capturePostHogEvent('scan_match_requested', {
+        mode,
+      });
+      const matchStartedAt = Date.now();
+      const estimatedPayloadKB = Math.round((normalizedTarget.normalizedImageBase64.length * 0.75) / 1024);
+      if (mode === 'raw' && process.env.NODE_ENV !== 'test') {
+        console.info(
+          `[SCANNER VISUAL TEST] dispatch `
+          + `captureSource=${captureSource} `
+          + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
+          + `rotate=${normalizedTarget.normalizationRotationDegrees} `
+          + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
+          + `payloadKB=${estimatedPayloadKB} `
+          + `quality=${captureSource === 'camera' ? rawVisualCaptureQuality : 'fixture'}`,
+        );
+      }
+      const matchResult = await spotlightRepository.matchScannerCapture({
+        height: normalizedTarget.normalizedImageDimensions.height,
+        jpegBase64: normalizedTarget.normalizedImageBase64,
+        mode,
+        width: normalizedTarget.normalizedImageDimensions.width,
+      });
+      if (mode === 'raw' && process.env.NODE_ENV !== 'test') {
+        const clientMatchMs = Date.now() - matchStartedAt;
+        const endToEndMs = Date.now() - scanStartedAt;
+        console.info(
+          `[SCANNER VISUAL TEST] captureMs=${captureMs} `
+          + `captureSource=${captureSource} `
+          + `source=${rawSourceImageDimensions.width}x${rawSourceImageDimensions.height} `
+          + `oriented=${sourceImageDimensions.width}x${sourceImageDimensions.height} `
+          + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
+          + `rotate=${normalizedTarget.normalizationRotationDegrees} `
+          + `crop=${normalizedTarget.sourceImageCrop.width}x${normalizedTarget.sourceImageCrop.height} `
+          + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
+          + `payloadKB=${estimatedPayloadKB} `
+          + `quality=${captureSource === 'camera' ? rawVisualCaptureQuality : 'fixture'} `
+          + `normalizeMs=${normalizeMs} `
+          + `matchMs=${clientMatchMs} `
+          + `endpoint=/${matchResult.endpointPath ?? 'unknown'} `
+          + `requestUrl=${matchResult.requestUrl ?? 'n/a'} `
+          + `attempts=${matchResult.requestAttemptCount ?? 'n/a'} `
+          + `serverMs=${matchResult.serverProcessingMs ?? 'n/a'} `
+          + `roundTripMs=${matchResult.roundTripMs ?? 'n/a'} `
+          + `endToEndMs=${endToEndMs} `
+          + `candidates=${matchResult.candidates.length}`,
+        );
+      }
+
+      updateRecentCapture(captureId, (capture) => ({
+        ...capture,
+        activeCandidateIndex: 0,
+        candidates: matchResult.candidates,
+        isLoadingCandidates: false,
+        matchReviewDisposition: matchResult.reviewDisposition ?? null,
+        matchReviewReason: matchResult.reviewReason ?? null,
+        normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
+        normalizedImageUri: normalizedTarget.normalizedImageUri,
+        scanID: matchResult.scanID,
+        sourceImageCrop: normalizedTarget.sourceImageCrop,
+        sourceImageDimensions,
+        sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
+        uri: normalizedTarget.normalizedImageUri,
+      }));
+      capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
+        candidateCount: matchResult.candidates.length,
+        mode,
+        requestAttemptCount: matchResult.requestAttemptCount,
+        reviewDisposition: matchResult.reviewDisposition,
+        roundTripMs: matchResult.roundTripMs,
+        serverProcessingMs: matchResult.serverProcessingMs,
+      }));
+    } catch (error) {
+      if (mode === 'raw') {
+        logScannerDiagnostic(
+          `[SCANNER VISUAL TEST] matchError `
+          + `message=${scannerErrorMessage(error)} `
+          + `captureSource=${captureSource} `
+          + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
+          + `rotate=${normalizedTarget.normalizationRotationDegrees} `
+          + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
+          + `payloadKB=${Math.round((normalizedTarget.normalizedImageBase64.length * 0.75) / 1024)}`,
+          error,
+        );
+      }
+
+      updateRecentCapture(captureId, (capture) => ({
+        ...capture,
+        candidates: [],
+        isLoadingCandidates: false,
+        matchReviewDisposition: null,
+        matchReviewReason: null,
+        normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
+        normalizedImageUri: normalizedTarget.normalizedImageUri,
+        scanID: null,
+        sourceImageCrop: normalizedTarget.sourceImageCrop,
+        sourceImageDimensions,
+        sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
+        uri: normalizedTarget.normalizedImageUri,
+      }));
+      capturePostHogEvent('scan_match_failed', {
+        error_kind: scannerErrorKind(error),
+        mode,
+      });
+    }
+  }, [spotlightRepository, updateRecentCapture]);
+
   const handleCapture = useCallback(async () => {
     if (!permission?.granted) {
       if (permission?.canAskAgain) {
@@ -571,6 +795,9 @@ export function ScannerScreen() {
     }
 
     void triggerScannerHaptic();
+    capturePostHogEvent('scan_capture_started', {
+      mode: scannerMode,
+    });
     const scanStartedAt = Date.now();
     setIsCapturing(true);
 
@@ -579,6 +806,7 @@ export function ScannerScreen() {
       {
         activeCandidateIndex: 0,
         candidates: [],
+        hasTrackedSelectionEvent: false,
         id: captureId,
         isAddingToInventory: false,
         isLoadingCandidates: true,
@@ -612,6 +840,10 @@ export function ScannerScreen() {
       setIsCapturing(false);
 
       if (!photo?.uri) {
+        capturePostHogEvent('scan_match_failed', {
+          error_kind: 'source_capture_unavailable',
+          mode: scannerMode,
+        });
         setRecentCaptures((current) => current.map((capture) => {
           if (capture.id !== captureId) {
             return capture;
@@ -715,102 +947,22 @@ export function ScannerScreen() {
           normalizedImageUri: normalizedTarget.normalizedImageUri,
           sourceImageCrop: normalizedTarget.sourceImageCrop,
           sourceImageDimensions,
-          sourceImageRotationDegrees: 0,
-          uri: normalizedTarget.normalizedImageUri,
+          sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
+          uri: photo.uri,
         };
       }));
 
-      void (async () => {
-        try {
-          const matchStartedAt = Date.now();
-          const estimatedPayloadKB = Math.round((normalizedTarget.normalizedImageBase64.length * 0.75) / 1024);
-          if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
-            console.info(
-              `[SCANNER VISUAL TEST] dispatch `
-              + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
-              + `rotate=${normalizedTarget.normalizationRotationDegrees} `
-              + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
-              + `payloadKB=${estimatedPayloadKB} `
-              + `quality=${rawVisualCaptureQuality}`,
-            );
-          }
-          const matchResult = await spotlightRepository.matchScannerCapture({
-            height: normalizedTarget.normalizedImageDimensions.height,
-            jpegBase64: normalizedTarget.normalizedImageBase64,
-            mode: scannerMode,
-            width: normalizedTarget.normalizedImageDimensions.width,
-          });
-          if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
-            const clientMatchMs = Date.now() - matchStartedAt;
-            const endToEndMs = Date.now() - scanStartedAt;
-            console.info(
-              `[SCANNER VISUAL TEST] captureMs=${captureMs} `
-              + `source=${rawSourceImageDimensions.width}x${rawSourceImageDimensions.height} `
-              + `oriented=${sourceImageDimensions.width}x${sourceImageDimensions.height} `
-              + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
-              + `rotate=${normalizedTarget.normalizationRotationDegrees} `
-              + `crop=${normalizedTarget.sourceImageCrop.width}x${normalizedTarget.sourceImageCrop.height} `
-              + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
-              + `payloadKB=${estimatedPayloadKB} `
-              + `quality=${rawVisualCaptureQuality} `
-              + `normalizeMs=${normalizeMs} `
-              + `matchMs=${clientMatchMs} `
-              + `endpoint=/${matchResult.endpointPath ?? 'unknown'} `
-              + `requestUrl=${matchResult.requestUrl ?? 'n/a'} `
-              + `attempts=${matchResult.requestAttemptCount ?? 'n/a'} `
-              + `serverMs=${matchResult.serverProcessingMs ?? 'n/a'} `
-              + `roundTripMs=${matchResult.roundTripMs ?? 'n/a'} `
-              + `endToEndMs=${endToEndMs} `
-              + `candidates=${matchResult.candidates.length}`,
-            );
-          }
-          setRecentCaptures((current) => current.map((capture) => {
-            if (capture.id !== captureId) {
-              return capture;
-            }
-
-            return {
-              ...capture,
-              activeCandidateIndex: 0,
-              candidates: matchResult.candidates,
-              isLoadingCandidates: false,
-              matchReviewDisposition: matchResult.reviewDisposition ?? null,
-              matchReviewReason: matchResult.reviewReason ?? null,
-              normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
-              normalizedImageUri: normalizedTarget.normalizedImageUri,
-              scanID: matchResult.scanID,
-            };
-          }));
-        } catch (error) {
-          if (scannerMode === 'raw') {
-            logScannerDiagnostic(
-              `[SCANNER VISUAL TEST] matchError `
-              + `message=${scannerErrorMessage(error)} `
-              + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
-              + `rotate=${normalizedTarget.normalizationRotationDegrees} `
-              + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
-              + `payloadKB=${Math.round((normalizedTarget.normalizedImageBase64.length * 0.75) / 1024)}`,
-              error,
-            );
-          }
-          setRecentCaptures((current) => current.map((capture) => {
-            if (capture.id !== captureId) {
-              return capture;
-            }
-
-            return {
-              ...capture,
-              candidates: [],
-              isLoadingCandidates: false,
-              matchReviewDisposition: null,
-              matchReviewReason: null,
-              normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
-              normalizedImageUri: normalizedTarget.normalizedImageUri,
-              scanID: null,
-            };
-          }));
-        }
-      })();
+      void runMatchForCapture({
+        captureId,
+        captureMs,
+        captureSource: 'camera',
+        mode: scannerMode,
+        normalizeMs,
+        normalizedTarget,
+        rawSourceImageDimensions,
+        scanStartedAt,
+        sourceImageDimensions,
+      });
     } catch (error) {
       if (scannerMode === 'raw') {
         logScannerDiagnostic(
@@ -822,6 +974,10 @@ export function ScannerScreen() {
           error,
         );
       }
+      capturePostHogEvent('scan_match_failed', {
+        error_kind: scannerErrorKind(error),
+        mode: scannerMode,
+      });
       setIsCapturing(false);
       setRecentCaptures((current) => current.map((capture) => {
         if (capture.id !== captureId) {
@@ -848,8 +1004,88 @@ export function ScannerScreen() {
     permission,
     requestPermission,
     scannerMode,
-    spotlightRepository,
+    runMatchForCapture,
   ]);
+
+  const handleTriggerSmokeFixture = useCallback(async () => {
+    if (!scannerSmokeEnabled || scannerMode !== 'raw' || isCapturing) {
+      return;
+    }
+
+    void triggerScannerHaptic();
+    capturePostHogEvent('scan_capture_started', {
+      mode: 'raw',
+    });
+    const scanStartedAt = Date.now();
+    setIsCapturing(true);
+
+    const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    setRecentCaptures((current) => [
+      {
+        activeCandidateIndex: 0,
+        candidates: [],
+        hasTrackedSelectionEvent: false,
+        id: captureId,
+        isAddingToInventory: false,
+        isLoadingCandidates: true,
+        matchReviewDisposition: null,
+        matchReviewReason: null,
+        mode: 'raw' as const,
+        normalizedImageDimensions: null,
+        normalizedImageUri: null,
+        scanID: null,
+        sourceImageCrop: null,
+        sourceImageDimensions: null,
+        sourceImageRotationDegrees: 0,
+        uri: '',
+      },
+      ...current,
+    ].slice(0, maxStoredCaptures));
+
+    try {
+      const normalizedTarget = await loadRawScannerSmokeFixture();
+      const sourceImageDimensions = normalizedTarget.normalizedImageDimensions;
+      setIsCapturing(false);
+
+      updateRecentCapture(captureId, (capture) => ({
+        ...capture,
+        normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
+        normalizedImageUri: normalizedTarget.normalizedImageUri,
+        sourceImageCrop: normalizedTarget.sourceImageCrop,
+        sourceImageDimensions,
+        sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
+        uri: normalizedTarget.normalizedImageUri,
+      }));
+
+      void runMatchForCapture({
+        captureId,
+        captureMs: 0,
+        captureSource: 'smoke_fixture',
+        mode: 'raw',
+        normalizeMs: 0,
+        normalizedTarget,
+        rawSourceImageDimensions: normalizedTarget.normalizedImageDimensions,
+        scanStartedAt,
+        sourceImageDimensions,
+      });
+    } catch (error) {
+      logScannerDiagnostic(
+        `[SCANNER SMOKE] fixturePrepError message=${scannerErrorMessage(error)}`,
+        error,
+      );
+      setIsCapturing(false);
+      updateRecentCapture(captureId, (capture) => ({
+        ...capture,
+        isLoadingCandidates: false,
+        matchReviewDisposition: 'unsupported',
+        matchReviewReason: 'Scanner smoke fixture could not load.',
+      }));
+      capturePostHogEvent('scan_match_failed', {
+        error_kind: scannerErrorKind(error),
+        mode: 'raw',
+      });
+    }
+  }, [isCapturing, scannerMode, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
 
   const cycleCandidate = useCallback((captureId: string) => {
     setRecentCaptures((current) => current.map((capture) => {
@@ -890,6 +1126,7 @@ export function ScannerScreen() {
     });
 
     try {
+      trackCandidateSelectionIfNeeded(capture);
       await spotlightRepository.createInventoryEntry({
         addedAt,
         cardID: activeCandidate.cardId,
@@ -902,11 +1139,18 @@ export function ScannerScreen() {
         variantName: null,
         wasTopPrediction: capture.activeCandidateIndex === 0,
       });
+      capturePostHogEvent('scan_inventory_add_succeeded', {
+        mode: capture.mode,
+      });
       const nextEntries = await spotlightRepository.getInventoryEntries();
       setInventoryEntries(nextEntries);
       refreshData();
     } catch (error) {
       setInventoryEntries(previousInventoryEntries);
+      capturePostHogEvent('scan_inventory_add_failed', {
+        error_kind: scannerErrorKind(error),
+        mode: capture.mode,
+      });
       logScannerDiagnostic(`[SCANNER] addToInventory failed: ${scannerErrorMessage(error)}`, error);
     } finally {
       setRecentCaptures((current) => current.map((entry) => {
@@ -920,7 +1164,7 @@ export function ScannerScreen() {
         };
       }));
     }
-  }, [recentCaptures, refreshData, spotlightRepository]);
+  }, [recentCaptures, refreshData, spotlightRepository, trackCandidateSelectionIfNeeded]);
 
   const handleOpenCard = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((entry) => entry.id === captureId);
@@ -941,6 +1185,7 @@ export function ScannerScreen() {
       sourceImageRotationDegrees: capture.sourceImageRotationDegrees,
       sourceImageUri: capture.uri || null,
     });
+    trackCandidateSelectionIfNeeded(capture);
     router.push({
       pathname: '/cards/[cardId]',
       params: {
@@ -949,7 +1194,7 @@ export function ScannerScreen() {
         scanReviewId,
       },
     });
-  }, [inventoryByCardId, recentCaptures, router]);
+  }, [inventoryByCardId, recentCaptures, router, trackCandidateSelectionIfNeeded]);
 
   const toggleTrayExpanded = useCallback(() => {
     if (!canToggleTray) {
@@ -1211,24 +1456,38 @@ export function ScannerScreen() {
           />
         </View>
 
-        {canStartLabelingSession ? (
+        {canStartLabelingSession || (scannerSmokeEnabled && scannerMode === 'raw') ? (
           <View
             style={[
-              styles.labelerEntryWrap,
+              styles.topActionStack,
               {
                 right: 18,
                 top: captureSurfaceLayout.backButtonTop,
               },
             ]}
           >
-            <Button
-              label="New label session"
-              labelStyleVariant="caption"
-              onPress={handleOpenLabelingSession}
-              size="sm"
-              testID="labeler-entry-button"
-              variant="secondary"
-            />
+            {canStartLabelingSession ? (
+              <Button
+                label="New label session"
+                labelStyleVariant="caption"
+                onPress={handleOpenLabelingSession}
+                size="sm"
+                testID="labeler-entry-button"
+                variant="secondary"
+              />
+            ) : null}
+            {scannerSmokeEnabled && scannerMode === 'raw' ? (
+              <Button
+                label="Smoke fixture"
+                labelStyleVariant="caption"
+                onPress={() => {
+                  void handleTriggerSmokeFixture();
+                }}
+                size="sm"
+                testID="scanner-smoke-fixture-trigger"
+                variant="secondary"
+              />
+            ) : null}
           </View>
         ) : null}
 
@@ -1349,7 +1608,9 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 5,
   },
-  labelerEntryWrap: {
+  topActionStack: {
+    alignItems: 'flex-end',
+    gap: 8,
     position: 'absolute',
     zIndex: 5,
   },

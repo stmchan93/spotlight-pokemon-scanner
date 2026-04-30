@@ -84,6 +84,8 @@ describe('PortfolioScreen', () => {
 
     expect(screen.queryByText('Loading your portfolio...')).toBeNull();
     expect(await screen.findByTestId('portfolio-chart-skeleton')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-chart-summary-value')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-chart-summary-value-skeleton')).toBeNull();
     expect(await screen.findByText('(6)')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
     expect(screen.getByTestId('latest-sales-skeleton')).toBeTruthy();

@@ -66,11 +66,12 @@ describe('CatalogSearchScreen', () => {
     });
 
     expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
+    expect(screen.getByTestId('catalog-result-smoke-sm7-1')).toBeTruthy();
     expect(screen.getByTestId('catalog-result-sm7-2')).toBeTruthy();
     expect(screen.getByTestId('catalog-result-np-3')).toBeTruthy();
     expect(screen.queryByTestId('catalog-set-group-sm7-1')).toBeNull();
 
-    fireEvent.press(screen.getByTestId('catalog-result-sm7-1'));
+    fireEvent.press(screen.getByTestId('catalog-result-smoke-sm7-1'));
     expect(onOpenCard).toHaveBeenCalledWith(expect.objectContaining({
       cardId: 'sm7-1',
       name: 'Treecko',
@@ -88,7 +89,7 @@ describe('CatalogSearchScreen', () => {
     fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
     await advanceDebounce();
 
-    const resultRow = await screen.findByTestId('catalog-result-sm7-1');
+    const resultRow = await screen.findByTestId('catalog-result-smoke-sm7-1');
     fireEvent.press(resultRow);
     expect(onOpenCard).toHaveBeenCalledTimes(1);
 

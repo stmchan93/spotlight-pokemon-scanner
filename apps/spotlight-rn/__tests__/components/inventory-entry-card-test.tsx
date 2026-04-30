@@ -110,4 +110,37 @@ describe('InventoryEntryCard', () => {
 
     expect(screen.getByText('—')).toBeTruthy();
   });
+
+  it('renders a stable raw smoke selector keyed by card id', () => {
+    render(
+      <SpotlightThemeProvider>
+        <InventoryEntryCard entry={mockInventoryEntries[0]} showConditionLabel />
+      </SpotlightThemeProvider>,
+    );
+
+    expect(screen.getByTestId('inventory-entry-smoke-raw-mcdonalds25-16')).toBeTruthy();
+  });
+
+  it('renders a stable graded smoke selector keyed by grader tuple', () => {
+    const entry = {
+      ...mockInventoryEntries[0],
+      cardId: 'base1-4',
+      id: 'entry-graded',
+      kind: 'graded' as const,
+      slabContext: {
+        grader: ' PSA ',
+        grade: ' 10 ',
+        certNumber: ' 1234 5678 ',
+      },
+      variantName: 'Unlimited',
+    };
+
+    render(
+      <SpotlightThemeProvider>
+        <InventoryEntryCard entry={entry} showConditionLabel />
+      </SpotlightThemeProvider>,
+    );
+
+    expect(screen.getByTestId('inventory-entry-smoke-graded-base1-4-psa-10-1234-5678')).toBeTruthy();
+  });
 });

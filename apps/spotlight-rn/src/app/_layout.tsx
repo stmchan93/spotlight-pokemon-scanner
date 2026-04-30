@@ -31,6 +31,8 @@ import {
 } from '@spotlight/design-system';
 
 import { AuthGate } from '@/features/auth/components/auth-gate';
+import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
+import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
 import { AppProviders } from '@/providers/app-providers';
 import { AuthProvider, useAuth } from '@/providers/auth-provider';
 
@@ -97,6 +99,7 @@ function AuthenticatedRoot() {
       authenticatedContent={(
         <View style={{ flex: 1 }}>
           <StatusBar style={Platform.OS === 'android' ? 'dark' : 'dark'} />
+          <PostHogScreenTracker />
           <Stack
             screenOptions={{
               animation: 'default',
@@ -134,31 +137,45 @@ function AuthenticatedRoot() {
   );
 }
 
+function ObservabilityAuthSync() {
+  const auth = useAuth();
+
+  useEffect(() => {
+    identifyPostHogUser(auth.currentUser);
+  }, [auth.currentUser]);
+
+  return null;
+}
+
 function AuthenticatedAppProviders({
   children,
 }: {
   children: ReactNode;
 }) {
   const auth = useAuth();
+  const sessionOwnerKey = auth.currentSession?.user.id ?? 'signed-out';
   return (
-    <AppProviders accessToken={auth.accessToken}>
+    <AppProviders key={sessionOwnerKey} accessToken={auth.accessToken} sessionOwnerKey={sessionOwnerKey}>
       {children}
     </AppProviders>
   );
 }
 
-export default function RootLayout() {
+function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
         <SpotlightThemeProvider>
           <NavigationThemeProvider value={navigationTheme}>
             <AuthProvider>
-              <AuthenticatedAppProviders>
-                <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
-                  <RootNavigator />
-                </View>
-              </AuthenticatedAppProviders>
+              <PostHogAppProvider>
+                <ObservabilityAuthSync />
+                <AuthenticatedAppProviders>
+                  <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
+                    <RootNavigator />
+                  </View>
+                </AuthenticatedAppProviders>
+              </PostHogAppProvider>
             </AuthProvider>
           </NavigationThemeProvider>
         </SpotlightThemeProvider>
@@ -166,3 +183,5 @@ export default function RootLayout() {
     </GestureHandlerRootView>
   );
 }
+
+export default RootLayout;

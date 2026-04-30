@@ -5,6 +5,7 @@ import { SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { makeInventorySmokeTestID } from '@/features/inventory/inventory-smoke-selectors';
 import { resolveConditionDisplayLabel } from '@/lib/condition-display';
 import { getCardImageSource } from '@/lib/card-images';
 
@@ -67,98 +68,100 @@ export function InventoryEntryCard({
   const descriptorLabel = showConditionLabel ? inventoryDescriptorLabel(entry) : '';
 
   return (
-    <Pressable
-      accessibilityRole="button"
-      delayLongPress={220}
-      onLongPress={onLongPress}
-      onPress={onPress}
-      style={({ pressed }) => [
-        styles.pressable,
-        {
-          opacity: pressed ? 0.9 : 1,
-        },
-      ]}
-      testID={`inventory-entry-${entry.id}`}
-    >
-      <SurfaceCard
-        padding={8}
-        radius={18}
-        style={[
-          styles.tile,
+    <View testID={`inventory-entry-${entry.id}`}>
+      <Pressable
+        accessibilityRole="button"
+        delayLongPress={220}
+        onLongPress={onLongPress}
+        onPress={onPress}
+        style={({ pressed }) => [
+          styles.pressable,
           {
-            backgroundColor: isSelected ? theme.colors.surfaceMuted : theme.colors.canvasElevated,
-            borderColor: isSelected ? theme.colors.brand : theme.colors.outlineSubtle,
-            borderWidth: isSelected ? 1.5 : 1,
+            opacity: pressed ? 0.9 : 1,
           },
         ]}
+        testID={makeInventorySmokeTestID(entry)}
       >
-        <View
+        <SurfaceCard
+          padding={8}
+          radius={18}
           style={[
-            styles.imageFrame,
+            styles.tile,
             {
-              backgroundColor: theme.colors.surface,
+              backgroundColor: isSelected ? theme.colors.surfaceMuted : theme.colors.canvasElevated,
+              borderColor: isSelected ? theme.colors.brand : theme.colors.outlineSubtle,
+              borderWidth: isSelected ? 1.5 : 1,
             },
           ]}
         >
-          <CachedImage
-            cachePolicy={imageCachePolicy.thumbnail}
-            contentFit="contain"
-            source={getCardImageSource(entry, 'small')}
-            style={styles.cardArt}
-          />
-
-          {isSelected ? (
-            <View
-              pointerEvents="none"
-              style={[styles.selectionVeil, { backgroundColor: 'rgba(254, 227, 51, 0.12)' }]}
+          <View
+            style={[
+              styles.imageFrame,
+              {
+                backgroundColor: theme.colors.surface,
+              },
+            ]}
+          >
+            <CachedImage
+              cachePolicy={imageCachePolicy.thumbnail}
+              contentFit="contain"
+              source={getCardImageSource(entry, 'small')}
+              style={styles.cardArt}
             />
-          ) : null}
 
-          {selectionMode ? (
-            <View
-              style={[
-                styles.selectionBadge,
-                {
-                  backgroundColor: isSelected ? theme.colors.brand : '#FFFFFF',
-                  borderColor: isSelected ? theme.colors.brand : theme.colors.outlineSubtle,
-                },
-              ]}
-            >
-              {isSelected ? (
-                <Text style={[theme.typography.headline, styles.checkmark]}>✓</Text>
-              ) : null}
-            </View>
-          ) : null}
-        </View>
+            {isSelected ? (
+              <View
+                pointerEvents="none"
+                style={[styles.selectionVeil, { backgroundColor: 'rgba(254, 227, 51, 0.12)' }]}
+              />
+            ) : null}
 
-        <Text numberOfLines={1} style={[theme.typography.caption, styles.name]}>
-          {entry.name}
-        </Text>
-        <Text numberOfLines={1} style={[theme.typography.caption, styles.price]}>
-          {formatOptionalCurrency(entry.hasMarketPrice ? entry.marketPrice : null, entry.currencyCode)}
-        </Text>
-
-        <View style={styles.metaRow}>
-          <Text numberOfLines={1} style={[theme.typography.caption, styles.metaText]}>
-            {entry.cardNumber}
-          </Text>
-          <View style={styles.quantityCluster}>
-            <Text numberOfLines={1} style={[theme.typography.micro, styles.quantityIcon]}>
-              ◫
-            </Text>
-            <Text numberOfLines={1} style={[theme.typography.caption, styles.metaValue]}>
-              {entry.quantity}
-            </Text>
+            {selectionMode ? (
+              <View
+                style={[
+                  styles.selectionBadge,
+                  {
+                    backgroundColor: isSelected ? theme.colors.brand : '#FFFFFF',
+                    borderColor: isSelected ? theme.colors.brand : theme.colors.outlineSubtle,
+                  },
+                ]}
+              >
+                {isSelected ? (
+                  <Text style={[theme.typography.headline, styles.checkmark]}>✓</Text>
+                ) : null}
+              </View>
+            ) : null}
           </View>
-        </View>
 
-        {descriptorLabel ? (
-          <Text numberOfLines={1} style={[theme.typography.micro, styles.detailText]}>
-            {descriptorLabel}
+          <Text numberOfLines={1} style={[theme.typography.caption, styles.name]}>
+            {entry.name}
           </Text>
-        ) : null}
-      </SurfaceCard>
-    </Pressable>
+          <Text numberOfLines={1} style={[theme.typography.caption, styles.price]}>
+            {formatOptionalCurrency(entry.hasMarketPrice ? entry.marketPrice : null, entry.currencyCode)}
+          </Text>
+
+          <View style={styles.metaRow}>
+            <Text numberOfLines={1} style={[theme.typography.caption, styles.metaText]}>
+              {entry.cardNumber}
+            </Text>
+            <View style={styles.quantityCluster}>
+              <Text numberOfLines={1} style={[theme.typography.micro, styles.quantityIcon]}>
+                ◫
+              </Text>
+              <Text numberOfLines={1} style={[theme.typography.caption, styles.metaValue]}>
+                {entry.quantity}
+              </Text>
+            </View>
+          </View>
+
+          {descriptorLabel ? (
+            <Text numberOfLines={1} style={[theme.typography.micro, styles.detailText]}>
+              {descriptorLabel}
+            </Text>
+          ) : null}
+        </SurfaceCard>
+      </Pressable>
+    </View>
   );
 }
 

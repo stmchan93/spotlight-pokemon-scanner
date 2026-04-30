@@ -1,4 +1,5 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
+import Constants from 'expo-constants';
 import { LayoutAnimation, StyleSheet } from 'react-native';
 
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
@@ -8,9 +9,23 @@ import {
 } from '@/features/scanner/scan-candidate-review-session';
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
 
+const mockLoadRawScannerSmokeFixture = jest.fn(async () => ({
+  nativeSourceImageDimensions: { height: 880, width: 630 },
+  normalizationRotationDegrees: 0,
+  normalizedImageBase64: 'c21va2UtZml4dHVyZS1iYXNlNjQ=',
+  normalizedImageDimensions: { height: 880, width: 630 },
+  normalizedImageUri: 'file:///scanner-smoke-fixture.jpg',
+  sourceImageCrop: { height: 880, width: 630, x: 0, y: 0 },
+}));
+
+jest.mock('@/features/scanner/scanner-smoke-fixtures', () => ({
+  loadRawScannerSmokeFixture: () => mockLoadRawScannerSmokeFixture(),
+}));
+
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockConfigureNext = jest.spyOn(LayoutAnimation, 'configureNext').mockImplementation(jest.fn());
+const mockedConstants = Constants as any;
 
 jest.mock('expo-router', () => {
   const React = jest.requireActual<typeof import('react')>('react');
@@ -51,10 +66,19 @@ async function waitForScannerReady() {
 }
 
 describe('ScannerScreen', () => {
+  const originalExtra = mockedConstants.expoConfig?.extra
+    ? { ...mockedConstants.expoConfig.extra }
+    : {};
+
   beforeEach(() => {
     mockPush.mockReset();
     mockReplace.mockReset();
     mockConfigureNext.mockClear();
+    mockLoadRawScannerSmokeFixture.mockClear();
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };
+    }
+    mockedConstants.expoConfig.extra = { ...originalExtra };
     clearScanCandidateReviewSessions();
   });
 
@@ -118,6 +142,7 @@ describe('ScannerScreen', () => {
       fontSize: 15,
       lineHeight: 20,
     });
+    expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
   });
 
   it('captures a scan photo when the preview is tapped', async () => {
@@ -194,6 +219,111 @@ describe('ScannerScreen', () => {
       height: 880,
       jpegBase64: 'bm9ybWFsaXplZC1zY2FuLWJhc2U2NA==',
       width: 630,
+    });
+  });
+
+  it('shows the scanner smoke fixture trigger when staging smoke is enabled', () => {
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };
+    }
+    mockedConstants.expoConfig.extra = {
+      ...mockedConstants.expoConfig.extra,
+      spotlightAppEnv: 'staging',
+      spotlightScannerSmokeEnabled: '1',
+    };
+
+    renderScannerScreen();
+    expect(screen.getByTestId('scanner-smoke-fixture-trigger')).toBeTruthy();
+  });
+
+  it('runs a fixture-backed smoke scan through the real match flow', async () => {
+    const payloads: { height: number; jpegBase64: string; mode: string; width: number }[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+
+        return {
+          scanID: 'scan-smoke-fixture',
+          candidates: [{
+            id: 'base1-14',
+            cardId: 'base1-14',
+            name: 'Dark Weezing',
+            cardNumber: '#14/82',
+            setName: 'Team Rocket',
+            imageUrl: 'https://cdn.spotlight.test/dark-weezing.png',
+            marketPrice: 1.23,
+            currencyCode: 'USD',
+          }],
+        };
+      },
+    });
+
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };
+    }
+    mockedConstants.expoConfig.extra = {
+      ...mockedConstants.expoConfig.extra,
+      spotlightAppEnv: 'staging',
+      spotlightScannerSmokeEnabled: '1',
+    };
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByTestId('scanner-smoke-fixture-trigger'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Dark Weezing')).toBeTruthy();
+    });
+
+    expect(mockLoadRawScannerSmokeFixture).toHaveBeenCalledTimes(1);
+    expect(payloads).toEqual([{
+      height: 880,
+      jpegBase64: 'c21va2UtZml4dHVyZS1iYXNlNjQ=',
+      mode: 'raw',
+      width: 630,
+    }]);
+
+    fireEvent.press(screen.getByTestId('scanner-tray-open-card-0'));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/cards/[cardId]',
+        params: {
+          cardId: 'base1-14',
+          entryId: undefined,
+          scanReviewId: expect.any(String),
+        },
+      });
+    });
+
+    const pushedRoute = mockPush.mock.calls.at(-1)?.[0] as { params?: { scanReviewId?: string } };
+    const scanReviewSession = getScanCandidateReviewSession(pushedRoute.params?.scanReviewId);
+    expect(scanReviewSession?.normalizedImageUri).toBe('file:///scanner-smoke-fixture.jpg');
+    expect(scanReviewSession?.sourceImageCrop).toEqual({
+      height: 880,
+      width: 630,
+      x: 0,
+      y: 0,
+    });
+  });
+
+  it('surfaces a clear error when the scanner smoke fixture cannot load', async () => {
+    mockLoadRawScannerSmokeFixture.mockRejectedValueOnce(new Error('fixture_missing'));
+    if (!mockedConstants.expoConfig) {
+      mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };
+    }
+    mockedConstants.expoConfig.extra = {
+      ...mockedConstants.expoConfig.extra,
+      spotlightAppEnv: 'staging',
+      spotlightScannerSmokeEnabled: '1',
+    };
+
+    renderScannerScreen();
+
+    fireEvent.press(screen.getByTestId('scanner-smoke-fixture-trigger'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Scanner smoke fixture could not load.')).toBeTruthy();
     });
   });
 

@@ -1,0 +1,30 @@
+---
+- tapOn:
+    id: bottom-nav-portfolio
+- assertVisible:
+    id: portfolio-sell-entry
+- tapOn:
+    id: portfolio-sell-entry
+- assertVisible: "All cards"
+- tapOn:
+    id: "${SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_ONE}"
+- tapOn:
+    id: "${SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_TWO}"
+- tapOn:
+    id: inventory-sell-selected
+- assertVisible:
+    id: bulk-sell-summary-card
+- tapOn:
+    id: "${SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_ONE}"
+- inputText: "${SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_ONE}"
+- tapOn:
+    id: "${SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_TWO}"
+- inputText: "${SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_TWO}"
+- swipe:
+    from:
+      id: bulk-sell-swipe-rail
+    direction: UP
+    duration: 400
+- assertVisible:
+    id: bulk-sell-status-screen
+- takeScreenshot: staging-smoke-bulk-sell

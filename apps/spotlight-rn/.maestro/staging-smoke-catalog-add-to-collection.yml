@@ -1,0 +1,20 @@
+---
+- tapOn:
+    id: portfolio-add-card
+- assertVisible:
+    id: catalog-header
+- tapOn:
+    text: "Search by name, set, or number"
+- inputText: "${SPOTLIGHT_MAESTRO_CATALOG_QUERY}"
+- tapOn:
+    id: "${SPOTLIGHT_MAESTRO_CATALOG_RESULT_ID}"
+- assertVisible:
+    id: detail-add-to-collection
+- tapOn:
+    id: detail-add-to-collection
+- assertVisible: "Add to Collection"
+- tapOn:
+    id: submit-add-to-collection
+- assertVisible:
+    id: detail-add-to-collection
+- takeScreenshot: staging-smoke-catalog-add

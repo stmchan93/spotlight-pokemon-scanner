@@ -27,6 +27,23 @@ function readExpoExtraValue(key: string) {
   return trimConfigValue(extra[key]);
 }
 
+function parseBooleanValue(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+
+  if (['1', 'true', 'yes', 'on'].includes(normalized)) {
+    return true;
+  }
+
+  if (['0', 'false', 'no', 'off'].includes(normalized)) {
+    return false;
+  }
+
+  return null;
+}
+
 export function resolveRuntimeValue(envKeys: string[], extraKeys: string[] = []) {
   for (const key of envKeys) {
     const value = trimConfigValue(process.env[key]);
@@ -43,6 +60,39 @@ export function resolveRuntimeValue(envKeys: string[], extraKeys: string[] = [])
   }
 
   return '';
+}
+
+export function resolveRuntimeBoolean(envKeys: string[], extraKeys: string[] = [], fallback = false) {
+  for (const key of envKeys) {
+    const value = trimConfigValue(process.env[key]);
+    if (value) {
+      const parsed = parseBooleanValue(value);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+  }
+
+  for (const key of extraKeys) {
+    const value = readExpoExtraValue(key);
+    if (value) {
+      const parsed = parseBooleanValue(value);
+      if (parsed != null) {
+        return parsed;
+      }
+    }
+  }
+
+  return fallback;
+}
+
+export function resolveRuntimeAppEnv() {
+  const appEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
+  if (appEnv) {
+    return appEnv;
+  }
+
+  return process.env.NODE_ENV === 'production' ? 'production' : 'development';
 }
 
 export function resolveExpoScheme() {

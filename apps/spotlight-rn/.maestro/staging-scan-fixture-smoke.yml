@@ -1,0 +1,16 @@
+appId: com.looty.staging
+---
+- launchApp
+- tapOn:
+    id: bottom-nav-scan
+- assertVisible:
+    id: scanner-smoke-fixture-trigger
+- tapOn:
+    id: scanner-smoke-fixture-trigger
+- assertVisible:
+    id: scanner-tray
+- assertVisible:
+    id: scanner-tray-row-0
+- assertVisible:
+    id: scanner-tray-open-card-0
+- takeScreenshot: staging-smoke-scan-fixture

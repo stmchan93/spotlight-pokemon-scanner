@@ -1,0 +1,15 @@
+---
+- tapOn:
+    id: bottom-nav-scan
+- assertVisible:
+    id: scanner-back-button
+- assertVisible:
+    id: scanner-mode-toggle
+- assertVisible:
+    id: scanner-tray
+- assertVisible: "Tap anywhere to scan"
+- takeScreenshot: staging-smoke-scan-shell
+- tapOn:
+    id: bottom-nav-portfolio
+- assertVisible:
+    id: portfolio-account-button
