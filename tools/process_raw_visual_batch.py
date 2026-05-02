@@ -35,6 +35,9 @@ from raw_visual_dataset_paths import (
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+BACKEND_ROOT = REPO_ROOT / "backend"
+if not (BACKEND_ROOT / "server.py").exists():
+    BACKEND_ROOT = REPO_ROOT
 HELDOUT_ROOT = REPO_ROOT / "qa" / "raw-footer-layout-check"
 REQUIRED_BATCH_FIELDS = ("file_name", "card_name", "number", "set")
 VISUAL_REQUIREMENTS_PATH = REPO_ROOT / "tools" / "requirements_raw_visual_poc.txt"
@@ -923,7 +926,7 @@ def main() -> int:
 
     if args.run_training_pipeline and args.import_safe:
         env = os.environ.copy()
-        env.update(load_env_file(REPO_ROOT / "backend" / ".env"))
+        env.update(load_env_file(BACKEND_ROOT / ".env"))
 
         if safe_new_training_entries or safe_training_augment_entries:
             run_command(["zsh", str(REPO_ROOT / "tools" / "generate_raw_runtime_artifacts.sh"), str(training_root)])

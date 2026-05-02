@@ -196,7 +196,7 @@ describe('PortfolioChartCard', () => {
     expect(screen.getByTestId('portfolio-chart-summary-date').props.children).toBe('Apr 21');
     expect(screen.getByTestId('portfolio-chart-summary-detail').props.children).toBe('+$120.00 · 120.00%');
     expect(screen.queryByTestId('portfolio-chart-summary-context')).toBeNull();
-    expect(screen.getByText('Portfolio')).toBeTruthy();
+    expect(screen.getByText('Collection')).toBeTruthy();
     expect(screen.getByText('Sales')).toBeTruthy();
     expect(screen.getByText('All')).toBeTruthy();
 

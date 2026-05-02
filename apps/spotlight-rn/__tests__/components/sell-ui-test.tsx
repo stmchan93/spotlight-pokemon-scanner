@@ -1,6 +1,5 @@
 import { screen, render } from '@testing-library/react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { StyleSheet } from 'react-native';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
@@ -39,9 +38,6 @@ describe('SellStatusOverlay', () => {
 
     expect(screen.getByTestId('single-sell-status-screen')).toBeTruthy();
     expect(screen.getByText('Processing sale')).toBeTruthy();
-    expect(StyleSheet.flatten(screen.getByTestId('single-sell-status-screen').props.style)).toMatchObject({
-      backgroundColor: '#FEE333',
-    });
   });
 
   it('renders the success confirmation copy for bulk sell', () => {

@@ -4,7 +4,11 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-BACKEND_DIR="$REPO_ROOT/backend"
+if [ -d "$REPO_ROOT/backend" ]; then
+  BACKEND_DIR="$REPO_ROOT/backend"
+else
+  BACKEND_DIR="$REPO_ROOT"
+fi
 RUNTIME_CONFIG_FILE="${SPOTLIGHT_VM_RUNTIME_CONFIG:-$BACKEND_DIR/.vm-runtime.conf}"
 
 if [ -f "$RUNTIME_CONFIG_FILE" ]; then

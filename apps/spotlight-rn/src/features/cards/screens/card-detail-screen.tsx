@@ -1,5 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  IconEdit,
+  IconHeart,
+  IconHeartFilled,
+  IconMinus,
+  IconPlus,
+} from '@tabler/icons-react-native';
+import {
   Image,
   Linking,
   Pressable,
@@ -80,6 +87,8 @@ function buildTcgPlayerSearchUrl(params: {
 
   return `https://www.tcgplayer.com/search/pokemon/product?${searchParams.toString()}`;
 }
+
+const favoriteHeartColor = '#E83E8C';
 
 type CardDetailScreenProps = {
   cardId: string;
@@ -184,51 +193,15 @@ function ChevronIcon({
 }
 
 function TrashIcon() {
-  return (
-    <Svg fill="none" height={16} viewBox="0 0 20 20" width={16}>
-      <Path d="M4.75 5.5H15.25" stroke="#4D4F57" strokeLinecap="round" strokeWidth={1.7} />
-      <Path d="M8 4.25H12" stroke="#4D4F57" strokeLinecap="round" strokeWidth={1.7} />
-      <Path
-        d="M6.25 5.5L6.85 14.23C6.91 15.14 7.67 15.85 8.58 15.85H11.42C12.33 15.85 13.09 15.14 13.15 14.23L13.75 5.5"
-        stroke="#4D4F57"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.7}
-      />
-      <Path d="M8.55 8.25V12.4" stroke="#4D4F57" strokeLinecap="round" strokeWidth={1.7} />
-      <Path d="M11.45 8.25V12.4" stroke="#4D4F57" strokeLinecap="round" strokeWidth={1.7} />
-    </Svg>
-  );
+  return <IconMinus color="#4D4F57" size={16} strokeWidth={2.1} />;
 }
 
 function PlusIcon() {
-  return (
-    <Svg fill="none" height={16} viewBox="0 0 18 18" width={16}>
-      <Path d="M9 4.25V13.75" stroke="#0F0F12" strokeLinecap="round" strokeWidth={1.9} />
-      <Path d="M4.25 9H13.75" stroke="#0F0F12" strokeLinecap="round" strokeWidth={1.9} />
-    </Svg>
-  );
+  return <IconPlus color="#0F0F12" size={16} strokeWidth={2.1} />;
 }
 
 function EditIcon() {
-  return (
-    <Svg fill="none" height={16} viewBox="0 0 18 18" width={16}>
-      <Path
-        d="M10.94 4.31L13.69 7.06"
-        stroke="#4D4F57"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.7}
-      />
-      <Path
-        d="M4.75 13.25L7.05 12.75L13.69 6.12C14.1 5.71 14.1 5.04 13.69 4.63L13.37 4.31C12.96 3.9 12.29 3.9 11.88 4.31L5.25 10.95L4.75 13.25Z"
-        stroke="#4D4F57"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        strokeWidth={1.7}
-      />
-    </Svg>
-  );
+  return <IconEdit color="#4D4F57" size={16} strokeWidth={1.9} />;
 }
 
 function formatListingDateLabel(value?: string | null) {
@@ -426,6 +399,7 @@ export function CardDetailScreen({
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
   const [inventoryActionError, setInventoryActionError] = useState<string | null>(null);
   const [isAdjustingInventory, setIsAdjustingInventory] = useState(false);
+  const [isFavoritePending, setIsFavoritePending] = useState(false);
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
     [scanReviewId],
@@ -713,6 +687,37 @@ export function CardDetailScreen({
       });
   };
 
+  const handleToggleFavorite = useCallback(() => {
+    if (isFavoritePending) {
+      return;
+    }
+
+    setIsFavoritePending(true);
+    const nextFavoriteState = !(detail?.isFavorite ?? false);
+
+    void spotlightRepository.setCardFavorite(cardId, nextFavoriteState)
+      .then((favoriteState) => {
+        setDetail((currentDetail) => {
+          if (!currentDetail) {
+            return currentDetail;
+          }
+
+          return {
+            ...currentDetail,
+            favoritedAt: favoriteState.favoritedAt ?? null,
+            isFavorite: favoriteState.isFavorite,
+          };
+        });
+        refreshData();
+      })
+      .catch(() => {
+        setErrorMessage('Could not update favorite right now.');
+      })
+      .finally(() => {
+        setIsFavoritePending(false);
+      });
+  }, [cardId, detail?.isFavorite, isFavoritePending, refreshData, spotlightRepository]);
+
   const hasDisplayContent = detail != null || detailPreview != null;
 
   if (!hasDisplayContent && !errorMessage) {
@@ -754,6 +759,7 @@ export function CardDetailScreen({
     : `${detailPreview ? displayNumber(detailPreview.cardNumber) : '#--'} • ${detailPreview?.setName ?? ''}`;
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
+  const isFavorite = detail?.isFavorite ?? false;
   const ebayListings = shouldShowEbayListings ? (ebayListingsState ?? detail?.ebayListings ?? null) : null;
   const ownedCopiesCount = ownedEntries.reduce((sum, entry) => sum + Math.max(0, entry.quantity), 0);
   const collectionTitle = ownedCopiesCount > 1
@@ -809,7 +815,7 @@ export function CardDetailScreen({
           </SurfaceCard>
         </View>
 
-        <View style={styles.actionStack}>
+        <View style={styles.actionStack} testID="detail-action-stack">
           {isOwned ? (
             <Button
               contentStyle={styles.primaryButtonContent}
@@ -857,6 +863,20 @@ export function CardDetailScreen({
                 testID="detail-marketplace-icon"
               />
             )}
+            variant="secondary"
+          />
+
+          <Button
+            contentStyle={styles.favoriteButtonContent}
+            disabled={isFavoritePending}
+            label={isFavorite ? 'FAVORITED' : 'FAVORITE CARD'}
+            labelStyle={styles.favoriteButtonLabel}
+            leadingAccessory={isFavorite
+              ? <IconHeartFilled color={favoriteHeartColor} size={18} />
+              : <IconHeart color={favoriteHeartColor} size={18} strokeWidth={2} />}
+            onPress={handleToggleFavorite}
+            size="lg"
+            testID="detail-favorite-card"
             variant="secondary"
           />
 
@@ -1519,6 +1539,14 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
+  favoriteButtonContent: {
+    justifyContent: 'flex-start',
+    width: '100%',
+  },
+  favoriteButtonLabel: {
+    flex: 1,
+    textAlign: 'left',
+  },
   heroArt: {
     height: 320,
     resizeMode: 'contain',
@@ -1539,10 +1567,8 @@ const styles = StyleSheet.create({
   },
   heroArtStage: {
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
-    borderColor: 'rgba(15, 15, 18, 0.06)',
+    backgroundColor: 'transparent',
     borderRadius: 32,
-    borderWidth: 1,
     height: 388,
     justifyContent: 'center',
     marginTop: 20,

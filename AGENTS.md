@@ -66,3 +66,7 @@ Repo-specific workflow notes for future coding agents.
 
 - Run the relevant tests for the area you changed.
 - Use the scoped `AGENTS.md` file for exact commands and validation expectations.
+- Before any staging backend deploy or staging iOS build/release, route through the staging release gate instead of calling the raw deploy/EAS wrappers directly:
+  - `pnpm release:gate:staging`
+  - `pnpm release:gate:staging:build`
+  - `pnpm release:gate:staging:release`

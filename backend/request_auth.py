@@ -27,6 +27,7 @@ class SupabaseRequestAuthenticator:
         *,
         supabase_url: str | None,
         jwks_url: str | None = None,
+        jwt_secret: str | None = None,
         auth_required: bool = False,
         fallback_user_id: str | None = None,
     ) -> None:
@@ -36,6 +37,7 @@ class SupabaseRequestAuthenticator:
             f"{normalized_url}/auth/v1/.well-known/jwks.json" if normalized_url else None
         )
         self.issuer = f"{normalized_url}/auth/v1" if normalized_url else None
+        self.jwt_secret = str(jwt_secret or "").strip() or None
         self.auth_required = bool(auth_required)
         self.fallback_user_id = str(fallback_user_id or "").strip() or None
         self._jwk_client: Any | None = None
@@ -65,18 +67,36 @@ class SupabaseRequestAuthenticator:
         raise RequestAuthError("A fallback user is not configured for unauthenticated requests.")
 
     def _identity_from_token(self, token: str) -> RequestIdentity:
-        if jwt is None or PyJWKClient is None:
+        if jwt is None:
             raise RequestAuthError("PyJWT is required for bearer token verification.")
-        if not self.jwks_url or not self.issuer:
+        if not self.issuer:
             raise RequestAuthError("Supabase auth verification is not configured on the backend.")
 
-        jwk_client = self._jwk_client_instance()
         try:
-            signing_key = jwk_client.get_signing_key_from_jwt(token)
+            algorithm = self._token_algorithm(token)
+            normalized_algorithm = algorithm.upper()
+            verification_key: Any
+            allowed_algorithms: list[str]
+            if normalized_algorithm.startswith("HS"):
+                if not self.jwt_secret:
+                    raise RequestAuthError(
+                        f"{algorithm} bearer tokens require SUPABASE_JWT_SECRET on the backend."
+                    )
+                verification_key = self.jwt_secret
+                allowed_algorithms = [algorithm]
+            else:
+                if PyJWKClient is None:
+                    raise RequestAuthError("PyJWT is required for bearer token verification.")
+                if not self.jwks_url:
+                    raise RequestAuthError("Supabase auth verification is not configured on the backend.")
+                jwk_client = self._jwk_client_instance()
+                signing_key = jwk_client.get_signing_key_from_jwt(token)
+                verification_key = signing_key.key
+                allowed_algorithms = [algorithm]
             claims = jwt.decode(
                 token,
-                signing_key.key,
-                algorithms=["RS256"],
+                verification_key,
+                algorithms=allowed_algorithms,
                 issuer=self.issuer,
                 options={
                     "require": ["exp", "iat", "sub"],
@@ -99,6 +119,17 @@ class SupabaseRequestAuthenticator:
         if self._jwk_client is None:
             self._jwk_client = PyJWKClient(self.jwks_url)
         return self._jwk_client
+
+    @staticmethod
+    def _token_algorithm(token: str) -> str:
+        try:
+            header = jwt.get_unverified_header(token)
+        except Exception as error:  # noqa: BLE001
+            raise RequestAuthError(f"Bearer token verification failed: {error}") from error
+        algorithm = str(header.get("alg") or "").strip()
+        if not algorithm:
+            raise RequestAuthError("Bearer token header is missing the signing algorithm.")
+        return algorithm
 
     @staticmethod
     def _bearer_token_from_header(authorization_header: str | None) -> str | None:

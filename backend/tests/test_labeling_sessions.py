@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import json
 import os
@@ -9,6 +10,7 @@ import tempfile
 import unittest
 from http import HTTPStatus
 from pathlib import Path
+from unittest.mock import Mock
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
 REPO_ROOT = BACKEND_ROOT.parent
@@ -557,6 +559,67 @@ class LabelingSessionTests(unittest.TestCase):
         finally:
             server_module.DEFAULT_JSON_BODY_LIMIT_BYTES = original_default_limit
             server_module.SCAN_ARTIFACT_JSON_BODY_LIMIT_BYTES = original_artifact_limit
+
+    def test_labeling_post_routes_run_inside_authenticated_request_context(self) -> None:
+        identity = RequestIdentity(user_id="supabase-user", auth_source="test")
+        request_payload = {"ok": True}
+        cases = [
+            (
+                "/api/v1/labeling-sessions",
+                "create_labeling_session",
+                (request_payload,),
+                HTTPStatus.CREATED,
+            ),
+            (
+                "/api/v1/labeling-sessions/label-session-5/artifacts",
+                "store_labeling_session_artifact",
+                ("label-session-5", request_payload),
+                HTTPStatus.CREATED,
+            ),
+            (
+                "/api/v1/labeling-sessions/label-session-5/complete",
+                "complete_labeling_session",
+                ("label-session-5", request_payload),
+                HTTPStatus.OK,
+            ),
+            (
+                "/api/v1/labeling-sessions/label-session-5/abort",
+                "abort_labeling_session",
+                ("label-session-5", request_payload),
+                HTTPStatus.OK,
+            ),
+        ]
+
+        for path, service_method_name, expected_args, expected_status in cases:
+            with self.subTest(path=path):
+                handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+                handler.path = path
+                handler.service = Mock()
+                handler.service.request_identity_context.return_value = contextlib.nullcontext()
+                getattr(handler.service, service_method_name).return_value = {"ok": True}
+                handler._read_json_body = lambda: request_payload  # type: ignore[method-assign]
+                handler._require_request_identity = lambda: identity  # type: ignore[method-assign]
+                writes: list[tuple[HTTPStatus, dict[str, bool]]] = []
+                handler._write_json = lambda status, payload: writes.append((status, payload))  # type: ignore[method-assign]
+
+                handler.do_POST()
+
+                handler.service.request_identity_context.assert_called_once_with(identity)
+                getattr(handler.service, service_method_name).assert_called_once_with(*expected_args)
+                self.assertEqual(writes, [(expected_status, {"ok": True})])
+
+    def test_labeling_post_routes_do_not_use_service_fallback_without_auth_identity(self) -> None:
+        handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+        handler.path = "/api/v1/labeling-sessions"
+        handler.service = Mock()
+        handler._read_json_body = lambda: {"cardID": "sv9-43"}  # type: ignore[method-assign]
+        handler._require_request_identity = lambda: None  # type: ignore[method-assign]
+        handler._write_json = Mock()  # type: ignore[method-assign]
+
+        handler.do_POST()
+
+        handler.service.create_labeling_session.assert_not_called()
+        handler.service.request_identity_context.assert_not_called()
 
 
 if __name__ == "__main__":

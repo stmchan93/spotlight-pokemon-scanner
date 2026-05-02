@@ -8,8 +8,11 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DEFAULT_INDEX_DIR = REPO_ROOT / "backend" / "data" / "visual-index"
-DEFAULT_MODEL_DIR = REPO_ROOT / "backend" / "data" / "visual-models"
+BACKEND_ROOT = REPO_ROOT / "backend"
+if not (BACKEND_ROOT / "server.py").exists():
+    BACKEND_ROOT = REPO_ROOT
+DEFAULT_INDEX_DIR = BACKEND_ROOT / "data" / "visual-index"
+DEFAULT_MODEL_DIR = BACKEND_ROOT / "data" / "visual-models"
 
 
 def utc_now_iso() -> str:

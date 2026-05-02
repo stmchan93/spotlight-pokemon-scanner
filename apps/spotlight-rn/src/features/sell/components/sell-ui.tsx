@@ -1,7 +1,11 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ActivityIndicator,
+  Animated,
   Image,
+  Keyboard,
+  Modal,
+  PanResponder,
   Platform,
   Pressable,
   StyleSheet,
@@ -10,14 +14,27 @@ import {
   Vibration,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import {
+  IconCalculator,
+  IconPencil,
+} from '@tabler/icons-react-native';
 
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import type { InventoryCardEntry } from '@spotlight/api-client';
+import { Button, useSpotlightTheme } from '@spotlight/design-system';
 
-import { sanitizeSellPriceText } from '@/features/sell/sell-order-helpers';
+import {
+  buildSellMetadataTokens,
+  evaluateSellCalculatorExpression,
+  formatEditableSellPrice,
+  getSellSwipeConfirmThreshold,
+  sanitizeSellPriceText,
+  type SellMetadataToken,
+} from '@/features/sell/sell-order-helpers';
 
 export const sellPricePlaceholderText = '$0.00';
 export const sellPricePlaceholderColor = 'rgba(15, 15, 18, 0.18)';
@@ -45,6 +62,7 @@ type SellDetailRowProps = {
 };
 
 type SellPriceFieldProps = {
+  invalid?: boolean;
   onBlur?: () => void;
   onChangeText: (value: string) => void;
   onFocus?: () => void;
@@ -60,34 +78,31 @@ type SellStepperButtonProps = {
   testID?: string;
 };
 
-type SellOfferCalculatorProps = {
-  offerPriceText: string;
-  offerPriceTestID: string;
-  onBlur?: () => void;
-  onFocus?: () => void;
-  onOfferPriceChangeText: (value: string) => void;
-  onYourPriceChangeText: (value: string) => void;
-  ypPercentText?: string | null;
-  yourPriceTestID: string;
-  yourPriceText: string;
-};
-
 type SellFormFieldsProps = {
+  boughtPriceActionLabel?: string;
+  boughtPriceInputRef?: React.Ref<TextInput>;
   boughtPriceLabel: string;
+  boughtPriceEditorErrorMessage?: string | null;
+  boughtPriceEditorText?: string;
+  boughtPriceEditorVisible?: boolean;
+  boughtPriceInputTestID?: string;
+  boughtPriceSaveDisabled?: boolean;
   boughtPriceToggleDisabled?: boolean;
   decrementDisabled?: boolean;
   incrementDisabled?: boolean;
   marketPriceLabel: string;
-  offerPriceTestID: string;
-  offerPriceText: string;
   onBlur?: () => void;
+  onBoughtPriceChangeText?: (value: string) => void;
+  onBoughtPriceInputFocus?: () => void;
+  onCancelBoughtPriceEdit?: () => void;
   onDecrement: () => void;
+  onEditBoughtPrice?: () => void;
   onFocus?: () => void;
   onIncrement: () => void;
-  onOfferPriceChangeText: (value: string) => void;
+  onSaveBoughtPrice?: () => void;
   onSoldPriceChangeText: (value: string) => void;
+  onSoldPriceFocus?: () => void;
   onToggleBoughtPrice: () => void;
-  onYourPriceChangeText: (value: string) => void;
   quantity: number;
   revealsBoughtPrice: boolean;
   soldPriceErrorMessage?: string | null;
@@ -100,9 +115,6 @@ type SellFormFieldsProps = {
   };
   testIDPrefix: string;
   toggleBoughtPriceTestID: string;
-  ypPercentText?: string | null;
-  yourPriceTestID: string;
-  yourPriceText: string;
 };
 
 type SellStatusOverlayProps = {
@@ -112,6 +124,12 @@ type SellStatusOverlayProps = {
   testIDPrefix: string;
   title: string;
 };
+
+type SellIdentityChipsProps = {
+  entry: InventoryCardEntry;
+  testIDPrefix: string;
+};
+
 
 function CameraIcon() {
   return (
@@ -131,6 +149,33 @@ function CameraIcon() {
         strokeWidth={1.9}
       />
     </Svg>
+  );
+}
+
+function SellMetadataChip({
+  token,
+  testID,
+}: {
+  token: SellMetadataToken;
+  testID: string;
+}) {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View
+      style={[
+        styles.metadataChip,
+        {
+          backgroundColor: 'rgba(255, 255, 255, 0.78)',
+          borderColor: theme.colors.outlineSubtle,
+        },
+      ]}
+      testID={testID}
+    >
+      <Text numberOfLines={1} style={[theme.typography.control, styles.metadataChipValue]}>
+        {token.value}
+      </Text>
+    </View>
   );
 }
 
@@ -271,18 +316,20 @@ export function SellStepperButton({
   );
 }
 
-export function SellPriceField({
+export const SellPriceField = forwardRef<TextInput, SellPriceFieldProps>(function SellPriceField({
+  invalid = false,
   onBlur,
   onChangeText,
   onFocus,
   placeholder = sellPricePlaceholderText,
   testID,
   value,
-}: SellPriceFieldProps) {
+}, ref) {
   const theme = useSpotlightTheme();
 
   return (
     <TextInput
+      ref={ref}
       keyboardType="decimal-pad"
       onBlur={onBlur}
       onChangeText={(nextValue) => onChangeText(sanitizeSellPriceText(nextValue))}
@@ -293,7 +340,7 @@ export function SellPriceField({
         theme.typography.headline,
         styles.formPriceField,
         {
-          borderColor: 'rgba(0, 0, 0, 0.08)',
+          borderColor: invalid ? theme.colors.danger : 'rgba(0, 0, 0, 0.08)',
           color: theme.colors.textPrimary,
         },
       ]}
@@ -301,7 +348,7 @@ export function SellPriceField({
       value={value}
     />
   );
-}
+});
 
 export function SellDetailRow({
   children,
@@ -317,70 +364,315 @@ export function SellDetailRow({
   );
 }
 
-export function SellOfferCalculator({
-  offerPriceText,
-  offerPriceTestID,
-  onBlur,
-  onFocus,
-  onOfferPriceChangeText,
-  onYourPriceChangeText,
-  ypPercentText,
-  yourPriceTestID,
-  yourPriceText,
-}: SellOfferCalculatorProps) {
+type CalculatorKeyVariant = 'number' | 'operator' | 'utility';
+
+type CalculatorKeySpec = {
+  label: string;
+  span?: 1 | 2;
+  variant: CalculatorKeyVariant;
+};
+
+const calculatorRows: readonly CalculatorKeySpec[][] = [
+  [
+    { label: 'C', variant: 'utility' },
+    { label: '(', variant: 'utility' },
+    { label: ')', variant: 'utility' },
+    { label: '÷', variant: 'operator' },
+  ],
+  [
+    { label: '7', variant: 'number' },
+    { label: '8', variant: 'number' },
+    { label: '9', variant: 'number' },
+    { label: '×', variant: 'operator' },
+  ],
+  [
+    { label: '4', variant: 'number' },
+    { label: '5', variant: 'number' },
+    { label: '6', variant: 'number' },
+    { label: '−', variant: 'operator' },
+  ],
+  [
+    { label: '1', variant: 'number' },
+    { label: '2', variant: 'number' },
+    { label: '3', variant: 'number' },
+    { label: '+', variant: 'operator' },
+  ],
+  [
+    { label: '0', span: 2, variant: 'number' },
+    { label: '.', variant: 'number' },
+    { label: '=', variant: 'operator' },
+  ],
+] as const;
+
+function normalizeCalculatorExpression(expression: string) {
+  return expression
+    .replace(/×/g, '*')
+    .replace(/÷/g, '/')
+    .replace(/−/g, '-');
+}
+
+function appendCalculatorSymbol(expression: string, symbol: string) {
+  const current = expression;
+  if (symbol === '.') {
+    const segment = current.split(/[+\-*/()]/).at(-1) ?? '';
+    if (segment.includes('.')) {
+      return current;
+    }
+  }
+
+  if ((symbol === '×' || symbol === '÷' || symbol === '+' || symbol === '−') && current.length === 0) {
+    return symbol === '−' ? symbol : current;
+  }
+
+  return `${current}${symbol}`;
+}
+
+function calculatorKeyTestID(testIDPrefix: string, key: CalculatorKeySpec) {
+  if (key.label === 'C') {
+    return `${testIDPrefix}-calculator-clear`;
+  }
+
+  if (key.label === '=') {
+    return `${testIDPrefix}-calculator-equals`;
+  }
+
+  return `${testIDPrefix}-calculator-key-${key.label}`;
+}
+
+function SellInlineCalculator({
+  expression,
+  errorMessage,
+  onAppend,
+  onClear,
+  onDismiss,
+  onEvaluate,
+  resultText,
+  testIDPrefix,
+}: {
+  errorMessage: string | null;
+  expression: string;
+  onAppend: (value: string) => void;
+  onClear: () => void;
+  onDismiss: () => void;
+  onEvaluate: () => void;
+  resultText: string | null;
+  testIDPrefix: string;
+}) {
   const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
+  const sheetTranslateY = useRef(new Animated.Value(0)).current;
+
+  const resetSheetPosition = useCallback(() => {
+    Animated.spring(sheetTranslateY, {
+      toValue: 0,
+      useNativeDriver: true,
+      tension: 170,
+      friction: 22,
+    }).start();
+  }, [sheetTranslateY]);
+
+  const dragDismissResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponder: (_, gestureState) => (
+      gestureState.dy > 6 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx)
+    ),
+    onPanResponderMove: (_, gestureState) => {
+      sheetTranslateY.setValue(Math.max(0, gestureState.dy));
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (gestureState.dy >= 72 || gestureState.vy >= 0.9) {
+        onDismiss();
+        return;
+      }
+
+      resetSheetPosition();
+    },
+    onPanResponderTerminate: resetSheetPosition,
+  }), [onDismiss, resetSheetPosition, sheetTranslateY]);
 
   return (
-    <View style={styles.formOfferSection}>
-      <Text style={[theme.typography.headline, styles.formOfferTitle]}>Offer Calculator</Text>
-      <View style={styles.formOfferFields}>
-        <View style={styles.formOfferField}>
-          <Text style={[theme.typography.caption, styles.formOfferLabel]}>Offer Price</Text>
-          <SellPriceField
-            onBlur={onBlur}
-            onChangeText={onOfferPriceChangeText}
-            onFocus={onFocus}
-            testID={offerPriceTestID}
-            value={offerPriceText}
-          />
-        </View>
+    <Modal
+      animationType="slide"
+      presentationStyle="overFullScreen"
+      transparent
+      visible
+    >
+      <View style={styles.calculatorBackdrop}>
+        <Pressable
+          onPress={onDismiss}
+          style={StyleSheet.absoluteFill}
+          testID={`${testIDPrefix}-calculator-dismiss`}
+        />
+        <SafeAreaView
+          edges={['bottom']}
+          style={styles.calculatorSheetSafeArea}
+        >
+          <Animated.View
+            style={[
+              styles.calculatorSheet,
+              {
+                paddingBottom: Math.max(insets.bottom, 16),
+                transform: [{ translateY: sheetTranslateY }],
+              },
+            ]}
+            testID={`${testIDPrefix}-calculator-sheet`}
+          >
+            <View
+              {...dragDismissResponder.panHandlers}
+              style={styles.calculatorDragZone}
+              testID={`${testIDPrefix}-calculator-drag-zone`}
+            >
+              <View style={styles.calculatorHandleWrap}>
+                <View style={styles.calculatorHandle} testID={`${testIDPrefix}-calculator-handle`} />
+              </View>
+            </View>
+            <View style={styles.calculatorSheetBody}>
+              <View style={styles.calculatorHeader}>
+                <Text style={[theme.typography.headline, styles.calculatorTitle]}>Calculator</Text>
+                <Pressable
+                  accessibilityRole="button"
+                  onPress={onDismiss}
+                  style={({ pressed }) => [
+                    styles.calculatorCloseButton,
+                    pressed ? styles.calculatorCloseButtonPressed : null,
+                  ]}
+                  testID={`${testIDPrefix}-calculator-close`}
+                >
+                  <Text style={[theme.typography.caption, styles.calculatorCloseLabel]}>Close</Text>
+                </Pressable>
+              </View>
 
-        <Text style={[theme.typography.body, styles.formOfferSlash]}>/</Text>
+              <View style={styles.calculatorDisplay}>
+                <Text
+                  numberOfLines={2}
+                  style={styles.calculatorExpression}
+                  testID={`${testIDPrefix}-calculator-expression`}
+                >
+                  {expression.length > 0 ? expression : '0'}
+                </Text>
+                <Text
+                  style={styles.calculatorResult}
+                  testID={`${testIDPrefix}-calculator-result`}
+                >
+                  {errorMessage ?? (resultText ? `= ${resultText}` : 'Use = to apply to sold price')}
+                </Text>
+              </View>
 
-        <View style={styles.formOfferField}>
-          <Text style={[theme.typography.caption, styles.formOfferLabel]}>Your Price (YP)</Text>
-          <SellPriceField
-            onBlur={onBlur}
-            onChangeText={onYourPriceChangeText}
-            onFocus={onFocus}
-            testID={yourPriceTestID}
-            value={yourPriceText}
-          />
-        </View>
+              <View style={styles.calculatorGrid}>
+                {calculatorRows.map((row, rowIndex) => (
+                  <View key={`row-${rowIndex}`} style={styles.calculatorRow}>
+                    {row.map((key) => {
+                      const isWide = key.span === 2;
+                      const isOperator = key.variant === 'operator';
+                      const isUtility = key.variant === 'utility';
+                      const isClear = key.label === 'C';
+                      const isEquals = key.label === '=';
+
+                      const handlePress = () => {
+                        if (isClear) {
+                          onClear();
+                          return;
+                        }
+
+                        if (isEquals) {
+                          onEvaluate();
+                          return;
+                        }
+
+                        onAppend(key.label);
+                      };
+
+                      return (
+                      <Pressable
+                        key={key.label}
+                        accessibilityRole="button"
+                        onPress={handlePress}
+                        style={({ pressed }) => [
+                          styles.calculatorKey,
+                          isWide ? styles.calculatorKeyWide : null,
+                          isOperator
+                            ? styles.calculatorKeyOperator
+                            : isUtility
+                              ? styles.calculatorKeyUtility
+                              : styles.calculatorKeyNumber,
+                          pressed ? styles.calculatorKeyPressed : null,
+                        ]}
+                        testID={calculatorKeyTestID(testIDPrefix, key)}
+                      >
+                        <Text
+                          style={[
+                            styles.calculatorKeyLabel,
+                            isOperator
+                              ? styles.calculatorKeyLabelDark
+                              : isUtility
+                                ? styles.calculatorKeyLabelDark
+                                : styles.calculatorKeyLabelNumber,
+                            isWide ? styles.calculatorKeyLabelWide : null,
+                          ]}
+                        >
+                          {key.label}
+                        </Text>
+                      </Pressable>
+                      );
+                    })}
+                  </View>
+                ))}
+              </View>
+            </View>
+          </Animated.View>
+        </SafeAreaView>
       </View>
-      {ypPercentText ? (
-        <Text style={[theme.typography.caption, styles.formYpPercentText]}>{ypPercentText}</Text>
-      ) : null}
+    </Modal>
+  );
+}
+
+export function SellIdentityChips({
+  entry,
+  testIDPrefix,
+}: SellIdentityChipsProps) {
+  const tokens = buildSellMetadataTokens(entry);
+
+  if (tokens.length === 0) {
+    return null;
+  }
+
+  return (
+    <View style={styles.metadataChipRow}>
+      {tokens.map((token) => (
+        <SellMetadataChip
+          key={`${token.label}-${token.value}`}
+          testID={`${testIDPrefix}-meta-${token.label.toLowerCase()}`}
+          token={token}
+        />
+      ))}
     </View>
   );
 }
 
 export function SellFormFields({
+  boughtPriceActionLabel,
+  boughtPriceInputRef,
   boughtPriceLabel,
+  boughtPriceEditorErrorMessage,
+  boughtPriceEditorText = '',
+  boughtPriceEditorVisible = false,
+  boughtPriceInputTestID,
+  boughtPriceSaveDisabled = false,
   boughtPriceToggleDisabled = false,
   decrementDisabled = false,
   incrementDisabled = false,
   marketPriceLabel,
-  offerPriceTestID,
-  offerPriceText,
   onBlur,
+  onBoughtPriceChangeText,
+  onBoughtPriceInputFocus,
+  onCancelBoughtPriceEdit,
   onDecrement,
+  onEditBoughtPrice,
   onFocus,
   onIncrement,
-  onOfferPriceChangeText,
+  onSaveBoughtPrice,
   onSoldPriceChangeText,
+  onSoldPriceFocus,
   onToggleBoughtPrice,
-  onYourPriceChangeText,
   quantity,
   revealsBoughtPrice,
   soldPriceErrorMessage,
@@ -390,11 +682,53 @@ export function SellFormFields({
   stepperTestIDs,
   testIDPrefix,
   toggleBoughtPriceTestID,
-  ypPercentText,
-  yourPriceTestID,
-  yourPriceText,
 }: SellFormFieldsProps) {
   const theme = useSpotlightTheme();
+  const [showsCalculator, setShowsCalculator] = useState(false);
+  const [calculatorExpression, setCalculatorExpression] = useState('');
+  const [calculatorErrorMessage, setCalculatorErrorMessage] = useState<string | null>(null);
+  const dismissKeyboard = useCallback(() => {
+    Keyboard.dismiss();
+  }, []);
+  const hasSoldPriceError = Boolean(soldPriceErrorMessage);
+  const evaluatedCalculatorResult = useMemo(() => {
+    const evaluated = evaluateSellCalculatorExpression(normalizeCalculatorExpression(calculatorExpression));
+    return evaluated == null ? null : formatEditableSellPrice(evaluated);
+  }, [calculatorExpression]);
+
+  const openCalculator = useCallback(() => {
+    setCalculatorExpression(soldPriceText.trim().length > 0 ? soldPriceText : '');
+    setCalculatorErrorMessage(null);
+    setShowsCalculator(true);
+  }, [soldPriceText]);
+
+  const closeCalculator = useCallback(() => {
+    setShowsCalculator(false);
+    setCalculatorErrorMessage(null);
+  }, []);
+  const soldPriceDisplayText = soldPriceText.trim().length > 0 ? `$${soldPriceText}` : 'Tap to enter';
+
+  const handleAppendCalculatorSymbol = useCallback((symbol: string) => {
+    setCalculatorErrorMessage(null);
+    setCalculatorExpression((current) => appendCalculatorSymbol(current, symbol));
+  }, []);
+
+  const handleCalculatorClear = useCallback(() => {
+    setCalculatorErrorMessage(null);
+    setCalculatorExpression('');
+  }, []);
+
+  const handleApplyCalculatorResult = useCallback(() => {
+    const evaluated = evaluateSellCalculatorExpression(normalizeCalculatorExpression(calculatorExpression));
+    if (evaluated == null) {
+      setCalculatorErrorMessage('Enter a valid calculation.');
+      return;
+    }
+
+    onSoldPriceChangeText(formatEditableSellPrice(evaluated));
+    setCalculatorErrorMessage(null);
+    setShowsCalculator(false);
+  }, [calculatorExpression, onSoldPriceChangeText]);
 
   return (
     <>
@@ -403,14 +737,20 @@ export function SellFormFields({
           <SellStepperButton
             disabled={decrementDisabled}
             label="−"
-            onPress={onDecrement}
+            onPress={() => {
+              dismissKeyboard();
+              onDecrement();
+            }}
             testID={stepperTestIDs.decrement}
           />
           <Text style={[theme.typography.headline, styles.formStepperValue]}>{quantity}</Text>
           <SellStepperButton
             disabled={incrementDisabled}
             label="+"
-            onPress={onIncrement}
+            onPress={() => {
+              dismissKeyboard();
+              onIncrement();
+            }}
             testID={stepperTestIDs.increment}
           />
         </View>
@@ -418,37 +758,89 @@ export function SellFormFields({
 
       <View style={styles.formDivider} />
 
-      <SellDetailRow label="Market Price">
+      <SellDetailRow label="Market price">
         <Text style={theme.typography.headline}>{marketPriceLabel}</Text>
       </SellDetailRow>
 
       <View style={styles.formDivider} />
 
-      <SellDetailRow label="Bought Price">
+      <SellDetailRow label="Bought price">
         <View style={styles.formBoughtRow}>
           <Text style={theme.typography.headline}>{boughtPriceLabel}</Text>
           <BoughtPriceVisibilityToggle
             disabled={boughtPriceToggleDisabled}
-            onPress={onToggleBoughtPrice}
+            onPress={() => {
+              dismissKeyboard();
+              onToggleBoughtPrice();
+            }}
             revealsValue={revealsBoughtPrice}
             testID={toggleBoughtPriceTestID}
           />
+          {onEditBoughtPrice ? (
+            <Pressable
+              accessibilityLabel={`${boughtPriceActionLabel ?? (boughtPriceLabel === '--' ? 'Add' : 'Edit')} bought price`}
+              accessibilityRole="button"
+              onPress={() => {
+                dismissKeyboard();
+                onEditBoughtPrice();
+              }}
+              style={({ pressed }) => [
+                styles.inlineIconButton,
+                pressed ? styles.inlineIconButtonPressed : null,
+              ]}
+              testID={`${testIDPrefix}-edit-bought-price`}
+            >
+              <IconPencil color="#0F0F12" size={16} strokeWidth={2} />
+            </Pressable>
+          ) : null}
         </View>
       </SellDetailRow>
 
-      <View style={styles.formDivider} />
+      {boughtPriceEditorVisible ? (
+        <View style={styles.formBoughtEditor}>
+          <SellPriceField
+            ref={boughtPriceInputRef}
+            invalid={Boolean(boughtPriceEditorErrorMessage)}
+            onBlur={onBlur}
+            onChangeText={(nextValue) => onBoughtPriceChangeText?.(nextValue)}
+            onFocus={() => { onBoughtPriceInputFocus?.(); onFocus?.(); }}
+            testID={boughtPriceInputTestID}
+            value={boughtPriceEditorText}
+          />
 
-      <SellOfferCalculator
-        offerPriceTestID={offerPriceTestID}
-        offerPriceText={offerPriceText}
-        onBlur={onBlur}
-        onFocus={onFocus}
-        onOfferPriceChangeText={onOfferPriceChangeText}
-        onYourPriceChangeText={onYourPriceChangeText}
-        ypPercentText={ypPercentText}
-        yourPriceTestID={yourPriceTestID}
-        yourPriceText={yourPriceText}
-      />
+          <View style={styles.formBoughtEditorActions}>
+            <Button
+              disabled={boughtPriceSaveDisabled}
+              label="Save"
+              onPress={() => {
+                dismissKeyboard();
+                onSaveBoughtPrice?.();
+              }}
+              size="sm"
+              testID={`${testIDPrefix}-save-bought-price`}
+            />
+            <Button
+              label="Cancel"
+              onPress={() => {
+                dismissKeyboard();
+                onCancelBoughtPriceEdit?.();
+              }}
+              size="sm"
+              testID={`${testIDPrefix}-cancel-bought-price`}
+              variant="secondary"
+            />
+          </View>
+
+          {boughtPriceEditorErrorMessage ? (
+            <Text
+              style={[theme.typography.caption, styles.formSellPriceErrorText, { color: theme.colors.danger }]}
+              testID={`${testIDPrefix}-bought-price-error`}
+            >
+              {boughtPriceEditorErrorMessage}
+            </Text>
+          ) : null}
+        </View>
+      ) : null}
 
       <View style={styles.formDivider} />
 
@@ -456,25 +848,79 @@ export function SellFormFields({
 
       <View style={styles.formDivider} />
 
-      <SellDetailRow label="Sold price*">
-        <View style={styles.formSellPriceTrailing}>
-          <SellPriceField
-            onBlur={onBlur}
-            onChangeText={onSoldPriceChangeText}
-            onFocus={onFocus}
-            testID={soldPriceTestID}
-            value={soldPriceText}
-          />
-          {soldPriceErrorMessage ? (
-            <Text
-              style={[theme.typography.caption, styles.formSellPriceErrorText, { color: theme.colors.danger }]}
-              testID={soldPriceErrorTestID}
+      <View style={styles.formSoldSection}>
+        <SellDetailRow label="Sold price*">
+          <View style={styles.formSoldInputRow}>
+            <Pressable
+              accessibilityLabel={soldPriceText.trim().length > 0 ? `Edit sold price ${soldPriceText}` : 'Enter sold price'}
+              accessibilityRole="button"
+              onPress={() => {
+                dismissKeyboard();
+                onSoldPriceFocus?.();
+                onFocus?.();
+                openCalculator();
+              }}
+              style={({ pressed }) => [
+                styles.formPriceButton,
+                {
+                  borderColor: hasSoldPriceError ? theme.colors.danger : 'rgba(0, 0, 0, 0.08)',
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}
+              testID={soldPriceTestID}
             >
-              {soldPriceErrorMessage}
-            </Text>
-          ) : null}
-        </View>
-      </SellDetailRow>
+              <Text
+                style={[
+                  theme.typography.headline,
+                  styles.formPriceButtonText,
+                  soldPriceText.trim().length === 0 ? styles.formPriceButtonPlaceholder : null,
+                  { color: soldPriceText.trim().length === 0 ? sellPricePlaceholderColor : theme.colors.textPrimary },
+                ]}
+              >
+                {soldPriceDisplayText}
+              </Text>
+            </Pressable>
+            <Pressable
+              accessibilityLabel="Open sold price calculator"
+              accessibilityRole="button"
+              onPress={() => {
+                dismissKeyboard();
+                openCalculator();
+              }}
+              style={({ pressed }) => [
+                styles.inlineIconButton,
+                styles.calculatorButton,
+                pressed ? styles.inlineIconButtonPressed : null,
+              ]}
+              testID={`${testIDPrefix}-toggle-calculator`}
+            >
+              <IconCalculator color="#0F0F12" size={18} strokeWidth={1.95} />
+            </Pressable>
+          </View>
+        </SellDetailRow>
+
+        {hasSoldPriceError ? (
+          <Text
+            style={[theme.typography.caption, styles.formSellPriceErrorText, { color: theme.colors.danger }]}
+            testID={soldPriceErrorTestID}
+          >
+            {soldPriceErrorMessage}
+          </Text>
+        ) : null}
+      </View>
+
+      {showsCalculator ? (
+        <SellInlineCalculator
+          errorMessage={calculatorErrorMessage}
+          expression={calculatorExpression}
+          onAppend={handleAppendCalculatorSymbol}
+          onClear={handleCalculatorClear}
+          onDismiss={closeCalculator}
+          onEvaluate={handleApplyCalculatorResult}
+          resultText={evaluatedCalculatorResult}
+          testIDPrefix={testIDPrefix}
+        />
+      ) : null}
     </>
   );
 }
@@ -484,12 +930,90 @@ export function SellTransactionPhotoCapture({
   testIDPrefix,
 }: SellTransactionPhotoCaptureProps) {
   const theme = useSpotlightTheme();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView | null>(null);
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [isCameraVisible, setIsCameraVisible] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [availableLenses, setAvailableLenses] = useState<string[]>(
+    Platform.OS === 'ios'
+      ? ['builtInWideAngleCamera']
+      : [],
+  );
+
+  const updateAvailableLenses = useCallback((nextLenses?: string[]) => {
+    if (!Array.isArray(nextLenses)) {
+      return;
+    }
+
+    const sanitizedLenses = nextLenses.filter((lens) => typeof lens === 'string' && lens.length > 0);
+    if (sanitizedLenses.length === 0) {
+      return;
+    }
+
+    setAvailableLenses((current) => {
+      if (
+        current.length === sanitizedLenses.length
+        && current.every((lens, index) => lens === sanitizedLenses[index])
+      ) {
+        return current;
+      }
+
+      return sanitizedLenses;
+    });
+  }, []);
+
+  const wideAngleLens = useMemo(() => {
+    if (Platform.OS !== 'ios') {
+      return undefined;
+    }
+
+    const preferredWideLenses = [
+      'builtInWideAngleCamera',
+      'builtInDualWideCamera',
+      'builtInTripleCamera',
+    ];
+
+    return preferredWideLenses.find((lens) => availableLenses.includes(lens));
+  }, [availableLenses]);
+
+  const selectedLens = useMemo(() => {
+    if (Platform.OS !== 'ios') {
+      return undefined;
+    }
+
+    if (wideAngleLens) {
+      return wideAngleLens;
+    }
+
+    return undefined;
+  }, [wideAngleLens]);
+
+  const cameraViewKey = useMemo(() => (
+    `sell-transaction-camera-${selectedLens ?? 'default'}`
+  ), [selectedLens]);
+
+  const cameraHeaderStyle = useMemo(() => (
+    [
+      styles.cameraHeader,
+      {
+        paddingTop: insets.top + 8,
+      },
+    ]
+  ), [insets.top]);
+
+  const handleCameraReady = useCallback(() => {
+    void (async () => {
+      try {
+        const nextLenses = await cameraRef.current?.getAvailableLensesAsync?.();
+        updateAvailableLenses(nextLenses);
+      } catch {
+        // Ignore lens-discovery failures and keep the default camera configuration.
+      }
+    })();
+  }, [updateAvailableLenses]);
 
   const handleOpenCamera = useCallback(async () => {
     setErrorMessage(null);
@@ -546,83 +1070,49 @@ export function SellTransactionPhotoCapture({
       testID={`${testIDPrefix}-transaction-photo`}
     >
       <View style={styles.photoRow}>
-        <Text style={[theme.typography.headline, styles.photoTitle]}>Photo (optional)</Text>
+        <View style={styles.photoCopy}>
+          <Text style={[theme.typography.headline, styles.photoTitle]}>Photo (optional)</Text>
+        </View>
 
-        <Pressable
-          accessibilityRole="button"
-          onPress={() => {
-            void handleOpenCamera();
-          }}
-          style={({ pressed }) => [
-            styles.photoTriggerButton,
-            {
-              opacity: pressed ? 0.76 : 1,
-            },
-          ]}
-          testID={`${testIDPrefix}-photo-trigger`}
-        >
-          {photoUri && !isCameraVisible ? (
+        {photoUri ? (
+          <View style={styles.photoPreviewActions}>
             <Image
               source={{ uri: photoUri }}
               style={styles.photoThumbnail}
               testID={`${testIDPrefix}-photo-thumbnail`}
             />
-          ) : (
+            <Button
+              label="Retake"
+              onPress={() => {
+                void handleOpenCamera();
+              }}
+              size="sm"
+              testID={`${testIDPrefix}-retake-photo`}
+              variant="secondary"
+            />
+          </View>
+        ) : (
+          <Pressable
+            accessibilityRole="button"
+            onPress={() => {
+              void handleOpenCamera();
+            }}
+            style={({ pressed }) => [
+              styles.photoTriggerButton,
+              {
+                backgroundColor: 'rgba(255, 255, 255, 0.94)',
+                borderColor: 'rgba(0, 0, 0, 0.08)',
+                opacity: pressed ? 0.76 : 1,
+              },
+            ]}
+            testID={`${testIDPrefix}-photo-trigger`}
+          >
             <View testID={`${testIDPrefix}-photo-camera-icon`}>
               <CameraIcon />
             </View>
-          )}
-        </Pressable>
+          </Pressable>
+        )}
       </View>
-
-      {isCameraVisible ? (
-        <>
-          <View style={styles.cameraShell}>
-            <CameraView ref={cameraRef} style={styles.cameraView} testID={`${testIDPrefix}-camera`} />
-          </View>
-
-          <View style={styles.photoActions}>
-            <Pressable
-              accessibilityRole="button"
-              disabled={isCapturing}
-              onPress={() => {
-                void handleCapture();
-              }}
-              style={({ pressed }) => [
-                styles.photoPrimaryButton,
-                {
-                  backgroundColor: '#0F0F12',
-                  opacity: pressed || isCapturing ? 0.9 : 1,
-                },
-              ]}
-              testID={`${testIDPrefix}-capture-photo`}
-            >
-              {isCapturing ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <Text style={[theme.typography.control, styles.photoPrimaryButtonText]}>Capture photo</Text>
-              )}
-            </Pressable>
-
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setErrorMessage(null);
-                setIsCameraVisible(false);
-              }}
-              style={({ pressed }) => [
-                styles.photoSecondaryButton,
-                {
-                  opacity: pressed ? 0.72 : 1,
-                },
-              ]}
-              testID={`${testIDPrefix}-cancel-photo`}
-            >
-              <Text style={[theme.typography.control, styles.photoSecondaryButtonText]}>Cancel</Text>
-            </Pressable>
-          </View>
-        </>
-      ) : null}
 
       {errorMessage ? (
         <Text
@@ -632,6 +1122,58 @@ export function SellTransactionPhotoCapture({
           {errorMessage}
         </Text>
       ) : null}
+
+      <Modal
+        animationType="slide"
+        presentationStyle="fullScreen"
+        visible={isCameraVisible}
+      >
+        <SafeAreaView
+          edges={['bottom', 'left', 'right']}
+          style={styles.cameraModal}
+          testID={`${testIDPrefix}-camera-modal`}
+        >
+          <View style={cameraHeaderStyle} testID={`${testIDPrefix}-camera-header`}>
+            <Button
+              label="Cancel"
+              onPress={() => {
+                setErrorMessage(null);
+                setIsCameraVisible(false);
+              }}
+              size="sm"
+              testID={`${testIDPrefix}-cancel-photo`}
+              variant="secondary"
+            />
+            <View style={styles.cameraHeaderSpacer} />
+          </View>
+
+          <View style={styles.cameraFullscreenShell}>
+            <CameraView
+              key={cameraViewKey}
+              ref={cameraRef}
+              onAvailableLensesChanged={(event) => {
+                updateAvailableLenses(event?.lenses);
+              }}
+              onCameraReady={handleCameraReady}
+              selectedLens={selectedLens}
+              style={styles.cameraFullscreenView}
+              testID={`${testIDPrefix}-camera`}
+              zoom={0}
+            />
+          </View>
+
+          <View style={styles.cameraFooter}>
+            <Button
+              label={isCapturing ? 'Capturing...' : 'Capture photo'}
+              onPress={() => {
+                void handleCapture();
+              }}
+              style={styles.cameraCaptureButton}
+              testID={`${testIDPrefix}-capture-photo`}
+            />
+          </View>
+        </SafeAreaView>
+      </Modal>
     </View>
   );
 }
@@ -694,6 +1236,7 @@ export function BoughtPriceVisibilityToggle({
   );
 }
 
+
 const styles = StyleSheet.create({
   backdropBase: {
     ...StyleSheet.absoluteFillObject,
@@ -707,10 +1250,187 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
     overflow: 'hidden',
   },
+  calculatorButton: {
+    minHeight: 48,
+    minWidth: 48,
+    paddingHorizontal: 0,
+    width: 48,
+  },
+  calculatorBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(15, 15, 18, 0.34)',
+    justifyContent: 'flex-end',
+  },
+  calculatorCloseButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 15, 18, 0.06)',
+    borderRadius: 999,
+    justifyContent: 'center',
+    minHeight: 30,
+    paddingHorizontal: 12,
+  },
+  calculatorCloseButtonPressed: {
+    opacity: 0.82,
+  },
+  calculatorCloseLabel: {
+    color: 'rgba(15, 15, 18, 0.62)',
+  },
+  calculatorDisplay: {
+    alignItems: 'flex-end',
+    backgroundColor: 'rgba(15, 15, 18, 0.04)',
+    borderRadius: 24,
+    gap: 8,
+    minHeight: 118,
+    justifyContent: 'flex-end',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+  },
+  calculatorExpression: {
+    color: '#0F0F12',
+    fontSize: 46,
+    fontWeight: '400',
+    lineHeight: 50,
+    textAlign: 'right',
+  },
+  calculatorHandle: {
+    backgroundColor: 'rgba(15, 15, 18, 0.18)',
+    borderRadius: 999,
+    height: 5,
+    width: 44,
+  },
+  calculatorHandleWrap: {
+    alignItems: 'center',
+    paddingBottom: 4,
+    paddingTop: 2,
+    width: '100%',
+  },
+  calculatorDragZone: {
+    paddingBottom: 2,
+    paddingHorizontal: 20,
+    paddingTop: 10,
+    width: '100%',
+  },
+  calculatorGrid: {
+    gap: 12,
+  },
+  calculatorHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  calculatorKey: {
+    alignItems: 'center',
+    borderRadius: 38,
+    flex: 1,
+    justifyContent: 'center',
+    minHeight: 76,
+  },
+  calculatorKeyLabel: {
+    fontSize: 31,
+    fontWeight: '400',
+    lineHeight: 34,
+  },
+  calculatorKeyLabelNumber: {
+    color: '#0F0F12',
+  },
+  calculatorKeyLabelDark: {
+    color: '#0F0F12',
+  },
+  calculatorKeyLabelWide: {
+    paddingLeft: 8,
+  },
+  calculatorKeyPressed: {
+    opacity: 0.82,
+  },
+  calculatorKeyNumber: {
+    backgroundColor: 'rgba(15, 15, 18, 0.06)',
+  },
+  calculatorKeyOperator: {
+    backgroundColor: '#FFE24B',
+  },
+  calculatorKeyUtility: {
+    backgroundColor: 'rgba(15, 15, 18, 0.14)',
+  },
+  calculatorKeyWide: {
+    alignItems: 'flex-start',
+    flex: 2.1,
+    paddingLeft: 28,
+  },
+  calculatorResult: {
+    color: 'rgba(15, 15, 18, 0.56)',
+    fontSize: 17,
+    lineHeight: 22,
+    textAlign: 'right',
+  },
+  calculatorRow: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  calculatorSheet: {
+    backgroundColor: '#FFFDF9',
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    overflow: 'hidden',
+    width: '100%',
+  },
+  calculatorSheetBody: {
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingTop: 2,
+  },
+  calculatorSheetSafeArea: {
+    justifyContent: 'flex-end',
+    width: '100%',
+  },
+  calculatorTitle: {
+    color: '#0F0F12',
+  },
+  cameraCaptureButton: {
+    width: '100%',
+  },
+  cameraFooter: {
+    gap: 18,
+    paddingBottom: 20,
+    paddingHorizontal: 20,
+    paddingTop: 18,
+  },
+  cameraFullscreenShell: {
+    flex: 1,
+    overflow: 'hidden',
+  },
+  cameraFullscreenView: {
+    flex: 1,
+  },
+  cameraHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+  },
+  cameraHeaderSpacer: {
+    width: 72,
+  },
+  cameraModal: {
+    backgroundColor: '#050507',
+    flex: 1,
+  },
+  formBoughtEditor: {
+    alignItems: 'flex-end',
+    gap: 10,
+    paddingBottom: 12,
+  },
+  formBoughtEditorActions: {
+    flexDirection: 'row',
+    gap: 10,
+  },
   formBoughtRow: {
     alignItems: 'center',
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
+    justifyContent: 'flex-end',
   },
   formDetailLabel: {
     color: '#0F0F12',
@@ -734,23 +1454,24 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   formOfferFields: {
-    alignItems: 'center',
     flexDirection: 'row',
     gap: 10,
   },
   formOfferLabel: {
-    color: '#0F0F12',
-  },
-  formOfferSection: {
-    gap: 10,
-    paddingVertical: 12,
+    color: 'rgba(15, 15, 18, 0.56)',
   },
   formOfferSlash: {
     color: 'rgba(15, 15, 18, 0.44)',
     marginTop: 16,
   },
+  formOfferSection: {
+    gap: 10,
+    paddingTop: 8,
+  },
   formOfferTitle: {
-    color: 'rgba(15, 15, 18, 0.9)',
+    color: 'rgba(15, 15, 18, 0.62)',
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
   },
   formPriceField: {
     backgroundColor: 'rgba(255, 255, 255, 0.98)',
@@ -761,13 +1482,46 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     textAlign: 'center',
   },
-  formSellPriceErrorText: {
-    maxWidth: 220,
+  formPriceButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    borderRadius: 24,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 48,
+    minWidth: 148,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  formPriceButtonPlaceholder: {
+    fontWeight: '500',
+  },
+  formPriceButtonText: {
+    textAlign: 'center',
+  },
+  formSellPriceHelperText: {
+    color: 'rgba(15, 15, 18, 0.48)',
+    maxWidth: 260,
     textAlign: 'right',
   },
-  formSellPriceTrailing: {
+  formSellPriceErrorText: {
+    maxWidth: 260,
+    textAlign: 'right',
+  },
+  formSoldHeader: {
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  formSoldInputRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'flex-end',
+  },
+  formSoldSection: {
     alignItems: 'flex-end',
-    gap: 6,
+    gap: 10,
+    paddingVertical: 12,
   },
   formStepperButton: {
     alignItems: 'center',
@@ -796,54 +1550,63 @@ const styles = StyleSheet.create({
     color: 'rgba(15, 15, 18, 0.48)',
     textAlign: 'right',
   },
-  cameraShell: {
-    borderColor: 'rgba(15, 15, 18, 0.08)',
-    borderRadius: 24,
-    borderWidth: 1,
-    height: 212,
-    overflow: 'hidden',
+  inlineIconButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(15, 15, 18, 0.06)',
+    borderRadius: 999,
+    justifyContent: 'center',
+    minHeight: 32,
+    minWidth: 32,
+    padding: 8,
   },
-  cameraView: {
-    flex: 1,
+  inlineIconButtonPressed: {
+    opacity: 0.76,
   },
   materialWash: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(255, 252, 248, 0.38)',
   },
-  photoActions: {
+  metadataChip: {
+    alignItems: 'flex-start',
+    borderRadius: 999,
+    borderWidth: 1,
     flexDirection: 'row',
-    gap: 12,
+    gap: 8,
+    maxWidth: '100%',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  metadataChipLabel: {
+    color: 'rgba(15, 15, 18, 0.54)',
+    letterSpacing: 0.6,
+    textTransform: 'uppercase',
+  },
+  metadataChipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  metadataChipValue: {
+    color: '#0F0F12',
+    flexShrink: 1,
+  },
+  photoCopy: {
+    flex: 1,
+    gap: 4,
   },
   photoErrorText: {
     lineHeight: 20,
   },
+  photoPreviewActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
   photoRow: {
     alignItems: 'center',
     flexDirection: 'row',
+    gap: 12,
     justifyContent: 'space-between',
-  },
-  photoPrimaryButton: {
-    alignItems: 'center',
-    borderRadius: 18,
-    justifyContent: 'center',
-    minHeight: 44,
-    minWidth: 128,
-    paddingHorizontal: 16,
-  },
-  photoPrimaryButtonText: {
-    color: '#FFFFFF',
-  },
-  photoSecondaryButton: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(15, 15, 18, 0.06)',
-    borderRadius: 18,
-    justifyContent: 'center',
-    minHeight: 44,
-    minWidth: 96,
-    paddingHorizontal: 16,
-  },
-  photoSecondaryButtonText: {
-    color: '#0F0F12',
   },
   photoSection: {
     gap: 12,
@@ -853,14 +1616,26 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 4,
   },
-  photoTitle: {
-    color: '#0F0F12',
+  photoSubtitle: {
+    color: 'rgba(15, 15, 18, 0.52)',
   },
   photoThumbnail: {
     borderRadius: 13,
     height: 42,
     resizeMode: 'cover',
     width: 42,
+  },
+  photoTitle: {
+    color: '#0F0F12',
+  },
+  photoTriggerButton: {
+    alignItems: 'center',
+    borderRadius: 14,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    overflow: 'hidden',
+    width: 44,
   },
   statusOverlay: {
     alignItems: 'center',
@@ -904,13 +1679,54 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 10,
   },
-  photoTriggerButton: {
+  swipeChevron: {
+    color: 'rgba(15, 15, 18, 0.7)',
+    fontSize: 13,
+    fontWeight: '700',
+    lineHeight: 13,
+  },
+  swipeChevronDisabled: {
+    color: 'rgba(15, 15, 18, 0.36)',
+  },
+  confirmationPrompt: {
     alignItems: 'center',
-    borderRadius: 14,
-    height: 44,
+    borderTopColor: 'rgba(0, 0, 0, 0.05)',
+    borderTopWidth: 1,
+    gap: 8,
     justifyContent: 'center',
+    minHeight: 56,
+    paddingTop: 4,
+    width: '100%',
+  },
+  swipeSheet: {
+    borderTopLeftRadius: 32,
+    borderTopRightRadius: 32,
     overflow: 'hidden',
-    width: 44,
+    minHeight: 76,
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    position: 'relative',
+    width: '100%',
+  },
+  swipeSheetHelper: {
+    color: 'rgba(15, 15, 18, 0.62)',
+    maxWidth: 280,
+    textAlign: 'center',
+  },
+  swipeRailHelperDisabled: {
+    color: 'rgba(15, 15, 18, 0.44)',
+  },
+  swipeRailTitle: {
+    color: 'rgba(15, 15, 18, 0.88)',
+    fontSize: 16,
+    lineHeight: 22,
+    textAlign: 'center',
+  },
+  swipeRailTitleDisabled: {
+    color: 'rgba(15, 15, 18, 0.56)',
+  },
+  swipeSheetWrap: {
+    paddingTop: 0,
   },
   visibilityButton: {
     alignItems: 'center',

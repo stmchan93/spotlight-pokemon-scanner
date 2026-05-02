@@ -244,6 +244,11 @@ File: `src/components/floating-bottom-nav.tsx`
 
 Use for shared bottom navigation chrome.
 
+Current behavior:
+
+- default surface uses a frosted/glass capsule shell with a soft selected segment treatment
+- scanner surface keeps the tighter, darker scanner-specific treatment
+
 ## Design-System Editing Rules
 
 - Prefer editing tokens or shared primitives before patching individual screens.

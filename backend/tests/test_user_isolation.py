@@ -14,7 +14,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from catalog_tools import apply_schema, connect, upsert_card  # noqa: E402
-from request_auth import RequestIdentity  # noqa: E402
+from request_auth import RequestAuthError, RequestIdentity  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
 
 
@@ -112,7 +112,7 @@ class UserIsolationTests(unittest.TestCase):
         self.assertEqual([entry["id"] for entry in user_a_entries], [first["deckEntryID"]])
         self.assertEqual([entry["id"] for entry in user_b_entries], [second["deckEntryID"]])
 
-    def test_local_service_prefers_legacy_owner_for_fallback_identity(self) -> None:
+    def test_local_service_ignores_legacy_owner_for_runtime_fallback_identity(self) -> None:
         with patch.dict(
             os.environ,
             {
@@ -125,12 +125,27 @@ class UserIsolationTests(unittest.TestCase):
             try:
                 service = SpotlightScanService(self.database_path, REPO_ROOT)
                 self.addCleanup(service.connection.close)
-                self.assertEqual(service.authenticator.fallback_user_id, "legacy-owner")
+                self.assertEqual(service.authenticator.fallback_user_id, "local-dev-user")
             finally:
                 if previous_fallback is not None:
                     os.environ["SPOTLIGHT_AUTH_FALLBACK_USER_ID"] = previous_fallback
                 if previous_auth_required is not None:
                     os.environ["SPOTLIGHT_AUTH_REQUIRED"] = previous_auth_required
+
+    def test_auth_required_service_does_not_use_configured_fallback_identity(self) -> None:
+        with patch.dict(
+            os.environ,
+            {
+                "SPOTLIGHT_AUTH_REQUIRED": "1",
+                "SPOTLIGHT_AUTH_FALLBACK_USER_ID": "fallback-user",
+            },
+            clear=False,
+        ):
+            service = SpotlightScanService(self.database_path, REPO_ROOT)
+            self.addCleanup(service.connection.close)
+
+        with self.assertRaises(RequestAuthError):
+            service._current_request_identity()  # noqa: SLF001
 
     def test_cross_user_scan_ids_cannot_create_deck_entries_or_store_artifacts(self) -> None:
         self._insert_card(card_id="gym1-60", name="Sabrina's Slowbro")

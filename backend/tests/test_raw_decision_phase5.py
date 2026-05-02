@@ -1200,20 +1200,28 @@ class RawDecisionPhase5Tests(unittest.TestCase):
 
     def test_health_can_prewarm_visual_runtime(self) -> None:
         class FakeVisualMatcher:
-            def prewarm(self):
+            def __init__(self) -> None:
+                self.run_inference = None
+
+            def prewarm(self, *, run_inference: bool = False):
+                self.run_inference = run_inference
                 return {
                     "available": True,
                     "prewarmed": True,
-                    "timings": {"indexLoadMs": 1.0, "runtimeLoadMs": 2.0, "totalMs": 3.0},
+                    "inferencePrewarmed": run_inference,
+                    "timings": {"indexLoadMs": 1.0, "runtimeLoadMs": 2.0, "inferenceMs": 4.0, "totalMs": 7.0},
                 }
 
-        self.service._raw_visual_matcher = FakeVisualMatcher()
+        matcher = FakeVisualMatcher()
+        self.service._raw_visual_matcher = matcher
 
         payload = self.service.health(prewarm_visual=True)
 
         self.assertEqual(payload["status"], "ok")
         self.assertTrue(payload["visualRuntime"]["requested"])
         self.assertTrue(payload["visualRuntime"]["prewarmed"])
+        self.assertTrue(payload["visualRuntime"]["inferencePrewarmed"])
+        self.assertTrue(matcher.run_inference)
 
 
 if __name__ == "__main__":

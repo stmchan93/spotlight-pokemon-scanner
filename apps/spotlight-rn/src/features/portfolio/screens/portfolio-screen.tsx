@@ -60,9 +60,9 @@ export function PortfolioScreen({
       >
         <View style={styles.header}>
           <View style={[styles.headerCopy, { gap: theme.layout.titleBodyGap }]}>
-            <Text style={theme.typography.display}>Portfolio</Text>
+            <Text style={theme.typography.display}>Collection</Text>
             <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-              Track value, inventory, and latest transactions in one place.
+              Track value, favorites, and your latest transactions in one place.
             </Text>
           </View>
 

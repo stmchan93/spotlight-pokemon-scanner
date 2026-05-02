@@ -44,7 +44,7 @@ import {
 } from './portfolio-formatting';
 
 const chartModeItems = [
-  { label: 'Portfolio', value: 'portfolio' },
+  { label: 'Collection', value: 'portfolio' },
   { label: 'Sales', value: 'sales' },
 ] as const;
 

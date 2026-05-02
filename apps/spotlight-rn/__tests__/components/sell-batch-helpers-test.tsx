@@ -48,8 +48,6 @@ describe('sell batch helpers', () => {
 
     lines[entries[0]!.id] = {
       ...lines[entries[0]!.id]!,
-      offerPriceText: '0.45',
-      yourPriceText: '0.51',
       soldPriceText: '7.5',
       quantity: 1,
     };
@@ -59,7 +57,6 @@ describe('sell batch helpers', () => {
     };
 
     const metrics = getBulkSellLineMetrics(entries[0]!, lines[entries[0]!.id]);
-    expect(metrics.ypPercentText).toBe('88.23% YP');
     expect(metrics.draftTotal).toBe(7.5);
 
     const summary = summarizeBulkSellSelection(entries, lines);

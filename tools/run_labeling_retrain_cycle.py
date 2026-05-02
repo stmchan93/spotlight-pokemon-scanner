@@ -17,6 +17,8 @@ from typing import Any, Mapping
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_ROOT = REPO_ROOT / "tools"
 BACKEND_ROOT = REPO_ROOT / "backend"
+if not (BACKEND_ROOT / "scan_artifact_store.py").exists():
+    BACKEND_ROOT = REPO_ROOT
 if str(TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLS_ROOT))
 if str(BACKEND_ROOT) not in sys.path:
@@ -42,7 +44,7 @@ from scan_artifact_store import (  # noqa: E402
 LEGACY_FIXTURE_ROOT = REPO_ROOT / "qa" / "raw-footer-layout-check"
 VISUAL_REQUIREMENTS_PATH = REPO_ROOT / "tools" / "requirements_raw_visual_poc.txt"
 VISUAL_VENV_PATH = REPO_ROOT / ".venv-raw-visual-poc"
-ACTIVE_RUNTIME_METADATA_PATH = REPO_ROOT / "backend" / "data" / "visual-models" / "raw_visual_runtime_active.json"
+ACTIVE_RUNTIME_METADATA_PATH = BACKEND_ROOT / "data" / "visual-models" / "raw_visual_runtime_active.json"
 
 
 def utc_now_iso() -> str:
@@ -105,14 +107,14 @@ class CompletedSession:
 
 
 def default_database_path() -> Path:
-    return REPO_ROOT / "backend" / "data" / "spotlight_scanner.sqlite"
+    return BACKEND_ROOT / "data" / "spotlight_scanner.sqlite"
 
 
 def default_artifact_root() -> Path:
     configured = os.environ.get(SCAN_ARTIFACTS_ROOT_ENV)
     if configured:
         return Path(configured).expanduser()
-    return REPO_ROOT / "backend" / "data" / "scan-artifacts"
+    return BACKEND_ROOT / "data" / "scan-artifacts"
 
 
 def default_ops_root(training_root: Path) -> Path:
@@ -588,7 +590,7 @@ def main() -> int:
 
     visual_python = ensure_visual_python()
     env = os.environ.copy()
-    env.update(load_env_file(REPO_ROOT / "backend" / ".env"))
+    env.update(load_env_file(BACKEND_ROOT / ".env"))
 
     hard_negatives_path = default_raw_visual_train_hard_negatives_path().expanduser().resolve()
     manifest_path = default_raw_visual_train_manifest_path().expanduser().resolve()
@@ -628,8 +630,8 @@ def main() -> int:
     eval_root = run_root / "eval"
     eval_root.mkdir(parents=True, exist_ok=True)
 
-    active_adapter_path = REPO_ROOT / "backend" / "data" / "visual-models" / "raw_visual_adapter_active.pt"
-    candidate_adapter_path = REPO_ROOT / "backend" / "data" / "visual-models" / f"raw_visual_adapter_{candidate_artifact_version}.pt"
+    active_adapter_path = BACKEND_ROOT / "data" / "visual-models" / "raw_visual_adapter_active.pt"
+    candidate_adapter_path = BACKEND_ROOT / "data" / "visual-models" / f"raw_visual_adapter_{candidate_artifact_version}.pt"
     batch_holdout_root = expansion_holdout_root / args.batch_id
     expansion_eval_root = batch_holdout_root if expansion_row_count > 0 and batch_holdout_root.exists() else expansion_holdout_root
 

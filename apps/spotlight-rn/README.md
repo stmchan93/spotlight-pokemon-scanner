@@ -18,6 +18,40 @@ React Native mobile shell for the Spotlight/Looty product.
 - Scan artifact uploads and deck/portfolio mutations are user-scoped on the backend; staging/production should run with `SPOTLIGHT_AUTH_REQUIRED=1`.
 - Slab scan parity is still incomplete in React Native and remains behind the native iOS path.
 
+## Claude design workflow
+
+For design-system or screen-polish work with Claude:
+
+1. Generate the repo handoff bundle:
+
+```bash
+pnpm claude:design:bundle
+```
+
+2. Start the RN design catalog:
+
+```bash
+pnpm mobile:visual:design
+```
+
+3. Open the design-system route:
+
+- deep link: `spotlight://design-system`
+- Expo route path: `/design-system`
+
+4. Give Claude:
+
+- `tmp/claude-design/claude-design-bundle.md`
+- `5-8` screenshots max
+- one exact task at a time
+
+The design-system source of truth remains:
+
+- `packages/design-system/src/tokens.ts`
+- `packages/design-system/src/theme.tsx`
+- `packages/design-system/src/components/*.tsx`
+- `packages/design-system/README.md`
+
 ## Fastest iPhone workflow
 
 From the repo root:
@@ -135,22 +169,21 @@ The repo now includes env-split Expo release scaffolding:
 
 ### Environment files
 
-Copy the examples and fill in real values:
+Copy the examples you actually want to use locally:
 
 ```bash
 cp apps/spotlight-rn/.env.development.example apps/spotlight-rn/.env.development
-cp apps/spotlight-rn/.env.staging.example apps/spotlight-rn/.env.staging
 cp apps/spotlight-rn/.env.production.example apps/spotlight-rn/.env.production
 ```
 
-Do not keep development identical to staging/production.
+Current recommended split:
 
-- `.env.development` should point at your local backend by default, usually `http://127.0.0.1:8788`
-- `.env.staging` should point at your hosted staging backend
-- `.env.production` should point at your hosted production backend
+- `.env.development` is optional local fallback for development-only mobile builds
+- staging mobile scripts resolve from `eas.json` plus Expo `preview` environment variables, so a handwritten `apps/spotlight-rn/.env.staging` is not required
+- `.env.production` should point at your hosted production backend if you use the local production wrappers
 - third-party services like Supabase can stay shared if you only have one project right now
 
-Minimum values you need in each file:
+Minimum values you need in local mobile env files:
 
 ```bash
 EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL=https://your-public-backend-url
@@ -174,6 +207,67 @@ EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL=your-scheme://login-callback
 EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME=your-scheme
 ```
 
+### Observability
+
+The app currently ships `PostHog` only for product analytics:
+
+- manual screen views
+- a small set of explicit product events
+- no touch autocapture
+- no session replay
+- no surveys
+- no feature flags or experiments preload
+
+Expected env values:
+
+```bash
+EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY=<project-api-key>
+EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST=https://us.i.posthog.com
+EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED=0|1
+```
+
+Recommended defaults:
+
+- `.env.development`: `EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED=0`
+- staging: set PostHog in Expo `preview`
+- `.env.production`: enable PostHog only after the API key is set if you want it for production too
+
+Privacy expectations for this repo:
+
+- do not send scanner base64 payloads, normalized targets, source captures, raw OCR text, auth tokens, local file URIs, card IDs, card names, or prices to PostHog
+- rely on the shared scrubbing layer for defensive redaction, but treat event payload design as the first line of defense
+
+Cost control is configured outside the repo:
+
+- in PostHog, enable product analytics only for phase 1 and set a spend cap before turning on staging/production traffic
+
+The release helper also enforces the observability env contract when you opt in:
+
+- if `EXPO_PUBLIC_SPOTLIGHT_POSTHOG_ENABLED=1`, builds fail fast unless `EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY` is present
+
+### PostHog MCP
+
+The repo-level [.mcp.json](/Users/stephenchan/Code/spotlight/.mcp.json) now includes a generic PostHog MCP server entry with no credentials and no pinned organization/project context:
+
+- `https://mcp.posthog.com/mcp`
+
+This is safe to keep checked in because it does not include an API key, org ID, or project ID. First-use authentication still stays local to your MCP client.
+
+If your MCP client needs a manual config, the equivalent entry is:
+
+```json
+{
+  "mcpServers": {
+    "posthog": {
+      "type": "http",
+      "url": "https://mcp.posthog.com/mcp"
+    }
+  }
+}
+```
+
+If your MCP client does not support OAuth, use a PostHog personal API key created with the MCP Server preset and add it as an `Authorization: Bearer ...` header in your local config. Keep pinned org/project headers local as well if you want to restrict the MCP context.
+
 ### Build commands
 
 From the repo root:
@@ -191,15 +285,19 @@ pnpm mobile:submit:ios
 What they do:
 
 - `mobile:build:ios:development` builds an internal dev-client build using `.env.development`, which should be local-backend-oriented
-- `mobile:build:ios:staging` builds a store-signed staging build using `.env.staging`
+- `mobile:build:ios:staging` builds a store-signed staging build using `eas.json` plus Expo `preview` env
 - `mobile:build:ios:production` builds the TestFlight/App Store binary using `.env.production`
 - `mobile:release:ios:staging` does a one-shot staging `build + auto-submit` to TestFlight
 - `mobile:release:ios:production` does a one-shot production `build + auto-submit` to TestFlight
 - `mobile:submit:ios:staging` uploads the staging build to App Store Connect / TestFlight
 - `mobile:submit:ios` uploads the production build to App Store Connect / TestFlight
 
-The helper script [tools/run_mobile_eas.sh](/Users/stephenchan/Code/spotlight/tools/run_mobile_eas.sh:1) automatically loads the matching env file and sets `SPOTLIGHT_APP_ENV` before invoking EAS CLI.
-It also fails fast if the env file still contains placeholder values like `example.com` or `com.yourcompany.*`.
+The helper script [tools/run_mobile_eas.sh](/Users/stephenchan/Code/spotlight/tools/run_mobile_eas.sh:1) resolves mobile config before invoking EAS CLI:
+
+- staging uses `eas.json` static profile env plus Expo `preview` variables
+- development/production still respect local `apps/spotlight-rn/.env.<environment>` files when present
+
+It also fails fast if the resolved config still contains placeholder values like `example.com` or `com.yourcompany.*`.
 For staging/production iOS builds and submissions, it now also auto-generates:
 
 - a short EAS build message
@@ -247,6 +345,148 @@ That preflight checks:
 - mobile release env values used by `run_mobile_eas.sh`
 
 The TestFlight workflow uses the same release-note generator for previews/build messages. Passing generated TestFlight text into EAS via `--what-to-test` is opt-in with `SPOTLIGHT_EAS_TESTFLIGHT_CHANGELOG_ENABLED=1` because EAS changelog submission requires an Expo Enterprise plan.
+
+For a higher-trust staging release gate, use:
+
+```bash
+pnpm release:gate:staging
+pnpm release:gate:staging:build
+pnpm release:gate:staging:release
+```
+
+Those commands run one wrapper, [tools/run_release_gate.py](/Users/stephenchan/Code/spotlight/tools/run_release_gate.py:1), which can:
+
+- run `pnpm release:check`
+- run `pnpm release:audit:staging`
+- deploy the staging backend VM
+- authenticate as a dedicated smoke user
+- verify staging health, auth, inventory, portfolio, catalog search, manual add, and scan-add flows
+- optionally kick off the iOS staging EAS build or full TestFlight release
+
+Required CI/local secrets for the smoke gate:
+
+- `SPOTLIGHT_STAGING_SMOKE_EMAIL`
+- `SPOTLIGHT_STAGING_SMOKE_PASSWORD`
+
+Optional overrides:
+
+- `SPOTLIGHT_STAGING_SMOKE_BEARER_TOKEN`
+- `SPOTLIGHT_STAGING_SMOKE_CARD_QUERY`
+
+Use a dedicated smoke-test account only. The smoke gate intentionally performs real add-card mutations so it can catch inventory/scan regressions before a release.
+
+The normal staging shortcuts now route through that gate too:
+
+```bash
+pnpm deploy:staging
+pnpm mobile:build:ios:staging
+pnpm mobile:release:ios:staging
+```
+
+If you need the low-level Expo wrapper directly for debugging, use [tools/run_mobile_eas.sh](/Users/stephenchan/Code/spotlight/tools/run_mobile_eas.sh:1) instead of the package shortcut.
+
+### iOS staging simulator smoke
+
+There is now a dedicated Maestro staging smoke suite under:
+
+- `apps/spotlight-rn/.maestro/staging-smoke.yml`
+- `.github/workflows/ios-staging-smoke.yml`
+
+Use it locally with:
+
+```bash
+pnpm mobile:smoke:staging:maestro
+```
+
+Optional scanner-fixture smoke:
+
+```bash
+pnpm mobile:smoke:staging:maestro:scan-fixture
+```
+
+The suite is split into dedicated flows for:
+
+- auth restore + portfolio
+- scan shell
+- catalog add-to-collection
+- sales history
+- single sell
+- bulk sell
+
+Important current assumptions:
+
+- The signed-in suite assumes the simulator already has a valid staging session, or that CI/local opens a smoke auth bootstrap deep link before Maestro starts.
+- The scanner fixture suite now uses the staging-only `scanner-smoke-fixture-trigger` button, which is exposed only when `EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED=1` and the app is running as staging or a dev build.
+- The inventory and bulk-sell Maestro flows are designed to target stable smoke selectors from the RN source layer rather than runtime row IDs.
+
+Required staging environment variables for the Maestro smoke lane:
+
+- `SPOTLIGHT_MAESTRO_CATALOG_QUERY`
+- `SPOTLIGHT_MAESTRO_CATALOG_RESULT_ID`
+- `SPOTLIGHT_MAESTRO_SINGLE_SELL_ENTRY_ID`
+- `SPOTLIGHT_MAESTRO_SINGLE_SELL_PRICE`
+- `SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_ONE`
+- `SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_TWO`
+- `SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_ONE`
+- `SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_TWO`
+- `SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_ONE`
+- `SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_TWO`
+
+Optional staging smoke variables:
+
+- `SPOTLIGHT_MAESTRO_IOS_SIMULATOR_DEVICE`
+- `SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK`
+
+Recommended selector contract for the RN source layer:
+
+- raw inventory rows: `inventory-entry-smoke-raw-${cardId}`
+- graded inventory rows: `inventory-entry-smoke-graded-${cardId}-${grader}-${grade}-${cert}`
+- catalog results: `catalog-result-smoke-${cardId}`
+- bulk sell rows / fields should expose matching `*-smoke-*` IDs instead of runtime `entry.id` IDs
+
+The GitHub workflow `ios-staging-smoke.yml` runs on `macos-latest`, boots an iOS simulator, launches the staging app, optionally opens the auth bootstrap link, then runs the signed-in Maestro suite. Use that workflow as the staging UI smoke gate before TestFlight release.
+
+### Local one-command staging prerelease
+
+For local release prep, the repo now supports one-command staging smoke from an ignored repo-root file:
+
+- `.env.staging.smoke.local`
+- `.env.staging.smoke.local.example`
+
+With that file in place, use:
+
+```bash
+pnpm prerelease
+```
+
+That command now runs:
+
+- `release:check`
+- `release:audit:staging`
+- hosted staging backend smoke via `tools/run_release_gate.py --skip-deploy`
+- iOS simulator build/launch
+- automatic Supabase smoke-session bootstrap into the simulator
+- Maestro staging smoke
+- Maestro scanner-fixture smoke
+
+And for the full staging TestFlight path:
+
+```bash
+pnpm prerelease
+pnpm mobile:build:ios:staging
+pnpm mobile:release:ios:staging
+```
+
+Recommended split:
+
+- `pnpm prerelease`
+  - local staging prerelease gate only
+- `pnpm mobile:build:ios:staging`
+  - deploy staging backend + kick off the EAS staging build without rerunning local prerelease
+- `pnpm mobile:release:ios:staging`
+  - deploy staging backend + kick off the EAS staging release/TestFlight path without rerunning local prerelease
+
+That keeps the smoke gate explicit so you can choose when to run it.
 
 ### GitHub setup needed
 
@@ -298,7 +538,7 @@ That launcher keeps `.env.development` local-first while overriding Expo at runt
    `pnpm dlx eas-cli login`
 3. Create or link the Expo project from `apps/spotlight-rn`:
    `cd apps/spotlight-rn && pnpm dlx eas-cli project:init`
-4. Put the returned project ID into `SPOTLIGHT_EAS_PROJECT_ID` in all three env files.
+4. Put the returned project ID into the local mobile env files you actually use and keep the same ID in `eas.json`.
 5. Create the App Store Connect app for your chosen iOS bundle identifier.
 6. From the repo root, run:
    `pnpm mobile:release:ios:production`

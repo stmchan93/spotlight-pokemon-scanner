@@ -1,7 +1,9 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import Constants from 'expo-constants';
+import type { ComponentProps } from 'react';
 import { LayoutAnimation, StyleSheet } from 'react-native';
 
+import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import {
   clearScanCandidateReviewSessions,
@@ -23,6 +25,8 @@ jest.mock('@/features/scanner/scanner-smoke-fixtures', () => ({
 }));
 
 const mockPush = jest.fn();
+const mockBack = jest.fn();
+const mockCanGoBack = jest.fn(() => false);
 const mockReplace = jest.fn();
 const mockConfigureNext = jest.spyOn(LayoutAnimation, 'configureNext').mockImplementation(jest.fn());
 const mockedConstants = Constants as any;
@@ -35,6 +39,8 @@ jest.mock('expo-router', () => {
       React.useEffect(() => effect(), [effect]);
     },
     useRouter: () => ({
+      back: mockBack,
+      canGoBack: mockCanGoBack,
       push: mockPush,
       replace: mockReplace,
     }),
@@ -55,8 +61,11 @@ jest.mock('@/providers/auth-provider', () => ({
   }),
 }));
 
-function renderScannerScreen(options?: Parameters<typeof renderWithProviders>[1]) {
-  return renderWithProviders(<ScannerScreen />, options);
+function renderScannerScreen(
+  options?: Parameters<typeof renderWithProviders>[1],
+  props?: ComponentProps<typeof ScannerScreen>,
+) {
+  return renderWithProviders(<ScannerScreen {...props} />, options);
 }
 
 async function waitForScannerReady() {
@@ -71,6 +80,9 @@ describe('ScannerScreen', () => {
     : {};
 
   beforeEach(() => {
+    mockBack.mockReset();
+    mockCanGoBack.mockReset();
+    mockCanGoBack.mockReturnValue(false);
     mockPush.mockReset();
     mockReplace.mockReset();
     mockConfigureNext.mockClear();
@@ -90,7 +102,6 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
     expect(screen.getByTestId('scanner-mode-toggle')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
-    expect(screen.getByTestId('labeler-entry-button')).toBeTruthy();
     expect(screen.getByText('RAW')).toBeTruthy();
     expect(screen.getByText('SLABS')).toBeTruthy();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
@@ -112,12 +123,32 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-slab-guide')).toBeTruthy();
   });
 
-  it('opens the labeler session route from the scanner entry point', () => {
+  it('does not show the camera permission card when the scanner is mounted offscreen with granted permission', () => {
+    renderWithProviders(
+      <TabsPageContext.Provider value={{ activePage: 'portfolio' }}>
+        <ScannerScreen />
+      </TabsPageContext.Provider>,
+    );
+
+    expect(screen.getByTestId('scanner-camera-fallback')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-permission-card')).toBeNull();
+    expect(screen.queryByText('Camera access needed')).toBeNull();
+  });
+
+  it('submits the scanner top search into the catalog search sheet route', () => {
     renderScannerScreen();
 
-    fireEvent.press(screen.getByTestId('labeler-entry-button'));
+    fireEvent.changeText(screen.getByPlaceholderText('Search card to add'), 'charizard');
+    fireEvent(screen.getByPlaceholderText('Search card to add'), 'submitEditing', {
+      nativeEvent: { text: 'charizard' },
+    });
 
-    expect(mockPush).toHaveBeenCalledWith('/labeling/session');
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/catalog/search',
+      params: {
+        q: 'charizard',
+      },
+    });
   });
 
   it('renders an empty recent scans tray with no placeholder rows', () => {
@@ -125,6 +156,13 @@ describe('ScannerScreen', () => {
 
     expect(screen.getByTestId('scanner-tray')).toBeTruthy();
     expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-handle')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-header').props.hitSlop).toEqual({
+      bottom: 10,
+      left: 12,
+      right: 12,
+      top: 12,
+    });
     expect(screen.getByTestId('scanner-tray-body')).toBeTruthy();
     expect(screen.getByTestId('scanner-recent-title')).toBeTruthy();
     expect(screen.getByTestId('scanner-value-pill-text')).toBeTruthy();
@@ -345,6 +383,36 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.56');
   });
 
+  it('disables top-level scanner swipe while a tray action rail is open and restores it when closed', async () => {
+    const handleTopLevelSwipeEnabledChange = jest.fn();
+    renderScannerScreen(undefined, {
+      onTopLevelSwipeEnabledChange: handleTopLevelSwipeEnabledChange,
+    });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+      includeHiddenElements: true,
+    }));
+
+    await waitFor(() => {
+      expect(handleTopLevelSwipeEnabledChange).toHaveBeenCalledWith(false);
+    });
+
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-collapse-delete', {
+      includeHiddenElements: true,
+    }));
+
+    await waitFor(() => {
+      expect(handleTopLevelSwipeEnabledChange).toHaveBeenCalledWith(true);
+    });
+  });
+
   it('allows a single scan tray to expand and keeps it expanded when deleting down to one scan', async () => {
     renderScannerScreen();
 
@@ -355,8 +423,9 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
 
-    expect(screen.getByTestId('scanner-tray-toggle')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+    expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-handle')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
 
     let expandedViewportHeight = 0;
     await waitFor(() => {
@@ -364,7 +433,7 @@ describe('ScannerScreen', () => {
       expect(expandedViewportHeight).toBeGreaterThanOrEqual(248);
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -373,14 +442,14 @@ describe('ScannerScreen', () => {
       expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-row-1')).toBeTruthy();
     });
 
     expandedViewportHeight = StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
-    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-delete', {
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
       includeHiddenElements: true,
     }));
 
@@ -401,7 +470,7 @@ describe('ScannerScreen', () => {
     });
 
     expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
-    expect(screen.getByTestId('scanner-tray-toggle')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height).toBe(expandedViewportHeight);
   });
 
@@ -495,12 +564,12 @@ describe('ScannerScreen', () => {
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
-    expect(screen.getByTestId('scanner-tray-toggle')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
     await waitFor(() => {
       expect(pendingResolvers).toHaveLength(2);
     });
 
-    fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
 
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-row-1')).toBeTruthy();
@@ -608,10 +677,10 @@ describe('ScannerScreen', () => {
       await waitForScannerReady();
     }
 
-    expect(screen.getByTestId('scanner-tray-toggle')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
     expect(screen.queryByTestId('scanner-tray-row-1')).toBeNull();
 
-    fireEvent.press(screen.getByTestId('scanner-tray-toggle'));
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
     expect(mockConfigureNext).toHaveBeenCalled();
 
     await waitFor(() => {

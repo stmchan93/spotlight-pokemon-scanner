@@ -11,6 +11,8 @@ from urllib.request import Request, urlopen
 REPO_ROOT = Path(__file__).resolve().parent.parent
 TOOLS_ROOT = Path(__file__).resolve().parent
 BACKEND_ROOT = REPO_ROOT / "backend"
+if not (BACKEND_ROOT / "server.py").exists():
+    BACKEND_ROOT = REPO_ROOT
 if str(TOOLS_ROOT) not in sys.path:
     sys.path.insert(0, str(TOOLS_ROOT))
 if str(BACKEND_ROOT) not in sys.path:

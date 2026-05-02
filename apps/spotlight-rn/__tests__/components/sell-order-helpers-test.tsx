@@ -1,14 +1,17 @@
 import { MockSpotlightRepository } from '@spotlight/api-client';
 
 import {
+  buildSellMetadataTokens,
   buildOfferToYourPricePercentText,
   buildSingleSellStatusCopy,
   canStartSellSheetDismissGesture,
-  canStartSellSwipeGesture,
   collectionSummaryLine,
+  evaluateSellCalculatorExpression,
   formatEditableSellPrice,
   formatSellOrderBoughtPriceLabel,
+  getSellSwipeArmThresholdRatio,
   getSellSwipeConfirmThreshold,
+  isSellSwipeReleaseArmed,
   parseSellPrice,
   scheduleSellStatusCompletion,
   sanitizeSellPriceText,
@@ -27,18 +30,34 @@ describe('sell order helpers', () => {
     expect(formatEditableSellPrice(10)).toBe('10');
     expect(formatEditableSellPrice(10.5)).toBe('10.5');
     expect(buildOfferToYourPricePercentText(0.45, 0.51)).toBe('88.23% YP');
-    expect(getSellSwipeConfirmThreshold()).toBe(92);
+    expect(getSellSwipeConfirmThreshold(844)).toBe(422);
+    expect(getSellSwipeConfirmThreshold(160)).toBe(92);
     expect(formatSellOrderBoughtPriceLabel(8.25, '$8.25', false)).toBe('*****');
     expect(formatSellOrderBoughtPriceLabel(8.25, '$8.25', true)).toBe('$8.25');
     expect(formatSellOrderBoughtPriceLabel(null, '$0.00', false)).toBe('--');
   });
 
-  it('uses shared vertical gesture thresholds for sell confirm and sheet dismiss', () => {
-    expect(canStartSellSwipeGesture(0, -12)).toBe(true);
-    expect(canStartSellSwipeGesture(10, -12)).toBe(true);
-    expect(canStartSellSwipeGesture(12, -10)).toBe(false);
-    expect(canStartSellSwipeGesture(0, -4)).toBe(false);
+  it('arms sell release only after the 50%-of-screen threshold is crossed', () => {
+    const containerHeight = 844;
+    const closedSheetOffset = containerHeight - 48;
+    const armThresholdRatio = getSellSwipeArmThresholdRatio(containerHeight, closedSheetOffset);
 
+    expect(armThresholdRatio).toBeCloseTo(422 / 796, 4);
+    expect(isSellSwipeReleaseArmed(460, closedSheetOffset, armThresholdRatio)).toBe(false);
+    expect(isSellSwipeReleaseArmed(360, closedSheetOffset, armThresholdRatio)).toBe(true);
+  });
+
+  it('evaluates calculator expressions safely', () => {
+    expect(evaluateSellCalculatorExpression('2+3*4')).toBe(14);
+    expect(evaluateSellCalculatorExpression('(2+3)*4')).toBe(20);
+    expect(evaluateSellCalculatorExpression('10/4')).toBe(2.5);
+    expect(evaluateSellCalculatorExpression('-2+5')).toBe(3);
+    expect(evaluateSellCalculatorExpression('4/0')).toBeNull();
+    expect(evaluateSellCalculatorExpression('2+bad')).toBeNull();
+    expect(evaluateSellCalculatorExpression('')).toBeNull();
+  });
+
+  it('uses shared vertical gesture thresholds for sheet dismiss', () => {
     expect(canStartSellSheetDismissGesture(0, 12)).toBe(true);
     expect(canStartSellSheetDismissGesture(10, 12)).toBe(true);
     expect(canStartSellSheetDismissGesture(12, 10)).toBe(false);
@@ -127,5 +146,28 @@ describe('sell order helpers', () => {
         variantName: 'Holo',
       },
     })).toBe('PSA 10 • Holo');
+  });
+
+  it('builds labeled metadata chips for raw and graded entries', async () => {
+    const repository = new MockSpotlightRepository();
+    const inventory = await repository.getInventoryEntries();
+
+    expect(buildSellMetadataTokens(inventory[0]!)).toEqual([
+      { label: 'Condition', value: 'Near Mint' },
+    ]);
+
+    expect(buildSellMetadataTokens({
+      ...inventory[0]!,
+      kind: 'graded',
+      slabContext: {
+        grader: 'PSA',
+        grade: '10',
+        variantName: 'Holo',
+      },
+    })).toEqual([
+      { label: 'Grader', value: 'PSA' },
+      { label: 'Grade', value: '10' },
+      { label: 'Variant', value: 'Holo' },
+    ]);
   });
 });

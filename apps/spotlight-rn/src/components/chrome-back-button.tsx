@@ -1,4 +1,5 @@
-import { Text, StyleSheet, type StyleProp, type ViewStyle } from 'react-native';
+import { IconChevronLeft } from '@tabler/icons-react-native';
+import { type StyleProp, type ViewStyle } from 'react-native';
 
 import { IconButton, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -28,14 +29,11 @@ export function ChromeBackButton({
       testID={testID}
       variant="elevated"
     >
-      <Text style={[theme.typography.title, styles.glyph]}>‹</Text>
+      <IconChevronLeft
+        color={theme.colors.textPrimary}
+        size={18}
+        strokeWidth={2.35}
+      />
     </IconButton>
   );
 }
-
-const styles = StyleSheet.create({
-  glyph: {
-    color: '#0F0F12',
-    lineHeight: 26,
-  },
-});

@@ -16,6 +16,8 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BACKEND_ROOT = REPO_ROOT / "backend"
+if not (BACKEND_ROOT / "scan_artifact_store.py").exists():
+    BACKEND_ROOT = REPO_ROOT
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
@@ -39,11 +41,11 @@ def safe_filename_part(value: object, *, fallback: str) -> str:
 
 
 def default_database_path() -> Path:
-    return REPO_ROOT / "backend" / "data" / "spotlight_scanner.sqlite"
+    return BACKEND_ROOT / "data" / "spotlight_scanner.sqlite"
 
 
 def default_artifact_root() -> Path:
-    return Path(os.environ.get(SCAN_ARTIFACTS_ROOT_ENV) or REPO_ROOT / "backend" / "data" / "scan-artifacts").expanduser()
+    return Path(os.environ.get(SCAN_ARTIFACTS_ROOT_ENV) or BACKEND_ROOT / "data" / "scan-artifacts").expanduser()
 
 
 def default_output_root(batch_id: str) -> Path:

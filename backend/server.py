@@ -132,6 +132,8 @@ MANUAL_SCRYDEX_MIRROR_ENV = "SPOTLIGHT_MANUAL_SCRYDEX_MIRROR"
 LIVE_PRICING_ENABLED_ENV = "SPOTLIGHT_LIVE_PRICING_ENABLED"
 SCAN_ARTIFACT_UPLOADS_ENABLED_ENV = "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED"
 SUPABASE_URL_ENV = "SUPABASE_URL"
+SUPABASE_JWKS_URL_ENV = "SUPABASE_JWKS_URL"
+SUPABASE_JWT_SECRET_ENV = "SUPABASE_JWT_SECRET"
 AUTH_REQUIRED_ENV = "SPOTLIGHT_AUTH_REQUIRED"
 AUTH_FALLBACK_USER_ID_ENV = "SPOTLIGHT_AUTH_FALLBACK_USER_ID"
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
@@ -255,6 +257,31 @@ def _apply_labeling_pipeline_schema_patch(connection: sqlite3.Connection) -> Non
         """
         CREATE INDEX IF NOT EXISTS idx_labeling_session_artifacts_scan_id
         ON labeling_session_artifacts(scan_id)
+        """
+    )
+
+
+def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS card_favorites (
+            owner_user_id TEXT NOT NULL,
+            card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (owner_user_id, card_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_card_favorites_owner_user_id
+        ON card_favorites(owner_user_id, created_at DESC, card_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_card_favorites_card_id
+        ON card_favorites(card_id, created_at DESC)
         """
     )
 
@@ -412,20 +439,26 @@ class SpotlightScanService:
         self._thread_local = threading.local()
         self._state_lock = threading.RLock()
         supabase_url = os.environ.get(SUPABASE_URL_ENV) or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+        supabase_jwks_url = os.environ.get(SUPABASE_JWKS_URL_ENV) or os.environ.get("SPOTLIGHT_SUPABASE_JWKS_URL")
+        supabase_jwt_secret = (
+            os.environ.get(SUPABASE_JWT_SECRET_ENV) or os.environ.get("SPOTLIGHT_SUPABASE_JWT_SECRET")
+        )
         auth_required = _env_flag(AUTH_REQUIRED_ENV, default=False)
         fallback_user_id = (
             os.environ.get(AUTH_FALLBACK_USER_ID_ENV)
-            or os.environ.get("SPOTLIGHT_LEGACY_OWNER_USER_ID")
             or ("local-dev-user" if not auth_required else None)
         )
         self.authenticator = SupabaseRequestAuthenticator(
             supabase_url=supabase_url,
+            jwks_url=supabase_jwks_url,
+            jwt_secret=supabase_jwt_secret,
             auth_required=auth_required,
             fallback_user_id=fallback_user_id,
         )
         bootstrap_connection = connect(database_path)
         try:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
+            _apply_card_favorites_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -485,6 +518,8 @@ class SpotlightScanService:
         identity = getattr(self._thread_local, "request_identity", None)
         if isinstance(identity, RequestIdentity):
             return identity
+        if self.authenticator.auth_required:
+            raise RequestAuthError("Authenticated request identity is required.")
         fallback_user_id = self.authenticator.fallback_user_id
         if fallback_user_id:
             return RequestIdentity(user_id=fallback_user_id, auth_source="service_fallback")
@@ -627,6 +662,62 @@ class SpotlightScanService:
             (owner_user_id, identity_key),
         ).fetchone()
         return str(row["id"] or "").strip() or None if row is not None else None
+
+    def _optional_owner_user_id(self) -> str | None:
+        try:
+            return self._current_owner_user_id()
+        except RequestAuthError:
+            return None
+
+    def _favorite_row(self, card_id: str, *, owner_user_id: str | None) -> sqlite3.Row | None:
+        normalized_owner_user_id = str(owner_user_id or "").strip()
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_owner_user_id or not normalized_card_id:
+            return None
+        return self.connection.execute(
+            """
+            SELECT owner_user_id, card_id, created_at
+            FROM card_favorites
+            WHERE owner_user_id = ?
+              AND card_id = ?
+            LIMIT 1
+            """,
+            (normalized_owner_user_id, normalized_card_id),
+        ).fetchone()
+
+    def _favorite_rows_by_card_id(
+        self,
+        card_ids: list[Any],
+        *,
+        owner_user_id: str | None,
+    ) -> dict[str, sqlite3.Row]:
+        normalized_owner_user_id = str(owner_user_id or "").strip()
+        normalized_card_ids = self._normalized_unique_card_ids(card_ids)
+        if not normalized_owner_user_id or not normalized_card_ids:
+            return {}
+        placeholders = ",".join("?" for _ in normalized_card_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT card_id, created_at
+            FROM card_favorites
+            WHERE owner_user_id = ?
+              AND card_id IN ({placeholders})
+            """,
+            (normalized_owner_user_id, *normalized_card_ids),
+        ).fetchall()
+        return {
+            str(row["card_id"] or "").strip(): row
+            for row in rows
+            if str(row["card_id"] or "").strip()
+        }
+
+    @staticmethod
+    def _favorite_state_payload(card_id: str, favorite_row: sqlite3.Row | None) -> dict[str, Any]:
+        return {
+            "cardID": card_id,
+            "isFavorite": favorite_row is not None,
+            "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
+        }
 
     def refresh_index(self) -> None:
         connection = self._new_connection()
@@ -841,12 +932,15 @@ class SpotlightScanService:
             self._finalize_scan_response(payload, response, scored_candidates)
         return response, scored_candidates, ranked_matches
 
-    def _prewarm_raw_visual_runtime(self) -> dict[str, Any]:
+    def _prewarm_raw_visual_runtime(self, *, run_inference: bool = True) -> dict[str, Any]:
         started_at = perf_counter()
         try:
             matcher = self._raw_visual_matcher_instance()
             if hasattr(matcher, "prewarm"):
-                result = matcher.prewarm()
+                try:
+                    result = matcher.prewarm(run_inference=run_inference)
+                except TypeError:
+                    result = matcher.prewarm()
             else:
                 result = {"available": True, "prewarmed": True}
             return {
@@ -4462,7 +4556,7 @@ class SpotlightScanService:
             "cardShowMode": self._card_show_mode_state(),
         }
         if prewarm_visual:
-            payload["visualRuntime"] = self._prewarm_raw_visual_runtime()
+            payload["visualRuntime"] = self._prewarm_raw_visual_runtime(run_inference=True)
         return payload
 
     def provider_status(self) -> dict[str, Any]:
@@ -6671,6 +6765,7 @@ class SpotlightScanService:
         pricing_context: PricingContext,
         card: dict[str, Any] | None = None,
         snapshot_row: sqlite3.Row | None = None,
+        owner_user_id: str | None = None,
     ) -> dict[str, Any] | None:
         resolved_card = card or card_by_id(self.connection, card_id)
         if resolved_card is None:
@@ -6680,6 +6775,7 @@ class SpotlightScanService:
             pricing_context=pricing_context,
             snapshot_row=snapshot_row,
         )
+        favorite_row = self._favorite_row(card_id, owner_user_id=owner_user_id)
         resolved_variant = pricing_context.preferred_variant or (str((pricing or {}).get("variant") or "").strip() or None)
         return {
             "card": {
@@ -6693,6 +6789,7 @@ class SpotlightScanService:
                 "imageSmallURL": resolved_card["imageSmallURL"],
                 "imageLargeURL": resolved_card["imageURL"],
                 "pricing": pricing,
+                "isFavorite": favorite_row is not None,
             },
             "slabContext": self._slab_context_payload_for_pricing_context(
                 pricing_context,
@@ -6708,6 +6805,8 @@ class SpotlightScanService:
             "regulationMark": resolved_card["regulationMark"],
             "imageSmallURL": resolved_card["imageSmallURL"],
             "imageLargeURL": resolved_card["imageURL"],
+            "isFavorite": favorite_row is not None,
+            "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
         }
 
     def card_detail(
@@ -6729,7 +6828,50 @@ class SpotlightScanService:
             if grader or grade
             else self._raw_pricing_context()
         )
-        return self._card_detail_for_context(card_id, pricing_context=pricing_context)
+        return self._card_detail_for_context(
+            card_id,
+            pricing_context=pricing_context,
+            owner_user_id=self._optional_owner_user_id(),
+        )
+
+    def set_card_favorite(self, card_id: str, *, is_favorite: bool | None = None) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            raise ValueError("cardID is required")
+        if not self._card_exists(normalized_card_id):
+            raise FileNotFoundError("card not found")
+
+        existing_row = self._favorite_row(normalized_card_id, owner_user_id=owner_user_id)
+        next_is_favorite = (existing_row is None) if is_favorite is None else bool(is_favorite)
+
+        if next_is_favorite:
+            if existing_row is None:
+                self.connection.execute(
+                    """
+                    INSERT INTO card_favorites (
+                        owner_user_id,
+                        card_id,
+                        created_at
+                    )
+                    VALUES (?, ?, ?)
+                    """,
+                    (owner_user_id, normalized_card_id, utc_now()),
+                )
+                existing_row = self._favorite_row(normalized_card_id, owner_user_id=owner_user_id)
+        else:
+            self.connection.execute(
+                """
+                DELETE FROM card_favorites
+                WHERE owner_user_id = ?
+                  AND card_id = ?
+                """,
+                (owner_user_id, normalized_card_id),
+            )
+            existing_row = None
+
+        self.connection.commit()
+        return self._favorite_state_payload(normalized_card_id, existing_row)
 
     def card_ebay_comps(
         self,
@@ -8118,13 +8260,31 @@ class SpotlightScanService:
             "updatedAt": updated_at,
         }
 
-    def deck_entries(self, *, limit: int = 200, offset: int = 0, include_inactive: bool = False) -> dict[str, Any]:
+    def deck_entries(
+        self,
+        *,
+        limit: int = 200,
+        offset: int = 0,
+        include_inactive: bool = False,
+        favorites_only: bool = False,
+    ) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         safe_limit = max(0, min(int(limit), 1000))
         safe_offset = max(0, int(offset))
         where_clauses = ["owner_user_id = ?"]
         if not include_inactive:
             where_clauses.append("quantity > 0")
+        if favorites_only:
+            where_clauses.append(
+                """
+                EXISTS (
+                    SELECT 1
+                    FROM card_favorites
+                    WHERE card_favorites.owner_user_id = deck_entries.owner_user_id
+                      AND card_favorites.card_id = deck_entries.card_id
+                )
+                """
+            )
         where_clause = f"WHERE {' AND '.join(where_clauses)}"
         rows = self.connection.execute(
             """
@@ -8157,6 +8317,10 @@ class SpotlightScanService:
         )
         price_snapshot_rows = self._price_snapshot_rows_by_card_id(
             [str(row["card_id"] or "").strip() for row in rows]
+        )
+        favorite_rows_by_card_id = self._favorite_rows_by_card_id(
+            [str(row["card_id"] or "").strip() for row in rows],
+            owner_user_id=owner_user_id,
         )
 
         entries: list[dict[str, Any]] = []
@@ -8211,6 +8375,7 @@ class SpotlightScanService:
                     primary_price = pricing.get("trend")
                 if isinstance(primary_price, (int, float)):
                     total_value += float(primary_price) * quantity
+            card_payload["isFavorite"] = card_id in favorite_rows_by_card_id
 
             slab_context = None
             if str(row["item_kind"] or "").strip().lower() == "slab":
@@ -8239,6 +8404,7 @@ class SpotlightScanService:
                     "updatedAt": row["updated_at"],
                     "sourceScanID": row["source_scan_id"],
                     "sourceConfirmationID": row["source_confirmation_id"],
+                    "isFavorite": card_id in favorite_rows_by_card_id,
                 }
             )
 
@@ -8348,10 +8514,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
                 return
             include_inactive = str(query.get("includeInactive", ["0"])[0]).strip().lower() in {"1", "true", "yes", "on"}
+            favorites_only = str(query.get("favorites", ["0"])[0]).strip().lower() in {"1", "true", "yes", "on"}
+            if not favorites_only:
+                favorites_only = str(query.get("favoritesOnly", ["0"])[0]).strip().lower() in {
+                    "1",
+                    "true",
+                    "yes",
+                    "on",
+                }
             with self.service.request_identity_context(identity):
                 self._write_json(
                     HTTPStatus.OK,
-                    self.service.deck_entries(limit=limit, offset=offset, include_inactive=include_inactive),
+                    self.service.deck_entries(
+                        limit=limit,
+                        offset=offset,
+                        include_inactive=include_inactive,
+                        favorites_only=favorites_only,
+                    ),
                 )
             return
 
@@ -8557,14 +8736,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             grade = query.get("grade", [""])[0].strip() or None
             cert_number = query.get("cert", [""])[0].strip() or None
             preferred_variant = query.get("variant", [""])[0].strip() or None
+            identity = None
+            auth_header = str(self.headers.get("Authorization") or "").strip()
+            if auth_header:
+                identity = self._require_request_identity()
+                if identity is None:
+                    return
+            elif not self.service.authenticator.auth_required:
+                try:
+                    identity = self.service.authenticator.resolve_identity(None)
+                except RequestAuthError:
+                    identity = None
 
-            payload = self.service.card_detail(
-                card_id,
-                grader=grader,
-                grade=grade,
-                cert_number=cert_number,
-                preferred_variant=preferred_variant,
-            )
+            with self.service.request_identity_context(identity):
+                payload = self.service.card_detail(
+                    card_id,
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=preferred_variant,
+                )
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
                 return
@@ -8618,9 +8809,41 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             )
             return
 
-        if parsed.path == "/api/v1/labeling-sessions":
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/favorite"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            card_id = unquote(parsed.path.removeprefix("/api/v1/cards/").removesuffix("/favorite").rstrip("/"))
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            raw_is_favorite = payload.get("isFavorite")
+            if raw_is_favorite is not None and not isinstance(raw_is_favorite, bool):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "isFavorite must be a boolean or null"})
+                return
             try:
-                session_payload = self.service.create_labeling_session(payload)
+                with self.service.request_identity_context(identity):
+                    favorite_payload = self.service.set_card_favorite(card_id, is_favorite=raw_is_favorite)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Card favorite update failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, favorite_payload)
+            return
+
+        if parsed.path == "/api/v1/labeling-sessions":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    session_payload = self.service.create_labeling_session(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -8639,11 +8862,15 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             if not labeling_artifact_session_id:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
                 return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                artifact_payload = self.service.store_labeling_session_artifact(
-                    labeling_artifact_session_id,
-                    payload,
-                )
+                with self.service.request_identity_context(identity):
+                    artifact_payload = self.service.store_labeling_session_artifact(
+                        labeling_artifact_session_id,
+                        payload,
+                    )
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -8662,11 +8889,15 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             if not complete_labeling_session_id:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
                 return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                session_payload = self.service.complete_labeling_session(
-                    complete_labeling_session_id,
-                    payload,
-                )
+                with self.service.request_identity_context(identity):
+                    session_payload = self.service.complete_labeling_session(
+                        complete_labeling_session_id,
+                        payload,
+                    )
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -8685,11 +8916,15 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             if not abort_labeling_session_id:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
                 return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
             try:
-                session_payload = self.service.abort_labeling_session(
-                    abort_labeling_session_id,
-                    payload,
-                )
+                with self.service.request_identity_context(identity):
+                    session_payload = self.service.abort_labeling_session(
+                        abort_labeling_session_id,
+                        payload,
+                    )
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -9325,7 +9560,7 @@ def main() -> None:
     )
 
     SpotlightRequestHandler.service = SpotlightScanService(database_path, repo_root)
-    startup_visual_runtime = SpotlightRequestHandler.service._prewarm_raw_visual_runtime()
+    startup_visual_runtime = SpotlightRequestHandler.service._prewarm_raw_visual_runtime(run_inference=False)
     SpotlightRequestHandler.service._emit_structured_log(
         {
             "severity": "INFO",

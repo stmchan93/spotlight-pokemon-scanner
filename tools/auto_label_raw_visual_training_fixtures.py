@@ -23,6 +23,8 @@ def repo_root() -> Path:
 
 ROOT = repo_root()
 BACKEND_ROOT = ROOT / "backend"
+if not (BACKEND_ROOT / "server.py").exists():
+    BACKEND_ROOT = ROOT
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 

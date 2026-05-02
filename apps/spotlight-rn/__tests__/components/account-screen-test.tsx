@@ -91,6 +91,7 @@ describe('AccountScreen', () => {
       fontSize: 15,
       lineHeight: 20,
     });
+    expect(screen.queryByTestId('account-label-session')).toBeNull();
 
     fireEvent.press(screen.getByTestId('account-import-collectr_csv_v1'));
 
@@ -132,5 +133,40 @@ describe('AccountScreen', () => {
     expect(await screen.findByText('Import unavailable')).toBeTruthy();
     expect(screen.getByText('bad file')).toBeTruthy();
     expect(push).not.toHaveBeenCalled();
+  });
+
+  it('shows a label-session entry for labeler-enabled users and routes into the labeling flow', () => {
+    (useAuth as jest.Mock).mockReturnValue({
+      appleSignInAvailable: true,
+      configurationIssue: null,
+      currentUser: {
+        adminEnabled: false,
+        avatarURL: null,
+        displayName: 'Labeler',
+        email: 'labeler@example.com',
+        id: 'user-2',
+        labelerEnabled: true,
+        providers: ['apple'],
+      },
+      errorMessage: null,
+      isBusy: false,
+      isConfigured: true,
+      profileDraftName: '',
+      setProfileDraftName: jest.fn(),
+      signInWithApple: jest.fn(),
+      signInWithGoogle: jest.fn(),
+      signOut,
+      state: 'authenticated',
+      submitProfile: jest.fn(),
+    });
+
+    renderWithProviders(<AccountScreen />);
+
+    expect(screen.getByTestId('account-label-session')).toBeTruthy();
+    expect(screen.getByText('+ Label Session')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('account-label-session'));
+
+    expect(push).toHaveBeenCalledWith('/labeling/session');
   });
 });

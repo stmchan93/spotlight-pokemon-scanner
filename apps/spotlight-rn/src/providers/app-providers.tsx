@@ -9,7 +9,6 @@ import {
   type Dispatch,
   type SetStateAction,
 } from 'react';
-import * as Application from 'expo-application';
 import Constants from 'expo-constants';
 
 import {
@@ -25,6 +24,24 @@ import { resolveRuntimeValue } from '@/lib/runtime-config';
 
 export const DEFAULT_LOCAL_API_BASE_URL = 'http://127.0.0.1:8788';
 const MISSING_PRODUCTION_API_BASE_URL = 'https://spotlight-api-base-url-missing.invalid';
+
+type ExpoApplicationModule = typeof import('expo-application');
+
+let cachedExpoApplicationModule: ExpoApplicationModule | null | undefined;
+
+function getExpoApplicationModule(): ExpoApplicationModule | null {
+  if (cachedExpoApplicationModule !== undefined) {
+    return cachedExpoApplicationModule;
+  }
+
+  try {
+    cachedExpoApplicationModule = require('expo-application') as ExpoApplicationModule;
+  } catch {
+    cachedExpoApplicationModule = null;
+  }
+
+  return cachedExpoApplicationModule;
+}
 
 function normalizeBaseUrl(value: string | null | undefined) {
   const trimmed = value?.trim();
@@ -56,6 +73,7 @@ function resolveRepositoryRuntimeAppEnv() {
 }
 
 function resolveRepositoryClientContext() {
+  const applicationModule = getExpoApplicationModule();
   const configuredBuildNumber = typeof Constants.expoConfig?.ios?.buildNumber === 'string'
     ? Constants.expoConfig.ios.buildNumber
     : typeof Constants.expoConfig?.android?.versionCode === 'number'
@@ -63,8 +81,8 @@ function resolveRepositoryClientContext() {
       : null;
 
   return {
-    appVersion: Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '0',
-    buildNumber: Application.nativeBuildVersion ?? configuredBuildNumber ?? '0',
+    appVersion: applicationModule?.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '0',
+    buildNumber: applicationModule?.nativeBuildVersion ?? configuredBuildNumber ?? '0',
   };
 }
 

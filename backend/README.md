@@ -67,7 +67,9 @@ What is intentionally removed right now:
 
 - Staging and production should run with `SPOTLIGHT_AUTH_REQUIRED=1`.
 - The backend validates Supabase bearer tokens using `SUPABASE_URL`.
+- Hosted auth may use `SUPABASE_JWT_SECRET` for symmetric bearer tokens or Supabase JWKS for asymmetric bearer tokens.
 - Local dev may use `SPOTLIGHT_AUTH_FALLBACK_USER_ID` when auth is intentionally bypassed.
+- `SPOTLIGHT_LEGACY_OWNER_USER_ID` is migration-only and must not be used as runtime request identity.
 - Mutable scan / deck / buy / sell / portfolio import routes and their corresponding read paths are owner-scoped by `owner_user_id`.
 - `backend/deploy_to_vm.sh` now refuses a hosted deploy if:
   - `SPOTLIGHT_AUTH_REQUIRED` is not enabled
@@ -100,25 +102,78 @@ For the current beta stage, the recommended hosted path is one Linux VM with:
 - one SQLite file
 - one daily Scrydex sync at `3:00 AM America/Los_Angeles`
 
+Prepare one env-specific secrets file per hosted environment:
+
+```bash
+cp backend/.env.secrets.example backend/.env.staging.secrets
+cp backend/.env.secrets.example backend/.env.production.secrets
+```
+
 Run this on the VM after cloning the repo:
 
 ```bash
-cp backend/.env.secrets.example backend/.env
-backend/deploy.sh staging backend/.env
+backend/deploy.sh staging backend/.env.staging.secrets
 ```
 
-Or from the repo root, use the one-shot wrapper:
+Or from your local machine, use the single deploy entrypoint:
 
 ```bash
-pnpm deploy:staging:vm
+pnpm deploy:staging
+pnpm deploy:production
 ```
 
-That wrapper runs the deploy and then immediately runs the VM health check.
+Those commands run `tools/deploy_backend.sh`, which:
+- runs the release-config audit locally
+- syncs the backend bundle to the configured GCE VM over `gcloud`
+- runs the VM-local deploy script on the remote host
+- runs the VM health check after deploy
+
+If you want the deploy plus authenticated staging smoke plus optional TestFlight step in one gate, use:
+
+```bash
+pnpm release:gate:staging
+pnpm release:gate:staging:build
+pnpm release:gate:staging:release
+```
+
+That wrapper lives in [tools/run_release_gate.py](/Users/stephenchan/Code/spotlight/tools/run_release_gate.py:1) and expects a dedicated staging smoke user via `SPOTLIGHT_STAGING_SMOKE_EMAIL` / `SPOTLIGHT_STAGING_SMOKE_PASSWORD`.
+
+The normal staging shortcuts now route through the same gate:
+
+```bash
+pnpm deploy:staging
+pnpm mobile:build:ios:staging
+pnpm mobile:release:ios:staging
+```
+
+You can also call the script directly:
+
+```bash
+bash tools/deploy_backend.sh staging
+bash tools/deploy_backend.sh production backend/.env.production.secrets
+```
+
+Remote wrapper target settings:
+- staging defaults:
+  - instance: `spotlight-backend-vm-small`
+  - zone: `us-central1-b`
+- optional overrides:
+  - `SPOTLIGHT_GCLOUD_PROJECT`
+  - `SPOTLIGHT_VM_STAGING_INSTANCE`
+  - `SPOTLIGHT_VM_STAGING_ZONE`
+  - `SPOTLIGHT_VM_PRODUCTION_INSTANCE`
+  - `SPOTLIGHT_VM_PRODUCTION_ZONE`
+  - `SPOTLIGHT_VM_REMOTE_DIR`
+
+Important path split:
+- `backend/deploy.sh` and `backend/deploy_to_vm.sh` are VM-local scripts and should be run on the Linux VM host
+- `tools/deploy_backend.sh` is the canonical local remote-deploy wrapper for your laptop/workstation
+- `tools/deploy_vm_one_shot.sh` remains as a compatibility shim only
 
 The deploy helper uses two inputs:
 
 - `backend/.env.staging` or `backend/.env.production` for checked-in environment defaults
-- the second argument secrets file, typically `backend/.env`, for machine-specific secrets like:
+- the second argument secrets file, typically `backend/.env.staging.secrets` or `backend/.env.production.secrets`, for machine-specific secrets like:
   - `SCRYDEX_API_KEY`
   - `SCRYDEX_TEAM_ID`
   - optional eBay credentials

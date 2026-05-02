@@ -20,6 +20,7 @@ export function AccountScreen() {
   const theme = useSpotlightTheme();
   const auth = useAuth();
   const user = auth.currentUser;
+  const canStartLabelingSession = !!(user?.labelerEnabled || user?.adminEnabled);
   const [isPreparingImport, setIsPreparingImport] = useState(false);
   const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
 
@@ -44,6 +45,10 @@ export function AccountScreen() {
     } finally {
       setIsPreparingImport(false);
     }
+  }, [router]);
+
+  const openLabelingSession = useCallback(() => {
+    router.push('/labeling/session');
   }, [router]);
 
   return (
@@ -108,6 +113,33 @@ export function AccountScreen() {
             </View>
           </View>
         </SurfaceCard>
+
+        {canStartLabelingSession ? (
+          <SurfaceCard padding={20} radius={28}>
+            <Pressable
+              accessibilityLabel="Start label session"
+              accessibilityRole="button"
+              onPress={openLabelingSession}
+              style={({ pressed }) => [
+                styles.labelSessionButton,
+                {
+                  backgroundColor: theme.colors.brand,
+                  opacity: pressed ? 0.9 : 1,
+                },
+              ]}
+              testID="account-label-session"
+            >
+              <View style={styles.labelSessionCopy}>
+                <Text style={[theme.typography.control, { color: theme.colors.textInverse }]}>
+                  + Label Session
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textInverse }]}>
+                  Capture labeling photos with the existing scanner flow.
+                </Text>
+              </View>
+            </Pressable>
+          </SurfaceCard>
+        ) : null}
 
         <SurfaceCard padding={20} radius={28}>
           <View style={styles.importCard}>
@@ -249,6 +281,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 14,
+  },
+  labelSessionButton: {
+    borderRadius: 24,
+    minHeight: 78,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  labelSessionCopy: {
+    gap: 6,
   },
   importButton: {
     alignItems: 'center',

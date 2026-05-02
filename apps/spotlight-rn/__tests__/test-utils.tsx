@@ -93,6 +93,10 @@ export function createTestSpotlightRepository(
       return overrides.getCardEbayListings?.(...args)
         ?? baseRepository.getCardEbayListings(...args);
     },
+    setCardFavorite: (...args) => {
+      return overrides.setCardFavorite?.(...args)
+        ?? baseRepository.setCardFavorite(...args);
+    },
     getAddToCollectionOptions: (...args) => {
       return overrides.getAddToCollectionOptions?.(...args)
         ?? baseRepository.getAddToCollectionOptions(...args);

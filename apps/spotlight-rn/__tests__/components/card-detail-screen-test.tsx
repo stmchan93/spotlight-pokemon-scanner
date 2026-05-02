@@ -1,3 +1,4 @@
+import { Children, isValidElement, type ReactElement } from 'react';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 
@@ -47,7 +48,9 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-ebay-card')).toBeNull();
     expect(screen.getByTestId('detail-marketplace-cta')).toBeTruthy();
     expect(screen.getByTestId('detail-marketplace-icon')).toBeTruthy();
+    expect(screen.getByTestId('detail-favorite-card')).toBeTruthy();
     expect(screen.getByText('ADD TO COLLECTION')).toBeTruthy();
+    expect(screen.getByText('FAVORITE CARD')).toBeTruthy();
     expect(screen.getByText('TCGPLAYER BUYING OPTIONS')).toBeTruthy();
     expect(screen.queryByText('Lowest active eBay listings')).toBeNull();
     expect(screen.getByText('NM')).toBeTruthy();
@@ -86,6 +89,16 @@ describe('CardDetailScreen', () => {
       fontSize: 18,
       lineHeight: 22,
     });
+    expect(
+      Children.toArray(screen.getByTestId('detail-action-stack').props.children)
+        .filter((child): child is ReactElement<{ testID?: string }> => isValidElement(child))
+        .map((child) => child.props.testID)
+        .filter(Boolean)
+    ).toEqual([
+      'detail-add-to-collection',
+      'detail-marketplace-cta',
+      'detail-favorite-card',
+    ]);
 
     fireEvent.press(screen.getByTestId('detail-back'));
     expect(onBack).toHaveBeenCalled();

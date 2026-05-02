@@ -44,6 +44,7 @@ const filterOptions: { label: string; value: InventoryFilterOption }[] = [
   { label: 'All', value: 'all' },
   { label: 'Raw', value: 'raw' },
   { label: 'Graded', value: 'graded' },
+  { label: 'Favorite', value: 'favorite' },
 ];
 
 const PAGE_GUTTER = 16;
@@ -135,6 +136,9 @@ export function InventoryBrowserScreen({
       if (filterOption === 'graded') {
         return entry.kind === 'graded';
       }
+      if (filterOption === 'favorite') {
+        return entry.isFavorite === true;
+      }
       return true;
     });
 
@@ -169,13 +173,13 @@ export function InventoryBrowserScreen({
     if (trimmedSearchQuery.length > 0) {
       return {
         title: 'No cards match that search',
-        message: 'Try a different name, set, card number, or raw/graded filter.',
+        message: 'Try a different name, set, card number, or collection filter.',
       };
     }
 
     return {
       title: 'No cards match that search',
-      message: 'Try a different name, set, card number, or raw/graded filter.',
+      message: 'Try a different name, set, card number, or collection filter.',
     };
   }, [entries.length, trimmedSearchQuery.length]);
 
@@ -220,12 +224,12 @@ export function InventoryBrowserScreen({
       <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.navRow}>
           <ChromeBackButton onPress={onBack} testID="inventory-back" />
-          <Text style={[theme.typography.headline, { color: theme.colors.textSecondary }]}>Inventory</Text>
+          <Text style={[theme.typography.headline, { color: theme.colors.textSecondary }]}>Collection</Text>
           <View style={styles.navSpacer} />
         </View>
 
         <View style={styles.headerCopy}>
-          <Text style={theme.typography.display}>All cards</Text>
+          <Text style={theme.typography.display}>View all cards</Text>
           <Text style={[theme.typography.headline, { color: theme.colors.textSecondary }]}>
             {displayedEntries.length} shown
           </Text>
@@ -234,7 +238,7 @@ export function InventoryBrowserScreen({
         <SearchField
           containerStyle={styles.searchField}
           onChangeText={setSearchQuery}
-          placeholder="Search inventory cards"
+          placeholder="Search collection cards"
           returnKeyType="search"
           value={searchQuery}
         />

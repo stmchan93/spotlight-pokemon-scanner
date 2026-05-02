@@ -13,6 +13,7 @@ import {
 import { labelingSessionAngleLabels } from './types';
 import type {
   AddToCollectionOptions,
+  CardFavoriteRecord,
   CardDetailQuery,
   CardDetailRecord,
   CardEbayListingRecord,
@@ -22,6 +23,7 @@ import type {
   InventoryEntryCreateRequestPayload,
   InventoryEntryCreateResponsePayload,
   InventoryCardEntry,
+  InventoryEntriesQuery,
   LabelingSessionArtifactRecord,
   LabelingSessionArtifactUploadPayload,
   LabelingSessionCreatePayload,
@@ -55,8 +57,8 @@ import type {
 export interface SpotlightRepository {
   loadPortfolioDashboard(): Promise<SpotlightRepositoryLoadResult<PortfolioDashboard>>;
   getPortfolioDashboard(): Promise<PortfolioDashboard>;
-  loadInventoryEntries(): Promise<SpotlightRepositoryLoadResult<InventoryCardEntry[]>>;
-  getInventoryEntries(): Promise<InventoryCardEntry[]>;
+  loadInventoryEntries(query?: InventoryEntriesQuery): Promise<SpotlightRepositoryLoadResult<InventoryCardEntry[]>>;
+  getInventoryEntries(query?: InventoryEntriesQuery): Promise<InventoryCardEntry[]>;
   loadCatalogCards(query: string, limit?: number): Promise<SpotlightRepositoryLoadResult<CatalogSearchResult[]>>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
   matchScannerCapture(payload: ScannerCapturePayload): Promise<ScannerMatchResult>;
@@ -82,6 +84,7 @@ export interface SpotlightRepository {
   getCardEbayListings(query: CardDetailQuery & {
     limit?: number;
   }): Promise<CardEbayListingsRecord | null>;
+  setCardFavorite(cardId: string, isFavorite?: boolean | null): Promise<CardFavoriteRecord>;
   getAddToCollectionOptions(cardId: string): Promise<AddToCollectionOptions>;
   createInventoryEntry(payload: InventoryEntryCreateRequestPayload): Promise<InventoryEntryCreateResponsePayload>;
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
@@ -121,7 +124,8 @@ type JsonRequestResult<T> =
   | { kind: 'not_found'; error: SpotlightRepositoryRequestError; meta: JsonRequestMeta }
   | { kind: 'error'; error: SpotlightRepositoryRequestError; meta: JsonRequestMeta | null };
 
-const httpRequestTimeoutMs = 6000;
+const defaultHttpRequestTimeoutMs = 6000;
+const scanMatchRequestTimeoutMs = 10000;
 
 type JsonRequestMeta = {
   requestUrl: string;
@@ -135,6 +139,12 @@ type JsonRequestOptions = {
   candidateStrategy?: JsonRequestCandidateStrategy;
   requestLabel?: string;
   logTransport?: boolean;
+  timeoutMs?: number;
+};
+
+type RepositoryClientContext = {
+  appVersion?: string | null;
+  buildNumber?: string | null;
 };
 
 type CardPricingSummaryDTO = {
@@ -154,6 +164,7 @@ type CardCandidateDTO = {
   imageSmallURL?: string | null;
   imageLargeURL?: string | null;
   pricing?: CardPricingSummaryDTO | null;
+  isFavorite?: boolean | null;
 };
 
 type DeckEntryDTO = {
@@ -172,6 +183,7 @@ type DeckEntryDTO = {
   costBasisTotal?: number;
   costBasisCurrencyCode?: string | null;
   addedAt?: string;
+  isFavorite?: boolean | null;
 };
 
 type PortfolioHistoryDTO = {
@@ -228,6 +240,15 @@ type CardDetailDTO = {
   card: CardCandidateDTO;
   imageSmallURL?: string | null;
   imageLargeURL?: string | null;
+  isFavorite?: boolean | null;
+  favoritedAt?: string | null;
+};
+
+type CardFavoriteDTO = {
+  cardID?: string | null;
+  cardId?: string | null;
+  isFavorite?: boolean | null;
+  favoritedAt?: string | null;
 };
 
 type CardMarketHistoryDTO = {
@@ -360,6 +381,7 @@ type NormalizedCardCandidate = {
   number: string;
   imageSmallURL: string;
   imageLargeURL: string;
+  isFavorite: boolean;
   pricing: {
     currencyCode: string;
     market: number | null;
@@ -603,6 +625,7 @@ function normalizePortfolioImportCandidate(
     ownedQuantity: inventoryEntries
       .filter((entry) => entry.cardId === normalized.id)
       .reduce((sum, entry) => sum + entry.quantity, 0),
+    isFavorite: normalized.isFavorite,
   };
 }
 
@@ -692,15 +715,19 @@ function conditionCodeFromLabel(
   switch ((conditionLabel ?? '').trim().toLowerCase()) {
     case 'near mint':
     case 'nm':
+    case 'near_mint':
       return 'near_mint';
     case 'lightly played':
     case 'lp':
+    case 'lightly_played':
       return 'lightly_played';
     case 'moderately played':
     case 'mp':
+    case 'moderately_played':
       return 'moderately_played';
     case 'heavily played':
     case 'hp':
+    case 'heavily_played':
       return 'heavily_played';
     case 'damaged':
     case 'dmg':
@@ -831,6 +858,17 @@ function buildRawDefaultMarketHistoryQuery(query: CardDetailQuery) {
   return historyQuery;
 }
 
+function buildInventoryEntriesQueryParams(query?: InventoryEntriesQuery) {
+  const params = new URLSearchParams();
+  if (query?.favoritesOnly) {
+    params.set('favorites', '1');
+  }
+  if (query?.includeInactive) {
+    params.set('includeInactive', '1');
+  }
+  return params;
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -846,6 +884,10 @@ function normalizeString(value: unknown) {
 
 function normalizeNumber(value: unknown) {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeBoolean(value: unknown) {
+  return typeof value === 'boolean' ? value : null;
 }
 
 function normalizeInteger(value: unknown, fallback = 0) {
@@ -937,6 +979,7 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
     number,
     imageSmallURL: normalizeImageUrl(candidate?.imageSmallURL, baseUrl),
     imageLargeURL: normalizeImageUrl(candidate?.imageLargeURL, baseUrl),
+    isFavorite: normalizeBoolean(candidate?.isFavorite) ?? false,
     pricing: {
       currencyCode: normalizeCurrencyCode(candidate?.pricing?.currencyCode),
       market: normalizeNumber(candidate?.pricing?.market),
@@ -948,17 +991,20 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
 
 function createScannerMatchPayload(
   payload: ScannerCapturePayload,
+  clientContext?: RepositoryClientContext,
 ): Record<string, unknown> {
   const locale = Intl.DateTimeFormat().resolvedOptions().locale || 'en_US';
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  const appVersion = normalizeString(clientContext?.appVersion) || '0';
+  const buildNumber = normalizeString(clientContext?.buildNumber) || '0';
 
   return {
     scanID: createPseudoUUID(),
     capturedAt: new Date().toISOString(),
     clientContext: {
       platform: 'react_native',
-      appVersion: '0',
-      buildNumber: '0',
+      appVersion,
+      buildNumber,
       localeIdentifier: locale,
       timeZoneIdentifier: timeZone,
     },
@@ -1032,6 +1078,7 @@ function mapScannerMatchCandidates(
       marketPrice: card.pricing.market,
       currencyCode: card.pricing.currencyCode,
       ownedQuantity: 0,
+      isFavorite: card.isFavorite,
     }];
   });
 }
@@ -1059,15 +1106,15 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
   const slabContext = normalizeSlabContext(entry.slabContext);
   const variantName = normalizeString(entry.variantName) ?? normalizeString(entry.slabContext?.variantName);
   const conditionCopy = mapDeckCondition(entry.condition);
+  const requestedConditionCode = normalizeConditionCode(entry.condition);
   const quantity = Math.max(normalizeNumber(entry.quantity) ?? 0, 0);
   const costBasisTotal = normalizeNumber(entry.costBasisTotal);
   const itemKind = normalizeString(entry.itemKind);
-  const requestedCondition = conditionCopy.shortLabel ?? null;
-  const pricingCondition = normalizeString(card.pricing.condition)?.toUpperCase() ?? null;
+  const pricingCondition = conditionCodeFromLabel(card.pricing.condition) ?? normalizeConditionCode(card.pricing.condition);
   const hasMarketPrice = card.pricing.market != null && (
-    requestedCondition == null
+    requestedConditionCode == null
     || pricingCondition == null
-    || requestedCondition === pricingCondition
+    || requestedConditionCode === pricingCondition
   );
 
   return {
@@ -1095,6 +1142,7 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
         ? Number((costBasisTotal / quantity).toFixed(2))
         : null,
     costBasisTotal: costBasisTotal ?? null,
+    isFavorite: normalizeBoolean(entry.isFavorite) ?? card.isFavorite,
   };
 }
 
@@ -1654,12 +1702,40 @@ export class MockSpotlightRepository implements SpotlightRepository {
   private recentSales = seedMockRecentSales();
   private catalogResults = seedMockCatalogResults();
   private cardDetails = seedMockCardDetails();
+  private favoriteCardTimestamps = new Map<string, string>();
   private portfolioImportJobs = new Map<string, PortfolioImportJobRecord>();
   private labelingSessions = new Map<string, LabelingSessionRecord>();
   private labelingSessionArtifacts = new Map<string, LabelingSessionArtifactRecord>();
 
+  private favoriteTimestampForCard(cardId: string) {
+    return this.favoriteCardTimestamps.get(cardId) ?? null;
+  }
+
+  private annotateInventoryEntry(entry: InventoryCardEntry): InventoryCardEntry {
+    return {
+      ...entry,
+      isFavorite: this.favoriteCardTimestamps.has(entry.cardId),
+    };
+  }
+
+  private inventoryEntriesForQuery(query?: InventoryEntriesQuery) {
+    const entries = this.inventoryEntries.map((entry) => this.annotateInventoryEntry({ ...entry }));
+    if (query?.favoritesOnly) {
+      return entries.filter((entry) => entry.isFavorite);
+    }
+    return entries;
+  }
+
+  private annotateCatalogResult(result: CatalogSearchResult): CatalogSearchResult {
+    return {
+      ...result,
+      isFavorite: this.favoriteCardTimestamps.has(result.cardId),
+    };
+  }
+
   async loadPortfolioDashboard() {
-    const dashboard = buildMockDashboard(this.inventoryEntries, this.recentSales);
+    const dashboard = buildMockDashboard(this.inventoryEntriesForQuery(), this.recentSales);
+    dashboard.inventoryItems = dashboard.inventoryItems.map((entry) => this.annotateInventoryEntry(entry));
     return buildLoadResult(
       dashboard.inventoryItems.length > 0 || dashboard.recentSales.length > 0 ? 'success' : 'empty',
       dashboard,
@@ -1671,13 +1747,13 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? buildEmptyPortfolioDashboard();
   }
 
-  async loadInventoryEntries() {
-    const entries = this.inventoryEntries.map((entry) => ({ ...entry }));
+  async loadInventoryEntries(query?: InventoryEntriesQuery) {
+    const entries = this.inventoryEntriesForQuery(query);
     return buildLoadResult(entries.length > 0 ? 'success' : 'empty', entries);
   }
 
-  async getInventoryEntries() {
-    const result = await this.loadInventoryEntries();
+  async getInventoryEntries(query?: InventoryEntriesQuery) {
+    const result = await this.loadInventoryEntries(query);
     return result.data ?? [];
   }
 
@@ -1706,7 +1782,8 @@ export class MockSpotlightRepository implements SpotlightRepository {
         ownedQuantity: this.inventoryEntries
           .filter((entry) => entry.cardId === result.cardId)
           .reduce((sum, entry) => sum + entry.quantity, 0),
-      }));
+      }))
+      .map((result) => this.annotateCatalogResult(result));
 
     return buildLoadResult(results.length > 0 ? 'success' : 'empty', results);
   }
@@ -1824,7 +1901,12 @@ export class MockSpotlightRepository implements SpotlightRepository {
   async loadCardDetail(query: CardDetailQuery) {
     const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
     return detail
-      ? buildLoadResult('success', detail)
+      ? buildLoadResult('success', {
+        ...detail,
+        ownedEntries: detail.ownedEntries.map((entry) => this.annotateInventoryEntry(entry)),
+        isFavorite: this.favoriteCardTimestamps.has(query.cardId),
+        favoritedAt: this.favoriteTimestampForCard(query.cardId),
+      })
       : buildLoadResult('not_found', null);
   }
 
@@ -1847,6 +1929,23 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }) {
     const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
     return detail?.ebayListings ?? null;
+  }
+
+  async setCardFavorite(cardId: string, isFavorite?: boolean | null) {
+    const currentlyFavorite = this.favoriteCardTimestamps.has(cardId);
+    const nextIsFavorite = isFavorite == null ? !currentlyFavorite : isFavorite;
+    if (nextIsFavorite) {
+      if (!currentlyFavorite) {
+        this.favoriteCardTimestamps.set(cardId, new Date().toISOString());
+      }
+    } else {
+      this.favoriteCardTimestamps.delete(cardId);
+    }
+    return {
+      cardId,
+      isFavorite: nextIsFavorite,
+      favoritedAt: this.favoriteTimestampForCard(cardId),
+    } satisfies CardFavoriteRecord;
   }
 
   async getAddToCollectionOptions(cardId: string) {
@@ -2145,6 +2244,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
 export class HttpSpotlightRepository implements SpotlightRepository {
   private readonly baseUrls: string[];
   private readonly getAccessToken: (() => string | null | Promise<string | null>) | null;
+  private readonly clientContext: RepositoryClientContext | null;
 
   private activeBaseUrl: string;
 
@@ -2152,6 +2252,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     baseUrl: string | string[],
     options?: {
       getAccessToken?: (() => string | null | Promise<string | null>) | null;
+      clientContext?: RepositoryClientContext | null;
     },
   ) {
     const candidates = (Array.isArray(baseUrl) ? baseUrl : [baseUrl])
@@ -2163,6 +2264,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     this.baseUrls = candidates.length > 0 ? candidates : ['http://127.0.0.1:8788'];
     this.activeBaseUrl = this.baseUrls[0];
     this.getAccessToken = options?.getAccessToken ?? null;
+    this.clientContext = options?.clientContext ?? null;
   }
 
   private get baseUrl() {
@@ -2239,6 +2341,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           marketPrice: card.pricing.market,
           currencyCode: card.pricing.currencyCode,
           ownedQuantity: 0,
+          isFavorite: card.isFavorite,
         }];
       });
   }
@@ -2359,9 +2462,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return result.data ?? buildEmptyPortfolioDashboard();
   }
 
-  async loadInventoryEntries() {
+  async loadInventoryEntries(query?: InventoryEntriesQuery) {
+    const queryParams = buildInventoryEntriesQueryParams(query);
     const response = await this.requestJson<{ entries?: DeckEntryDTO[] } | DeckEntryDTO[]>(
-      `${this.baseUrl}/api/v1/deck/entries`,
+      `${this.baseUrl}/api/v1/deck/entries${queryParams.toString() ? `?${queryParams.toString()}` : ''}`,
     );
 
     if (response.kind !== 'success') {
@@ -2382,8 +2486,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return buildLoadResult(entries.length > 0 ? 'success' : 'empty', entries);
   }
 
-  async getInventoryEntries() {
-    const result = await this.loadInventoryEntries();
+  async getInventoryEntries(query?: InventoryEntriesQuery) {
+    const result = await this.loadInventoryEntries(query);
     return result.data ?? [];
   }
 
@@ -2428,6 +2532,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           ownedQuantity: inventoryEntries
             .filter((entry: InventoryCardEntry) => entry.cardId === card.id)
             .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),
+          isFavorite: card.isFavorite,
         }];
       });
 
@@ -2452,7 +2557,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const response = await this.requestJson<ScanMatchResponseDTO>(
       `${this.baseUrl}/${endpointPath}`,
       {
-        body: JSON.stringify(createScannerMatchPayload(payload)),
+        body: JSON.stringify(createScannerMatchPayload(payload, this.clientContext ?? undefined)),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -2462,6 +2567,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         candidateStrategy: 'single_active',
         logTransport: true,
         requestLabel: endpointPath,
+        timeoutMs: scanMatchRequestTimeoutMs,
       },
     );
 
@@ -2638,6 +2744,8 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ebayListings,
       ownedEntries: (inventoryResult.data ?? []).filter((entry: InventoryCardEntry) => entry.cardId === query.cardId),
       variantOptions: marketHistory.availableVariants,
+      isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
+      favoritedAt: normalizeString(detailResponse.data.favoritedAt),
     };
 
     return buildLoadResult('success', detail);
@@ -2700,6 +2808,22 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return buildCardEbayListingsRecord(response.data, 'USD');
+  }
+
+  async setCardFavorite(cardId: string, isFavorite?: boolean | null) {
+    const encodedCardID = encodeURIComponent(cardId);
+    const response = await this.requestJsonOrThrow<CardFavoriteDTO>(`${this.baseUrl}/api/v1/cards/${encodedCardID}/favorite`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(isFavorite == null ? {} : { isFavorite }),
+    });
+    return {
+      cardId: normalizeString(response.cardId) ?? normalizeString(response.cardID) ?? cardId,
+      isFavorite: normalizeBoolean(response.isFavorite) ?? false,
+      favoritedAt: normalizeString(response.favoritedAt),
+    };
   }
 
   async getAddToCollectionOptions(cardId: string) {
@@ -2908,7 +3032,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       const timeoutId = controller
         ? setTimeout(() => {
           controller.abort();
-        }, httpRequestTimeoutMs)
+        }, options?.timeoutMs ?? defaultHttpRequestTimeoutMs)
         : null;
 
       try {

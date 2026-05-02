@@ -28,6 +28,7 @@
     "@spotlight/api-client": "workspace:*",
     "@spotlight/design-system": "workspace:*",
     "@supabase/supabase-js": "^2.104.1",
+    "@tabler/icons-react-native": "^3.41.1",
     "expo": "~55.0.18",
     "expo-apple-authentication": "~55.0.13",
     "expo-application": "~55.0.14",

@@ -18,10 +18,10 @@ import {
 import { chromeBackButtonSize } from '@/components/chrome-back-button';
 import { rawCardReticleAspectRatio } from '@/features/scanner/scanner-normalized-target';
 
-export const rawVisualCaptureQuality = 0.45;
+export const rawVisualCaptureQuality = 0.62;
 export const rawVisualPreferredLongSide = 1280;
 export const rawVisualMinimumLongSide = 900;
-export const rawScannerTrayReservedHeight = 196;
+export const rawScannerTrayReservedHeight = 168;
 
 export type RawScannerCaptureLayout = {
   backButtonTop: number;
@@ -39,11 +39,12 @@ export type RawScannerCaptureLayout = {
 };
 
 type RawScannerCaptureSurfaceProps = {
+  availableLensesChanged?: (event: { lenses: string[] }) => void;
   cameraRef: RefObject<CameraView | null>;
   cameraSessionKey?: number;
   canCapture: boolean;
   children?: ReactNode;
-  hasCameraAccess: boolean;
+  hasCameraPermission: boolean;
   layout: RawScannerCaptureLayout;
   onCameraReady: () => void;
   onCapture: () => void;
@@ -52,6 +53,8 @@ type RawScannerCaptureSurfaceProps = {
   permissionResolved: boolean;
   pictureSize?: string;
   prompt: string;
+  selectedLens?: string;
+  shouldMountCamera: boolean;
   showSlabGuide?: boolean;
   testIDPrefix: string;
 };
@@ -111,10 +114,11 @@ export function makeRawScannerCaptureLayout({
   safeAreaTop: number;
   trayReservedHeight?: number;
 }): RawScannerCaptureLayout {
-  const horizontalInset = Math.max(16, Math.round(containerWidth * 0.04));
-  const topSpacing = Math.max(safeAreaTop + 22, 74);
-  const controlsTopSpacing = 12;
-  const modeToggleReservedHeight = 64;
+  const horizontalInset = 20;
+  const topChromeBottom = safeAreaTop + chromeBackButtonSize + 16;
+  const topSpacing = topChromeBottom + 4;
+  const controlsTopSpacing = 10;
+  const modeToggleReservedHeight = 56;
   const maxHeight = Math.max(
     360,
     containerHeight - topSpacing - controlsTopSpacing - modeToggleReservedHeight - trayReservedHeight,
@@ -123,15 +127,15 @@ export function makeRawScannerCaptureLayout({
   const width = Math.max(284, Math.min(containerWidth - horizontalInset * 2, widthFromHeightLimit));
   const height = Math.round(width * rawCardReticleAspectRatio);
   const x = (containerWidth - width) / 2;
-  const y = topSpacing + 16;
+  const y = topSpacing + 24;
 
   return {
-    backButtonTop: safeAreaTop + 2,
+    backButtonTop: safeAreaTop + 10,
     controlsTop: y + height + controlsTopSpacing,
     modeToggleWidth: Math.min(containerWidth - 48, 264),
     previewHeight: containerHeight,
     previewWidth: containerWidth,
-    promptTop: Math.max(safeAreaTop + chromeBackButtonSize + 20, y - 36),
+    promptTop: Math.max(topChromeBottom + 8, y + 12),
     reticle: {
       height,
       width,
@@ -142,11 +146,12 @@ export function makeRawScannerCaptureLayout({
 }
 
 export function RawScannerCaptureSurface({
+  availableLensesChanged,
   cameraRef,
   cameraSessionKey = 0,
   canCapture,
   children,
-  hasCameraAccess,
+  hasCameraPermission,
   layout,
   onCameraReady,
   onCapture,
@@ -155,18 +160,23 @@ export function RawScannerCaptureSurface({
   permissionResolved,
   pictureSize,
   prompt,
+  selectedLens,
+  shouldMountCamera,
   showSlabGuide = false,
   testIDPrefix,
 }: RawScannerCaptureSurfaceProps) {
   return (
     <View style={styles.previewCanvas}>
-      {hasCameraAccess ? (
+      {shouldMountCamera ? (
         <CameraView
+          autofocus="off"
           facing="back"
           key={cameraSessionKey}
+          onAvailableLensesChanged={availableLensesChanged}
           onCameraReady={onCameraReady}
           pictureSize={Platform.OS === 'android' ? pictureSize : undefined}
           ref={cameraRef}
+          selectedLens={Platform.OS === 'ios' ? selectedLens : undefined}
           style={StyleSheet.absoluteFillObject}
           testID={`${testIDPrefix}-camera`}
         />
@@ -177,7 +187,7 @@ export function RawScannerCaptureSurface({
         />
       )}
 
-      {hasCameraAccess ? (
+      {shouldMountCamera ? (
         <Pressable
           accessibilityLabel="Capture scan inside frame"
           accessibilityRole="button"
@@ -196,7 +206,7 @@ export function RawScannerCaptureSurface({
         />
       ) : null}
 
-      {!hasCameraAccess ? (
+      {!hasCameraPermission ? (
         <View style={styles.permissionOverlay}>
           <View style={styles.permissionCard} testID={`${testIDPrefix}-permission-card`}>
             {!permissionResolved ? (
@@ -299,51 +309,55 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   reticleBottomLeft: {
+    borderBottomLeftRadius: 14,
     borderBottomWidth: 1.7,
     borderLeftWidth: 1.7,
   },
   reticleBottomLeftPosition: {
-    bottom: 2,
-    left: 2,
+    bottom: 0,
+    left: 0,
   },
   reticleBottomRight: {
+    borderBottomRightRadius: 14,
     borderBottomWidth: 1.7,
     borderRightWidth: 1.7,
   },
   reticleBottomRightPosition: {
-    bottom: 2,
-    right: 2,
+    bottom: 0,
+    right: 0,
   },
   reticleCaptureButton: {
     position: 'absolute',
   },
   reticleCorner: {
     borderColor: colors.scannerTextPrimary,
-    height: 30,
+    height: 20,
     position: 'absolute',
-    width: 30,
+    width: 20,
   },
   reticleShell: {
     borderColor: colors.scannerOutline,
-    borderRadius: 20,
+    borderRadius: 14,
     borderWidth: 1,
     position: 'absolute',
   },
   reticleTopLeft: {
     borderLeftWidth: 1.7,
+    borderTopLeftRadius: 14,
     borderTopWidth: 1.7,
   },
   reticleTopLeftPosition: {
-    left: 2,
-    top: 2,
+    left: 0,
+    top: 0,
   },
   reticleTopRight: {
     borderRightWidth: 1.7,
+    borderTopRightRadius: 14,
     borderTopWidth: 1.7,
   },
   reticleTopRightPosition: {
-    right: 2,
-    top: 2,
+    right: 0,
+    top: 0,
   },
   scanPrompt: {
     ...textStyles.headline,

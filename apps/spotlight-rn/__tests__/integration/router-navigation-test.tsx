@@ -3,14 +3,22 @@ import { fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { renderAppRouter } from '../test-utils';
 
 describe('mobile app routing', () => {
-  it('boots into scan and navigates between portfolio, scan, and sales history', async () => {
+  it('boots into scan and navigates between portfolio and scan', async () => {
     renderAppRouter('/');
 
-    expect(await screen.findByText('Tap inside frame to scan')).toBeTruthy();
+    // Scanner starts active — camera preview should be enabled
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-preview').props.accessibilityState?.disabled).toBe(false);
+    });
+    expect(screen.getByTestId('scanner-prompt').props.children).toBe('Tap inside frame to scan');
     expect(screen.getByTestId('scanner-tray')).toBeTruthy();
+
+    // No bottom nav on scanner page
     expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
     expect(screen.queryByTestId('bottom-nav-scan')).toBeNull();
-    expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
+
+    // Both pager slots are mounted simultaneously (real screens, not fake underlays)
+    expect(screen.getByTestId('top-tabs-pager')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('scanner-mode-toggle-slabs'));
     expect(screen.getByTestId('scanner-slab-guide')).toBeTruthy();
@@ -20,19 +28,24 @@ describe('mobile app routing', () => {
       expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
     });
 
+    // Press scanner back button — switches pager to portfolio
     fireEvent.press(screen.getByTestId('scanner-back-button'));
 
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-account-button')).toBeTruthy();
     });
+    // Bottom nav appears on portfolio page
     expect(screen.getByTestId('bottom-nav-portfolio').props.accessibilityState).toEqual({ selected: true });
     expect(screen.getByTestId('bottom-nav-scan').props.accessibilityState).toEqual({ selected: false });
 
+    // Press scan tab in bottom nav — switches back to scanner
     fireEvent.press(screen.getByTestId('bottom-nav-scan'));
 
     await waitFor(() => {
-      expect(screen.getByText('Tap inside frame to scan')).toBeTruthy();
+      // Bottom nav disappears on scanner page
+      expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
     });
+    expect(screen.getByTestId('scanner-prompt').props.children).toBe('Tap inside frame to scan');
   });
 
   it('renders the sales-history route directly', async () => {

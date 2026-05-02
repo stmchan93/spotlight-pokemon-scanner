@@ -1,0 +1,84 @@
+name: ios-staging-smoke
+
+on:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  ios-staging-smoke:
+    runs-on: macos-latest
+    environment: staging
+    concurrency: ios-staging-smoke
+    env:
+      EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL: ${{ vars.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL }}
+      EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL: ${{ vars.EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL }}
+      EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY }}
+      EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL: ${{ vars.EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL }}
+      EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME: ${{ vars.EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME }}
+      EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED: '1'
+      SPOTLIGHT_APP_SCHEME: ${{ vars.SPOTLIGHT_APP_SCHEME }}
+      SPOTLIGHT_EXPO_OWNER: ${{ vars.SPOTLIGHT_EXPO_OWNER }}
+      SPOTLIGHT_EAS_PROJECT_ID: ${{ vars.SPOTLIGHT_EAS_PROJECT_ID }}
+      SPOTLIGHT_IOS_BUNDLE_IDENTIFIER: ${{ vars.SPOTLIGHT_IOS_BUNDLE_IDENTIFIER }}
+      SPOTLIGHT_APP_ENV: staging
+      IOS_SIMULATOR_DEVICE: ${{ vars.SPOTLIGHT_MAESTRO_IOS_SIMULATOR_DEVICE }}
+      SPOTLIGHT_MAESTRO_CATALOG_QUERY: ${{ vars.SPOTLIGHT_MAESTRO_CATALOG_QUERY }}
+      SPOTLIGHT_MAESTRO_CATALOG_RESULT_ID: ${{ vars.SPOTLIGHT_MAESTRO_CATALOG_RESULT_ID }}
+      SPOTLIGHT_MAESTRO_SINGLE_SELL_ENTRY_ID: ${{ vars.SPOTLIGHT_MAESTRO_SINGLE_SELL_ENTRY_ID }}
+      SPOTLIGHT_MAESTRO_SINGLE_SELL_PRICE: ${{ vars.SPOTLIGHT_MAESTRO_SINGLE_SELL_PRICE }}
+      SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_ONE: ${{ vars.SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_ONE }}
+      SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_TWO: ${{ vars.SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_TWO }}
+      SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_ONE: ${{ vars.SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_ONE }}
+      SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_TWO: ${{ vars.SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_TWO }}
+      SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_ONE: ${{ vars.SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_ONE }}
+      SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_TWO: ${{ vars.SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_TWO }}
+      SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK: ${{ vars.SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.30.3
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Maestro CLI
+        run: |
+          curl -Ls "https://get.maestro.mobile.dev" | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      - name: Boot iOS simulator
+        run: |
+          DEVICE_NAME="${IOS_SIMULATOR_DEVICE:-iPhone 16}"
+          xcrun simctl boot "$DEVICE_NAME" || true
+          open -a Simulator
+          xcrun simctl bootstatus "$DEVICE_NAME" -b
+
+      - name: Build and launch staging app on simulator
+        run: |
+          DEVICE_NAME="${IOS_SIMULATOR_DEVICE:-iPhone 16}"
+          pnpm --filter @spotlight/mobile-app exec expo run:ios --simulator "$DEVICE_NAME"
+
+      - name: Bootstrap authenticated smoke session
+        if: ${{ env.SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK != '' }}
+        run: |
+          xcrun simctl openurl booted "$SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK"
+          sleep 8
+
+      - name: Run signed-in Maestro staging smoke
+        run: pnpm mobile:smoke:staging:maestro
+
+      - name: Run scanner fixture smoke
+        run: pnpm mobile:smoke:staging:maestro:scan-fixture

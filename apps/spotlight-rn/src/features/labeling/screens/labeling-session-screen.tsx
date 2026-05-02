@@ -631,7 +631,7 @@ export function LabelingSessionScreen() {
         <RawScannerCaptureSurface
           cameraRef={cameraRef}
           canCapture={canCapture}
-          hasCameraAccess={permission?.granted ?? false}
+          hasCameraPermission={permission?.granted ?? false}
           layout={captureSurfaceLayout}
           onCameraReady={() => {
             setIsCameraReady(true);
@@ -647,6 +647,7 @@ export function LabelingSessionScreen() {
           permissionResolved={!!permission}
           pictureSize={rawVisualPictureSize}
           prompt={`Tap inside frame to capture ${currentAngle.title}`}
+          shouldMountCamera={permission?.granted ?? false}
           testIDPrefix="labeler"
         >
           <View

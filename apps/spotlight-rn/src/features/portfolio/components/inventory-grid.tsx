@@ -84,7 +84,7 @@ export function InventoryGrid({
   const hasSearchQuery = searchQuery.trim().length > 0;
   const emptyStateTitle = hasInventoryEntries
     ? 'No cards match that search'
-    : 'No cards in your inventory yet';
+    : 'No cards in your collection yet';
   const emptyStateMessage = hasInventoryEntries
     ? 'Try a different name, set, or card number.'
     : 'Scan or add a card and it will appear here.';
@@ -133,7 +133,7 @@ export function InventoryGrid({
           <SearchField
             containerStyle={styles.searchField}
             onChangeText={onSearchChange}
-            placeholder="Search inventory cards"
+            placeholder="Search collection cards"
             value={searchQuery}
           />
 

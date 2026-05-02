@@ -113,7 +113,7 @@ export type LabelingSessionArtifactRecord = {
 };
 
 export type InventorySortOption = 'recent' | 'value' | 'a-z';
-export type InventoryFilterOption = 'all' | 'raw' | 'graded';
+export type InventoryFilterOption = 'all' | 'raw' | 'graded' | 'favorite';
 
 export type SlabContext = {
   grader: string;
@@ -186,6 +186,7 @@ export type InventoryCardEntry = {
   slabContext?: SlabContext | null;
   costBasisPerUnit?: number | null;
   costBasisTotal?: number | null;
+  isFavorite?: boolean;
 };
 
 export type PortfolioInventoryItem = InventoryCardEntry;
@@ -227,6 +228,7 @@ export type CatalogSearchResult = {
   marketPrice?: number | null;
   currencyCode?: string | null;
   ownedQuantity?: number;
+  isFavorite?: boolean;
 };
 
 export type MarketHistoryOption = {
@@ -287,6 +289,19 @@ export type CardDetailRecord = {
   ebayListings?: CardEbayListingsRecord | null;
   ownedEntries: InventoryCardEntry[];
   variantOptions: MarketHistoryOption[];
+  isFavorite?: boolean;
+  favoritedAt?: string | null;
+};
+
+export type InventoryEntriesQuery = {
+  favoritesOnly?: boolean;
+  includeInactive?: boolean;
+};
+
+export type CardFavoriteRecord = {
+  cardId: string;
+  isFavorite: boolean;
+  favoritedAt?: string | null;
 };
 
 export type CollectionVariantOption = {

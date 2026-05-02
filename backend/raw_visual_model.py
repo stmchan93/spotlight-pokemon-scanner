@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 from pathlib import Path
+from time import perf_counter
 from typing import Iterable
 
 import numpy as np
@@ -113,14 +114,50 @@ class RawVisualFrozenEncoder:
             f"Unsupported CLIP image feature output type: {type(features).__name__}"
         )
 
-    def _embed_batch(self, images: list[Image.Image]) -> np.ndarray:
+    def _embed_batch_with_timing(self, images: list[Image.Image]) -> tuple[np.ndarray, dict[str, float]]:
+        preprocess_started_at = perf_counter()
         inputs = self.processor(images=images, return_tensors="pt")
         inputs = {key: value.to(self.device) for key, value in inputs.items()}
+        preprocess_ms = (perf_counter() - preprocess_started_at) * 1000.0
+
+        forward_started_at = perf_counter()
         with torch.inference_mode():
             features = self.model.get_image_features(**inputs)
             features = self._coerce_image_features(features)
             features = F.normalize(features, p=2, dim=-1)
-        return features.detach().cpu().numpy().astype(np.float32)
+        model_forward_ms = (perf_counter() - forward_started_at) * 1000.0
+
+        postprocess_started_at = perf_counter()
+        result = features.detach().cpu().numpy().astype(np.float32)
+        postprocess_ms = (perf_counter() - postprocess_started_at) * 1000.0
+
+        return result, {
+            "preprocessMs": round(preprocess_ms, 3),
+            "modelForwardMs": round(model_forward_ms, 3),
+            "postprocessMs": round(postprocess_ms, 3),
+            "totalMs": round(preprocess_ms + model_forward_ms + postprocess_ms, 3),
+        }
+
+    def _embed_batch(self, images: list[Image.Image]) -> np.ndarray:
+        embeddings, _ = self._embed_batch_with_timing(images)
+        return embeddings
+
+    def _empty_embedding_result(self) -> np.ndarray:
+        return np.zeros((0, self.embedding_dim), dtype=np.float32)
+
+    @staticmethod
+    def _empty_timing_result() -> dict[str, float]:
+        return {
+            "preprocessMs": 0.0,
+            "modelForwardMs": 0.0,
+            "postprocessMs": 0.0,
+            "totalMs": 0.0,
+        }
+
+    @staticmethod
+    def _batch_slices(total_count: int, batch_size: int) -> Iterable[slice]:
+        for start in range(0, total_count, batch_size):
+            yield slice(start, start + batch_size)
 
     def embed_image_paths(
         self,
@@ -130,11 +167,11 @@ class RawVisualFrozenEncoder:
     ) -> np.ndarray:
         paths = [Path(path).resolve() for path in image_paths]
         if not paths:
-            return np.zeros((0, self.embedding_dim), dtype=np.float32)
+            return self._empty_embedding_result()
 
         outputs: list[np.ndarray] = []
-        for start in range(0, len(paths), batch_size):
-            batch_paths = paths[start : start + batch_size]
+        for batch_slice in self._batch_slices(len(paths), batch_size):
+            batch_paths = paths[batch_slice]
             images = [Image.open(path).convert("RGB") for path in batch_paths]
             try:
                 outputs.append(self._embed_batch(images))
@@ -151,13 +188,43 @@ class RawVisualFrozenEncoder:
     ) -> np.ndarray:
         materialized = list(images)
         if not materialized:
-            return np.zeros((0, self.embedding_dim), dtype=np.float32)
+            return self._empty_embedding_result()
 
         outputs: list[np.ndarray] = []
-        for start in range(0, len(materialized), batch_size):
-            batch_images = materialized[start : start + batch_size]
+        for batch_slice in self._batch_slices(len(materialized), batch_size):
+            batch_images = materialized[batch_slice]
             outputs.append(self._embed_batch(batch_images))
         return np.concatenate(outputs, axis=0)
+
+    def embed_images_with_timing(
+        self,
+        images: Iterable[Image.Image],
+        *,
+        batch_size: int = 32,
+    ) -> tuple[np.ndarray, dict[str, float]]:
+        materialized = list(images)
+        if not materialized:
+            return self._empty_embedding_result(), self._empty_timing_result()
+
+        outputs: list[np.ndarray] = []
+        preprocess_ms = 0.0
+        model_forward_ms = 0.0
+        postprocess_ms = 0.0
+        total_ms = 0.0
+        for batch_slice in self._batch_slices(len(materialized), batch_size):
+            batch_images = materialized[batch_slice]
+            embeddings, timing = self._embed_batch_with_timing(batch_images)
+            outputs.append(embeddings)
+            preprocess_ms += float(timing.get("preprocessMs") or 0.0)
+            model_forward_ms += float(timing.get("modelForwardMs") or 0.0)
+            postprocess_ms += float(timing.get("postprocessMs") or 0.0)
+            total_ms += float(timing.get("totalMs") or 0.0)
+        return np.concatenate(outputs, axis=0), {
+            "preprocessMs": round(preprocess_ms, 3),
+            "modelForwardMs": round(model_forward_ms, 3),
+            "postprocessMs": round(postprocess_ms, 3),
+            "totalMs": round(total_ms, 3),
+        }
 
 
 def load_projection_adapter(

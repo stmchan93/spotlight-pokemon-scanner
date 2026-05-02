@@ -1,6 +1,13 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useFocusEffect, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  IconHeart,
+  IconHeartFilled,
+  IconMinus,
+  IconSearch,
+} from '@tabler/icons-react-native';
 import {
   ActivityIndicator,
   Animated,
@@ -29,15 +36,19 @@ import {
 import {
   Button,
   colors,
+  SearchField,
   SegmentedControl,
   textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { useTabsPage } from '@/contexts/tabs-page-context';
 import {
   clampRecentCaptureSwipeTranslate,
+  recentCaptureActionRailRevealWidth,
   recentCaptureDeleteRevealWidth,
+  recentCaptureFavoriteRevealWidth,
   shouldCollapseRecentCaptureDeleteFromSwipe,
   shouldRevealRecentCaptureDeleteFromSwipe,
   shouldSetRecentCaptureSwipeResponder,
@@ -64,7 +75,6 @@ import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fix
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveRuntimeValue } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
-import { useAuth } from '@/providers/auth-provider';
 
 type ScannerMode = 'raw' | 'slabs';
 
@@ -108,8 +118,11 @@ const maxStoredCaptures = 12;
 const collapsedVisibleCaptures = 1;
 const captureRowHeight = 74;
 const captureRowGap = 8;
+const favoriteHeartColor = '#E83E8C';
 const traySwipeThreshold = 20;
 const trayVelocityThreshold = 0.22;
+const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
+let cachedRawVisualPictureSize: string | undefined;
 const scannerTrayLayoutAnimation = {
   create: {
     property: LayoutAnimation.Properties.opacity,
@@ -197,7 +210,10 @@ function buildScanSelectionProperties(capture: RecentCapture) {
 
 function buildScanMatchSuccessProperties(params: {
   candidateCount: number;
+  captureMs?: number | null;
+  endToEndMs?: number | null;
   mode: ScannerMode;
+  normalizeMs?: number | null;
   requestAttemptCount?: number | null;
   reviewDisposition?: string | null;
   roundTripMs?: number | null;
@@ -212,6 +228,18 @@ function buildScanMatchSuccessProperties(params: {
     properties.request_attempt_count = params.requestAttemptCount;
   }
 
+  if (typeof params.captureMs === 'number') {
+    properties.capture_ms = params.captureMs;
+  }
+
+  if (typeof params.normalizeMs === 'number') {
+    properties.normalize_ms = params.normalizeMs;
+  }
+
+  if (typeof params.endToEndMs === 'number') {
+    properties.end_to_end_ms = params.endToEndMs;
+  }
+
   if (typeof params.reviewDisposition === 'string' && params.reviewDisposition.length > 0) {
     properties.review_disposition = params.reviewDisposition;
   }
@@ -222,6 +250,33 @@ function buildScanMatchSuccessProperties(params: {
 
   if (typeof params.serverProcessingMs === 'number') {
     properties.server_processing_ms = params.serverProcessingMs;
+  }
+
+  return properties;
+}
+
+function buildScanMatchFailureProperties(params: {
+  captureMs?: number | null;
+  endToEndMs?: number | null;
+  errorKind: string;
+  mode: ScannerMode;
+  normalizeMs?: number | null;
+}) {
+  const properties: Record<string, number | string> = {
+    error_kind: params.errorKind,
+    mode: params.mode,
+  };
+
+  if (typeof params.captureMs === 'number') {
+    properties.capture_ms = params.captureMs;
+  }
+
+  if (typeof params.normalizeMs === 'number') {
+    properties.normalize_ms = params.normalizeMs;
+  }
+
+  if (typeof params.endToEndMs === 'number') {
+    properties.end_to_end_ms = params.endToEndMs;
   }
 
   return properties;
@@ -276,10 +331,38 @@ function withOptimisticInventoryAdd(
       quantity: 1,
       setName: candidate.setName,
       slabContext: null,
+      isFavorite: candidate.isFavorite,
       variantName: null,
     },
     ...entries,
   ];
+}
+
+function withUpdatedInventoryFavoriteState(
+  entries: InventoryCardEntry[],
+  cardId: string,
+  isFavorite: boolean,
+) {
+  return entries.map((entry) => (
+    entry.cardId === cardId
+      ? { ...entry, isFavorite }
+      : entry
+  ));
+}
+
+function withUpdatedCaptureFavoriteState(
+  captures: RecentCapture[],
+  cardId: string,
+  isFavorite: boolean,
+) {
+  return captures.map((capture) => ({
+    ...capture,
+    candidates: capture.candidates.map((candidate) => (
+      candidate.cardId === cardId
+        ? { ...candidate, isFavorite }
+        : candidate
+    )),
+  }));
 }
 
 
@@ -299,71 +382,91 @@ async function triggerScannerHaptic() {
 }
 
 type RecentCaptureSwipeRowProps = {
+  actionRailKey: string;
   children: ReactNode;
+  onActionRailVisibilityChange?: (key: string, visible: boolean) => void;
   onDelete: () => void;
+  onFavorite: () => void;
+  isFavorite: boolean;
   testID: string;
 };
 
-function RecentCaptureSwipeRow({ children, onDelete, testID }: RecentCaptureSwipeRowProps) {
-  const [isDeleteRevealed, setIsDeleteRevealed] = useState(false);
+function RecentCaptureSwipeRow({
+  actionRailKey,
+  children,
+  isFavorite,
+  onActionRailVisibilityChange,
+  onDelete,
+  onFavorite,
+  testID,
+}: RecentCaptureSwipeRowProps) {
+  const [isActionRailRevealed, setIsActionRailRevealed] = useState(false);
   const translateX = useRef(new Animated.Value(0)).current;
   const deleteOpacity = useMemo(() => translateX.interpolate({
     extrapolate: 'clamp',
-    inputRange: [0, 1],
-    outputRange: [0, 1],
+    inputRange: [-recentCaptureActionRailRevealWidth, 0],
+    outputRange: [1, 0],
   }), [translateX]);
 
   const settleClosed = useCallback(() => {
-    setIsDeleteRevealed(false);
+    setIsActionRailRevealed(false);
+    onActionRailVisibilityChange?.(actionRailKey, false);
     Animated.spring(translateX, {
       bounciness: 0,
       speed: 16,
       toValue: 0,
       useNativeDriver: true,
     }).start();
-  }, [translateX]);
+  }, [actionRailKey, onActionRailVisibilityChange, translateX]);
 
-  const revealDeleteAction = useCallback(() => {
-    setIsDeleteRevealed(true);
+  const revealActionRail = useCallback(() => {
+    setIsActionRailRevealed(true);
+    onActionRailVisibilityChange?.(actionRailKey, true);
     Animated.spring(translateX, {
       bounciness: 0,
       speed: 18,
-      toValue: recentCaptureDeleteRevealWidth,
+      toValue: -recentCaptureActionRailRevealWidth,
       useNativeDriver: true,
     }).start();
-  }, [translateX]);
+  }, [actionRailKey, onActionRailVisibilityChange, translateX]);
 
   const handleSwipeMove = useCallback((gestureState: PanResponderGestureState) => {
-    translateX.setValue(clampRecentCaptureSwipeTranslate(gestureState.dx, isDeleteRevealed));
-  }, [isDeleteRevealed, translateX]);
+    translateX.setValue(clampRecentCaptureSwipeTranslate(gestureState.dx, isActionRailRevealed));
+  }, [isActionRailRevealed, translateX]);
 
   const handleSwipeEnd = useCallback((gestureState: PanResponderGestureState) => {
-    if (isDeleteRevealed) {
+    if (isActionRailRevealed) {
       if (shouldCollapseRecentCaptureDeleteFromSwipe(gestureState)) {
         settleClosed();
         return;
       }
 
-      revealDeleteAction();
+      revealActionRail();
       return;
     }
 
     if (shouldRevealRecentCaptureDeleteFromSwipe(gestureState)) {
-      revealDeleteAction();
+      revealActionRail();
       return;
     }
 
     settleClosed();
-  }, [isDeleteRevealed, revealDeleteAction, settleClosed]);
+  }, [isActionRailRevealed, revealActionRail, settleClosed]);
 
   const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gestureState) => shouldSetRecentCaptureSwipeResponder(gestureState, isDeleteRevealed),
+    onMoveShouldSetPanResponder: (_, gestureState) => shouldSetRecentCaptureSwipeResponder(gestureState, isActionRailRevealed),
     onPanResponderMove: (_, gestureState) => handleSwipeMove(gestureState),
     onPanResponderRelease: (_, gestureState) => handleSwipeEnd(gestureState),
     onPanResponderTerminate: () => {
       settleClosed();
     },
-  }), [handleSwipeEnd, handleSwipeMove, isDeleteRevealed, settleClosed]);
+  }), [handleSwipeEnd, handleSwipeMove, isActionRailRevealed, settleClosed]);
+
+  useEffect(() => {
+    return () => {
+      onActionRailVisibilityChange?.(actionRailKey, false);
+    };
+  }, [actionRailKey, onActionRailVisibilityChange]);
 
   return (
     <View
@@ -376,9 +479,9 @@ function RecentCaptureSwipeRow({ children, onDelete, testID }: RecentCaptureSwip
           <Pressable
             accessibilityElementsHidden
             importantForAccessibility="no-hide-descendants"
-            onPress={revealDeleteAction}
+            onPress={revealActionRail}
             style={styles.captureSwipeTestControl}
-            testID={`${testID}-reveal-delete`}
+            testID={`${testID}-reveal-actions`}
           />
           <Pressable
             accessibilityElementsHidden
@@ -390,25 +493,53 @@ function RecentCaptureSwipeRow({ children, onDelete, testID }: RecentCaptureSwip
         </>
       ) : null}
       <Animated.View
-        pointerEvents={isDeleteRevealed ? 'auto' : 'none'}
+        pointerEvents={isActionRailRevealed ? 'auto' : 'none'}
         style={[styles.captureDeleteUnderlay, { opacity: deleteOpacity }]}
-        testID={`${testID}-delete-underlay`}
+        testID={`${testID}-actions-underlay`}
       >
-        <Pressable
-          accessibilityElementsHidden={!isDeleteRevealed}
-          accessibilityLabel="Delete recent scan"
-          accessibilityRole="button"
-          accessibilityState={{ disabled: !isDeleteRevealed }}
-          importantForAccessibility={isDeleteRevealed ? 'auto' : 'no-hide-descendants'}
-          onPress={isDeleteRevealed ? onDelete : undefined}
-          style={({ pressed }) => [
-            styles.captureDeleteButton,
-            pressed ? styles.captureDeleteUnderlayPressed : null,
-          ]}
-          testID={`${testID}-delete-button`}
-        >
-          <Text style={styles.captureDeleteLabel}>DELETE</Text>
-        </Pressable>
+        <View style={styles.captureActionRail}>
+          <Pressable
+            accessibilityElementsHidden={!isActionRailRevealed}
+            accessibilityLabel={isFavorite ? 'Remove favorite' : 'Favorite recent scan'}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !isActionRailRevealed }}
+            importantForAccessibility={isActionRailRevealed ? 'auto' : 'no-hide-descendants'}
+            onPress={isActionRailRevealed
+              ? () => {
+                  onFavorite();
+                  settleClosed();
+                }
+              : undefined}
+            style={({ pressed }) => [
+              styles.captureFavoriteButton,
+              pressed ? styles.captureFavoriteButtonPressed : null,
+            ]}
+            testID={`${testID}-favorite-button`}
+          >
+            {isFavorite ? (
+              <IconHeartFilled color={favoriteHeartColor} size={16} />
+            ) : (
+              <IconHeart color={favoriteHeartColor} size={16} strokeWidth={2} />
+            )}
+            <Text style={styles.captureFavoriteLabel}>FAVORITE</Text>
+          </Pressable>
+          <Pressable
+            accessibilityElementsHidden={!isActionRailRevealed}
+            accessibilityLabel="Delete recent scan"
+            accessibilityRole="button"
+            accessibilityState={{ disabled: !isActionRailRevealed }}
+            importantForAccessibility={isActionRailRevealed ? 'auto' : 'no-hide-descendants'}
+            onPress={isActionRailRevealed ? onDelete : undefined}
+            style={({ pressed }) => [
+              styles.captureDeleteButton,
+              pressed ? styles.captureDeleteUnderlayPressed : null,
+            ]}
+            testID={`${testID}-delete-button`}
+          >
+            <IconMinus color="#FFFFFF" size={18} strokeWidth={2.4} />
+            <Text style={styles.captureDeleteLabel}>DELETE</Text>
+          </Pressable>
+        </View>
       </Animated.View>
       <Animated.View style={[styles.captureSwipeContent, { transform: [{ translateX }] }]}>
         {children}
@@ -438,22 +569,73 @@ function RefreshIcon({ color, size = 18 }: { color: string; size?: number }) {
   );
 }
 
-export function ScannerScreen() {
+function ScannerSearchLauncher({
+  onChangeText,
+  onSubmit,
+  value,
+}: {
+  onChangeText: (value: string) => void;
+  onSubmit: () => void;
+  value: string;
+}) {
+  return (
+    <SearchField
+      autoCapitalize="none"
+      autoCorrect={false}
+      containerStyle={[
+        styles.searchLauncher,
+        {
+          backgroundColor: colors.scannerSurfaceStrong,
+          borderColor: colors.scannerTextPrimary,
+        },
+      ]}
+      containerTestID="scanner-search-launcher"
+      inputStyle={styles.searchLauncherInput}
+      leading={<IconSearch color={colors.scannerTextSecondary} size={18} strokeWidth={2} />}
+      onChangeText={onChangeText}
+      onSubmitEditing={onSubmit}
+      placeholder="Search card to add"
+      placeholderTextColor={colors.scannerTextSecondary}
+      returnKeyType="search"
+      value={value}
+    />
+  );
+}
+
+type ScannerScreenProps = {
+  onExitToPortfolio?: () => void;
+  onTopLevelSwipeEnabledChange?: (enabled: boolean) => void;
+};
+
+export function ScannerScreen({
+  onExitToPortfolio,
+  onTopLevelSwipeEnabledChange,
+}: ScannerScreenProps = {}) {
+  const isTestEnv = process.env.NODE_ENV === 'test';
+  const { activePage } = useTabsPage();
+  const isActiveTab = activePage === 'scanner';
   const theme = useSpotlightTheme();
   const router = useRouter();
-  const { currentUser } = useAuth();
   const { dataVersion, refreshData, spotlightRepository } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const [scannerMode, setScannerMode] = useState<ScannerMode>('raw');
   const [permission, requestPermission] = useCameraPermissions();
-  const [isCameraReady, setIsCameraReady] = useState(false);
+  const [isCameraReady, setIsCameraReady] = useState(isTestEnv);
   const [isCapturing, setIsCapturing] = useState(false);
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
   const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
+  const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
-  const [rawVisualPictureSize, setRawVisualPictureSize] = useState<string | undefined>(undefined);
+  const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
+  const [isRawPictureConfigReady, setIsRawPictureConfigReady] = useState(
+    isTestEnv || cachedRawVisualPictureSize != null,
+  );
+  const [rawVisualPictureSize, setRawVisualPictureSize] = useState<string | undefined>(
+    cachedRawVisualPictureSize,
+  );
   const [cameraSessionKey, setCameraSessionKey] = useState(0);
+  const [availableBackLenses, setAvailableBackLenses] = useState<string[]>([]);
   const hasFocusedScannerRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const cameraRef = useRef<CameraView | null>(null);
@@ -477,14 +659,29 @@ export function ScannerScreen() {
     x: captureSurfaceLayout.reticle.x,
     y: captureSurfaceLayout.reticle.y,
   };
-  const hasCameraAccess = permission?.granted ?? false;
-  const canStartLabelingSession = !!(currentUser?.labelerEnabled || currentUser?.adminEnabled);
+  const hasCameraPermission = permission?.granted ?? false;
+  const shouldMountCamera = hasCameraPermission && isActiveTab;
+  const preferredScannerLens = useMemo(() => {
+    if (Platform.OS !== 'ios') {
+      return undefined;
+    }
+
+    if (availableBackLenses.includes('builtInWideAngleCamera')) {
+      return 'builtInWideAngleCamera';
+    }
+
+    return undefined;
+  }, [availableBackLenses]);
   const scannerSmokeEnabled = resolveRuntimeBoolean(
     ['EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED'],
     ['spotlightScannerSmokeEnabled'],
   ) && (runtimeAppEnv === 'staging' || __DEV__);
-  const canCapture = hasCameraAccess && isCameraReady && !isCapturing;
+  const canCapture = shouldMountCamera
+    && isCameraReady
+    && !isCapturing
+    && (scannerMode !== 'raw' || isRawPictureConfigReady);
   const canToggleTray = recentCaptures.length > 0;
+  const isTopLevelSwipeEnabled = Object.keys(openActionRailKeys).length === 0;
   const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures);
   const visibleCaptures = isTrayExpanded ? recentCaptures : collapsedCaptures;
   const trayExpandedBodyHeight = alignToFourPointGrid(
@@ -545,6 +742,14 @@ export function ScannerScreen() {
     }
   }, [isTrayExpanded, recentCaptures.length]);
 
+  useEffect(() => {
+    onTopLevelSwipeEnabledChange?.(isTopLevelSwipeEnabled);
+
+    return () => {
+      onTopLevelSwipeEnabledChange?.(true);
+    };
+  }, [isTopLevelSwipeEnabled, onTopLevelSwipeEnabledChange]);
+
   useFocusEffect(useCallback(() => {
     trayGestureCommittedRef.current = false;
     isResolvingPictureSizeRef.current = false;
@@ -552,7 +757,8 @@ export function ScannerScreen() {
     if (hasFocusedScannerRef.current) {
       setIsCameraReady(false);
       setIsCapturing(false);
-      setRawVisualPictureSize(undefined);
+      setIsRawPictureConfigReady(isTestEnv || cachedRawVisualPictureSize != null);
+      setRawVisualPictureSize(cachedRawVisualPictureSize);
       setCameraSessionKey((current) => current + 1);
     } else {
       hasFocusedScannerRef.current = true;
@@ -563,8 +769,35 @@ export function ScannerScreen() {
       isResolvingPictureSizeRef.current = false;
       setIsCameraReady(false);
       setIsCapturing(false);
+      setIsRawPictureConfigReady(isTestEnv || cachedRawVisualPictureSize != null);
     };
-  }, []));
+  }, [isTestEnv]));
+
+  // Manage camera lifecycle when the pager switches between portfolio and scanner pages.
+  // useFocusEffect handles route-level focus (navigating to card detail and back).
+  // This effect handles pager-level page switches where the route never changes.
+  const prevIsActiveTabRef = useRef<boolean | null>(null);
+  useEffect(() => {
+    const prev = prevIsActiveTabRef.current;
+    prevIsActiveTabRef.current = isActiveTab;
+    // Skip initial mount — camera is already in the right state from component init.
+    if (prev === null) {
+      return;
+    }
+    if (isActiveTab && !prev) {
+      // Returning to scanner from portfolio — restart camera session.
+      setIsCameraReady(false);
+      setIsCapturing(false);
+      setIsRawPictureConfigReady(isTestEnv || cachedRawVisualPictureSize != null);
+      setRawVisualPictureSize(cachedRawVisualPictureSize);
+      setCameraSessionKey((current) => current + 1);
+    } else if (!isActiveTab && prev) {
+      // Leaving scanner for portfolio — stop capture state.
+      setIsCameraReady(false);
+      setIsCapturing(false);
+      setIsRawPictureConfigReady(isTestEnv || cachedRawVisualPictureSize != null);
+    }
+  }, [isActiveTab, isTestEnv]);
 
   const commitTrayExpandedState = useCallback((nextExpanded: boolean) => {
     setIsTrayExpanded((current) => {
@@ -581,15 +814,31 @@ export function ScannerScreen() {
   }, []);
 
   const resolveRawVisualPictureSize = useCallback(() => {
+    if (isTestEnv) {
+      setRawVisualPictureSize(undefined);
+      setIsRawPictureConfigReady(true);
+      isResolvingPictureSizeRef.current = false;
+      return;
+    }
+
+    if (cachedRawVisualPictureSize != null) {
+      setRawVisualPictureSize(cachedRawVisualPictureSize);
+      setIsRawPictureConfigReady(true);
+      isResolvingPictureSizeRef.current = false;
+      return;
+    }
+
     if (isResolvingPictureSizeRef.current) {
       return;
     }
 
+    setIsRawPictureConfigReady(false);
     isResolvingPictureSizeRef.current = true;
     void (async () => {
       try {
         const sizes = await cameraRef.current?.getAvailablePictureSizesAsync?.();
         const selectedSize = chooseRawVisualPictureSize(Array.isArray(sizes) ? sizes : []);
+        cachedRawVisualPictureSize = selectedSize ?? undefined;
         setRawVisualPictureSize(selectedSize ?? undefined);
         if (selectedSize && process.env.NODE_ENV !== 'test') {
           console.info(`[SCANNER VISUAL TEST] rawPictureSize=${selectedSize}`);
@@ -597,10 +846,41 @@ export function ScannerScreen() {
       } catch {
         setRawVisualPictureSize(undefined);
       } finally {
+        setIsRawPictureConfigReady(true);
         isResolvingPictureSizeRef.current = false;
       }
     })();
+  }, [isTestEnv]);
+
+  const handleAvailableLensesChanged = useCallback((event: { lenses: string[] }) => {
+    const nextLenses = Array.isArray(event.lenses)
+      ? event.lenses.filter((candidate) => typeof candidate === 'string' && candidate.trim().length > 0)
+      : [];
+
+    setAvailableBackLenses(nextLenses);
+
+    if (process.env.NODE_ENV !== 'test' && nextLenses.length > 0) {
+      console.info(
+        `[SCANNER VISUAL TEST] availableLenses=${nextLenses.join(',')} selectedLens=${
+          nextLenses.includes('builtInWideAngleCamera')
+            ? 'builtInWideAngleCamera'
+            : 'default'
+        }`,
+      );
+    }
   }, []);
+
+  useEffect(() => {
+    if (
+      scannerMode !== 'raw'
+      || !isCameraReady
+      || rawVisualPictureSize != null
+    ) {
+      return;
+    }
+
+    resolveRawVisualPictureSize();
+  }, [isCameraReady, rawVisualPictureSize, resolveRawVisualPictureSize, scannerMode]);
 
   const inventoryByCardId = useMemo(() => {
     const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
@@ -698,9 +978,9 @@ export function ScannerScreen() {
         mode,
         width: normalizedTarget.normalizedImageDimensions.width,
       });
+      const endToEndMs = Date.now() - scanStartedAt;
       if (mode === 'raw' && process.env.NODE_ENV !== 'test') {
         const clientMatchMs = Date.now() - matchStartedAt;
-        const endToEndMs = Date.now() - scanStartedAt;
         console.info(
           `[SCANNER VISUAL TEST] captureMs=${captureMs} `
           + `captureSource=${captureSource} `
@@ -741,7 +1021,10 @@ export function ScannerScreen() {
       }));
       capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
         candidateCount: matchResult.candidates.length,
+        captureMs,
+        endToEndMs,
         mode,
+        normalizeMs,
         requestAttemptCount: matchResult.requestAttemptCount,
         reviewDisposition: matchResult.reviewDisposition,
         roundTripMs: matchResult.roundTripMs,
@@ -775,10 +1058,13 @@ export function ScannerScreen() {
         sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
         uri: normalizedTarget.normalizedImageUri,
       }));
-      capturePostHogEvent('scan_match_failed', {
-        error_kind: scannerErrorKind(error),
+      capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+        captureMs,
+        endToEndMs: Date.now() - scanStartedAt,
+        errorKind: scannerErrorKind(error),
         mode,
-      });
+        normalizeMs,
+      }));
     }
   }, [spotlightRepository, updateRecentCapture]);
 
@@ -827,6 +1113,8 @@ export function ScannerScreen() {
     let capturedPhotoUri = '';
     let capturedSourceImageCrop: ScanSourceImageCrop | null = null;
     let capturedSourceImageDimensions: ScanSourceImageDimensions | null = null;
+    let captureMsForAnalytics: number | null = null;
+    let normalizeMsForAnalytics: number | null = null;
 
     try {
       const captureStartedAt = Date.now();
@@ -836,14 +1124,17 @@ export function ScannerScreen() {
         skipProcessing: false,
       });
       const captureMs = Date.now() - captureStartedAt;
+      captureMsForAnalytics = captureMs;
 
       setIsCapturing(false);
 
       if (!photo?.uri) {
-        capturePostHogEvent('scan_match_failed', {
-          error_kind: 'source_capture_unavailable',
+        capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+          captureMs,
+          endToEndMs: Date.now() - scanStartedAt,
+          errorKind: 'source_capture_unavailable',
           mode: scannerMode,
-        });
+        }));
         setRecentCaptures((current) => current.map((capture) => {
           if (capture.id !== captureId) {
             return capture;
@@ -932,6 +1223,7 @@ export function ScannerScreen() {
         sourceImageUri: photo.uri,
       });
       const normalizeMs = Date.now() - normalizeStartedAt;
+      normalizeMsForAnalytics = normalizeMs;
       if (!normalizedTarget) {
         throw new Error('normalized_target_unavailable');
       }
@@ -974,10 +1266,13 @@ export function ScannerScreen() {
           error,
         );
       }
-      capturePostHogEvent('scan_match_failed', {
-        error_kind: scannerErrorKind(error),
+      capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+        captureMs: captureMsForAnalytics,
+        endToEndMs: Date.now() - scanStartedAt,
+        errorKind: scannerErrorKind(error),
         mode: scannerMode,
-      });
+        normalizeMs: normalizeMsForAnalytics,
+      }));
       setIsCapturing(false);
       setRecentCaptures((current) => current.map((capture) => {
         if (capture.id !== captureId) {
@@ -1080,10 +1375,13 @@ export function ScannerScreen() {
         matchReviewDisposition: 'unsupported',
         matchReviewReason: 'Scanner smoke fixture could not load.',
       }));
-      capturePostHogEvent('scan_match_failed', {
-        error_kind: scannerErrorKind(error),
+      capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
+        captureMs: 0,
+        endToEndMs: Date.now() - scanStartedAt,
+        errorKind: scannerErrorKind(error),
         mode: 'raw',
-      });
+        normalizeMs: 0,
+      }));
     }
   }, [isCapturing, scannerMode, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
 
@@ -1099,6 +1397,37 @@ export function ScannerScreen() {
       };
     }));
   }, []);
+
+  const handleToggleFavorite = useCallback(async (captureId: string) => {
+    const capture = recentCaptures.find((entry) => entry.id === captureId);
+    const candidate = capture ? activeCandidateForCapture(capture) : null;
+    if (!candidate) {
+      return;
+    }
+
+    try {
+      const nextFavorite = await spotlightRepository.setCardFavorite(
+        candidate.cardId,
+        !(candidate.isFavorite ?? false),
+      );
+      setRecentCaptures((current) => withUpdatedCaptureFavoriteState(
+        current,
+        nextFavorite.cardId,
+        nextFavorite.isFavorite,
+      ));
+      setInventoryEntries((current) => withUpdatedInventoryFavoriteState(
+        current,
+        nextFavorite.cardId,
+        nextFavorite.isFavorite,
+      ));
+      refreshData();
+    } catch (error) {
+      logScannerDiagnostic(
+        `[SCANNER] favorite toggle failed cardID=${candidate.cardId} message=${scannerErrorMessage(error)}`,
+        error,
+      );
+    }
+  }, [recentCaptures, refreshData, spotlightRepository]);
 
   const handleAddToInventory = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((candidate) => candidate.id === captureId);
@@ -1204,13 +1533,56 @@ export function ScannerScreen() {
     commitTrayExpandedState(!isTrayExpanded);
   }, [canToggleTray, commitTrayExpandedState, isTrayExpanded]);
 
-  const handleExitScanner = useCallback(() => {
-    router.replace('/portfolio');
-  }, [router]);
+  const handleCaptureActionRailVisibilityChange = useCallback((key: string, visible: boolean) => {
+    setOpenActionRailKeys((current) => {
+      if (visible) {
+        if (current[key]) {
+          return current;
+        }
 
-  const handleOpenLabelingSession = useCallback(() => {
-    router.push('/labeling/session');
-  }, [router]);
+        return {
+          ...current,
+          [key]: true,
+        };
+      }
+
+      if (!current[key]) {
+        return current;
+      }
+
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const handleExitScanner = useCallback(() => {
+    if (onExitToPortfolio) {
+      onExitToPortfolio();
+      return;
+    }
+
+    if (router.canGoBack()) {
+      router.back();
+      return;
+    }
+
+    router.replace('/portfolio');
+  }, [onExitToPortfolio, router]);
+
+  const handleSubmitCatalogSearch = useCallback(() => {
+    const trimmedQuery = catalogSearchQuery.trim();
+    if (!trimmedQuery) {
+      return;
+    }
+
+    router.push({
+      pathname: '/catalog/search',
+      params: {
+        q: trimmedQuery,
+      },
+    });
+  }, [catalogSearchQuery, router]);
 
   const trayHeaderPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) =>
@@ -1285,9 +1657,15 @@ export function ScannerScreen() {
 
     return (
       <RecentCaptureSwipeRow
+        actionRailKey={capture.id}
+        isFavorite={candidate?.isFavorite ?? false}
         key={capture.id}
+        onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
         onDelete={() => {
           deleteRecentCapture(capture.id);
+        }}
+        onFavorite={() => {
+          void handleToggleFavorite(capture.id);
         }}
         testID={`scanner-tray-swipe-${index}`}
       >
@@ -1416,15 +1794,19 @@ export function ScannerScreen() {
 
   return (
     <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
+      <StatusBar style="light" />
       <RawScannerCaptureSurface
+        availableLensesChanged={handleAvailableLensesChanged}
         cameraRef={cameraRef}
         cameraSessionKey={cameraSessionKey}
         canCapture={canCapture}
-        hasCameraAccess={hasCameraAccess}
+        hasCameraPermission={hasCameraPermission}
         layout={captureSurfaceLayout}
         onCameraReady={() => {
-          setIsCameraReady(true);
-          resolveRawVisualPictureSize();
+          if (!isTestEnv) {
+            setIsCameraReady(true);
+            resolveRawVisualPictureSize();
+          }
           void cameraRef.current?.resumePreview?.();
         }}
         onCapture={() => {
@@ -1437,14 +1819,29 @@ export function ScannerScreen() {
         permissionResolved={!!permission}
         pictureSize={scannerMode === 'raw' ? rawVisualPictureSize : undefined}
         prompt={promptCopy}
+        selectedLens={preferredScannerLens}
+        shouldMountCamera={shouldMountCamera}
         showSlabGuide={scannerMode === 'slabs'}
         testIDPrefix="scanner"
       >
         <View
+          pointerEvents="none"
           style={[
-            styles.backButtonWrap,
+            styles.topChromeBackdrop,
             {
-              left: 18,
+              height: Math.max(
+                captureSurfaceLayout.backButtonTop + 46,
+                captureSurfaceLayout.reticle.y - 12,
+              ),
+            },
+          ]}
+        />
+        <View
+          style={[
+            styles.topChromeRow,
+            {
+              left: 20,
+              right: 20,
               top: captureSurfaceLayout.backButtonTop,
             },
           ]}
@@ -1454,28 +1851,23 @@ export function ScannerScreen() {
             onPress={handleExitScanner}
             testID="scanner-back-button"
           />
+          <ScannerSearchLauncher
+            onChangeText={setCatalogSearchQuery}
+            onSubmit={handleSubmitCatalogSearch}
+            value={catalogSearchQuery}
+          />
         </View>
 
-        {canStartLabelingSession || (scannerSmokeEnabled && scannerMode === 'raw') ? (
+        {scannerSmokeEnabled && scannerMode === 'raw' ? (
           <View
             style={[
               styles.topActionStack,
               {
                 right: 18,
-                top: captureSurfaceLayout.backButtonTop,
+                top: captureSurfaceLayout.backButtonTop + 56,
               },
             ]}
           >
-            {canStartLabelingSession ? (
-              <Button
-                label="New label session"
-                labelStyleVariant="caption"
-                onPress={handleOpenLabelingSession}
-                size="sm"
-                testID="labeler-entry-button"
-                variant="secondary"
-              />
-            ) : null}
             {scannerSmokeEnabled && scannerMode === 'raw' ? (
               <Button
                 label="Smoke fixture"
@@ -1512,27 +1904,22 @@ export function ScannerScreen() {
         </View>
 
         <View style={styles.trayShell} testID="scanner-tray">
-          <View
-            style={styles.trayHeader}
+          <Pressable
+            accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
+            accessibilityRole="button"
+            disabled={!canToggleTray}
+            hitSlop={trayHeaderHitSlop}
+            onPress={toggleTrayExpanded}
+            style={({ pressed }) => [
+              styles.trayHeader,
+              pressed && canToggleTray ? styles.trayHeaderPressed : null,
+            ]}
             testID="scanner-tray-header"
             {...trayHeaderPanResponder.panHandlers}
           >
-            {canToggleTray ? (
-              <Pressable
-                accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
-                accessibilityRole="button"
-                onPress={toggleTrayExpanded}
-                style={styles.sheetHandleButton}
-                testID="scanner-tray-toggle"
-              >
-                <View style={styles.sheetHandle} />
-              </Pressable>
-            ) : (
-              <View style={styles.sheetHandleButton}>
-                <View style={styles.sheetHandle} />
-              </View>
-            )}
-
+            <View style={styles.trayHandleWrap} testID="scanner-tray-handle">
+              <View style={styles.trayHandle} />
+            </View>
             <View style={styles.recentScansRow}>
               <View style={styles.recentScansMetaRow}>
                 <Text style={styles.recentScansTitle} testID="scanner-recent-title">Recent scans</Text>
@@ -1560,7 +1947,7 @@ export function ScannerScreen() {
                 </View>
               </View>
             </View>
-          </View>
+          </Pressable>
 
           <View
             style={[
@@ -1604,7 +1991,26 @@ export function ScannerScreen() {
 }
 
 const styles = StyleSheet.create({
-  backButtonWrap: {
+  searchLauncher: {
+    borderRadius: 18,
+    flex: 1,
+    minHeight: 40,
+    minWidth: 0,
+  },
+  searchLauncherInput: {
+    color: colors.scannerTextPrimary,
+  },
+  topChromeBackdrop: {
+    backgroundColor: colors.scannerTray,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    top: 0,
+  },
+  topChromeRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
     position: 'absolute',
     zIndex: 5,
   },
@@ -1709,28 +2115,55 @@ const styles = StyleSheet.create({
   captureDeleteLabel: {
     ...textStyles.control,
     color: '#FFFFFF',
-    fontSize: 11,
-    lineHeight: 13,
+    fontSize: 10,
+    lineHeight: 12,
+    textAlign: 'center',
   },
   captureDeleteUnderlay: {
     alignItems: 'center',
-    backgroundColor: '#B91C1C',
     borderRadius: 18,
     bottom: 0,
     justifyContent: 'center',
-    left: 0,
     position: 'absolute',
+    right: 0,
     top: 0,
-    width: recentCaptureDeleteRevealWidth,
+    width: recentCaptureActionRailRevealWidth,
   },
   captureDeleteButton: {
     alignItems: 'center',
-    flex: 1,
+    backgroundColor: '#B91C1C',
+    gap: 6,
     justifyContent: 'center',
-    width: '100%',
+    minHeight: captureRowHeight,
+    width: recentCaptureDeleteRevealWidth,
   },
   captureDeleteUnderlayPressed: {
     opacity: 0.82,
+  },
+  captureActionRail: {
+    alignItems: 'stretch',
+    borderRadius: 18,
+    flexDirection: 'row',
+    overflow: 'hidden',
+    width: recentCaptureActionRailRevealWidth,
+  },
+  captureFavoriteButton: {
+    alignItems: 'center',
+    backgroundColor: colors.brand,
+    gap: 6,
+    justifyContent: 'center',
+    minHeight: captureRowHeight,
+    width: recentCaptureFavoriteRevealWidth,
+  },
+  captureFavoriteButtonPressed: {
+    opacity: 0.84,
+  },
+  captureFavoriteLabel: {
+    ...textStyles.control,
+    color: colors.scannerCanvas,
+    fontSize: 10,
+    lineHeight: 12,
+    textAlign: 'center',
   },
   captureRefreshButton: {
     alignItems: 'center',
@@ -1907,21 +2340,9 @@ const styles = StyleSheet.create({
     ...textStyles.bodyStrong,
     color: colors.scannerTextPrimary,
   },
-  sheetHandle: {
-    alignSelf: 'center',
-    backgroundColor: colors.scannerTextMeta,
-    borderRadius: 999,
-    height: 5,
-    width: 54,
-  },
-  sheetHandleButton: {
-    alignItems: 'center',
-    paddingBottom: 6,
-    paddingTop: 6,
-  },
   trayBody: {
     gap: 12,
-    minHeight: 104,
+    minHeight: 82,
     paddingHorizontal: 4,
     paddingTop: 0,
   },
@@ -1936,6 +2357,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.scannerTray,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
+    paddingBottom: 4,
+    paddingTop: 10,
+  },
+  trayHeaderPressed: {
+    opacity: 0.94,
+  },
+  trayHandle: {
+    backgroundColor: 'rgba(255, 255, 255, 0.28)',
+    borderRadius: 999,
+    height: 5,
+    width: 48,
+  },
+  trayHandleWrap: {
+    alignItems: 'center',
+    paddingBottom: 4,
+    paddingTop: 2,
   },
   trayScroll: {
     width: '100%',

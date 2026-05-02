@@ -32,7 +32,9 @@ backend/__pycache__/
 backend/*.pyc
 backend/venv/
 backend/.env
+backend/.env.*.secrets
 .venv-raw-visual-poc/
+.env.*.smoke.local
 
 # Backend databases
 backend/data/*.sqlite

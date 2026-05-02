@@ -220,6 +220,13 @@ CREATE TABLE IF NOT EXISTS scan_confirmations (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS card_favorites (
+    owner_user_id TEXT NOT NULL,
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (owner_user_id, card_id)
+);
+
 CREATE TABLE IF NOT EXISTS deck_entries (
     id TEXT PRIMARY KEY,
     owner_user_id TEXT,
@@ -450,6 +457,10 @@ CREATE INDEX IF NOT EXISTS idx_scan_confirmations_owner_user_id
     ON scan_confirmations(owner_user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scan_artifacts_owner_user_id
     ON scan_artifacts(owner_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_card_favorites_owner_user_id
+    ON card_favorites(owner_user_id, created_at DESC, card_id);
+CREATE INDEX IF NOT EXISTS idx_card_favorites_card_id
+    ON card_favorites(card_id, created_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_deck_entries_card_id
     ON deck_entries(card_id);

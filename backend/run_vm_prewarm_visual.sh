@@ -41,6 +41,10 @@ with urllib.request.urlopen(url, timeout=30) as response:
 visual_runtime = payload.get("visualRuntime") or {}
 if visual_runtime.get("available") is not True:
     raise SystemExit(1)
+if visual_runtime.get("prewarmed") is not True:
+    raise SystemExit(1)
+if "inferencePrewarmed" in visual_runtime and visual_runtime.get("inferencePrewarmed") is not True:
+    raise SystemExit(1)
 PY
   then
     echo "Visual runtime prewarm succeeded on attempt ${attempt}."

@@ -4,8 +4,6 @@ import type {
 } from '@spotlight/api-client';
 
 import {
-  buildOfferToYourPricePercentText,
-  formatEditableSellPrice,
   parseSellPrice,
 } from '@/features/sell/sell-order-helpers';
 
@@ -15,21 +13,16 @@ export const bulkSellEmptySelectionErrorMessage = 'Choose at least one card to s
 export type BulkSellLineState = {
   entryId: string;
   quantity: number;
-  offerPriceText: string;
-  yourPriceText: string;
   soldPriceText: string;
   revealsBoughtPrice: boolean;
 };
 
 export type BulkSellLineMetrics = {
   quantity: number;
-  offerPrice: number | null;
-  yourPrice: number | null;
   soldPrice: number | null;
   draftTotal: number;
   marketTotal: number;
   projectedTotal: number;
-  ypPercentText: string | null;
   isActive: boolean;
 };
 
@@ -58,8 +51,6 @@ export function buildInitialBulkSellLines(entries: InventoryCardEntry[]) {
     {
       entryId: entry.id,
       quantity: entry.quantity,
-      offerPriceText: '',
-      yourPriceText: entry.hasMarketPrice ? formatEditableSellPrice(entry.marketPrice) : '',
       soldPriceText: '',
       revealsBoughtPrice: false,
     } satisfies BulkSellLineState,
@@ -75,22 +66,15 @@ export function getBulkSellLineMetrics(
   line: BulkSellLineState | undefined,
 ): BulkSellLineMetrics {
   const quantity = Math.min(Math.max(0, line?.quantity ?? 0), entry.quantity);
-  const offerPrice = parseBulkSellPrice(line?.offerPriceText ?? '');
-  const parsedYourPrice = parseBulkSellPrice(line?.yourPriceText ?? '');
-  const yourPrice = parsedYourPrice ?? (entry.hasMarketPrice ? entry.marketPrice : null);
   const soldPrice = parseBulkSellPrice(line?.soldPriceText ?? '');
-  const ypPercentText = buildOfferToYourPricePercentText(offerPrice, yourPrice);
   const baseMarketPrice = entry.hasMarketPrice ? entry.marketPrice : 0;
 
   return {
     quantity,
-    offerPrice,
-    yourPrice,
     soldPrice,
     draftTotal: quantity * (soldPrice ?? 0),
     marketTotal: quantity * baseMarketPrice,
-    projectedTotal: quantity * (soldPrice ?? yourPrice ?? baseMarketPrice),
-    ypPercentText,
+    projectedTotal: quantity * (soldPrice ?? baseMarketPrice),
     isActive: quantity > 0,
   };
 }

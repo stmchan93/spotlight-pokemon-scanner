@@ -168,15 +168,23 @@ jest.mock('expo-camera', () => {
     width: 1080,
     height: 1620,
   }));
+  const mockAvailableLenses = ['builtInWideAngleCamera', 'builtInUltraWideCamera'];
+  const mockGetAvailableLensesAsync = jest.fn(async () => mockAvailableLenses);
 
-  const CameraView = React.forwardRef(({ onCameraReady, ...props }: any, ref: any) => {
+  const CameraView = React.forwardRef(({
+    onAvailableLensesChanged,
+    onCameraReady,
+    ...props
+  }: any, ref: any) => {
     React.useImperativeHandle(ref, () => ({
+      getAvailableLensesAsync: mockGetAvailableLensesAsync,
       takePictureAsync: mockTakePictureAsync,
     }));
 
     React.useEffect(() => {
+      onAvailableLensesChanged?.({ lenses: mockAvailableLenses });
       onCameraReady?.();
-    }, [onCameraReady]);
+    }, [onAvailableLensesChanged, onCameraReady]);
 
     return React.createElement(View, props);
   });

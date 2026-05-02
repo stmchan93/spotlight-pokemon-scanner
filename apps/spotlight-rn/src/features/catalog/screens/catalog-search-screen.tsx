@@ -18,6 +18,7 @@ import { formatCurrency } from '@/features/portfolio/components/portfolio-format
 import { useAppServices } from '@/providers/app-providers';
 
 type CatalogSearchScreenProps = {
+  initialQuery?: string;
   onClose: () => void;
   onOpenCard: (result: CatalogSearchResult) => void;
 };
@@ -147,13 +148,14 @@ function SearchResultRow({
 }
 
 export function CatalogSearchScreen({
+  initialQuery = '',
   onClose,
   onOpenCard,
 }: CatalogSearchScreenProps) {
   const theme = useSpotlightTheme();
   const { spotlightRepository } = useAppServices();
 
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
   const [results, setResults] = useState<CatalogSearchResult[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
@@ -161,6 +163,10 @@ export function CatalogSearchScreen({
   const [searchRevision, setSearchRevision] = useState(0);
   const [openingResultId, setOpeningResultId] = useState<string | null>(null);
   const openingResetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    setQuery(initialQuery);
+  }, [initialQuery]);
 
   useEffect(() => {
     return () => {

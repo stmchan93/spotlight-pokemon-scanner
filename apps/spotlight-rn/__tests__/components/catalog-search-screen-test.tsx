@@ -78,6 +78,19 @@ describe('CatalogSearchScreen', () => {
     }));
   });
 
+  it('hydrates and searches from an initial query', async () => {
+    jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockResolvedValue(ownedCatalogResults);
+
+    renderWithProviders(
+      <CatalogSearchScreen initialQuery="tree" onClose={jest.fn()} onOpenCard={jest.fn()} />,
+    );
+
+    await advanceDebounce();
+
+    expect(screen.getByDisplayValue('tree')).toBeTruthy();
+    expect(await screen.findByTestId('catalog-result-sm7-1')).toBeTruthy();
+  });
+
   it('clears the opening spinner after navigation starts so a returned result can be tapped again', async () => {
     const onOpenCard = jest.fn();
     jest.spyOn(MockSpotlightRepository.prototype, 'searchCatalogCards').mockResolvedValue(ownedCatalogResults);

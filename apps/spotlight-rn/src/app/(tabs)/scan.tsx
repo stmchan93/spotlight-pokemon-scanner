@@ -1,5 +1,5 @@
-import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
+import { Redirect } from 'expo-router';
 
-export default function ScanRoute() {
-  return <ScannerScreen />;
+export default function ScanRedirect() {
+  return <Redirect href="/" />;
 }

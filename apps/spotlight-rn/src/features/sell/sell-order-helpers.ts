@@ -7,12 +7,16 @@ export const sellOrderSuccessDisplayDurationMs = 1100;
 export const sellOrderSwipeThreshold = 92;
 export const sellOrderSwipeRailHeight = 48;
 export const sellSwipeCollapsedHeight = sellOrderSwipeRailHeight;
-export const sellSwipeArmThresholdRatio = 0.4;
 
 export type SingleSellStatusCopy = {
   title: string;
   headline: string;
   detail: string;
+};
+
+export type SellMetadataToken = {
+  label: string;
+  value: string;
 };
 
 export function scheduleSellStatusCompletion({
@@ -96,21 +100,145 @@ export function buildOfferToYourPricePercentText(
   return `${truncatedPercent.toFixed(2)}% YP`;
 }
 
-export function getSellSwipeConfirmThreshold() {
-  return sellOrderSwipeThreshold;
+export function evaluateSellCalculatorExpression(expression: string) {
+  const sanitized = expression.replace(/\s+/g, '');
+  if (sanitized.length === 0) {
+    return null;
+  }
+
+  const tokens = sanitized.match(/\d+(?:\.\d+)?|[()+\-*/]/g);
+  if (!tokens || tokens.join('') !== sanitized) {
+    return null;
+  }
+
+  let index = 0;
+
+  const parseExpression = (): number | null => {
+    let value = parseTerm();
+    if (value == null) {
+      return null;
+    }
+
+    while (index < tokens.length) {
+      const operator = tokens[index];
+      if (operator !== '+' && operator !== '-') {
+        break;
+      }
+
+      index += 1;
+      const nextValue = parseTerm();
+      if (nextValue == null) {
+        return null;
+      }
+
+      value = operator === '+' ? value + nextValue : value - nextValue;
+    }
+
+    return value;
+  };
+
+  const parseTerm = (): number | null => {
+    let value = parseFactor();
+    if (value == null) {
+      return null;
+    }
+
+    while (index < tokens.length) {
+      const operator = tokens[index];
+      if (operator !== '*' && operator !== '/') {
+        break;
+      }
+
+      index += 1;
+      const nextValue = parseFactor();
+      if (nextValue == null) {
+        return null;
+      }
+
+      if (operator === '*') {
+        value *= nextValue;
+      } else {
+        if (nextValue === 0) {
+          return null;
+        }
+        value /= nextValue;
+      }
+    }
+
+    return value;
+  };
+
+  const parseFactor = (): number | null => {
+    const token = tokens[index];
+    if (!token) {
+      return null;
+    }
+
+    if (token === '+') {
+      index += 1;
+      return parseFactor();
+    }
+
+    if (token === '-') {
+      index += 1;
+      const nextValue = parseFactor();
+      return nextValue == null ? null : -nextValue;
+    }
+
+    if (token === '(') {
+      index += 1;
+      const innerValue = parseExpression();
+      if (innerValue == null || tokens[index] !== ')') {
+        return null;
+      }
+      index += 1;
+      return innerValue;
+    }
+
+    index += 1;
+    const parsed = Number(token);
+    if (!Number.isFinite(parsed)) {
+      return null;
+    }
+
+    return parsed;
+  };
+
+  const result = parseExpression();
+  if (result == null || index !== tokens.length || !Number.isFinite(result)) {
+    return null;
+  }
+
+  return Math.round(result * 100) / 100;
 }
 
-export function canStartSellSwipeGesture(dx: number, dy: number) {
-  return dy < -6 && Math.abs(dy) > Math.abs(dx);
+export function getSellSwipeConfirmThreshold(containerHeight: number) {
+  return Math.max(sellOrderSwipeThreshold, containerHeight * 0.5);
 }
 
 export function canStartSellSheetDismissGesture(dx: number, dy: number) {
   return dy > 8 && Math.abs(dy) > Math.abs(dx);
 }
 
-export function isSellSwipeReleaseArmed(nextOffset: number, closedSheetOffset: number) {
+export function canStartSellSwipeGesture(dx: number, dy: number) {
+  return dy < -6 && Math.abs(dy) > Math.abs(dx);
+}
+
+export function getSellSwipeArmThresholdRatio(containerHeight: number, closedSheetOffset: number) {
+  if (closedSheetOffset <= 0) {
+    return 1;
+  }
+
+  return Math.min(1, getSellSwipeConfirmThreshold(containerHeight) / closedSheetOffset);
+}
+
+export function isSellSwipeReleaseArmed(
+  nextOffset: number,
+  closedSheetOffset: number,
+  armThresholdRatio: number,
+) {
   return closedSheetOffset > 0
-    && (1 - (nextOffset / closedSheetOffset)) >= sellSwipeArmThresholdRatio;
+    && (1 - (nextOffset / closedSheetOffset)) >= armThresholdRatio;
 }
 
 export function getResistedSellSwipeTranslation(translation: number) {
@@ -131,6 +259,57 @@ export function formatSellOrderBoughtPriceLabel(
   }
 
   return revealsValue ? currencyText : '*****';
+}
+
+export function buildSellMetadataTokens(entry: InventoryCardEntry): SellMetadataToken[] {
+  const tokens: SellMetadataToken[] = [];
+
+  if (entry.kind === 'graded') {
+    const grader = entry.slabContext?.grader?.trim();
+    const grade = entry.slabContext?.grade?.trim();
+
+    if (grader) {
+      tokens.push({
+        label: 'Grader',
+        value: grader,
+      });
+    }
+
+    if (grade) {
+      tokens.push({
+        label: 'Grade',
+        value: grade,
+      });
+    }
+  } else {
+    const condition = resolveConditionDisplayLabel({
+      conditionCode: entry.conditionCode,
+      conditionLabel: entry.conditionLabel,
+      conditionShortLabel: entry.conditionShortLabel,
+    });
+
+    if (condition) {
+      tokens.push({
+        label: 'Condition',
+        value: condition,
+      });
+    }
+  }
+
+  const variantName = (
+    entry.variantName
+    ?? entry.slabContext?.variantName
+    ?? null
+  )?.trim();
+
+  if (variantName) {
+    tokens.push({
+      label: 'Variant',
+      value: variantName,
+    });
+  }
+
+  return tokens;
 }
 
 export function buildSingleSellStatusCopy({

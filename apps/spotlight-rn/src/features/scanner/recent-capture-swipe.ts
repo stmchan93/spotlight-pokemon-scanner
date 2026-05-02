@@ -1,7 +1,10 @@
-export const recentCaptureDeleteRevealWidth = 88;
-export const recentCaptureDeleteDistanceThreshold = 72;
+export const recentCaptureFavoriteRevealWidth = 74;
+export const recentCaptureDeleteRevealWidth = 74;
+export const recentCaptureActionRailRevealWidth =
+  recentCaptureFavoriteRevealWidth + recentCaptureDeleteRevealWidth;
+export const recentCaptureDeleteDistanceThreshold = 64;
 export const recentCaptureDeleteVelocityThreshold = 0.62;
-export const recentCaptureDeleteCloseDistanceThreshold = 36;
+export const recentCaptureDeleteCloseDistanceThreshold = 32;
 export const recentCaptureDeleteCloseVelocityThreshold = 0.4;
 
 type RecentCaptureSwipeState = {
@@ -11,8 +14,8 @@ type RecentCaptureSwipeState = {
 };
 
 export function clampRecentCaptureSwipeTranslate(dx: number, isDeleteRevealed = false) {
-  const start = isDeleteRevealed ? recentCaptureDeleteRevealWidth : 0;
-  return Math.max(0, Math.min(start + dx, recentCaptureDeleteRevealWidth));
+  const start = isDeleteRevealed ? -recentCaptureActionRailRevealWidth : 0;
+  return Math.min(0, Math.max(start + dx, -recentCaptureActionRailRevealWidth));
 }
 
 export function shouldSetRecentCaptureSwipeResponder(
@@ -26,10 +29,10 @@ export function shouldSetRecentCaptureSwipeResponder(
   }
 
   if (isDeleteRevealed) {
-    return dx < -10;
+    return dx > 10;
   }
 
-  return dx > 10;
+  return dx < -10;
 }
 
 export function shouldRevealRecentCaptureDeleteFromSwipe({ dx, dy, vx }: RecentCaptureSwipeState) {
@@ -37,7 +40,7 @@ export function shouldRevealRecentCaptureDeleteFromSwipe({ dx, dy, vx }: RecentC
     return false;
   }
 
-  return dx >= recentCaptureDeleteDistanceThreshold || vx >= recentCaptureDeleteVelocityThreshold;
+  return dx <= -recentCaptureDeleteDistanceThreshold || vx <= -recentCaptureDeleteVelocityThreshold;
 }
 
 export function shouldCollapseRecentCaptureDeleteFromSwipe({ dx, dy, vx }: RecentCaptureSwipeState) {
@@ -45,5 +48,5 @@ export function shouldCollapseRecentCaptureDeleteFromSwipe({ dx, dy, vx }: Recen
     return false;
   }
 
-  return Math.abs(dx) >= recentCaptureDeleteCloseDistanceThreshold || -vx >= recentCaptureDeleteCloseVelocityThreshold;
+  return Math.abs(dx) >= recentCaptureDeleteCloseDistanceThreshold || vx >= recentCaptureDeleteCloseVelocityThreshold;
 }

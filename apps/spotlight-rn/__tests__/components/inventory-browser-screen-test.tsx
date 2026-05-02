@@ -18,7 +18,7 @@ describe('InventoryBrowserScreen', () => {
       />,
     );
 
-    expect(await screen.findByText('All cards')).toBeTruthy();
+    expect(await screen.findByText('View all cards')).toBeTruthy();
     expect(screen.getByText('Sell selected')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByText('Sell selected').props.style)).toMatchObject({
       fontSize: 15,
@@ -47,7 +47,7 @@ describe('InventoryBrowserScreen', () => {
       />,
     );
 
-    expect(await screen.findByText('All cards')).toBeTruthy();
+    expect(await screen.findByText('View all cards')).toBeTruthy();
     expect(screen.getByText('Sell selected')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('inventory-clear-selection'));
@@ -69,12 +69,12 @@ describe('InventoryBrowserScreen', () => {
       />,
     );
 
-    expect(await screen.findByText('All cards')).toBeTruthy();
+    expect(await screen.findByText('View all cards')).toBeTruthy();
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search inventory cards'), 'tree');
+    fireEvent.changeText(screen.getByPlaceholderText('Search collection cards'), 'tree');
     expect(await screen.findByText('No cards match that search')).toBeTruthy();
     expect(
-      screen.getByText('Try a different name, set, card number, or raw/graded filter.'),
+      screen.getByText('Try a different name, set, card number, or collection filter.'),
     ).toBeTruthy();
   });
 });

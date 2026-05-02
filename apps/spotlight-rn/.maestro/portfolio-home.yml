@@ -1,4 +1,4 @@
-appId: com.spotlight.mobile
+appId: com.looty.staging
 ---
 - launchApp
 - assertVisible: "Portfolio"

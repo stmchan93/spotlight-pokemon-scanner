@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
   Easing,
+  findNodeHandle,
   type GestureResponderHandlers,
   Image,
   Keyboard,
@@ -10,6 +11,8 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
+  TouchableWithoutFeedback,
   useWindowDimensions,
   View,
 } from 'react-native';
@@ -21,18 +24,18 @@ import { SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { formatCurrency, formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import {
-  buildOfferToYourPricePercentText,
   buildSingleSellStatusCopy,
   canStartSellSheetDismissGesture,
   canStartSellSwipeGesture,
   formatEditableSellPrice,
   formatSellOrderBoughtPriceLabel,
+  getSellSwipeArmThresholdRatio,
   getResistedSellSwipeTranslation,
   getSellSwipeConfirmThreshold,
   isSellSwipeReleaseArmed,
   parseSellPrice,
-  sellOrderProcessingMinimumDurationMs,
   scheduleSellStatusCompletion,
+  sellOrderProcessingMinimumDurationMs,
   sellOrderSwipeRailHeight,
 } from '@/features/sell/sell-order-helpers';
 import {
@@ -47,6 +50,7 @@ import { useAppServices } from '@/providers/app-providers';
 const sheetDismissPreviewDistance = 132;
 const sheetDismissThreshold = 72;
 const sheetDismissVelocityThreshold = 0.55;
+const soldPriceValidationMessage = 'Enter a sell price before confirming sale.';
 
 type SingleSellScreenProps = {
   entryId: string;
@@ -82,6 +86,19 @@ function SellTopChrome({
   );
 }
 
+function patchEntryCostBasis(
+  entry: InventoryCardEntry,
+  nextBoughtPrice: number,
+  nextEntryId = entry.id,
+): InventoryCardEntry {
+  return {
+    ...entry,
+    id: nextEntryId,
+    costBasisPerUnit: nextBoughtPrice,
+    costBasisTotal: Number((nextBoughtPrice * entry.quantity).toFixed(2)),
+  };
+}
+
 export function SingleSellScreen({
   entryId,
   onClose,
@@ -96,26 +113,38 @@ export function SingleSellScreen({
   const [lastResolvedEntry, setLastResolvedEntry] = useState<InventoryCardEntry | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [quantity, setQuantity] = useState(1);
-  const [offerPriceText, setOfferPriceText] = useState('');
-  const [yourPriceText, setYourPriceText] = useState('');
   const [soldPriceText, setSoldPriceText] = useState('');
   const [revealsBoughtPrice, setRevealsBoughtPrice] = useState(false);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [screenErrorMessage, setScreenErrorMessage] = useState<string | null>(null);
+  const [showsSoldPriceValidation, setShowsSoldPriceValidation] = useState(false);
   const [submitState, setSubmitState] = useState<'idle' | 'processing' | 'success'>('idle');
   const [isEditingField, setIsEditingField] = useState(false);
   const [releaseToConfirmArmed, setReleaseToConfirmArmed] = useState(false);
+  const [isBoughtPriceEditorVisible, setIsBoughtPriceEditorVisible] = useState(false);
+  const [boughtPriceDraftText, setBoughtPriceDraftText] = useState('');
+  const [boughtPriceErrorMessage, setBoughtPriceErrorMessage] = useState<string | null>(null);
+  const [isSavingBoughtPrice, setIsSavingBoughtPrice] = useState(false);
 
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const hasInitializedSheetRef = useRef(false);
   const closedSheetOffsetRef = useRef(0);
   const releaseToConfirmArmedRef = useRef(false);
+  const scrollViewRef = useRef<ScrollView | null>(null);
+  const boughtPriceInputRef = useRef<TextInput | null>(null);
   const dismissOffset = useRef(new Animated.Value(0)).current;
   const sheetOffset = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
+      if (focusScrollTimerRef.current) {
+        clearTimeout(focusScrollTimerRef.current);
+      }
+      if (processingTimerRef.current) {
+        clearTimeout(processingTimerRef.current);
+      }
     };
   }, []);
 
@@ -134,17 +163,19 @@ export function SingleSellScreen({
           setLastResolvedEntry(nextEntry);
         }
         setQuantity(1);
-        setOfferPriceText('');
-        setYourPriceText(
-          nextEntry && nextEntry.hasMarketPrice
-            ? formatEditableSellPrice(nextEntry.marketPrice)
-            : '',
-        );
         setSoldPriceText('');
         setRevealsBoughtPrice(false);
-        setErrorMessage(null);
+        setScreenErrorMessage(null);
+        setShowsSoldPriceValidation(false);
         setSubmitState('idle');
         setReleaseToConfirmArmed(false);
+        setIsEditingField(false);
+        setIsBoughtPriceEditorVisible(false);
+        setBoughtPriceDraftText(
+          nextEntry?.costBasisPerUnit != null ? formatEditableSellPrice(nextEntry.costBasisPerUnit) : '',
+        );
+        setBoughtPriceErrorMessage(null);
+        setIsSavingBoughtPrice(false);
         setIsLoading(false);
       })
       .catch(() => {
@@ -152,12 +183,15 @@ export function SingleSellScreen({
           return;
         }
         setEntry(null);
-        setErrorMessage('Could not load this inventory card right now.');
+        setScreenErrorMessage('Could not load this inventory card right now.');
         setIsLoading(false);
       });
 
     return () => {
       cancelled = true;
+      if (focusScrollTimerRef.current) {
+        clearTimeout(focusScrollTimerRef.current);
+      }
       if (processingTimerRef.current) {
         clearTimeout(processingTimerRef.current);
       }
@@ -167,32 +201,18 @@ export function SingleSellScreen({
   const displayEntry = entry ?? lastResolvedEntry;
 
   const soldPrice = useMemo(() => parseSellPrice(soldPriceText), [soldPriceText]);
-  const offerPrice = useMemo(() => parseSellPrice(offerPriceText), [offerPriceText]);
-  const yourPrice = useMemo(() => {
-    if (!entry) {
-      return null;
-    }
-    if (yourPriceText.trim().length > 0) {
-      return parseSellPrice(yourPriceText);
-    }
-
-    return entry.hasMarketPrice ? entry.marketPrice : null;
-  }, [entry, yourPriceText]);
-
-  const ypPercentText = useMemo(() => {
-    return buildOfferToYourPricePercentText(offerPrice, yourPrice);
-  }, [offerPrice, yourPrice]);
-
   const soldTotal = useMemo(() => {
     return (soldPrice ?? 0) * quantity;
   }, [quantity, soldPrice]);
 
-  const submitThreshold = getSellSwipeConfirmThreshold();
   const containerHeight = Math.max(0, windowHeight - insets.top - insets.bottom);
+  const submitThreshold = getSellSwipeConfirmThreshold(containerHeight);
   const closedSheetOffset = Math.max(0, containerHeight - sellOrderSwipeRailHeight);
+  const releaseArmThresholdRatio = getSellSwipeArmThresholdRatio(containerHeight, closedSheetOffset);
   const contentLiftDistance = Math.max(0, Math.min(containerHeight, closedSheetOffset + sellOrderSwipeRailHeight));
   const swipeSheetHeight = containerHeight + insets.bottom;
   const canInteract = submitState === 'idle';
+  const soldPriceErrorMessage = showsSoldPriceValidation ? soldPriceValidationMessage : null;
 
   const confirmationProgress = useMemo(() => sheetOffset.interpolate({
     inputRange: [0, Math.max(1, closedSheetOffset)],
@@ -237,7 +257,11 @@ export function SingleSellScreen({
   }, [displayEntry, quantity, soldTotal, submitState]);
 
   const syncReleaseToConfirmState = useCallback((nextOffset: number) => {
-    const nextState = isSellSwipeReleaseArmed(nextOffset, closedSheetOffsetRef.current);
+    const nextState = isSellSwipeReleaseArmed(
+      nextOffset,
+      closedSheetOffsetRef.current,
+      releaseArmThresholdRatio,
+    );
     if (nextState === releaseToConfirmArmedRef.current) {
       return;
     }
@@ -248,7 +272,7 @@ export function SingleSellScreen({
 
     releaseToConfirmArmedRef.current = nextState;
     setReleaseToConfirmArmed(nextState);
-  }, []);
+  }, [releaseArmThresholdRatio]);
 
   const setSheetOffsetValue = useCallback((nextOffset: number) => {
     const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
@@ -295,6 +319,34 @@ export function SingleSellScreen({
     Keyboard.dismiss();
     setIsEditingField(false);
   }, [isEditingField]);
+
+  const scrollInputIntoView = useCallback((inputRef: { current: TextInput | null }) => {
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
+    if (focusScrollTimerRef.current) {
+      clearTimeout(focusScrollTimerRef.current);
+    }
+
+    focusScrollTimerRef.current = setTimeout(() => {
+      const scrollView = scrollViewRef.current as (ScrollView & {
+        scrollResponderScrollNativeHandleToKeyboard?: (
+          nodeHandle: number,
+          additionalOffset?: number,
+          preventNegativeScrollOffset?: boolean,
+        ) => void;
+      }) | null;
+      const nodeHandle = findNodeHandle(inputRef.current);
+      if (!scrollView || nodeHandle == null) {
+        return;
+      }
+
+      if (typeof scrollView.scrollResponderScrollNativeHandleToKeyboard === 'function') {
+        scrollView.scrollResponderScrollNativeHandleToKeyboard(nodeHandle, 112, true);
+      }
+    }, 80);
+  }, []);
 
   const dismissSheet = useCallback(() => {
     Animated.timing(dismissOffset, {
@@ -372,13 +424,14 @@ export function SingleSellScreen({
       return;
     }
     if (soldPrice == null) {
-      setErrorMessage('Enter a sell price before confirming sale.');
+      setShowsSoldPriceValidation(true);
       animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
       return;
     }
 
     setSubmitState('processing');
-    setErrorMessage(null);
+    setScreenErrorMessage(null);
+    setShowsSoldPriceValidation(false);
     const startedAt = Date.now();
 
     const payload = {
@@ -435,7 +488,7 @@ export function SingleSellScreen({
 
         setSubmitState('idle');
         animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
-        setErrorMessage(error instanceof Error ? error.message : 'Could not confirm this sale.');
+        setScreenErrorMessage(error instanceof Error ? error.message : 'Could not confirm this sale.');
       });
   }, [animateSheetToOffset, displayEntry, onComplete, quantity, refreshData, soldPrice, spotlightRepository]);
 
@@ -452,7 +505,7 @@ export function SingleSellScreen({
       const upwardTravel = Math.max(0, -gestureState.dy);
       if (soldPrice == null) {
         if (upwardTravel > 6) {
-          setErrorMessage('Enter a sell price before confirming sale.');
+          setShowsSoldPriceValidation(true);
         }
         setSheetOffsetValue(closedSheetOffsetRef.current);
         return;
@@ -467,7 +520,7 @@ export function SingleSellScreen({
 
       const upwardTravel = Math.max(0, -gestureState.dy);
       if (soldPrice == null) {
-        setErrorMessage('Enter a sell price before confirming sale.');
+        setShowsSoldPriceValidation(true);
         animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
         return;
       }
@@ -497,6 +550,21 @@ export function SingleSellScreen({
     submitThreshold,
   ]);
 
+  const handleAccessibilityConfirm = useCallback(() => {
+    if (!canInteract) {
+      return;
+    }
+
+    if (soldPrice == null) {
+      setShowsSoldPriceValidation(true);
+      animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+      return;
+    }
+
+    animateSheetToOffset(0, 'open');
+    submitSale();
+  }, [animateSheetToOffset, canInteract, soldPrice, submitSale]);
+
   if (isLoading) {
     return (
       <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}>
@@ -513,7 +581,7 @@ export function SingleSellScreen({
         <View style={styles.loadingState}>
           <Text style={theme.typography.headline}>Card unavailable</Text>
           <Text style={[theme.typography.body, styles.unavailableCopy]}>
-            {errorMessage ?? 'This inventory card could not be found.'}
+            {screenErrorMessage ?? 'This inventory card could not be found.'}
           </Text>
           <Pressable
             accessibilityRole="button"
@@ -550,6 +618,9 @@ export function SingleSellScreen({
     revealsBoughtPrice,
   );
   const confirmationPrompt = releaseToConfirmArmed ? 'Release to confirm sale' : 'Swipe up to confirm sale';
+  const isSoldPriceMissing = soldPrice == null;
+  const railIsDisabled = !canInteract || isSoldPriceMissing;
+  const railUsesDisabledVisual = isSoldPriceMissing;
 
   return (
     <SafeAreaView
@@ -567,6 +638,7 @@ export function SingleSellScreen({
         ]}
       >
         <ScrollView
+          ref={scrollViewRef}
           contentContainerStyle={[
             styles.content,
             {
@@ -576,105 +648,219 @@ export function SingleSellScreen({
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          testID="single-sell-scroll-view"
         >
-          <Animated.View
-            style={[
-              styles.contentBody,
-              {
-                minHeight: containerHeight,
-                transform: [{ translateY: confirmationContentLift }],
-              },
-            ]}
+          <TouchableWithoutFeedback
+            accessible={false}
+            onPress={() => {
+              Keyboard.dismiss();
+              setIsEditingField(false);
+            }}
           >
-            <View style={styles.heroSection}>
-              <SellTopChrome
-                onClose={onClose}
-                panHandlers={dismissPanResponder.panHandlers}
-                testID="single-sell-close"
-              />
+            <Animated.View
+              style={[
+                styles.contentBody,
+                {
+                  minHeight: containerHeight,
+                  transform: [{ translateY: confirmationContentLift }],
+                },
+              ]}
+            >
+              <View style={styles.heroSection}>
+                <SellTopChrome
+                  onClose={onClose}
+                  panHandlers={dismissPanResponder.panHandlers}
+                  testID="single-sell-close"
+                />
 
-              <View style={styles.heroBody}>
-                <View style={styles.heroTitleWrap}>
-                  <Text style={[theme.typography.display, styles.heroName]}>{displayEntry.name}</Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.caption, styles.heroMetaText]}
-                  >
-                    {displayEntry.cardNumber}
-                    {' • '}
-                    {displayEntry.setName}
-                  </Text>
-                </View>
-                <View style={styles.heroArtShadow}>
-                  <Image source={{ uri: displayEntry.imageUrl }} style={styles.heroArt} />
+                <View style={styles.heroBody}>
+                  <View style={styles.heroTitleWrap}>
+                    <Text style={[theme.typography.display, styles.heroName]}>{displayEntry.name}</Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[theme.typography.caption, styles.heroMetaText]}
+                    >
+                      {displayEntry.cardNumber}
+                      {' • '}
+                      {displayEntry.setName}
+                    </Text>
+                  </View>
+                  <View style={styles.heroArtShadow}>
+                    <Image source={{ uri: displayEntry.imageUrl }} style={styles.heroArt} />
+                  </View>
                 </View>
               </View>
-            </View>
 
-            <View style={styles.detailsCardWrap} testID="single-sell-summary-card">
-              <SurfaceCard padding={18} radius={32} style={styles.detailsCard}>
-                <SellFormFields
-                  boughtPriceLabel={boughtPriceText}
-                  boughtPriceToggleDisabled={displayEntry.costBasisPerUnit == null}
-                  decrementDisabled={quantity <= 1}
-                  incrementDisabled={quantity >= Math.max(1, displayEntry.quantity)}
-                  marketPriceLabel={formatOptionalCurrency(
-                    displayEntry.hasMarketPrice ? displayEntry.marketPrice : null,
-                    displayEntry.currencyCode,
-                  )}
-                  offerPriceTestID="single-sell-offer-price"
-                  offerPriceText={offerPriceText}
-                  onBlur={() => setIsEditingField(false)}
-                  onDecrement={() => {
-                    setQuantity((current) => Math.max(1, current - 1));
-                    setErrorMessage(null);
-                  }}
-                  onFocus={() => setIsEditingField(true)}
-                  onIncrement={() => {
-                    setQuantity((current) => Math.min(displayEntry.quantity, current + 1));
-                    setErrorMessage(null);
-                  }}
-                  onOfferPriceChangeText={(nextValue) => {
-                    setOfferPriceText(nextValue);
-                    setErrorMessage(null);
-                  }}
-                  onSoldPriceChangeText={(nextValue) => {
-                    setSoldPriceText(nextValue);
-                    setErrorMessage(null);
-                  }}
-                  onToggleBoughtPrice={() => setRevealsBoughtPrice((current) => !current)}
-                  onYourPriceChangeText={(nextValue) => {
-                    setYourPriceText(nextValue);
-                    setErrorMessage(null);
-                  }}
-                  quantity={quantity}
-                  revealsBoughtPrice={revealsBoughtPrice}
-                  soldPriceErrorMessage={errorMessage}
-                  soldPriceErrorTestID="single-sell-error-message"
-                  soldPriceTestID="single-sell-sold-price"
-                  soldPriceText={soldPriceText}
-                  stepperTestIDs={{
-                    decrement: 'single-sell-decrement',
-                    increment: 'single-sell-increment',
-                  }}
-                  testIDPrefix="single-sell"
-                  toggleBoughtPriceTestID="single-sell-toggle-bought-price"
-                  ypPercentText={ypPercentText}
-                  yourPriceTestID="single-sell-your-price"
-                  yourPriceText={yourPriceText}
-                />
-              </SurfaceCard>
-            </View>
-          </Animated.View>
+              {screenErrorMessage ? (
+                <View
+                  style={[styles.messageCard, { borderColor: theme.colors.danger }]}
+                  testID="single-sell-global-error"
+                >
+                  <Text style={[theme.typography.bodyStrong, styles.messageTitle]}>Action needed</Text>
+                  <Text style={[theme.typography.body, styles.messageText]}>{screenErrorMessage}</Text>
+                </View>
+              ) : null}
+
+              <View style={styles.detailsCardWrap} testID="single-sell-summary-card">
+                <SurfaceCard padding={18} radius={32} style={styles.detailsCard}>
+                  <SellFormFields
+                    boughtPriceInputRef={boughtPriceInputRef}
+                    boughtPriceEditorErrorMessage={boughtPriceErrorMessage}
+                    boughtPriceEditorText={boughtPriceDraftText}
+                    boughtPriceEditorVisible={isBoughtPriceEditorVisible}
+                    boughtPriceInputTestID="single-sell-bought-price-input"
+                    boughtPriceLabel={boughtPriceText}
+                    boughtPriceSaveDisabled={isSavingBoughtPrice}
+                    boughtPriceToggleDisabled={displayEntry.costBasisPerUnit == null}
+                    decrementDisabled={quantity <= 1}
+                    incrementDisabled={quantity >= Math.max(1, displayEntry.quantity)}
+                    marketPriceLabel={formatOptionalCurrency(
+                      displayEntry.hasMarketPrice ? displayEntry.marketPrice : null,
+                      displayEntry.currencyCode,
+                    )}
+                    onBlur={() => setIsEditingField(false)}
+                    onBoughtPriceChangeText={(nextValue) => {
+                      setBoughtPriceDraftText(nextValue);
+                      setBoughtPriceErrorMessage(null);
+                    }}
+                    onBoughtPriceInputFocus={() => {
+                      setIsEditingField(true);
+                      scrollInputIntoView(boughtPriceInputRef);
+                    }}
+                    onCancelBoughtPriceEdit={() => {
+                      setBoughtPriceDraftText(
+                        displayEntry.costBasisPerUnit != null
+                          ? formatEditableSellPrice(displayEntry.costBasisPerUnit)
+                          : '',
+                      );
+                      setBoughtPriceErrorMessage(null);
+                      setIsSavingBoughtPrice(false);
+                      setIsBoughtPriceEditorVisible(false);
+                    }}
+                    onDecrement={() => {
+                      setQuantity((current) => Math.max(1, current - 1));
+                      setScreenErrorMessage(null);
+                    }}
+                    onEditBoughtPrice={() => {
+                      setBoughtPriceDraftText(
+                        displayEntry.costBasisPerUnit != null
+                          ? formatEditableSellPrice(displayEntry.costBasisPerUnit)
+                          : '',
+                      );
+                      setBoughtPriceErrorMessage(null);
+                      setIsSavingBoughtPrice(false);
+                      setIsBoughtPriceEditorVisible(true);
+                      if (process.env.NODE_ENV === 'test') {
+                        boughtPriceInputRef.current?.focus();
+                        return;
+                      }
+
+                      focusScrollTimerRef.current = setTimeout(() => {
+                        boughtPriceInputRef.current?.focus();
+                        scrollInputIntoView(boughtPriceInputRef);
+                      }, 80);
+                    }}
+                    onFocus={() => setIsEditingField(true)}
+                    onIncrement={() => {
+                      setQuantity((current) => Math.min(displayEntry.quantity, current + 1));
+                      setScreenErrorMessage(null);
+                    }}
+                    onSaveBoughtPrice={() => {
+                      if (!displayEntry) {
+                        return;
+                      }
+
+                      const parsedBoughtPrice = parseSellPrice(boughtPriceDraftText);
+                      if (parsedBoughtPrice == null) {
+                        setBoughtPriceErrorMessage('Enter a valid bought price before saving.');
+                        return;
+                      }
+
+                      setIsSavingBoughtPrice(true);
+                      setBoughtPriceErrorMessage(null);
+                      setScreenErrorMessage(null);
+
+                      void spotlightRepository.replacePortfolioEntry({
+                        deckEntryID: displayEntry.id,
+                        cardID: displayEntry.cardId,
+                        slabContext: displayEntry.slabContext ?? null,
+                        variantName: displayEntry.variantName ?? null,
+                        condition: displayEntry.kind === 'raw' ? displayEntry.conditionCode ?? null : null,
+                        quantity: displayEntry.quantity,
+                        unitPrice: parsedBoughtPrice,
+                        currencyCode: displayEntry.currencyCode,
+                        updatedAt: new Date().toISOString(),
+                      }).then((response) => {
+                        if (!isMountedRef.current) {
+                          return;
+                        }
+
+                        const nextEntryId = response.deckEntryID || displayEntry.id;
+
+                        setEntry((current) => (
+                          current && current.id === displayEntry.id
+                            ? patchEntryCostBasis(current, parsedBoughtPrice, nextEntryId)
+                            : current
+                        ));
+                        setLastResolvedEntry((current) => (
+                          current && current.id === displayEntry.id
+                            ? patchEntryCostBasis(current, parsedBoughtPrice, nextEntryId)
+                            : current
+                        ));
+                        setBoughtPriceDraftText(formatEditableSellPrice(parsedBoughtPrice));
+                        setRevealsBoughtPrice(true);
+                        setIsBoughtPriceEditorVisible(false);
+                        setIsSavingBoughtPrice(false);
+                        refreshData();
+                      }).catch((error: unknown) => {
+                        if (!isMountedRef.current) {
+                          return;
+                        }
+
+                        setIsSavingBoughtPrice(false);
+                        setBoughtPriceErrorMessage(error instanceof Error ? error.message : 'Could not update the bought price.');
+                      });
+                    }}
+                    onSoldPriceChangeText={(nextValue) => {
+                      setSoldPriceText(nextValue);
+                      setScreenErrorMessage(null);
+                      setShowsSoldPriceValidation(false);
+                    }}
+                    onSoldPriceFocus={() => setIsEditingField(false)}
+                    onToggleBoughtPrice={() => setRevealsBoughtPrice((current) => !current)}
+                    quantity={quantity}
+                    revealsBoughtPrice={revealsBoughtPrice}
+                    soldPriceErrorMessage={soldPriceErrorMessage}
+                    soldPriceErrorTestID="single-sell-error-message"
+                    soldPriceTestID="single-sell-sold-price"
+                    soldPriceText={soldPriceText}
+                    stepperTestIDs={{
+                      decrement: 'single-sell-decrement',
+                      increment: 'single-sell-increment',
+                    }}
+                    testIDPrefix="single-sell"
+                    toggleBoughtPriceTestID="single-sell-toggle-bought-price"
+                  />
+                </SurfaceCard>
+              </View>
+            </Animated.View>
+          </TouchableWithoutFeedback>
         </ScrollView>
 
         <View pointerEvents="box-none" style={styles.swipeSheetWrap}>
           <Animated.View
-            {...panResponder.panHandlers}
+            accessibilityActions={[{ name: 'activate', label: 'Confirm sale' }]}
+            accessibilityRole="button"
+            accessibilityState={{ disabled: railIsDisabled }}
+            onAccessibilityAction={(event) => {
+              if (event.nativeEvent.actionName === 'activate') {
+                handleAccessibilityConfirm();
+              }
+            }}
             style={[
               styles.swipeSheet,
               {
-                backgroundColor: theme.colors.brand,
+                backgroundColor: railUsesDisabledVisual ? theme.colors.surface : theme.colors.brand,
                 height: swipeSheetHeight,
                 paddingBottom: insets.bottom + 16,
                 transform: [{ translateY: sheetOffset }],
@@ -683,7 +869,7 @@ export function SingleSellScreen({
             testID="single-sell-swipe-rail"
           >
             <Animated.View
-              pointerEvents="none"
+              pointerEvents="box-none"
               style={[
                 styles.confirmationPrompt,
                 {
@@ -693,8 +879,22 @@ export function SingleSellScreen({
               ]}
               testID="single-sell-confirmation-prompt"
             >
-              <Text style={styles.swipeChevron}>⌃</Text>
-              <Text style={[theme.typography.body, styles.swipeRailTitle]}>{confirmationPrompt}</Text>
+              <View
+                {...panResponder.panHandlers}
+                style={styles.swipeGestureZone}
+                testID="single-sell-swipe-handle"
+              >
+                <Text style={[styles.swipeChevron, railUsesDisabledVisual ? styles.swipeChevronDisabled : null]}>⌃</Text>
+              </View>
+              <Text
+                style={[
+                  theme.typography.body,
+                  styles.swipeRailTitle,
+                  railUsesDisabledVisual ? styles.swipeRailTitleDisabled : null,
+                ]}
+              >
+                {confirmationPrompt}
+              </Text>
             </Animated.View>
           </Animated.View>
         </View>
@@ -705,8 +905,8 @@ export function SingleSellScreen({
 
 const styles = StyleSheet.create({
   closeButton: {
-    position: 'absolute',
     left: 0,
+    position: 'absolute',
     top: 0,
   },
   confirmationPrompt: {
@@ -718,9 +918,6 @@ const styles = StyleSheet.create({
     minHeight: sellOrderSwipeRailHeight,
     paddingTop: 4,
     width: '100%',
-  },
-  dismissLayer: {
-    flex: 1,
   },
   content: {
     paddingHorizontal: 16,
@@ -737,7 +934,10 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
   },
   detailsCardWrap: {
-    marginTop: -40,
+    marginTop: -24,
+  },
+  dismissLayer: {
+    flex: 1,
   },
   heroArt: {
     borderRadius: 20,
@@ -758,17 +958,17 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     paddingTop: 20,
   },
+  heroMetaText: {
+    color: 'rgba(15, 15, 18, 0.68)',
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: 'center',
+  },
   heroName: {
     color: 'rgba(15, 15, 18, 0.88)',
     flexShrink: 1,
     fontSize: 28,
     lineHeight: 32,
-    textAlign: 'center',
-  },
-  heroMetaText: {
-    color: 'rgba(15, 15, 18, 0.68)',
-    fontSize: 13,
-    lineHeight: 18,
     textAlign: 'center',
   },
   heroSection: {
@@ -785,6 +985,20 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 32,
   },
+  messageCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  messageText: {
+    color: '#4D4F57',
+  },
+  messageTitle: {
+    color: '#0F0F12',
+  },
   safeArea: {
     flex: 1,
   },
@@ -794,11 +1008,24 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 13,
   },
+  swipeChevronDisabled: {
+    color: 'rgba(15, 15, 18, 0.36)',
+  },
   swipeRailTitle: {
     color: 'rgba(15, 15, 18, 0.86)',
     fontSize: 16,
     lineHeight: 22,
     textAlign: 'center',
+  },
+  swipeRailTitleDisabled: {
+    color: 'rgba(15, 15, 18, 0.56)',
+  },
+  swipeGestureZone: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    justifyContent: 'flex-end',
+    minHeight: 44,
+    width: 220,
   },
   swipeSheet: {
     alignItems: 'center',

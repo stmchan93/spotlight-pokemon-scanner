@@ -42,10 +42,9 @@ describe('PortfolioScreen', () => {
     renderPortfolioScreen();
 
     expect(screen.queryByText('Loading Loooty...')).toBeNull();
-    expect(await screen.findByText('Track value, inventory, and latest transactions in one place.')).toBeTruthy();
-    expect(screen.getAllByText('Portfolio').length).toBeGreaterThan(0);
+    expect(await screen.findByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
+    expect(screen.getAllByText('Collection').length).toBeGreaterThan(0);
     expect(screen.getByTestId('portfolio-account-button')).toBeTruthy();
-    expect(await screen.findByText('Inventory')).toBeTruthy();
     expect(screen.getByText('(6)')).toBeTruthy();
     expect(screen.getAllByText('View All').length).toBeGreaterThan(0);
     expect(screen.getByText('Bulk Sell')).toBeTruthy();
@@ -141,7 +140,7 @@ describe('PortfolioScreen', () => {
   it('switches chart modes and keeps the sell entry available from inventory', async () => {
     renderPortfolioScreen();
 
-    await screen.findByText('Track value, inventory, and latest transactions in one place.');
+    await screen.findByText('Track value, favorites, and your latest transactions in one place.');
 
     fireEvent.press(screen.getByText('Sales'));
 

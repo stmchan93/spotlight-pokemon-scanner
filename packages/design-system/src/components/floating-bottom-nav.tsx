@@ -41,11 +41,11 @@ export function resolveFloatingBottomNavMetrics({
   surface: 'default' | 'scanner';
 }) {
   const isScannerSurface = surface === 'scanner';
-  const blurTint: BlurTint = isScannerSurface ? 'light' : 'systemChromeMaterialLight';
+  const blurTint: BlurTint = 'light';
 
   return {
     blurTint,
-    borderColor: isScannerSurface ? 'rgba(15, 15, 18, 0.08)' : theme.colors.outlineSubtle,
+    borderColor: isScannerSurface ? 'rgba(15, 15, 18, 0.08)' : 'rgba(255, 255, 255, 0.72)',
     bottom: theme.layout.bottomNavBottomInset + bottomInset,
     emphasizedFlex: 1,
     emphasizedPlateRestColor: isScannerSurface
@@ -56,26 +56,32 @@ export function resolveFloatingBottomNavMetrics({
     horizontalPadding: isScannerSurface ? 16 : 18,
     innerPaddingBottom: isScannerSurface ? 3 : 2,
     innerPaddingTop: isScannerSurface ? 5 : 4,
-    itemGap: 2,
+    itemGap: isScannerSurface ? 2 : 3,
+    itemShellBackgroundColor: isScannerSurface ? 'transparent' : 'rgba(255, 255, 255, 0.26)',
+    itemShellSelectedBackgroundColor: isScannerSurface ? 'transparent' : 'rgba(255, 255, 255, 0.54)',
+    itemShellSelectedBorderColor: isScannerSurface ? 'transparent' : 'rgba(255, 255, 255, 0.84)',
+    itemShellRadius: isScannerSurface ? 16 : 19,
+    itemShellMinHeight: isScannerSurface ? 0 : 58,
+    labelColor: isScannerSurface ? 'rgba(15, 15, 18, 0.72)' : theme.colors.textPrimary,
+    labelSecondaryColor: isScannerSurface ? 'rgba(15, 15, 18, 0.72)' : 'rgba(15, 15, 18, 0.78)',
     regularPlateSize: isScannerSurface ? 48 : 50,
     regularPlateSelectedColor: isScannerSurface
       ? theme.colors.brand
       : theme.colors.brand,
-    regularLabelColor: isScannerSurface ? 'rgba(15, 15, 18, 0.72)' : theme.colors.textSecondary,
     shellBackgroundColor:
       Platform.OS === 'android'
         ? isScannerSurface
           ? 'rgba(250, 249, 244, 0.94)'
-          : 'rgba(255, 255, 255, 0.94)'
+          : 'rgba(245, 242, 232, 0.92)'
         : isScannerSurface
           ? 'rgba(249, 248, 241, 0.78)'
-          : 'rgba(252, 252, 250, 0.82)',
+          : 'rgba(246, 243, 233, 0.78)',
     shellWidth: Math.min(
       windowWidth - theme.layout.bottomNavSideInset * 2,
-      isScannerSurface ? 292 : 308,
+      isScannerSurface ? 292 : 302,
     ),
     shadowOpacity: isScannerSurface ? 0.12 : 0.08,
-    shadowRadius: isScannerSurface ? 16 : 12,
+    shadowRadius: isScannerSurface ? 16 : 18,
   };
 }
 
@@ -92,6 +98,7 @@ export function FloatingBottomNav({
     theme,
     windowWidth,
   });
+  const isScannerSurface = surface === 'scanner';
   const shellStyle: ViewStyle[] = [
     styles.shell,
     {
@@ -131,7 +138,7 @@ export function FloatingBottomNav({
             onPress={item.onPress}
             style={({ pressed }) => [
               styles.item,
-              item.emphasized ? { flex: metrics.emphasizedFlex } : null,
+              isScannerSurface && item.emphasized ? { flex: metrics.emphasizedFlex } : null,
               {
                 gap: metrics.itemGap,
                 opacity: pressed ? 0.82 : 1,
@@ -141,15 +148,30 @@ export function FloatingBottomNav({
           >
             <View
               style={[
-                item.emphasized ? styles.iconPlate : styles.regularIconSlot,
-                !item.emphasized
+                isScannerSurface
+                  ? null
+                  : [
+                      styles.defaultItemShell,
+                      {
+                        backgroundColor: selected
+                          ? metrics.itemShellSelectedBackgroundColor
+                          : metrics.itemShellBackgroundColor,
+                        borderColor: selected
+                          ? metrics.itemShellSelectedBorderColor
+                          : 'transparent',
+                        borderRadius: metrics.itemShellRadius,
+                        minHeight: metrics.itemShellMinHeight,
+                      },
+                    ],
+                isScannerSurface && item.emphasized ? styles.iconPlate : null,
+                isScannerSurface && !item.emphasized
                   ? {
                       borderRadius: 16,
                       height: metrics.regularPlateSize,
                       width: metrics.regularPlateSize,
                     }
                   : null,
-                !item.emphasized && selected
+                isScannerSurface && !item.emphasized && selected
                   ? [
                       styles.selectedRegularIconSlot,
                       {
@@ -159,7 +181,7 @@ export function FloatingBottomNav({
                       },
                     ]
                   : null,
-                item.emphasized
+                isScannerSurface && item.emphasized
                   ? [
                       styles.emphasizedPlate,
                       {
@@ -173,21 +195,41 @@ export function FloatingBottomNav({
                     ]
                   : null,
               ]}
+              testID={item.testID ? `${item.testID}-surface` : undefined}
             >
-              {item.icon}
+              <View style={isScannerSurface ? null : styles.defaultIconSlot}>
+                {item.icon}
+              </View>
+              {!isScannerSurface ? (
+                <Text
+                  style={[
+                    theme.typography.control,
+                    styles.defaultLabel,
+                    {
+                      color: selected
+                        ? metrics.labelColor
+                        : metrics.labelSecondaryColor,
+                    },
+                  ]}
+                >
+                  {item.label}
+                </Text>
+              ) : null}
             </View>
-            <Text
-              style={[
-                theme.typography.micro,
-                {
-                  color: selected
-                    ? theme.colors.textPrimary
-                    : metrics.regularLabelColor,
-                },
-              ]}
-            >
-              {item.label}
-            </Text>
+            {isScannerSurface ? (
+              <Text
+                style={[
+                  theme.typography.micro,
+                  {
+                    color: selected
+                      ? theme.colors.textPrimary
+                      : metrics.labelSecondaryColor,
+                  },
+                ]}
+              >
+                {item.label}
+              </Text>
+            ) : null}
           </Pressable>
         );
       })}
@@ -210,6 +252,23 @@ export function FloatingBottomNav({
 }
 
 const styles = StyleSheet.create({
+  defaultIconSlot: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    minHeight: 24,
+  },
+  defaultItemShell: {
+    alignItems: 'center',
+    borderWidth: 1,
+    gap: 2,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    width: '100%',
+  },
+  defaultLabel: {
+    letterSpacing: 0,
+  },
   emphasizedPlate: {
     borderWidth: 1,
     height: 52,

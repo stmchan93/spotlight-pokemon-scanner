@@ -1,5 +1,6 @@
 import type { PropsWithChildren } from 'react';
 import { fireEvent, render, screen } from '@testing-library/react-native';
+import { StyleSheet } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
@@ -113,6 +114,44 @@ describe('FloatingBottomNav', () => {
     });
     expect(screen.getByTestId('bottom-nav-scan').props.accessibilityState).toEqual({
       selected: false,
+    });
+  });
+
+  it('renders a frosted selected segment on the default surface', () => {
+    render(
+      <FloatingBottomNav
+        items={[
+          {
+            key: 'portfolio',
+            label: 'Collection',
+            icon: null,
+            onPress: jest.fn(),
+            selected: true,
+            testID: 'bottom-nav-portfolio',
+          },
+          {
+            key: 'scan',
+            label: 'Scan',
+            icon: null,
+            onPress: jest.fn(),
+            testID: 'bottom-nav-scan',
+          },
+        ]}
+      />, {
+        wrapper: Providers,
+      }
+    );
+
+    const selectedSurfaceStyle = StyleSheet.flatten(screen.getByTestId('bottom-nav-portfolio-surface').props.style);
+    const idleSurfaceStyle = StyleSheet.flatten(screen.getByTestId('bottom-nav-scan-surface').props.style);
+
+    expect(selectedSurfaceStyle).toMatchObject({
+      backgroundColor: 'rgba(255, 255, 255, 0.54)',
+      borderColor: 'rgba(255, 255, 255, 0.84)',
+    });
+    expect(idleSurfaceStyle).toMatchObject({
+      backgroundColor: 'rgba(255, 255, 255, 0.26)',
+      borderColor: 'transparent',
     });
   });
 });
