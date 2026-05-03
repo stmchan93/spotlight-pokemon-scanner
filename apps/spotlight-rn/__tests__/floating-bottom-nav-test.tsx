@@ -38,12 +38,14 @@ describe('FloatingBottomNav', () => {
       windowWidth: 393,
     });
 
-    expect(scannerMetrics.shellWidth).toBeLessThan(defaultMetrics.shellWidth);
+    expect(defaultMetrics.shellWidth).toBeLessThan(scannerMetrics.shellWidth);
     expect(scannerMetrics.emphasizedPlateSize).toBeLessThan(defaultMetrics.emphasizedPlateSize);
     expect(scannerMetrics.regularPlateSize).toBe(scannerMetrics.emphasizedPlateSize);
     expect(defaultMetrics.regularPlateSize).toBe(defaultMetrics.emphasizedPlateSize);
-    expect(scannerMetrics.horizontalPadding).toBeLessThan(defaultMetrics.horizontalPadding);
+    expect(defaultMetrics.horizontalPadding).toBeLessThan(scannerMetrics.horizontalPadding);
     expect(scannerMetrics.innerPaddingTop).toBeGreaterThan(scannerMetrics.innerPaddingBottom);
+    expect(defaultMetrics.shellWidth).toBe(238);
+    expect(defaultMetrics.navHeight).toBe(64);
   });
 
   it('wires press handlers for both nav items', () => {
@@ -117,7 +119,7 @@ describe('FloatingBottomNav', () => {
     });
   });
 
-  it('renders a frosted selected segment on the default surface', () => {
+  it('renders a compact yellow selected segment on the default surface', () => {
     render(
       <FloatingBottomNav
         items={[
@@ -146,11 +148,12 @@ describe('FloatingBottomNav', () => {
     const idleSurfaceStyle = StyleSheet.flatten(screen.getByTestId('bottom-nav-scan-surface').props.style);
 
     expect(selectedSurfaceStyle).toMatchObject({
-      backgroundColor: 'rgba(255, 255, 255, 0.54)',
-      borderColor: 'rgba(255, 255, 255, 0.84)',
+      backgroundColor: spotlightTheme.colors.brand,
+      borderColor: 'transparent',
+      minHeight: 48,
     });
     expect(idleSurfaceStyle).toMatchObject({
-      backgroundColor: 'rgba(255, 255, 255, 0.26)',
+      backgroundColor: 'transparent',
       borderColor: 'transparent',
     });
   });

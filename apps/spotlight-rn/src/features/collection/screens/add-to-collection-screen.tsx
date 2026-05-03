@@ -369,7 +369,6 @@ export function AddToCollectionScreen({
             />
 
             <View style={styles.sheetHeaderCopy}>
-              <View style={[styles.sheetGrabber, { backgroundColor: theme.colors.chartGuide }]} />
               <Text style={[theme.typography.title, styles.sheetTitle]}>{isEditingEntry ? 'Edit Collection' : 'Add to Collection'}</Text>
             </View>
 
@@ -631,14 +630,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 16,
   },
-  sheetGrabber: {
-    borderRadius: 999,
-    height: 7,
-    width: 56,
-  },
   sheetHeader: {
     alignItems: 'center',
     flexDirection: 'row',
+    paddingBottom: 8,
     paddingHorizontal: 16,
     paddingTop: 12,
   },

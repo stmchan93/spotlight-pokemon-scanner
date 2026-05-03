@@ -45,7 +45,7 @@ describe('SalePriceEditSheet', () => {
     });
     expect(screen.getByText('Previous $12.50')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('edit-sale-price-input').props.style)).toMatchObject({
-      fontSize: 34,
+      fontSize: 36,
       lineHeight: 40,
     });
     expect(StyleSheet.flatten(screen.getByText('Confirm price').props.style)).toMatchObject({

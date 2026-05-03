@@ -32,6 +32,10 @@ export function PortfolioScreen({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const model = usePortfolioScreenModel();
+  const bottomNavClearance =
+    theme.layout.bottomNavHeight
+    + theme.layout.bottomNavBottomInset
+    + Math.max(insets.bottom - 8, 0);
   const shouldShowInitialError = !model.hasLoadedDashboard
     && !model.hasLoadedInventory
     && !model.isLoading
@@ -48,11 +52,12 @@ export function PortfolioScreen({
       ]}
     >
       <ScrollView
+        testID="portfolio-scroll-view"
         contentContainerStyle={[
           styles.content,
           {
             gap: theme.layout.sectionGap,
-            paddingBottom: theme.layout.bottomNavHeight + insets.bottom + 48,
+            paddingBottom: bottomNavClearance,
             paddingHorizontal: theme.layout.pageGutter,
             paddingTop: theme.layout.pageTopInset,
           },

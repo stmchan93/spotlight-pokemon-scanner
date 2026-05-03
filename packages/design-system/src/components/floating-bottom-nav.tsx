@@ -45,25 +45,26 @@ export function resolveFloatingBottomNavMetrics({
 
   return {
     blurTint,
-    borderColor: isScannerSurface ? 'rgba(15, 15, 18, 0.08)' : 'rgba(255, 255, 255, 0.72)',
+    borderColor: isScannerSurface ? 'rgba(15, 15, 18, 0.08)' : 'rgba(255, 255, 255, 0.78)',
     bottom: theme.layout.bottomNavBottomInset + bottomInset,
     emphasizedFlex: 1,
     emphasizedPlateRestColor: isScannerSurface
       ? 'rgba(255, 255, 255, 0.56)'
       : 'rgba(15, 15, 18, 0.04)',
     emphasizedPlateSize: isScannerSurface ? 48 : 50,
-    gap: isScannerSurface ? 14 : 18,
-    horizontalPadding: isScannerSurface ? 16 : 18,
-    innerPaddingBottom: isScannerSurface ? 3 : 2,
+    gap: isScannerSurface ? 14 : 6,
+    horizontalPadding: isScannerSurface ? 16 : 10,
+    innerPaddingBottom: isScannerSurface ? 3 : 4,
     innerPaddingTop: isScannerSurface ? 5 : 4,
-    itemGap: isScannerSurface ? 2 : 3,
-    itemShellBackgroundColor: isScannerSurface ? 'transparent' : 'rgba(255, 255, 255, 0.26)',
-    itemShellSelectedBackgroundColor: isScannerSurface ? 'transparent' : 'rgba(255, 255, 255, 0.54)',
-    itemShellSelectedBorderColor: isScannerSurface ? 'transparent' : 'rgba(255, 255, 255, 0.84)',
-    itemShellRadius: isScannerSurface ? 16 : 19,
-    itemShellMinHeight: isScannerSurface ? 0 : 58,
+    itemGap: isScannerSurface ? 2 : 1,
+    itemShellBackgroundColor: isScannerSurface ? 'transparent' : 'transparent',
+    itemShellSelectedBackgroundColor: isScannerSurface ? 'transparent' : theme.colors.brand,
+    itemShellSelectedBorderColor: isScannerSurface ? 'transparent' : 'transparent',
+    itemShellRadius: isScannerSurface ? 16 : 18,
+    itemShellMinHeight: isScannerSurface ? 0 : 48,
     labelColor: isScannerSurface ? 'rgba(15, 15, 18, 0.72)' : theme.colors.textPrimary,
-    labelSecondaryColor: isScannerSurface ? 'rgba(15, 15, 18, 0.72)' : 'rgba(15, 15, 18, 0.78)',
+    labelSecondaryColor: isScannerSurface ? 'rgba(15, 15, 18, 0.72)' : 'rgba(15, 15, 18, 0.86)',
+    navHeight: isScannerSurface ? theme.layout.bottomNavHeight : 64,
     regularPlateSize: isScannerSurface ? 48 : 50,
     regularPlateSelectedColor: isScannerSurface
       ? theme.colors.brand
@@ -72,16 +73,17 @@ export function resolveFloatingBottomNavMetrics({
       Platform.OS === 'android'
         ? isScannerSurface
           ? 'rgba(250, 249, 244, 0.94)'
-          : 'rgba(245, 242, 232, 0.92)'
+          : 'rgba(255, 255, 255, 0.92)'
         : isScannerSurface
           ? 'rgba(249, 248, 241, 0.78)'
-          : 'rgba(246, 243, 233, 0.78)',
+          : 'rgba(255, 255, 255, 0.58)',
+    shellRadius: isScannerSurface ? 24 : 22,
     shellWidth: Math.min(
       windowWidth - theme.layout.bottomNavSideInset * 2,
-      isScannerSurface ? 292 : 302,
+      isScannerSurface ? 292 : 238,
     ),
-    shadowOpacity: isScannerSurface ? 0.12 : 0.08,
-    shadowRadius: isScannerSurface ? 16 : 18,
+    shadowOpacity: isScannerSurface ? 0.12 : 0.06,
+    shadowRadius: isScannerSurface ? 16 : 14,
   };
 }
 
@@ -106,7 +108,8 @@ export function FloatingBottomNav({
       backgroundColor: metrics.shellBackgroundColor,
       borderColor: metrics.borderColor,
       bottom: metrics.bottom,
-      height: theme.layout.bottomNavHeight,
+      height: metrics.navHeight,
+      borderRadius: metrics.shellRadius,
       shadowColor: theme.shadows.card.shadowColor,
       shadowOffset: theme.shadows.card.shadowOffset,
       shadowOpacity: metrics.shadowOpacity,
@@ -260,10 +263,10 @@ const styles = StyleSheet.create({
   defaultItemShell: {
     alignItems: 'center',
     borderWidth: 1,
-    gap: 2,
+    gap: 1,
     justifyContent: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     width: '100%',
   },
   defaultLabel: {
@@ -299,7 +302,6 @@ const styles = StyleSheet.create({
     borderRadius: 16,
   },
   shell: {
-    borderRadius: 24,
     borderWidth: 1,
     overflow: 'hidden',
     position: 'absolute',

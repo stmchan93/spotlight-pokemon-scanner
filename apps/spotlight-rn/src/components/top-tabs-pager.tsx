@@ -177,7 +177,7 @@ export function TopTabsPager({ portfolioSlot, renderScannerSlot }: TopTabsPagerP
                 icon: (
                   <IconBriefcase2
                     color={theme.colors.textPrimary}
-                    size={22}
+                    size={20}
                     strokeWidth={2.15}
                   />
                 ),
@@ -191,7 +191,7 @@ export function TopTabsPager({ portfolioSlot, renderScannerSlot }: TopTabsPagerP
                 icon: (
                   <IconScan
                     color={theme.colors.textPrimary}
-                    size={22}
+                    size={20}
                     strokeWidth={2.15}
                   />
                 ),

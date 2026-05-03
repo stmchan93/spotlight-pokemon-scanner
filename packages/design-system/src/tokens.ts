@@ -102,20 +102,23 @@ export const shadows = {
 export const textStyles = {
   display: {
     fontFamily: fontFamilies.display,
-    fontSize: 34,
+    fontSize: 36,
     lineHeight: 40,
+    letterSpacing: -0.9,
     color: colors.textPrimary,
   } satisfies TextStyle,
   title: {
     fontFamily: fontFamilies.display,
-    fontSize: 24,
-    lineHeight: 28,
+    fontSize: 25,
+    lineHeight: 30,
+    letterSpacing: -0.55,
     color: colors.textPrimary,
   } satisfies TextStyle,
   titleCompact: {
     fontFamily: fontFamilies.display,
-    fontSize: 20,
-    lineHeight: 24,
+    fontSize: 21,
+    lineHeight: 26,
+    letterSpacing: -0.35,
     color: colors.textPrimary,
   } satisfies TextStyle,
   headline: {
@@ -143,15 +146,16 @@ export const textStyles = {
     color: colors.textPrimary,
   } satisfies TextStyle,
   caption: {
-    fontFamily: fontFamilies.bodySemiBold,
+    fontFamily: fontFamilies.bodyMedium,
     fontSize: 12,
     lineHeight: 16,
     color: colors.textSecondary,
   } satisfies TextStyle,
   micro: {
-    fontFamily: fontFamilies.bodyBold,
+    fontFamily: fontFamilies.bodySemiBold,
     fontSize: 11,
     lineHeight: 14,
+    letterSpacing: 0.8,
     color: colors.textSecondary,
   } satisfies TextStyle,
 } as const;

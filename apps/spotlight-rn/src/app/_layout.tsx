@@ -70,11 +70,11 @@ const navigationTheme: Theme = {
 
 function RootNavigator() {
   const [fontsLoaded] = useFonts({
-    [fontFamilies.display]: require('../../assets/fonts/SpecialGothicExpandedOne-Regular.ttf'),
-    [fontFamilies.bodyRegular]: require('../../assets/fonts/Outfit-Regular.ttf'),
-    [fontFamilies.bodyMedium]: require('../../assets/fonts/Outfit-Medium.ttf'),
-    [fontFamilies.bodySemiBold]: require('../../assets/fonts/Outfit-SemiBold.ttf'),
-    [fontFamilies.bodyBold]: require('../../assets/fonts/Outfit-Bold.ttf'),
+    [fontFamilies.display]: require('../../assets/fonts/PlusJakartaSans-ExtraBold.ttf'),
+    [fontFamilies.bodyRegular]: require('../../assets/fonts/PlusJakartaSans-Regular.ttf'),
+    [fontFamilies.bodyMedium]: require('../../assets/fonts/PlusJakartaSans-Medium.ttf'),
+    [fontFamilies.bodySemiBold]: require('../../assets/fonts/PlusJakartaSans-SemiBold.ttf'),
+    [fontFamilies.bodyBold]: require('../../assets/fonts/PlusJakartaSans-Bold.ttf'),
   });
 
   useEffect(() => {

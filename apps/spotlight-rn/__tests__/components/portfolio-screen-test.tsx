@@ -45,6 +45,9 @@ describe('PortfolioScreen', () => {
     expect(await screen.findByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
     expect(screen.getAllByText('Collection').length).toBeGreaterThan(0);
     expect(screen.getByTestId('portfolio-account-button')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByTestId('portfolio-scroll-view').props.contentContainerStyle)).toMatchObject({
+      paddingBottom: 114,
+    });
     expect(screen.getByText('(6)')).toBeTruthy();
     expect(screen.getAllByText('View All').length).toBeGreaterThan(0);
     expect(screen.getByText('Bulk Sell')).toBeTruthy();

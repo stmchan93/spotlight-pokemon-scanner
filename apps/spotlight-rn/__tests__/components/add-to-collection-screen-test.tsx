@@ -21,6 +21,9 @@ describe('AddToCollectionScreen', () => {
 
     expect(screen.queryByTestId('add-to-collection-loading')).toBeNull();
     expect(screen.getByTestId('add-to-collection-header')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByTestId('add-to-collection-header').props.style)).toMatchObject({
+      paddingBottom: 8,
+    });
     expect(screen.getByTestId('add-to-collection-close')).toBeTruthy();
     expect(screen.getByText('Add to Collection')).toBeTruthy();
     expect(screen.getByTestId('add-to-collection-hero')).toBeTruthy();

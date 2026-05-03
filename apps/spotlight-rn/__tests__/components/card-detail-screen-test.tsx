@@ -380,6 +380,7 @@ describe('CardDetailScreen', () => {
     expect(screen.getByText('In your collection')).toBeTruthy();
     expect(screen.queryByText('1 copy tracked')).toBeNull();
     expect(screen.getByTestId('detail-collection-card')).toBeTruthy();
+    expect(screen.getByTestId('detail-collection-sell-entry-3')).toBeTruthy();
     expect(screen.getByTestId('detail-collection-edit-entry-3')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('detail-collection-art-entry-3').props.style)).toMatchObject({
       height: '100%',
@@ -440,6 +441,9 @@ describe('CardDetailScreen', () => {
 
     fireEvent.press(screen.getByTestId('detail-sell-card'));
     expect(onOpenSell).toHaveBeenCalledWith('entry-3');
+
+    fireEvent.press(screen.getByTestId('detail-collection-sell-entry-3'));
+    expect(onOpenSell).toHaveBeenLastCalledWith('entry-3');
 
     fireEvent.press(screen.getByTestId('detail-collection-edit-entry-3'));
     expect(onOpenAddToCollection).toHaveBeenCalledWith('xyp-111', 'entry-3');
@@ -662,6 +666,7 @@ describe('CardDetailScreen', () => {
 
   it('renders differentiated owned rows when the same card is held in multiple conditions', async () => {
     const onOpenAddToCollection = jest.fn();
+    const onOpenSell = jest.fn();
     const repository = createTestSpotlightRepository();
     const addedVariant = await repository.createPortfolioBuy({
       boughtAt: '2026-04-24T12:00:00.000Z',
@@ -682,19 +687,25 @@ describe('CardDetailScreen', () => {
         entryId="entry-3"
         onBack={jest.fn()}
         onOpenAddToCollection={onOpenAddToCollection}
-        onOpenSell={jest.fn()}
+        onOpenSell={onOpenSell}
       />,
       { spotlightRepository: repository },
     );
 
     expect(await screen.findByText('Celebi')).toBeTruthy();
     expect(screen.getByText('In your collection (2)')).toBeTruthy();
+    expect(screen.queryByTestId('detail-sell-card')).toBeNull();
     expect(screen.getAllByTestId(/detail-collection-row-/)).toHaveLength(2);
     expect(screen.getByTestId('detail-collection-row-entry-3')).toBeTruthy();
     expect(screen.getByTestId(`detail-collection-row-${addedVariant.deckEntryID}`)).toBeTruthy();
+    expect(screen.getByTestId('detail-collection-sell-entry-3')).toBeTruthy();
+    expect(screen.getByTestId(`detail-collection-sell-${addedVariant.deckEntryID}`)).toBeTruthy();
     expect(screen.getByTestId('detail-collection-divider-1')).toBeTruthy();
     expect(screen.getByText('Near Mint')).toBeTruthy();
     expect(screen.getByText('Lightly Played')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId(`detail-collection-sell-${addedVariant.deckEntryID}`));
+    expect(onOpenSell).toHaveBeenCalledWith(addedVariant.deckEntryID);
 
     fireEvent.press(screen.getByTestId(`detail-collection-edit-${addedVariant.deckEntryID}`));
     expect(onOpenAddToCollection).toHaveBeenCalledWith('xyp-111', addedVariant.deckEntryID);

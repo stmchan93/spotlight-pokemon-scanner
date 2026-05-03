@@ -204,6 +204,10 @@ function EditIcon() {
   return <IconEdit color="#4D4F57" size={16} strokeWidth={1.9} />;
 }
 
+function SellEntryIcon() {
+  return <Text style={styles.collectionSellButtonLabel}>$</Text>;
+}
+
 function formatListingDateLabel(value?: string | null) {
   const trimmed = value?.trim();
   if (!trimmed) {
@@ -762,6 +766,7 @@ export function CardDetailScreen({
   const isFavorite = detail?.isFavorite ?? false;
   const ebayListings = shouldShowEbayListings ? (ebayListingsState ?? detail?.ebayListings ?? null) : null;
   const ownedCopiesCount = ownedEntries.reduce((sum, entry) => sum + Math.max(0, entry.quantity), 0);
+  const hasSingleOwnedEntry = ownedEntries.length === 1;
   const collectionTitle = ownedCopiesCount > 1
     ? `In your collection (${ownedCopiesCount})`
     : 'In your collection';
@@ -816,7 +821,7 @@ export function CardDetailScreen({
         </View>
 
         <View style={styles.actionStack} testID="detail-action-stack">
-          {isOwned ? (
+          {isOwned && hasSingleOwnedEntry ? (
             <Button
               contentStyle={styles.primaryButtonContent}
               disabled={!onOpenSell || !sellEntryId}
@@ -831,7 +836,7 @@ export function CardDetailScreen({
               testID="detail-sell-card"
               variant="primary"
             />
-          ) : (
+          ) : !isOwned ? (
             <Button
               contentStyle={styles.primaryButtonContent}
               label="ADD TO COLLECTION"
@@ -841,7 +846,7 @@ export function CardDetailScreen({
               testID="detail-add-to-collection"
               variant="primary"
             />
-          )}
+          ) : null}
 
           <Button
             contentStyle={styles.marketplaceButtonContent}
@@ -1002,20 +1007,42 @@ export function CardDetailScreen({
                           </Pressable>
                         </View>
 
-                        <Pressable
-                          accessibilityLabel="Edit collection item"
-                          accessibilityRole="button"
-                          onPress={() => onOpenAddToCollection(selectedEntry.cardId, entry.id)}
-                          style={({ pressed }) => [
-                            styles.collectionEditButton,
-                            {
-                              opacity: pressed ? 0.72 : 1,
-                            },
-                          ]}
-                          testID={`detail-collection-edit-${entry.id}`}
-                        >
-                          <EditIcon />
-                        </Pressable>
+                        <View style={styles.collectionSecondaryActions}>
+                          <Pressable
+                            accessibilityLabel="Edit collection item"
+                            accessibilityRole="button"
+                            onPress={() => onOpenAddToCollection(selectedEntry.cardId, entry.id)}
+                            style={({ pressed }) => [
+                              styles.collectionEditButton,
+                              {
+                                opacity: pressed ? 0.72 : 1,
+                              },
+                            ]}
+                            testID={`detail-collection-edit-${entry.id}`}
+                          >
+                            <EditIcon />
+                          </Pressable>
+
+                          <Pressable
+                            accessibilityLabel="Sell collection item"
+                            accessibilityRole="button"
+                            disabled={!onOpenSell}
+                            onPress={() => {
+                              if (onOpenSell) {
+                                onOpenSell(entry.id);
+                              }
+                            }}
+                            style={({ pressed }) => [
+                              styles.collectionSellButton,
+                              {
+                                opacity: !onOpenSell ? 0.42 : pressed ? 0.72 : 1,
+                              },
+                            ]}
+                            testID={`detail-collection-sell-${entry.id}`}
+                          >
+                            <SellEntryIcon />
+                          </Pressable>
+                        </View>
                       </View>
                     </View>
                   </View>
@@ -1477,6 +1504,26 @@ const styles = StyleSheet.create({
     height: 28,
     justifyContent: 'center',
     width: 28,
+  },
+  collectionSecondaryActions: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  collectionSellButton: {
+    alignItems: 'center',
+    backgroundColor: '#FFE24B',
+    borderRadius: 999,
+    height: 28,
+    justifyContent: 'center',
+    width: 28,
+  },
+  collectionSellButtonLabel: {
+    color: '#0F0F12',
+    fontSize: 16,
+    fontWeight: '700',
+    lineHeight: 16,
+    textAlign: 'center',
   },
   collectionList: {
     backgroundColor: 'rgba(255, 255, 255, 0.92)',
