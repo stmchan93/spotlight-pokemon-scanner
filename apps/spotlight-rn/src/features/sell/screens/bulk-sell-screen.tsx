@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  findNodeHandle,
   Image,
   Keyboard,
   PanResponder,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableWithoutFeedback,
   useWindowDimensions,
   View,
@@ -46,6 +48,7 @@ import {
   SellFormFields,
   SellIdentityChips,
   SellStatusOverlay,
+  SellSwipeConfirmationSheet,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -97,12 +100,14 @@ function LineCard({
   line,
   onChangeLine,
   onEntryPatched,
+  onScrollBoughtPriceInputIntoView,
   showsSellPriceValidation,
 }: {
   entry: InventoryCardEntry;
   line: BulkSellLineState;
   onChangeLine: (nextLine: BulkSellLineState) => void;
   onEntryPatched: (nextEntry: InventoryCardEntry) => void;
+  onScrollBoughtPriceInputIntoView: (inputRef: { current: TextInput | null }) => void;
   showsSellPriceValidation: boolean;
 }) {
   const theme = useSpotlightTheme();
@@ -119,6 +124,14 @@ function LineCard({
   );
   const [boughtPriceErrorMessage, setBoughtPriceErrorMessage] = useState<string | null>(null);
   const [isSavingBoughtPrice, setIsSavingBoughtPrice] = useState(false);
+  const boughtPriceInputRef = useRef<TextInput | null>(null);
+  const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (focusScrollTimerRef.current) {
+      clearTimeout(focusScrollTimerRef.current);
+    }
+  }, []);
 
   const saveBoughtPrice = useCallback(() => {
     const parsedBoughtPrice = parseSellPrice(boughtPriceDraftText);
@@ -191,6 +204,7 @@ function LineCard({
             boughtPriceEditorErrorMessage={boughtPriceErrorMessage}
             boughtPriceEditorText={boughtPriceDraftText}
             boughtPriceEditorVisible={isBoughtPriceEditorVisible}
+            boughtPriceInputRef={boughtPriceInputRef}
             boughtPriceInputTestID={`bulk-sell-${entry.id}-bought-price-input`}
             boughtPriceLabel={boughtPriceText}
             boughtPriceSaveDisabled={isSavingBoughtPrice}
@@ -204,6 +218,9 @@ function LineCard({
             onBoughtPriceChangeText={(value) => {
               setBoughtPriceDraftText(value);
               setBoughtPriceErrorMessage(null);
+            }}
+            onBoughtPriceInputFocus={() => {
+              onScrollBoughtPriceInputIntoView(boughtPriceInputRef);
             }}
             onCancelBoughtPriceEdit={() => {
               setBoughtPriceDraftText(
@@ -221,6 +238,18 @@ function LineCard({
               setBoughtPriceErrorMessage(null);
               setIsSavingBoughtPrice(false);
               setIsBoughtPriceEditorVisible(true);
+              if (process.env.NODE_ENV === 'test') {
+                boughtPriceInputRef.current?.focus();
+                return;
+              }
+
+              if (focusScrollTimerRef.current) {
+                clearTimeout(focusScrollTimerRef.current);
+              }
+              focusScrollTimerRef.current = setTimeout(() => {
+                boughtPriceInputRef.current?.focus();
+                onScrollBoughtPriceInputIntoView(boughtPriceInputRef);
+              }, 80);
             }}
             onIncrement={() => onChangeLine({ ...line, quantity: Math.min(entry.quantity, line.quantity + 1) })}
             onSaveBoughtPrice={saveBoughtPrice}
@@ -244,6 +273,57 @@ function LineCard({
   );
 }
 
+function ReviewLineCard({
+  entry,
+  line,
+}: {
+  entry: InventoryCardEntry;
+  line: BulkSellLineState;
+}) {
+  const theme = useSpotlightTheme();
+  const metrics = getBulkSellLineMetrics(entry, line);
+  const soldPriceLabel = metrics.soldPrice == null
+    ? 'Not set'
+    : formatCurrency(metrics.soldPrice, entry.currencyCode);
+
+  return (
+    <SurfaceCard
+      padding={18}
+      radius={28}
+      style={styles.reviewLineCard}
+      testID={`bulk-sell-review-line-${entry.id}`}
+    >
+      <View style={styles.reviewLineHeader}>
+        <Image source={{ uri: entry.imageUrl }} style={styles.reviewLineArt} />
+
+        <View style={styles.reviewLineCopy}>
+          <Text numberOfLines={2} style={[theme.typography.title, styles.lineTitle]}>
+            {entry.name}
+          </Text>
+          <Text numberOfLines={1} style={[theme.typography.caption, styles.lineSubtitle]}>
+            {entry.setName}
+            {' • '}
+            {entry.cardNumber}
+          </Text>
+          <SellIdentityChips entry={entry} testIDPrefix={`bulk-review-${entry.id}`} />
+        </View>
+      </View>
+
+      <View style={styles.divider} />
+
+      <View style={styles.reviewMetricRow}>
+        <Text style={[theme.typography.caption, styles.reviewMetricLabel]}>Quantity</Text>
+        <Text style={[theme.typography.bodyStrong, styles.reviewMetricValue]}>{metrics.quantity}</Text>
+      </View>
+
+      <View style={styles.reviewMetricRow}>
+        <Text style={[theme.typography.caption, styles.reviewMetricLabel]}>Sold price</Text>
+        <Text style={[theme.typography.bodyStrong, styles.reviewMetricValue]}>{soldPriceLabel}</Text>
+      </View>
+    </SurfaceCard>
+  );
+}
+
 export function BulkSellScreen({
   entryIds,
   onClose,
@@ -264,15 +344,20 @@ export function BulkSellScreen({
   const [showsValidation, setShowsValidation] = useState(false);
 
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
   const hasInitializedSheetRef = useRef(false);
   const closedSheetOffsetRef = useRef(0);
   const releaseToConfirmArmedRef = useRef(false);
+  const scrollViewRef = useRef<ScrollView | null>(null);
   const sheetOffset = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     return () => {
       isMountedRef.current = false;
+      if (focusScrollTimerRef.current) {
+        clearTimeout(focusScrollTimerRef.current);
+      }
       if (processingTimerRef.current) {
         clearTimeout(processingTimerRef.current);
       }
@@ -334,29 +419,32 @@ export function BulkSellScreen({
   const selectedCountLabel =
     summary.totalSelectedQuantity === 1 ? '1 card selected' : `${summary.totalSelectedQuantity} cards selected`;
   const validationMessage = buildStageValidationMessage(stage, summary.totalSelectedQuantity, summary.hasMissingActiveSoldPrice);
-  const canAdvance = canInteract && summary.totalSelectedQuantity > 0 && !summary.hasMissingActiveSoldPrice;
-  const railBlockingMessage = canAdvance ? null : validationMessage;
-  const railUsesDisabledVisual = summary.hasMissingActiveSoldPrice;
+  const canReview = canInteract && summary.totalSelectedQuantity > 0 && !summary.hasMissingActiveSoldPrice;
   const visibleMessage = screenErrorMessage ?? (showsValidation ? validationMessage : null);
   const reviewEntries = stage === 'review' ? summary.activeEntries : entries;
-
-  const confirmationPromptOpacity = useMemo(() => sheetOffset.interpolate({
+  const confirmationProgress = useMemo(() => sheetOffset.interpolate({
     inputRange: [0, Math.max(1, closedSheetOffset)],
-    outputRange: [1, 0.16],
+    outputRange: [1, 0],
     extrapolate: 'clamp',
   }), [closedSheetOffset, sheetOffset]);
 
-  const confirmationPromptScale = useMemo(() => sheetOffset.interpolate({
-    inputRange: [0, Math.max(1, closedSheetOffset)],
+  const confirmationPromptOpacity = useMemo(() => confirmationProgress.interpolate({
+    inputRange: [0, 0.73, 1],
+    outputRange: [1, 0.16, 0.16],
+    extrapolate: 'clamp',
+  }), [confirmationProgress]);
+
+  const confirmationPromptScale = useMemo(() => confirmationProgress.interpolate({
+    inputRange: [0, 1],
     outputRange: [1, 0.9],
     extrapolate: 'clamp',
-  }), [closedSheetOffset, sheetOffset]);
+  }), [confirmationProgress]);
 
   const prompt = releaseToConfirmArmed
-    ? (stage === 'draft' ? 'Release to review sale' : 'Release to confirm sale')
-    : (railBlockingMessage != null
-      ? railBlockingMessage
-      : (stage === 'draft' ? 'Swipe up to review sale' : 'Swipe up to confirm sale'));
+    ? 'Release to confirm sale'
+    : 'Swipe up to confirm sale';
+  const railIsDisabled = !canInteract;
+  const railUsesDisabledVisual = false;
 
   const syncReleaseToConfirmState = useCallback((nextOffset: number) => {
     const nextState = isSellSwipeReleaseArmed(
@@ -404,6 +492,34 @@ export function BulkSellScreen({
 
   const beginGestureInteraction = useCallback(() => {
     Keyboard.dismiss();
+  }, []);
+
+  const scrollInputIntoView = useCallback((inputRef: { current: TextInput | null }) => {
+    if (process.env.NODE_ENV === 'test') {
+      return;
+    }
+
+    if (focusScrollTimerRef.current) {
+      clearTimeout(focusScrollTimerRef.current);
+    }
+
+    focusScrollTimerRef.current = setTimeout(() => {
+      const scrollView = scrollViewRef.current as (ScrollView & {
+        scrollResponderScrollNativeHandleToKeyboard?: (
+          nodeHandle: number,
+          additionalOffset?: number,
+          preventNegativeScrollOffset?: boolean,
+        ) => void;
+      }) | null;
+      const nodeHandle = findNodeHandle(inputRef.current);
+      if (!scrollView || nodeHandle == null) {
+        return;
+      }
+
+      if (typeof scrollView.scrollResponderScrollNativeHandleToKeyboard === 'function') {
+        scrollView.scrollResponderScrollNativeHandleToKeyboard(nodeHandle, 112, true);
+      }
+    }, 80);
   }, []);
 
   useEffect(() => {
@@ -489,52 +605,49 @@ export function BulkSellScreen({
       });
   }, [animateSheetToOffset, entries, lines, onComplete, refreshData, spotlightRepository]);
 
-  const confirmSale = useCallback(() => {
-    syncReleaseToConfirmState(closedSheetOffsetRef.current);
-    if (stage === 'draft') {
-      setStage('review');
-      setShowsValidation(false);
+  const openReviewStep = useCallback(() => {
+    if (!canReview) {
+      setShowsValidation(true);
       return;
     }
+
+    syncReleaseToConfirmState(closedSheetOffsetRef.current);
+    animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+    setShowsValidation(false);
+    setScreenErrorMessage(null);
+    setStage('review');
+  }, [animateSheetToOffset, canReview, syncReleaseToConfirmState]);
+
+  const handleAccessibilityConfirm = useCallback(() => {
+    if (!canInteract || stage !== 'review') {
+      return;
+    }
+
+    animateSheetToOffset(0, 'open');
     submitSale();
-  }, [stage, submitSale, syncReleaseToConfirmState]);
+  }, [animateSheetToOffset, canInteract, stage, submitSale]);
 
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) => (
-      canInteract && canStartSellSwipeGesture(gestureState.dx, gestureState.dy)
+      canInteract && stage === 'review' && canStartSellSwipeGesture(gestureState.dx, gestureState.dy)
     ),
     onPanResponderGrant: beginGestureInteraction,
     onPanResponderMove: (_, gestureState) => {
-      if (!canInteract) {
-        return;
-      }
-
-      if (!canAdvance) {
-        const upwardTravel = Math.max(0, -gestureState.dy);
-        if (upwardTravel > 6) {
-          setShowsValidation(true);
-        }
-        setSheetOffsetValue(closedSheetOffsetRef.current);
+      if (!canInteract || stage !== 'review') {
         return;
       }
 
       setSheetOffsetValue(closedSheetOffsetRef.current + getResistedSellSwipeTranslation(gestureState.dy));
     },
     onPanResponderRelease: (_, gestureState) => {
-      if (!canInteract) {
-        return;
-      }
-
-      if (!canAdvance) {
-        setShowsValidation(true);
-        animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+      if (!canInteract || stage !== 'review') {
         return;
       }
 
       const upwardTravel = Math.max(0, -gestureState.dy);
       if (upwardTravel >= submitThreshold) {
         animateSheetToOffset(0, 'open');
-        confirmSale();
+        submitSale();
         return;
       }
 
@@ -550,10 +663,10 @@ export function BulkSellScreen({
   }), [
     animateSheetToOffset,
     beginGestureInteraction,
-    canAdvance,
     canInteract,
-    confirmSale,
     setSheetOffsetValue,
+    stage,
+    submitSale,
     submitThreshold,
   ]);
 
@@ -593,6 +706,7 @@ export function BulkSellScreen({
 
       <View style={styles.viewport}>
         <ScrollView
+          ref={scrollViewRef}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: insets.bottom + sellOrderSwipeRailHeight + 48 },
@@ -624,7 +738,7 @@ export function BulkSellScreen({
                   <Text style={[theme.typography.body, styles.heroDetail]}>
                     {stage === 'draft'
                       ? `${selectedCountLabel}. Set sold prices, then review the sale.`
-                      : 'Second confirmation step. Inline edits stay live here.'}
+                      : 'Everything looks right. Swipe up below to confirm this batch sale.'}
                   </Text>
 
                   <View style={styles.stackArt}>
@@ -693,73 +807,77 @@ export function BulkSellScreen({
                   const metrics = getBulkSellLineMetrics(entry, line);
 
                   return (
-                    <LineCard
-                      key={entry.id}
-                      entry={entry}
-                      line={line}
-                      onChangeLine={(nextLine) => updateLine(entry.id, nextLine)}
-                      onEntryPatched={patchEntry}
-                      showsSellPriceValidation={
-                        showsValidation && metrics.isActive && metrics.soldPrice == null
-                      }
-                    />
+                    stage === 'review' ? (
+                      <ReviewLineCard
+                        key={entry.id}
+                        entry={entry}
+                        line={line}
+                      />
+                    ) : (
+                      <LineCard
+                        key={entry.id}
+                        entry={entry}
+                        line={line}
+                        onChangeLine={(nextLine) => updateLine(entry.id, nextLine)}
+                        onEntryPatched={patchEntry}
+                        onScrollBoughtPriceInputIntoView={scrollInputIntoView}
+                        showsSellPriceValidation={
+                          showsValidation && metrics.isActive && metrics.soldPrice == null
+                        }
+                      />
+                    )
                   );
                 })}
+
+                {stage === 'review' && reviewEntries.length > 0 ? (
+                  <SurfaceCard
+                    padding={20}
+                    radius={28}
+                    style={styles.reviewTotalCard}
+                    testID="bulk-sell-review-total-card"
+                  >
+                    <Text style={[theme.typography.caption, styles.reviewTotalLabel]}>Total sale</Text>
+                    <Text style={[theme.typography.headline, styles.reviewTotalValue]}>
+                      {formatCurrency(summary.draftGrossTotal, summary.currencyCode)}
+                    </Text>
+                    <Text style={[theme.typography.body, styles.reviewTotalDetail]}>
+                      {selectedCountLabel}
+                    </Text>
+                  </SurfaceCard>
+                ) : null}
               </View>
             </View>
           </TouchableWithoutFeedback>
         </ScrollView>
 
-        <View pointerEvents="box-none" style={styles.swipeSheetWrap}>
-          <Animated.View
-            accessibilityActions={[{ name: 'activate', label: 'Confirm' }]}
-            accessibilityState={{ disabled: !canAdvance }}
-            onAccessibilityAction={(event) => {
-              if (event.nativeEvent.actionName === 'activate') {
-                confirmSale();
-              }
-            }}
-            style={[
-              styles.swipeSheet,
-              {
-                backgroundColor: railUsesDisabledVisual ? theme.colors.surface : theme.colors.brand,
-                height: swipeSheetHeight,
-                paddingBottom: insets.bottom + 16,
-                transform: [{ translateY: sheetOffset }],
-              },
-            ]}
-            testID="bulk-sell-swipe-rail"
-          >
-            <Animated.View
-              pointerEvents="box-none"
-              style={[
-                styles.confirmationPrompt,
-                {
-                  opacity: confirmationPromptOpacity,
-                  transform: [{ scale: confirmationPromptScale }],
-                },
-              ]}
-              testID="bulk-sell-confirmation-prompt"
-            >
-              <View
-                {...panResponder.panHandlers}
-                style={styles.swipeGestureZone}
-                testID="bulk-sell-swipe-handle"
-              >
-                <Text style={[styles.swipeChevron, railUsesDisabledVisual ? styles.swipeChevronDisabled : null]}>⌃</Text>
-              </View>
-              <Text
-                style={[
-                  theme.typography.body,
-                  styles.swipeRailTitle,
-                  railUsesDisabledVisual ? styles.swipeRailTitleDisabled : null,
-                ]}
-              >
-                {prompt}
-              </Text>
-            </Animated.View>
-          </Animated.View>
-        </View>
+        {stage === 'draft' ? (
+          <View pointerEvents="box-none" style={styles.reviewButtonDock}>
+            <View style={styles.reviewButtonDockBody}>
+              <Button
+                disabled={!canReview}
+                label="Review sale"
+                onPress={openReviewStep}
+                size="lg"
+                style={styles.reviewButton}
+                testID="bulk-sell-review-sale"
+              />
+            </View>
+          </View>
+        ) : (
+          <SellSwipeConfirmationSheet
+            bottomInset={insets.bottom}
+            disabled={railIsDisabled}
+            onAccessibilityConfirm={handleAccessibilityConfirm}
+            panHandlers={panResponder.panHandlers}
+            prompt={prompt}
+            promptOpacity={confirmationPromptOpacity}
+            promptScale={confirmationPromptScale}
+            swipeSheetHeight={swipeSheetHeight}
+            testIDPrefix="bulk-sell"
+            translateY={sheetOffset}
+            usesDisabledVisual={railUsesDisabledVisual}
+          />
+        )}
       </View>
     </SafeAreaView>
   );
@@ -791,16 +909,6 @@ const styles = StyleSheet.create({
   },
   closeButtonSpacer: {
     width: chromeBackButtonSize,
-  },
-  confirmationPrompt: {
-    alignItems: 'center',
-    borderTopColor: 'rgba(0, 0, 0, 0.05)',
-    borderTopWidth: 1,
-    gap: 8,
-    justifyContent: 'center',
-    minHeight: sellOrderSwipeRailHeight,
-    paddingTop: 4,
-    width: '100%',
   },
   content: {
     gap: 14,
@@ -925,6 +1033,67 @@ const styles = StyleSheet.create({
   reviewBackButton: {
     marginTop: 16,
   },
+  reviewButton: {
+    width: '100%',
+  },
+  reviewButtonDock: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+    paddingBottom: 16,
+    paddingHorizontal: 16,
+  },
+  reviewButtonDockBody: {
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    borderRadius: 32,
+    padding: 14,
+    shadowColor: '#0F0F12',
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.08,
+    shadowRadius: 24,
+  },
+  reviewLineArt: {
+    borderRadius: 14,
+    height: 88,
+    resizeMode: 'contain',
+    width: 64,
+  },
+  reviewLineCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    gap: 14,
+  },
+  reviewLineCopy: {
+    flex: 1,
+    gap: 6,
+  },
+  reviewLineHeader: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 14,
+  },
+  reviewMetricLabel: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  reviewMetricRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  reviewMetricValue: {
+    color: '#0F0F12',
+  },
+  reviewTotalCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    gap: 6,
+  },
+  reviewTotalDetail: {
+    color: 'rgba(15, 15, 18, 0.62)',
+  },
+  reviewTotalLabel: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  reviewTotalValue: {
+    color: '#0F0F12',
+  },
   safeArea: {
     flex: 1,
   },
@@ -939,43 +1108,6 @@ const styles = StyleSheet.create({
     height: 152,
     position: 'absolute',
     width: 104,
-  },
-  swipeChevron: {
-    color: 'rgba(15, 15, 18, 0.7)',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 13,
-  },
-  swipeChevronDisabled: {
-    color: 'rgba(15, 15, 18, 0.36)',
-  },
-  swipeRailTitle: {
-    color: 'rgba(15, 15, 18, 0.86)',
-    fontSize: 16,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  swipeRailTitleDisabled: {
-    color: 'rgba(15, 15, 18, 0.46)',
-  },
-  swipeGestureZone: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    justifyContent: 'flex-end',
-    minHeight: 44,
-    width: 220,
-  },
-  swipeSheet: {
-    alignItems: 'center',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    justifyContent: 'flex-start',
-    overflow: 'hidden',
-    width: '100%',
-  },
-  swipeSheetWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
   },
   topChrome: {
     alignItems: 'center',

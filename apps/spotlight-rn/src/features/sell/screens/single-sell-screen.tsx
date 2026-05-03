@@ -42,6 +42,7 @@ import {
   SellBackdrop,
   SellFormFields,
   SellStatusOverlay,
+  SellSwipeConfirmationSheet,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -808,7 +809,6 @@ export function SingleSellScreen({
                             : current
                         ));
                         setBoughtPriceDraftText(formatEditableSellPrice(parsedBoughtPrice));
-                        setRevealsBoughtPrice(true);
                         setIsBoughtPriceEditorVisible(false);
                         setIsSavingBoughtPrice(false);
                         refreshData();
@@ -847,57 +847,19 @@ export function SingleSellScreen({
           </TouchableWithoutFeedback>
         </ScrollView>
 
-        <View pointerEvents="box-none" style={styles.swipeSheetWrap}>
-          <Animated.View
-            accessibilityActions={[{ name: 'activate', label: 'Confirm sale' }]}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: railIsDisabled }}
-            onAccessibilityAction={(event) => {
-              if (event.nativeEvent.actionName === 'activate') {
-                handleAccessibilityConfirm();
-              }
-            }}
-            style={[
-              styles.swipeSheet,
-              {
-                backgroundColor: railUsesDisabledVisual ? theme.colors.surface : theme.colors.brand,
-                height: swipeSheetHeight,
-                paddingBottom: insets.bottom + 16,
-                transform: [{ translateY: sheetOffset }],
-              },
-            ]}
-            testID="single-sell-swipe-rail"
-          >
-            <Animated.View
-              pointerEvents="box-none"
-              style={[
-                styles.confirmationPrompt,
-                {
-                  opacity: confirmationPromptOpacity,
-                  transform: [{ scale: confirmationPromptScale }],
-                },
-              ]}
-              testID="single-sell-confirmation-prompt"
-            >
-              <View
-                {...panResponder.panHandlers}
-                style={styles.swipeGestureZone}
-                testID="single-sell-swipe-handle"
-              >
-                <Text style={[styles.swipeChevron, railUsesDisabledVisual ? styles.swipeChevronDisabled : null]}>⌃</Text>
-              </View>
-              <Text
-                style={[
-                  theme.typography.body,
-                  styles.swipeRailTitle,
-                  railUsesDisabledVisual ? styles.swipeRailTitleDisabled : null,
-                ]}
-              >
-                {confirmationPrompt}
-              </Text>
-            </Animated.View>
-          </Animated.View>
-        </View>
+        <SellSwipeConfirmationSheet
+          bottomInset={insets.bottom}
+          disabled={railIsDisabled}
+          onAccessibilityConfirm={handleAccessibilityConfirm}
+          panHandlers={panResponder.panHandlers}
+          prompt={confirmationPrompt}
+          promptOpacity={confirmationPromptOpacity}
+          promptScale={confirmationPromptScale}
+          swipeSheetHeight={swipeSheetHeight}
+          testIDPrefix="single-sell"
+          translateY={sheetOffset}
+          usesDisabledVisual={railUsesDisabledVisual}
+        />
       </Animated.View>
     </SafeAreaView>
   );
@@ -908,16 +870,6 @@ const styles = StyleSheet.create({
     left: 0,
     position: 'absolute',
     top: 0,
-  },
-  confirmationPrompt: {
-    alignItems: 'center',
-    borderTopColor: 'rgba(0, 0, 0, 0.05)',
-    borderTopWidth: 1,
-    gap: 8,
-    justifyContent: 'center',
-    minHeight: sellOrderSwipeRailHeight,
-    paddingTop: 4,
-    width: '100%',
   },
   content: {
     paddingHorizontal: 16,
@@ -1001,43 +953,6 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
-  },
-  swipeChevron: {
-    color: 'rgba(15, 15, 18, 0.7)',
-    fontSize: 13,
-    fontWeight: '700',
-    lineHeight: 13,
-  },
-  swipeChevronDisabled: {
-    color: 'rgba(15, 15, 18, 0.36)',
-  },
-  swipeRailTitle: {
-    color: 'rgba(15, 15, 18, 0.86)',
-    fontSize: 16,
-    lineHeight: 22,
-    textAlign: 'center',
-  },
-  swipeRailTitleDisabled: {
-    color: 'rgba(15, 15, 18, 0.56)',
-  },
-  swipeGestureZone: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    justifyContent: 'flex-end',
-    minHeight: 44,
-    width: 220,
-  },
-  swipeSheet: {
-    alignItems: 'center',
-    borderTopLeftRadius: 32,
-    borderTopRightRadius: 32,
-    justifyContent: 'flex-start',
-    overflow: 'hidden',
-    width: '100%',
-  },
-  swipeSheetWrap: {
-    ...StyleSheet.absoluteFillObject,
-    justifyContent: 'flex-end',
   },
   topChrome: {
     alignItems: 'center',

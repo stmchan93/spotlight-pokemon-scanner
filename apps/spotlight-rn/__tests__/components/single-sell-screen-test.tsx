@@ -107,7 +107,7 @@ describe('SingleSellScreen', () => {
       disabled: true,
     });
     expect(StyleSheet.flatten(screen.getByTestId('single-sell-swipe-rail').props.style)).toMatchObject({
-      backgroundColor: themeColors.surface,
+      backgroundColor: themeColors.field,
     });
     expect(
       StyleSheet.flatten(screen.getByText('Swipe up to confirm sale').props.style),
@@ -257,7 +257,11 @@ describe('SingleSellScreen', () => {
     });
 
     expect(replaceCalls).toEqual(['entry-2', 'entry-2-next']);
-    expect(screen.getByText('$0.55')).toBeTruthy();
+    expect(screen.queryByText('$0.55')).toBeNull();
+    expect(screen.getAllByText('*****').length).toBeGreaterThan(0);
+
+    fireEvent.press(screen.getByTestId('single-sell-edit-bought-price'));
+    expect(screen.getByTestId('single-sell-bought-price-input').props.value).toBe('0.55');
   });
 
   it('opens the bought price editor blank when no bought price exists yet', async () => {
@@ -344,7 +348,7 @@ describe('SingleSellScreen', () => {
     expect(
       StyleSheet.flatten(screen.getByText('Swipe up to confirm sale').props.style),
     ).toMatchObject({
-      color: 'rgba(15, 15, 18, 0.86)',
+      color: 'rgba(15, 15, 18, 0.88)',
       fontSize: 16,
       lineHeight: 22,
     });

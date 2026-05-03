@@ -1,7 +1,6 @@
-import { act, fireEvent, screen } from '@testing-library/react-native';
+import { fireEvent, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { mockInventoryEntries } from '@spotlight/api-client';
-import { colors as themeColors } from '@spotlight/design-system';
 
 import { BulkSellScreen } from '@/features/sell/screens/bulk-sell-screen';
 
@@ -32,6 +31,23 @@ async function enterBulkSellPriceWithCalculator(value: '6' | '12.5') {
   fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-equals'));
 }
 
+async function enterSecondBulkSellPriceWithCalculator(value: '6') {
+  fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-21'));
+
+  if (value === '6') {
+    fireEvent.press(screen.getByTestId('bulk-sell-entry-2-calculator-key-2'));
+    fireEvent.press(screen.getByTestId('bulk-sell-entry-2-calculator-key-×'));
+    fireEvent.press(screen.getByTestId('bulk-sell-entry-2-calculator-key-3'));
+  }
+
+  fireEvent.press(screen.getByTestId('bulk-sell-entry-2-calculator-equals'));
+}
+
+async function moveBulkSellToReview() {
+  await enterBulkSellPriceWithCalculator('12.5');
+  fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
+}
+
 describe('BulkSellScreen', () => {
   it('renders the batch summary and updates selected quantity per line', async () => {
     renderWithProviders(
@@ -49,7 +65,8 @@ describe('BulkSellScreen', () => {
     expect(screen.getByTestId('bulk-sell-summary-card')).toBeTruthy();
     expect(screen.getByTestId('bulk-sell-line-smoke-raw-mcdonalds25-16')).toBeTruthy();
     expect(screen.getByTestId('bulk-sell-line-smoke-raw-mcdonalds25-21')).toBeTruthy();
-    expect(screen.getByText('Enter a sell price for every selected card before reviewing the sale.')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-review-sale')).toBeTruthy();
+    expect(screen.queryByTestId('bulk-sell-swipe-rail')).toBeNull();
     expect(screen.getAllByText('Near Mint').length).toBeGreaterThan(0);
     expect(screen.queryByText('Condition')).toBeNull();
     expect(screen.getAllByText('*****').length).toBeGreaterThan(0);
@@ -174,13 +191,15 @@ describe('BulkSellScreen', () => {
     );
 
     expect(await screen.findByText('1 card selected')).toBeTruthy();
+    await moveBulkSellToReview();
+
     expect(screen.getByTestId('bulk-sell-swipe-rail').props.onMoveShouldSetResponder).toBeUndefined();
     expect(screen.getByTestId('bulk-sell-swipe-handle').props.onMoveShouldSetResponder).toEqual(expect.any(Function));
     expect(screen.getByTestId('bulk-sell-swipe-handle').props.onResponderMove).toEqual(expect.any(Function));
     expect(screen.getByTestId('bulk-sell-swipe-handle').props.onResponderRelease).toEqual(expect.any(Function));
   });
 
-  it('moves into the review step once the rail is enabled', async () => {
+  it('moves into the review step once the review button is enabled', async () => {
     renderWithProviders(
       <BulkSellScreen
         entryIds={['entry-1']}
@@ -193,45 +212,60 @@ describe('BulkSellScreen', () => {
     );
 
     expect(await screen.findByText('1 card selected')).toBeTruthy();
-    expect(screen.getByTestId('bulk-sell-swipe-rail').props.accessibilityState).toMatchObject({
-      disabled: true,
-    });
-    expect(StyleSheet.flatten(screen.getByTestId('bulk-sell-swipe-rail').props.style)).toMatchObject({
-      backgroundColor: themeColors.surface,
-    });
-    expect(
-      StyleSheet.flatten(
-        screen.getByText('Enter a sell price for every selected card before reviewing the sale.').props.style,
-      ),
-    ).toMatchObject({
-      color: 'rgba(15, 15, 18, 0.46)',
-    });
+    expect(screen.queryByTestId('bulk-sell-swipe-rail')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
+    expect(screen.queryByText('Review before confirm')).toBeNull();
 
     await enterBulkSellPriceWithCalculator('12.5');
 
-    expect(screen.getByTestId('bulk-sell-swipe-rail').props.accessibilityState).toMatchObject({
-      disabled: false,
-    });
-    expect(StyleSheet.flatten(screen.getByTestId('bulk-sell-swipe-rail').props.style)).toMatchObject({
-      backgroundColor: themeColors.brand,
-    });
-    expect(screen.getByTestId('bulk-sell-confirmation-prompt').props.pointerEvents).toBe('box-none');
-    expect(
-      StyleSheet.flatten(screen.getByText('Swipe up to review sale').props.style),
-    ).toMatchObject({
-      color: 'rgba(15, 15, 18, 0.86)',
-      fontSize: 16,
-      lineHeight: 22,
-    });
-
-    const rail = screen.getByTestId('bulk-sell-swipe-rail');
-    await act(async () => {
-      rail.props.onAccessibilityAction?.({ nativeEvent: { actionName: 'activate' } });
-    });
+    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
 
     expect(await screen.findByText('Review before confirm')).toBeTruthy();
     expect(screen.getByTestId('bulk-sell-back-to-edit')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-review-line-entry-1')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-review-total-card')).toBeTruthy();
+    expect(screen.getByText('Quantity')).toBeTruthy();
+    expect(screen.getByText('Sold price')).toBeTruthy();
+    expect(screen.getAllByText('$12.50').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Market price')).toBeNull();
+    expect(screen.queryByText('Bought price')).toBeNull();
+    expect(screen.queryByText('Photo (optional)')).toBeNull();
+    expect(screen.queryByTestId('bulk-sell-entry-1-edit-bought-price')).toBeNull();
+    expect(screen.getByTestId('bulk-sell-swipe-rail').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
+    expect(screen.getByTestId('bulk-sell-confirmation-prompt').props.pointerEvents).toBe('box-none');
     expect(screen.getByText('Swipe up to confirm sale')).toBeTruthy();
+  });
+
+  it('keeps the review button disabled until every active card has a sold price', async () => {
+    renderWithProviders(
+      <BulkSellScreen
+        entryIds={['entry-1', 'entry-2']}
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+      {
+        spotlightRepository: makeBulkSellRepository(),
+      },
+    );
+
+    expect(await screen.findByText('3 cards selected')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
+    expect(screen.queryByText('Review before confirm')).toBeNull();
+
+    await enterBulkSellPriceWithCalculator('12.5');
+
+    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
+    expect(screen.queryByText('Review before confirm')).toBeNull();
+
+    await enterSecondBulkSellPriceWithCalculator('6');
+
+    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
+    expect(screen.getByTestId('bulk-sell-swipe-rail').props.accessibilityState).toMatchObject({
+      disabled: false,
+    });
   });
 
   it('prefills the bought price editor when a bought price already exists', async () => {

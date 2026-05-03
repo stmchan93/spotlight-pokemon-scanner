@@ -13,6 +13,7 @@ import {
   TextInput,
   Vibration,
   View,
+  type GestureResponderHandlers,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
@@ -128,6 +129,22 @@ type SellStatusOverlayProps = {
 type SellIdentityChipsProps = {
   entry: InventoryCardEntry;
   testIDPrefix: string;
+};
+
+type AnimatedNumericValue = Animated.Value | Animated.AnimatedInterpolation<number>;
+
+type SellSwipeConfirmationSheetProps = {
+  bottomInset: number;
+  disabled: boolean;
+  onAccessibilityConfirm: () => void;
+  panHandlers?: GestureResponderHandlers;
+  prompt: string;
+  promptOpacity: AnimatedNumericValue;
+  promptScale: AnimatedNumericValue;
+  swipeSheetHeight: number;
+  testIDPrefix: string;
+  translateY: AnimatedNumericValue;
+  usesDisabledVisual?: boolean;
 };
 
 
@@ -284,6 +301,76 @@ export function SellStatusOverlay({
         <Text style={[theme.typography.bodyStrong, styles.statusOverlayHeadline]}>{headline}</Text>
         <Text style={[theme.typography.body, styles.statusOverlayDetail]}>{detail}</Text>
       </View>
+    </View>
+  );
+}
+
+export function SellSwipeConfirmationSheet({
+  bottomInset,
+  disabled,
+  onAccessibilityConfirm,
+  panHandlers,
+  prompt,
+  promptOpacity,
+  promptScale,
+  swipeSheetHeight,
+  testIDPrefix,
+  translateY,
+  usesDisabledVisual = false,
+}: SellSwipeConfirmationSheetProps) {
+  const theme = useSpotlightTheme();
+
+  return (
+    <View pointerEvents="box-none" style={styles.swipeSheetWrap}>
+      <Animated.View
+        accessibilityActions={[{ name: 'activate', label: 'Confirm sale' }]}
+        accessibilityRole="button"
+        accessibilityState={{ disabled }}
+        onAccessibilityAction={(event) => {
+          if (event.nativeEvent.actionName === 'activate') {
+            onAccessibilityConfirm();
+          }
+        }}
+        style={[
+          styles.swipeSheet,
+          {
+            backgroundColor: usesDisabledVisual ? theme.colors.field : theme.colors.brand,
+            height: swipeSheetHeight,
+            paddingBottom: bottomInset + 16,
+            transform: [{ translateY }],
+          },
+        ]}
+        testID={`${testIDPrefix}-swipe-rail`}
+      >
+        <Animated.View
+          pointerEvents="box-none"
+          style={[
+            styles.confirmationPrompt,
+            {
+              opacity: promptOpacity,
+              transform: [{ scale: promptScale }],
+            },
+          ]}
+          testID={`${testIDPrefix}-confirmation-prompt`}
+        >
+          <View
+            {...panHandlers}
+            style={styles.swipeGestureZone}
+            testID={`${testIDPrefix}-swipe-handle`}
+          >
+            <Text style={[styles.swipeChevron, usesDisabledVisual ? styles.swipeChevronDisabled : null]}>⌃</Text>
+          </View>
+          <Text
+            style={[
+              theme.typography.body,
+              styles.swipeRailTitle,
+              usesDisabledVisual ? styles.swipeRailTitleDisabled : null,
+            ]}
+          >
+            {prompt}
+          </Text>
+        </Animated.View>
+      </Animated.View>
     </View>
   );
 }
@@ -1699,13 +1786,11 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   swipeSheet: {
+    alignItems: 'center',
     borderTopLeftRadius: 32,
     borderTopRightRadius: 32,
+    justifyContent: 'flex-start',
     overflow: 'hidden',
-    minHeight: 76,
-    paddingHorizontal: 18,
-    paddingVertical: 12,
-    position: 'relative',
     width: '100%',
   },
   swipeSheetHelper: {
@@ -1726,7 +1811,15 @@ const styles = StyleSheet.create({
     color: 'rgba(15, 15, 18, 0.56)',
   },
   swipeSheetWrap: {
-    paddingTop: 0,
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: 'flex-end',
+  },
+  swipeGestureZone: {
+    alignItems: 'center',
+    alignSelf: 'center',
+    justifyContent: 'flex-end',
+    minHeight: 44,
+    width: 220,
   },
   visibilityButton: {
     alignItems: 'center',
