@@ -41,6 +41,7 @@ import {
 import {
   SellBackdrop,
   SellFormFields,
+  SellIdentityChips,
   SellStatusOverlay,
   SellSwipeConfirmationSheet,
   triggerSellHaptic,
@@ -74,10 +75,6 @@ function SellTopChrome({
       style={styles.topChrome}
       testID="single-sell-top-chrome"
     >
-      <View style={styles.topChromeCopy}>
-        <View style={styles.topChromeHandle} />
-      </View>
-
       <ChromeBackButton
         onPress={onClose}
         style={styles.closeButton}
@@ -685,6 +682,9 @@ export function SingleSellScreen({
                       {' • '}
                       {displayEntry.setName}
                     </Text>
+                    <View style={styles.heroChipsWrap}>
+                      <SellIdentityChips entry={displayEntry} testIDPrefix="single-sell" />
+                    </View>
                   </View>
                   <View style={styles.heroArtShadow}>
                     <Image source={{ uri: displayEntry.imageUrl }} style={styles.heroArt} />
@@ -910,6 +910,9 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
     paddingTop: 20,
   },
+  heroChipsWrap: {
+    alignItems: 'center',
+  },
   heroMetaText: {
     color: 'rgba(15, 15, 18, 0.68)',
     fontSize: 13,
@@ -959,17 +962,6 @@ const styles = StyleSheet.create({
     minHeight: 32,
     paddingTop: 4,
     position: 'relative',
-  },
-  topChromeCopy: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    justifyContent: 'center',
-  },
-  topChromeHandle: {
-    backgroundColor: 'rgba(15, 15, 18, 0.16)',
-    borderRadius: 999,
-    height: 4,
-    width: 56,
   },
   unavailableButton: {
     alignItems: 'center',

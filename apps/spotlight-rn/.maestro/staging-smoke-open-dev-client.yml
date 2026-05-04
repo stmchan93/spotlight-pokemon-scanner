@@ -1,0 +1,6 @@
+appId: com.looty.staging
+---
+- launchApp
+- tapOn:
+    text: Looty
+    optional: true

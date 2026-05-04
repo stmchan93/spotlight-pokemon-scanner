@@ -1,3 +1,4 @@
+appId: com.looty.staging
 ---
 - tapOn:
     id: bottom-nav-portfolio
@@ -16,10 +17,48 @@
     id: bulk-sell-summary-card
 - tapOn:
     id: "${SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_ONE}"
-- inputText: "${SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_ONE}"
+- assertVisible:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-sheet
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-key-1
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-key-1
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-key-1
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-key-÷
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-key-1
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-key-0
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-key-0
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-calculator-equals
 - tapOn:
     id: "${SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_TWO}"
-- inputText: "${SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_TWO}"
+- assertVisible:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-sheet
+- tapOn:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-key-1
+- tapOn:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-key-2
+- tapOn:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-key-2
+- tapOn:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-key-÷
+- tapOn:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-key-1
+- tapOn:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-key-0
+- tapOn:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-key-0
+- tapOn:
+    id: bulk-sell-smoke-raw-swsh10-32-calculator-equals
+- tapOn:
+    id: bulk-sell-review-sale
+- assertVisible:
+    id: bulk-sell-review-total-card
 - swipe:
     from:
       id: bulk-sell-swipe-rail

@@ -6,6 +6,7 @@ import unittest
 from tools.run_release_gate import (
     build_deploy_command,
     build_mobile_command,
+    build_smoke_reset_command,
     build_default_smoke_query,
     candidate_matches_truth,
     deck_quantity_for,
@@ -26,6 +27,13 @@ class RunReleaseGateTests(unittest.TestCase):
             build_mobile_command("staging", "release"),
             ["bash", "tools/run_mobile_eas.sh", "staging", "release", "ios", "staging"],
         )
+
+    def test_build_smoke_reset_command_is_staging_only(self) -> None:
+        self.assertEqual(
+            build_smoke_reset_command("staging"),
+            ["python3", "tools/reset_staging_smoke_fixture.py"],
+        )
+        self.assertIsNone(build_smoke_reset_command("production"))
 
     def test_candidate_matches_truth_normalizes_case_and_hash_prefix(self) -> None:
         candidate = {
@@ -60,6 +68,16 @@ class RunReleaseGateTests(unittest.TestCase):
             {"cardID": "card-1", "condition": "damaged", "quantity": 5},
             {"cardID": "card-1", "condition": "near_mint", "quantity": 1},
             {"cardID": "card-2", "condition": "near_mint", "quantity": 9},
+        ]
+
+        self.assertEqual(deck_quantity_for(entries, card_id="card-1", condition_code="near_mint"), 3)
+
+    def test_deck_quantity_for_supports_nested_card_id_shape(self) -> None:
+        entries = [
+            {"card": {"id": "card-1"}, "condition": "near_mint", "quantity": 2},
+            {"card": {"id": "card-1"}, "condition": "damaged", "quantity": 5},
+            {"card": {"id": "card-1"}, "condition": "near_mint", "quantity": 1},
+            {"card": {"id": "card-2"}, "condition": "near_mint", "quantity": 9},
         ]
 
         self.assertEqual(deck_quantity_for(entries, card_id="card-1", condition_code="near_mint"), 3)

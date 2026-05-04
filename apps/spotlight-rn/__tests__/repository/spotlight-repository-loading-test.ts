@@ -105,14 +105,6 @@ describe('HttpSpotlightRepository', () => {
         });
       }
 
-      if (url.includes('/api/v1/cards/sm7-1/ebay-comps')) {
-        return jsonResponse(200, {
-          status: 'available',
-          transactions: [],
-          transactionCount: 0,
-        });
-      }
-
       if (url.includes('/api/v1/cards/sm7-1')) {
         return jsonResponse(200, {
           imageSmallURL: 'javascript:alert(1)',
@@ -147,30 +139,20 @@ describe('HttpSpotlightRepository', () => {
     expect(detail?.largeImageUrl).toBeNull();
   });
 
-  it('maps eBay listings into the card detail payload', async () => {
+  it('maps recent eBay sales into the recent-sales payload', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
-      if (url.includes('/api/v1/cards/sm7-1/market-history')) {
-        return jsonResponse(200, {
-          currencyCode: 'USD',
-          currentPrice: 0.31,
-          points: [],
-          availableVariants: [],
-          availableConditions: [],
-        });
-      }
-
-      if (url.includes('/api/v1/cards/sm7-1/ebay-comps')) {
+      if (url.includes('/api/v1/cards/sm7-1/recent-sales')) {
         return jsonResponse(200, {
           status: 'available',
-          statusReason: null,
-          transactionCount: 1,
-          searchURL: 'https://www.ebay.com/sch/i.html?_nkw=Treecko',
-          transactions: [
+          saleCount: 1,
+          source: 'ebay',
+          fetchedAt: '2026-05-03T12:00:00Z',
+          canRefresh: false,
+          sales: [
             {
-              id: 'ebay:v1|123|0',
-              title: 'Treecko raw Pokemon card',
-              saleType: 'fixed_price',
-              listingDate: '2026-04-25',
+              id: 'sale-1',
+              title: 'Treecko recent sold listing',
+              soldAt: '2026-05-02T10:00:00Z',
               price: {
                 amount: 1.99,
                 currencyCode: 'USD',
@@ -181,69 +163,42 @@ describe('HttpSpotlightRepository', () => {
         });
       }
 
-      if (url.includes('/api/v1/cards/sm7-1')) {
-        return jsonResponse(200, {
-          imageSmallURL: 'https://cdn.example/sm7-1-small.png',
-          imageLargeURL: 'https://cdn.example/sm7-1-large.png',
-          card: {
-            id: 'sm7-1',
-            name: 'Treecko',
-            setName: 'Celestial Storm',
-            number: '1',
-            imageSmallURL: 'https://cdn.example/sm7-1-small.png',
-            imageLargeURL: 'https://cdn.example/sm7-1-large.png',
-            pricing: {
-              currencyCode: 'usd',
-              market: 0.31,
-            },
-          },
-        });
-      }
-
-      if (url.includes('/api/v1/deck/entries')) {
-        return jsonResponse(200, { entries: [] });
-      }
-
       throw new Error(`Unexpected URL: ${url}`);
     }) as typeof fetch;
 
     const repository = new HttpSpotlightRepository('http://example.test');
-    const detail = await repository.getCardDetail({ cardId: 'sm7-1' });
-
-    expect(detail?.ebayListings).toMatchObject({
-      status: 'available',
-      listingCount: 1,
-      searchUrl: 'https://www.ebay.com/sch/i.html?_nkw=Treecko',
+    const sales = await repository.getCardRecentSales({
+      cardId: 'sm7-1',
+      slabContext: { grader: 'PSA', grade: '9', certNumber: '1234', variantName: 'PSA 9' },
+      source: 'ebay',
     });
-    expect(detail?.ebayListings?.listings[0]).toMatchObject({
-      title: 'Treecko raw Pokemon card',
-      saleType: 'fixed_price',
+
+    expect(sales).toMatchObject({
+      status: 'available',
+      saleCount: 1,
+      source: 'ebay',
+      canRefresh: false,
+    });
+    expect(sales?.sales[0]).toMatchObject({
+      title: 'Treecko recent sold listing',
       priceAmount: 1.99,
       currencyCode: 'USD',
-      listingUrl: 'https://www.ebay.com/itm/123',
+      saleUrl: 'https://www.ebay.com/itm/123',
     });
   });
 
-  it('sorts eBay listings by ascending price before returning them to the UI', async () => {
+  it('sorts recent eBay sales by newest sold date before returning them to the UI', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
-      if (url.includes('/api/v1/cards/sm7-1/market-history')) {
-        return jsonResponse(200, {
-          currencyCode: 'USD',
-          currentPrice: 0.31,
-          points: [],
-          availableVariants: [],
-          availableConditions: [],
-        });
-      }
-
-      if (url.includes('/api/v1/cards/sm7-1/ebay-comps')) {
+      if (url.includes('/api/v1/cards/sm7-1/recent-sales')) {
         return jsonResponse(200, {
           status: 'available',
-          transactions: [
+          source: 'ebay',
+          canRefresh: false,
+          sales: [
             {
-              id: 'ebay:v1|123|0',
-              title: 'Treecko listing 21.99',
-              listingDate: '2026-04-25',
+              id: 'sale-1',
+              title: 'Treecko sold 21.99',
+              soldAt: '2026-04-25T12:00:00Z',
               price: {
                 amount: 21.99,
                 currencyCode: 'USD',
@@ -251,9 +206,9 @@ describe('HttpSpotlightRepository', () => {
               listingURL: 'https://www.ebay.com/itm/123',
             },
             {
-              id: 'ebay:v1|124|0',
-              title: 'Treecko listing 90.00',
-              listingDate: '2026-04-25',
+              id: 'sale-2',
+              title: 'Treecko sold 90.00',
+              soldAt: '2026-04-27T12:00:00Z',
               price: {
                 amount: 90,
                 currencyCode: 'USD',
@@ -261,9 +216,9 @@ describe('HttpSpotlightRepository', () => {
               listingURL: 'https://www.ebay.com/itm/124',
             },
             {
-              id: 'ebay:v1|125|0',
-              title: 'Treecko listing 1.00',
-              listingDate: '2026-04-25',
+              id: 'sale-3',
+              title: 'Treecko sold 1.00',
+              soldAt: '2026-04-20T12:00:00Z',
               price: {
                 amount: 1,
                 currencyCode: 'USD',
@@ -274,36 +229,17 @@ describe('HttpSpotlightRepository', () => {
         });
       }
 
-      if (url.includes('/api/v1/cards/sm7-1')) {
-        return jsonResponse(200, {
-          imageSmallURL: 'https://cdn.example/sm7-1-small.png',
-          imageLargeURL: 'https://cdn.example/sm7-1-large.png',
-          card: {
-            id: 'sm7-1',
-            name: 'Treecko',
-            setName: 'Celestial Storm',
-            number: '1',
-            imageSmallURL: 'https://cdn.example/sm7-1-small.png',
-            imageLargeURL: 'https://cdn.example/sm7-1-large.png',
-            pricing: {
-              currencyCode: 'usd',
-              market: 0.31,
-            },
-          },
-        });
-      }
-
-      if (url.includes('/api/v1/deck/entries')) {
-        return jsonResponse(200, { entries: [] });
-      }
-
       throw new Error(`Unexpected URL: ${url}`);
     }) as typeof fetch;
 
     const repository = new HttpSpotlightRepository('http://example.test');
-    const detail = await repository.getCardDetail({ cardId: 'sm7-1' });
+    const sales = await repository.getCardRecentSales({
+      cardId: 'sm7-1',
+      slabContext: { grader: 'PSA', grade: '9', certNumber: '1234', variantName: 'PSA 9' },
+      source: 'ebay',
+    });
 
-    expect(detail?.ebayListings?.listings.map((listing) => listing.priceAmount)).toEqual([1, 21.99, 90]);
+    expect(sales?.sales.map((sale) => sale.id)).toEqual(['sale-2', 'sale-1', 'sale-3']);
   });
 
   it('loads raw card market history with the near-mint condition by default', async () => {
@@ -341,16 +277,16 @@ describe('HttpSpotlightRepository', () => {
     expect(history?.points).toHaveLength(1);
   });
 
-  it('preserves the eBay search URL when active listings are disabled by the backend', async () => {
+  it('preserves recent-sales unavailable status when cached sales are not loaded yet', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
-      if (url.includes('/api/v1/cards/sv4-199/ebay-comps')) {
+      if (url.includes('/api/v1/cards/sv4-199/recent-sales')) {
         return jsonResponse(200, {
           status: 'unavailable',
-          statusReason: 'browse_disabled',
-          unavailableReason: 'eBay active listings are disabled in this environment.',
-          transactions: [],
-          transactionCount: 0,
-          searchURL: 'https://www.ebay.com/sch/i.html?_nkw=Groudon+Paradox+Rift+199%2F182',
+          statusReason: 'not_loaded',
+          unavailableReason: null,
+          canRefresh: false,
+          saleCount: 0,
+          sales: [],
         });
       }
 
@@ -358,15 +294,19 @@ describe('HttpSpotlightRepository', () => {
     }) as typeof fetch;
 
     const repository = new HttpSpotlightRepository('http://example.test');
-    const listings = await repository.getCardEbayListings({ cardId: 'sv4-199', limit: 5 });
+    const listings = await repository.getCardRecentSales({
+      cardId: 'sv4-199',
+      limit: 5,
+      slabContext: { grader: 'PSA', grade: '10', certNumber: '1234', variantName: 'PSA 10' },
+    });
     const requestedUrl = new URL(String((global.fetch as jest.Mock).mock.calls[0]?.[0]));
 
     expect(requestedUrl?.searchParams.get('limit')).toBe('5');
     expect(listings).toMatchObject({
       status: 'unavailable',
-      statusReason: 'browse_disabled',
-      listingCount: 0,
-      searchUrl: 'https://www.ebay.com/sch/i.html?_nkw=Groudon+Paradox+Rift+199%2F182',
+      statusReason: 'not_loaded',
+      saleCount: 0,
+      canRefresh: false,
     });
   });
 

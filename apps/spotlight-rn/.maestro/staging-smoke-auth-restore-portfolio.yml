@@ -1,9 +1,23 @@
-# Assumes the simulator already has a valid staging session restored,
-# or that CI opened an auth bootstrap deep link before running this suite.
+appId: com.looty.staging
 ---
+- tapOn:
+    text: Allow
+    optional: true
+- tapOn:
+    text: Continue
+    optional: true
+- tapOn:
+    id: xmark
+    optional: true
+- tapOn:
+    id: scanner-back-button
+    optional: true
+- tapOn:
+    id: bottom-nav-portfolio
+    optional: true
 - assertVisible:
     id: portfolio-account-button
-- assertVisible: "Portfolio"
+- assertVisible: "Collection"
 - assertNotVisible: "Could not load your backend data"
 - assertNotVisible:
     id: auth-sign-in-screen

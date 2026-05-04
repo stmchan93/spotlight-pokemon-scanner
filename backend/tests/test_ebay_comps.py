@@ -278,16 +278,17 @@ class EbayCompsTests(unittest.TestCase):
 
     def test_fetch_graded_card_ebay_comps_returns_unavailable_when_disabled(self) -> None:
         self._reset_token_cache()
-        payload = fetch_graded_card_ebay_comps(
-            {
-                "id": "gym1-60",
-                "name": "Sabrina's Slowbro",
-                "setName": "Gym Heroes",
-                "number": "60/132",
-            },
-            grader="PSA",
-            selected_grade="9",
-        )
+        with unittest.mock.patch.dict(os.environ, {"SPOTLIGHT_EBAY_BROWSE_ENABLED": "0"}, clear=False):
+            payload = fetch_graded_card_ebay_comps(
+                {
+                    "id": "gym1-60",
+                    "name": "Sabrina's Slowbro",
+                    "setName": "Gym Heroes",
+                    "number": "60/132",
+                },
+                grader="PSA",
+                selected_grade="9",
+            )
 
         self.assertEqual(payload["status"], "unavailable")
         self.assertEqual(payload["statusReason"], "browse_disabled")

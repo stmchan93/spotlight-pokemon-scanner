@@ -29,4 +29,17 @@ describe('TopTabsPager', () => {
     expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
     expect(screen.queryByTestId('bottom-nav-scan')).toBeNull();
   });
+
+  it('can start on the portfolio page explicitly', () => {
+    renderWithProviders(
+      <TopTabsPager
+        initialPage="portfolio"
+        portfolioSlot={<Text testID="portfolio-content">Portfolio</Text>}
+        renderScannerSlot={() => <Text testID="scanner-content">Scanner</Text>}
+      />,
+    );
+
+    expect(screen.getByTestId('bottom-nav-portfolio').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByTestId('bottom-nav-scan').props.accessibilityState).toEqual({ selected: false });
+  });
 });

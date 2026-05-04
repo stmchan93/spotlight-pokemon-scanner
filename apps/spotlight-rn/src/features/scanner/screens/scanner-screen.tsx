@@ -54,6 +54,10 @@ import {
   shouldSetRecentCaptureSwipeResponder,
 } from '@/features/scanner/recent-capture-swipe';
 import {
+  shouldSetRecentCaptureTrayShellResponder,
+  shouldSetRecentCaptureTrayVerticalResponder,
+} from '@/features/scanner/recent-capture-tray-gesture';
+import {
   saveScanCandidateReviewSession,
   type ScanSourceImageCrop,
   type ScanSourceImageDimensions,
@@ -66,9 +70,10 @@ import {
 } from '@/features/scanner/scanner-normalized-target';
 import {
   chooseRawVisualPictureSize,
+  getRawScannerCollapsedTrayReservedHeight,
   makeRawScannerCaptureLayout,
   RawScannerCaptureSurface,
-  rawScannerTrayReservedHeight,
+  rawScannerTrayEmptyPeekHeight,
   rawVisualCaptureQuality,
 } from '@/features/scanner/raw-scanner-capture-surface';
 import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fixtures';
@@ -641,14 +646,18 @@ export function ScannerScreen({
   const cameraRef = useRef<CameraView | null>(null);
   const isResolvingPictureSizeRef = useRef(false);
   const trayGestureCommittedRef = useRef(false);
+  const trayScrollOffsetYRef = useRef(0);
   const reticleSnapshotRef = useRef({ height: 0, previewHeight: 0, previewWidth: 0, width: 0, x: 0, y: 0 });
 
   const trayBottomInset = insets.bottom + 14;
+  const collapsedTrayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
+    bottomInset: trayBottomInset,
+  });
   const captureSurfaceLayout = makeRawScannerCaptureLayout({
     containerHeight: windowHeight,
     containerWidth: windowWidth,
     safeAreaTop: insets.top,
-    trayReservedHeight: rawScannerTrayReservedHeight,
+    trayReservedHeight: collapsedTrayReservedHeight,
   });
   const runtimeAppEnv = resolveRuntimeValue([], ['spotlightAppEnv']);
   reticleSnapshotRef.current = {
@@ -805,6 +814,10 @@ export function ScannerScreen({
         return current;
       }
 
+      if (!nextExpanded) {
+        trayScrollOffsetYRef.current = 0;
+      }
+
       if (Platform.OS !== 'web') {
         LayoutAnimation.configureNext(scannerTrayLayoutAnimation);
       }
@@ -857,7 +870,16 @@ export function ScannerScreen({
       ? event.lenses.filter((candidate) => typeof candidate === 'string' && candidate.trim().length > 0)
       : [];
 
-    setAvailableBackLenses(nextLenses);
+    setAvailableBackLenses((current) => {
+      if (
+        current.length === nextLenses.length
+        && current.every((candidate, index) => candidate === nextLenses[index])
+      ) {
+        return current;
+      }
+
+      return nextLenses;
+    });
 
     if (process.env.NODE_ENV !== 'test' && nextLenses.length > 0) {
       console.info(
@@ -1586,7 +1608,7 @@ export function ScannerScreen({
 
   const trayHeaderPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) =>
-      Math.abs(gestureState.dy) > 4 && Math.abs(gestureState.dy) > Math.abs(gestureState.dx),
+      shouldSetRecentCaptureTrayVerticalResponder(gestureState),
     onPanResponderGrant: () => {
       trayGestureCommittedRef.current = false;
     },
@@ -1638,6 +1660,67 @@ export function ScannerScreen({
     },
     onPanResponderTerminationRequest: () => false,
   }), [canToggleTray, commitTrayExpandedState, isTrayExpanded]);
+
+  const trayShellPanResponder = useMemo(() => PanResponder.create({
+    onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+      shouldSetRecentCaptureTrayShellResponder(gestureState, {
+        isTopLevelSwipeEnabled,
+        isTrayExpanded,
+        scrollOffsetY: trayScrollOffsetYRef.current,
+      }),
+    onPanResponderGrant: () => {
+      trayGestureCommittedRef.current = false;
+    },
+    onPanResponderMove: (_, gestureState) => {
+      if (trayGestureCommittedRef.current) {
+        return;
+      }
+
+      const shouldExpand = canToggleTray
+        && !isTrayExpanded
+        && gestureState.dy <= -traySwipeThreshold;
+      const shouldCollapse = isTrayExpanded
+        && trayScrollOffsetYRef.current <= 0
+        && gestureState.dy >= traySwipeThreshold;
+
+      if (shouldExpand) {
+        trayGestureCommittedRef.current = true;
+        commitTrayExpandedState(true);
+        return;
+      }
+
+      if (shouldCollapse) {
+        trayGestureCommittedRef.current = true;
+        commitTrayExpandedState(false);
+      }
+    },
+    onPanResponderRelease: (_, gestureState) => {
+      if (trayGestureCommittedRef.current) {
+        trayGestureCommittedRef.current = false;
+        return;
+      }
+
+      const shouldExpand = canToggleTray
+        && !isTrayExpanded
+        && (gestureState.dy <= -traySwipeThreshold || gestureState.vy <= -trayVelocityThreshold);
+      const shouldCollapse = isTrayExpanded
+        && trayScrollOffsetYRef.current <= 0
+        && (gestureState.dy >= traySwipeThreshold || gestureState.vy >= trayVelocityThreshold);
+
+      if (shouldExpand) {
+        commitTrayExpandedState(true);
+        return;
+      }
+
+      if (shouldCollapse) {
+        commitTrayExpandedState(false);
+      }
+    },
+    onPanResponderTerminate: () => {
+      trayGestureCommittedRef.current = false;
+    },
+    onPanResponderTerminationRequest: () => false,
+  }), [canToggleTray, commitTrayExpandedState, isTopLevelSwipeEnabled, isTrayExpanded]);
 
   const promptCopy = !permission
     ? 'Starting camera...'
@@ -1890,6 +1973,7 @@ export function ScannerScreen({
               top: captureSurfaceLayout.controlsTop,
             },
           ]}
+          testID="scanner-mode-toggle-wrap"
         >
           <View style={{ width: captureSurfaceLayout.modeToggleWidth }}>
             <SegmentedControl
@@ -1903,7 +1987,7 @@ export function ScannerScreen({
           </View>
         </View>
 
-        <View style={styles.trayShell} testID="scanner-tray">
+        <View style={styles.trayShell} testID="scanner-tray" {...trayShellPanResponder.panHandlers}>
           <Pressable
             accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
             accessibilityRole="button"
@@ -1952,6 +2036,7 @@ export function ScannerScreen({
           <View
             style={[
               styles.trayBody,
+              recentCaptures.length === 0 ? styles.trayBodyEmpty : null,
               {
                 paddingBottom: trayBottomInset,
               },
@@ -1960,7 +2045,7 @@ export function ScannerScreen({
             testID="scanner-tray-body"
           >
             {recentCaptures.length === 0 ? (
-              <View style={styles.trayEmptyFill} />
+              <View style={styles.trayEmptyFill} testID="scanner-tray-empty-fill" />
             ) : (
               <View
                 style={[
@@ -1973,7 +2058,11 @@ export function ScannerScreen({
               >
                 <ScrollView
                   nestedScrollEnabled
+                  onScroll={(event) => {
+                    trayScrollOffsetYRef.current = Math.max(0, event.nativeEvent.contentOffset.y);
+                  }}
                   scrollEnabled={isTrayExpanded && trayScrollEnabled}
+                  scrollEventThrottle={16}
                   showsVerticalScrollIndicator={isTrayExpanded && trayScrollEnabled}
                   style={styles.trayScroll}
                   contentContainerStyle={styles.trayScrollContent}
@@ -2346,12 +2435,15 @@ const styles = StyleSheet.create({
     paddingHorizontal: 4,
     paddingTop: 0,
   },
+  trayBodyEmpty: {
+    minHeight: rawScannerTrayEmptyPeekHeight,
+  },
   trayBodyExpanded: {
     minHeight: 0,
   },
   trayEmptyFill: {
     flex: 1,
-    minHeight: 32,
+    minHeight: rawScannerTrayEmptyPeekHeight,
   },
   trayHeader: {
     backgroundColor: colors.scannerTray,

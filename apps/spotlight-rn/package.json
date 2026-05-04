@@ -20,6 +20,8 @@
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "test": "jest --runInBand",
+    "test:coverage": "jest --runInBand --coverage",
+    "test:coverage:target": "jest --runInBand --coverage --collectCoverageFrom='src/**/*.{ts,tsx}'",
     "test:watch": "jest --watch",
     "test:integration": "jest --runInBand __tests__/integration"
   },

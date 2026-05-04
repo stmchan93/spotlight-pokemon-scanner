@@ -22,6 +22,11 @@ export const rawVisualCaptureQuality = 0.62;
 export const rawVisualPreferredLongSide = 1280;
 export const rawVisualMinimumLongSide = 900;
 export const rawScannerTrayReservedHeight = 168;
+export const rawScannerModeToggleGap = 8;
+export const rawScannerTrayHeaderHeight = 61;
+export const rawScannerTrayEmptyPeekHeight = 12;
+export const rawScannerTrayCollapsedRowHeight = 74;
+export const rawScannerModeToggleReservedHeight = 89;
 
 export type RawScannerCaptureLayout = {
   backButtonTop: number;
@@ -118,10 +123,9 @@ export function makeRawScannerCaptureLayout({
   const topChromeBottom = safeAreaTop + chromeBackButtonSize + 16;
   const topSpacing = topChromeBottom + 4;
   const controlsTopSpacing = 10;
-  const modeToggleReservedHeight = 56;
   const maxHeight = Math.max(
     360,
-    containerHeight - topSpacing - controlsTopSpacing - modeToggleReservedHeight - trayReservedHeight,
+    containerHeight - topSpacing - controlsTopSpacing - rawScannerModeToggleReservedHeight - trayReservedHeight,
   );
   const widthFromHeightLimit = Math.floor(maxHeight / rawCardReticleAspectRatio);
   const width = Math.max(284, Math.min(containerWidth - horizontalInset * 2, widthFromHeightLimit));
@@ -143,6 +147,22 @@ export function makeRawScannerCaptureLayout({
       y,
     },
   };
+}
+
+export function getRawScannerCollapsedTrayReservedHeight({
+  bottomInset,
+}: {
+  bottomInset: number;
+}) {
+  return rawScannerTrayHeaderHeight + rawScannerTrayCollapsedRowHeight + bottomInset;
+}
+
+export function getRawScannerEmptyTrayVisualHeight({
+  bottomInset,
+}: {
+  bottomInset: number;
+}) {
+  return rawScannerTrayHeaderHeight + rawScannerTrayEmptyPeekHeight + bottomInset;
 }
 
 export function RawScannerCaptureSurface({

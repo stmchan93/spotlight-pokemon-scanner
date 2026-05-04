@@ -126,6 +126,7 @@ function LineCard({
   const [isSavingBoughtPrice, setIsSavingBoughtPrice] = useState(false);
   const boughtPriceInputRef = useRef<TextInput | null>(null);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const smokeTestIDPrefix = makeBulkSellSmokeTestID('bulk-sell', entry);
 
   useEffect(() => () => {
     if (focusScrollTimerRef.current) {
@@ -187,7 +188,7 @@ function LineCard({
                   {' • '}
                   {entry.cardNumber}
                 </Text>
-                <SellIdentityChips entry={entry} testIDPrefix={`bulk-sell-${entry.id}`} />
+                <SellIdentityChips entry={entry} testIDPrefix={smokeTestIDPrefix} />
               </View>
 
               {!metrics.isActive ? (
@@ -205,7 +206,7 @@ function LineCard({
             boughtPriceEditorText={boughtPriceDraftText}
             boughtPriceEditorVisible={isBoughtPriceEditorVisible}
             boughtPriceInputRef={boughtPriceInputRef}
-            boughtPriceInputTestID={`bulk-sell-${entry.id}-bought-price-input`}
+            boughtPriceInputTestID={`${smokeTestIDPrefix}-bought-price-input`}
             boughtPriceLabel={boughtPriceText}
             boughtPriceSaveDisabled={isSavingBoughtPrice}
             boughtPriceToggleDisabled={entry.costBasisPerUnit == null}
@@ -264,7 +265,7 @@ function LineCard({
               decrement: makeBulkSellSmokeTestID('bulk-sell-decrement', entry),
               increment: makeBulkSellSmokeTestID('bulk-sell-increment', entry),
             }}
-            testIDPrefix={`bulk-sell-${entry.id}`}
+            testIDPrefix={smokeTestIDPrefix}
             toggleBoughtPriceTestID={makeBulkSellSmokeTestID('bulk-sell-toggle-bought-price', entry)}
           />
         </SurfaceCard>
@@ -726,20 +727,22 @@ export function BulkSellScreen({
                 <TopChrome onClose={onClose} />
 
                 <View style={styles.heroBody}>
-                  <Text style={[theme.typography.caption, styles.heroKicker]}>
-                    {stage === 'draft' ? 'Draft sale' : 'Review before confirm'}
-                  </Text>
+                  {stage === 'review' ? (
+                    <Text style={[theme.typography.caption, styles.heroKicker]}>
+                      Review before confirm
+                    </Text>
+                  ) : null}
                   <Text style={[theme.typography.display, styles.heroValue]}>
                     {formatCurrency(summary.draftGrossTotal || 0, summary.currencyCode)}
                   </Text>
                   <Text style={[theme.typography.caption, styles.heroSelectedCount]}>
                     {selectedCountLabel}
                   </Text>
-                  <Text style={[theme.typography.body, styles.heroDetail]}>
-                    {stage === 'draft'
-                      ? `${selectedCountLabel}. Set sold prices, then review the sale.`
-                      : 'Everything looks right. Swipe up below to confirm this batch sale.'}
-                  </Text>
+                  {stage === 'review' ? (
+                    <Text style={[theme.typography.body, styles.heroDetail]}>
+                      Everything looks right. Swipe up below to confirm this batch sale.
+                    </Text>
+                  ) : null}
 
                   <View style={styles.stackArt}>
                     {entries.slice(0, 3).map((entry, index) => (

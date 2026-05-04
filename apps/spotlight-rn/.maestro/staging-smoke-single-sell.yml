@@ -1,3 +1,4 @@
+appId: com.looty.staging
 ---
 - tapOn:
     id: portfolio-see-more
@@ -12,7 +13,16 @@
     id: single-sell-summary-card
 - tapOn:
     id: single-sell-sold-price
-- inputText: "${SPOTLIGHT_MAESTRO_SINGLE_SELL_PRICE}"
+- assertVisible:
+    id: single-sell-calculator-sheet
+- tapOn:
+    id: single-sell-calculator-key-5
+- tapOn:
+    id: single-sell-calculator-key-÷
+- tapOn:
+    id: single-sell-calculator-key-4
+- tapOn:
+    id: single-sell-calculator-equals
 - swipe:
     from:
       id: single-sell-swipe-rail

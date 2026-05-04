@@ -290,6 +290,44 @@ CREATE TABLE IF NOT EXISTS deck_entry_events (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS slab_recent_sales_cache (
+    card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
+    grader TEXT NOT NULL,
+    grade TEXT NOT NULL,
+    source TEXT NOT NULL,
+    status TEXT NOT NULL CHECK(status IN ('available', 'no_results')),
+    result_count INTEGER NOT NULL DEFAULT 0,
+    fetched_at TEXT NOT NULL,
+    source_url TEXT,
+    source_payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (card_id, grader, grade, source)
+);
+
+CREATE TABLE IF NOT EXISTS slab_recent_sales (
+    id TEXT PRIMARY KEY,
+    card_id TEXT NOT NULL,
+    grader TEXT NOT NULL,
+    grade TEXT NOT NULL,
+    source TEXT NOT NULL,
+    source_sale_id TEXT,
+    rank INTEGER NOT NULL,
+    title TEXT,
+    sold_at TEXT,
+    price REAL,
+    currency_code TEXT,
+    listing_url TEXT,
+    variant TEXT,
+    source_payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (card_id, grader, grade, source)
+        REFERENCES slab_recent_sales_cache(card_id, grader, grade, source)
+        ON DELETE CASCADE,
+    UNIQUE(card_id, grader, grade, source, rank),
+    UNIQUE(card_id, grader, grade, source, source_sale_id)
+);
+
 CREATE TABLE IF NOT EXISTS provider_sync_runs (
     id TEXT PRIMARY KEY,
     provider TEXT NOT NULL,
@@ -490,6 +528,12 @@ CREATE INDEX IF NOT EXISTS idx_deck_entry_events_owner_user_id
 
 CREATE INDEX IF NOT EXISTS idx_deck_entry_events_created_at
     ON deck_entry_events(created_at DESC, id DESC);
+
+CREATE INDEX IF NOT EXISTS idx_slab_recent_sales_context
+    ON slab_recent_sales(card_id, grader, grade, source, rank);
+
+CREATE INDEX IF NOT EXISTS idx_slab_recent_sales_cache_fetched_at
+    ON slab_recent_sales_cache(fetched_at DESC);
 
 CREATE INDEX IF NOT EXISTS idx_provider_sync_runs_provider_scope_started
     ON provider_sync_runs(provider, sync_scope, started_at DESC);

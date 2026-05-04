@@ -54,6 +54,17 @@ describe('mobile app routing', () => {
     expect(await screen.findByText('All Transactions')).toBeTruthy();
   });
 
+  it('opens the portfolio route with the portfolio page active', async () => {
+    renderAppRouter('/portfolio');
+
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-account-button')).toBeTruthy();
+    });
+
+    expect(screen.getByTestId('bottom-nav-portfolio').props.accessibilityState).toEqual({ selected: true });
+    expect(screen.getByTestId('bottom-nav-scan').props.accessibilityState).toEqual({ selected: false });
+  });
+
   it('renders the labeler session route directly', async () => {
     renderAppRouter('/labeling/session');
 

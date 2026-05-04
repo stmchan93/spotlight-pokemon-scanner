@@ -21,7 +21,7 @@ import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg'
 import {
   deckConditionOptions,
   type CardDetailRecord,
-  type CardEbayListingsRecord,
+  type CardRecentSalesRecord,
 } from '@spotlight/api-client';
 import { Button, SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -225,15 +225,22 @@ function formatListingDateLabel(value?: string | null) {
   });
 }
 
-function formatListingSaleType(value?: string | null) {
-  switch (value?.trim().toLowerCase()) {
-    case 'auction':
-      return 'Auction';
-    case 'fixed_price':
-      return 'Buy it now';
-    default:
-      return null;
+function formatRecentSalesAgeLabel(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
   }
+  const parsed = new Date(trimmed);
+  const timestamp = parsed.getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+  const diffMs = Date.now() - timestamp;
+  if (!Number.isFinite(diffMs)) {
+    return null;
+  }
+  const hours = Math.max(0, Math.floor(diffMs / 3600000));
+  return `Updated ${hours}h ago`;
 }
 
 function EbayWordmarkBadge() {
@@ -397,7 +404,9 @@ export function CardDetailScreen({
   } = useAppServices();
   const [detail, setDetail] = useState<CardDetailRecord | null>(null);
   const [marketHistory, setMarketHistory] = useState<CardDetailRecord['marketHistory'] | null>(null);
-  const [ebayListingsState, setEbayListingsState] = useState<CardEbayListingsRecord | null>(null);
+  const [recentSalesState, setRecentSalesState] = useState<CardRecentSalesRecord | null>(null);
+  const [recentSalesErrorMessage, setRecentSalesErrorMessage] = useState<string | null>(null);
+  const [isRecentSalesLoading, setIsRecentSalesLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCollectionExpanded, setIsCollectionExpanded] = useState(true);
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
@@ -540,32 +549,63 @@ export function CardDetailScreen({
     ];
   }, [detail, selectedEntry]);
 
-  const shouldShowEbayListings = selectedEntry?.kind === 'graded' || selectedEntry?.slabContext != null;
+  const shouldShowRecentSales = selectedEntry?.kind === 'graded' || selectedEntry?.slabContext != null;
   const selectedSlabContext = selectedEntry?.slabContext ?? null;
+
+  const loadRecentSales = useCallback(async (refresh: boolean) => {
+    if (!shouldShowRecentSales || !selectedSlabContext) {
+      return;
+    }
+    setIsRecentSalesLoading(true);
+    setRecentSalesErrorMessage(null);
+    try {
+      const nextRecentSales = await spotlightRepository.getCardRecentSales({
+        cardId,
+        limit: 5,
+        refresh,
+        slabContext: selectedSlabContext,
+        source: 'ebay',
+      });
+      setRecentSalesState(nextRecentSales);
+    } catch {
+      setRecentSalesErrorMessage('Could not load recent eBay sales right now.');
+    } finally {
+      setIsRecentSalesLoading(false);
+    }
+  }, [cardId, selectedSlabContext, shouldShowRecentSales, spotlightRepository]);
 
   useEffect(() => {
     let cancelled = false;
-    setEbayListingsState(null);
+    setRecentSalesState(null);
+    setRecentSalesErrorMessage(null);
+    setIsRecentSalesLoading(false);
 
-    if (!shouldShowEbayListings) {
+    if (!shouldShowRecentSales) {
       return () => {
         cancelled = true;
       };
     }
 
-    void spotlightRepository.getCardEbayListings({
+    setIsRecentSalesLoading(true);
+    void spotlightRepository.getCardRecentSales({
       cardId,
       limit: 5,
       slabContext: selectedSlabContext,
+      source: 'ebay',
     })
       .then((nextListings) => {
         if (!cancelled) {
-          setEbayListingsState(nextListings);
+          setRecentSalesState(nextListings);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setEbayListingsState(null);
+          setRecentSalesErrorMessage('Could not load recent eBay sales right now.');
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsRecentSalesLoading(false);
         }
       });
 
@@ -576,7 +616,7 @@ export function CardDetailScreen({
     cardId,
     dataVersion,
     selectedSlabContext,
-    shouldShowEbayListings,
+    shouldShowRecentSales,
     spotlightRepository,
   ]);
 
@@ -764,7 +804,10 @@ export function CardDetailScreen({
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
   const isFavorite = detail?.isFavorite ?? false;
-  const ebayListings = shouldShowEbayListings ? (ebayListingsState ?? detail?.ebayListings ?? null) : null;
+  const recentSales = shouldShowRecentSales ? recentSalesState : null;
+  const recentSalesUpdatedLabel = formatRecentSalesAgeLabel(recentSales?.fetchedAt);
+  const shouldShowRecentSalesLoad = recentSales?.statusReason === 'not_loaded';
+  const shouldShowRecentSalesRefresh = Boolean(recentSales?.canRefresh);
   const ownedCopiesCount = ownedEntries.reduce((sum, entry) => sum + Math.max(0, entry.quantity), 0);
   const hasSingleOwnedEntry = ownedEntries.length === 1;
   const collectionTitle = ownedCopiesCount > 1
@@ -1164,115 +1207,154 @@ export function CardDetailScreen({
           </View>
         </View>
 
-        {ebayListings ? (
+        {shouldShowRecentSales ? (
           <View style={styles.section}>
             <View style={styles.marketHeader}>
-              <Text style={[theme.typography.headline, styles.marketHeaderTitle]} testID="detail-ebay-header-label">
-                Lowest active eBay listings
+              <Text style={[theme.typography.headline, styles.marketHeaderTitle]} testID="detail-recent-sales-header-label">
+                Recent Sales
               </Text>
             </View>
 
-            <View testID="detail-ebay-card">
+            <View testID="detail-recent-sales-card">
               <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
-                {ebayListings.listings.length > 0 ? (
+                {recentSalesUpdatedLabel ? (
+                  <Text style={[theme.typography.caption, styles.marketTimestamp]} testID="detail-recent-sales-updated">
+                    {recentSalesUpdatedLabel}
+                  </Text>
+                ) : null}
+
+                {recentSales?.status === 'available' && recentSales.sales.length > 0 ? (
                   <>
                     <View style={styles.ebayList}>
-                      {ebayListings.listings.map((listing, index) => {
-                        const saleTypeLabel = formatListingSaleType(listing.saleType);
-                        const listingDateLabel = formatListingDateLabel(listing.listingDate);
-                        const meta = [saleTypeLabel, listingDateLabel].filter(Boolean).join(' • ');
+                      {recentSales.sales.map((sale, index) => {
+                        const soldDateLabel = formatListingDateLabel(sale.soldAt);
 
                         return (
                           <Pressable
-                            key={listing.id}
-                            accessibilityRole={listing.listingUrl ? 'button' : undefined}
-                            disabled={!listing.listingUrl}
+                            key={sale.id}
+                            accessibilityRole={sale.saleUrl ? 'button' : undefined}
+                            disabled={!sale.saleUrl}
                             onPress={() => {
-                              if (listing.listingUrl) {
-                                void Linking.openURL(listing.listingUrl);
+                              if (sale.saleUrl) {
+                                void Linking.openURL(sale.saleUrl);
                               }
                             }}
                             style={({ pressed }) => [
                               styles.ebayRow,
                               {
-                                opacity: listing.listingUrl && pressed ? 0.9 : 1,
+                                opacity: sale.saleUrl && pressed ? 0.9 : 1,
                               },
                             ]}
-                            testID={`detail-ebay-listing-${index}`}
+                            testID={`detail-recent-sales-row-${index}`}
                           >
                             <EbayWordmarkBadge />
 
                             <View style={styles.ebayRowBody}>
                               <Text numberOfLines={2} style={[theme.typography.bodyStrong, styles.ebayTitle]}>
-                                {listing.title}
+                                {sale.title}
                               </Text>
-                              {meta ? (
+                              {soldDateLabel ? (
                                 <Text style={[theme.typography.caption, styles.ebayMeta]}>
-                                  {meta}
+                                  {soldDateLabel}
                                 </Text>
                               ) : null}
                             </View>
 
                             <View style={styles.ebayPriceBlock}>
                               <Text style={[theme.typography.bodyStrong, styles.ebayPrice]}>
-                                {listing.priceAmount != null
-                                  ? formatCurrency(listing.priceAmount, listing.currencyCode)
+                                {sale.priceAmount != null
+                                  ? formatCurrency(sale.priceAmount, sale.currencyCode)
                                   : '—'}
                               </Text>
                               <Text style={[theme.typography.micro, styles.ebayOpenCopy]}>
-                                {listing.listingUrl ? 'Open' : 'Unavailable'}
+                                {sale.saleUrl ? 'Open' : 'Unavailable'}
                               </Text>
                             </View>
                           </Pressable>
                         );
                       })}
                     </View>
-
-                    {ebayListings.searchUrl ? (
-                      <Button
-                        contentStyle={styles.ebayButtonContent}
-                        label="View all on eBay"
-                        labelStyle={styles.marketplaceButtonLabel}
-                        leadingAccessory={<EbayWordmarkBadge />}
-                        onPress={() => {
-                          if (ebayListings.searchUrl) {
-                            void Linking.openURL(ebayListings.searchUrl);
-                          }
-                        }}
-                        size="lg"
-                        style={styles.ebayViewAllButton}
-                        testID="detail-ebay-view-all"
-                        variant="secondary"
-                      />
-                    ) : null}
                   </>
+                ) : isRecentSalesLoading && !recentSales ? (
+                  <View style={styles.ebayEmptyState}>
+                    <Text style={[theme.typography.bodyStrong, styles.ebayTitle]}>
+                      Recent Sales
+                    </Text>
+                    <Text style={[theme.typography.caption, styles.ebayMeta]}>
+                      Loading recent eBay sales...
+                    </Text>
+                  </View>
+                ) : shouldShowRecentSalesLoad ? (
+                  <View style={styles.ebayEmptyState}>
+                    <Text style={[theme.typography.bodyStrong, styles.ebayTitle]}>
+                      Recent Sales
+                    </Text>
+                    <Text style={[theme.typography.caption, styles.ebayMeta]}>
+                      Load recent eBay sales for this slab when you need them.
+                    </Text>
+                    <Button
+                      contentStyle={styles.ebayButtonContent}
+                      disabled={isRecentSalesLoading}
+                      label={isRecentSalesLoading ? 'Loading recent eBay sales...' : 'Load recent eBay sales'}
+                      labelStyle={styles.marketplaceButtonLabel}
+                      leadingAccessory={<EbayWordmarkBadge />}
+                      onPress={() => {
+                        void loadRecentSales(true);
+                      }}
+                      size="lg"
+                      style={styles.ebayViewAllButton}
+                      testID="detail-recent-sales-load"
+                      variant="secondary"
+                    />
+                  </View>
                 ) : (
                   <View style={styles.ebayEmptyState}>
                     <Text style={[theme.typography.bodyStrong, styles.ebayTitle]}>
-                      eBay listings unavailable
+                      Recent eBay sales unavailable
                     </Text>
                     <Text style={[theme.typography.caption, styles.ebayMeta]}>
-                      {ebayListings.unavailableReason ?? 'No active eBay listings were returned for this card.'}
+                      {recentSalesErrorMessage ?? recentSales?.unavailableReason ?? 'No recent sold sales were returned for this slab.'}
                     </Text>
-                    {ebayListings.searchUrl ? (
+                    {shouldShowRecentSalesRefresh ? (
                       <Button
                         contentStyle={styles.ebayButtonContent}
-                        label="View all on eBay"
+                        disabled={isRecentSalesLoading}
+                        label={isRecentSalesLoading ? 'Refreshing...' : 'Refresh'}
                         labelStyle={styles.marketplaceButtonLabel}
                         leadingAccessory={<EbayWordmarkBadge />}
                         onPress={() => {
-                          if (ebayListings.searchUrl) {
-                            void Linking.openURL(ebayListings.searchUrl);
-                          }
+                          void loadRecentSales(true);
                         }}
                         size="lg"
                         style={styles.ebayViewAllButton}
-                        testID="detail-ebay-view-all"
+                        testID="detail-recent-sales-refresh"
                         variant="secondary"
                       />
                     ) : null}
                   </View>
                 )}
+
+                {recentSales?.status === 'available' && shouldShowRecentSalesRefresh ? (
+                  <Button
+                    contentStyle={styles.ebayButtonContent}
+                    disabled={isRecentSalesLoading}
+                    label={isRecentSalesLoading ? 'Refreshing...' : 'Refresh'}
+                    labelStyle={styles.marketplaceButtonLabel}
+                    leadingAccessory={<EbayWordmarkBadge />}
+                    onPress={() => {
+                      void loadRecentSales(true);
+                    }}
+                    size="lg"
+                    style={styles.ebayViewAllButton}
+                    testID="detail-recent-sales-refresh"
+                    variant="secondary"
+                  />
+                ) : null}
+                {recentSales?.status === 'available' && recentSalesErrorMessage ? (
+                  <Text style={[theme.typography.caption, styles.ebayMeta]}>
+                    {recentSalesErrorMessage}
+                  </Text>
+                ) : null}
               </SurfaceCard>
             </View>
           </View>
@@ -1702,6 +1784,9 @@ const styles = StyleSheet.create({
   marketHeaderTitle: {
     fontSize: 18,
     lineHeight: 22,
+  },
+  marketTimestamp: {
+    color: 'rgba(15, 15, 18, 0.52)',
   },
   marketValueTitle: {
     color: '#0F0F12',

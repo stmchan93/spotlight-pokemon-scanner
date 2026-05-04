@@ -1,4 +1,4 @@
-import { fireEvent, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
 import { mockInventoryEntries } from '@spotlight/api-client';
 
@@ -16,31 +16,31 @@ async function enterBulkSellPriceWithCalculator(value: '6' | '12.5') {
   fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-16'));
 
   if (value === '6') {
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-2'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-×'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-3'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-2'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-×'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-3'));
   } else {
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-1'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-2'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-5'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-÷'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-1'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-key-0'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-1'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-2'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-5'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-÷'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-1'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-0'));
   }
 
-  fireEvent.press(screen.getByTestId('bulk-sell-entry-1-calculator-equals'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-equals'));
 }
 
 async function enterSecondBulkSellPriceWithCalculator(value: '6') {
   fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-21'));
 
   if (value === '6') {
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-2-calculator-key-2'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-2-calculator-key-×'));
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-2-calculator-key-3'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-2'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-×'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-3'));
   }
 
-  fireEvent.press(screen.getByTestId('bulk-sell-entry-2-calculator-equals'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-equals'));
 }
 
 async function moveBulkSellToReview() {
@@ -67,17 +67,19 @@ describe('BulkSellScreen', () => {
     expect(screen.getByTestId('bulk-sell-line-smoke-raw-mcdonalds25-21')).toBeTruthy();
     expect(screen.getByTestId('bulk-sell-review-sale')).toBeTruthy();
     expect(screen.queryByTestId('bulk-sell-swipe-rail')).toBeNull();
+    expect(screen.queryByText('Draft sale')).toBeNull();
+    expect(screen.queryByText('3 cards selected. Set sold prices, then review the sale.')).toBeNull();
     expect(screen.getAllByText('Near Mint').length).toBeGreaterThan(0);
     expect(screen.queryByText('Condition')).toBeNull();
     expect(screen.getAllByText('*****').length).toBeGreaterThan(0);
     expect(screen.getByTestId('bulk-sell-toggle-bought-price-smoke-raw-mcdonalds25-16-hidden-icon')).toBeTruthy();
-    expect(screen.getByTestId('bulk-sell-entry-1-edit-bought-price')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-edit-bought-price')).toBeTruthy();
     expect(screen.queryByText('Show')).toBeNull();
     expect(screen.getAllByText('Tap to enter').length).toBeGreaterThan(0);
 
     fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-16'));
 
-    expect(screen.getByTestId('bulk-sell-entry-1-calculator-sheet')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-sheet')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('bulk-sell-toggle-bought-price-smoke-raw-mcdonalds25-16'));
 
@@ -111,7 +113,7 @@ describe('BulkSellScreen', () => {
 
     await enterBulkSellPriceWithCalculator('6');
 
-    expect(screen.queryByTestId('bulk-sell-entry-1-calculator-sheet')).toBeNull();
+    expect(screen.queryByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-sheet')).toBeNull();
     expect(screen.getByText('$6')).toBeTruthy();
   });
 
@@ -132,9 +134,11 @@ describe('BulkSellScreen', () => {
     expect(screen.getAllByText('Photo (optional)')).toHaveLength(2);
     expect(screen.queryByText('Transaction Photo')).toBeNull();
     expect(screen.queryByText('Add photo')).toBeNull();
-    expect(screen.getByTestId('bulk-sell-entry-1-photo-camera-icon')).toBeTruthy();
-    expect(screen.getByTestId('bulk-sell-entry-2-photo-camera-icon')).toBeTruthy();
-    expect(StyleSheet.flatten(screen.getByTestId('bulk-sell-entry-1-transaction-photo').props.style)).toMatchObject({
+    expect(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-photo-camera-icon')).toBeTruthy();
+    expect(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-photo-camera-icon')).toBeTruthy();
+    expect(
+      StyleSheet.flatten(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-transaction-photo').props.style),
+    ).toMatchObject({
       gap: 6,
       paddingVertical: 4,
     });
@@ -231,7 +235,7 @@ describe('BulkSellScreen', () => {
     expect(screen.queryByText('Market price')).toBeNull();
     expect(screen.queryByText('Bought price')).toBeNull();
     expect(screen.queryByText('Photo (optional)')).toBeNull();
-    expect(screen.queryByTestId('bulk-sell-entry-1-edit-bought-price')).toBeNull();
+    expect(screen.queryByTestId('bulk-sell-smoke-raw-mcdonalds25-16-edit-bought-price')).toBeNull();
     expect(screen.getByTestId('bulk-sell-swipe-rail').props.accessibilityState).toMatchObject({
       disabled: false,
     });
@@ -268,6 +272,52 @@ describe('BulkSellScreen', () => {
     });
   });
 
+  it('calls onComplete after a successful bulk sell finishes', async () => {
+    jest.useFakeTimers();
+    const onComplete = jest.fn();
+    const createPortfolioSalesBatch = jest.fn(async () => ([
+      {
+        saleID: 'sale-1',
+        deckEntryID: 'entry-1',
+        remainingQuantity: 0,
+        grossTotal: 12.5,
+        soldAt: '2026-05-01T00:00:00.000Z',
+        showSessionID: null,
+      },
+    ]));
+    const repository = createTestSpotlightRepository({
+      createPortfolioSalesBatch,
+      getInventoryEntries: async () => [mockInventoryEntries[0]],
+    });
+
+    renderWithProviders(
+      <BulkSellScreen
+        entryIds={['entry-1']}
+        onClose={jest.fn()}
+        onComplete={onComplete}
+      />,
+      {
+        spotlightRepository: repository,
+      },
+    );
+
+    expect(await screen.findByText('1 card selected')).toBeTruthy();
+    await moveBulkSellToReview();
+
+    const rail = screen.getByTestId('bulk-sell-swipe-rail');
+    await act(async () => {
+      rail.props.onAccessibilityAction?.({ nativeEvent: { actionName: 'activate' } });
+    });
+
+    expect(screen.getByText('Processing sale')).toBeTruthy();
+
+    await act(async () => {
+      jest.runAllTimers();
+    });
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
+  });
+
   it('prefills the bought price editor when a bought price already exists', async () => {
     renderWithProviders(
       <BulkSellScreen
@@ -282,9 +332,9 @@ describe('BulkSellScreen', () => {
 
     await screen.findByText('1 card selected');
 
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-1-edit-bought-price'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-edit-bought-price'));
 
-    expect(screen.getByTestId('bulk-sell-entry-1-bought-price-input').props.value).toBe('0.18');
+    expect(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-bought-price-input').props.value).toBe('0.18');
   });
 
   it('opens the bought price editor blank when no bought price exists yet', async () => {
@@ -308,9 +358,9 @@ describe('BulkSellScreen', () => {
 
     await screen.findByText('1 card selected');
 
-    fireEvent.press(screen.getByTestId('bulk-sell-entry-no-cost-edit-bought-price'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-edit-bought-price'));
 
-    expect(screen.getByTestId('bulk-sell-entry-no-cost-bought-price-input').props.value).toBe('');
+    expect(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-bought-price-input').props.value).toBe('');
   });
 
   it('keeps the bulk sell smoke selectors stable even if entry ids change', async () => {

@@ -50,6 +50,13 @@ describe('SingleSellScreen', () => {
     });
     expect(screen.getByText('Swipe up to confirm sale')).toBeTruthy();
     expect(screen.queryByText('Condition')).toBeNull();
+    expect(screen.getByText('Near Mint')).toBeTruthy();
+    expect(StyleSheet.flatten(screen.getByTestId('single-sell-meta-condition').props.style)).toMatchObject({
+      backgroundColor: 'rgba(255, 255, 255, 0.78)',
+    });
+    expect(StyleSheet.flatten(screen.getByText('Near Mint').props.style)).toMatchObject({
+      color: '#0F0F12',
+    });
     expect(screen.getByText('*****')).toBeTruthy();
     expect(screen.getByTestId('single-sell-toggle-bought-price-hidden-icon')).toBeTruthy();
     expect(screen.getByTestId('single-sell-edit-bought-price')).toBeTruthy();
@@ -393,6 +400,48 @@ describe('SingleSellScreen', () => {
       quantity: 1,
     }));
     expect(screen.getByText('Processing sale')).toBeTruthy();
+  });
+
+  it('calls onComplete after a successful single sell finishes', async () => {
+    jest.useFakeTimers();
+    const onComplete = jest.fn();
+    const createPortfolioSale = jest.fn(async () => ({
+      saleID: 'sale-1',
+      deckEntryID: 'entry-1',
+      remainingQuantity: 0,
+      grossTotal: 12.5,
+      soldAt: '2026-05-01T00:00:00.000Z',
+      showSessionID: null,
+    }));
+    const repository = createTestSpotlightRepository({
+      createPortfolioSale,
+    });
+
+    renderWithProviders(
+      <SingleSellScreen
+        entryId="entry-1"
+        onClose={jest.fn()}
+        onComplete={onComplete}
+      />,
+      { spotlightRepository: repository },
+    );
+
+    expect(await screen.findByText('Scorbunny')).toBeTruthy();
+
+    await enterSingleSellPriceWithCalculator('12.5');
+
+    const rail = screen.getByTestId('single-sell-swipe-rail');
+    await act(async () => {
+      rail.props.onAccessibilityAction?.({ nativeEvent: { actionName: 'activate' } });
+    });
+
+    expect(screen.getByText('Processing sale')).toBeTruthy();
+
+    await act(async () => {
+      jest.runAllTimers();
+    });
+
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the sell screen interactive when the sold-price calculator and bought-price editor are opened', async () => {

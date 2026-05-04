@@ -274,6 +274,28 @@ export type CardEbayListingsRecord = {
   listings: CardEbayListingRecord[];
 };
 
+export type CardRecentSaleSource = 'ebay';
+
+export type CardRecentSaleRecord = {
+  id: string;
+  title: string;
+  soldAt?: string | null;
+  priceAmount?: number | null;
+  currencyCode: string;
+  saleUrl?: string | null;
+};
+
+export type CardRecentSalesRecord = {
+  source: CardRecentSaleSource;
+  status: 'available' | 'unavailable';
+  statusReason?: string | null;
+  unavailableReason?: string | null;
+  fetchedAt?: string | null;
+  canRefresh: boolean;
+  saleCount: number;
+  sales: CardRecentSaleRecord[];
+};
+
 export type CardDetailRecord = {
   cardId: string;
   name: string;
@@ -545,6 +567,12 @@ export type SearchCatalogCardsParams = {
 export type CardDetailQuery = {
   cardId: string;
   slabContext?: SlabContext | null;
+};
+
+export type CardRecentSalesQuery = CardDetailQuery & {
+  source?: CardRecentSaleSource;
+  limit?: number;
+  refresh?: boolean;
 };
 
 export function deckConditionFromCode(code?: DeckConditionCode | null) {

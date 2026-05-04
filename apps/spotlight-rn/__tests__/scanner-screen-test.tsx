@@ -4,6 +4,7 @@ import type { ComponentProps } from 'react';
 import { LayoutAnimation, StyleSheet } from 'react-native';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
+import { rawScannerTrayEmptyPeekHeight } from '@/features/scanner/raw-scanner-capture-surface';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
 import {
   clearScanCandidateReviewSessions,
@@ -78,6 +79,7 @@ describe('ScannerScreen', () => {
   const originalExtra = mockedConstants.expoConfig?.extra
     ? { ...mockedConstants.expoConfig.extra }
     : {};
+  const originalScannerSmokeEnv = process.env.EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED;
 
   beforeEach(() => {
     mockBack.mockReset();
@@ -91,7 +93,16 @@ describe('ScannerScreen', () => {
       mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };
     }
     mockedConstants.expoConfig.extra = { ...originalExtra };
+    delete process.env.EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED;
     clearScanCandidateReviewSessions();
+  });
+
+  afterAll(() => {
+    if (originalScannerSmokeEnv == null) {
+      delete process.env.EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED;
+    } else {
+      process.env.EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED = originalScannerSmokeEnv;
+    }
   });
 
   it('switches between raw and slabs guidance', () => {
@@ -164,14 +175,22 @@ describe('ScannerScreen', () => {
       top: 12,
     });
     expect(screen.getByTestId('scanner-tray-body')).toBeTruthy();
+    expect(screen.getByTestId('scanner-tray-empty-fill')).toBeTruthy();
     expect(screen.getByTestId('scanner-recent-title')).toBeTruthy();
     expect(screen.getByTestId('scanner-value-pill-text')).toBeTruthy();
     expect(screen.queryByText('CLEAR')).toBeNull();
     expect(screen.queryByTestId('scanner-matches-button')).toBeNull();
+    expect(screen.queryByTestId('scanner-tray-viewport')).toBeNull();
     expect(screen.queryByTestId('scanner-tray-toggle')).toBeNull();
     expect(screen.queryByTestId('scanner-tray-row-pending')).toBeNull();
     expect(screen.queryByTestId('scanner-tray-row-review')).toBeNull();
     expect(screen.queryByTestId('scanner-tray-row-expand')).toBeNull();
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-body').props.style)).toMatchObject({
+      minHeight: rawScannerTrayEmptyPeekHeight,
+    });
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-empty-fill').props.style)).toMatchObject({
+      minHeight: rawScannerTrayEmptyPeekHeight,
+    });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-recent-title').props.style)).toMatchObject({
       fontSize: 16,
       lineHeight: 20,
@@ -181,6 +200,37 @@ describe('ScannerScreen', () => {
       lineHeight: 20,
     });
     expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
+  });
+
+  it('keeps reticle and mode toggle geometry stable after the first scan', async () => {
+    renderScannerScreen();
+
+    const initialReticleStyle = StyleSheet.flatten(screen.getByTestId('scanner-reticle').props.style);
+    const initialPreviewStyle = StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style);
+    const initialModeToggleWrapStyle = StyleSheet.flatten(screen.getByTestId('scanner-mode-toggle-wrap').props.style);
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-reticle').props.style)).toMatchObject({
+      height: initialReticleStyle.height,
+      left: initialReticleStyle.left,
+      top: initialReticleStyle.top,
+      width: initialReticleStyle.width,
+    });
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style)).toMatchObject({
+      height: initialPreviewStyle.height,
+      left: initialPreviewStyle.left,
+      top: initialPreviewStyle.top,
+      width: initialPreviewStyle.width,
+    });
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-mode-toggle-wrap').props.style)).toMatchObject({
+      top: initialModeToggleWrapStyle.top,
+    });
   });
 
   it('captures a scan photo when the preview is tapped', async () => {
@@ -216,6 +266,9 @@ describe('ScannerScreen', () => {
     }).props.accessibilityState).toMatchObject({
       disabled: true,
     });
+
+    const trayShell = screen.getByTestId('scanner-tray');
+    expect(typeof trayShell.props.onMoveShouldSetResponderCapture).toBe('function');
   });
 
   it('sends a normalized reticle target to scanner matching', async () => {

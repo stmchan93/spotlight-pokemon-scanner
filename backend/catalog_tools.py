@@ -3497,6 +3497,214 @@ def contextual_pricing_summary_for_card(
     )
 
 
+def slab_recent_sales_cache(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    grader: str,
+    grade: str,
+    source: str = "ebay",
+    limit: int = 5,
+) -> dict[str, Any] | None:
+    normalized_card_id = str(card_id or "").strip()
+    normalized_grader = str(grader or "").strip().upper()
+    normalized_grade = str(grade or "").strip().upper()
+    normalized_source = str(source or "").strip().lower()
+    if not normalized_card_id or not normalized_grader or not normalized_grade or not normalized_source:
+        return None
+    if not _table_exists(connection, "slab_recent_sales_cache"):
+        return None
+
+    cache_row = connection.execute(
+        """
+        SELECT *
+        FROM slab_recent_sales_cache
+        WHERE card_id = ?
+          AND grader = ?
+          AND grade = ?
+          AND source = ?
+        LIMIT 1
+        """,
+        (normalized_card_id, normalized_grader, normalized_grade, normalized_source),
+    ).fetchone()
+    if cache_row is None:
+        return None
+
+    safe_limit = max(1, min(int(limit), 25))
+    sale_rows = connection.execute(
+        """
+        SELECT *
+        FROM slab_recent_sales
+        WHERE card_id = ?
+          AND grader = ?
+          AND grade = ?
+          AND source = ?
+        ORDER BY rank ASC, sold_at DESC, id ASC
+        LIMIT ?
+        """,
+        (normalized_card_id, normalized_grader, normalized_grade, normalized_source, safe_limit),
+    ).fetchall() if _table_exists(connection, "slab_recent_sales") else []
+
+    return {
+        "cardID": cache_row["card_id"],
+        "grader": cache_row["grader"],
+        "grade": cache_row["grade"],
+        "source": cache_row["source"],
+        "status": cache_row["status"],
+        "resultCount": int(cache_row["result_count"] or 0),
+        "fetchedAt": cache_row["fetched_at"],
+        "sourceURL": cache_row["source_url"],
+        "sourcePayload": _json_load(cache_row["source_payload_json"], {}),
+        "createdAt": cache_row["created_at"],
+        "updatedAt": cache_row["updated_at"],
+        "sales": [
+            {
+                "id": row["id"],
+                "cardID": row["card_id"],
+                "grader": row["grader"],
+                "grade": row["grade"],
+                "source": row["source"],
+                "sourceSaleID": row["source_sale_id"],
+                "rank": int(row["rank"] or 0),
+                "title": row["title"],
+                "soldAt": row["sold_at"],
+                "price": row["price"],
+                "currencyCode": row["currency_code"],
+                "listingURL": row["listing_url"],
+                "variant": row["variant"],
+                "sourcePayload": _json_load(row["source_payload_json"], {}),
+            }
+            for row in sale_rows
+        ],
+    }
+
+
+def replace_slab_recent_sales_cache(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    grader: str,
+    grade: str,
+    source: str = "ebay",
+    sales: list[dict[str, Any]] | None = None,
+    fetched_at: str | None = None,
+    source_url: str | None = None,
+    source_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    normalized_card_id = str(card_id or "").strip()
+    normalized_grader = str(grader or "").strip().upper()
+    normalized_grade = str(grade or "").strip().upper()
+    normalized_source = str(source or "").strip().lower()
+    if not normalized_card_id or not normalized_grader or not normalized_grade or not normalized_source:
+        raise ValueError("card_id, grader, grade, and source are required")
+    if not _card_exists(connection, normalized_card_id):
+        raise ValueError("card_id does not exist")
+    if not _table_exists(connection, "slab_recent_sales_cache") or not _table_exists(connection, "slab_recent_sales"):
+        raise ValueError("slab recent sales schema is not installed")
+
+    recorded_at = str(fetched_at or utc_now()).strip() or utc_now()
+    normalized_sales = [dict(sale or {}) for sale in (sales or [])]
+    status = "available" if normalized_sales else "no_results"
+    now = utc_now()
+    connection.execute(
+        """
+        INSERT INTO slab_recent_sales_cache (
+            card_id, grader, grade, source, status, result_count, fetched_at,
+            source_url, source_payload_json, created_at, updated_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(card_id, grader, grade, source) DO UPDATE SET
+            status=excluded.status,
+            result_count=excluded.result_count,
+            fetched_at=excluded.fetched_at,
+            source_url=excluded.source_url,
+            source_payload_json=excluded.source_payload_json,
+            updated_at=excluded.updated_at
+        """,
+        (
+            normalized_card_id,
+            normalized_grader,
+            normalized_grade,
+            normalized_source,
+            status,
+            len(normalized_sales),
+            recorded_at,
+            str(source_url or "").strip() or None,
+            json.dumps(source_payload or {}),
+            now,
+            now,
+        ),
+    )
+    connection.execute(
+        """
+        DELETE FROM slab_recent_sales
+        WHERE card_id = ?
+          AND grader = ?
+          AND grade = ?
+          AND source = ?
+        """,
+        (normalized_card_id, normalized_grader, normalized_grade, normalized_source),
+    )
+    for index, sale in enumerate(normalized_sales, start=1):
+        source_sale_id = str(sale.get("sourceSaleID") or sale.get("source_sale_id") or "").strip() or None
+        sale_id = "|".join(
+            [
+                "slab-recent-sale",
+                normalized_card_id,
+                normalized_grader,
+                normalized_grade,
+                normalized_source,
+                source_sale_id or str(index),
+            ]
+        )
+        connection.execute(
+            """
+            INSERT INTO slab_recent_sales (
+                id, card_id, grader, grade, source, source_sale_id, rank, title,
+                sold_at, price, currency_code, listing_url, variant,
+                source_payload_json, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sale_id,
+                normalized_card_id,
+                normalized_grader,
+                normalized_grade,
+                normalized_source,
+                source_sale_id,
+                int(sale.get("rank") or index),
+                str(sale.get("title") or "").strip() or None,
+                str(sale.get("soldAt") or sale.get("sold_at") or "").strip() or None,
+                None if sale.get("price") is None else float(sale.get("price")),
+                str(sale.get("currencyCode") or sale.get("currency") or "").strip().upper() or None,
+                str(sale.get("listingURL") or sale.get("url") or "").strip() or None,
+                str(sale.get("variant") or "").strip() or None,
+                json.dumps(sale.get("sourcePayload") if isinstance(sale.get("sourcePayload"), dict) else sale),
+                now,
+            ),
+        )
+    return slab_recent_sales_cache(
+        connection,
+        card_id=normalized_card_id,
+        grader=normalized_grader,
+        grade=normalized_grade,
+        source=normalized_source,
+        limit=max(1, len(normalized_sales) or 1),
+    ) or {
+        "cardID": normalized_card_id,
+        "grader": normalized_grader,
+        "grade": normalized_grade,
+        "source": normalized_source,
+        "status": status,
+        "resultCount": len(normalized_sales),
+        "fetchedAt": recorded_at,
+        "sourceURL": source_url,
+        "sourcePayload": source_payload or {},
+        "sales": [],
+    }
+
+
 def upsert_card_price_summary(
     connection: sqlite3.Connection,
     *,

@@ -87,7 +87,9 @@ from catalog_tools import (
     upsert_scan_event,
     replace_scan_prediction_candidates,
     replace_scan_price_observations,
+    replace_slab_recent_sales_cache,
     record_sale_event,
+    slab_recent_sales_cache,
     utc_now,
 )
 from fx_rates import decorate_pricing_summary_with_fx
@@ -105,6 +107,7 @@ from scrydex_adapter import (
     SCRYDEX_PROVIDER,
     ScrydexProvider,
     best_remote_scrydex_raw_candidates,
+    fetch_scrydex_recent_sales,
     fetch_scrydex_price_history,
     map_scrydex_catalog_card,
     persist_scrydex_price_history_payload,
@@ -138,6 +141,84 @@ AUTH_REQUIRED_ENV = "SPOTLIGHT_AUTH_REQUIRED"
 AUTH_FALLBACK_USER_ID_ENV = "SPOTLIGHT_AUTH_FALLBACK_USER_ID"
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
+
+RECENT_SALES_DEFAULT_LIMIT = 5
+RECENT_SALES_MAX_LIMIT = 10
+RECENT_SALES_FRESHNESS_HOURS = 24
+RECENT_SALES_EMPTY_REFRESH_HOURS = 48
+
+
+def _recent_sales_age_hours(fetched_at: str | None) -> int | None:
+    text = str(fetched_at or "").strip()
+    if not text:
+        return None
+    cleaned = text.replace("Z", "+00:00")
+    try:
+        parsed = datetime.fromisoformat(cleaned)
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    delta = datetime.now(timezone.utc) - parsed.astimezone(timezone.utc)
+    if delta.total_seconds() < 0:
+        return 0
+    return int(delta.total_seconds() // 3600)
+
+
+def _recent_sales_payload(
+    cached: dict[str, Any] | None,
+    *,
+    source: str,
+    grader: str,
+    grade: str,
+    not_loaded: bool = False,
+    unavailable_reason: str | None = None,
+) -> dict[str, Any]:
+    if cached is None:
+        return {
+            "source": source,
+            "grader": grader,
+            "grade": grade,
+            "status": "unavailable",
+            "statusReason": "not_loaded" if not_loaded else "unavailable",
+            "unavailableReason": unavailable_reason,
+            "fetchedAt": None,
+            "canRefresh": False,
+            "saleCount": 0,
+            "sales": [],
+        }
+
+    fetched_at = str(cached.get("fetchedAt") or "").strip() or None
+    status = str(cached.get("status") or "").strip().lower()
+    age_hours = _recent_sales_age_hours(fetched_at)
+    refresh_after_hours = RECENT_SALES_EMPTY_REFRESH_HOURS if status == "no_results" else RECENT_SALES_FRESHNESS_HOURS
+    sale_rows = list(cached.get("sales") or [])
+    unavailable = status != "available"
+    return {
+        "source": str(cached.get("source") or source).strip().lower() or source,
+        "grader": str(cached.get("grader") or grader).strip().upper() or grader,
+        "grade": str(cached.get("grade") or grade).strip().upper() or grade,
+        "status": "unavailable" if unavailable else "available",
+        "statusReason": "no_results" if status == "no_results" else None,
+        "unavailableReason": unavailable_reason or ("No recent sold sales were returned for this slab." if status == "no_results" else None),
+        "fetchedAt": fetched_at,
+        "canRefresh": bool(age_hours is not None and age_hours >= refresh_after_hours),
+        "saleCount": len(sale_rows),
+        "sales": [
+            {
+                "id": str(row.get("id") or "").strip(),
+                "title": str(row.get("title") or "").strip() or None,
+                "soldAt": str(row.get("soldAt") or row.get("sold_at") or "").strip() or None,
+                "price": {
+                    "amount": row.get("price"),
+                    "currencyCode": str(row.get("currencyCode") or "USD").strip().upper() or "USD",
+                },
+                "currencyCode": str(row.get("currencyCode") or "USD").strip().upper() or "USD",
+                "listingURL": str(row.get("listingURL") or row.get("listing_url") or "").strip() or None,
+            }
+            for row in sale_rows
+        ],
+    }
 SCAN_ARTIFACT_UPLOADS_SETTING_KEY = "scan_artifact_uploads"
 DEFAULT_CARD_SHOW_MODE_HOURS = 8.0
 LIVE_PRICING_REFRESH_WINDOW_HOURS = 1.0
@@ -6900,6 +6981,92 @@ class SpotlightScanService:
             limit=normalized_limit,
         )
 
+    def card_recent_sales(
+        self,
+        card_id: str,
+        *,
+        grader: str | None = None,
+        grade: str | None = None,
+        source: str = "ebay",
+        limit: int = RECENT_SALES_DEFAULT_LIMIT,
+        refresh: bool = False,
+    ) -> dict[str, Any] | None:
+        card = card_by_id(self.connection, card_id)
+        if card is None:
+            return None
+
+        normalized_source = str(source or "").strip().lower() or "ebay"
+        normalized_grader = str(grader or "").strip().upper() or None
+        normalized_grade = str(grade or "").strip().upper() or None
+        try:
+            normalized_limit = int(limit)
+        except (TypeError, ValueError):
+            normalized_limit = RECENT_SALES_DEFAULT_LIMIT
+        normalized_limit = max(1, min(normalized_limit, RECENT_SALES_MAX_LIMIT))
+        if normalized_grader is None and normalized_grade is not None:
+            normalized_grader = "PSA"
+        if normalized_grader != "PSA" or normalized_grade is None:
+            return _recent_sales_payload(
+                None,
+                source=normalized_source,
+                grader=normalized_grader or "PSA",
+                grade=normalized_grade or "",
+                unavailable_reason="Recent eBay sales are currently available for PSA slabs only.",
+            )
+
+        cached = slab_recent_sales_cache(
+            self.connection,
+            card_id=card_id,
+            grader=normalized_grader,
+            grade=normalized_grade,
+            source=normalized_source,
+            limit=normalized_limit,
+        )
+        cached_payload = _recent_sales_payload(
+            cached,
+            source=normalized_source,
+            grader=normalized_grader,
+            grade=normalized_grade,
+            not_loaded=cached is None,
+        )
+        if not refresh:
+            return cached_payload
+
+        age_hours = _recent_sales_age_hours(str(cached.get("fetchedAt") or "").strip() or None) if cached else None
+        refresh_after_hours = (
+            RECENT_SALES_EMPTY_REFRESH_HOURS
+            if cached is not None and str(cached.get("status") or "").strip().lower() == "no_results"
+            else RECENT_SALES_FRESHNESS_HOURS
+        )
+        if cached is not None and age_hours is not None and age_hours < refresh_after_hours:
+            return cached_payload
+
+        remote_payload = fetch_scrydex_recent_sales(
+            card_id,
+            source=normalized_source,
+            grader=normalized_grader,
+            grade=normalized_grade,
+            limit=normalized_limit,
+        )
+        cached = replace_slab_recent_sales_cache(
+            self.connection,
+            card_id=card_id,
+            grader=normalized_grader,
+            grade=normalized_grade,
+            source=normalized_source,
+            sales=list(remote_payload.get("sales") or []),
+            fetched_at=utc_now(),
+            source_url=str(remote_payload.get("sourceURL") or "").strip() or None,
+            source_payload=dict(remote_payload.get("sourcePayload") or {}),
+        )
+        self.connection.commit()
+        return _recent_sales_payload(
+            cached,
+            source=normalized_source,
+            grader=normalized_grader,
+            grade=normalized_grade,
+        )
+
     def match_scan(self, payload: dict[str, Any]) -> dict[str, Any]:
         self._emit_structured_log(self._scan_request_log_payload(payload))
         scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
@@ -8677,6 +8844,45 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 )
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"eBay listings failed: {error}"})
+                return
+
+            if payload is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
+                return
+
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/recent-sales"):
+            card_id = parsed.path.removeprefix("/api/v1/cards/").removesuffix("/recent-sales").rstrip("/")
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+
+            query = parse_qs(parsed.query)
+            grade = query.get("grade", [""])[0].strip() or None
+            grader = query.get("grader", [""])[0].strip() or None
+            source = query.get("source", ["ebay"])[0].strip() or "ebay"
+            refresh = query.get("refresh", [""])[0].strip().lower() in {"1", "true", "yes", "on"}
+            if grader is None and grade is not None:
+                grader = "PSA"
+            try:
+                limit = int(query.get("limit", [str(RECENT_SALES_DEFAULT_LIMIT)])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+
+            try:
+                payload = self.service.card_recent_sales(
+                    card_id,
+                    grader=grader,
+                    grade=grade,
+                    source=source,
+                    limit=limit,
+                    refresh=refresh,
+                )
+            except Exception as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Recent sales failed: {error}"})
                 return
 
             if payload is None:

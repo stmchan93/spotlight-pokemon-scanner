@@ -1,6 +1,7 @@
 import {
   type ReactNode,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -23,6 +24,7 @@ import { TabsPageContext } from '@/contexts/tabs-page-context';
 type TabsPage = 'portfolio' | 'scanner';
 
 type TopTabsPagerProps = {
+  initialPage?: TabsPage;
   portfolioSlot: ReactNode;
   renderScannerSlot: (
     onExitToPortfolio: () => void,
@@ -39,18 +41,31 @@ function isHorizontalSwipe(gs: Pick<PanResponderGestureState, 'dx' | 'dy'>) {
   return Math.abs(gs.dx) > Math.abs(gs.dy) * 1.35;
 }
 
-export function TopTabsPager({ portfolioSlot, renderScannerSlot }: TopTabsPagerProps) {
+export function TopTabsPager({
+  initialPage = 'scanner',
+  portfolioSlot,
+  renderScannerSlot,
+}: TopTabsPagerProps) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const theme = useSpotlightTheme();
 
-  // scanner is default: translateX starts at -width (portfolio=0, scanner=-width)
-  const [activePage, setActivePage] = useState<TabsPage>('scanner');
-  const activePageRef = useRef<TabsPage>('scanner');
+  const initialTranslateX = initialPage === 'portfolio' ? 0 : -width;
+  const [activePage, setActivePage] = useState<TabsPage>(initialPage);
+  const activePageRef = useRef<TabsPage>(initialPage);
   const isScannerSwipeEnabledRef = useRef(true);
   const isTransitioningRef = useRef(false);
   const directionRef = useRef<'left' | 'right' | null>(null);
-  const translateX = useRef(new Animated.Value(-width)).current;
+  const translateX = useRef(new Animated.Value(initialTranslateX)).current;
+
+  useEffect(() => {
+    const targetX = initialPage === 'portfolio' ? 0 : -width;
+    activePageRef.current = initialPage;
+    setActivePage(initialPage);
+    directionRef.current = null;
+    isTransitioningRef.current = false;
+    translateX.setValue(targetX);
+  }, [initialPage, translateX, width]);
 
   const goToPage = useCallback((page: TabsPage) => {
     const targetX = page === 'portfolio' ? 0 : -width;

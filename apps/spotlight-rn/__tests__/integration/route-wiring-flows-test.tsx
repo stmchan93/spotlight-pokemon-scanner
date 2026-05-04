@@ -171,19 +171,22 @@ function CardDetailRouteHarness() {
     <View>
       <Text>{cardId || 'Card Detail'}</Text>
       {entryId ? (
-        <Pressable
-          onPress={() => {
-            router.push({
-              pathname: '/sell/[entryId]',
-              params: {
-                entryId,
-              },
-            });
-          }}
-          testID="detail-sell-card"
-        >
-          <Text>SELL CARD</Text>
-        </Pressable>
+        <>
+          <Text testID="detail-collection-header-label">In your collection</Text>
+          <Pressable
+            onPress={() => {
+              router.push({
+                pathname: '/sell/[entryId]',
+                params: {
+                  entryId,
+                },
+              });
+            }}
+            testID="detail-sell-card"
+          >
+            <Text>SELL CARD</Text>
+          </Pressable>
+        </>
       ) : (
         <Pressable
           onPress={() => {
@@ -212,7 +215,18 @@ function AddToCollectionRouteHarness() {
     <View>
       <Text>Add to Collection</Text>
       <Text>{cardId}</Text>
-      <Pressable onPress={() => router.back()} testID="submit-add-to-collection">
+      <Pressable
+        onPress={() => {
+          router.replace({
+            pathname: '/cards/[cardId]',
+            params: {
+              cardId: cardId || 'sm7-1',
+              entryId: 'owned-entry-1',
+            },
+          });
+        }}
+        testID="submit-add-to-collection"
+      >
         <Text>Submit</Text>
       </Pressable>
     </View>
@@ -273,7 +287,7 @@ describe('route wiring flows', () => {
       'inventory/index': InventoryRouteHarness,
     });
 
-    expect(await screen.findByText('Track value, inventory, and latest transactions in one place.')).toBeTruthy();
+    expect(await screen.findByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('portfolio-see-more'));
 
@@ -282,7 +296,7 @@ describe('route wiring flows', () => {
     fireEvent.press(screen.getByTestId('inventory-back'));
 
     await waitFor(() => {
-      expect(screen.getByText('Track value, inventory, and latest transactions in one place.')).toBeTruthy();
+      expect(screen.getByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
     });
   });
 
@@ -317,7 +331,9 @@ describe('route wiring flows', () => {
     fireEvent.press(screen.getByTestId('submit-add-to-collection'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
+      expect(screen.getByTestId('detail-collection-header-label')).toBeTruthy();
+      expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
+      expect(screen.queryByTestId('detail-add-to-collection')).toBeNull();
     });
   });
 

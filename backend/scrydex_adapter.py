@@ -1201,6 +1201,141 @@ def fetch_scrydex_card_by_id(
     return data
 
 
+def fetch_scrydex_recent_sales(
+    card_id: str,
+    *,
+    source: str = "ebay",
+    grader: str | None = None,
+    grade: str | None = None,
+    limit: int = 5,
+    request_type: str = "card_recent_sales",
+    timeout: int = DEFAULT_REQUEST_TIMEOUT_SECONDS,
+) -> dict[str, Any]:
+    normalized_source = str(source or "").strip().lower() or "ebay"
+    normalized_grader = str(grader or "").strip().upper() or None
+    normalized_grade = str(grade or "").strip().upper() or None
+    normalized_limit = max(1, min(int(limit), 25))
+    params: dict[str, str] = {
+        "source": normalized_source,
+        "page_size": str(normalized_limit),
+    }
+    if normalized_grader:
+        params["company"] = normalized_grader
+    if normalized_grade:
+        params["grade"] = normalized_grade
+
+    payload = scrydex_api_request(
+        f"/pokemon/v1/cards/{card_id}/listings",
+        request_type=request_type,
+        timeout=timeout,
+        **params,
+    )
+    data = payload.get("data")
+    if isinstance(data, list):
+        rows = data
+    elif isinstance(data, dict):
+        if isinstance(data.get("listings"), list):
+            rows = data.get("listings") or []
+        elif isinstance(data.get("results"), list):
+            rows = data.get("results") or []
+        elif isinstance(data.get("transactions"), list):
+            rows = data.get("transactions") or []
+        else:
+            rows = []
+    else:
+        rows = []
+
+    def _coerce_float(value: object) -> float | None:
+        if value is None:
+            return None
+        try:
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    sales: list[dict[str, Any]] = []
+    for index, row in enumerate(rows, start=1):
+        if not isinstance(row, dict):
+            continue
+        raw_price = row.get("price")
+        price_amount: float | None
+        currency_code: str | None
+        if isinstance(raw_price, dict):
+            price_amount = (
+                _coerce_float(raw_price.get("amount"))
+                or _coerce_float(raw_price.get("value"))
+                or _coerce_float(raw_price.get("price"))
+            )
+            currency_code = str(
+                raw_price.get("currencyCode")
+                or raw_price.get("currency")
+                or row.get("currencyCode")
+                or row.get("currency")
+                or "USD"
+            ).strip().upper() or "USD"
+        else:
+            price_amount = (
+                _coerce_float(raw_price)
+                or _coerce_float(row.get("amount"))
+                or _coerce_float(row.get("value"))
+                or _coerce_float(row.get("salePrice"))
+            )
+            currency_code = str(
+                row.get("currencyCode")
+                or row.get("currency")
+                or "USD"
+            ).strip().upper() or "USD"
+
+        sold_at = str(
+            row.get("soldAt")
+            or row.get("sold_at")
+            or row.get("endedAt")
+            or row.get("ended_at")
+            or row.get("date")
+            or ""
+        ).strip() or None
+        title = str(row.get("title") or row.get("name") or "").strip() or None
+        listing_url = str(
+            row.get("listingURL")
+            or row.get("listingUrl")
+            or row.get("url")
+            or row.get("link")
+            or ""
+        ).strip() or None
+        source_sale_id = str(
+            row.get("id")
+            or row.get("listingID")
+            or row.get("listingId")
+            or row.get("saleID")
+            or row.get("saleId")
+            or ""
+        ).strip() or None
+
+        sales.append(
+            {
+                "sourceSaleID": source_sale_id,
+                "rank": index,
+                "title": title,
+                "soldAt": sold_at,
+                "price": price_amount,
+                "currencyCode": currency_code,
+                "listingURL": listing_url,
+                "variant": str(row.get("variant") or "").strip() or None,
+                "sourcePayload": row,
+            }
+        )
+
+    return {
+        "cardID": card_id,
+        "grader": normalized_grader,
+        "grade": normalized_grade,
+        "source": normalized_source,
+        "sourceURL": scrydex_request_url(f"/pokemon/v1/cards/{card_id}/listings", **params),
+        "sourcePayload": payload,
+        "sales": sales[:normalized_limit],
+    }
+
+
 def fetch_scrydex_cards_page(
     *,
     page: int,

@@ -39,7 +39,7 @@ describe('backend-backed fallback states', () => {
       { spotlightRepository: repository },
     );
 
-    expect(await screen.findByText('Track value, inventory, and latest transactions in one place.')).toBeTruthy();
+    expect(await screen.findByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByText('Loading Loooty...')).toBeNull();
     });

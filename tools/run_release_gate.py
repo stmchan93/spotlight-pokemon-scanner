@@ -104,6 +104,12 @@ def build_mobile_command(environment: str, mobile_action: str) -> list[str]:
     return ["bash", "tools/run_mobile_eas.sh", environment, mobile_action, "ios", environment]
 
 
+def build_smoke_reset_command(environment: str) -> list[str] | None:
+    if environment != "staging":
+        return None
+    return ["python3", "tools/reset_staging_smoke_fixture.py"]
+
+
 def resolve_mobile_env_values_for_gate(root: Path, environment: str, override: str | None) -> dict[str, str]:
     if override:
         return parse_required_dotenv(Path(override))
@@ -149,11 +155,23 @@ def extract_deck_entries(payload: Any) -> list[dict[str, Any]]:
     return []
 
 
+def deck_entry_card_id(entry: dict[str, Any]) -> str:
+    nested_card = entry.get("card") if isinstance(entry.get("card"), dict) else {}
+    return str(
+        entry.get("cardID")
+        or entry.get("cardId")
+        or nested_card.get("cardID")
+        or nested_card.get("cardId")
+        or nested_card.get("id")
+        or ""
+    ).strip()
+
+
 def deck_quantity_for(entries: list[dict[str, Any]], *, card_id: str, condition_code: str | None) -> int:
     total = 0
     target_condition = str(condition_code or "").strip().lower()
     for entry in entries:
-        if str(entry.get("cardID") or entry.get("cardId") or "").strip() != card_id:
+        if deck_entry_card_id(entry) != card_id:
             continue
         entry_condition = str(entry.get("condition") or "").strip().lower()
         if entry_condition != target_condition:
@@ -656,6 +674,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
 
         if not args.skip_smoke:
+            smoke_reset_command = build_smoke_reset_command(args.environment)
+            if smoke_reset_command is not None and args.smoke_mode == "full":
+                run_subprocess_step(
+                    summary,
+                    name=f"smoke:reset:{args.environment}",
+                    command=smoke_reset_command,
+                    cwd=root,
+                )
             started = time.perf_counter()
             smoke_summary = run_staging_smoke(
                 root=root,

@@ -19,6 +19,9 @@ import type {
   CardEbayListingRecord,
   CardEbayListingsRecord,
   CardMarketInsight,
+  CardRecentSaleRecord,
+  CardRecentSalesQuery,
+  CardRecentSalesRecord,
   CatalogSearchResult,
   InventoryEntryCreateRequestPayload,
   InventoryEntryCreateResponsePayload,
@@ -84,6 +87,7 @@ export interface SpotlightRepository {
   getCardEbayListings(query: CardDetailQuery & {
     limit?: number;
   }): Promise<CardEbayListingsRecord | null>;
+  getCardRecentSales(query: CardRecentSalesQuery): Promise<CardRecentSalesRecord | null>;
   setCardFavorite(cardId: string, isFavorite?: boolean | null): Promise<CardFavoriteRecord>;
   getAddToCollectionOptions(cardId: string): Promise<AddToCollectionOptions>;
   createInventoryEntry(payload: InventoryEntryCreateRequestPayload): Promise<InventoryEntryCreateResponsePayload>;
@@ -306,6 +310,26 @@ type EbayCompsDTO = {
   transactions?: EbayCompsTransactionDTO[] | null;
   currencyCode?: string | null;
   searchURL?: string | null;
+};
+
+type CardRecentSaleDTO = {
+  id?: string | null;
+  title?: string | null;
+  soldAt?: string | null;
+  price?: EbayCompsPriceDTO | null;
+  currencyCode?: string | null;
+  listingURL?: string | null;
+};
+
+type CardRecentSalesDTO = {
+  source?: string | null;
+  status?: string | null;
+  statusReason?: string | null;
+  unavailableReason?: string | null;
+  fetchedAt?: string | null;
+  canRefresh?: boolean | null;
+  saleCount?: number | null;
+  sales?: CardRecentSaleDTO[] | null;
 };
 
 type PortfolioImportSummaryDTO = {
@@ -1673,6 +1697,80 @@ function buildCardEbayListingsRecord(
   };
 }
 
+function buildCardRecentSaleRecord(
+  sale: CardRecentSaleDTO,
+  fallbackCurrencyCode: string,
+): CardRecentSaleRecord | null {
+  const id = normalizeString(sale.id);
+  const title = normalizeString(sale.title) ?? 'Untitled eBay sale';
+  if (!id) {
+    return null;
+  }
+
+  const nestedCurrencyCode = normalizeString(sale.price?.currencyCode);
+  return {
+    id,
+    title,
+    soldAt: normalizeString(sale.soldAt),
+    priceAmount: normalizeNumber(sale.price?.amount),
+    currencyCode: normalizeCurrencyCode(sale.currencyCode ?? nestedCurrencyCode ?? fallbackCurrencyCode),
+    saleUrl: normalizeString(sale.listingURL),
+  };
+}
+
+function buildCardRecentSalesRecord(
+  payload: CardRecentSalesDTO | null | undefined,
+  fallbackCurrencyCode: string,
+): CardRecentSalesRecord | null {
+  if (!payload) {
+    return null;
+  }
+
+  const sales = Array.isArray(payload.sales)
+    ? payload.sales
+      .map((sale) => buildCardRecentSaleRecord(sale, fallbackCurrencyCode))
+      .filter((sale): sale is CardRecentSaleRecord => sale !== null)
+      .sort((left, right) => {
+        const leftTime = Date.parse(left.soldAt ?? '');
+        const rightTime = Date.parse(right.soldAt ?? '');
+        const leftHasTime = Number.isFinite(leftTime);
+        const rightHasTime = Number.isFinite(rightTime);
+        if (leftHasTime && rightHasTime && leftTime !== rightTime) {
+          return rightTime - leftTime;
+        }
+        if (leftHasTime !== rightHasTime) {
+          return leftHasTime ? -1 : 1;
+        }
+        const leftPrice = left.priceAmount;
+        const rightPrice = right.priceAmount;
+        if (leftPrice == null && rightPrice == null) {
+          return left.title.localeCompare(right.title);
+        }
+        if (leftPrice == null) {
+          return 1;
+        }
+        if (rightPrice == null) {
+          return -1;
+        }
+        if (leftPrice !== rightPrice) {
+          return rightPrice - leftPrice;
+        }
+        return left.title.localeCompare(right.title);
+      })
+    : [];
+
+  return {
+    source: normalizeString(payload.source) === 'ebay' ? 'ebay' : 'ebay',
+    status: normalizeString(payload.status) === 'available' ? 'available' : 'unavailable',
+    statusReason: normalizeString(payload.statusReason),
+    unavailableReason: normalizeString(payload.unavailableReason),
+    fetchedAt: normalizeString(payload.fetchedAt),
+    canRefresh: normalizeBoolean(payload.canRefresh) ?? false,
+    saleCount: normalizeNumber(payload.saleCount) ?? sales.length,
+    sales,
+  };
+}
+
 function errorMessageFromUnknown(error: unknown, fallback: string) {
   if (error instanceof Error && error.message.trim()) {
     const normalizedMessage = error.message.trim().toLowerCase();
@@ -1929,6 +2027,42 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }) {
     const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
     return detail?.ebayListings ?? null;
+  }
+
+  async getCardRecentSales(query: CardRecentSalesQuery) {
+    if (query.slabContext?.grader?.toUpperCase() !== 'PSA' || !query.slabContext?.grade) {
+      return null;
+    }
+    const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
+    if (!detail?.ebayListings) {
+      return {
+        source: 'ebay',
+        status: 'unavailable',
+        statusReason: 'not_loaded',
+        unavailableReason: null,
+        fetchedAt: null,
+        canRefresh: false,
+        saleCount: 0,
+        sales: [],
+      } satisfies CardRecentSalesRecord;
+    }
+    return {
+      source: 'ebay',
+      status: detail.ebayListings.status,
+      statusReason: detail.ebayListings.statusReason,
+      unavailableReason: detail.ebayListings.unavailableReason,
+      fetchedAt: '2026-05-03T12:00:00.000Z',
+      canRefresh: false,
+      saleCount: detail.ebayListings.listingCount,
+      sales: detail.ebayListings.listings.map((listing) => ({
+        id: listing.id,
+        title: listing.title,
+        soldAt: listing.listingDate,
+        priceAmount: listing.priceAmount,
+        currencyCode: listing.currencyCode,
+        saleUrl: listing.listingUrl,
+      })),
+    } satisfies CardRecentSalesRecord;
   }
 
   async setCardFavorite(cardId: string, isFavorite?: boolean | null) {
@@ -2671,9 +2805,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const detailQuery = buildDetailQueryParams(query);
 
     const detailUrl = `${this.baseUrl}/api/v1/cards/${query.cardId}${detailQuery.toString() ? `?${detailQuery.toString()}` : ''}`;
-    const ebayQuery = new URLSearchParams(detailQuery);
-    ebayQuery.set('limit', '5');
-    const ebayUrl = `${this.baseUrl}/api/v1/cards/${query.cardId}/ebay-comps?${ebayQuery.toString()}`;
     const historyQuery = buildRawDefaultMarketHistoryQuery(query);
     const [detailResponse, inventoryResult, historyResponse] = await Promise.all([
       this.requestJson<CardDetailDTO>(detailUrl, undefined, { allowNotFound: true }),
@@ -2701,17 +2832,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const marketHistory = historyResponse.kind === 'success'
       ? buildMarketHistoryRecord(historyResponse.data, card.pricing.currencyCode)
       : buildMarketHistoryRecord(null, card.pricing.currencyCode);
-    const ebayResponse = await this.requestJson<EbayCompsDTO>(ebayUrl);
-    const ebayListings = ebayResponse.kind === 'success'
-      ? buildCardEbayListingsRecord(ebayResponse.data, card.pricing.currencyCode)
-      : {
-        status: 'unavailable' as const,
-        statusReason: 'request_failed',
-        unavailableReason: 'Could not load eBay listings right now.',
-        searchUrl: null,
-        listingCount: 0,
-        listings: [],
-      };
 
     const detail: CardDetailRecord = {
       cardId: card.id,
@@ -2741,7 +2861,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         ...marketHistory,
         currentPrice: marketHistory.currentPrice ?? card.pricing.market ?? 0,
       },
-      ebayListings,
       ownedEntries: (inventoryResult.data ?? []).filter((entry: InventoryCardEntry) => entry.cardId === query.cardId),
       variantOptions: marketHistory.availableVariants,
       isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
@@ -2808,6 +2927,26 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return buildCardEbayListingsRecord(response.data, 'USD');
+  }
+
+  async getCardRecentSales(query: CardRecentSalesQuery) {
+    const recentSalesQuery = buildDetailQueryParams(query);
+    recentSalesQuery.set('source', query.source ?? 'ebay');
+    recentSalesQuery.set('limit', String(Math.max(1, Math.min(query.limit ?? 5, 5))));
+    if (query.refresh) {
+      recentSalesQuery.set('refresh', '1');
+    }
+    const response = await this.requestJson<CardRecentSalesDTO>(
+      `${this.baseUrl}/api/v1/cards/${query.cardId}/recent-sales?${recentSalesQuery.toString()}`,
+      undefined,
+      { allowNotFound: true },
+    );
+
+    if (response.kind !== 'success' || response.data === null) {
+      return null;
+    }
+
+    return buildCardRecentSalesRecord(response.data, 'USD');
   }
 
   async setCardFavorite(cardId: string, isFavorite?: boolean | null) {
