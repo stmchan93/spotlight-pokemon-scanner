@@ -22,14 +22,14 @@ Date: 2026-04-23
 
 If a proposed change improves top-10 at the cost of top-1, reject it unless it is a clearly scoped interim step with a follow-up that recovers top-1.
 
-## Current State As Of 2026-04-28
+## Current State As Of 2026-05-04
 
 ### Active runtime model
 
-- `raw_visual_runtime_active.json` says `artifactVersion = v009-scrydex-cardphotos259-sweep-selected`, published `2026-04-28T20:11:59Z`.
-- `raw_visual_adapter_active.pt` and `visual_index_active_*.npz` bytes confirm this — they are identical to the `v009-scrydex-cardphotos259-sweep-selected_*` source files.
-- v009-sweep-selected is trained on the `cardphotos259` corpus and replaces the previous `v006-scrydex-cardphotos33-clean` active alias.
-- A fresh pre-v009 backup exists under `backend/data/visual-models/active-backups/` and `backend/data/visual-index/active-backups/`.
+- `raw_visual_runtime_active.json` says `artifactVersion = v010-scrydex-cardphotos227-delta20260504`, published `2026-05-05T00:08:39Z`.
+- `raw_visual_adapter_active.pt` and `visual_index_active_*.npz` bytes confirm this — they are identical to the `v010-scrydex-cardphotos227-delta20260504_*` source files.
+- v010 is trained on the `776`-entry combined corpus and replaces the previous `v009-scrydex-cardphotos259-sweep-selected` active alias.
+- A fresh pre-v010 backup exists under `backend/data/visual-models/active-backups/` and `backend/data/visual-index/active-backups/`.
 
 ### Corpus ceiling
 
@@ -160,7 +160,7 @@ Each phase has entry prerequisites, exit gates, and no-regressions guardrails. D
 Entry: none.
 
 Work:
-1. Keep the active alias documented against `raw_visual_runtime_active.json`; as of 2026-04-28 this is `v009-scrydex-cardphotos259-sweep-selected`.
+1. Keep the active alias documented against `raw_visual_runtime_active.json`; as of 2026-05-04 this is `v010-scrydex-cardphotos227-delta20260504`.
 2. Add `matcher_version` stamping to every raw scan response. Surface it in the scan-review tray in Debug builds so it's visible to the friend tester.
 3. Log `pixels_per_card_height` in `scan_artifacts`. Add it to the `scan_artifacts` table via migration.
 4. Log `rerank_source` on every scan response.

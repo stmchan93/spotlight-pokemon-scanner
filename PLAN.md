@@ -20,7 +20,7 @@ Date: 2026-04-13
 - The current scanner + visual-model rewrite source of truth is [docs/scanner-model-rewrite-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scanner-model-rewrite-spec-2026-04-23.md). It supersedes earlier scanner guidance where they conflict and is paired with the data-loop spec below.
 - The current scan data + labeling pipeline source of truth is [docs/scan-data-labeling-pipeline-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scan-data-labeling-pipeline-spec-2026-04-23.md). It extends, not replaces, the local dataset workflow doc.
 - **Phase 2 entry decisions for the scanner rewrite / data loop are locked as of 2026-04-23.** See the "Decisions Locked 2026-04-23" section in the data pipeline spec. Highlights: in-app labeling tray (no web tool), admin-gated `labeler` role, multi-angle labeling sessions uploaded to GCS from day one, Tier 1/2/3 train/test discipline with automated routing via `raw_scan_registry.json`, ~50 gold-labeled cards per friend per week target, OCR removed outright (not dead-coded) when Phase 6 gates are met.
-- The active raw visual runtime alias as of 2026-04-28 is `v009-scrydex-cardphotos259-sweep-selected`, per `backend/data/visual-models/raw_visual_runtime_active.json`.
+- The active raw visual runtime alias as of 2026-05-04 is `v010-scrydex-cardphotos227-delta20260504`, per `backend/data/visual-models/raw_visual_runtime_active.json`.
 - The old v006 adapter was trained on a much smaller cardphotos33 corpus and is historical context only.
 - The raw backend reset has now landed.
 - The next raw identity direction is now:
@@ -310,13 +310,20 @@ Status: `active`
   - stable active visual artifact aliases are now published via:
     - `python3 tools/publish_raw_visual_runtime_artifacts.py --artifact-version <version>`
   - local/staging/production visual env defaults now point at the active aliases, not version-pinned filenames
-  - current active alias publication is now `v004-scrydex-b8`
-  - active alias held-out/runtime-shaped result on the full `67`-fixture Scrydex-supported suite:
-    - visual top-1: `25/67`
-    - visual top-5 contains-truth: `37/67`
-    - visual top-10 contains-truth: `40/67`
-    - hybrid top-1: `36/67`
-    - hybrid top-5 contains-truth: `40/67`
+  - current active alias publication is now `v010-scrydex-cardphotos227-delta20260504`
+  - active alias evaluation summary:
+    - frozen legacy suite:
+      - visual top-1: `31/71`
+      - visual top-10 contains-truth: `47/71`
+      - hybrid top-1: `42/71`
+    - delta expansion holdout:
+      - visual top-1: `34/67`
+      - visual top-10 contains-truth: `48/67`
+      - hybrid top-1: `37/67`
+    - fair mixed suite:
+      - visual top-1: `65/138`
+      - visual top-10 contains-truth: `95/138`
+      - hybrid top-1: `79/138`
   - active Scrydex request-budget guardrails:
     - cached raw scans/details should issue `0` live Scrydex requests
     - during the same-machine nightly-sync stage, first-seen visual-hybrid top-1 hydration should also stay local when the latest full sync is fresh
@@ -327,7 +334,12 @@ Status: `active`
     - `v004-scrydex` base: hybrid top-1 `29/67`
     - `v004-scrydex-b8` adapter: hybrid top-1 `33/67` before matcher shortlist improvements
     - `v004-scrydex-b8` with matcher shortlist improvements: hybrid top-1 `36/67`
-    - runtime decision: keep the active aliases on `v004-scrydex-b8` unless a later Scrydex candidate beats `36/67`
+    - `v009-scrydex-cardphotos259-sweep-selected` active baseline before promotion:
+      - legacy visual top-1: `24/71`
+      - expansion visual top-1: `22/67`
+      - mixed visual top-1: `46/138`
+      - mixed hybrid top-1: `64/138`
+    - runtime decision: promote the active aliases to `v010-scrydex-cardphotos227-delta20260504`
 - user-provided raw photos under [qa/raw-footer-layout-check](/Users/stephenchan/Code/spotlight/qa/raw-footer-layout-check) are now the canonical seed raw regression suite
 - the new source-of-truth migration plan is [docs/raw-visual-hybrid-migration-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-hybrid-migration-spec-2026-04-11.md)
 - local Phase 0 proof-of-concept is now complete:

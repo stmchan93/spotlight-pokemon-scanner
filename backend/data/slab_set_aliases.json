@@ -15,6 +15,11 @@
     "aliases": ["BASE SET", "BASE"]
   },
   {
+    "canonicalName": "Japanese Base",
+    "scopes": ["拡張パック", "base1_ja"],
+    "aliases": ["JAPANESE BASIC", "P.M. JAPANESE BASIC"]
+  },
+  {
     "canonicalName": "Scarlet & Violet",
     "scopes": ["Scarlet & Violet", "SVI"],
     "aliases": ["SCARLET & VIOLET", "SCARLET VIOLET"]

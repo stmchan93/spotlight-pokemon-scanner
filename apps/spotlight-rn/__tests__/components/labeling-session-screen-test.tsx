@@ -5,6 +5,10 @@ import { LabelingSessionScreen } from '@/features/labeling/screens/labeling-sess
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
+const { useKeepAwake } = jest.requireMock('expo-keep-awake') as {
+  useKeepAwake: jest.Mock;
+};
+
 const mockBack = jest.fn();
 const mockCanGoBack = jest.fn();
 const mockReplace = jest.fn();
@@ -75,6 +79,7 @@ async function captureCurrentAngle(nextTitle: string | null) {
 
 describe('LabelingSessionScreen', () => {
   beforeEach(() => {
+    useKeepAwake.mockClear();
     mockBack.mockReset();
     mockCanGoBack.mockReset();
     mockReplace.mockReset();
@@ -117,6 +122,8 @@ describe('LabelingSessionScreen', () => {
     });
 
     renderWithProviders(<LabelingSessionScreen />, { spotlightRepository });
+
+    expect(useKeepAwake).toHaveBeenCalledWith('labeling-session');
 
     await searchAndConfirmCard();
     const previewStyle = StyleSheet.flatten(screen.getByTestId('labeler-preview').props.style);

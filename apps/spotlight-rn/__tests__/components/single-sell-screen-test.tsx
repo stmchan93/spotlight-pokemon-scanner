@@ -8,6 +8,10 @@ import { SingleSellScreen } from '@/features/sell/screens/single-sell-screen';
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
+const { useKeepAwake } = jest.requireMock('expo-keep-awake') as {
+  useKeepAwake: jest.Mock;
+};
+
 async function enterSingleSellPriceWithCalculator(value: '2.5' | '12.5') {
   fireEvent.press(screen.getByTestId('single-sell-sold-price'));
 
@@ -30,6 +34,10 @@ async function enterSingleSellPriceWithCalculator(value: '2.5' | '12.5') {
 
 
 describe('SingleSellScreen', () => {
+  beforeEach(() => {
+    useKeepAwake.mockClear();
+  });
+
   afterEach(() => {
     jest.useRealTimers();
   });
@@ -80,6 +88,59 @@ describe('SingleSellScreen', () => {
 
     expect(screen.getByText('*****')).toBeTruthy();
     expect(screen.getByTestId('single-sell-toggle-bought-price-hidden-icon')).toBeTruthy();
+  });
+
+  it('shows slab grade subtext under the title for graded entries', async () => {
+    const gradedEntry: InventoryCardEntry = {
+      id: 'graded-entry-1',
+      name: 'Charizard',
+      cardId: 'base1-4',
+      quantity: 1,
+      currencyCode: 'USD',
+      costBasisPerUnit: 2500,
+      costBasisTotal: 2500,
+      kind: 'graded',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      imageUrl: 'https://example.com/charizard-psa6.png',
+      marketPrice: 3027.12,
+      hasMarketPrice: true,
+      cardNumber: '#4/102',
+      setName: 'Base',
+      addedAt: '2026-05-01T00:00:00.000Z',
+      variantName: 'First Edition Shadowless Holofoil',
+      slabContext: {
+        grader: 'PSA',
+        grade: '6',
+        certNumber: '76243431',
+        variantName: 'First Edition Shadowless Holofoil',
+      },
+      isFavorite: false,
+    };
+    const repository = createTestSpotlightRepository({
+      getInventoryEntries: async () => [gradedEntry],
+    });
+
+    renderWithProviders(
+      <SingleSellScreen
+        entryId="graded-entry-1"
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+      { spotlightRepository: repository },
+    );
+
+    expect(await screen.findByText('Charizard')).toBeTruthy();
+    expect(screen.getByTestId('single-sell-slab-meta')).toBeTruthy();
+    expect(screen.getByText('PSA • 6')).toBeTruthy();
+    expect(screen.getByText('First Edition Shadowless Holofoil')).toBeTruthy();
+    expect(screen.queryByTestId('single-sell-meta-grader')).toBeNull();
+    expect(screen.queryByTestId('single-sell-meta-grade')).toBeNull();
+    expect(StyleSheet.flatten(screen.getByTestId('single-sell-meta-row').props.style)).toMatchObject({
+      alignSelf: 'center',
+      justifyContent: 'center',
+    });
   });
 
   it('applies a built-in calculator result into the sold price field', async () => {
@@ -148,6 +209,7 @@ describe('SingleSellScreen', () => {
 
     fireEvent.press(screen.getByTestId('single-sell-photo-trigger'));
     expect(await screen.findByTestId('single-sell-camera')).toBeTruthy();
+    expect(useKeepAwake).toHaveBeenCalledWith('single-sell-transaction-photo-camera');
     expect(screen.queryByTestId('single-sell-camera-zoom-0.5x')).toBeNull();
     expect(screen.queryByTestId('single-sell-camera-zoom-1x')).toBeNull();
     expect(screen.queryByText('Transaction photo')).toBeNull();
@@ -221,6 +283,9 @@ describe('SingleSellScreen', () => {
       replacePortfolioEntry: async (payload) => {
         replaceCalls.push(payload.deckEntryID);
         const nextEntryId = `${payload.deckEntryID}-next`;
+        if (payload.unitPrice == null) {
+          throw new Error('Expected bought price update to provide a unit price.');
+        }
         currentEntry = {
           ...currentEntry,
           id: nextEntryId,

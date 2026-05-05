@@ -54,12 +54,15 @@ qa/raw-visual-train-excluded/
 
 # Logs
 *.log
+.coverage
+backend/logs/
 
 # JavaScript / Expo / pnpm
 node_modules/
 .pnpm-store/
 coverage/
 dist/
+.expo/prebuild/
 apps/spotlight-rn/.expo/
 apps/spotlight-rn/.eas/
 apps/spotlight-rn/.metro-health-check*
@@ -77,6 +80,11 @@ Spotlight/Config/LocalOverrides.xcconfig
 *.tmp
 .scanner_eval
 .vision_featureprint_check
+tmp/
+
+# Local smoke artifacts
+backend/data/scan-artifacts/labeling-sessions/
+staging-smoke-*.png
 
 # Xcode user state
 *.xcuserstate

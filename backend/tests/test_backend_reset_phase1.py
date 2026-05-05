@@ -361,6 +361,73 @@ def sample_noisy_charizard_slab_scan_payload() -> dict[str, object]:
     }
 
 
+def sample_japanese_base_charizard_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-japanese-base-charizard",
+        "capturedAt": "2026-05-04T06:56:44Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 1.0,
+        "setHintTokens": [],
+        "warnings": [],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "1996 P.M. JAPANESE BASIC",
+                "titleTextSecondary": "Charizard",
+                "cardNumber": "6",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "6",
+                "cert": "136802072",
+                "labelWideText": "1996 P.M. JAPANESE BASIC #6 CHARIZARD-HOLO EX-MT 6 PEA 136802072",
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "6",
+        "slabCertNumber": "136802072",
+        "slabCardNumberRaw": "6",
+        "slabParsedLabelText": [
+            "1996 P.M. JAPANESE BASIC #6 CHARIZARD-HOLO EX-MT 6",
+            "CHARIZARD-HOLO EX-MT 6 PEA 136802072",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
+def sample_first_edition_base_charizard_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-first-edition-base-charizard",
+        "capturedAt": "2026-05-05T00:27:19Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 1.0,
+        "setHintTokens": [],
+        "warnings": [],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "1999 POKEMON GAME",
+                "titleTextSecondary": "Charizard",
+                "cardNumber": "4",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "9",
+                "cert": "76243431",
+                "labelWideText": (
+                    "1999 POKEMON GAME CHARIZARD-HOLO 1ST EDITION #4 MINT 9 PSA 76243431 "
+                    "1999 POKEMON GAME #4 CHARIZARD-HOLO MINT 1ST EDITION 9 PSA 76243431"
+                ),
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "9",
+        "slabCertNumber": "76243431",
+        "slabCardNumberRaw": "4",
+        "slabParsedLabelText": [
+            "1999 POKEMON GAME CHARIZARD-HOLO 1ST EDITION #4 MINT 9 PSA 76243431",
+            "1999 POKEMON GAME #4 CHARIZARD-HOLO MINT 1ST EDITION 9 PSA 76243431",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
 def sample_mega_charizard_x_slab_scan_payload() -> dict[str, object]:
     return {
         "scanID": "scan-slab-mega-charizard-x",
@@ -1905,6 +1972,20 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(evidence.title_text_secondary, "Charizard")
         self.assertEqual(evidence.set_hint_tokens, ("pokemon go", "pgo"))
 
+    def test_build_slab_evidence_applies_alias_scope_for_japanese_basic_labels(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_japanese_base_charizard_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "6")
+        self.assertEqual(evidence.title_text_primary, "Charizard")
+        self.assertEqual(evidence.title_text_secondary, "Charizard")
+        self.assertIn("拡張パック", evidence.set_hint_tokens)
+        self.assertIn("base1_ja", evidence.set_hint_tokens)
+        self.assertEqual(evidence.matched_set_alias, "P.M. JAPANESE BASIC")
+        self.assertEqual(evidence.set_hint_source, "psa_alias_map")
+
     def test_build_slab_evidence_prefers_mega_charizard_title_over_generic_rarity_phrase(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
 
@@ -2047,6 +2128,244 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(candidates[0]["id"], "base1-58")
         self.assertEqual(candidates[0]["_retrievalRoutes"], ["local_slab_structured"])
         self.assertNotIn("base1_ja-58", [candidate["id"] for candidate in candidates])
+
+    def test_local_slab_retrieval_prefers_vintage_first_edition_base_charizard_over_modern_reprint(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="base1-4",
+            name="Charizard",
+            set_name="Base",
+            number="4/102",
+            rarity="Rare Holo",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base1-4",
+            set_id="base1",
+            set_series="Base",
+            set_release_date="1999-01-09",
+        )
+        upsert_card(
+            service.connection,
+            card_id="base4-4",
+            name="Charizard",
+            set_name="Base Set 2",
+            number="4/130",
+            rarity="Rare Holo",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base4-4",
+            set_id="base4",
+            set_series="Base",
+            set_release_date="2000-02-24",
+        )
+        upsert_card(
+            service.connection,
+            card_id="base5-4",
+            name="Dark Charizard",
+            set_name="Team Rocket",
+            number="4/82",
+            rarity="Rare Holo",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base5-4",
+            set_id="base5",
+            set_series="Base",
+            set_release_date="2000-04-24",
+        )
+        upsert_card(
+            service.connection,
+            card_id="cel25c-4_A",
+            name="Charizard",
+            set_name="Celebrations: Classic Collection",
+            number="4",
+            rarity="Classic Collection Holo Rare",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="cel25c-4_A",
+            set_id="cel25c",
+            set_series="Sword & Shield",
+            set_release_date="2021-10-08",
+        )
+        service.connection.commit()
+
+        evidence = service._build_slab_evidence(sample_first_edition_base_charizard_slab_scan_payload())
+        with patch("server.search_cards_local", side_effect=AssertionError("generic slab fallback should be bypassed")):
+            candidates = service._retrieve_local_slab_candidates(evidence)
+        service.connection.close()
+
+        self.assertGreaterEqual(len(candidates), 3)
+        self.assertEqual(candidates[0]["id"], "base1-4")
+        self.assertIn("release_year_exact", candidates[0]["_reasons"])
+        self.assertIn("first_edition_vintage_bias", candidates[0]["_reasons"])
+        self.assertNotEqual(candidates[0]["id"], "cel25c-4_A")
+
+    def test_match_scan_prefers_vintage_first_edition_base_charizard_over_modern_reprint(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="base1-4",
+            name="Charizard",
+            set_name="Base",
+            number="4/102",
+            rarity="Rare Holo",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base1-4",
+            set_id="base1",
+            set_series="Base",
+            set_release_date="1999-01-09",
+        )
+        upsert_card(
+            service.connection,
+            card_id="cel25c-4_A",
+            name="Charizard",
+            set_name="Celebrations: Classic Collection",
+            number="4",
+            rarity="Classic Collection Holo Rare",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="cel25c-4_A",
+            set_id="cel25c",
+            set_series="Sword & Shield",
+            set_release_date="2021-10-08",
+        )
+        service.connection.commit()
+
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+            search_scrydex.return_value = type("SlabSearchResult", (), {
+                "cards": [],
+                "attempts": [],
+            })()
+            response = service.match_scan(sample_first_edition_base_charizard_slab_scan_payload())
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["slabContext"]["grader"], "PSA")
+        self.assertEqual(response["slabContext"]["grade"], "9")
+        top_candidate = response["topCandidates"][0]["candidate"]
+        self.assertEqual(top_candidate["id"], "base1-4")
+        self.assertNotEqual(top_candidate["id"], "cel25c-4_A")
+
+    def test_display_pricing_summary_for_slab_prefers_first_edition_shadowless_variant(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="base1-4",
+            name="Charizard",
+            set_name="Base",
+            number="4/102",
+            rarity="Rare Holo",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="base1-4",
+            set_id="base1",
+            set_series="Base",
+            set_release_date="1999-01-09",
+        )
+        upsert_slab_price_snapshot(
+            service.connection,
+            card_id="base1-4",
+            grader="PSA",
+            grade="9",
+            variant="Unlimited Holofoil",
+            pricing_tier="estimated",
+            currency_code="USD",
+            low_price=2500.0,
+            market_price=3182.17,
+            mid_price=3200.0,
+            high_price=3500.0,
+            last_sale_price=None,
+            last_sale_date=None,
+            comp_count=2,
+            recent_comp_count=1,
+            confidence_level=2,
+            confidence_label="Medium",
+            bucket_key=None,
+            source_url="https://scrydex.example/base1-4?variant=unlimitedHolofoil",
+            source="scrydex",
+            summary="Unlimited PSA 9 comps",
+            payload={},
+        )
+        upsert_slab_price_snapshot(
+            service.connection,
+            card_id="base1-4",
+            grader="PSA",
+            grade="9",
+            variant="Unlimited Shadowless Holofoil",
+            pricing_tier="estimated",
+            currency_code="USD",
+            low_price=12000.0,
+            market_price=12591.99,
+            mid_price=12600.0,
+            high_price=13000.0,
+            last_sale_price=None,
+            last_sale_date=None,
+            comp_count=2,
+            recent_comp_count=1,
+            confidence_level=2,
+            confidence_label="Medium",
+            bucket_key=None,
+            source_url="https://scrydex.example/base1-4?variant=unlimitedShadowlessHolofoil",
+            source="scrydex",
+            summary="Unlimited Shadowless PSA 9 comps",
+            payload={},
+        )
+        upsert_slab_price_snapshot(
+            service.connection,
+            card_id="base1-4",
+            grader="PSA",
+            grade="9",
+            variant="First Edition Shadowless Holofoil",
+            pricing_tier="estimated",
+            currency_code="USD",
+            low_price=65000.0,
+            market_price=68537.88,
+            mid_price=69000.0,
+            high_price=72000.0,
+            last_sale_price=None,
+            last_sale_date=None,
+            comp_count=2,
+            recent_comp_count=1,
+            confidence_level=2,
+            confidence_label="Medium",
+            bucket_key=None,
+            source_url="https://scrydex.example/base1-4?variant=firstEditionShadowlessHolofoil",
+            source="scrydex",
+            summary="First Edition Shadowless PSA 9 comps",
+            payload={},
+        )
+        service.connection.commit()
+
+        pricing_context = service._slab_pricing_context(
+            grader="PSA",
+            grade="9",
+            variant_hints={
+                "shadowless": False,
+                "firstEdition": True,
+                "redCheeks": False,
+                "yellowCheeks": False,
+                "jumbo": False,
+            },
+        )
+        pricing = service._display_pricing_summary_for_context(
+            "base1-4",
+            pricing_context=pricing_context,
+        )
+        service.connection.close()
+
+        self.assertIsNotNone(pricing)
+        assert pricing is not None
+        self.assertEqual(pricing["variant"], "First Edition Shadowless Holofoil")
+        self.assertEqual(pricing["market"], 68537.88)
 
     def test_build_slab_evidence_does_not_apply_psa_alias_map_for_non_psa_grader(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -2403,6 +2722,57 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(top_candidate["pricing"]["grade"], "7")
         self.assertEqual(top_candidate["pricing"]["provider"], "scrydex")
         self.assertIsNotNone(top_candidate["pricing"]["market"])
+
+    def test_match_scan_resolves_japanese_basic_psa_slab_using_alias_scope(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="base1_ja-21",
+            name="Charizard",
+            set_name="拡張パック",
+            number="No.006",
+            rarity="Rare Holo",
+            variant="Raw",
+            language="Japanese",
+            source_provider="scrydex",
+            source_record_id="base1_ja-21",
+            set_id="base1_ja",
+            set_series="ポケットモンスターカードゲーム",
+            supertype="Pokemon",
+        )
+        upsert_card(
+            service.connection,
+            card_id="topsun_ja-6",
+            name="Charizard",
+            set_name="Topsun",
+            number="006",
+            rarity="Common",
+            variant="Blue Back",
+            language="Japanese",
+            source_provider="scrydex",
+            source_record_id="topsun_ja-6",
+            set_id="topsun_ja",
+            set_series="Topsun",
+            supertype="Pokemon",
+        )
+        service.connection.commit()
+
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+            search_scrydex.return_value = type("SlabSearchResult", (), {
+                "cards": [],
+                "attempts": [],
+            })()
+            response = service.match_scan(sample_japanese_base_charizard_slab_scan_payload())
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["slabContext"]["grader"], "PSA")
+        self.assertEqual(response["slabContext"]["grade"], "6")
+        top_candidate = response["topCandidates"][0]["candidate"]
+        self.assertEqual(top_candidate["id"], "base1_ja-21")
+        self.assertEqual(top_candidate["setName"], "拡張パック")
+        self.assertNotEqual(top_candidate["id"], "topsun_ja-6")
 
     def test_build_slab_match_response_returns_top_ten_candidates(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)

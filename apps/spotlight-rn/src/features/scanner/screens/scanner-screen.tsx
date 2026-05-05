@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -12,6 +13,7 @@ import {
   ActivityIndicator,
   Animated,
   Image,
+  Keyboard,
   LayoutAnimation,
   PanResponder,
   type PanResponderGestureState,
@@ -32,6 +34,9 @@ import {
   isSpotlightRepositoryRequestError,
   type CatalogSearchResult,
   type InventoryCardEntry,
+  type ScannerCapturePayload,
+  type ScannerSlabAnalysisPayload,
+  type SlabContext,
 } from '@spotlight/api-client';
 import {
   Button,
@@ -76,6 +81,8 @@ import {
   rawScannerTrayEmptyPeekHeight,
   rawVisualCaptureQuality,
 } from '@/features/scanner/raw-scanner-capture-surface';
+import { analyzePSASlabCapture } from '@/features/scanner/slab-native-analysis';
+import { buildSlabScannerTarget } from '@/features/scanner/scanner-slab-target';
 import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fixtures';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveRuntimeValue } from '@/lib/runtime-config';
@@ -95,6 +102,7 @@ type RecentCapture = {
   normalizedImageDimensions: ScanSourceImageDimensions | null;
   normalizedImageUri: string | null;
   scanID: string | null;
+  slabContext: SlabContext | null;
   sourceImageCrop: ScanSourceImageCrop | null;
   sourceImageDimensions: ScanSourceImageDimensions | null;
   sourceImageRotationDegrees: number;
@@ -106,11 +114,13 @@ type CaptureMatchParams = {
   captureId: string;
   captureMs: number;
   captureSource: 'camera' | 'smoke_fixture';
+  matchPayload: ScannerCapturePayload;
+  matchTarget: NormalizedScannerTarget;
   mode: ScannerMode;
   normalizeMs: number;
-  normalizedTarget: NormalizedScannerTarget;
   rawSourceImageDimensions: ScanSourceImageDimensions;
   scanStartedAt: number;
+  slabAnalysisMs?: number | null;
   sourceImageDimensions: ScanSourceImageDimensions;
 };
 
@@ -118,6 +128,9 @@ const scannerModes: readonly { label: string; value: ScannerMode }[] = [
   { label: 'RAW', value: 'raw' },
   { label: 'SLABS', value: 'slabs' },
 ];
+
+const unsupportedSlabTitle = 'Slab type is currently not supported';
+const unsupportedSlabSubtitle = 'We currently only support PSA slabs for now.';
 
 const maxStoredCaptures = 12;
 const collapsedVisibleCaptures = 1;
@@ -161,6 +174,15 @@ function scannerErrorKind(error: unknown) {
     return error.kind;
   }
 
+  if (
+    error != null
+    && typeof error === 'object'
+    && 'code' in error
+    && typeof (error as { code?: unknown }).code === 'string'
+  ) {
+    return (error as { code: string }).code;
+  }
+
   if (error instanceof Error) {
     const trimmedMessage = error.message.trim();
     if (/^[a-z0-9_:-]+$/i.test(trimmedMessage) && trimmedMessage.length > 0) {
@@ -192,7 +214,28 @@ function capturePrimaryLabel(mode: ScannerMode) {
   return mode === 'slabs' ? 'SLAB scan' : 'RAW scan';
 }
 
+function isNonPSAUnsupportedSlabCapture(capture: RecentCapture) {
+  if (capture.mode !== 'slabs' || capture.matchReviewDisposition !== 'unsupported') {
+    return false;
+  }
+
+  const reviewReason = capture.matchReviewReason?.trim();
+  return reviewReason === 'PSA only for now.' || reviewReason === unsupportedSlabSubtitle;
+}
+
+function captureFailureTitle(capture: RecentCapture) {
+  if (isNonPSAUnsupportedSlabCapture(capture)) {
+    return unsupportedSlabTitle;
+  }
+
+  return capturePrimaryLabel(capture.mode);
+}
+
 function captureFailureSubtitle(capture: RecentCapture) {
+  if (isNonPSAUnsupportedSlabCapture(capture)) {
+    return unsupportedSlabSubtitle;
+  }
+
   const reviewReason = capture.matchReviewReason?.trim();
   if (reviewReason) {
     return reviewReason;
@@ -214,6 +257,7 @@ function buildScanSelectionProperties(capture: RecentCapture) {
 }
 
 function buildScanMatchSuccessProperties(params: {
+  artifactUploadMs?: number | null;
   candidateCount: number;
   captureMs?: number | null;
   endToEndMs?: number | null;
@@ -222,6 +266,7 @@ function buildScanMatchSuccessProperties(params: {
   requestAttemptCount?: number | null;
   reviewDisposition?: string | null;
   roundTripMs?: number | null;
+  slabAnalysisMs?: number | null;
   serverProcessingMs?: number | null;
 }) {
   const properties: Record<string, number | string> = {
@@ -241,6 +286,10 @@ function buildScanMatchSuccessProperties(params: {
     properties.normalize_ms = params.normalizeMs;
   }
 
+  if (typeof params.slabAnalysisMs === 'number') {
+    properties.slab_analysis_ms = params.slabAnalysisMs;
+  }
+
   if (typeof params.endToEndMs === 'number') {
     properties.end_to_end_ms = params.endToEndMs;
   }
@@ -257,6 +306,10 @@ function buildScanMatchSuccessProperties(params: {
     properties.server_processing_ms = params.serverProcessingMs;
   }
 
+  if (typeof params.artifactUploadMs === 'number') {
+    properties.artifact_upload_ms = params.artifactUploadMs;
+  }
+
   return properties;
 }
 
@@ -266,6 +319,7 @@ function buildScanMatchFailureProperties(params: {
   errorKind: string;
   mode: ScannerMode;
   normalizeMs?: number | null;
+  slabAnalysisMs?: number | null;
 }) {
   const properties: Record<string, number | string> = {
     error_kind: params.errorKind,
@@ -278,6 +332,10 @@ function buildScanMatchFailureProperties(params: {
 
   if (typeof params.normalizeMs === 'number') {
     properties.normalize_ms = params.normalizeMs;
+  }
+
+  if (typeof params.slabAnalysisMs === 'number') {
+    properties.slab_analysis_ms = params.slabAnalysisMs;
   }
 
   if (typeof params.endToEndMs === 'number') {
@@ -296,16 +354,38 @@ function formatCurrency(amount: number, currencyCode = 'USD') {
   }).format(amount);
 }
 
+function isFinitePrice(value: number | null | undefined): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
+function formatOptionalCurrency(amount: number | null | undefined, currencyCode = 'USD') {
+  if (!isFinitePrice(amount)) {
+    return '—';
+  }
+
+  return formatCurrency(amount, currencyCode);
+}
+
 function withOptimisticInventoryAdd(
   entries: InventoryCardEntry[],
   candidate: CatalogSearchResult,
   addedAt: string,
+  options: {
+    mode: ScannerMode;
+    slabContext: SlabContext | null;
+  },
 ): InventoryCardEntry[] {
+  const slabContext = options.slabContext;
+  const isSlab = options.mode === 'slabs';
   const existingIndex = entries.findIndex((entry) => (
     entry.cardId === candidate.cardId
-    && entry.kind === 'raw'
-    && (entry.conditionCode ?? 'near_mint') === 'near_mint'
-    && !entry.variantName
+    && (
+      isSlab
+        ? entry.kind === 'graded' && sameSlabContext(entry.slabContext ?? null, slabContext)
+        : entry.kind === 'raw'
+          && (entry.conditionCode ?? 'near_mint') === 'near_mint'
+          && !entry.variantName
+    )
   ));
 
   if (existingIndex >= 0) {
@@ -321,23 +401,25 @@ function withOptimisticInventoryAdd(
       addedAt,
       cardId: candidate.cardId,
       cardNumber: candidate.cardNumber,
-      conditionCode: 'near_mint',
-      conditionLabel: 'Near Mint',
-      conditionShortLabel: 'NM',
+      conditionCode: isSlab ? null : 'near_mint',
+      conditionLabel: isSlab ? null : 'Near Mint',
+      conditionShortLabel: isSlab ? null : 'NM',
       costBasisPerUnit: null,
       costBasisTotal: 0,
       currencyCode: candidate.currencyCode ?? 'USD',
       hasMarketPrice: candidate.marketPrice != null,
-      id: `optimistic|raw|${candidate.cardId}`,
+      id: isSlab
+        ? `optimistic|graded|${candidate.cardId}|${slabContext?.grader ?? 'unknown'}|${slabContext?.grade ?? 'unknown'}|${slabContext?.certNumber ?? 'uncertified'}`
+        : `optimistic|raw|${candidate.cardId}`,
       imageUrl: candidate.imageUrl,
-      kind: 'raw',
+      kind: isSlab ? 'graded' : 'raw',
       marketPrice: candidate.marketPrice ?? 0,
       name: candidate.name,
       quantity: 1,
       setName: candidate.setName,
-      slabContext: null,
+      slabContext,
       isFavorite: candidate.isFavorite,
-      variantName: null,
+      variantName: slabContext?.variantName ?? null,
     },
     ...entries,
   ];
@@ -368,6 +450,149 @@ function withUpdatedCaptureFavoriteState(
         : candidate
     )),
   }));
+}
+
+function normalizeSlabText(value: unknown) {
+  if (typeof value !== 'string') {
+    return null;
+  }
+
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function normalizeSlabNumber(value: unknown) {
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
+}
+
+function normalizeSlabTextList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((entry) => {
+    const normalized = normalizeSlabText(entry);
+    return normalized ? [normalized] : [];
+  });
+}
+
+function sameSlabContext(left: SlabContext | null, right: SlabContext | null) {
+  if (!left && !right) {
+    return true;
+  }
+
+  if (!left || !right) {
+    return false;
+  }
+
+  return (
+    normalizeSlabText(left.grader)?.toUpperCase() === normalizeSlabText(right.grader)?.toUpperCase()
+    && normalizeSlabText(left.grade) === normalizeSlabText(right.grade)
+    && normalizeSlabText(left.certNumber) === normalizeSlabText(right.certNumber)
+    && normalizeSlabText(left.variantName) === normalizeSlabText(right.variantName)
+  );
+}
+
+function normalizeScannerSlabAnalysis(
+  value: ScannerSlabAnalysisPayload | null | undefined,
+): ScannerSlabAnalysisPayload {
+  return {
+    slabGrader: normalizeSlabText(value?.slabGrader),
+    slabGrade: normalizeSlabText(value?.slabGrade),
+    slabCertNumber: normalizeSlabText(value?.slabCertNumber),
+    slabBarcodePayloads: normalizeSlabTextList(value?.slabBarcodePayloads),
+    slabParsedLabelText: normalizeSlabTextList(value?.slabParsedLabelText),
+    slabCardNumberRaw: normalizeSlabText(value?.slabCardNumberRaw),
+    slabGraderConfidence: normalizeSlabNumber(value?.slabGraderConfidence),
+    slabGradeConfidence: normalizeSlabNumber(value?.slabGradeConfidence),
+    slabCertConfidence: normalizeSlabNumber(value?.slabCertConfidence),
+    slabClassifierReasons: normalizeSlabTextList(value?.slabClassifierReasons),
+    slabRecommendedLookupPath: value?.slabRecommendedLookupPath ?? null,
+    ocrAnalysis: value?.ocrAnalysis ?? null,
+  };
+}
+
+async function analyzeSlabCapture(imageUri: string): Promise<ScannerSlabAnalysisPayload> {
+  const result = await analyzePSASlabCapture(imageUri);
+  if (result.parsed.unsupportedReason === 'non_psa_slab_not_supported_yet') {
+    throw new Error('psa_only_for_now');
+  }
+
+  if (!result) {
+    throw new Error('slab_analysis_empty');
+  }
+
+  return normalizeScannerSlabAnalysis(result.scannerMatchFields);
+}
+
+function slabContextFromAnalysis(analysis: ScannerSlabAnalysisPayload): SlabContext | null {
+  const grader = normalizeSlabText(analysis.slabGrader);
+  if (!grader) {
+    return null;
+  }
+
+  const grade = normalizeSlabText(analysis.slabGrade);
+  const certNumber = normalizeSlabText(analysis.slabCertNumber);
+  return {
+    grader,
+    grade,
+    certNumber,
+    variantName: grade ? `${grader} ${grade}` : grader,
+  };
+}
+
+function scannerSlabInlineLabel(capture: RecentCapture) {
+  const grader = normalizeSlabText(capture.slabContext?.grader);
+  const grade = normalizeSlabText(capture.slabContext?.grade);
+  if (grader && grade) {
+    return `${grader} • ${grade}`;
+  }
+  return grader ?? normalizeSlabText(capture.slabContext?.variantName);
+}
+
+function scannerSlabSubtitle(capture: RecentCapture, candidate: CatalogSearchResult) {
+  void capture;
+  return [candidate.cardNumber?.trim(), candidate.setName].filter(Boolean).join(' • ');
+}
+
+function scannerCapturePriceLabel(capture: RecentCapture) {
+  void capture;
+  return 'MARKET';
+}
+
+function scannerCaptureThumbUri(capture: RecentCapture, candidate: CatalogSearchResult | null) {
+  if (capture.mode === 'slabs') {
+    return candidate?.imageUrl || capture.uri || null;
+  }
+
+  return candidate?.imageUrl || capture.uri || null;
+}
+
+function scannerPreparationReviewReason(mode: ScannerMode, error: unknown) {
+  if (mode !== 'slabs') {
+    return null;
+  }
+
+  const errorKind = scannerErrorKind(error);
+  switch (errorKind) {
+    case 'native_module_unavailable':
+    case 'unsupported_platform':
+      return 'Slab analysis is unavailable on this build.';
+    case 'invalid_image_uri':
+      return 'Could not prepare this slab capture for analysis.';
+    case 'native_analysis_failed':
+      return 'Could not read this slab label strongly enough.';
+    case 'slab_analysis_empty':
+      return 'Could not read this slab label strongly enough.';
+    case 'normalized_target_unavailable':
+      return 'Could not isolate the PSA label inside the guide.';
+    case 'psa_only_for_now':
+      return unsupportedSlabSubtitle;
+    default:
+      return error instanceof Error && error.message.trim().length > 0
+        ? error.message.trim()
+        : 'Could not analyze this slab label.';
+  }
 }
 
 
@@ -576,10 +801,12 @@ function RefreshIcon({ color, size = 18 }: { color: string; size?: number }) {
 
 function ScannerSearchLauncher({
   onChangeText,
+  onFocusChange,
   onSubmit,
   value,
 }: {
   onChangeText: (value: string) => void;
+  onFocusChange: (focused: boolean) => void;
   onSubmit: () => void;
   value: string;
 }) {
@@ -597,7 +824,13 @@ function ScannerSearchLauncher({
       containerTestID="scanner-search-launcher"
       inputStyle={styles.searchLauncherInput}
       leading={<IconSearch color={colors.scannerTextSecondary} size={18} strokeWidth={2} />}
+      onBlur={() => {
+        onFocusChange(false);
+      }}
       onChangeText={onChangeText}
+      onFocus={() => {
+        onFocusChange(true);
+      }}
       onSubmitEditing={onSubmit}
       placeholder="Search card to add"
       placeholderTextColor={colors.scannerTextSecondary}
@@ -611,6 +844,11 @@ type ScannerScreenProps = {
   onExitToPortfolio?: () => void;
   onTopLevelSwipeEnabledChange?: (enabled: boolean) => void;
 };
+
+function ScannerKeepAwake() {
+  useKeepAwake('scanner-screen');
+  return null;
+}
 
 export function ScannerScreen({
   onExitToPortfolio,
@@ -633,6 +871,7 @@ export function ScannerScreen({
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
   const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
+  const [isCatalogSearchFocused, setIsCatalogSearchFocused] = useState(false);
   const [isRawPictureConfigReady, setIsRawPictureConfigReady] = useState(
     isTestEnv || cachedRawVisualPictureSize != null,
   );
@@ -924,10 +1163,21 @@ export function ScannerScreen({
     return lookup;
   }, [inventoryEntries]);
 
-  const trayValue = useMemo(() => {
-    return recentCaptures.reduce((sum, capture) => {
-      return sum + (activeCandidateForCapture(capture)?.marketPrice ?? 0);
+  const trayPriceSummary = useMemo(() => {
+    let hasPricedCapture = false;
+    const total = recentCaptures.reduce((sum, capture) => {
+      const marketPrice = activeCandidateForCapture(capture)?.marketPrice;
+      if (!isFinitePrice(marketPrice)) {
+        return sum;
+      }
+      hasPricedCapture = true;
+      return sum + marketPrice;
     }, 0);
+
+    return {
+      hasPricedCapture,
+      total,
+    };
   }, [recentCaptures]);
 
   const clearRecentCaptures = useCallback(() => {
@@ -970,36 +1220,34 @@ export function ScannerScreen({
     captureId,
     captureMs,
     captureSource,
+    matchPayload,
+    matchTarget,
     mode,
     normalizeMs,
-    normalizedTarget,
     rawSourceImageDimensions,
     scanStartedAt,
+    slabAnalysisMs,
     sourceImageDimensions,
   }: CaptureMatchParams) => {
     try {
       capturePostHogEvent('scan_match_requested', {
         mode,
+        ...(typeof slabAnalysisMs === 'number' ? { slab_analysis_ms: slabAnalysisMs } : {}),
       });
       const matchStartedAt = Date.now();
-      const estimatedPayloadKB = Math.round((normalizedTarget.normalizedImageBase64.length * 0.75) / 1024);
+      const estimatedPayloadKB = Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024);
       if (mode === 'raw' && process.env.NODE_ENV !== 'test') {
         console.info(
           `[SCANNER VISUAL TEST] dispatch `
           + `captureSource=${captureSource} `
-          + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
-          + `rotate=${normalizedTarget.normalizationRotationDegrees} `
-          + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
+          + `nativeSource=${matchTarget.nativeSourceImageDimensions.width}x${matchTarget.nativeSourceImageDimensions.height} `
+          + `rotate=${matchTarget.normalizationRotationDegrees} `
+          + `normalized=${matchTarget.normalizedImageDimensions.width}x${matchTarget.normalizedImageDimensions.height} `
           + `payloadKB=${estimatedPayloadKB} `
           + `quality=${captureSource === 'camera' ? rawVisualCaptureQuality : 'fixture'}`,
         );
       }
-      const matchResult = await spotlightRepository.matchScannerCapture({
-        height: normalizedTarget.normalizedImageDimensions.height,
-        jpegBase64: normalizedTarget.normalizedImageBase64,
-        mode,
-        width: normalizedTarget.normalizedImageDimensions.width,
-      });
+      const matchResult = await spotlightRepository.matchScannerCapture(matchPayload);
       const endToEndMs = Date.now() - scanStartedAt;
       if (mode === 'raw' && process.env.NODE_ENV !== 'test') {
         const clientMatchMs = Date.now() - matchStartedAt;
@@ -1008,10 +1256,10 @@ export function ScannerScreen({
           + `captureSource=${captureSource} `
           + `source=${rawSourceImageDimensions.width}x${rawSourceImageDimensions.height} `
           + `oriented=${sourceImageDimensions.width}x${sourceImageDimensions.height} `
-          + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
-          + `rotate=${normalizedTarget.normalizationRotationDegrees} `
-          + `crop=${normalizedTarget.sourceImageCrop.width}x${normalizedTarget.sourceImageCrop.height} `
-          + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
+          + `nativeSource=${matchTarget.nativeSourceImageDimensions.width}x${matchTarget.nativeSourceImageDimensions.height} `
+          + `rotate=${matchTarget.normalizationRotationDegrees} `
+          + `crop=${matchTarget.sourceImageCrop.width}x${matchTarget.sourceImageCrop.height} `
+          + `normalized=${matchTarget.normalizedImageDimensions.width}x${matchTarget.normalizedImageDimensions.height} `
           + `payloadKB=${estimatedPayloadKB} `
           + `quality=${captureSource === 'camera' ? rawVisualCaptureQuality : 'fixture'} `
           + `normalizeMs=${normalizeMs} `
@@ -1026,6 +1274,25 @@ export function ScannerScreen({
         );
       }
 
+      if (mode === 'slabs' && matchResult.artifactUpload) {
+        if (matchResult.artifactUpload.status === 'uploaded') {
+          capturePostHogEvent('scan_artifact_upload_succeeded', {
+            mode,
+            ...(typeof matchResult.artifactUpload.roundTripMs === 'number'
+              ? { upload_ms: matchResult.artifactUpload.roundTripMs }
+              : {}),
+          });
+        } else if (matchResult.artifactUpload.status === 'failed') {
+          capturePostHogEvent('scan_artifact_upload_failed', {
+            error_kind: matchResult.artifactUpload.errorKind ?? 'request_failed',
+            mode,
+            ...(typeof matchResult.artifactUpload.roundTripMs === 'number'
+              ? { upload_ms: matchResult.artifactUpload.roundTripMs }
+              : {}),
+          });
+        }
+      }
+
       updateRecentCapture(captureId, (capture) => ({
         ...capture,
         activeCandidateIndex: 0,
@@ -1033,15 +1300,17 @@ export function ScannerScreen({
         isLoadingCandidates: false,
         matchReviewDisposition: matchResult.reviewDisposition ?? null,
         matchReviewReason: matchResult.reviewReason ?? null,
-        normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
-        normalizedImageUri: normalizedTarget.normalizedImageUri,
+        normalizedImageDimensions: matchTarget.normalizedImageDimensions,
+        normalizedImageUri: matchTarget.normalizedImageUri,
         scanID: matchResult.scanID,
-        sourceImageCrop: normalizedTarget.sourceImageCrop,
+        slabContext: matchResult.slabContext ?? capture.slabContext,
+        sourceImageCrop: matchTarget.sourceImageCrop,
         sourceImageDimensions,
-        sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
-        uri: normalizedTarget.normalizedImageUri,
+        sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
+        uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
       }));
       capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
+        artifactUploadMs: matchResult.artifactUpload?.roundTripMs ?? null,
         candidateCount: matchResult.candidates.length,
         captureMs,
         endToEndMs,
@@ -1050,6 +1319,7 @@ export function ScannerScreen({
         requestAttemptCount: matchResult.requestAttemptCount,
         reviewDisposition: matchResult.reviewDisposition,
         roundTripMs: matchResult.roundTripMs,
+        slabAnalysisMs,
         serverProcessingMs: matchResult.serverProcessingMs,
       }));
     } catch (error) {
@@ -1058,10 +1328,10 @@ export function ScannerScreen({
           `[SCANNER VISUAL TEST] matchError `
           + `message=${scannerErrorMessage(error)} `
           + `captureSource=${captureSource} `
-          + `nativeSource=${normalizedTarget.nativeSourceImageDimensions.width}x${normalizedTarget.nativeSourceImageDimensions.height} `
-          + `rotate=${normalizedTarget.normalizationRotationDegrees} `
-          + `normalized=${normalizedTarget.normalizedImageDimensions.width}x${normalizedTarget.normalizedImageDimensions.height} `
-          + `payloadKB=${Math.round((normalizedTarget.normalizedImageBase64.length * 0.75) / 1024)}`,
+          + `nativeSource=${matchTarget.nativeSourceImageDimensions.width}x${matchTarget.nativeSourceImageDimensions.height} `
+          + `rotate=${matchTarget.normalizationRotationDegrees} `
+          + `normalized=${matchTarget.normalizedImageDimensions.width}x${matchTarget.normalizedImageDimensions.height} `
+          + `payloadKB=${Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024)}`,
           error,
         );
       }
@@ -1072,13 +1342,13 @@ export function ScannerScreen({
         isLoadingCandidates: false,
         matchReviewDisposition: null,
         matchReviewReason: null,
-        normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
-        normalizedImageUri: normalizedTarget.normalizedImageUri,
+        normalizedImageDimensions: matchTarget.normalizedImageDimensions,
+        normalizedImageUri: matchTarget.normalizedImageUri,
         scanID: null,
-        sourceImageCrop: normalizedTarget.sourceImageCrop,
+        sourceImageCrop: matchTarget.sourceImageCrop,
         sourceImageDimensions,
-        sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
-        uri: normalizedTarget.normalizedImageUri,
+        sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
+        uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
       }));
       capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
         captureMs,
@@ -1086,11 +1356,18 @@ export function ScannerScreen({
         errorKind: scannerErrorKind(error),
         mode,
         normalizeMs,
+        slabAnalysisMs,
       }));
     }
   }, [spotlightRepository, updateRecentCapture]);
 
   const handleCapture = useCallback(async () => {
+    if (isCatalogSearchFocused) {
+      setIsCatalogSearchFocused(false);
+      Keyboard.dismiss();
+      return;
+    }
+
     if (!permission?.granted) {
       if (permission?.canAskAgain) {
         await requestPermission();
@@ -1124,6 +1401,7 @@ export function ScannerScreen({
         normalizedImageDimensions: null,
         normalizedImageUri: null,
         scanID: null,
+        slabContext: null,
         sourceImageCrop: null,
         sourceImageDimensions: null,
         sourceImageRotationDegrees: 0,
@@ -1137,10 +1415,12 @@ export function ScannerScreen({
     let capturedSourceImageDimensions: ScanSourceImageDimensions | null = null;
     let captureMsForAnalytics: number | null = null;
     let normalizeMsForAnalytics: number | null = null;
+    let slabAnalysisMsForAnalytics: number | null = null;
 
     try {
       const captureStartedAt = Date.now();
       const photo = await cameraRef.current.takePictureAsync({
+        base64: scannerMode === 'slabs',
         exif: false,
         quality: scannerMode === 'raw' ? rawVisualCaptureQuality : 0.7,
         skipProcessing: false,
@@ -1169,6 +1449,7 @@ export function ScannerScreen({
             normalizedImageUri: null,
             matchReviewDisposition: null,
             matchReviewReason: null,
+            slabContext: null,
             sourceImageCrop: null,
             sourceImageDimensions: photo?.width && photo.height
               ? { height: photo.height, width: photo.width }
@@ -1213,6 +1494,7 @@ export function ScannerScreen({
           matchReviewReason: null,
           normalizedImageDimensions: null,
           normalizedImageUri: null,
+          slabContext: null,
           sourceImageCrop,
           sourceImageDimensions,
           sourceImageRotationDegrees: 0,
@@ -1230,24 +1512,79 @@ export function ScannerScreen({
           + `crop=${sourceImageCrop ? `${sourceImageCrop.width}x${sourceImageCrop.height}@${sourceImageCrop.x},${sourceImageCrop.y}` : 'n/a'}`,
         );
       }
-      const normalizedTarget = await buildNormalizedScannerTarget({
-        previewLayout: {
-          height: reticleSnapshotRef.current.previewHeight,
-          width: reticleSnapshotRef.current.previewWidth,
-        },
-        reticle: {
-          height: reticleSnapshotRef.current.height,
-          width: reticleSnapshotRef.current.width,
-          x: reticleSnapshotRef.current.x,
-          y: reticleSnapshotRef.current.y,
-        },
-        sourceImageDimensions,
-        sourceImageUri: photo.uri,
-      });
+      const previewLayout = {
+        height: reticleSnapshotRef.current.previewHeight,
+        width: reticleSnapshotRef.current.previewWidth,
+      };
+      const reticleLayout = {
+        height: reticleSnapshotRef.current.height,
+        width: reticleSnapshotRef.current.width,
+        x: reticleSnapshotRef.current.x,
+        y: reticleSnapshotRef.current.y,
+      };
+      const normalizedTarget = scannerMode === 'raw'
+        ? await buildNormalizedScannerTarget({
+          previewLayout,
+          reticle: reticleLayout,
+          sourceImageDimensions,
+          sourceImageUri: photo.uri,
+        })
+        : await buildSlabScannerTarget({
+          previewLayout,
+          reticle: reticleLayout,
+          sourceImageDimensions,
+          sourceImageUri: photo.uri,
+        });
       const normalizeMs = Date.now() - normalizeStartedAt;
       normalizeMsForAnalytics = normalizeMs;
       if (!normalizedTarget) {
         throw new Error('normalized_target_unavailable');
+      }
+
+      let matchPayload: ScannerCapturePayload = {
+        height: normalizedTarget.normalizedImageDimensions.height,
+        jpegBase64: normalizedTarget.normalizedImageBase64,
+        mode: scannerMode,
+        width: normalizedTarget.normalizedImageDimensions.width,
+      };
+
+      let slabContext: SlabContext | null = null;
+      if (scannerMode === 'slabs') {
+        capturePostHogEvent('scan_slab_analysis_requested', {
+          mode: 'slabs',
+        });
+        const analysisStartedAt = Date.now();
+        const slabAnalysis = await analyzeSlabCapture(normalizedTarget.normalizedImageUri);
+        slabAnalysisMsForAnalytics = Date.now() - analysisStartedAt;
+        slabContext = slabContextFromAnalysis(slabAnalysis);
+        capturePostHogEvent('scan_slab_analysis_succeeded', {
+          cert_present: slabAnalysis.slabCertNumber ? 1 : 0,
+          grade_present: slabAnalysis.slabGrade ? 1 : 0,
+          mode: 'slabs',
+          slab_analysis_ms: slabAnalysisMsForAnalytics,
+          ...(slabAnalysis.slabGrader ? { grader: slabAnalysis.slabGrader } : {}),
+          ...(slabAnalysis.slabRecommendedLookupPath
+            ? { lookup_path: slabAnalysis.slabRecommendedLookupPath }
+            : {}),
+        });
+        matchPayload = {
+          ...matchPayload,
+          captureSource: 'camera',
+          normalizedImage: {
+            jpegBase64: normalizedTarget.normalizedImageBase64,
+            width: normalizedTarget.normalizedImageDimensions.width,
+            height: normalizedTarget.normalizedImageDimensions.height,
+          },
+          slabAnalysis,
+          sourceImage: photo.base64
+            ? {
+              jpegBase64: photo.base64,
+              width: normalizedTarget.nativeSourceImageDimensions.width,
+              height: normalizedTarget.nativeSourceImageDimensions.height,
+            }
+            : null,
+          submittedAt: new Date(scanStartedAt).toISOString(),
+        };
       }
 
       setRecentCaptures((current) => current.map((capture) => {
@@ -1259,6 +1596,7 @@ export function ScannerScreen({
           ...capture,
           normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
           normalizedImageUri: normalizedTarget.normalizedImageUri,
+          slabContext,
           sourceImageCrop: normalizedTarget.sourceImageCrop,
           sourceImageDimensions,
           sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
@@ -1270,11 +1608,13 @@ export function ScannerScreen({
         captureId,
         captureMs,
         captureSource: 'camera',
+        matchPayload,
+        matchTarget: normalizedTarget,
         mode: scannerMode,
         normalizeMs,
-        normalizedTarget,
         rawSourceImageDimensions,
         scanStartedAt,
+        slabAnalysisMs: slabAnalysisMsForAnalytics,
         sourceImageDimensions,
       });
     } catch (error) {
@@ -1288,12 +1628,22 @@ export function ScannerScreen({
           error,
         );
       }
+      if (scannerMode === 'slabs') {
+        capturePostHogEvent('scan_slab_analysis_failed', {
+          error_kind: scannerErrorKind(error),
+          mode: 'slabs',
+          ...(typeof slabAnalysisMsForAnalytics === 'number'
+            ? { slab_analysis_ms: slabAnalysisMsForAnalytics }
+            : {}),
+        });
+      }
       capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
         captureMs: captureMsForAnalytics,
         endToEndMs: Date.now() - scanStartedAt,
         errorKind: scannerErrorKind(error),
         mode: scannerMode,
         normalizeMs: normalizeMsForAnalytics,
+        slabAnalysisMs: slabAnalysisMsForAnalytics,
       }));
       setIsCapturing(false);
       setRecentCaptures((current) => current.map((capture) => {
@@ -1304,10 +1654,11 @@ export function ScannerScreen({
         return {
           ...capture,
           isLoadingCandidates: false,
-          matchReviewDisposition: null,
-          matchReviewReason: null,
+          matchReviewDisposition: scannerMode === 'slabs' ? 'unsupported' : null,
+          matchReviewReason: scannerPreparationReviewReason(scannerMode, error),
           normalizedImageDimensions: null,
           normalizedImageUri: null,
+          slabContext: null,
           sourceImageCrop: capturedSourceImageCrop,
           sourceImageDimensions: capturedSourceImageDimensions,
           sourceImageRotationDegrees: 0,
@@ -1316,6 +1667,7 @@ export function ScannerScreen({
       }));
     }
   }, [
+    isCatalogSearchFocused,
     isCameraReady,
     isCapturing,
     permission,
@@ -1351,6 +1703,7 @@ export function ScannerScreen({
         normalizedImageDimensions: null,
         normalizedImageUri: null,
         scanID: null,
+        slabContext: null,
         sourceImageCrop: null,
         sourceImageDimensions: null,
         sourceImageRotationDegrees: 0,
@@ -1368,6 +1721,7 @@ export function ScannerScreen({
         ...capture,
         normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
         normalizedImageUri: normalizedTarget.normalizedImageUri,
+        slabContext: null,
         sourceImageCrop: normalizedTarget.sourceImageCrop,
         sourceImageDimensions,
         sourceImageRotationDegrees: normalizedTarget.normalizationRotationDegrees,
@@ -1378,9 +1732,15 @@ export function ScannerScreen({
         captureId,
         captureMs: 0,
         captureSource: 'smoke_fixture',
+        matchPayload: {
+          height: normalizedTarget.normalizedImageDimensions.height,
+          jpegBase64: normalizedTarget.normalizedImageBase64,
+          mode: 'raw',
+          width: normalizedTarget.normalizedImageDimensions.width,
+        },
+        matchTarget: normalizedTarget,
         mode: 'raw',
         normalizeMs: 0,
-        normalizedTarget,
         rawSourceImageDimensions: normalizedTarget.normalizedImageDimensions,
         scanStartedAt,
         sourceImageDimensions,
@@ -1473,7 +1833,10 @@ export function ScannerScreen({
     let previousInventoryEntries: InventoryCardEntry[] = [];
     setInventoryEntries((current) => {
       previousInventoryEntries = current;
-      return withOptimisticInventoryAdd(current, activeCandidate, addedAt);
+      return withOptimisticInventoryAdd(current, activeCandidate, addedAt, {
+        mode: capture.mode,
+        slabContext: capture.slabContext,
+      });
     });
 
     try {
@@ -1481,13 +1844,13 @@ export function ScannerScreen({
       await spotlightRepository.createInventoryEntry({
         addedAt,
         cardID: activeCandidate.cardId,
-        condition: 'near_mint',
+        condition: capture.mode === 'slabs' ? null : 'near_mint',
         quantity: 1,
         selectedRank: capture.activeCandidateIndex + 1,
         selectionSource: capture.activeCandidateIndex === 0 ? 'top' : 'alternate',
-        slabContext: null,
+        slabContext: capture.slabContext,
         sourceScanID: capture.scanID ?? null,
-        variantName: null,
+        variantName: capture.slabContext?.variantName ?? null,
         wasTopPrediction: capture.activeCandidateIndex === 0,
       });
       capturePostHogEvent('scan_inventory_add_succeeded', {
@@ -1531,6 +1894,7 @@ export function ScannerScreen({
       normalizedImageDimensions: capture.normalizedImageDimensions,
       normalizedImageUri: capture.normalizedImageUri,
       selectedCardId: candidate.cardId,
+      slabContext: capture.slabContext,
       sourceImageCrop: capture.sourceImageCrop,
       sourceImageDimensions: capture.sourceImageDimensions,
       sourceImageRotationDegrees: capture.sourceImageRotationDegrees,
@@ -1734,10 +2098,9 @@ export function ScannerScreen({
     const candidate = activeCandidateForCapture(capture);
     const inventoryMatch = candidate ? inventoryByCardId.get(candidate.cardId) : null;
     const quantity = inventoryMatch?.quantity ?? 0;
-    const marketPrice = candidate?.marketPrice ?? 0;
+    const marketPrice = candidate?.marketPrice;
     const currencyCode = candidate?.currencyCode ?? 'USD';
     const canCycleCandidate = !!candidate && capture.candidates.length > 1;
-
     return (
       <RecentCaptureSwipeRow
         actionRailKey={capture.id}
@@ -1768,9 +2131,9 @@ export function ScannerScreen({
             ]}
             testID={`scanner-tray-thumb-${index}`}
           >
-            {candidate?.imageUrl || capture.uri ? (
+            {scannerCaptureThumbUri(capture, candidate) ? (
               <Image
-                source={{ uri: candidate?.imageUrl || capture.uri }}
+                source={{ uri: scannerCaptureThumbUri(capture, candidate) ?? '' }}
                 style={styles.captureThumb}
                 testID={`scanner-tray-image-${index}`}
               />
@@ -1797,7 +2160,11 @@ export function ScannerScreen({
           </Pressable>
 
           <Pressable
-            accessibilityLabel={candidate ? `Open ${candidate.name}` : `Open recent scan ${index + 1}`}
+            accessibilityLabel={candidate
+              ? `Open ${capture.mode === 'slabs'
+                ? [candidate.name, scannerSlabInlineLabel(capture)].filter(Boolean).join(' • ')
+                : candidate.name}`
+              : `Open recent scan ${index + 1}`}
             accessibilityRole="button"
             onPress={() => {
               void handleOpenCard(capture.id);
@@ -1819,16 +2186,31 @@ export function ScannerScreen({
                 </>
               ) : candidate ? (
                 <>
-                  <Text numberOfLines={1} style={styles.captureTitle}>{candidate.name}</Text>
+                  {capture.mode === 'slabs' ? (
+                    <>
+                      <Text numberOfLines={1} style={[styles.captureTitle, styles.captureTitleSlab]}>
+                        {candidate.name}
+                      </Text>
+                      {scannerSlabInlineLabel(capture) ? (
+                        <Text numberOfLines={1} style={styles.captureSubtitle}>
+                          {scannerSlabInlineLabel(capture)}
+                        </Text>
+                      ) : null}
+                    </>
+                  ) : (
+                    <Text numberOfLines={1} style={styles.captureTitle}>
+                      {candidate.name}
+                    </Text>
+                  )}
                   <Text numberOfLines={1} style={styles.captureSubtitle}>
-                    {candidate.setName}
-                    {' • '}
-                    {candidate.cardNumber}
+                    {capture.mode === 'slabs'
+                      ? scannerSlabSubtitle(capture, candidate)
+                      : `${candidate.setName} • ${candidate.cardNumber}`}
                   </Text>
                 </>
               ) : (
                 <>
-                  <Text numberOfLines={1} style={styles.captureTitle}>{capturePrimaryLabel(capture.mode)}</Text>
+                  <Text numberOfLines={1} style={styles.captureTitle}>{captureFailureTitle(capture)}</Text>
                   <Text numberOfLines={2} style={styles.captureSubtitle}>{captureFailureSubtitle(capture)}</Text>
                 </>
               )}
@@ -1836,8 +2218,10 @@ export function ScannerScreen({
 
             {candidate ? (
               <View style={styles.capturePriceWrap}>
-                <Text style={styles.capturePriceLabel}>MARKET</Text>
-                <Text style={styles.capturePriceValue}>{formatCurrency(marketPrice, currencyCode)}</Text>
+                <Text style={styles.capturePriceLabel}>{scannerCapturePriceLabel(capture)}</Text>
+                <Text style={styles.capturePriceValue}>
+                  {formatOptionalCurrency(marketPrice, currencyCode)}
+                </Text>
                 {quantity > 0 ? (
                   <Text style={styles.captureQuantityText} testID={`scanner-tray-qty-${index}`}>QTY {quantity}</Text>
                 ) : null}
@@ -1877,6 +2261,7 @@ export function ScannerScreen({
 
   return (
     <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
+      {isActiveTab ? <ScannerKeepAwake /> : null}
       <StatusBar style="light" />
       <RawScannerCaptureSurface
         availableLensesChanged={handleAvailableLensesChanged}
@@ -1936,6 +2321,7 @@ export function ScannerScreen({
           />
           <ScannerSearchLauncher
             onChangeText={setCatalogSearchQuery}
+            onFocusChange={setIsCatalogSearchFocused}
             onSubmit={handleSubmitCatalogSearch}
             value={catalogSearchQuery}
           />
@@ -2026,7 +2412,7 @@ export function ScannerScreen({
               <View style={styles.recentScansActions}>
                 <View style={styles.valuePill}>
                   <Text style={styles.valuePillText} testID="scanner-value-pill-text">
-                    {formatCurrency(trayValue)}
+                    {trayPriceSummary.hasPricedCapture ? formatCurrency(trayPriceSummary.total) : '—'}
                   </Text>
                 </View>
               </View>
@@ -2287,6 +2673,24 @@ const styles = StyleSheet.create({
     ...textStyles.caption,
     color: colors.scannerTextMuted,
   },
+  captureSlabBadge: {
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: colors.scannerOutlineSubtle,
+    borderRadius: 999,
+    borderWidth: 1,
+    justifyContent: 'center',
+    maxWidth: 76,
+    minHeight: 22,
+    paddingHorizontal: 8,
+  },
+  captureSlabBadgeText: {
+    ...textStyles.control,
+    color: colors.scannerTextPrimary,
+    fontSize: 11,
+    lineHeight: 13,
+  },
   captureSwipeShell: {
     borderRadius: 18,
     overflow: 'hidden',
@@ -2326,6 +2730,14 @@ const styles = StyleSheet.create({
   captureTitle: {
     ...textStyles.bodyStrong,
     color: colors.scannerTextPrimary,
+  },
+  captureTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  captureTitleSlab: {
+    flex: 1,
   },
   clearPill: {
     alignItems: 'center',

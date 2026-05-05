@@ -187,7 +187,7 @@ describe('HttpSpotlightRepository', () => {
     });
   });
 
-  it('sorts recent eBay sales by newest sold date before returning them to the UI', async () => {
+  it('sorts recent eBay sales from latest sold date to earliest before returning them to the UI', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (url.includes('/api/v1/cards/sm7-1/recent-sales')) {
         return jsonResponse(200, {
@@ -624,6 +624,158 @@ describe('HttpSpotlightRepository', () => {
     expect(result.endpointPath).toBe('api/v1/scan/match');
     expect(result.reviewDisposition).toBe('unsupported');
     expect(result.reviewReason).toBe('Could not extract a confident slab grader and grade.');
+  });
+
+  it('sends populated slab evidence and uploads source plus label artifacts after slab matches', async () => {
+    let matchRequestBody: any = null;
+    let artifactRequestBody: any = null;
+    global.fetch = jest.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('http://example.test/api/v1/scan/match')) {
+        matchRequestBody = JSON.parse(String(init?.body ?? '{}'));
+        return jsonResponse(200, {
+          scanID: 'scan-slab-dragonite',
+          resolverMode: 'psa_slab',
+          slabContext: {
+            grader: 'PSA',
+            grade: '9',
+            certNumber: '12345678',
+            variantName: 'PSA 9',
+          },
+          topCandidates: [
+            {
+              candidate: {
+                id: 'm2a-232',
+                name: 'Mega Dragonite ex',
+                setName: 'Mega 2A',
+                number: '232/193',
+                imageLargeURL: 'https://cdn.example/m2a-232-large.png',
+                pricing: {
+                  currencyCode: 'USD',
+                  market: 30.83,
+                  variant: 'PSA 9',
+                },
+              },
+            },
+          ],
+        });
+      }
+
+      if (url.startsWith('http://example.test/api/v1/scan-artifacts')) {
+        artifactRequestBody = JSON.parse(String(init?.body ?? '{}'));
+        return jsonResponse(202, {
+          scanID: 'scan-slab-dragonite',
+          enabled: true,
+          storage: 'filesystem',
+          sourceObjectPath: 'scans/2026/05/03/scan-slab-dragonite/source_capture.jpg',
+          normalizedObjectPath: 'scans/2026/05/03/scan-slab-dragonite/normalized_target.jpg',
+          uploadedAt: '2026-05-03T12:00:00Z',
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test', {
+      clientContext: {
+        appVersion: '1.0.0',
+        buildNumber: '11',
+      },
+    });
+    const result = await repository.matchScannerCapture({
+      mode: 'slabs',
+      jpegBase64: 'bGFiZWwtY3JvcA==',
+      width: 630,
+      height: 280,
+      captureSource: 'camera',
+      submittedAt: '2026-05-03T12:00:00Z',
+      sourceImage: {
+        jpegBase64: 'ZnVsbC1zb3VyY2U=',
+        width: 1920,
+        height: 1080,
+      },
+      normalizedImage: {
+        jpegBase64: 'bGFiZWwtY3JvcA==',
+        width: 630,
+        height: 280,
+      },
+      slabAnalysis: {
+        slabGrader: 'PSA',
+        slabGrade: '9',
+        slabCertNumber: '12345678',
+        slabBarcodePayloads: ['12345678'],
+        slabParsedLabelText: ['PSA 9 Mega Dragonite ex 232/193 M2a'],
+        slabCardNumberRaw: '232/193',
+        slabGraderConfidence: 0.98,
+        slabGradeConfidence: 0.94,
+        slabCertConfidence: 0.99,
+        slabClassifierReasons: ['barcode_cert_match', 'psa_label_detected'],
+        slabRecommendedLookupPath: 'psa_cert',
+        ocrAnalysis: {
+          slabEvidence: {
+            titleTextPrimary: 'Mega Dragonite ex',
+            cardNumber: '232/193',
+            setHints: ['m2a'],
+            grader: 'PSA',
+            grade: '9',
+            cert: '12345678',
+            labelWideText: 'PSA 9 Mega Dragonite ex 232/193 M2a',
+          },
+        },
+      },
+    });
+
+    expect(matchRequestBody).toMatchObject({
+      clientContext: {
+        appVersion: '1.0.0',
+        buildNumber: '11',
+        platform: 'react_native',
+      },
+      resolverModeHint: 'psa_slab',
+      slabGrader: 'PSA',
+      slabGrade: '9',
+      slabCertNumber: '12345678',
+      slabBarcodePayloads: ['12345678'],
+      slabParsedLabelText: ['PSA 9 Mega Dragonite ex 232/193 M2a'],
+      slabCardNumberRaw: '232/193',
+      slabRecommendedLookupPath: 'psa_cert',
+      ocrAnalysis: {
+        slabEvidence: {
+          grader: 'PSA',
+          grade: '9',
+          cert: '12345678',
+        },
+      },
+    });
+    expect(artifactRequestBody).toEqual({
+      scanID: 'scan-slab-dragonite',
+      submittedAt: '2026-05-03T12:00:00Z',
+      captureSource: 'camera',
+      sourceImage: {
+        jpegBase64: 'ZnVsbC1zb3VyY2U=',
+        width: 1920,
+        height: 1080,
+      },
+      normalizedImage: {
+        jpegBase64: 'bGFiZWwtY3JvcA==',
+        width: 630,
+        height: 280,
+      },
+    });
+    expect(result.scanID).toBe('scan-slab-dragonite');
+    expect(result.resolverMode).toBe('psa_slab');
+    expect(result.slabContext).toEqual({
+      grader: 'PSA',
+      grade: '9',
+      certNumber: '12345678',
+      variantName: 'PSA 9',
+    });
+    expect(result.artifactUpload).toMatchObject({
+      status: 'uploaded',
+      storage: 'filesystem',
+      sourceObjectPath: 'scans/2026/05/03/scan-slab-dragonite/source_capture.jpg',
+      normalizedObjectPath: 'scans/2026/05/03/scan-slab-dragonite/normalized_target.jpg',
+    });
+    expect(global.fetch).toHaveBeenCalledTimes(2);
   });
 
   it('times out unreachable backend requests instead of hanging forever', async () => {

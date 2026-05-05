@@ -1,15 +1,30 @@
 # Spotlight Scanner Master Status
 
-Date: 2026-04-11 (last content edit); **active visual alias updated 2026-04-28**
+Date: 2026-04-11 (last content edit); **active visual alias updated 2026-05-04**
 
 This is the current product/source-of-truth status doc.
+
+## 2026-05-04 update notes
+
+- The active raw visual runtime alias is now `v010-scrydex-cardphotos227-delta20260504` as of `2026-05-05T00:08:39Z`, per `backend/data/visual-models/raw_visual_runtime_active.json`.
+- The previous active `v009-scrydex-cardphotos259-sweep-selected` alias is backed up under:
+  - `backend/data/visual-models/active-backups/raw_visual_adapter_active.pre-v010-20260505T000839Z.pt`
+  - `backend/data/visual-models/active-backups/raw_visual_adapter_active_metadata.pre-v010-20260505T000839Z.json`
+  - `backend/data/visual-models/active-backups/raw_visual_runtime_active.pre-v010-20260505T000839Z.json`
+  - `backend/data/visual-index/active-backups/visual_index_active_clip-vit-base-patch32.pre-v010-20260505T000839Z.npz`
+  - `backend/data/visual-index/active-backups/visual_index_active_manifest.pre-v010-20260505T000839Z.json`
+- v010 is trained on the 776-entry combined corpus (`574` prior accepted entries plus `202` supported delta entries), with the two `NOT_IN_SCRYDEX` McDonald's cards and `Umbreon Star` held out of training.
+- Promotion rationale:
+  - frozen legacy suite: `v010` beats `v009` (`visual top-1 31/71 vs 24/71`, `visual top-10 47/71 vs 44/71`, `hybrid top-1 42/71 vs 38/71`)
+  - delta expansion holdout: `v010` beats `v009` (`visual top-1 34/67 vs 22/67`, `visual top-10 48/67 vs 32/67`, `hybrid top-1 37/67 vs 26/67`)
+  - fair mixed suite: `v010` beats `v009` (`visual top-1 65/138 vs 46/138`, `visual top-10 95/138 vs 76/138`, `hybrid top-1 79/138 vs 64/138`)
 
 ## 2026-04-28 update notes
 
 - The current scanner + visual-model rewrite source of truth is now [docs/scanner-model-rewrite-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scanner-model-rewrite-spec-2026-04-23.md).
 - The paired data + labeling pipeline spec is [docs/scan-data-labeling-pipeline-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scan-data-labeling-pipeline-spec-2026-04-23.md).
-- The active raw visual runtime alias is `v009-scrydex-cardphotos259-sweep-selected` as of `2026-04-28T20:11:59Z`, per `backend/data/visual-models/raw_visual_runtime_active.json`.
-- v009 is trained on the 259-card corpus and replaces the previous `v006-scrydex-cardphotos33-clean` active alias.
+- The active raw visual runtime alias was `v009-scrydex-cardphotos259-sweep-selected` as of `2026-04-28T20:11:59Z`, and it has since been superseded by `v010-scrydex-cardphotos227-delta20260504`.
+- v009 was trained on the 259-card corpus and replaced the previous `v006-scrydex-cardphotos33-clean` active alias.
 - The previous v006 adapter was trained on only ~33 unique cards. Training-corpus size, not backbone capacity, remains the primary ceiling for visual retrieval quality — this drives the new data-loop spec.
 
 ## Current Backend State
@@ -127,13 +142,18 @@ Use this locked React Native execution spec for the parallel mobile migration wo
     - `backend/data/visual-index/visual_index_active_manifest.json`
     - `backend/data/visual-models/raw_visual_adapter_active.pt`
     - `backend/data/visual-models/raw_visual_adapter_active_metadata.json`
-  - the active alias publication is currently `v009-scrydex-cardphotos259-sweep-selected`
+  - the active alias publication is currently `v010-scrydex-cardphotos227-delta20260504`
   - current active-alias held-out/runtime-shaped result:
-    - visual top-1: `25/67`
-    - visual top-5 contains-truth: `37/67`
-    - visual top-10 contains-truth: `40/67`
-    - hybrid top-1: `36/67`
-    - hybrid top-5 contains-truth: `40/67`
+    - frozen legacy suite:
+      - visual top-1: `31/71`
+      - visual top-5 contains-truth: `41/71`
+      - visual top-10 contains-truth: `47/71`
+      - hybrid top-1: `42/71`
+      - hybrid top-5 contains-truth: `45/71`
+    - combined legacy + expansion holdout suite:
+      - visual top-1: `65/138`
+      - visual top-10 contains-truth: `95/138`
+      - hybrid top-1: `79/138`
   - request-budget guardrails:
     - cached raw scans/details should issue `0` live Scrydex requests
     - first-seen visual-hybrid top-1 hydration should stay local against the nightly mirror / shared SQLite file
@@ -147,7 +167,8 @@ Use this locked React Native execution spec for the parallel mobile migration wo
     - `v004-scrydex` base: hybrid top-1 `29/67`
     - `v004-scrydex-b8` adapter: hybrid top-1 `33/67` before matcher shortlist improvements
     - `v004-scrydex-b8` with matcher shortlist improvements: hybrid top-1 `36/67`
-    - runtime decision: active aliases are now promoted to `v009-scrydex-cardphotos259-sweep-selected`
+    - `v009-scrydex-cardphotos259-sweep-selected`: legacy `24/71`, mixed `46/138`, expansion `22/67` visual top-1
+    - runtime decision: active aliases are now promoted to `v010-scrydex-cardphotos227-delta20260504`
 - current raw visual proof-of-concept baseline on the provider-supported subset:
   - provider-supported fixtures: `47`
   - provider-unsupported fixtures: `20`
@@ -233,7 +254,7 @@ Use this locked React Native execution spec for the parallel mobile migration wo
       - hybrid top-5 contains-truth: `35/47`
     - runtime decision:
       - `v003-b8` remains the last PokemonTCG-backed checkpoint
-      - `v009-scrydex-cardphotos259-sweep-selected` is now the active backend visual model through the stable alias artifacts
+      - `v010-scrydex-cardphotos227-delta20260504` is now the active backend visual model through the stable alias artifacts
       - env vars remain available for explicit override, rollback, or candidate comparison
 - the simulator-backed OCR fixture runner is landed and now writes legacy slab reference outputs under:
   - [qa/ocr-golden/simulator-legacy-v1](/Users/stephenchan/Code/spotlight/qa/ocr-golden/simulator-legacy-v1)

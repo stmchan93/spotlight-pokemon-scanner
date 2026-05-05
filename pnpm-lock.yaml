@@ -77,6 +77,9 @@ importers:
       expo-image-manipulator:
         specifier: ~55.0.15
         version: 55.0.15(expo@55.0.18)
+      expo-keep-awake:
+        specifier: ~55.0.6
+        version: 55.0.6(expo@55.0.18)(react@19.2.0)
       expo-linking:
         specifier: ~55.0.14
         version: 55.0.14(expo@55.0.18)(react-native@0.83.6(@babel/core@7.29.0)(@types/react@19.2.14)(react@19.2.0))(react@19.2.0)

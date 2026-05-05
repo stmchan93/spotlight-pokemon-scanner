@@ -1079,7 +1079,7 @@ export function appendMockBuy(
     variantName?: string | null;
     condition: DeckConditionCode | null;
     quantity: number;
-    unitPrice: number;
+    unitPrice: number | null;
   },
 ) {
   const nextEntries = inventoryEntries.map(cloneEntry);
@@ -1111,10 +1111,13 @@ export function appendMockBuy(
 
   if (existingIndex >= 0) {
     const existing = nextEntries[existingIndex];
+    const nextCostBasisTotal = payload.unitPrice == null
+      ? existing.costBasisTotal ?? null
+      : Number(((existing.costBasisTotal ?? 0) + payload.unitPrice * payload.quantity).toFixed(2));
     nextEntries[existingIndex] = {
       ...existing,
       quantity: existing.quantity + payload.quantity,
-      costBasisTotal: Number(((existing.costBasisTotal ?? 0) + payload.unitPrice * payload.quantity).toFixed(2)),
+      costBasisTotal: nextCostBasisTotal,
     };
 
     return {
@@ -1154,7 +1157,9 @@ export function appendMockBuy(
         }
       : null,
     costBasisPerUnit: payload.unitPrice,
-    costBasisTotal: Number((payload.unitPrice * payload.quantity).toFixed(2)),
+    costBasisTotal: payload.unitPrice == null
+      ? null
+      : Number((payload.unitPrice * payload.quantity).toFixed(2)),
   };
 
   nextEntries.unshift(newEntry);

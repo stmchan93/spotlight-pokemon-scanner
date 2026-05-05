@@ -1,6 +1,6 @@
 import { Children, isValidElement, type ReactElement } from 'react';
 import { act, fireEvent, screen, waitFor, within } from '@testing-library/react-native';
-import { StyleSheet } from 'react-native';
+import { Linking, StyleSheet } from 'react-native';
 
 import type { CardDetailRecord, InventoryCardEntry } from '@spotlight/api-client';
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
@@ -16,10 +16,17 @@ import {
 
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
+jest.mock('@/lib/observability/posthog', () => ({
+  capturePostHogEvent: jest.fn(),
+}));
+
+import { capturePostHogEvent } from '@/lib/observability/posthog';
+
 describe('CardDetailScreen', () => {
   afterEach(() => {
     clearCardDetailPreviewSessions();
     clearScanCandidateReviewSessions();
+    jest.clearAllMocks();
   });
 
   it('shows the hero and add-to-collection CTA for cards not yet owned', async () => {
@@ -107,7 +114,7 @@ describe('CardDetailScreen', () => {
     expect(onOpenAddToCollection).toHaveBeenCalledWith('sm7-1');
   });
 
-  it('shows the recent-sales section for slab entries and checks cached sales first', async () => {
+  it('shows cached recent-sales immediately for slab entries when the cache already exists', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -180,19 +187,225 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.getByText('PSA • 10')).toBeTruthy();
     expect(screen.getByTestId('detail-recent-sales-card')).toBeTruthy();
-    expect(screen.getByText('Recent Sales')).toBeTruthy();
+    expect(screen.getByTestId('detail-market-price').props.children).toBe('$52.00');
+    expect(screen.queryByTestId('detail-condition-chip-near_mint')).toBeNull();
+    expect(screen.getByTestId('detail-recent-sales-header-label')).toBeTruthy();
     expect(screen.getByText('PSA 10 Treecko recent sale')).toBeTruthy();
     expect(String(screen.getByTestId('detail-recent-sales-updated').props.children)).toContain('Updated ');
     expect(screen.queryByTestId('detail-recent-sales-refresh')).toBeNull();
     await waitFor(() => {
       expect(getCardRecentSales).toHaveBeenCalledWith({
         cardId: 'sm7-1',
-        limit: 5,
+        limit: 25,
         slabContext: gradedEntry.slabContext,
         source: 'ebay',
       });
     });
+    expect(capturePostHogEvent).toHaveBeenCalledWith('card_recent_sales_section_viewed', expect.objectContaining({
+      detail_kind: 'slab',
+      sales_provider: 'scrydex',
+      sales_source: 'ebay',
+      section_state: 'available',
+    }));
+  });
+
+  it('formats slab recent-sales freshness as now, minutes, and hours', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-treecko-entry-age',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity: 1,
+      setName: '裂空のカリスマ',
+      slabContext: {
+        certNumber: '12345678',
+        grade: '10',
+        grader: 'PSA',
+        variantName: 'PSA 10',
+      },
+      variantName: 'PSA 10',
+    };
+
+    jest.useFakeTimers();
+    jest.setSystemTime(new Date('2026-05-03T12:00:30.000Z'));
+
+    const renderDetail = async (fetchedAt: string) => {
+      const getCardRecentSales = jest.fn(async () => ({
+        source: 'ebay' as const,
+        status: 'available' as const,
+        statusReason: null,
+        unavailableReason: null,
+        fetchedAt,
+        canRefresh: false,
+        saleCount: 1,
+        sales: [
+          {
+            id: 'sale-1',
+            title: 'PSA 10 Treecko recent sale',
+            soldAt: '2026-05-02T10:00:00.000Z',
+            priceAmount: 52,
+            currencyCode: 'USD',
+            saleUrl: 'https://www.ebay.com/itm/123',
+          },
+        ],
+      }));
+
+      const view = renderWithProviders(
+        <CardDetailScreen
+          cardId="sm7-1"
+          entryId="graded-treecko-entry-age"
+          onBack={jest.fn()}
+          onOpenAddToCollection={jest.fn()}
+          onOpenSell={jest.fn()}
+        />,
+        {
+          spotlightRepository: createTestSpotlightRepository({
+            getCardDetail: async (query) => {
+              const detail = await baseRepository.getCardDetail(query);
+              return detail ? { ...detail, ownedEntries: [gradedEntry] } : null;
+            },
+            getCardRecentSales,
+          }),
+        },
+      );
+
+      await screen.findByTestId('detail-recent-sales-card');
+      return view;
+    };
+
+    try {
+      const nowView = await renderDetail('2026-05-03T12:00:15.000Z');
+      expect(screen.getByTestId('detail-recent-sales-updated').props.children).toBe('Updated now');
+      nowView.unmount();
+
+      const minuteView = await renderDetail('2026-05-03T11:58:30.000Z');
+      expect(screen.getByTestId('detail-recent-sales-updated').props.children).toBe('Updated 2m ago');
+      minuteView.unmount();
+
+      await renderDetail('2026-05-03T10:00:30.000Z');
+      expect(screen.getByTestId('detail-recent-sales-updated').props.children).toBe('Updated 2h ago');
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('sorts slab recent sales newest-first, formats dates as MM/DD/YYYY, and labels rows as sold', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-treecko-entry-order',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity: 1,
+      setName: '裂空のカリスマ',
+      slabContext: {
+        certNumber: '12345678',
+        grade: '10',
+        grader: 'PSA',
+        variantName: 'PSA 10',
+      },
+      variantName: 'PSA 10',
+    };
+    const getCardRecentSales = jest.fn(async () => ({
+      source: 'ebay' as const,
+      status: 'available' as const,
+      statusReason: null,
+      unavailableReason: null,
+      fetchedAt: '2026-05-03T12:00:00.000Z',
+      canRefresh: false,
+      saleCount: 4,
+      sales: [
+        {
+          id: 'sale-1',
+          title: 'Older sale',
+          soldAt: '2026/04/20',
+          priceAmount: 400,
+          currencyCode: 'USD',
+          saleUrl: 'https://www.ebay.com/itm/1',
+        },
+        {
+          id: 'sale-2',
+          title: 'Newest sale',
+          soldAt: '2026/05/03',
+          priceAmount: 285,
+          currencyCode: 'USD',
+          saleUrl: 'https://www.ebay.com/itm/2',
+        },
+        {
+          id: 'sale-3',
+          title: 'Middle sale',
+          soldAt: '2026/04/28',
+          priceAmount: 349.99,
+          currencyCode: 'USD',
+          saleUrl: 'https://www.ebay.com/itm/3',
+        },
+        {
+          id: 'sale-4',
+          title: 'Earlier middle sale',
+          soldAt: '2026/04/25',
+          priceAmount: 349.99,
+          currencyCode: 'USD',
+          saleUrl: 'https://www.ebay.com/itm/4',
+        },
+      ],
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="graded-treecko-entry-order"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        onOpenSell={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail ? { ...detail, ownedEntries: [gradedEntry] } : null;
+          },
+          getCardRecentSales,
+        }),
+      },
+    );
+
+    await screen.findByTestId('detail-recent-sales-card');
+
+    expect(within(screen.getByTestId('detail-recent-sales-row-0')).getByText('Newest sale')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-recent-sales-row-0')).getByText('05/03/2026')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-recent-sales-row-0')).getByText('Sold')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-recent-sales-row-1')).getByText('Middle sale')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-recent-sales-row-1')).getByText('04/28/2026')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-recent-sales-row-2')).getByText('Earlier middle sale')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-recent-sales-row-2')).getByText('04/25/2026')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-recent-sales-row-3')).getByText('Older sale')).toBeTruthy();
+    expect(within(screen.getByTestId('detail-recent-sales-row-3')).getByText('04/20/2026')).toBeTruthy();
+    expect(screen.queryByText('Open')).toBeNull();
   });
 
   it('shows a load CTA for slab recent sales when no cached sales exist and loads on demand', async () => {
@@ -273,22 +486,42 @@ describe('CardDetailScreen', () => {
       },
     );
 
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.getByText('PSA • 9')).toBeTruthy();
     expect(await screen.findByText('Load recent eBay sales')).toBeTruthy();
     fireEvent.press(screen.getByTestId('detail-recent-sales-load'));
 
     expect(await screen.findByText('PSA 9 Treecko recent sale')).toBeTruthy();
     await waitFor(() => {
+      expect(getCardRecentSales).toHaveBeenNthCalledWith(1, {
+        cardId: 'sm7-1',
+        limit: 25,
+        slabContext: gradedEntry.slabContext,
+        source: 'ebay',
+      });
       expect(getCardRecentSales).toHaveBeenNthCalledWith(2, {
         cardId: 'sm7-1',
-        limit: 5,
+        limit: 25,
         refresh: true,
         slabContext: gradedEntry.slabContext,
         source: 'ebay',
       });
     });
+    expect(capturePostHogEvent).toHaveBeenCalledWith('card_recent_sales_load_tapped', expect.objectContaining({
+      detail_kind: 'slab',
+      sales_provider: 'scrydex',
+      sales_source: 'ebay',
+    }));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('card_recent_sales_request_completed', expect.objectContaining({
+      detail_kind: 'slab',
+      request_mode: 'load',
+      result: 'available',
+      sales_provider: 'scrydex',
+      sales_source: 'ebay',
+    }));
   });
 
-  it('shows a refresh action for slab recent sales once the cache is stale enough', async () => {
+  it('shows a refresh action for stale slab recent sales after the sales have been loaded', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -317,6 +550,46 @@ describe('CardDetailScreen', () => {
       variantName: 'PSA 8',
     };
 
+    const getCardRecentSales = jest.fn()
+      .mockResolvedValueOnce({
+        source: 'ebay',
+        status: 'available',
+        statusReason: null,
+        unavailableReason: null,
+        fetchedAt: '2026-05-01T12:00:00.000Z',
+        canRefresh: true,
+        saleCount: 1,
+        sales: [
+          {
+            id: 'sale-refresh-1',
+            title: 'PSA 8 Treecko recent sale',
+            soldAt: '2026-04-30T10:00:00.000Z',
+            priceAmount: 30,
+            currencyCode: 'USD',
+            saleUrl: 'https://www.ebay.com/itm/789',
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        source: 'ebay',
+        status: 'available',
+        statusReason: null,
+        unavailableReason: null,
+        fetchedAt: '2026-05-04T12:00:00.000Z',
+        canRefresh: false,
+        saleCount: 1,
+        sales: [
+          {
+            id: 'sale-refresh-2',
+            title: 'PSA 8 Treecko refreshed sale',
+            soldAt: '2026-05-01T10:00:00.000Z',
+            priceAmount: 31,
+            currencyCode: 'USD',
+            saleUrl: 'https://www.ebay.com/itm/790',
+          },
+        ],
+      });
+
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
@@ -331,31 +604,113 @@ describe('CardDetailScreen', () => {
             const detail = await baseRepository.getCardDetail(query);
             return detail ? { ...detail, ownedEntries: [gradedEntry] } : null;
           },
-          getCardRecentSales: async () => ({
-            source: 'ebay',
-            status: 'available',
-            statusReason: null,
-            unavailableReason: null,
-            fetchedAt: '2026-05-01T12:00:00.000Z',
-            canRefresh: true,
-            saleCount: 1,
-            sales: [
-              {
-                id: 'sale-refresh-1',
-                title: 'PSA 8 Treecko recent sale',
-                soldAt: '2026-04-30T10:00:00.000Z',
-                priceAmount: 30,
-                currencyCode: 'USD',
-                saleUrl: 'https://www.ebay.com/itm/789',
-              },
-            ],
-          }),
+          getCardRecentSales,
         }),
       },
     );
 
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.getByText('PSA • 8')).toBeTruthy();
     expect(await screen.findByText('PSA 8 Treecko recent sale')).toBeTruthy();
     expect(screen.getByTestId('detail-recent-sales-refresh')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('detail-recent-sales-refresh'));
+    expect(await screen.findByText('PSA 8 Treecko refreshed sale')).toBeTruthy();
+    expect(capturePostHogEvent).toHaveBeenCalledWith('card_recent_sales_refresh_tapped', expect.objectContaining({
+      detail_kind: 'slab',
+      sales_provider: 'scrydex',
+      sales_source: 'ebay',
+    }));
+    expect(capturePostHogEvent).toHaveBeenCalledWith('card_recent_sales_request_completed', expect.objectContaining({
+      detail_kind: 'slab',
+      request_mode: 'refresh',
+      result: 'available',
+      sales_provider: 'scrydex',
+      sales_source: 'ebay',
+    }));
+  });
+
+  it('tracks row opens when a recent sale is opened in eBay', async () => {
+    const openUrlSpy = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined);
+    const baseRepository = createTestSpotlightRepository();
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-treecko-entry-open',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity: 1,
+      setName: '裂空のカリスマ',
+      slabContext: {
+        certNumber: '22334455',
+        grade: '10',
+        grader: 'PSA',
+        variantName: 'PSA 10',
+      },
+      variantName: 'PSA 10',
+    };
+    const getCardRecentSales = jest.fn().mockResolvedValue({
+      source: 'ebay',
+      status: 'available',
+      statusReason: null,
+      unavailableReason: null,
+      fetchedAt: '2026-05-03T12:00:00.000Z',
+      canRefresh: false,
+      saleCount: 1,
+      sales: [
+        {
+          id: 'sale-open-1',
+          title: 'PSA 10 Treecko recent sale',
+          soldAt: '2026-05-02T10:00:00.000Z',
+          priceAmount: 52,
+          currencyCode: 'USD',
+          saleUrl: 'https://www.ebay.com/itm/123',
+        },
+      ],
+    });
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="graded-treecko-entry-open"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        onOpenSell={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail ? { ...detail, ownedEntries: [gradedEntry] } : null;
+          },
+          getCardRecentSales,
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.getByText('PSA • 10')).toBeTruthy();
+    expect(await screen.findByText('PSA 10 Treecko recent sale')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('detail-recent-sales-row-0'));
+
+    expect(openUrlSpy).toHaveBeenCalledWith('https://www.ebay.com/itm/123');
+    expect(capturePostHogEvent).toHaveBeenCalledWith('card_recent_sales_row_opened', expect.objectContaining({
+      detail_kind: 'slab',
+      row_index: 0,
+      sales_provider: 'scrydex',
+      sales_source: 'ebay',
+    }));
   });
 
   it('renders market condition prices when the backend returns short condition ids', async () => {
@@ -750,6 +1105,87 @@ describe('CardDetailScreen', () => {
     });
 
     expect(await screen.findByTestId('detail-condition-chip-near_mint')).toBeTruthy();
+  });
+
+  it('uses slab scan-review context for recent sales before an inventory entry exists', async () => {
+    const getCardRecentSales = jest.fn(async () => ({
+      source: 'ebay' as const,
+      status: 'available' as const,
+      statusReason: null,
+      unavailableReason: null,
+      fetchedAt: '2026-05-03T12:00:00.000Z',
+      canRefresh: false,
+      saleCount: 1,
+      sales: [
+        {
+          id: 'sale-charizard-psa9',
+          title: 'PSA 9 Charizard recent sale',
+          soldAt: '2026-05-02T10:00:00.000Z',
+          priceAmount: 2271.15,
+          currencyCode: 'USD',
+          saleUrl: 'https://www.ebay.com/itm/987',
+        },
+      ],
+    }));
+    const scanReviewId = saveScanCandidateReviewSession({
+      id: 'scan-review-charizard-slab',
+      selectedCardId: 'base1-4',
+      normalizedImageDimensions: { height: 357, width: 751 },
+      normalizedImageUri: 'file:///tmp/normalized-slab.jpg',
+      slabContext: {
+        grader: 'PSA',
+        grade: '9',
+        certNumber: '70539858',
+        variantName: 'PSA 9',
+      },
+      candidates: [
+        {
+          id: 'base1-4-candidate',
+          cardId: 'base1-4',
+          name: 'Charizard',
+          cardNumber: '#4/102',
+          setName: 'Base',
+          imageUrl: 'https://images.pokemontcg.io/base1/4.png',
+          marketPrice: 2271.15,
+          currencyCode: 'USD',
+        },
+      ],
+    });
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="base1-4"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        onOpenSell={jest.fn()}
+        scanReviewId={scanReviewId}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardRecentSales,
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Charizard')).toBeTruthy();
+    expect(screen.getByText('PSA • 9')).toBeTruthy();
+    expect(screen.getByTestId('detail-market-price').props.children).toBe('$2,271.15');
+    expect(screen.queryByTestId('detail-condition-chip-near_mint')).toBeNull();
+    expect(screen.getByTestId('detail-recent-sales-card')).toBeTruthy();
+    expect(await screen.findByText('PSA 9 Charizard recent sale')).toBeTruthy();
+    await waitFor(() => {
+      expect(getCardRecentSales).toHaveBeenCalledWith({
+        cardId: 'base1-4',
+        limit: 25,
+        slabContext: {
+          grader: 'PSA',
+          grade: '9',
+          certNumber: '70539858',
+          variantName: 'PSA 9',
+        },
+        source: 'ebay',
+      });
+    });
   });
 
   it('renders an add-card catalog preview immediately while full card detail hydrates', () => {

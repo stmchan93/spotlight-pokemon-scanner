@@ -366,3 +366,13 @@ export function collectionSummaryLine(entry: InventoryCardEntry) {
   ].filter(Boolean);
   return parts.join(' • ');
 }
+
+export function slabGradeSummary(slabContext?: InventoryCardEntry['slabContext'] | null) {
+  const grader = slabContext?.grader?.trim();
+  const grade = slabContext?.grade?.trim();
+  if (grader && grade) {
+    return `${grader} • ${grade}`;
+  }
+
+  return grader || slabContext?.variantName?.trim() || null;
+}

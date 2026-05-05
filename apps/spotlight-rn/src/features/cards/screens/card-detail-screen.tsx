@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconEdit,
   IconHeart,
@@ -42,11 +42,12 @@ import {
   formatPercent,
   formatSignedCurrency,
 } from '@/features/portfolio/components/portfolio-formatting';
-import { collectionSummaryLine } from '@/features/sell/sell-order-helpers';
+import { collectionSummaryLine, slabGradeSummary } from '@/features/sell/sell-order-helpers';
 import { SellBackdrop } from '@/features/sell/components/sell-ui';
 import {
   getScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
+import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
 function displayNumber(value?: string | null) {
@@ -89,6 +90,7 @@ function buildTcgPlayerSearchUrl(params: {
 }
 
 const favoriteHeartColor = '#E83E8C';
+const recentSalesPageSize = 25;
 
 type CardDetailScreenProps = {
   cardId: string;
@@ -208,21 +210,118 @@ function SellEntryIcon() {
   return <Text style={styles.collectionSellButtonLabel}>$</Text>;
 }
 
-function formatListingDateLabel(value?: string | null) {
+type ParsedListingDate = {
+  day: number;
+  month: number;
+  sortKey: number;
+  year: number;
+};
+
+function parseListingDate(value?: string | null): ParsedListingDate | null {
   const trimmed = value?.trim();
   if (!trimmed) {
     return null;
   }
 
-  const date = new Date(trimmed);
-  if (Number.isNaN(date.valueOf())) {
-    return trimmed;
+  const yearFirstMatch = trimmed.match(/^(\d{4})[/-](\d{1,2})[/-](\d{1,2})(?:[ T].*)?$/);
+  if (yearFirstMatch) {
+    const year = Number(yearFirstMatch[1]);
+    const first = Number(yearFirstMatch[2]);
+    const second = Number(yearFirstMatch[3]);
+    let month = first;
+    let day = second;
+
+    if (month > 12 && day <= 12) {
+      month = day;
+      day = first;
+    }
+
+    if (
+      Number.isInteger(year)
+      && Number.isInteger(month)
+      && Number.isInteger(day)
+      && month >= 1
+      && month <= 12
+      && day >= 1
+      && day <= 31
+    ) {
+      return {
+        day,
+        month,
+        sortKey: Date.UTC(year, month - 1, day),
+        year,
+      };
+    }
   }
 
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-  });
+  const monthFirstMatch = trimmed.match(/^(\d{1,2})[/-](\d{1,2})[/-](\d{4})(?:[ T].*)?$/);
+  if (monthFirstMatch) {
+    const month = Number(monthFirstMatch[1]);
+    const day = Number(monthFirstMatch[2]);
+    const year = Number(monthFirstMatch[3]);
+    if (
+      Number.isInteger(year)
+      && Number.isInteger(month)
+      && Number.isInteger(day)
+      && month >= 1
+      && month <= 12
+      && day >= 1
+      && day <= 31
+    ) {
+      return {
+        day,
+        month,
+        sortKey: Date.UTC(year, month - 1, day),
+        year,
+      };
+    }
+  }
+
+  const timestamp = Date.parse(trimmed);
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+
+  const date = new Date(timestamp);
+  return {
+    day: date.getUTCDate(),
+    month: date.getUTCMonth() + 1,
+    sortKey: Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
+    year: date.getUTCFullYear(),
+  };
+}
+
+function formatListingDateLabel(value?: string | null) {
+  const parsed = parseListingDate(value);
+  if (!parsed) {
+    return value?.trim() || null;
+  }
+
+  const month = String(parsed.month).padStart(2, '0');
+  const day = String(parsed.day).padStart(2, '0');
+  return `${month}/${day}/${parsed.year}`;
+}
+
+function compareRecentSalesBySoldDateDesc(
+  left: CardRecentSalesRecord['sales'][number],
+  right: CardRecentSalesRecord['sales'][number],
+) {
+  const leftParsed = parseListingDate(left.soldAt);
+  const rightParsed = parseListingDate(right.soldAt);
+  const leftTime = leftParsed?.sortKey ?? Number.NEGATIVE_INFINITY;
+  const rightTime = rightParsed?.sortKey ?? Number.NEGATIVE_INFINITY;
+
+  if (leftTime !== rightTime) {
+    return rightTime - leftTime;
+  }
+
+  const leftPrice = left.priceAmount ?? Number.NEGATIVE_INFINITY;
+  const rightPrice = right.priceAmount ?? Number.NEGATIVE_INFINITY;
+  if (leftPrice !== rightPrice) {
+    return rightPrice - leftPrice;
+  }
+
+  return left.title.localeCompare(right.title);
 }
 
 function formatRecentSalesAgeLabel(value?: string | null) {
@@ -239,8 +338,88 @@ function formatRecentSalesAgeLabel(value?: string | null) {
   if (!Number.isFinite(diffMs)) {
     return null;
   }
+  if (diffMs < 60000) {
+    return 'Updated now';
+  }
+  const minutes = Math.max(0, Math.floor(diffMs / 60000));
+  if (minutes < 60) {
+    return `Updated ${minutes}m ago`;
+  }
   const hours = Math.max(0, Math.floor(diffMs / 3600000));
   return `Updated ${hours}h ago`;
+}
+
+function recentSalesAgeHours(value?: string | null) {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = new Date(trimmed);
+  const timestamp = parsed.getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+  const diffMs = Date.now() - timestamp;
+  if (!Number.isFinite(diffMs)) {
+    return null;
+  }
+  return Math.max(0, Math.floor(diffMs / 3600000));
+}
+
+function recentSalesAgeBucket(value?: string | null) {
+  const hours = recentSalesAgeHours(value);
+  if (hours == null) {
+    return 'none';
+  }
+  if (hours < 24) {
+    return '<24h';
+  }
+  if (hours < 48) {
+    return '24_47h';
+  }
+  return '48h_plus';
+}
+
+function recentSalesCountBucket(value?: number | null) {
+  const count = typeof value === 'number' && Number.isFinite(value)
+    ? Math.max(0, Math.floor(value))
+    : 0;
+  if (count <= 0) {
+    return '0';
+  }
+  if (count === 1) {
+    return '1';
+  }
+  if (count <= 5) {
+    return '2_5';
+  }
+  return '6_plus';
+}
+
+function recentSalesLatencyBucket(value: number) {
+  if (value < 500) {
+    return '<500';
+  }
+  if (value < 1500) {
+    return '500_1500';
+  }
+  if (value < 5000) {
+    return '1500_5000';
+  }
+  return '5000_plus';
+}
+
+function recentSalesSectionState(value: CardRecentSalesRecord | null) {
+  if (!value || value.statusReason === 'not_loaded') {
+    return 'not_loaded';
+  }
+  if (value.status === 'available' && value.sales.length > 0) {
+    return 'available';
+  }
+  if (value.statusReason === 'no_results') {
+    return 'no_results';
+  }
+  return 'unavailable';
 }
 
 function EbayWordmarkBadge() {
@@ -407,6 +586,7 @@ export function CardDetailScreen({
   const [recentSalesState, setRecentSalesState] = useState<CardRecentSalesRecord | null>(null);
   const [recentSalesErrorMessage, setRecentSalesErrorMessage] = useState<string | null>(null);
   const [isRecentSalesLoading, setIsRecentSalesLoading] = useState(false);
+  const [hasResolvedRecentSalesState, setHasResolvedRecentSalesState] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isCollectionExpanded, setIsCollectionExpanded] = useState(true);
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
@@ -483,44 +663,6 @@ export function CardDetailScreen({
     setMarketHistory(null);
   }, [cardId]);
 
-  useEffect(() => {
-    if (selectedConditionId != null) {
-      return;
-    }
-
-    const nextConditionId = defaultMarketConditionId(detail?.marketHistory ?? null);
-    if (nextConditionId) {
-      setSelectedConditionId(nextConditionId);
-    }
-  }, [detail?.marketHistory, selectedConditionId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    const requestedCondition = selectedConditionId
-      ?? defaultMarketConditionId(detail?.marketHistory ?? null)
-      ?? 'near_mint';
-
-    void spotlightRepository.getCardMarketHistory({
-      cardId,
-      condition: requestedCondition,
-      days: 30,
-    })
-      .then((nextHistory) => {
-        if (!cancelled) {
-          setMarketHistory(nextHistory);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setMarketHistory(null);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, spotlightRepository]);
-
   const selectedEntry = useMemo(() => {
     if (!detail) {
       const previewEntry = detailPreview?.ownedEntry ?? null;
@@ -549,38 +691,124 @@ export function CardDetailScreen({
     ];
   }, [detail, selectedEntry]);
 
-  const shouldShowRecentSales = selectedEntry?.kind === 'graded' || selectedEntry?.slabContext != null;
-  const selectedSlabContext = selectedEntry?.slabContext ?? null;
+  const selectedSlabContext = selectedEntry?.slabContext ?? scanReviewSession?.slabContext ?? null;
+  const shouldShowRecentSales = selectedEntry?.kind === 'graded' || selectedSlabContext != null;
+  const trackedRecentSalesSectionKeyRef = useRef<string | null>(null);
 
-  const loadRecentSales = useCallback(async (refresh: boolean) => {
+  useEffect(() => {
+    if (selectedSlabContext != null || selectedConditionId != null) {
+      return;
+    }
+
+    const nextConditionId = defaultMarketConditionId(detail?.marketHistory ?? null);
+    if (nextConditionId) {
+      setSelectedConditionId(nextConditionId);
+    }
+  }, [detail?.marketHistory, selectedConditionId, selectedSlabContext]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const requestedCondition = selectedSlabContext == null
+      ? (
+        selectedConditionId
+        ?? defaultMarketConditionId(detail?.marketHistory ?? null)
+        ?? 'near_mint'
+      )
+      : null;
+
+    void spotlightRepository.getCardMarketHistory({
+      cardId,
+      days: 30,
+      condition: requestedCondition,
+      slabContext: selectedSlabContext,
+      variant: selectedSlabContext?.variantName ?? undefined,
+    })
+      .then((nextHistory) => {
+        if (!cancelled) {
+          setMarketHistory(nextHistory);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setMarketHistory(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, selectedSlabContext, spotlightRepository]);
+
+  const loadRecentSales = useCallback(async (requestMode: 'load' | 'refresh') => {
     if (!shouldShowRecentSales || !selectedSlabContext) {
       return;
+    }
+    const startedAt = Date.now();
+    if (requestMode === 'refresh') {
+      capturePostHogEvent('card_recent_sales_refresh_tapped', {
+        cache_age_bucket: recentSalesAgeBucket(recentSalesState?.fetchedAt),
+        detail_kind: 'slab',
+        sale_count_bucket: recentSalesCountBucket(recentSalesState?.saleCount ?? recentSalesState?.sales.length ?? 0),
+        sales_provider: 'scrydex',
+        sales_source: 'ebay',
+      });
+    } else {
+      capturePostHogEvent('card_recent_sales_load_tapped', {
+        detail_kind: 'slab',
+        sales_provider: 'scrydex',
+        sales_source: 'ebay',
+      });
     }
     setIsRecentSalesLoading(true);
     setRecentSalesErrorMessage(null);
     try {
       const nextRecentSales = await spotlightRepository.getCardRecentSales({
         cardId,
-        limit: 5,
-        refresh,
+        limit: recentSalesPageSize,
+        refresh: true,
         slabContext: selectedSlabContext,
         source: 'ebay',
       });
       setRecentSalesState(nextRecentSales);
+      setHasResolvedRecentSalesState(true);
+      capturePostHogEvent('card_recent_sales_request_completed', {
+        can_refresh: Boolean(nextRecentSales?.canRefresh),
+        detail_kind: 'slab',
+        latency_ms_bucket: recentSalesLatencyBucket(Date.now() - startedAt),
+        request_mode: requestMode,
+        result: nextRecentSales?.status === 'available'
+          ? 'available'
+          : nextRecentSales?.statusReason === 'no_results'
+            ? 'no_results'
+            : 'unavailable',
+        sale_count_bucket: recentSalesCountBucket(nextRecentSales?.saleCount ?? nextRecentSales?.sales.length ?? 0),
+        sales_provider: 'scrydex',
+        sales_source: 'ebay',
+      });
     } catch {
       setRecentSalesErrorMessage('Could not load recent eBay sales right now.');
+      setHasResolvedRecentSalesState(true);
+      capturePostHogEvent('card_recent_sales_request_completed', {
+        detail_kind: 'slab',
+        latency_ms_bucket: recentSalesLatencyBucket(Date.now() - startedAt),
+        request_mode: requestMode,
+        result: 'failed',
+        sales_provider: 'scrydex',
+        sales_source: 'ebay',
+      });
     } finally {
       setIsRecentSalesLoading(false);
     }
-  }, [cardId, selectedSlabContext, shouldShowRecentSales, spotlightRepository]);
+  }, [cardId, recentSalesState?.fetchedAt, recentSalesState?.saleCount, recentSalesState?.sales.length, recentSalesState?.canRefresh, selectedSlabContext, shouldShowRecentSales, spotlightRepository]);
 
   useEffect(() => {
     let cancelled = false;
     setRecentSalesState(null);
     setRecentSalesErrorMessage(null);
     setIsRecentSalesLoading(false);
+    setHasResolvedRecentSalesState(false);
 
-    if (!shouldShowRecentSales) {
+    if (!shouldShowRecentSales || !selectedSlabContext) {
       return () => {
         cancelled = true;
       };
@@ -589,18 +817,20 @@ export function CardDetailScreen({
     setIsRecentSalesLoading(true);
     void spotlightRepository.getCardRecentSales({
       cardId,
-      limit: 5,
+      limit: recentSalesPageSize,
       slabContext: selectedSlabContext,
       source: 'ebay',
     })
-      .then((nextListings) => {
+      .then((nextRecentSales) => {
         if (!cancelled) {
-          setRecentSalesState(nextListings);
+          setRecentSalesState(nextRecentSales);
+          setHasResolvedRecentSalesState(true);
         }
       })
       .catch(() => {
         if (!cancelled) {
           setRecentSalesErrorMessage('Could not load recent eBay sales right now.');
+          setHasResolvedRecentSalesState(true);
         }
       })
       .finally(() => {
@@ -620,10 +850,51 @@ export function CardDetailScreen({
     spotlightRepository,
   ]);
 
+  useEffect(() => {
+    if (!shouldShowRecentSales || !selectedSlabContext) {
+      trackedRecentSalesSectionKeyRef.current = null;
+      return;
+    }
+
+    if (!hasResolvedRecentSalesState) {
+      return;
+    }
+
+    const sectionKey = [
+      cardId,
+      selectedSlabContext.grader ?? '',
+      selectedSlabContext.grade ?? '',
+      selectedSlabContext.certNumber ?? '',
+      selectedSlabContext.variantName ?? '',
+    ].join(':');
+
+    if (trackedRecentSalesSectionKeyRef.current === sectionKey) {
+      return;
+    }
+
+    trackedRecentSalesSectionKeyRef.current = sectionKey;
+    capturePostHogEvent('card_recent_sales_section_viewed', {
+      can_refresh: Boolean(recentSalesState?.canRefresh),
+      detail_kind: 'slab',
+      sale_count_bucket: recentSalesCountBucket(recentSalesState?.saleCount ?? recentSalesState?.sales.length ?? 0),
+      sales_provider: 'scrydex',
+      sales_source: 'ebay',
+      section_state: recentSalesSectionState(recentSalesState),
+    });
+  }, [cardId, hasResolvedRecentSalesState, recentSalesState, selectedSlabContext, shouldShowRecentSales]);
+
   const effectiveMarketHistory = marketHistory ?? detail?.marketHistory ?? null;
+  const isSlabDetail = selectedSlabContext != null;
+  const slabDisplayedPrice = isSlabDetail
+    ? (
+      selectedEntry?.kind === 'graded'
+        ? (selectedEntry.hasMarketPrice ? selectedEntry.marketPrice : null)
+        : (detailPreview?.marketPrice ?? null)
+    )
+    : null;
 
   useEffect(() => {
-    if (!effectiveMarketHistory || selectedConditionId != null) {
+    if (isSlabDetail || !effectiveMarketHistory || selectedConditionId != null) {
       return;
     }
 
@@ -631,7 +902,7 @@ export function CardDetailScreen({
     if (nextConditionId) {
       setSelectedConditionId(nextConditionId);
     }
-  }, [effectiveMarketHistory, selectedConditionId]);
+  }, [effectiveMarketHistory, isSlabDetail, selectedConditionId]);
 
   const marketConditionOptions = useMemo(() => {
     if (!effectiveMarketHistory) {
@@ -671,6 +942,11 @@ export function CardDetailScreen({
     const monthInsight = effectiveMarketHistory.insights.find((insight) => insight.id === 'month');
     return (monthInsight?.deltaAmount ?? 0) >= 0 ? theme.colors.success : theme.colors.danger;
   }, [effectiveMarketHistory, theme.colors.brand, theme.colors.danger, theme.colors.success]);
+  const recentSales = shouldShowRecentSales ? recentSalesState : null;
+  const sortedRecentSales = useMemo(
+    () => recentSales?.sales.slice().sort(compareRecentSalesBySoldDateDesc) ?? [],
+    [recentSales?.sales],
+  );
 
   const handleDecrementCollection = (entry: CardDetailRecord['ownedEntries'][number]) => {
     if (isAdjustingInventory) {
@@ -791,22 +1067,28 @@ export function CardDetailScreen({
     ?? detailPreview?.largeImageUrl
     ?? detailPreview?.imageUrl
     ?? null;
-  const displayedPrice = selectedCondition?.currentPrice
-    ?? effectiveMarketHistory?.currentPrice
-    ?? detail?.marketPrice
-    ?? detailPreview?.marketPrice
-    ?? 0;
-  const displayCurrencyCode = detail?.currencyCode ?? detailPreview?.currencyCode ?? 'USD';
+  const displayedPrice = isSlabDetail
+    ? (slabDisplayedPrice ?? effectiveMarketHistory?.currentPrice)
+    : (
+      selectedCondition?.currentPrice
+      ?? effectiveMarketHistory?.currentPrice
+      ?? detail?.marketPrice
+      ?? detailPreview?.marketPrice
+      ?? 0
+    );
+  const displayCurrencyCode = isSlabDetail
+    ? (effectiveMarketHistory?.currencyCode ?? selectedEntry?.currencyCode ?? detailPreview?.currencyCode ?? detail?.currencyCode ?? 'USD')
+    : (detail?.currencyCode ?? detailPreview?.currencyCode ?? 'USD');
   const isOwned = selectedEntry != null;
   const heroMeta = detail
     ? `${displayNumber(detail.cardNumber)} • ${detail.setName}`
     : `${detailPreview ? displayNumber(detailPreview.cardNumber) : '#--'} • ${detailPreview?.setName ?? ''}`;
+  const slabHeroSubtitle = slabGradeSummary(selectedSlabContext);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
   const isFavorite = detail?.isFavorite ?? false;
-  const recentSales = shouldShowRecentSales ? recentSalesState : null;
   const recentSalesUpdatedLabel = formatRecentSalesAgeLabel(recentSales?.fetchedAt);
-  const shouldShowRecentSalesLoad = recentSales?.statusReason === 'not_loaded';
+  const shouldShowRecentSalesLoad = recentSales == null || recentSales.statusReason === 'not_loaded';
   const shouldShowRecentSalesRefresh = Boolean(recentSales?.canRefresh);
   const ownedCopiesCount = ownedEntries.reduce((sum, entry) => sum + Math.max(0, entry.quantity), 0);
   const hasSingleOwnedEntry = ownedEntries.length === 1;
@@ -840,6 +1122,14 @@ export function CardDetailScreen({
           <SurfaceCard padding={20} radius={28} style={styles.heroCard}>
             <View style={styles.heroCopy}>
               <Text style={[theme.typography.display, styles.heroName]}>{displayName}</Text>
+              {slabHeroSubtitle ? (
+                <Text
+                  style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
+                  testID="detail-hero-slab-meta"
+                >
+                  {slabHeroSubtitle}
+                </Text>
+              ) : null}
               <Text
                 style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
                 testID="detail-hero-meta"
@@ -1116,7 +1406,7 @@ export function CardDetailScreen({
                     style={[theme.typography.display, styles.marketValueTitle]}
                     testID="detail-market-price"
                   >
-                    {formatCurrency(displayedPrice, displayCurrencyCode)}
+                    {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
                   </Text>
                   <View style={styles.insightsRow}>
                     {effectiveMarketHistory.insights.map((insight) => (
@@ -1142,15 +1432,15 @@ export function CardDetailScreen({
 
                   <HistoryChart
                     currencyCode={displayCurrencyCode}
-                    currentPrice={displayedPrice}
+                    currentPrice={displayedPrice ?? 0}
                     points={effectiveMarketHistory.points}
                     tintColor={marketTint}
                   />
                 </>
               ) : (
                 <View style={styles.lazyMarketBlock} testID="detail-scan-preview-market">
-                  <Text style={styles.previewMarketValue}>
-                    {formatCurrency(displayedPrice, displayCurrencyCode)}
+                  <Text style={styles.previewMarketValue} testID="detail-market-price">
+                    {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
                   </Text>
                   {errorMessage ? (
                     <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
@@ -1160,7 +1450,7 @@ export function CardDetailScreen({
                 </View>
               )}
 
-              {marketConditionOptions.length > 0 ? (
+              {!isSlabDetail && marketConditionOptions.length > 0 ? (
                 <ScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
@@ -1223,10 +1513,16 @@ export function CardDetailScreen({
                   </Text>
                 ) : null}
 
-                {recentSales?.status === 'available' && recentSales.sales.length > 0 ? (
+                {recentSales?.status === 'available' && sortedRecentSales.length > 0 ? (
                   <>
-                    <View style={styles.ebayList}>
-                      {recentSales.sales.map((sale, index) => {
+                    <ScrollView
+                      contentContainerStyle={styles.ebayList}
+                      nestedScrollEnabled
+                      showsVerticalScrollIndicator={sortedRecentSales.length > 5}
+                      style={styles.ebayListScroll}
+                      testID="detail-recent-sales-list"
+                    >
+                      {sortedRecentSales.map((sale, index) => {
                         const soldDateLabel = formatListingDateLabel(sale.soldAt);
 
                         return (
@@ -1236,6 +1532,13 @@ export function CardDetailScreen({
                             disabled={!sale.saleUrl}
                             onPress={() => {
                               if (sale.saleUrl) {
+                                capturePostHogEvent('card_recent_sales_row_opened', {
+                                  detail_kind: 'slab',
+                                  row_index: index,
+                                  sale_count_bucket: recentSalesCountBucket(recentSales?.saleCount ?? recentSales?.sales.length ?? 0),
+                                  sales_provider: 'scrydex',
+                                  sales_source: 'ebay',
+                                });
                                 void Linking.openURL(sale.saleUrl);
                               }
                             }}
@@ -1267,13 +1570,13 @@ export function CardDetailScreen({
                                   : '—'}
                               </Text>
                               <Text style={[theme.typography.micro, styles.ebayOpenCopy]}>
-                                {sale.saleUrl ? 'Open' : 'Unavailable'}
+                                {sale.saleUrl ? 'Sold' : 'Unavailable'}
                               </Text>
                             </View>
                           </Pressable>
                         );
                       })}
-                    </View>
+                    </ScrollView>
                   </>
                 ) : isRecentSalesLoading && !recentSales ? (
                   <View style={styles.ebayEmptyState}>
@@ -1299,13 +1602,18 @@ export function CardDetailScreen({
                       labelStyle={styles.marketplaceButtonLabel}
                       leadingAccessory={<EbayWordmarkBadge />}
                       onPress={() => {
-                        void loadRecentSales(true);
+                        void loadRecentSales('load');
                       }}
                       size="lg"
                       style={styles.ebayViewAllButton}
                       testID="detail-recent-sales-load"
                       variant="secondary"
                     />
+                    {recentSalesErrorMessage ? (
+                      <Text style={[theme.typography.caption, styles.ebayMeta]}>
+                        {recentSalesErrorMessage}
+                      </Text>
+                    ) : null}
                   </View>
                 ) : (
                   <View style={styles.ebayEmptyState}>
@@ -1323,7 +1631,7 @@ export function CardDetailScreen({
                         labelStyle={styles.marketplaceButtonLabel}
                         leadingAccessory={<EbayWordmarkBadge />}
                         onPress={() => {
-                          void loadRecentSales(true);
+                          void loadRecentSales('refresh');
                         }}
                         size="lg"
                         style={styles.ebayViewAllButton}
@@ -1342,7 +1650,7 @@ export function CardDetailScreen({
                     labelStyle={styles.marketplaceButtonLabel}
                     leadingAccessory={<EbayWordmarkBadge />}
                     onPress={() => {
-                      void loadRecentSales(true);
+                      void loadRecentSales('refresh');
                     }}
                     size="lg"
                     style={styles.ebayViewAllButton}
@@ -1476,6 +1784,9 @@ const styles = StyleSheet.create({
   },
   ebayList: {
     gap: 10,
+  },
+  ebayListScroll: {
+    maxHeight: 392,
   },
   ebayMeta: {
     color: 'rgba(15, 15, 18, 0.52)',

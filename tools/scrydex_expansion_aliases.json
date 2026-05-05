@@ -14,10 +14,55 @@
     "code": null,
     "name": "Sun & Moon Promos"
   },
+  "M-P": {
+    "id": "mp_ja",
+    "code": null,
+    "name": "Mega Evolution Promos"
+  },
+  "SV-P": {
+    "id": "svp_ja",
+    "code": null,
+    "name": "Scarlet & Violet Promos"
+  },
   "SVP": {
     "id": "svp",
     "code": "PR-SV",
     "name": "Scarlet & Violet Black Star Promos"
+  },
+  "VS": {
+    "id": "vs1_ja",
+    "code": null,
+    "name": "ポケモンカード★VS"
+  },
+  "POKEMON VS": {
+    "id": "vs1_ja",
+    "code": null,
+    "name": "ポケモンカード★VS"
+  },
+  "UNNUMBERED PROMOTIONAL CARDS": {
+    "id": "miscp_ja",
+    "code": null,
+    "name": "Unnumbered Promos"
+  },
+  "PROMOTIONAL CARDS": {
+    "id": "miscpp_ja",
+    "code": null,
+    "name": "Promotional cards"
+  },
+  "COROCORO PROMOTIONAL CARDS": {
+    "id": "miscp_ja",
+    "code": null,
+    "name": "Unnumbered Promos"
+  },
+  "VENDING MACHINE CARDS SERIES 1 (BLUE)": {
+    "id": "vnd1_ja",
+    "code": null,
+    "name": "Vending Machine cards Series 1"
+  },
+  "VENDING MACHINE CARDS SERIES 2 (RED)": {
+    "id": "vnd2_ja",
+    "code": null,
+    "name": "Vending Machine cards Series 2"
   },
   "SWSD": {
     "id": "swshp",

@@ -1,18 +1,12 @@
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import type { PortfolioImportSourceType } from '@spotlight/api-client';
 import { SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
-import {
-  pickPortfolioImportFile,
-  portfolioImportSourceCopy,
-} from '@/features/portfolio-import/portfolio-import-file';
-import { setPendingPortfolioImportFile } from '@/features/portfolio-import/portfolio-import-session';
 import { useAuth } from '@/providers/auth-provider';
 
 export function AccountScreen() {
@@ -21,31 +15,6 @@ export function AccountScreen() {
   const auth = useAuth();
   const user = auth.currentUser;
   const canStartLabelingSession = !!(user?.labelerEnabled || user?.adminEnabled);
-  const [isPreparingImport, setIsPreparingImport] = useState(false);
-  const [importErrorMessage, setImportErrorMessage] = useState<string | null>(null);
-
-  const beginImport = useCallback(async (sourceType: PortfolioImportSourceType) => {
-    setImportErrorMessage(null);
-    setIsPreparingImport(true);
-
-    try {
-      const selectedFile = await pickPortfolioImportFile(sourceType);
-      if (!selectedFile) {
-        return;
-      }
-
-      setPendingPortfolioImportFile(selectedFile);
-      router.push('/account/import');
-    } catch (error) {
-      setImportErrorMessage(
-        error instanceof Error && error.message.trim().length > 0
-          ? error.message
-          : 'This file could not be read as a CSV export.',
-      );
-    } finally {
-      setIsPreparingImport(false);
-    }
-  }, [router]);
 
   const openLabelingSession = useCallback(() => {
     router.push('/labeling/session');
@@ -141,87 +110,6 @@ export function AccountScreen() {
           </SurfaceCard>
         ) : null}
 
-        <SurfaceCard padding={20} radius={28}>
-          <View style={styles.importCard}>
-            {isPreparingImport ? (
-              <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]}>
-                Opening your import file
-              </Text>
-            ) : null}
-
-            <View style={styles.importButtons}>
-              {(['collectr_csv_v1', 'tcgplayer_csv_v1'] as const).map((sourceType) => {
-                const sourceCopy = portfolioImportSourceCopy[sourceType];
-                const primary = sourceType === 'collectr_csv_v1';
-
-                return (
-                  <Pressable
-                    accessibilityRole="button"
-                    disabled={isPreparingImport || auth.isBusy}
-                    key={sourceType}
-                    onPress={() => {
-                      void beginImport(sourceType);
-                    }}
-                    style={({ pressed }) => [
-                      styles.importButton,
-                      {
-                        backgroundColor: primary ? theme.colors.brand : theme.colors.field,
-                        borderColor: primary ? theme.colors.brand : theme.colors.outlineSubtle,
-                        opacity: isPreparingImport || auth.isBusy ? 0.56 : pressed ? 0.9 : 1,
-                      },
-                    ]}
-                    testID={`account-import-${sourceType}`}
-                  >
-                    <View style={styles.importButtonCopy}>
-                      <Text
-                        style={[
-                          theme.typography.control,
-                          {
-                            color: primary ? theme.colors.textInverse : theme.colors.textPrimary,
-                          },
-                        ]}
-                      >
-                        {sourceCopy.buttonTitle}
-                      </Text>
-                    </View>
-
-                    <View
-                      style={[
-                        styles.importButtonIcon,
-                        {
-                          backgroundColor: primary ? 'rgba(255, 255, 255, 0.22)' : 'rgba(15, 15, 18, 0.06)',
-                        },
-                      ]}
-                    >
-                      <Text
-                        style={[
-                          theme.typography.control,
-                          {
-                            color: primary ? theme.colors.textInverse : theme.colors.textPrimary,
-                          },
-                        ]}
-                      >
-                        ↓
-                      </Text>
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          </View>
-        </SurfaceCard>
-
-        {importErrorMessage ? (
-          <SurfaceCard padding={18} radius={24} variant="muted">
-            <Text style={[theme.typography.headline, { color: theme.colors.textPrimary }]}>
-              Import unavailable
-            </Text>
-            <Text style={[theme.typography.body, styles.errorCopy, { color: theme.colors.textSecondary }]}>
-              {importErrorMessage}
-            </Text>
-          </SurfaceCard>
-        ) : null}
-
         <Pressable
           accessibilityRole="button"
           disabled={auth.isBusy}
@@ -260,9 +148,6 @@ const styles = StyleSheet.create({
   closeButton: {
     flexShrink: 0,
   },
-  errorCopy: {
-    marginTop: 6,
-  },
   header: {
     alignItems: 'flex-start',
     gap: 18,
@@ -290,38 +175,6 @@ const styles = StyleSheet.create({
   },
   labelSessionCopy: {
     gap: 6,
-  },
-  importButton: {
-    alignItems: 'center',
-    borderRadius: 24,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 14,
-    justifyContent: 'space-between',
-    minHeight: 74,
-    paddingHorizontal: 18,
-    paddingVertical: 16,
-  },
-  importButtonCopy: {
-    flex: 1,
-    gap: 4,
-    minWidth: 0,
-  },
-  importButtonIcon: {
-    alignItems: 'center',
-    borderRadius: 999,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  importButtons: {
-    gap: 10,
-  },
-  importCard: {
-    gap: 16,
-  },
-  importCopy: {
-    gap: 4,
   },
   safeArea: {
     flex: 1,

@@ -10,11 +10,12 @@ from typing import Any, Iterable
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
-from build_raw_visual_seed_manifest import TruthKey, choose_mapping, truth_from_fixture, utc_now_iso
+from build_raw_visual_seed_manifest import TruthKey, choose_mapping, search_cards, truth_from_fixture, utc_now_iso
 from raw_visual_dataset_paths import (
     default_raw_visual_train_expansion_snapshot_path,
     default_raw_visual_train_manifest_path,
     default_raw_visual_train_manifest_summary_path,
+    default_raw_visual_train_provider_mapping_overrides_path,
     default_raw_visual_train_query_cache_path,
     default_raw_visual_train_reference_image_root,
     default_raw_visual_scan_registry_path,
@@ -238,6 +239,131 @@ def pinned_mapping_payload(mapping: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def load_provider_mapping_overrides(path: Path) -> dict[str, dict[str, Any]]:
+    if not path.exists():
+        return {}
+    payload = json.loads(path.read_text())
+    if not isinstance(payload, list):
+        return {}
+    overrides: dict[str, dict[str, Any]] = {}
+    for item in payload:
+        if not isinstance(item, dict):
+            continue
+        truth_key = str(item.get("truthKey") or "").strip()
+        if not truth_key:
+            continue
+        overrides[truth_key] = dict(item)
+    return overrides
+
+
+def fetch_provider_card_by_id(
+    provider_card_id: str,
+    *,
+    api_key: str | None,
+    query_cache: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    provider_card_id = str(provider_card_id or "").strip()
+    if not provider_card_id:
+        return None
+
+    lanes = [True, False] if "_ja-" in provider_card_id or provider_card_id.endswith("_ja") else [False, True]
+    for japanese in lanes:
+        lane = "ja" if japanese else "global"
+        query = f"id:{provider_card_id}"
+        cache_key = f"{lane}:{query}"
+        cards = query_cache.get(cache_key)
+        if cards is None:
+            try:
+                cards = search_cards(query, api_key, page_size=5, japanese=japanese)
+            except Exception:  # noqa: BLE001
+                cards = []
+            query_cache[cache_key] = cards
+        for card in cards:
+            if str(card.get("id") or "").strip() == provider_card_id:
+                return card
+    return None
+
+
+def provider_override_mapping_payload(
+    override: dict[str, Any],
+    *,
+    api_key: str | None,
+    query_cache: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any]:
+    status = str(override.get("status") or "").strip().lower()
+    provider_card_id = str(override.get("providerCardId") or "").strip()
+    source_url = str(override.get("sourceUrl") or "").strip() or None
+    notes = str(override.get("notes") or "").strip() or None
+
+    if status == "not_in_scrydex":
+        return {
+            "providerSupported": False,
+            "mappingConfidence": "unsupported",
+            "mappingReason": "Manual override marked truth as NOT_IN_SCRYDEX.",
+            "selected": None,
+            "candidateSummaries": [],
+            "attempts": [],
+            "overrideStatus": status,
+            "overrideNotes": notes,
+        }
+
+    card = fetch_provider_card_by_id(provider_card_id, api_key=api_key, query_cache=query_cache) if provider_card_id else None
+    selected = None
+    candidate_summaries: list[dict[str, Any]] = []
+    if card is not None:
+        selected = {
+            "providerCardId": card.get("id"),
+            "providerName": card.get("name"),
+            "providerCollectorNumber": card.get("number"),
+            "providerSetId": card.get("set_id") or card.get("setID"),
+            "providerSetPtcgoCode": card.get("set_ptcgo_code") or card.get("setPtcgoCode"),
+            "providerSetName": card.get("set_name") or card.get("setName"),
+            "referenceImageUrl": card.get("reference_image_url") or card.get("imageURL"),
+            "sourceProvider": card.get("source") or "scrydex",
+        }
+        candidate_summaries = [
+            {
+                **selected,
+                "mappingScore": 999,
+                "mappingReasons": [f"provider_mapping_override:{status or 'pinned'}"],
+            }
+        ]
+    elif provider_card_id:
+        selected = {
+            "providerCardId": provider_card_id,
+            "providerName": None,
+            "providerCollectorNumber": None,
+            "providerSetId": None,
+            "providerSetPtcgoCode": None,
+            "providerSetName": None,
+            "referenceImageUrl": source_url,
+            "sourceProvider": "scrydex",
+        }
+
+    if status == "tentative_scrydex_match":
+        return {
+            "providerSupported": False,
+            "mappingConfidence": "low",
+            "mappingReason": "Manual override recorded a tentative Scrydex match that still needs review.",
+            "selected": selected,
+            "candidateSummaries": candidate_summaries,
+            "attempts": [],
+            "overrideStatus": status,
+            "overrideNotes": notes,
+        }
+
+    return {
+        "providerSupported": True,
+        "mappingConfidence": "high",
+        "mappingReason": "Provider mapping was pinned from a verified override.",
+        "selected": selected,
+        "candidateSummaries": candidate_summaries,
+        "attempts": [],
+        "overrideStatus": status or "pinned",
+        "overrideNotes": notes,
+    }
+
+
 def build_manifest(
     *,
     fixtures: list[TrainingFixture],
@@ -247,6 +373,7 @@ def build_manifest(
     download_reference_images: bool,
     expansion_snapshot_path: Path,
     registry_metadata_by_fixture_path: dict[str, dict[str, Any]],
+    provider_mapping_overrides: dict[str, dict[str, Any]],
 ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     query_cache = load_query_cache(query_cache_path)
     grouped = grouped_truths(fixtures)
@@ -270,6 +397,12 @@ def build_manifest(
         }
         if len(pinned_by_id) == 1:
             truth_mappings[truth.key] = pinned_mapping_payload(next(iter(pinned_by_id.values())))
+        elif truth.key in provider_mapping_overrides:
+            truth_mappings[truth.key] = provider_override_mapping_payload(
+                provider_mapping_overrides[truth.key],
+                api_key=api_key,
+                query_cache=query_cache,
+            )
         else:
             truth_mappings[truth.key] = choose_mapping(
                 truth,
@@ -422,6 +555,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional raw scan registry used to enrich manifest rows with batch provenance.",
     )
     parser.add_argument(
+        "--provider-mapping-overrides",
+        type=Path,
+        default=default_raw_visual_train_provider_mapping_overrides_path(),
+        help="Optional truth-level provider mapping override file.",
+    )
+    parser.add_argument(
         "--skip-reference-download",
         action="store_true",
         help="Do not download official reference images; emit only referenceImageUrl values.",
@@ -444,6 +583,7 @@ def main() -> int:
     expansion_snapshot_path = args.expansion_snapshot.resolve()
     reference_image_root = args.reference_image_root.resolve()
     scan_registry_path = args.scan_registry_path.resolve()
+    provider_mapping_overrides_path = args.provider_mapping_overrides.resolve()
     api_key = os.environ.get("SCRYDEX_API_KEY")
 
     if not api_key:
@@ -451,6 +591,7 @@ def main() -> int:
 
     fixtures, discovery_skips = discover_fixtures(fixture_roots, limit=args.limit)
     registry_metadata_by_fixture_path = load_registry_fixture_metadata(scan_registry_path)
+    provider_mapping_overrides = load_provider_mapping_overrides(provider_mapping_overrides_path)
     if not fixtures:
         print("No eligible training fixtures were found.")
         if discovery_skips:
@@ -467,6 +608,7 @@ def main() -> int:
         reference_image_root=reference_image_root,
         download_reference_images=not args.skip_reference_download,
         registry_metadata_by_fixture_path=registry_metadata_by_fixture_path,
+        provider_mapping_overrides=provider_mapping_overrides,
     )
     if discovery_skips:
         summary["discoverySkips"] = discovery_skips

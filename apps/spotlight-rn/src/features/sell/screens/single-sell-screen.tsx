@@ -35,6 +35,7 @@ import {
   isSellSwipeReleaseArmed,
   parseSellPrice,
   scheduleSellStatusCompletion,
+  slabGradeSummary,
   sellOrderProcessingMinimumDurationMs,
   sellOrderSwipeRailHeight,
 } from '@/features/sell/sell-order-helpers';
@@ -197,6 +198,7 @@ export function SingleSellScreen({
   }, [entryId, spotlightRepository]);
 
   const displayEntry = entry ?? lastResolvedEntry;
+  const slabSubtitle = slabGradeSummary(displayEntry?.slabContext ?? null);
 
   const soldPrice = useMemo(() => parseSellPrice(soldPriceText), [soldPriceText]);
   const soldTotal = useMemo(() => {
@@ -674,6 +676,15 @@ export function SingleSellScreen({
                 <View style={styles.heroBody}>
                   <View style={styles.heroTitleWrap}>
                     <Text style={[theme.typography.display, styles.heroName]}>{displayEntry.name}</Text>
+                    {slabSubtitle ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[theme.typography.caption, styles.heroMetaText]}
+                        testID="single-sell-slab-meta"
+                      >
+                        {slabSubtitle}
+                      </Text>
+                    ) : null}
                     <Text
                       numberOfLines={1}
                       style={[theme.typography.caption, styles.heroMetaText]}
@@ -683,7 +694,13 @@ export function SingleSellScreen({
                       {displayEntry.setName}
                     </Text>
                     <View style={styles.heroChipsWrap}>
-                      <SellIdentityChips entry={displayEntry} testIDPrefix="single-sell" />
+                      <SellIdentityChips
+                        centered
+                        entry={displayEntry}
+                        includeSlabGrade={false}
+                        rowTestID="single-sell-meta-row"
+                        testIDPrefix="single-sell"
+                      />
                     </View>
                   </View>
                   <View style={styles.heroArtShadow}>

@@ -81,8 +81,22 @@ cleanup() {
 
 trap cleanup EXIT INT TERM
 
+create_temp_env_file() {
+  python3 - "$1" "${TMPDIR:-/tmp}" <<'PY'
+import os
+import sys
+import tempfile
+
+environment = sys.argv[1]
+tmpdir = sys.argv[2]
+fd, path = tempfile.mkstemp(prefix=f"spotlight-mobile-{environment}.", suffix=".env", dir=tmpdir)
+os.close(fd)
+print(path)
+PY
+}
+
 if [ -z "${MOBILE_EAS_ENV_FILE:-}" ] && [ "$ENVIRONMENT" = "staging" ]; then
-  TEMP_ENV_FILE="$(mktemp "${TMPDIR:-/tmp}/spotlight-mobile-${ENVIRONMENT}.XXXXXX.env")"
+  TEMP_ENV_FILE="$(create_temp_env_file "$ENVIRONMENT")"
   python3 "$ENV_RESOLVER_SCRIPT" --environment "$ENVIRONMENT" --profile "$PROFILE" --output "$TEMP_ENV_FILE"
   ENV_FILE="$TEMP_ENV_FILE"
 fi

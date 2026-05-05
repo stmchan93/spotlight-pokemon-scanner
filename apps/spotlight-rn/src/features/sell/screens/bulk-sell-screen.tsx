@@ -40,6 +40,7 @@ import {
   isSellSwipeReleaseArmed,
   parseSellPrice,
   scheduleSellStatusCompletion,
+  slabGradeSummary,
   sellOrderProcessingMinimumDurationMs,
   sellOrderSwipeRailHeight,
 } from '@/features/sell/sell-order-helpers';
@@ -113,6 +114,8 @@ function LineCard({
   const theme = useSpotlightTheme();
   const { refreshData, spotlightRepository } = useAppServices();
   const metrics = getBulkSellLineMetrics(entry, line);
+  const slabSubtitle = slabGradeSummary(entry.slabContext ?? null);
+  const lineMetaLabel = `${entry.cardNumber} • ${entry.setName}`;
   const boughtPriceText = formatSellOrderBoughtPriceLabel(
     entry.costBasisPerUnit,
     formatCurrency(entry.costBasisPerUnit ?? 0, entry.currencyCode),
@@ -183,12 +186,19 @@ function LineCard({
                 <Text numberOfLines={2} style={[theme.typography.title, styles.lineTitle]}>
                   {entry.name}
                 </Text>
+                {slabSubtitle ? (
+                  <Text numberOfLines={1} style={[theme.typography.caption, styles.lineSubtitle]}>
+                    {slabSubtitle}
+                  </Text>
+                ) : null}
                 <Text numberOfLines={1} style={[theme.typography.caption, styles.lineSubtitle]}>
-                  {entry.setName}
-                  {' • '}
-                  {entry.cardNumber}
+                  {lineMetaLabel}
                 </Text>
-                <SellIdentityChips entry={entry} testIDPrefix={smokeTestIDPrefix} />
+                <SellIdentityChips
+                  entry={entry}
+                  includeSlabGrade={false}
+                  testIDPrefix={smokeTestIDPrefix}
+                />
               </View>
 
               {!metrics.isActive ? (
@@ -283,6 +293,8 @@ function ReviewLineCard({
 }) {
   const theme = useSpotlightTheme();
   const metrics = getBulkSellLineMetrics(entry, line);
+  const slabSubtitle = slabGradeSummary(entry.slabContext ?? null);
+  const lineMetaLabel = `${entry.cardNumber} • ${entry.setName}`;
   const soldPriceLabel = metrics.soldPrice == null
     ? 'Not set'
     : formatCurrency(metrics.soldPrice, entry.currencyCode);
@@ -301,12 +313,19 @@ function ReviewLineCard({
           <Text numberOfLines={2} style={[theme.typography.title, styles.lineTitle]}>
             {entry.name}
           </Text>
+          {slabSubtitle ? (
+            <Text numberOfLines={1} style={[theme.typography.caption, styles.lineSubtitle]}>
+              {slabSubtitle}
+            </Text>
+          ) : null}
           <Text numberOfLines={1} style={[theme.typography.caption, styles.lineSubtitle]}>
-            {entry.setName}
-            {' • '}
-            {entry.cardNumber}
+            {lineMetaLabel}
           </Text>
-          <SellIdentityChips entry={entry} testIDPrefix={`bulk-review-${entry.id}`} />
+          <SellIdentityChips
+            entry={entry}
+            includeSlabGrade={false}
+            testIDPrefix={`bulk-review-${entry.id}`}
+          />
         </View>
       </View>
 

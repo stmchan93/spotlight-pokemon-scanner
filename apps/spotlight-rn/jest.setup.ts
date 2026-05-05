@@ -115,6 +115,12 @@ jest.mock('expo-image', () => {
   };
 });
 
+const mockUseKeepAwake = jest.fn();
+
+jest.mock('expo-keep-awake', () => ({
+  useKeepAwake: mockUseKeepAwake,
+}));
+
 jest.mock('expo-apple-authentication', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');

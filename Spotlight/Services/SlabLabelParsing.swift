@@ -550,6 +550,9 @@ enum SlabLabelParser {
         if normalizedText.contains("BGS") || normalizedText.contains("BECKETT") {
             return "BGS"
         }
+        if containsBeckettSubgradeLayout(in: normalizedText) {
+            return "BGS"
+        }
         if normalizedText.containsMatch(of: #"\bTAG\b"#)
             && !normalizedText.contains("TAG TEAM") {
             return "TAG"
@@ -559,6 +562,13 @@ enum SlabLabelParser {
         }
 
         return nil
+    }
+
+    private static func containsBeckettSubgradeLayout(in normalizedText: String) -> Bool {
+        guard !normalizedText.isEmpty else { return false }
+        let subgradeTokens = ["CENTERING", "CORNERS", "EDGES", "SURFACE"]
+        let subgradeHits = subgradeTokens.filter(normalizedText.contains).count
+        return subgradeHits >= 2
     }
 
     private static func extractCardNumber(from normalizedText: String) -> String? {

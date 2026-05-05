@@ -1,6 +1,6 @@
 import { act, fireEvent, screen } from '@testing-library/react-native';
 import { StyleSheet } from 'react-native';
-import { mockInventoryEntries } from '@spotlight/api-client';
+import { mockInventoryEntries, type InventoryCardEntry } from '@spotlight/api-client';
 
 import { BulkSellScreen } from '@/features/sell/screens/bulk-sell-screen';
 
@@ -69,6 +69,8 @@ describe('BulkSellScreen', () => {
     expect(screen.queryByTestId('bulk-sell-swipe-rail')).toBeNull();
     expect(screen.queryByText('Draft sale')).toBeNull();
     expect(screen.queryByText('3 cards selected. Set sold prices, then review the sale.')).toBeNull();
+    expect(screen.getByText("#16/25 • McDonald's Collection 2021")).toBeTruthy();
+    expect(screen.getByText("#21/25 • McDonald's Collection 2021")).toBeTruthy();
     expect(screen.getAllByText('Near Mint').length).toBeGreaterThan(0);
     expect(screen.queryByText('Condition')).toBeNull();
     expect(screen.getAllByText('*****').length).toBeGreaterThan(0);
@@ -142,6 +144,65 @@ describe('BulkSellScreen', () => {
       gap: 6,
       paddingVertical: 4,
     });
+  });
+
+  it('shows slab grade subtext for graded lines in draft and review', async () => {
+    const gradedEntry: InventoryCardEntry = {
+      id: 'graded-bulk-entry-1',
+      name: 'Charizard',
+      cardId: 'base1-4',
+      quantity: 1,
+      currencyCode: 'USD',
+      costBasisPerUnit: 2500,
+      costBasisTotal: 2500,
+      kind: 'graded',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      imageUrl: 'https://example.com/charizard-psa6.png',
+      marketPrice: 3027.12,
+      hasMarketPrice: true,
+      cardNumber: '#4/102',
+      setName: 'Base',
+      addedAt: '2026-05-01T00:00:00.000Z',
+      variantName: 'First Edition Shadowless Holofoil',
+      slabContext: {
+        grader: 'PSA',
+        grade: '6',
+        certNumber: '76243431',
+        variantName: 'First Edition Shadowless Holofoil',
+      },
+      isFavorite: false,
+    };
+
+    renderWithProviders(
+      <BulkSellScreen
+        entryIds={['graded-bulk-entry-1']}
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+      {
+        spotlightRepository: makeBulkSellRepository([gradedEntry]),
+      },
+    );
+
+    expect(await screen.findByText('1 card selected')).toBeTruthy();
+    expect(screen.getByText('PSA • 6')).toBeTruthy();
+    expect(screen.getByText('#4/102 • Base')).toBeTruthy();
+    expect(screen.getByText('First Edition Shadowless Holofoil')).toBeTruthy();
+    expect(screen.queryByTestId('bulk-sell-smoke-graded-base1-4-psa-6-76243431-meta-grader')).toBeNull();
+    expect(screen.queryByTestId('bulk-sell-smoke-graded-base1-4-psa-6-76243431-meta-grade')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-graded-base1-4-psa-6-76243431'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-graded-base1-4-psa-6-76243431-calculator-key-6'));
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-graded-base1-4-psa-6-76243431-calculator-equals'));
+    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
+
+    expect(await screen.findByText('Review before confirm')).toBeTruthy();
+    expect(screen.getByText('PSA • 6')).toBeTruthy();
+    expect(screen.getByText('#4/102 • Base')).toBeTruthy();
+    expect(screen.queryByTestId('bulk-review-graded-bulk-entry-1-meta-grader')).toBeNull();
+    expect(screen.queryByTestId('bulk-review-graded-bulk-entry-1-meta-grade')).toBeNull();
   });
 
   it('supports closing the sheet directly from the top chrome', async () => {
@@ -229,6 +290,7 @@ describe('BulkSellScreen', () => {
     expect(screen.getByTestId('bulk-sell-back-to-edit')).toBeTruthy();
     expect(screen.getByTestId('bulk-sell-review-line-entry-1')).toBeTruthy();
     expect(screen.getByTestId('bulk-sell-review-total-card')).toBeTruthy();
+    expect(screen.getByText("#16/25 • McDonald's Collection 2021")).toBeTruthy();
     expect(screen.getByText('Quantity')).toBeTruthy();
     expect(screen.getByText('Sold price')).toBeTruthy();
     expect(screen.getAllByText('$12.50').length).toBeGreaterThan(0);

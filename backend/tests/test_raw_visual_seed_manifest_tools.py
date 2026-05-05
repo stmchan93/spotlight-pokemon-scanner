@@ -35,6 +35,10 @@ class RawVisualSeedManifestToolTests(unittest.TestCase):
         self.assertEqual(printed_number_query_value("044/SM-P"), "044/SM-P")
         self.assertEqual(printed_number_query_value(" 044 / SM-P "), "044/SM-P")
 
+    def test_printed_number_query_value_strips_no_prefix(self) -> None:
+        self.assertEqual(printed_number_query_value("No. 062"), "062")
+        self.assertEqual(printed_number_query_value("NO.006"), "006")
+
     def test_build_card_queries_prefers_resolved_expansion_id(self) -> None:
         truth = TruthKey("Charmander", "044", "SVP")
         queries = build_card_queries(truth, resolved_expansion={"id": "svp", "code": "PR-SV"})
@@ -74,6 +78,28 @@ class RawVisualSeedManifestToolTests(unittest.TestCase):
             result = resolve_expansion_token("SVP", {}, snapshot_path=snapshot_path, allow_live_lookup=False)
             self.assertEqual(result["resolution"], "resolved")
             self.assertEqual(result["selected"]["id"], "svp")
+
+    def test_resolve_expansion_token_matches_snapshot_code_case_insensitively(self) -> None:
+        from tempfile import TemporaryDirectory
+
+        with TemporaryDirectory() as tmp:
+            snapshot_path = Path(tmp) / "snapshot.json"
+            write_expansion_snapshot(
+                snapshot_path,
+                [
+                    {
+                        "id": "m4_ja",
+                        "code": "M4",
+                        "name": "ニンジャスピナー",
+                        "series": "Mega Evolution",
+                        "language": "Japanese",
+                        "language_code": "JA",
+                    }
+                ],
+            )
+            result = resolve_expansion_token("m4", {}, snapshot_path=snapshot_path, allow_live_lookup=False)
+            self.assertEqual(result["resolution"], "resolved")
+            self.assertEqual(result["selected"]["id"], "m4_ja")
 
     @patch("build_raw_visual_seed_manifest.search_cards")
     @patch("build_raw_visual_seed_manifest.resolve_expansion_token")
@@ -115,6 +141,44 @@ class RawVisualSeedManifestToolTests(unittest.TestCase):
         self.assertTrue(result["providerSupported"])
         self.assertEqual(result["selected"]["providerCardId"], "svp-44")
         self.assertIn('global:name:"Charmander" number:"44" expansion.id:svp', observed_queries)
+
+    @patch("build_raw_visual_seed_manifest.search_cards")
+    @patch("build_raw_visual_seed_manifest.resolve_expansion_token")
+    def test_choose_mapping_ignores_parenthetical_title_noise(self, mock_resolve_expansion, mock_search_cards) -> None:
+        mock_resolve_expansion.return_value = {
+            "selected": None,
+            "attempts": [],
+            "candidateSummaries": [],
+            "resolution": "unresolved",
+        }
+
+        def fake_search_cards(query: str, api_key: str | None, page_size: int = 10, *, japanese: bool = False):
+            del api_key, page_size, japanese
+            if query == 'name:"Pichu" number:"12"':
+                return [
+                    {
+                        "id": "neo1-12",
+                        "name": "Pichu",
+                        "number": "12/111",
+                        "set_id": "neo1",
+                        "set_ptcgo_code": "N1",
+                        "set_name": "Neo Genesis",
+                        "reference_image_url": "https://images.scrydex.com/pokemon/neo1-12/large",
+                        "source": "scrydex",
+                    }
+                ]
+            return []
+
+        mock_search_cards.side_effect = fake_search_cards
+        result = choose_mapping(
+            TruthKey("Pichu (unlimited)", "12/111", "N1"),
+            None,
+            {},
+            allow_legacy_set_code_queries=False,
+        )
+        self.assertTrue(result["providerSupported"])
+        self.assertEqual(result["mappingConfidence"], "high")
+        self.assertEqual(result["selected"]["providerCardId"], "neo1-12")
 
     def test_derive_card_title_aliases_keeps_multilingual_titles(self) -> None:
         aliases = derive_card_title_aliases(

@@ -5,6 +5,7 @@ import argparse
 import json
 import re
 import sys
+import unicodedata
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -23,7 +24,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from scrydex_adapter import map_scrydex_catalog_card, scrydex_credentials, scrydex_request_url  # noqa: E402
-from scrydex_expansion_resolver import resolve_expansion_token  # noqa: E402
+from scrydex_expansion_resolver import SCRYDEX_EXPANSION_ALIASES, resolve_expansion_token  # noqa: E402
 from raw_visual_dataset_paths import default_raw_footer_layout_query_cache_path  # noqa: E402
 
 USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
@@ -44,8 +45,20 @@ def utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
+def ascii_fold(value: str | None) -> str:
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    return "".join(ch for ch in text if not unicodedata.combining(ch))
+
+
+def canonical_title(value: str | None) -> str:
+    text = ascii_fold(value)
+    text = re.sub(r"\([^)]*\)", " ", text)
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
+
 def normalized_title(value: str) -> str:
-    return re.sub(r"[^a-z0-9]+", "", value.lower())
+    return re.sub(r"[^a-z0-9]+", "", canonical_title(value).lower())
 
 
 def normalized_set_token(value: str | None) -> str:
@@ -71,13 +84,21 @@ def title_similarity(lhs: str, rhs: str) -> float:
 
 
 def normalize_collector_number(value: str | None) -> str:
-    return re.sub(r"[^A-Z0-9/]+", "", str(value or "").upper())
+    raw = re.sub(r"[^A-Z0-9/]+", "", ascii_fold(value).upper())
+    no_prefix_match = re.fullmatch(r"NO(\d+)", raw)
+    if no_prefix_match:
+        return no_prefix_match.group(1)
+    return raw
 
 
 def printed_number_query_value(value: str | None) -> str:
-    text = str(value or "").strip().upper()
+    text = ascii_fold(value).strip().upper()
     text = re.sub(r"\s+", "", text)
-    return re.sub(r"[^A-Z0-9/\-]+", "", text)
+    cleaned = re.sub(r"[^A-Z0-9/\-]+", "", text)
+    no_prefix_match = re.fullmatch(r"NO(\d+)", re.sub(r"[^A-Z0-9]+", "", text))
+    if no_prefix_match:
+        return no_prefix_match.group(1)
+    return cleaned
 
 
 def collector_prefix(value: str | None) -> str:
@@ -134,33 +155,38 @@ def build_card_queries(
 
     printed_number = printed_number_query_value(truth.collector_number)
     number_variants = stripped_number_variants(truth.collector_number)
-    name = truth.card_name.replace('"', '\\"')
+    title_variants = [truth.card_name]
+    canonical = canonical_title(truth.card_name)
+    if canonical and canonical != truth.card_name:
+        title_variants.append(canonical)
     set_code = str(truth.set_code or "").strip()
     expansion_id = str((resolved_expansion or {}).get("id") or "").strip()
 
-    if expansion_id:
-        if printed_number:
-            add(f'printed_number:"{printed_number}" expansion.id:{expansion_id}')
-        for number_variant in number_variants:
-            add(f'number:"{number_variant}" expansion.id:{expansion_id}')
-            add(f'name:"{name}" number:"{number_variant}" expansion.id:{expansion_id}')
-        if printed_number:
-            add(f'name:"{name}" printed_number:"{printed_number}" expansion.id:{expansion_id}')
-        add(f'name:"{name}" expansion.id:{expansion_id}')
+    for title_variant in title_variants:
+        name = title_variant.replace('"', '\\"')
+        if expansion_id:
+            if printed_number:
+                add(f'printed_number:"{printed_number}" expansion.id:{expansion_id}')
+            for number_variant in number_variants:
+                add(f'number:"{number_variant}" expansion.id:{expansion_id}')
+                add(f'name:"{name}" number:"{number_variant}" expansion.id:{expansion_id}')
+            if printed_number:
+                add(f'name:"{name}" printed_number:"{printed_number}" expansion.id:{expansion_id}')
+            add(f'name:"{name}" expansion.id:{expansion_id}')
 
-    if set_code and printed_number:
-        add(f'printed_number:"{printed_number}" expansion.code:{set_code}')
-    if set_code:
-        for number_variant in number_variants:
-            add(f'number:"{number_variant}" expansion.code:{set_code}')
-            add(f'name:"{name}" number:"{number_variant}" expansion.code:{set_code}')
-        if printed_number:
-            add(f'name:"{name}" printed_number:"{printed_number}" expansion.code:{set_code}')
-        add(f'name:"{name}" expansion.code:{set_code}')
+        if set_code and printed_number:
+            add(f'printed_number:"{printed_number}" expansion.code:{set_code}')
+        if set_code:
+            for number_variant in number_variants:
+                add(f'number:"{number_variant}" expansion.code:{set_code}')
+                add(f'name:"{name}" number:"{number_variant}" expansion.code:{set_code}')
+            if printed_number:
+                add(f'name:"{name}" printed_number:"{printed_number}" expansion.code:{set_code}')
+            add(f'name:"{name}" expansion.code:{set_code}')
 
-    for number_variant in number_variants:
-        add(f'name:"{name}" number:"{number_variant}"')
-    add(f'name:"{name}"')
+        for number_variant in number_variants:
+            add(f'name:"{name}" number:"{number_variant}"')
+        add(f'name:"{name}"')
     return queries
 
 
@@ -173,11 +199,26 @@ def set_match_score(expected: str | None, card: dict[str, Any]) -> tuple[int, st
     if not token:
         return 0, None
 
+    alias = SCRYDEX_EXPANSION_ALIASES.get(str(expected or "").strip().upper())
+
     ptcgo = normalized_set_token(card.get("set_ptcgo_code") or card.get("setPtcgoCode"))
     set_id = normalized_set_token(card.get("set_id") or card.get("setID"))
     set_name = normalized_set_token(card.get("set_name") or card.get("setName"))
     set_series = normalized_set_token(card.get("set_series") or card.get("setSeries"))
     card_id = normalized_set_token(card.get("id"))
+
+    if alias:
+        alias_id = normalized_set_token(alias.get("id"))
+        alias_code = normalized_set_token(alias.get("code"))
+        alias_name = normalized_set_token(alias.get("name"))
+        alias_checks = [
+            ("alias.id", alias_id, set_id),
+            ("alias.code", alias_code, ptcgo),
+            ("alias.name", alias_name, set_name),
+        ]
+        for label, lhs, rhs in alias_checks:
+            if lhs and rhs and lhs == rhs:
+                return 35, label
 
     checks = [
         ("ptcgoCode", ptcgo),

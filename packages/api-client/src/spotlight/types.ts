@@ -5,11 +5,50 @@ export type PortfolioHistoryRange = (typeof historyRanges)[number];
 export type ChartMode = 'portfolio' | 'sales';
 export type ScannerMode = 'raw' | 'slabs';
 
-export type ScannerCapturePayload = {
-  mode: ScannerMode;
+export type ScannerImagePayload = {
   jpegBase64: string;
   width: number;
   height: number;
+};
+
+export type ScannerSlabRecommendedLookupPath = 'psa_cert' | 'label_text_search' | 'needs_review';
+
+export type ScannerSlabAnalysisPayload = {
+  slabGrader: string | null;
+  slabGrade: string | null;
+  slabCertNumber: string | null;
+  slabBarcodePayloads: string[];
+  slabParsedLabelText: string[];
+  slabCardNumberRaw: string | null;
+  slabGraderConfidence: number | null;
+  slabGradeConfidence: number | null;
+  slabCertConfidence: number | null;
+  slabClassifierReasons: string[];
+  slabRecommendedLookupPath: ScannerSlabRecommendedLookupPath | null;
+  ocrAnalysis: Record<string, unknown> | null;
+};
+
+export type ScannerCapturePayload = ScannerImagePayload & {
+  mode: ScannerMode;
+  captureSource?: 'camera' | 'smoke_fixture' | string | null;
+  normalizedImage?: ScannerImagePayload | null;
+  slabAnalysis?: ScannerSlabAnalysisPayload | null;
+  sourceImage?: ScannerImagePayload | null;
+  submittedAt?: string | null;
+};
+
+export type ScannerArtifactUploadResult = {
+  status: 'uploaded' | 'skipped' | 'failed';
+  reason?: string | null;
+  storage?: string | null;
+  uploadedAt?: string | null;
+  sourceObjectPath?: string | null;
+  normalizedObjectPath?: string | null;
+  requestAttemptCount?: number | null;
+  requestUrl?: string | null;
+  roundTripMs?: number | null;
+  errorKind?: string | null;
+  errorMessage?: string | null;
 };
 
 export type ScanFeedbackPayload = {
@@ -25,13 +64,16 @@ export type ScanFeedbackPayload = {
 export type ScannerMatchResult = {
   scanID: string | null;
   candidates: CatalogSearchResult[];
+  artifactUpload?: ScannerArtifactUploadResult | null;
   endpointPath?: string;
+  resolverMode?: string | null;
   reviewDisposition?: string | null;
   reviewReason?: string | null;
   roundTripMs?: number | null;
   serverProcessingMs?: number | null;
   requestUrl?: string | null;
   requestAttemptCount?: number | null;
+  slabContext?: SlabContext | null;
 };
 
 export const spotlightRepositoryLoadStates = ['success', 'empty', 'not_found', 'error'] as const;
@@ -393,7 +435,7 @@ export type PortfolioEntryReplaceRequestPayload = {
   variantName?: string | null;
   condition: DeckConditionCode | null;
   quantity: number;
-  unitPrice: number;
+  unitPrice: number | null;
   currencyCode: string;
   updatedAt: string;
 };
@@ -403,7 +445,7 @@ export type PortfolioEntryReplaceResponsePayload = {
   deckEntryID: string;
   cardID: string;
   quantity: number;
-  unitPrice: number;
+  unitPrice: number | null;
   updatedAt: string;
 };
 

@@ -1,4 +1,5 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useKeepAwake } from 'expo-keep-awake';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
@@ -266,6 +267,7 @@ function AngleProgress({
 }
 
 export function LabelingSessionScreen() {
+  useKeepAwake('labeling-session');
   const router = useRouter();
   const theme = useSpotlightTheme();
   const { currentUser } = useAuth();

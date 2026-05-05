@@ -78,6 +78,10 @@ def default_raw_visual_train_manual_label_overrides_path() -> Path:
     return default_raw_visual_train_root() / "manual_label_overrides_2026-04-12.json"
 
 
+def default_raw_visual_train_provider_mapping_overrides_path() -> Path:
+    return default_raw_visual_train_root() / "provider_mapping_overrides_2026-05-04.json"
+
+
 def default_raw_visual_train_manual_label_summary_path() -> Path:
     return default_raw_visual_train_root() / "manual_label_application_summary.json"
 

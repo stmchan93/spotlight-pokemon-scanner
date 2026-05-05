@@ -45,6 +45,7 @@
     "expo-font": "~55.0.6",
     "expo-haptics": "~55.0.14",
     "expo-image-manipulator": "~55.0.15",
+    "expo-keep-awake": "~55.0.6",
     "expo-linking": "~55.0.14",
     "expo-localization": "~55.0.13",
     "expo-router": "~55.0.13",

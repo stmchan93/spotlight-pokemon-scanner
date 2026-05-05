@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import sys
+import unicodedata
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -26,7 +27,9 @@ ALIAS_PATH = Path(__file__).with_name("scrydex_expansion_aliases.json")
 
 
 def _normalized_set_token(value: str | None) -> str:
-    return re.sub(r"[^a-z0-9]+", "", str(value or "").lower())
+    text = unicodedata.normalize("NFKD", str(value or ""))
+    text = "".join(ch for ch in text if not unicodedata.combining(ch))
+    return re.sub(r"[^a-z0-9]+", "", text.lower())
 
 
 def _quote_query_value(value: str) -> str:
@@ -170,9 +173,22 @@ def _snapshot_candidates(local_token: str, snapshot_entries: list[dict[str, Any]
                 lambda entry, alias_name=alias_name: str(entry.get("name") or "") == alias_name,
             )
 
+    token_norm = _normalized_set_token(token)
     add_candidates(f"id:{token.lower()}", lambda entry, token=token: str(entry.get("id") or "").lower() == token.lower())
-    add_candidates(f'code:"{token}"', lambda entry, token=token: str(entry.get("code") or "") == token)
-    add_candidates(f'name:"{token}"', lambda entry, token=token: str(entry.get("name") or "") == token)
+    add_candidates(
+        f'code:"{token}"',
+        lambda entry, token=token, token_norm=token_norm: (
+            str(entry.get("code") or "") == token
+            or _normalized_set_token(entry.get("code")) == token_norm
+        ),
+    )
+    add_candidates(
+        f'name:"{token}"',
+        lambda entry, token=token, token_norm=token_norm: (
+            str(entry.get("name") or "") == token
+            or _normalized_set_token(entry.get("name")) == token_norm
+        ),
+    )
     return candidates_by_id, attempts
 
 
@@ -204,6 +220,9 @@ def expansion_resolution_queries(local_token: str) -> list[str]:
 
     add(f"id:{token.lower()}")
     add(f'code:"{_quote_query_value(token)}"')
+    upper = token.upper()
+    if upper != token:
+        add(f'code:"{_quote_query_value(upper)}"')
     add(f'name:"{_quote_query_value(token)}"')
     return queries
 

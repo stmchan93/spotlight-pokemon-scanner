@@ -233,11 +233,24 @@ type ScanMatchCandidateDTO = {
 type ScanMatchResponseDTO = {
   scanID?: string | null;
   topCandidates?: ScanMatchCandidateDTO[] | null;
+  resolverMode?: string | null;
+  slabContext?: DeckEntryDTO['slabContext'];
   reviewDisposition?: string | null;
   reviewReason?: string | null;
   performance?: {
     serverProcessingMs?: number | null;
   } | null;
+};
+
+type ScanArtifactUploadResponseDTO = {
+  enabled?: boolean | null;
+  reason?: string | null;
+  scanID?: string | null;
+  skipped?: boolean | null;
+  sourceObjectPath?: string | null;
+  normalizedObjectPath?: string | null;
+  storage?: string | null;
+  uploadedAt?: string | null;
 };
 
 type CardDetailDTO = {
@@ -1021,6 +1034,7 @@ function createScannerMatchPayload(
   const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
   const appVersion = normalizeString(clientContext?.appVersion) || '0';
   const buildNumber = normalizeString(clientContext?.buildNumber) || '0';
+  const slabAnalysis = payload.mode === 'slabs' ? (payload.slabAnalysis ?? null) : null;
 
   return {
     scanID: createPseudoUUID(),
@@ -1042,22 +1056,39 @@ function createScannerMatchPayload(
     setHintTokens: [],
     setBadgeHint: null,
     promoCodeHint: null,
-    slabGrader: null,
-    slabGrade: null,
-    slabCertNumber: null,
-    slabBarcodePayloads: [],
-    slabGraderConfidence: null,
-    slabGradeConfidence: null,
-    slabCertConfidence: null,
-    slabCardNumberRaw: null,
-    slabParsedLabelText: [],
-    slabClassifierReasons: [],
-    slabRecommendedLookupPath: null,
+    slabGrader: slabAnalysis?.slabGrader ?? null,
+    slabGrade: slabAnalysis?.slabGrade ?? null,
+    slabCertNumber: slabAnalysis?.slabCertNumber ?? null,
+    slabBarcodePayloads: slabAnalysis?.slabBarcodePayloads ?? [],
+    slabGraderConfidence: slabAnalysis?.slabGraderConfidence ?? null,
+    slabGradeConfidence: slabAnalysis?.slabGradeConfidence ?? null,
+    slabCertConfidence: slabAnalysis?.slabCertConfidence ?? null,
+    slabCardNumberRaw: slabAnalysis?.slabCardNumberRaw ?? null,
+    slabParsedLabelText: slabAnalysis?.slabParsedLabelText ?? [],
+    slabClassifierReasons: slabAnalysis?.slabClassifierReasons ?? [],
+    slabRecommendedLookupPath: slabAnalysis?.slabRecommendedLookupPath ?? null,
     resolverModeHint: payload.mode === 'slabs' ? 'psa_slab' : 'raw_card',
     rawResolverMode: payload.mode === 'raw' ? 'visual' : null,
     cropConfidence: 1,
     warnings: [],
-    ocrAnalysis: null,
+    ocrAnalysis: slabAnalysis?.ocrAnalysis ?? null,
+  };
+}
+
+function createScanArtifactUploadPayload(
+  payload: ScannerCapturePayload,
+  scanID: string,
+): Record<string, unknown> | null {
+  if (!payload.sourceImage || !payload.normalizedImage) {
+    return null;
+  }
+
+  return {
+    scanID,
+    submittedAt: normalizeString(payload.submittedAt) ?? new Date().toISOString(),
+    captureSource: normalizeString(payload.captureSource) ?? 'camera',
+    sourceImage: payload.sourceImage,
+    normalizedImage: payload.normalizedImage,
   };
 }
 
@@ -2142,7 +2173,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
         variantName: payload.variantName ?? null,
         condition: payload.condition,
         quantity,
-        unitPrice: 0,
+        unitPrice: null,
       },
     );
     this.inventoryEntries = updatedEntries;
@@ -2186,7 +2217,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
       deckEntryID,
       cardID: payload.cardID,
       quantity: payload.quantity,
-      unitPrice: payload.unitPrice,
+      unitPrice: payload.unitPrice ?? null,
       updatedAt: payload.updatedAt,
     };
   }
@@ -2711,17 +2742,22 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
     const roundTripMs = Date.now() - startedAt;
     const serverProcessingMs = normalizeNumber(response.data?.performance?.serverProcessingMs);
+    const scanID = normalizeString(response.data?.scanID);
+    const artifactUpload = await this.uploadScanArtifactsForMatch(payload, scanID);
 
     return {
-      scanID: normalizeString(response.data?.scanID),
+      artifactUpload,
+      scanID,
       candidates: mapScannerMatchCandidates(response.data, this.baseUrl),
       endpointPath,
+      resolverMode: normalizeString(response.data?.resolverMode),
       reviewDisposition: normalizeString(response.data?.reviewDisposition),
       reviewReason: normalizeString(response.data?.reviewReason),
       requestAttemptCount: response.meta.attemptCount,
       requestUrl: response.meta.requestUrl,
       roundTripMs,
       serverProcessingMs,
+      slabContext: normalizeSlabContext(response.data?.slabContext),
     } satisfies ScannerMatchResult;
   }
 
@@ -3332,5 +3368,66 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return result.data;
+  }
+
+  private async uploadScanArtifactsForMatch(
+    payload: ScannerCapturePayload,
+    scanID: string | null,
+  ) {
+    const uploadPayload = scanID ? createScanArtifactUploadPayload(payload, scanID) : null;
+    if (!uploadPayload) {
+      return null;
+    }
+
+    const startedAt = Date.now();
+    const response = await this.requestJson<ScanArtifactUploadResponseDTO>(
+      `${this.baseUrl}/api/v1/scan-artifacts`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(uploadPayload),
+      },
+      {
+        candidateStrategy: 'single_active',
+        logTransport: true,
+        requestLabel: 'api/v1/scan-artifacts',
+      },
+    );
+
+    const roundTripMs = Date.now() - startedAt;
+    if (response.kind !== 'success') {
+      return {
+        status: 'failed',
+        errorKind: response.error.kind,
+        errorMessage: response.error.message,
+        requestAttemptCount: response.meta?.attemptCount ?? null,
+        requestUrl: response.meta?.requestUrl ?? null,
+        roundTripMs,
+      } satisfies ScannerMatchResult['artifactUpload'];
+    }
+
+    if (response.data?.enabled === false || response.data?.skipped === true) {
+      return {
+        status: 'skipped',
+        reason: normalizeString(response.data?.reason),
+        requestAttemptCount: response.meta.attemptCount,
+        requestUrl: response.meta.requestUrl,
+        roundTripMs,
+        storage: normalizeString(response.data?.storage),
+      } satisfies ScannerMatchResult['artifactUpload'];
+    }
+
+    return {
+      status: 'uploaded',
+      normalizedObjectPath: normalizeString(response.data?.normalizedObjectPath),
+      requestAttemptCount: response.meta.attemptCount,
+      requestUrl: response.meta.requestUrl,
+      roundTripMs,
+      sourceObjectPath: normalizeString(response.data?.sourceObjectPath),
+      storage: normalizeString(response.data?.storage),
+      uploadedAt: normalizeString(response.data?.uploadedAt),
+    } satisfies ScannerMatchResult['artifactUpload'];
   }
 }

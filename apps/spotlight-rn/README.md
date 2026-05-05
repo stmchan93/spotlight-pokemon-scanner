@@ -354,6 +354,14 @@ pnpm release:gate:staging:build
 pnpm release:gate:staging:release
 ```
 
+The staging wrapper now skips smoke by default so frontend/TestFlight work is not blocked on local smoke credentials or fixture reset state. To force the staging gate to run smoke again, pass:
+
+```bash
+pnpm release:gate:staging -- --run-smoke
+pnpm release:gate:staging:build -- --run-smoke
+pnpm release:gate:staging:release -- --run-smoke
+```
+
 Those commands run one wrapper, [tools/run_release_gate.py](/Users/stephenchan/Code/spotlight/tools/run_release_gate.py:1), which can:
 
 - run `pnpm release:check`

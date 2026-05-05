@@ -143,7 +143,7 @@ CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
 
 RECENT_SALES_DEFAULT_LIMIT = 5
-RECENT_SALES_MAX_LIMIT = 10
+RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
 RECENT_SALES_EMPTY_REFRESH_HOURS = 48
 
@@ -1583,6 +1583,8 @@ class SpotlightScanService:
         pricing_context: PricingContext,
         snapshot_row: sqlite3.Row | None = None,
     ) -> dict[str, Any] | None:
+        if snapshot_row is None and pricing_context.is_graded:
+            snapshot_row = price_snapshot_row(self.connection, card_id)
         if snapshot_row is not None:
             pricing = self._pricing_summary_from_snapshot_row(
                 snapshot_row,
@@ -1698,21 +1700,14 @@ class SpotlightScanService:
         resolved_variant: str | None = None
 
         if pricing_context.is_graded:
-            entry = _resolve_graded_context_entry(
+            entry = self._resolve_best_graded_context_entry(
                 graded_contexts,
                 grader=pricing_context.grader,
                 grade=pricing_context.grade,
-                variant=pricing_context.preferred_variant,
+                preferred_variant=pricing_context.preferred_variant,
+                variant_hints=pricing_context.variant_hints,
             )
             summary = _coerce_price_summary_from_entry(entry)
-            if summary is None:
-                entry = _resolve_graded_context_entry(
-                    graded_contexts,
-                    grader=pricing_context.grader,
-                    grade=pricing_context.grade,
-                    variant=None,
-                )
-                summary = _coerce_price_summary_from_entry(entry)
             if summary is None:
                 return None
             resolved_variant = (
@@ -3135,13 +3130,14 @@ class SpotlightScanService:
 
         unit_price_raw = payload.get("unitPrice")
         if unit_price_raw is None or unit_price_raw == "":
-            raise ValueError("unitPrice is required")
-        try:
-            unit_price = float(unit_price_raw)
-        except (TypeError, ValueError):
-            raise ValueError("unitPrice must be a number") from None
-        if unit_price < 0:
-            raise ValueError("unitPrice must be non-negative")
+            unit_price = None
+        else:
+            try:
+                unit_price = float(unit_price_raw)
+            except (TypeError, ValueError):
+                raise ValueError("unitPrice must be a number") from None
+            if unit_price < 0:
+                raise ValueError("unitPrice must be non-negative")
 
         currency_code = str(payload.get("currencyCode") or "").strip() or "USD"
         payment_method = str(payload.get("paymentMethod") or "").strip() or None
@@ -3293,7 +3289,7 @@ class SpotlightScanService:
                         variant_name,
                         condition,
                         quantity,
-                        round(unit_price * quantity, 2),
+                        round(unit_price * quantity, 2) if unit_price is not None else 0.0,
                         currency_code,
                         updated_at,
                         previous_deck_entry_id,
@@ -3307,7 +3303,7 @@ class SpotlightScanService:
                     event_kind="replace",
                     quantity_delta=quantity - existing_quantity,
                     unit_price=unit_price,
-                    total_price=round(unit_price * quantity, 2),
+                    total_price=round(unit_price * quantity, 2) if unit_price is not None else None,
                     currency_code=currency_code,
                     condition=condition,
                     grader=grader,
@@ -3373,7 +3369,7 @@ class SpotlightScanService:
             "variantName": variant_name,
             "condition": condition,
             "quantity": quantity,
-            "unitPrice": unit_price,
+            "unitPrice": round(unit_price, 2) if unit_price is not None else None,
             "updatedAt": updated_at,
         }
 
@@ -3822,6 +3818,109 @@ class SpotlightScanService:
         return True
 
     @staticmethod
+    def _slab_variant_hint_score(
+        variant_name: str | None,
+        *,
+        variant_hints: dict[str, Any] | None = None,
+    ) -> int:
+        if not variant_hints:
+            return 0
+        normalized_variant = SpotlightScanService._normalize_slab_variant_key(variant_name)
+        if not normalized_variant:
+            return 0
+
+        score = 0
+        shadowless = variant_hints.get("shadowless")
+        first_edition = variant_hints.get("firstEdition")
+        red_cheeks = bool(variant_hints.get("redCheeks"))
+        yellow_cheeks = bool(variant_hints.get("yellowCheeks"))
+        jumbo = bool(variant_hints.get("jumbo"))
+
+        if shadowless is True:
+            score += 4 if "shadowless" in normalized_variant else -4
+        elif shadowless is False:
+            score += 1 if "shadowless" not in normalized_variant else -1
+
+        if first_edition is True:
+            score += 6 if "firstedition" in normalized_variant else -6
+        elif first_edition is False:
+            score += 2 if "firstedition" not in normalized_variant else -3
+
+        if red_cheeks:
+            score += 5 if "redcheeks" in normalized_variant else -5
+        elif yellow_cheeks:
+            score += 2 if "redcheeks" not in normalized_variant else -5
+
+        if not jumbo and "jumbo" in normalized_variant:
+            score -= 3
+
+        return score
+
+    @staticmethod
+    def _resolve_best_graded_context_entry(
+        graded_contexts: dict[str, Any],
+        *,
+        grader: str | None,
+        grade: str | None,
+        preferred_variant: str | None = None,
+        variant_hints: dict[str, Any] | None = None,
+    ) -> dict[str, Any] | None:
+        if preferred_variant:
+            exact_variant_entry = _resolve_graded_context_entry(
+                graded_contexts,
+                grader=grader,
+                grade=grade,
+                variant=preferred_variant,
+            )
+            if exact_variant_entry is not None:
+                return exact_variant_entry
+
+        if not variant_hints:
+            return _resolve_graded_context_entry(
+                graded_contexts,
+                grader=grader,
+                grade=grade,
+                variant=None,
+            )
+
+        grader_key = str(grader or "").strip().upper()
+        grade_key = str(grade or "").strip().upper()
+        if not grader_key or not grade_key:
+            return None
+        graders = graded_contexts.get("graders")
+        if not isinstance(graders, dict):
+            return None
+        grade_map = graders.get(grader_key)
+        if not isinstance(grade_map, dict):
+            return None
+        entries = grade_map.get(grade_key)
+        if not isinstance(entries, list):
+            return None
+
+        ranked_entries: list[tuple[tuple[int, int, int, int, int], dict[str, Any]]] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            entry_variant = str(entry.get("variant") or "").strip() or None
+            hint_match = 1 if SpotlightScanService._slab_variant_matches(entry_variant, variant_hints=variant_hints) else 0
+            hint_score = SpotlightScanService._slab_variant_hint_score(entry_variant, variant_hints=variant_hints)
+            has_market = 1 if isinstance(entry.get("market"), (int, float)) else 0
+            plain_grade = 1 if not any(bool(entry.get(flag)) for flag in ("isPerfect", "isSigned", "isError")) else 0
+            has_currency = 1 if str(entry.get("currencyCode") or "").strip() else 0
+            ranked_entries.append(((hint_match, hint_score, has_market, plain_grade, has_currency), entry))
+
+        if not ranked_entries:
+            return _resolve_graded_context_entry(
+                graded_contexts,
+                grader=grader,
+                grade=grade,
+                variant=None,
+            )
+
+        ranked_entries.sort(key=lambda item: item[0], reverse=True)
+        return ranked_entries[0][1]
+
+    @staticmethod
     def _inferred_slab_variant_hints(
         label_text: str,
         *,
@@ -4262,11 +4361,84 @@ class SpotlightScanService:
             return 0.4
         return 0.0
 
+    @staticmethod
+    def _slab_label_years(evidence: SlabMatchEvidence) -> tuple[int, ...]:
+        years: list[int] = []
+        combined_text = " ".join(
+            text
+            for text in (
+                evidence.label_text,
+                *evidence.parsed_label_text,
+                evidence.title_text_primary,
+                evidence.title_text_secondary,
+            )
+            if text
+        )
+        for match in re.finditer(r"\b(19\d{2}|20\d{2})\b", combined_text):
+            year = int(match.group(1))
+            if 1995 <= year <= 2035 and year not in years:
+                years.append(year)
+        return tuple(years)
+
+    @staticmethod
+    def _slab_candidate_release_year(card: dict[str, Any]) -> int | None:
+        raw_release_date = str(card.get("setReleaseDate") or card.get("set_release_date") or "").strip()
+        if not raw_release_date:
+            return None
+        match = re.search(r"\b(19\d{2}|20\d{2})\b", raw_release_date)
+        if not match:
+            return None
+        return int(match.group(1))
+
+    def _slab_release_year_alignment(self, card: dict[str, Any], evidence: SlabMatchEvidence) -> tuple[float, str | None]:
+        release_year = self._slab_candidate_release_year(card)
+        label_years = self._slab_label_years(evidence)
+        if release_year is None or not label_years:
+            return 0.0, None
+
+        closest_gap = min(abs(release_year - year) for year in label_years)
+        earliest_label_year = min(label_years)
+        latest_label_year = max(label_years)
+
+        if closest_gap == 0:
+            return 1.0, "release_year_exact"
+        if closest_gap == 1:
+            return 0.45, "release_year_near"
+        if closest_gap <= 2:
+            return 0.15, "release_year_near"
+        if release_year > latest_label_year + 5:
+            return -0.75, "release_year_modern_mismatch"
+        if release_year < earliest_label_year - 5:
+            return -0.35, "release_year_vintage_mismatch"
+        return -0.2, "release_year_mismatch"
+
+    def _slab_first_edition_bias(self, card: dict[str, Any], evidence: SlabMatchEvidence) -> tuple[float, str | None]:
+        first_edition = evidence.variant_hints.get("firstEdition") if evidence.variant_hints else None
+        if first_edition is not True:
+            return 0.0, None
+
+        release_year = self._slab_candidate_release_year(card)
+        if release_year is None:
+            return 0.0, None
+        if release_year <= 2003:
+            return 1.0, "first_edition_vintage_bias"
+        if release_year >= 2010:
+            return -1.0, "first_edition_modern_penalty"
+        return -0.25, "first_edition_mismatch"
+
     def _score_slab_candidate(self, card: dict[str, Any], evidence: SlabMatchEvidence) -> tuple[float, list[str]]:
         title_overlap = self._slab_title_overlap(card, evidence)
         set_overlap = self._slab_set_overlap(card, evidence)
         card_number_overlap = self._slab_card_number_overlap(card, evidence)
-        score = (title_overlap * 50.0) + (card_number_overlap * 30.0) + (set_overlap * 20.0)
+        release_year_alignment, release_year_reason = self._slab_release_year_alignment(card, evidence)
+        first_edition_bias, first_edition_reason = self._slab_first_edition_bias(card, evidence)
+        score = (
+            (title_overlap * 50.0)
+            + (card_number_overlap * 30.0)
+            + (set_overlap * 20.0)
+            + (release_year_alignment * 18.0)
+            + (first_edition_bias * 10.0)
+        )
         reasons: list[str] = []
         if title_overlap > 0:
             reasons.append("title_overlap")
@@ -4276,6 +4448,10 @@ class SpotlightScanService:
             reasons.append("card_number_partial")
         if set_overlap > 0:
             reasons.append("set_overlap")
+        if release_year_reason and release_year_alignment != 0:
+            reasons.append(release_year_reason)
+        if first_edition_reason and first_edition_bias != 0:
+            reasons.append(first_edition_reason)
         return round(score, 4), reasons
 
     @staticmethod
@@ -5225,6 +5401,10 @@ class SpotlightScanService:
         prefix = normalized.split("/", 1)[0]
         add_exact(prefix)
         add_like(f"{prefix}/%")
+        add_exact(f"NO.{prefix}")
+        add_exact(f"NO. {prefix}")
+        add_like(f"NO.{prefix}/%")
+        add_like(f"NO. {prefix}/%")
 
         if prefix.isdigit():
             max_width = max(4, len(prefix))
@@ -5232,6 +5412,10 @@ class SpotlightScanService:
                 padded = prefix.zfill(width)
                 add_exact(padded)
                 add_like(f"{padded}/%")
+                add_exact(f"NO.{padded}")
+                add_exact(f"NO. {padded}")
+                add_like(f"NO.{padded}/%")
+                add_like(f"NO. {padded}/%")
 
         return tuple(exact_values), tuple(like_values)
 

@@ -55,9 +55,9 @@ describe('AddToCollectionScreen', () => {
     });
   });
 
-  it('persists a meaningful default raw variant instead of collapsing it to generic raw', async () => {
+  it('persists a meaningful default raw variant without inventing a bought price', async () => {
     const onClose = jest.fn();
-    const createPortfolioBuy = jest.fn();
+    const createInventoryEntry = jest.fn();
     const spotlightRepository = createTestSpotlightRepository({
       getAddToCollectionOptions: async () => ({
         variants: [
@@ -67,15 +67,16 @@ describe('AddToCollectionScreen', () => {
         defaultVariant: 'Holofoil',
         defaultPrice: 0.31,
       }),
-      createPortfolioBuy: async (payload) => {
-        createPortfolioBuy(payload);
+      createInventoryEntry: async (payload) => {
+        createInventoryEntry(payload);
         return {
           deckEntryID: 'entry-holofoil',
           cardID: payload.cardID,
-          inserted: true,
-          quantityAdded: payload.quantity,
-          totalSpend: payload.quantity * payload.unitPrice,
-          boughtAt: payload.boughtAt,
+          variantName: payload.variantName ?? null,
+          condition: payload.condition,
+          confirmationID: null,
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
         };
       },
     });
@@ -92,10 +93,11 @@ describe('AddToCollectionScreen', () => {
     await waitFor(() => {
       expect(onClose).toHaveBeenCalled();
     });
-    expect(createPortfolioBuy).toHaveBeenCalledWith(expect.objectContaining({
+    expect(createInventoryEntry).toHaveBeenCalledWith(expect.objectContaining({
       cardID: 'sm7-1',
       variantName: 'Holofoil',
     }));
+    expect(createInventoryEntry.mock.calls[0]?.[0]).not.toHaveProperty('unitPrice');
   });
 
   it('prefills the selected row in edit mode and saves through replacePortfolioEntry', async () => {
@@ -149,7 +151,57 @@ describe('AddToCollectionScreen', () => {
       cardID: 'xyp-111',
       condition: 'lightly_played',
       quantity: 2,
+      unitPrice: 22,
       variantName: null,
+    }));
+  });
+
+  it('preserves a null bought price when editing an entry that was added without cost basis', async () => {
+    const onClose = jest.fn();
+    const replacePortfolioEntry = jest.fn();
+    const spotlightRepository = createTestSpotlightRepository({
+      replacePortfolioEntry: async (payload) => {
+        replacePortfolioEntry(payload);
+        return {
+          previousDeckEntryID: payload.deckEntryID,
+          deckEntryID: payload.deckEntryID,
+          cardID: payload.cardID,
+          quantity: payload.quantity,
+          unitPrice: payload.unitPrice,
+          updatedAt: payload.updatedAt,
+        };
+      },
+    });
+    const added = await spotlightRepository.createInventoryEntry({
+      addedAt: '2026-04-24T12:00:00.000Z',
+      cardID: 'sm7-1',
+      condition: 'near_mint',
+      quantity: 1,
+      slabContext: null,
+      sourceScanID: null,
+      variantName: null,
+    });
+
+    renderWithProviders(
+      <AddToCollectionScreen
+        cardId="sm7-1"
+        entryId={added.deckEntryID}
+        onClose={onClose}
+      />,
+      { spotlightRepository },
+    );
+
+    expect(await screen.findByText('Edit Collection')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('submit-add-to-collection'));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+    expect(replacePortfolioEntry).toHaveBeenCalledWith(expect.objectContaining({
+      deckEntryID: added.deckEntryID,
+      cardID: 'sm7-1',
+      unitPrice: null,
     }));
   });
 
@@ -183,7 +235,7 @@ describe('AddToCollectionScreen', () => {
   it('keeps the sheet open and shows a submission error when the buy call fails', async () => {
     const onClose = jest.fn();
     const spotlightRepository = createTestSpotlightRepository({
-      createPortfolioBuy: async () => {
+      createInventoryEntry: async () => {
         throw new Error('write failed');
       },
     });

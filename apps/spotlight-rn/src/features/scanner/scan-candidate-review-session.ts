@@ -1,4 +1,4 @@
-import type { CatalogSearchResult } from '@spotlight/api-client';
+import type { CatalogSearchResult, SlabContext } from '@spotlight/api-client';
 
 export type ScanImageDimensions = {
   height: number;
@@ -20,6 +20,7 @@ export type ScanCandidateReviewSession = {
   normalizedImageDimensions: ScanImageDimensions | null;
   normalizedImageUri: string | null;
   selectedCardId: string;
+  slabContext?: SlabContext | null;
   sourceImageCrop?: ScanSourceImageCrop | null;
   sourceImageDimensions?: ScanSourceImageDimensions | null;
   sourceImageRotationDegrees?: number;
@@ -36,6 +37,7 @@ type SaveScanCandidateReviewSessionInput = {
   normalizedImageUri?: string | null;
   sourceImageCrop?: ScanSourceImageCrop | null;
   selectedCardId: string;
+  slabContext?: SlabContext | null;
   sourceImageDimensions?: ScanSourceImageDimensions | null;
   sourceImageRotationDegrees?: number;
   sourceImageUri?: string | null;
@@ -48,6 +50,7 @@ export function saveScanCandidateReviewSession({
   normalizedImageUri = null,
   sourceImageCrop = null,
   selectedCardId,
+  slabContext = null,
   sourceImageDimensions = null,
   sourceImageRotationDegrees = 0,
   sourceImageUri = null,
@@ -57,6 +60,7 @@ export function saveScanCandidateReviewSession({
     id,
     normalizedImageDimensions,
     normalizedImageUri,
+    slabContext,
     sourceImageCrop,
     selectedCardId,
     sourceImageDimensions,

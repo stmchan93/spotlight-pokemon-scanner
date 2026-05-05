@@ -18,6 +18,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useKeepAwake } from 'expo-keep-awake';
 import {
   IconCalculator,
   IconPencil,
@@ -127,7 +128,10 @@ type SellStatusOverlayProps = {
 };
 
 type SellIdentityChipsProps = {
+  centered?: boolean;
   entry: InventoryCardEntry;
+  includeSlabGrade?: boolean;
+  rowTestID?: string;
   testIDPrefix: string;
 };
 
@@ -146,6 +150,15 @@ type SellSwipeConfirmationSheetProps = {
   translateY: AnimatedNumericValue;
   usesDisabledVisual?: boolean;
 };
+
+function TransactionPhotoCameraKeepAwake({
+  testIDPrefix,
+}: {
+  testIDPrefix: string;
+}) {
+  useKeepAwake(`${testIDPrefix}-transaction-photo-camera`);
+  return null;
+}
 
 
 function CameraIcon() {
@@ -713,17 +726,22 @@ function SellInlineCalculator({
 }
 
 export function SellIdentityChips({
+  centered = false,
   entry,
+  includeSlabGrade = true,
+  rowTestID,
   testIDPrefix,
 }: SellIdentityChipsProps) {
-  const tokens = buildSellMetadataTokens(entry);
+  const tokens = buildSellMetadataTokens(entry).filter((token) => (
+    includeSlabGrade || (token.label !== 'Grader' && token.label !== 'Grade')
+  ));
 
   if (tokens.length === 0) {
     return null;
   }
 
   return (
-    <View style={styles.metadataChipRow}>
+    <View style={[styles.metadataChipRow, centered ? styles.metadataChipRowCentered : null]} testID={rowTestID}>
       {tokens.map((token) => (
         <SellMetadataChip
           key={`${token.label}-${token.value}`}
@@ -1215,6 +1233,7 @@ export function SellTransactionPhotoCapture({
         presentationStyle="fullScreen"
         visible={isCameraVisible}
       >
+        <TransactionPhotoCameraKeepAwake testIDPrefix={testIDPrefix} />
         <SafeAreaView
           edges={['bottom', 'left', 'right']}
           style={styles.cameraModal}
@@ -1672,6 +1691,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+  },
+  metadataChipRowCentered: {
+    alignSelf: 'center',
+    justifyContent: 'center',
   },
   metadataChipValue: {
     color: '#0F0F12',

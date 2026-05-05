@@ -275,7 +275,6 @@ export function AddToCollectionScreen({
     return detail.ownedEntries.find((entry) => entry.id === entryId) ?? null;
   }, [detail, entryId]);
 
-  const defaultUnitPrice = editingEntry?.costBasisPerUnit ?? options?.defaultPrice ?? detail?.marketPrice ?? 0;
   const isEditingEntry = editingEntry != null;
   const submitLabel = isSubmitting
     ? (isEditingEntry ? 'Saving...' : 'Adding...')
@@ -314,21 +313,18 @@ export function AddToCollectionScreen({
           variantName: rawVariantName,
           condition: selectedGrader === 'Raw' ? selectedCondition : null,
           quantity,
-          unitPrice: defaultUnitPrice,
+          unitPrice: editingEntry.costBasisPerUnit ?? null,
           currencyCode: detail?.currencyCode ?? 'USD',
           updatedAt: new Date().toISOString(),
         })
-      : spotlightRepository.createPortfolioBuy({
+      : spotlightRepository.createInventoryEntry({
           cardID: cardId,
           slabContext: nextSlabContext,
           variantName: rawVariantName,
           condition: selectedGrader === 'Raw' ? selectedCondition : null,
           quantity,
-          unitPrice: defaultUnitPrice,
-          currencyCode: detail?.currencyCode ?? 'USD',
-          paymentMethod: null,
-          boughtAt: new Date().toISOString(),
           sourceScanID: null,
+          addedAt: new Date().toISOString(),
         });
 
     void request.then(() => {

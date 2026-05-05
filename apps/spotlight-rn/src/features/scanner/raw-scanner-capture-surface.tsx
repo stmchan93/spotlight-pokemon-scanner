@@ -27,6 +27,10 @@ export const rawScannerTrayHeaderHeight = 61;
 export const rawScannerTrayEmptyPeekHeight = 12;
 export const rawScannerTrayCollapsedRowHeight = 74;
 export const rawScannerModeToggleReservedHeight = 89;
+export const slabLabelDividerRatio = 0.28;
+export const slabLabelAnalysisBottomRatio = 0.34;
+export const scannerReticleCornerStrokeWidth = 1.7;
+export const slabGuideHorizontalInset = 8;
 
 export type RawScannerCaptureLayout = {
   backButtonTop: number;
@@ -269,7 +273,7 @@ export function RawScannerCaptureSurface({
               style={[
                 styles.slabGuide,
                 {
-                  top: layout.reticle.height * 0.28,
+                  top: layout.reticle.height * slabLabelDividerRatio,
                 },
               ]}
               testID={`${testIDPrefix}-slab-guide`}
@@ -330,8 +334,8 @@ const styles = StyleSheet.create({
   },
   reticleBottomLeft: {
     borderBottomLeftRadius: 14,
-    borderBottomWidth: 1.7,
-    borderLeftWidth: 1.7,
+    borderBottomWidth: scannerReticleCornerStrokeWidth,
+    borderLeftWidth: scannerReticleCornerStrokeWidth,
   },
   reticleBottomLeftPosition: {
     bottom: 0,
@@ -339,8 +343,8 @@ const styles = StyleSheet.create({
   },
   reticleBottomRight: {
     borderBottomRightRadius: 14,
-    borderBottomWidth: 1.7,
-    borderRightWidth: 1.7,
+    borderBottomWidth: scannerReticleCornerStrokeWidth,
+    borderRightWidth: scannerReticleCornerStrokeWidth,
   },
   reticleBottomRightPosition: {
     bottom: 0,
@@ -362,18 +366,18 @@ const styles = StyleSheet.create({
     position: 'absolute',
   },
   reticleTopLeft: {
-    borderLeftWidth: 1.7,
+    borderLeftWidth: scannerReticleCornerStrokeWidth,
     borderTopLeftRadius: 14,
-    borderTopWidth: 1.7,
+    borderTopWidth: scannerReticleCornerStrokeWidth,
   },
   reticleTopLeftPosition: {
     left: 0,
     top: 0,
   },
   reticleTopRight: {
-    borderRightWidth: 1.7,
+    borderRightWidth: scannerReticleCornerStrokeWidth,
     borderTopRightRadius: 14,
-    borderTopWidth: 1.7,
+    borderTopWidth: scannerReticleCornerStrokeWidth,
   },
   reticleTopRightPosition: {
     right: 0,
@@ -394,10 +398,9 @@ const styles = StyleSheet.create({
   },
   slabGuide: {
     backgroundColor: colors.scannerTextPrimary,
-    height: 1,
-    left: 0,
-    opacity: 0.22,
+    height: scannerReticleCornerStrokeWidth,
+    left: slabGuideHorizontalInset,
     position: 'absolute',
-    right: 0,
+    right: slabGuideHorizontalInset,
   },
 });
