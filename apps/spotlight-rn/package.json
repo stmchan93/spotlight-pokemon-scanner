@@ -1,7 +1,7 @@
 {
   "name": "@spotlight/mobile-app",
   "main": "expo-router/entry",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "scripts": {
     "start": "expo start",
     "visual:design": "bash ../../tools/run_mobile_design_catalog.sh",

@@ -1,7 +1,7 @@
 {
   "name": "spotlight",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packageManager": "pnpm@10.30.3",
   "scripts": {
     "backend:start:phone": "zsh tools/start_mobile_phone_dev.sh --backend-only",
