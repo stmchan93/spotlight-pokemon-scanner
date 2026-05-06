@@ -11,6 +11,8 @@
     "eas:build:ios:development": "pnpm dlx eas-cli build --platform ios --profile development",
     "eas:build:ios:staging": "pnpm dlx eas-cli build --platform ios --profile staging",
     "eas:build:ios:production": "pnpm dlx eas-cli build --platform ios --profile production",
+    "eas:update:ios:staging": "pnpm dlx eas-cli update --channel staging --platform ios --environment preview",
+    "eas:update:ios:production": "pnpm dlx eas-cli update --channel production --platform ios --environment production",
     "eas:submit:ios:staging": "pnpm dlx eas-cli submit --platform ios --profile staging",
     "eas:submit:ios": "pnpm dlx eas-cli submit --platform ios --profile production",
     "mobile:build:ios:staging": "bash ../../tools/run_staging_release_gate.sh build",

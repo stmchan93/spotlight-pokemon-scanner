@@ -20,6 +20,8 @@
     "mobile:build:ios:development": "bash tools/run_mobile_eas.sh development build ios development",
     "mobile:build:ios:staging": "bash tools/run_staging_mobile_release_gate.sh build",
     "mobile:build:ios:production": "bash tools/run_mobile_eas.sh production build ios production",
+    "mobile:update:ios:staging": "bash tools/run_mobile_eas.sh staging update ios staging",
+    "mobile:update:ios:production": "bash tools/run_mobile_eas.sh production update ios production",
     "mobile:release:ios:staging": "bash tools/run_staging_mobile_release_gate.sh release",
     "mobile:release:ios:production": "bash tools/run_mobile_eas.sh production release ios production",
     "mobile:submit:ios:staging": "bash tools/run_mobile_eas.sh staging submit ios staging",
