@@ -21,6 +21,7 @@ const EXPO_EXTRA_ENV_MAPPINGS = [
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_HOST', 'spotlightAuthRedirectHost'],
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_REDIRECT_URL', 'spotlightAuthRedirectUrl'],
   ['EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME', 'spotlightAuthScheme'],
+  ['EXPO_PUBLIC_SPOTLIGHT_STAGING_SMOKE_ENABLED', 'spotlightStagingSmokeEnabled'],
   ['EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED', 'spotlightScannerSmokeEnabled'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_API_KEY', 'spotlightPosthogApiKey'],
   ['EXPO_PUBLIC_SPOTLIGHT_POSTHOG_HOST', 'spotlightPosthogHost'],

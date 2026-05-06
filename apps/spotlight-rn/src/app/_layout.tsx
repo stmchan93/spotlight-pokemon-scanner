@@ -30,6 +30,7 @@ import {
   fontFamilies,
 } from '@spotlight/design-system';
 
+import { StagingSmokeDiagnostics } from '@/components/staging-smoke-diagnostics';
 import { AuthGate } from '@/features/auth/components/auth-gate';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
@@ -173,6 +174,7 @@ function RootLayout() {
                 <AuthenticatedAppProviders>
                   <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
                     <RootNavigator />
+                    <StagingSmokeDiagnostics />
                   </View>
                 </AuthenticatedAppProviders>
               </PostHogAppProvider>

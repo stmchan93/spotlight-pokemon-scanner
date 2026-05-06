@@ -99,8 +99,13 @@ export const shadows = {
   } satisfies ViewStyle,
 } as const;
 
+const numericFontVariant = {
+  fontVariant: ['tabular-nums', 'lining-nums'] as TextStyle['fontVariant'],
+} as const;
+
 export const textStyles = {
   display: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.display,
     fontSize: 36,
     lineHeight: 40,
@@ -108,6 +113,7 @@ export const textStyles = {
     color: colors.textPrimary,
   } satisfies TextStyle,
   title: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.display,
     fontSize: 25,
     lineHeight: 30,
@@ -115,6 +121,7 @@ export const textStyles = {
     color: colors.textPrimary,
   } satisfies TextStyle,
   titleCompact: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.display,
     fontSize: 21,
     lineHeight: 26,
@@ -122,36 +129,42 @@ export const textStyles = {
     color: colors.textPrimary,
   } satisfies TextStyle,
   headline: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 16,
     lineHeight: 20,
     color: colors.textPrimary,
   } satisfies TextStyle,
   body: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.bodyRegular,
     fontSize: 15,
     lineHeight: 20,
     color: colors.textPrimary,
   } satisfies TextStyle,
   bodyStrong: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 15,
     lineHeight: 20,
     color: colors.textPrimary,
   } satisfies TextStyle,
   control: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 15,
     lineHeight: 20,
     color: colors.textPrimary,
   } satisfies TextStyle,
   caption: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 12,
     lineHeight: 16,
     color: colors.textSecondary,
   } satisfies TextStyle,
   micro: {
+    ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,
     fontSize: 11,
     lineHeight: 14,

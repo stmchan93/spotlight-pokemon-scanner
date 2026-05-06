@@ -242,7 +242,7 @@ HEALTH_MONITOR_LOG_FILE="$LOG_DIR/health_monitor.log"
 RESOURCE_MONITOR_LOG_FILE="$LOG_DIR/resource_monitor.log"
 TORCH_CPU_INDEX_URL="${SPOTLIGHT_VM_TORCH_INDEX_URL:-https://download.pytorch.org/whl/cpu}"
 TORCH_PACKAGE_SPEC="${SPOTLIGHT_VM_TORCH_PACKAGE_SPEC:-torch==2.11.0+cpu}"
-SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 3 * * *}"
+SYNC_CRON_SCHEDULE="${SPOTLIGHT_VM_SYNC_CRON:-0 6,18 * * *}"
 SYNC_CRON_TIMEZONE="${SPOTLIGHT_VM_SYNC_CRON_TZ:-America/Los_Angeles}"
 BACKEND_HOST="${SPOTLIGHT_VM_BACKEND_HOST:-127.0.0.1}"
 PUBLIC_BASE_URL="${SPOTLIGHT_VM_PUBLIC_BASE_URL:-}"
@@ -384,7 +384,7 @@ if [ "${SPOTLIGHT_RUN_INITIAL_SYNC:-0}" = "1" ]; then
   echo "Running initial Scrydex sync (explicit opt-in)..."
   "$SCRIPT_DIR/run_sync_vm.sh" >> "$SYNC_LOG_FILE" 2>&1
 else
-  echo "Skipping initial Scrydex sync by default; relying on the scheduled 3:00 AM cron."
+  echo "Skipping initial Scrydex sync by default; relying on the scheduled 6:00 AM / 6:00 PM cron."
   echo "Set SPOTLIGHT_RUN_INITIAL_SYNC=1 to opt in during deploy."
 fi
 

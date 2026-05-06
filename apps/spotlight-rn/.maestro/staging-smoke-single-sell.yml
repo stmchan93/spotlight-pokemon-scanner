@@ -1,16 +1,38 @@
 appId: com.looty.staging
 ---
 - tapOn:
-    id: portfolio-see-more
-- assertVisible: "All cards"
-- tapOn:
-    id: "${SPOTLIGHT_MAESTRO_SINGLE_SELL_ENTRY_ID}"
-- assertVisible:
-    id: detail-sell-card
-- tapOn:
     id: detail-sell-card
 - assertVisible:
     id: single-sell-summary-card
+- tapOn:
+    id: single-sell-edit-bought-price
+- assertVisible:
+    id: single-sell-bought-price-input
+- tapOn:
+    id: single-sell-bought-price-input
+- eraseText
+- inputText: "${SPOTLIGHT_MAESTRO_SINGLE_SELL_BOUGHT_PRICE}"
+- tapOn:
+    text: "Market price"
+- swipe:
+    from:
+      id: single-sell-scroll-view
+    direction: UP
+    duration: 250
+- tapOn:
+    id: single-sell-save-bought-price
+- tapOn:
+    id: single-sell-save-bought-price
+    optional: true
+- assertNotVisible:
+    id: single-sell-bought-price-input
+- swipe:
+    from:
+      id: single-sell-scroll-view
+    direction: UP
+    duration: 400
+- assertVisible:
+    id: single-sell-sold-price
 - tapOn:
     id: single-sell-sold-price
 - assertVisible:
@@ -25,9 +47,11 @@ appId: com.looty.staging
     id: single-sell-calculator-equals
 - swipe:
     from:
-      id: single-sell-swipe-rail
+      id: single-sell-swipe-handle
     direction: UP
-    duration: 400
+    duration: 1200
 - assertVisible:
     id: single-sell-status-screen
 - takeScreenshot: staging-smoke-single-sell
+- assertVisible:
+    id: portfolio-account-button

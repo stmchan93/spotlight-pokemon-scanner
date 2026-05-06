@@ -1,6 +1,6 @@
 appId: com.looty.staging
 ---
-- launchApp
+- runFlow: staging-smoke-runtime-assertions.yml
 - runFlow: staging-smoke-auth-restore-portfolio.yml
 - runFlow: staging-smoke-scan-shell.yml
 - runFlow: staging-smoke-catalog-add-to-collection.yml

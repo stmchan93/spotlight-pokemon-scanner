@@ -10,7 +10,31 @@ appId: com.looty.staging
     id: xmark
     optional: true
 - tapOn:
+    id: detail-back
+    optional: true
+- tapOn:
+    id: add-to-collection-close
+    optional: true
+- tapOn:
+    id: catalog-close
+    optional: true
+- tapOn:
     id: scanner-back-button
+    optional: true
+- tapOn:
+    id: single-sell-close
+    optional: true
+- tapOn:
+    id: bulk-sell-back-to-edit
+    optional: true
+- tapOn:
+    id: bulk-sell-close
+    optional: true
+- tapOn:
+    id: inventory-back
+    optional: true
+- tapOn:
+    id: sales-history-back
     optional: true
 - tapOn:
     id: bottom-nav-portfolio

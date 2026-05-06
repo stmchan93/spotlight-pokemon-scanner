@@ -202,8 +202,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
         }
       } catch (error) {
         const nextMessage = errorMessageFromUnknown(error);
-        if (isMounted && nextMessage) {
-          setErrorMessage(nextMessage);
+        if (isMounted) {
+          if (nextMessage) {
+            setErrorMessage(nextMessage);
+          }
+          setState((currentState) => (currentState === 'loading' ? 'signedOut' : currentState));
         }
       }
     })();

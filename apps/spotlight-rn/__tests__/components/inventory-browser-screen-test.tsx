@@ -3,7 +3,8 @@ import { StyleSheet } from 'react-native';
 
 import { InventoryBrowserScreen } from '@/features/inventory/screens/inventory-browser-screen';
 
-import { renderWithProviders } from '../test-utils';
+import { mockInventoryEntries } from '../mock-api-client';
+import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
 
 describe('InventoryBrowserScreen', () => {
   it('opens directly into selectable sell mode from inventory', async () => {
@@ -76,5 +77,71 @@ describe('InventoryBrowserScreen', () => {
     expect(
       screen.getByText('Try a different name, set, card number, or collection filter.'),
     ).toBeTruthy();
+  });
+
+  it('updates visible inventory results when filter chips change', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({
+        state: 'success',
+        errorMessage: null,
+        data: [
+          {
+            ...mockInventoryEntries[0],
+            isFavorite: true,
+          },
+          ...mockInventoryEntries.slice(1),
+          {
+            ...mockInventoryEntries[2],
+            id: 'graded-entry-1',
+            cardId: 'base1-4-psa9',
+            name: 'Charizard',
+            cardNumber: '#4/102',
+            setName: 'Base Set',
+            marketPrice: 420,
+            quantity: 1,
+            addedAt: '2026-04-22T11:00:00.000Z',
+            kind: 'graded',
+            isFavorite: true,
+            slabContext: {
+              grader: 'PSA',
+              grade: '9',
+              certNumber: '12345678',
+            },
+          },
+        ],
+      }),
+    });
+
+    renderWithProviders(
+      <InventoryBrowserScreen
+        onBack={jest.fn()}
+        onOpenBulkSell={jest.fn()}
+        onOpenEntry={jest.fn()}
+      />,
+      { spotlightRepository },
+    );
+
+    expect(await screen.findByText('7 shown')).toBeTruthy();
+    expect(screen.getByText('Scorbunny')).toBeTruthy();
+    expect(screen.getByText('Charizard')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('inventory-filter-graded'));
+
+    expect(screen.getByText('1 shown')).toBeTruthy();
+    expect(screen.getByText('Charizard')).toBeTruthy();
+    expect(screen.queryByText('Scorbunny')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('inventory-filter-raw'));
+
+    expect(screen.getByText('6 shown')).toBeTruthy();
+    expect(screen.getByText('Scorbunny')).toBeTruthy();
+    expect(screen.queryByText('Charizard')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('inventory-filter-favorite'));
+
+    expect(screen.getByText('2 shown')).toBeTruthy();
+    expect(screen.getByText('Scorbunny')).toBeTruthy();
+    expect(screen.getByText('Charizard')).toBeTruthy();
+    expect(screen.queryByText('Oshawott')).toBeNull();
   });
 });

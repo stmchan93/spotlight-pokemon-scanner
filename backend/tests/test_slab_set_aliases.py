@@ -14,6 +14,9 @@ import slab_set_aliases
 
 
 class SlabSetAliasesTests(unittest.TestCase):
+    def setUp(self) -> None:
+        slab_set_aliases._load_alias_entries.cache_clear()
+
     def tearDown(self) -> None:
         slab_set_aliases._load_alias_entries.cache_clear()
 

@@ -734,6 +734,7 @@ export function BulkSellScreen({
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="always"
           showsVerticalScrollIndicator={false}
+          testID="bulk-sell-scroll-view"
         >
           <TouchableWithoutFeedback
             accessible={false}

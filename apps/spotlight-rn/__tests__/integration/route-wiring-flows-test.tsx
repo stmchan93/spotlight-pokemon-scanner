@@ -3,6 +3,10 @@ import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
+import AddToCollectionRoute from '@/app/(sheet)/collection/add/[cardId]';
+import BulkSellRoute from '@/app/(sheet)/sell/batch';
+import SingleSellRoute from '@/app/(sheet)/sell/[entryId]';
+
 import { renderAppRouter } from '../test-utils';
 
 function firstParam(value?: string | string[]) {
@@ -176,6 +180,20 @@ function CardDetailRouteHarness() {
           <Pressable
             onPress={() => {
               router.push({
+                pathname: '/collection/add/[cardId]',
+                params: {
+                  cardId,
+                  entryId,
+                },
+              });
+            }}
+            testID="detail-edit-collection"
+          >
+            <Text>EDIT COLLECTION</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => {
+              router.push({
                 pathname: '/sell/[entryId]',
                 params: {
                   entryId,
@@ -206,75 +224,34 @@ function CardDetailRouteHarness() {
   );
 }
 
-function AddToCollectionRouteHarness() {
-  const router = useRouter();
-  const params = useLocalSearchParams<{ cardId?: string | string[] }>();
-  const cardId = firstParam(params.cardId) ?? '';
-
-  return (
-    <View>
-      <Text>Add to Collection</Text>
-      <Text>{cardId}</Text>
-      <Pressable
-        onPress={() => {
-          router.replace({
-            pathname: '/cards/[cardId]',
-            params: {
-              cardId: cardId || 'sm7-1',
-              entryId: 'owned-entry-1',
-            },
-          });
-        }}
-        testID="submit-add-to-collection"
-      >
-        <Text>Submit</Text>
-      </Pressable>
-    </View>
-  );
+async function enterSingleSellPriceWithCalculator() {
+  fireEvent.press(screen.getByTestId('single-sell-sold-price'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-key-1'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-key-2'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-key-5'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-key-÷'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-key-1'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-key-0'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-equals'));
 }
 
-function BatchSellRouteHarness() {
-  const params = useLocalSearchParams<{
-    entryIds?: string | string[];
-    entryId?: string | string[];
-  }>();
-  const entryIds = [...new Set([
-    ...listParam(params.entryIds),
-    ...listParam(params.entryId),
-  ])];
-  const labels = entryIds.map((entryId) => {
-    switch (entryId) {
-      case 'entry-1':
-        return 'Scorbunny';
-      case 'entry-2':
-        return 'Oshawott';
-      default:
-        return entryId;
-    }
-  });
-
-  return (
-    <View>
-      <Text>{entryIds.length} cards selected</Text>
-      {labels.map((label) => (
-        <Text key={label}>{label}</Text>
-      ))}
-    </View>
-  );
+async function enterBulkSellPriceWithCalculator() {
+  fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-16'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-1'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-2'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-5'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-÷'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-1'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-0'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-equals'));
 }
 
-function SingleSellRouteHarness() {
-  const params = useLocalSearchParams<{
-    entryId?: string | string[];
-  }>();
-  const entryId = firstParam(params.entryId) ?? '';
-
-  return (
-    <View>
-      <Text>Sell order</Text>
-      <Text>{entryId}</Text>
-    </View>
-  );
+async function enterSecondBulkSellPriceWithCalculator() {
+  fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-21'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-2'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-×'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-3'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-equals'));
 }
 
 describe('route wiring flows', () => {
@@ -306,7 +283,7 @@ describe('route wiring flows', () => {
     renderAppRouter('/portfolio', {
       'catalog/search': CatalogSearchRouteHarness,
       'cards/[cardId]': CardDetailRouteHarness,
-      'collection/add/[cardId]': AddToCollectionRouteHarness,
+      'collection/add/[cardId]': AddToCollectionRoute,
     });
 
     fireEvent.press(await screen.findByTestId('portfolio-add-card'));
@@ -327,38 +304,54 @@ describe('route wiring flows', () => {
     fireEvent.press(screen.getByTestId('detail-add-to-collection'));
 
     expect(await screen.findByText('Add to Collection')).toBeTruthy();
+    expect(screen.getByText('Treecko')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('add-to-collection-grader-PSA'));
+    expect(screen.getByTestId('add-to-collection-grade-10')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('add-to-collection-quantity-increase'));
+    expect(screen.getByTestId('add-to-collection-quantity-value').props.children).toBe(2);
 
-    fireEvent.press(screen.getByTestId('submit-add-to-collection'));
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('submit-add-to-collection'));
+    });
 
     await waitFor(() => {
-      expect(screen.getByTestId('detail-collection-header-label')).toBeTruthy();
-      expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
-      expect(screen.queryByTestId('detail-add-to-collection')).toBeNull();
+      expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
+      expect(screen.queryByText('Add to Collection')).toBeNull();
     });
   });
 
-  it('opens batch sell from inventory selection mode with preselected entries', async () => {
-    renderAppRouter('/inventory?mode=select&selected=entry-1', {
-      'inventory/index': InventoryRouteHarness,
-      'sell/batch': BatchSellRouteHarness,
+  it('opens edit collection from owned detail and saves back to card detail', async () => {
+    renderAppRouter('/cards/mcdonalds25-21?entryId=entry-2', {
+      'cards/[cardId]': CardDetailRouteHarness,
+      'collection/add/[cardId]': AddToCollectionRoute,
     });
 
-    expect(await screen.findByText('All cards')).toBeTruthy();
-    expect(screen.getByText('Sell selected')).toBeTruthy();
+    expect(await screen.findByTestId('detail-edit-collection')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('inventory-entry-entry-2'));
-    fireEvent.press(screen.getByTestId('inventory-sell-selected'));
+    fireEvent.press(screen.getByTestId('detail-edit-collection'));
 
-    expect(await screen.findByText('2 cards selected')).toBeTruthy();
-    expect(screen.getByText('Scorbunny')).toBeTruthy();
-    expect(screen.getByText('Oshawott')).toBeTruthy();
+    expect(await screen.findByText('Edit Collection')).toBeTruthy();
+    expect(screen.getByTestId('add-to-collection-quantity-value').props.children).toBe(2);
+    fireEvent.press(screen.getByTestId('add-to-collection-quantity-increase'));
+    expect(screen.getByTestId('add-to-collection-quantity-value').props.children).toBe(3);
+
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('submit-add-to-collection'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-edit-collection')).toBeTruthy();
+      expect(screen.queryByText('Edit Collection')).toBeNull();
+    });
   });
 
-  it('opens single sell from owned detail', async () => {
+  it('opens single sell from owned detail and completes the happy path', async () => {
+    jest.useFakeTimers();
+
     renderAppRouter('/inventory', {
       'inventory/index': InventoryRouteHarness,
       'cards/[cardId]': CardDetailRouteHarness,
-      'sell/[entryId]': SingleSellRouteHarness,
+      'sell/[entryId]': SingleSellRoute,
     });
 
     expect(await screen.findByText('All cards')).toBeTruthy();
@@ -369,7 +362,63 @@ describe('route wiring flows', () => {
 
     fireEvent.press(screen.getByTestId('detail-sell-card'));
 
-    expect(await screen.findByText('Sell order')).toBeTruthy();
-    expect(screen.getByText('entry-1')).toBeTruthy();
+    expect(await screen.findByText('Scorbunny')).toBeTruthy();
+    await enterSingleSellPriceWithCalculator();
+    expect(screen.getByText('$12.5')).toBeTruthy();
+
+    const rail = screen.getByTestId('single-sell-swipe-rail');
+    await act(async () => {
+      rail.props.onAccessibilityAction?.({ nativeEvent: { actionName: 'activate' } });
+    });
+
+    expect(screen.getByText('Processing sale')).toBeTruthy();
+
+    await act(async () => {
+      jest.runAllTimers();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
+    });
+  });
+
+  it('opens batch sell from inventory selection mode and completes the happy path', async () => {
+    jest.useFakeTimers();
+
+    renderAppRouter('/inventory?mode=select&selected=entry-1', {
+      'inventory/index': InventoryRouteHarness,
+      'sell/batch': BulkSellRoute,
+    });
+
+    expect(await screen.findByText('All cards')).toBeTruthy();
+    expect(screen.getByText('Sell selected')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('inventory-entry-entry-2'));
+    fireEvent.press(screen.getByTestId('inventory-sell-selected'));
+
+    expect(await screen.findByText('3 cards selected')).toBeTruthy();
+
+    await enterBulkSellPriceWithCalculator();
+    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
+    expect(screen.queryByText('Review before confirm')).toBeNull();
+
+    await enterSecondBulkSellPriceWithCalculator();
+    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
+    expect(await screen.findByText('Review before confirm')).toBeTruthy();
+
+    const rail = screen.getByTestId('bulk-sell-swipe-rail');
+    await act(async () => {
+      rail.props.onAccessibilityAction?.({ nativeEvent: { actionName: 'activate' } });
+    });
+
+    expect(screen.getByText('Processing sale')).toBeTruthy();
+
+    await act(async () => {
+      jest.runAllTimers();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
+    });
   });
 });

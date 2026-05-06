@@ -36,6 +36,7 @@ jobs:
       SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_ONE: ${{ vars.SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_ONE }}
       SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_TWO: ${{ vars.SPOTLIGHT_MAESTRO_BULK_SELL_PRICE_TWO }}
       SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK: ${{ vars.SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK }}
+      SPOTLIGHT_STAGING_SMOKE_SKIP_FIXTURE_RESET: '1'
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -59,26 +60,5 @@ jobs:
           curl -Ls "https://get.maestro.mobile.dev" | bash
           echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
 
-      - name: Boot iOS simulator
-        run: |
-          DEVICE_NAME="${IOS_SIMULATOR_DEVICE:-iPhone 16}"
-          xcrun simctl boot "$DEVICE_NAME" || true
-          open -a Simulator
-          xcrun simctl bootstatus "$DEVICE_NAME" -b
-
-      - name: Build and launch staging app on simulator
-        run: |
-          DEVICE_NAME="${IOS_SIMULATOR_DEVICE:-iPhone 16}"
-          pnpm --filter @spotlight/mobile-app exec expo run:ios --simulator "$DEVICE_NAME"
-
-      - name: Bootstrap authenticated smoke session
-        if: ${{ env.SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK != '' }}
-        run: |
-          xcrun simctl openurl booted "$SPOTLIGHT_MAESTRO_AUTH_BOOTSTRAP_LINK"
-          sleep 8
-
-      - name: Run signed-in Maestro staging smoke
-        run: pnpm mobile:smoke:staging:maestro
-
-      - name: Run scanner fixture smoke
-        run: pnpm mobile:smoke:staging:maestro:scan-fixture
+      - name: Run deterministic staging simulator smoke
+        run: bash tools/run_local_staging_ui_smoke.sh

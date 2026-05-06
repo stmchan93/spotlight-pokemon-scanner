@@ -85,7 +85,7 @@ import { analyzePSASlabCapture } from '@/features/scanner/slab-native-analysis';
 import { buildSlabScannerTarget } from '@/features/scanner/scanner-slab-target';
 import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fixtures';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
-import { resolveRuntimeBoolean, resolveRuntimeValue } from '@/lib/runtime-config';
+import { resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
 
 type ScannerMode = 'raw' | 'slabs';
@@ -920,10 +920,7 @@ export function ScannerScreen({
 
     return undefined;
   }, [availableBackLenses]);
-  const scannerSmokeEnabled = resolveRuntimeBoolean(
-    ['EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED'],
-    ['spotlightScannerSmokeEnabled'],
-  ) && (runtimeAppEnv === 'staging' || __DEV__);
+  const scannerSmokeEnabled = resolveStagingSmokeModeEnabled({ allowDevelopment: true });
   const canCapture = shouldMountCamera
     && isCameraReady
     && !isCapturing

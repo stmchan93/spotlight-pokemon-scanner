@@ -1,0 +1,8 @@
+appId: com.looty.staging
+---
+- assertVisible:
+    id: staging-smoke-diagnostics
+- assertVisible:
+    id: "${SPOTLIGHT_STAGING_SMOKE_EXPECTED_APP_ENV_TEST_ID}"
+- assertVisible:
+    id: "${SPOTLIGHT_STAGING_SMOKE_EXPECTED_API_BASE_URL_TEST_ID}"

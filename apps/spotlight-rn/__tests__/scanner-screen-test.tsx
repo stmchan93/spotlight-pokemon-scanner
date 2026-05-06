@@ -190,6 +190,17 @@ describe('ScannerScreen', () => {
     expect(screen.queryByText('Camera access needed')).toBeNull();
   });
 
+  it('resets top-level swipe handling to enabled on unmount', () => {
+    const onTopLevelSwipeEnabledChange = jest.fn();
+    const view = renderScannerScreen(undefined, { onTopLevelSwipeEnabledChange });
+
+    expect(onTopLevelSwipeEnabledChange).toHaveBeenCalledWith(true);
+
+    view.unmount();
+
+    expect(onTopLevelSwipeEnabledChange).toHaveBeenLastCalledWith(true);
+  });
+
   it('submits the scanner top search into the catalog search sheet route', () => {
     renderScannerScreen();
 
@@ -700,6 +711,34 @@ describe('ScannerScreen', () => {
     });
 
     expect(screen.getByText('We currently only support PSA slabs for now.')).toBeTruthy();
+    expect(matchScannerCapture).not.toHaveBeenCalled();
+  });
+
+  it('shows a slab-analysis-unavailable review reason when the native slab bridge is missing', async () => {
+    mockAnalyzeSlabCapture.mockRejectedValueOnce({
+      code: 'native_module_unavailable',
+      message: 'Native module SpotlightPSASlabAnalysis is not registered in this build.',
+    });
+
+    const matchScannerCapture = jest.fn(async () => ({
+      scanID: 'scan-should-not-run',
+      candidates: [],
+    }));
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture,
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByText('SLABS'));
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Slab analysis is unavailable on this build.')).toBeTruthy();
+    });
+
+    expect(screen.getByText('SLAB scan')).toBeTruthy();
     expect(matchScannerCapture).not.toHaveBeenCalled();
   });
 

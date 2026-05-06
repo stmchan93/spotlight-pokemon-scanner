@@ -11,7 +11,7 @@ class VMRuntimeConfigTests(unittest.TestCase):
     def test_shell_escaped_cron_schedule_sources_as_literal(self) -> None:
         runtime_config = textwrap.dedent(
             """
-            SPOTLIGHT_VM_SYNC_CRON=0\\ 3\\ \\*\\ \\*\\ \\*
+            SPOTLIGHT_VM_SYNC_CRON=0\\ 6,18\\ \\*\\ \\*\\ \\*
             SPOTLIGHT_VM_SYNC_CRON_TZ=America/Los_Angeles
             SPOTLIGHT_SYNC_LOCK_FILE=/home/stephenchan/spotlight/data/scrydex-sync.lock
             """
@@ -36,7 +36,7 @@ class VMRuntimeConfigTests(unittest.TestCase):
         self.assertEqual(
             result.stdout.splitlines(),
             [
-                "0 3 * * *",
+                "0 6,18 * * *",
                 "America/Los_Angeles",
                 "/home/stephenchan/spotlight/data/scrydex-sync.lock",
             ],

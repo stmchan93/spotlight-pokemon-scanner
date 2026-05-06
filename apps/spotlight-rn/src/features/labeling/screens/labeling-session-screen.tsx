@@ -46,7 +46,6 @@ import {
   rawScannerTrayReservedHeight,
   rawVisualCaptureQuality,
 } from '@/features/scanner/raw-scanner-capture-surface';
-import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -572,7 +571,6 @@ export function LabelingSessionScreen() {
         completedAt: new Date().toISOString(),
       });
 
-      capturePostHogEvent('labeling_session_completed');
       setCompletedSessionID(getLabelingSessionID(completed) ?? createdSessionID);
       setStep('done');
     } catch (error) {

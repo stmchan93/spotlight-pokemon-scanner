@@ -1,6 +1,6 @@
 appId: com.looty.staging
 ---
-- launchApp
+- runFlow: staging-smoke-runtime-assertions.yml
 - tapOn:
     id: bottom-nav-scan
 - assertVisible:

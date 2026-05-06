@@ -79,9 +79,9 @@ Date: 2026-04-13
   - `selected_card_id`
   - `confirmed_card_id`
 - Current pricing-cache operating decision:
-  - the current live beta is the same-host VM mirror path with nightly Scrydex sync
-  - the backend server and the nightly sync job share one SQLite database on that VM
-  - when the mirror path is turned on, nightly full Scrydex sync runs at `3:00 AM America/Los_Angeles`
+  - the current live beta is the same-host VM mirror path with a scheduled Scrydex sync every 12 hours
+  - the backend server and the scheduled sync job share one SQLite database on that VM
+  - when the mirror path is turned on, full Scrydex sync runs at `6:00 AM` and `6:00 PM America/Los_Angeles`
   - that sync persists card metadata plus raw and graded price snapshots from the same `include=prices` payload
   - fresh successful syncs should suppress normal hot-path Scrydex calls
   - live provider fallback remains available for stale/missing/manual-refresh cases
@@ -711,13 +711,13 @@ Status: `planned`
 
 - Current live beta decision:
   - keep the same-host VM as the active hosted backend
-  - keep the nightly same-machine Scrydex mirror path active
+  - keep the same-machine scheduled Scrydex mirror path active
   - keep live Scrydex search/refresh behavior blocked during normal runtime while the mirror is fresh
 - Mirror cutover decision, when resumed:
-  - run a same-machine nightly Scrydex full-catalog sync at `3:00 AM America/Los_Angeles`
+  - run a same-machine full-catalog Scrydex sync at `6:00 AM` and `6:00 PM America/Los_Angeles`
   - require the backend server and the cron job to point at the same SQLite database path
   - do not assume multiple hosts share that SQLite file
-  - nightly sync scope:
+  - sync scope:
     - `cards` metadata mirror
     - raw price snapshot mirror
     - graded price snapshot mirror from the same Scrydex `include=prices` payload

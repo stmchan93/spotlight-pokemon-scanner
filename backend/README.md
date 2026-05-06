@@ -100,7 +100,7 @@ The backend is always live-only. It does not support seeded catalog startup anym
 For the current beta stage, the recommended hosted path is one Linux VM with:
 - one backend process
 - one SQLite file
-- one daily Scrydex sync at `3:00 AM America/Los_Angeles`
+- one Scrydex sync every 12 hours at `6:00 AM` and `6:00 PM America/Los_Angeles`
 
 Prepare one env-specific secrets file per hosted environment:
 
@@ -188,7 +188,7 @@ What it does:
 - only runs an initial full sync when `SPOTLIGHT_RUN_INITIAL_SYNC=1`
 - installs user `crontab` entries for:
   - `@reboot` backend start
-  - a minute-level scheduler wrapper that evaluates the desired local timezone and fires the Scrydex sync at `3:00 AM America/Los_Angeles`
+  - a minute-level scheduler wrapper that evaluates the desired local timezone and fires the Scrydex sync at `6:00 AM` and `6:00 PM America/Los_Angeles`
 - starts the backend immediately on `0.0.0.0:8788`
 - validates `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` before restart when `SPOTLIGHT_EBAY_BROWSE_ENABLED=1`
 

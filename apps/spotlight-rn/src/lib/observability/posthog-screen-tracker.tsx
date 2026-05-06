@@ -48,10 +48,6 @@ function resolveScreenName(pathname: string) {
     return 'collection_add';
   }
 
-  if (pathname === '/labeling/session') {
-    return 'labeling_session';
-  }
-
   if (pathname === '/design-system') {
     return 'design_system';
   }

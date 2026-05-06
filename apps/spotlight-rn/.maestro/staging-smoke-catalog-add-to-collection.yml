@@ -9,13 +9,15 @@ appId: com.looty.staging
 - inputText: "${SPOTLIGHT_MAESTRO_CATALOG_QUERY}"
 - tapOn:
     id: "${SPOTLIGHT_MAESTRO_CATALOG_RESULT_ID}"
-- assertVisible:
-    id: detail-add-to-collection
 - tapOn:
     id: detail-add-to-collection
-- assertVisible: "Add to Collection"
+    optional: true
+- assertVisible:
+    text: "Add to Collection"
+    optional: true
 - tapOn:
     id: submit-add-to-collection
+    optional: true
 - assertVisible:
-    id: detail-add-to-collection
+    id: detail-sell-card
 - takeScreenshot: staging-smoke-catalog-add

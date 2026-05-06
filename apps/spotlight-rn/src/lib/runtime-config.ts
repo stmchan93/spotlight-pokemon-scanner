@@ -95,6 +95,19 @@ export function resolveRuntimeAppEnv() {
   return process.env.NODE_ENV === 'production' ? 'production' : 'development';
 }
 
+export function resolveStagingSmokeModeEnabled(options: { allowDevelopment?: boolean } = {}) {
+  const smokeModeEnabled = resolveRuntimeBoolean(
+    ['EXPO_PUBLIC_SPOTLIGHT_STAGING_SMOKE_ENABLED', 'EXPO_PUBLIC_SPOTLIGHT_SCANNER_SMOKE_ENABLED'],
+    ['spotlightStagingSmokeEnabled', 'spotlightScannerSmokeEnabled'],
+  );
+  if (!smokeModeEnabled) {
+    return false;
+  }
+
+  const runtimeAppEnv = resolveRuntimeAppEnv();
+  return runtimeAppEnv === 'staging' || (options.allowDevelopment === true && __DEV__);
+}
+
 export function resolveExpoScheme() {
   const explicitScheme = resolveRuntimeValue(
     ['EXPO_PUBLIC_SPOTLIGHT_AUTH_SCHEME'],

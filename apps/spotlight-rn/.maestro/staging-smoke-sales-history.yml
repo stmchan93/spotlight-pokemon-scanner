@@ -1,5 +1,14 @@
 appId: com.looty.staging
 ---
+- assertVisible:
+    id: portfolio-account-button
+- swipe:
+    from:
+      id: portfolio-scroll-view
+    direction: UP
+    duration: 250
+- assertVisible:
+    id: latest-sales-see-more
 - tapOn:
     id: latest-sales-see-more
 - assertVisible:
@@ -10,4 +19,4 @@ appId: com.looty.staging
 - tapOn:
     id: sales-history-back
 - assertVisible:
-    id: portfolio-account-button
+    id: bottom-nav-scan

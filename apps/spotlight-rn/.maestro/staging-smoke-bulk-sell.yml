@@ -6,7 +6,7 @@ appId: com.looty.staging
     id: portfolio-sell-entry
 - tapOn:
     id: portfolio-sell-entry
-- assertVisible: "All cards"
+- assertVisible: "View all cards"
 - tapOn:
     id: "${SPOTLIGHT_MAESTRO_BULK_SELL_ENTRY_ID_ONE}"
 - tapOn:
@@ -15,6 +15,30 @@ appId: com.looty.staging
     id: inventory-sell-selected
 - assertVisible:
     id: bulk-sell-summary-card
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-edit-bought-price
+- assertVisible:
+    id: bulk-sell-smoke-raw-sv3pt5-63-bought-price-input
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-bought-price-input
+- eraseText
+- inputText: "${SPOTLIGHT_MAESTRO_BULK_SELL_BOUGHT_PRICE_ONE}"
+- tapOn:
+    text: "Market price"
+- swipe:
+    from:
+      id: bulk-sell-scroll-view
+    direction: UP
+    duration: 250
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-save-bought-price
+- tapOn:
+    id: bulk-sell-smoke-raw-sv3pt5-63-save-bought-price
+    optional: true
+- assertNotVisible:
+    id: bulk-sell-smoke-raw-sv3pt5-63-bought-price-input
+- assertVisible:
+    id: "${SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_ONE}"
 - tapOn:
     id: "${SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_ONE}"
 - assertVisible:
@@ -35,6 +59,28 @@ appId: com.looty.staging
     id: bulk-sell-smoke-raw-sv3pt5-63-calculator-key-0
 - tapOn:
     id: bulk-sell-smoke-raw-sv3pt5-63-calculator-equals
+- swipe:
+    from:
+      id: bulk-sell-scroll-view
+    direction: UP
+    duration: 400
+- swipe:
+    from:
+      id: bulk-sell-scroll-view
+    direction: UP
+    duration: 400
+- swipe:
+    from:
+      id: bulk-sell-scroll-view
+    direction: UP
+    duration: 400
+- swipe:
+    from:
+      id: bulk-sell-scroll-view
+    direction: UP
+    duration: 400
+- assertVisible:
+    id: "${SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_TWO}"
 - tapOn:
     id: "${SPOTLIGHT_MAESTRO_BULK_SELL_SOLD_PRICE_ID_TWO}"
 - assertVisible:
@@ -61,9 +107,9 @@ appId: com.looty.staging
     id: bulk-sell-review-total-card
 - swipe:
     from:
-      id: bulk-sell-swipe-rail
+      id: bulk-sell-swipe-handle
     direction: UP
-    duration: 400
+    duration: 1200
 - assertVisible:
     id: bulk-sell-status-screen
 - takeScreenshot: staging-smoke-bulk-sell

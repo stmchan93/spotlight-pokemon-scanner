@@ -36,30 +36,92 @@ type SupabaseAuthConfig = {
 };
 
 const memoryStorage = new Map<string, string>();
+let shouldUseMemoryStorageOnly = secureStoreModule == null;
+
+function shouldFallbackToMemoryStorage(error: unknown) {
+  if (!error || typeof error !== 'object') {
+    return false;
+  }
+
+  const code = 'code' in error ? (error as { code?: unknown }).code : null;
+  if (typeof code === 'string' && code === 'ERR_KEY_CHAIN') {
+    return true;
+  }
+
+  const message = 'message' in error ? (error as { message?: unknown }).message : null;
+  if (typeof message !== 'string') {
+    return false;
+  }
+
+  const normalized = message.trim().toLowerCase();
+  return normalized.includes('required entitlement')
+    || normalized.includes('keychain-access-groups')
+    || normalized.includes('keychain');
+}
+
+async function readFromSecureStore(key: string) {
+  if (!secureStoreModule || shouldUseMemoryStorageOnly) {
+    return memoryStorage.get(key) ?? null;
+  }
+
+  try {
+    return await secureStoreModule.getItemAsync(key);
+  } catch (error) {
+    if (!shouldFallbackToMemoryStorage(error)) {
+      throw error;
+    }
+
+    shouldUseMemoryStorageOnly = true;
+    return memoryStorage.get(key) ?? null;
+  }
+}
+
+async function writeToSecureStore(key: string, value: string) {
+  memoryStorage.set(key, value);
+
+  if (!secureStoreModule || shouldUseMemoryStorageOnly) {
+    return;
+  }
+
+  try {
+    await secureStoreModule.setItemAsync(key, value);
+  } catch (error) {
+    if (!shouldFallbackToMemoryStorage(error)) {
+      memoryStorage.delete(key);
+      throw error;
+    }
+
+    shouldUseMemoryStorageOnly = true;
+  }
+}
+
+async function removeFromSecureStore(key: string) {
+  memoryStorage.delete(key);
+
+  if (!secureStoreModule || shouldUseMemoryStorageOnly) {
+    return;
+  }
+
+  try {
+    await secureStoreModule.deleteItemAsync(key);
+  } catch (error) {
+    if (!shouldFallbackToMemoryStorage(error)) {
+      throw error;
+    }
+
+    shouldUseMemoryStorageOnly = true;
+  }
+}
 
 const secureStoreAdapter = {
   getItem: async (key: string) => {
-    if (secureStoreModule) {
-      return secureStoreModule.getItemAsync(key);
-    }
-
-    return memoryStorage.get(key) ?? null;
+    return readFromSecureStore(key);
   },
   removeItem: async (key: string) => {
-    if (secureStoreModule) {
-      await secureStoreModule.deleteItemAsync(key);
-      return;
-    }
-
-    memoryStorage.delete(key);
+    await removeFromSecureStore(key);
   },
   setItem: async (key: string, value: string) => {
-    if (secureStoreModule) {
-      await secureStoreModule.setItemAsync(key, value);
-      return;
-    }
-
-    memoryStorage.set(key, value);
+    await writeToSecureStore(key, value);
   },
 };
 
