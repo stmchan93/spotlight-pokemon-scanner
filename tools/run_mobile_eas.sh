@@ -251,7 +251,6 @@ fi
 
 if [ "$ENVIRONMENT" != "development" ] && [ "$ACTION" != "submit" ]; then
   ensure_clean_git_worktree
-  export SPOTLIGHT_RUNTIME_VERSION="$ENVIRONMENT-$(git -C "$REPO_ROOT" rev-parse HEAD)"
 fi
 
 TESTFLIGHT_CHANGELOG_ENABLED="${SPOTLIGHT_EAS_TESTFLIGHT_CHANGELOG_ENABLED:-0}"
@@ -306,9 +305,6 @@ if [ "$ACTION" = "release" ]; then
   if [ "$PLATFORM" != "ios" ]; then
     echo "The release action is currently intended for iOS/TestFlight." >&2
     exit 1
-  fi
-  if [ "$ENVIRONMENT" = "staging" ]; then
-    run_update
   fi
   BUILD_ARGS=(build --platform "$PLATFORM" --profile "$PROFILE" --auto-submit)
   if [ -n "$BUILD_MESSAGE" ]; then

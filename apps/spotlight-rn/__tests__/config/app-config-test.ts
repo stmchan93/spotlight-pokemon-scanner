@@ -260,7 +260,6 @@ describe('app config local overrides bridge', () => {
       SPOTLIGHT_EAS_PROJECT_ID: process.env.SPOTLIGHT_EAS_PROJECT_ID,
       SPOTLIGHT_EXPO_OWNER: process.env.SPOTLIGHT_EXPO_OWNER,
       SPOTLIGHT_IOS_BUNDLE_IDENTIFIER: process.env.SPOTLIGHT_IOS_BUNDLE_IDENTIFIER,
-      SPOTLIGHT_RUNTIME_VERSION: process.env.SPOTLIGHT_RUNTIME_VERSION,
     };
 
     process.env.EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL = 'https://api.looty.app';
@@ -270,7 +269,6 @@ describe('app config local overrides bridge', () => {
     process.env.SPOTLIGHT_EAS_PROJECT_ID = '12345678-1234-1234-1234-1234567890ab';
     process.env.SPOTLIGHT_EXPO_OWNER = 'looty';
     process.env.SPOTLIGHT_IOS_BUNDLE_IDENTIFIER = 'com.looty.spotlight';
-    process.env.SPOTLIGHT_RUNTIME_VERSION = 'staging-deadbeef';
 
     const config = buildExpoConfig();
 
@@ -282,7 +280,8 @@ describe('app config local overrides bridge', () => {
     expect(config.extra?.spotlightAuthScheme).toBe('looty');
     expect(config.extra?.eas?.projectId).toBe('12345678-1234-1234-1234-1234567890ab');
     expect(config.updates?.requestHeaders?.['expo-channel-name']).toBe('staging');
-    expect(config.runtimeVersion).toBe('staging-deadbeef');
+    expect(config.updates?.checkAutomatically).toBe('ON_ERROR_RECOVERY');
+    expect(config.runtimeVersion).toEqual({ policy: 'fingerprint' });
 
     Object.assign(process.env, previousEnv);
   });
