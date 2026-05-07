@@ -274,11 +274,14 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
     updates.checkAutomatically = 'ON_ERROR_RECOVERY';
   }
 
+  let resolvedPlugins = withPlugin([...(baseExpoConfig.plugins ?? [])], 'expo-localization');
+  resolvedPlugins = withPlugin(resolvedPlugins, './plugins/withSpotlightPSASlabAnalysis');
+
   const expoConfig = {
     ...baseExpoConfig,
     android,
     ios,
-    plugins: withPlugin([...(baseExpoConfig.plugins ?? [])], 'expo-localization'),
+    plugins: resolvedPlugins,
     scheme: resolvedScheme || undefined,
     updates,
     extra,
