@@ -1,8 +1,8 @@
 /* global __dirname */
 
 const { withXcodeProject } = require('@expo/config-plugins');
-const fs = require('node:fs');
-const path = require('node:path');
+const fs = require('fs');
+const path = require('path');
 
 const MODULE_FILES = [
   'SpotlightPSASlabAnalysisModule.m',
@@ -29,10 +29,18 @@ const withSpotlightPSASlabAnalysis = (config) =>
     const srcDir = path.join(__dirname, 'SpotlightPSASlabAnalysis');
     const targetUuid = proj.getFirstTarget().uuid;
 
+    // xcode 3.x addSourceFile(path, opt, group) expects a UUID for the group
+    // parameter, not a name. Passing a name causes getPBXVariantGroupByKey to
+    // blow up when the project has no PBXVariantGroup section (freshly prebuilt).
+    const allGroups = proj.hash.project.objects['PBXGroup'] || {};
+    const groupKey = Object.keys(allGroups)
+      .find((k) => k.endsWith('_comment') && allGroups[k] === projectName)
+      ?.replace(/_comment$/, '');
+
     for (const file of MODULE_FILES) {
       fs.copyFileSync(path.join(srcDir, file), path.join(targetDir, file));
 
-      // Skip if this file reference is already in the pbxproj (idempotent).
+      // Skip if this file reference is already present (idempotent).
       const refs = proj.pbxFileReferenceSection();
       const alreadyAdded = Object.values(refs).some(
         (ref) =>
@@ -45,7 +53,7 @@ const withSpotlightPSASlabAnalysis = (config) =>
       proj.addSourceFile(
         path.join(projectName, file),
         { target: targetUuid },
-        projectName,
+        groupKey,
       );
     }
 
