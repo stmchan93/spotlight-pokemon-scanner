@@ -36,6 +36,6 @@ fi
 if [ "$RUN_SMOKE" -ne 1 ]; then
   COMMAND+=(--skip-smoke)
 fi
-COMMAND+=("${FORWARD_ARGS[@]}")
+COMMAND+=("${FORWARD_ARGS[@]+"${FORWARD_ARGS[@]}"}")
 
 exec "${COMMAND[@]}"
