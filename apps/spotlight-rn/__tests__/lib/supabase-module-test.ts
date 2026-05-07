@@ -67,6 +67,7 @@ describe('supabase module', () => {
       resolveExpoScheme: jest.fn(() => 'spotlight'),
       resolveRuntimeValue: jest.fn((envKeys: string[], _extraKeys: string[]) => {
         for (const envKey of envKeys) {
+          // eslint-disable-next-line expo/no-dynamic-env-var
           const value = process.env[envKey];
           if (value) {
             return value;
