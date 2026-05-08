@@ -147,14 +147,27 @@ function containsBeckettSubgradeLayout(normalizedText: string) {
 function containsPSAGradeAdjective(normalizedText: string) {
   return containsMatch(
     normalizedText,
-    /\b(?:GEM MT|GEM MINT|MINT|NM MT|NM-MT|EX MT|EX-MT|VG EX|VG-EX|GOOD|FAIR|PR)\b/i,
+    /\b(?:GEM MT|GEM MINT|GEM M|MINT|NM MT|NM-MT|EX MT|EX-MT|VG EX|VG-EX|GOOD|FAIR|PR)\b/i,
   );
 }
 
 function containsPSAGradeLayout(normalizedText: string) {
   return containsMatch(
     normalizedText,
-    /\b(?:GEM MT|GEM MINT|MINT|NM MT|NM-MT|EX MT|EX-MT|VG EX|VG-EX|GOOD|FAIR|PR)\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b/i,
+    /\b(?:GEM MT|GEM MINT|GEM M|MINT|NM MT|NM-MT|EX MT|EX-MT|VG EX|VG-EX|GOOD|FAIR|PR)\b(?:\s+[A-Z][A-Z-]*){0,4}\s+(10|[1-9](?:\.5)?)\b/i,
+  );
+}
+
+function hasLikelyJapanesePromoPSALayout(normalizedText: string) {
+  return (
+    extractCardNumber(normalizedText) != null
+    && containsMatch(normalizedText, /\b(19\d{2}|20\d{2})\b/i)
+    && (
+      normalizedText.includes('PROMO')
+      || normalizedText.includes('POKEMON GAME')
+      || normalizedText.includes('P M')
+    )
+    && containsPSAGradeAdjective(normalizedText)
   );
 }
 
@@ -337,7 +350,7 @@ export function looksLikeSlabText(normalizedLabelText: string) {
   ];
   const keywordHits = slabKeywords.filter((keyword) => normalizedLabelText.includes(keyword)).length;
 
-  return hasCertLikeNumber && keywordHits >= 1;
+  return (hasCertLikeNumber && keywordHits >= 1) || hasLikelyJapanesePromoPSALayout(normalizedLabelText);
 }
 
 function inferredPSAConfidence(params: {
@@ -366,6 +379,9 @@ function inferredPSAConfidence(params: {
   }
   if (containsPSAGradeAdjective(normalizedText)) {
     score += 0.1;
+  }
+  if (hasLikelyJapanesePromoPSALayout(normalizedText)) {
+    score += 0.24;
   }
   if (
     containsMatch(normalizedText, /\bP[5S]A\b/i)
@@ -422,6 +438,10 @@ function inferLikelyPSA(params: {
   if (containsPSAGradeAdjective(normalizedText)) {
     score += 0.12;
     reasons.push('grade_adjective_detected');
+  }
+  if (hasLikelyJapanesePromoPSALayout(normalizedText)) {
+    score += 0.24;
+    reasons.push('japanese_promo_slab_layout_detected');
   }
   if (
     containsPSAGradeLayout(normalizedText)
@@ -526,6 +546,7 @@ function resolveGradeCandidate(params: {
         confidence: 0.94,
         reason: 'grade_from_nm_layout',
       },
+      { pattern: /\bGEM M\s+(10|[1-9])\b/i, confidence: 0.91, reason: 'grade_from_psa_gem_m' },
       { pattern: /\bGEM MT\s+(10|[1-9])\b/i, confidence: 0.92, reason: 'grade_from_psa_gem_mt' },
       { pattern: /\bGEM MINT\s+(10|[1-9])\b/i, confidence: 0.92, reason: 'grade_from_psa_gem_mint' },
       { pattern: /\bMINT\s+(10|[1-9])\b/i, confidence: 0.9, reason: 'grade_from_psa_mint' },
@@ -545,6 +566,7 @@ function resolveGradeCandidate(params: {
     }
 
     const adjectiveOnlyMappings: Array<{ pattern: RegExp; mappedGrade: string }> = [
+      { pattern: /\bGEM M\b/i, mappedGrade: '10' },
       { pattern: /\bGEM MT\b/i, mappedGrade: '10' },
       { pattern: /\bGEM MINT\b/i, mappedGrade: '10' },
       { pattern: /\bMINT\b/i, mappedGrade: '9' },

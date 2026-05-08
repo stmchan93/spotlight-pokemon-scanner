@@ -74,6 +74,23 @@ describe('psa slab parser', () => {
     expect(parsed.isPSAConfident).toBe(true);
   });
 
+  it('recovers a PSA label-text-search path for the noisy japanese poncho pikachu staging slab', () => {
+    const parsed = parsePSASlabLabel({
+      labelTexts: [
+        'RTS 7 2016 P.M. JPNLXY PROMO #23 K PONCHO-WEAR PKACHU GEM M RAYQUAZA PIN PIKACHU BOX 10 RA',
+      ],
+    });
+
+    expect(parsed.grader).toBe('PSA');
+    expect(parsed.grade).toBe('10');
+    expect(parsed.certNumber).toBeNull();
+    expect(parsed.recommendedLookupPath).toBe('label_text_search');
+    expect(parsed.unsupportedReason).toBeNull();
+    expect(parsed.isPSAConfident).toBe(true);
+    expect(parsed.reasons).toContain('grade_from_psa_adjective_only');
+    expect(parsed.reasons).toContain('inferred_grader_psa');
+  });
+
   it('returns explicit non-PSA detection instead of forcing PSA parsing', () => {
     const parsed = parsePSASlabLabel({
       labelTexts: [
