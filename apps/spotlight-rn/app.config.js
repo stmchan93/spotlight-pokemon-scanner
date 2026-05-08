@@ -229,6 +229,10 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   const releaseOverrides = loadSpotlightReleaseOverridesFromEnv(resolvedEnv);
   const resolvedAppEnv = trimEnvValue(resolvedEnv.SPOTLIGHT_APP_ENV);
   const resolvedScheme = releaseOverrides.scheme || baseExpoConfig.scheme;
+  const resolvedRuntimeVersion =
+    typeof baseExpoConfig.runtimeVersion === 'string' && baseExpoConfig.runtimeVersion.trim().length > 0
+      ? baseExpoConfig.runtimeVersion.trim()
+      : baseExpoConfig.version;
   const extra = {
     ...(baseExpoConfig.extra ?? {}),
     ...loadSpotlightExpoExtra(overridesPath, resolvedEnv),
@@ -282,6 +286,7 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
     android,
     ios,
     plugins: resolvedPlugins,
+    runtimeVersion: resolvedRuntimeVersion,
     scheme: resolvedScheme || undefined,
     updates,
     extra,

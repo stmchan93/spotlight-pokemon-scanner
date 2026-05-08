@@ -63,9 +63,7 @@
     "experiments": {
       "typedRoutes": true
     },
-    "runtimeVersion": {
-      "policy": "appVersion"
-    },
+    "runtimeVersion": "0.1.0",
     "updates": {
       "url": "https://u.expo.dev/bd29d8aa-8a70-45ba-907e-f7136f2be4ff"
     }

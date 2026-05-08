@@ -281,7 +281,7 @@ describe('app config local overrides bridge', () => {
     expect(config.extra?.eas?.projectId).toBe('12345678-1234-1234-1234-1234567890ab');
     expect(config.updates?.requestHeaders?.['expo-channel-name']).toBe('staging');
     expect(config.updates?.checkAutomatically).toBe('ON_ERROR_RECOVERY');
-    expect(config.runtimeVersion).toEqual({ policy: 'appVersion' });
+    expect(config.runtimeVersion).toBe('0.1.0');
 
     Object.assign(process.env, previousEnv);
   });
@@ -309,7 +309,7 @@ describe('app config local overrides bridge', () => {
     expect(config.extra?.spotlightSupabaseUrl).toBe('https://sb.looty.app');
     expect(config.extra?.eas?.projectId).toBe('12345678-1234-1234-1234-1234567890ab');
     expect(config.updates?.requestHeaders?.['expo-channel-name']).toBe('production');
-    expect(config.runtimeVersion).toEqual({ policy: 'appVersion' });
+    expect(config.runtimeVersion).toBe('0.1.0');
 
     existsSpy.mockRestore();
     readSpy.mockRestore();
