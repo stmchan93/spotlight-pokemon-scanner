@@ -279,7 +279,14 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
   }
 
   let resolvedPlugins = withPlugin([...(baseExpoConfig.plugins ?? [])], 'expo-localization');
-  resolvedPlugins = withPlugin(resolvedPlugins, './plugins/withSpotlightPSASlabAnalysis');
+  resolvedPlugins = withPlugin(resolvedPlugins, [
+    'expo-build-properties',
+    {
+      ios: {
+        deploymentTarget: '15.5',
+      },
+    },
+  ]);
 
   const expoConfig = {
     ...baseExpoConfig,

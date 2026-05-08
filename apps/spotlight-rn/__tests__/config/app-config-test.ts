@@ -331,4 +331,22 @@ describe('app config local overrides bridge', () => {
       'expo-localization',
     ]));
   });
+
+  it('configures expo-build-properties with the iOS deployment target ML Kit requires', () => {
+    const config = buildExpoConfigForEnv({}, '/virtual/LocalOverrides.xcconfig');
+
+    type PluginEntry = string | [string, ...unknown[]];
+    const plugins = (config.plugins ?? []) as PluginEntry[];
+    const buildPropertiesEntry = plugins.find(
+      (entry): entry is [string, Record<string, unknown>] =>
+        Array.isArray(entry) && entry[0] === 'expo-build-properties',
+    );
+
+    expect(buildPropertiesEntry).toBeDefined();
+    expect(buildPropertiesEntry?.[1]).toEqual({
+      ios: {
+        deploymentTarget: '15.5',
+      },
+    });
+  });
 });

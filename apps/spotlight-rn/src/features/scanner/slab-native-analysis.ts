@@ -1,5 +1,3 @@
-import { NativeModules, Platform } from 'react-native';
-
 import {
   buildPSASlabScannerMatchFields,
   parsePSASlabNativeAnalysis,
@@ -7,12 +5,11 @@ import {
   type PSASlabNativeAnalysis,
   type PSASlabScannerMatchFields,
 } from '@/features/scanner/psa-slab-parser';
-
-const nativeModuleName = 'SpotlightPSASlabAnalysis';
-
-type SpotlightPSASlabAnalysisModule = {
-  analyzeLabel(imageUri: string): Promise<PSASlabNativeAnalysis>;
-};
+import {
+  isSlabScannerNativeAvailable,
+  scanPSALabel,
+  SLAB_SCANNER_NATIVE_MODULE_NAME,
+} from '@/features/scanner/slab-scanner-native';
 
 export class PSASlabNativeAnalysisError extends Error {
   constructor(
@@ -34,13 +31,8 @@ export type PSASlabCaptureAnalysis = {
   scannerMatchFields: PSASlabScannerMatchFields;
 };
 
-function getNativeModule() {
-  const moduleCandidate = NativeModules[nativeModuleName] as SpotlightPSASlabAnalysisModule | undefined;
-  return moduleCandidate ?? null;
-}
-
 export function isPSASlabNativeAnalysisAvailable() {
-  return Platform.OS === 'ios' && getNativeModule() != null;
+  return isSlabScannerNativeAvailable();
 }
 
 export async function analyzePSASlabLabelNative(imageUri: string) {
@@ -52,23 +44,25 @@ export async function analyzePSASlabLabelNative(imageUri: string) {
     );
   }
 
-  if (Platform.OS !== 'ios') {
+  if (!isSlabScannerNativeAvailable()) {
     throw new PSASlabNativeAnalysisError(
-      `PSA slab native analysis is only available on iOS. Current platform: ${Platform.OS}.`,
-      'unsupported_platform',
-    );
-  }
-
-  const nativeModule = getNativeModule();
-  if (!nativeModule) {
-    throw new PSASlabNativeAnalysisError(
-      `Native module ${nativeModuleName} is not registered in this build.`,
+      `Native module ${SLAB_SCANNER_NATIVE_MODULE_NAME} is not registered in this build.`,
       'native_module_unavailable',
     );
   }
 
   try {
-    return await nativeModule.analyzeLabel(trimmedUri);
+    const analysis = await scanPSALabel(trimmedUri);
+    if (__DEV__ && process.env.NODE_ENV !== 'test') {
+      // Fixture-capture aid for PR 5: scrape Metro logs for `[slab-fixture-dump]`
+      // lines and convert each to a JSON file under __tests__/fixtures/psa-slab-mlkit/.
+      // eslint-disable-next-line no-console
+      console.log(
+        '[slab-fixture-dump]',
+        JSON.stringify({ imageUri: trimmedUri, analysis }),
+      );
+    }
+    return analysis;
   } catch (error) {
     const nativeMessage = error instanceof Error ? error.message : String(error);
     throw new PSASlabNativeAnalysisError(

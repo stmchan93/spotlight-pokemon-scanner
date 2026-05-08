@@ -1,0 +1,9 @@
+{
+  "platforms": ["ios", "android"],
+  "ios": {
+    "modules": ["SpotlightSlabScannerModule"]
+  },
+  "android": {
+    "modules": ["expo.modules.spotlightslabscanner.SpotlightSlabScannerModule"]
+  }
+}

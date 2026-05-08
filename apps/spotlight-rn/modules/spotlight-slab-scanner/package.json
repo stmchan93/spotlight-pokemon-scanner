@@ -1,0 +1,7 @@
+{
+  "name": "spotlight-slab-scanner",
+  "version": "0.1.0",
+  "description": "PSA slab OCR via ML Kit (text recognition + barcode scanning) for iOS and Android.",
+  "private": true,
+  "main": "src/index.ts"
+}

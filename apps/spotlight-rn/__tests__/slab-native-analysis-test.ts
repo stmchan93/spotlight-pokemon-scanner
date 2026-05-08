@@ -5,11 +5,9 @@ describe('slab native analysis', () => {
   });
 
   function loadModule({
-    nativeAnalyzeLabel,
-    os = 'ios',
+    nativeScanPSALabel,
   }: {
-    nativeAnalyzeLabel?: jest.Mock;
-    os?: string;
+    nativeScanPSALabel?: jest.Mock | null;
   } = {}) {
     const parsePSASlabNativeAnalysis = jest.fn((analysis) => ({
       certNumber: analysis.certNumber ?? null,
@@ -23,17 +21,13 @@ describe('slab native analysis', () => {
       certNumber: nativeAnalysis.certNumber ?? null,
     }));
 
-    jest.doMock('react-native', () => ({
-      NativeModules: nativeAnalyzeLabel
-        ? {
-            SpotlightPSASlabAnalysis: {
-              analyzeLabel: nativeAnalyzeLabel,
-            },
-          }
-        : {},
-      Platform: {
-        OS: os,
-      },
+    const nativeBindings = nativeScanPSALabel === null
+      ? null
+      : { scanPSALabel: nativeScanPSALabel ?? jest.fn() };
+
+    jest.doMock('expo-modules-core', () => ({
+      requireOptionalNativeModule: (name: string) =>
+        name === 'SpotlightSlabScanner' ? nativeBindings : null,
     }));
     jest.doMock('@/features/scanner/psa-slab-parser', () => ({
       buildPSASlabScannerMatchFields,
@@ -49,92 +43,81 @@ describe('slab native analysis', () => {
       ...moduleExports!,
       buildPSASlabScannerMatchFields,
       parsePSASlabNativeAnalysis,
+      nativeScanPSALabel: nativeBindings?.scanPSALabel,
     };
   }
 
-  it('reports availability only when the iOS native module is registered', () => {
-    const iosAvailable = loadModule({
-      nativeAnalyzeLabel: jest.fn(),
-      os: 'ios',
-    });
-    expect(iosAvailable.isPSASlabNativeAnalysisAvailable()).toBe(true);
+  it('reports availability when the SpotlightSlabScanner native module is registered', () => {
+    const available = loadModule({ nativeScanPSALabel: jest.fn() });
+    expect(available.isPSASlabNativeAnalysisAvailable()).toBe(true);
 
-    const androidUnavailable = loadModule({
-      nativeAnalyzeLabel: jest.fn(),
-      os: 'android',
-    });
-    expect(androidUnavailable.isPSASlabNativeAnalysisAvailable()).toBe(false);
-
-    const missingModule = loadModule({ os: 'ios' });
-    expect(missingModule.isPSASlabNativeAnalysisAvailable()).toBe(false);
+    const missing = loadModule({ nativeScanPSALabel: null });
+    expect(missing.isPSASlabNativeAnalysisAvailable()).toBe(false);
   });
 
   it('trims the image uri before invoking the native module', async () => {
-    const nativeAnalyzeLabel = jest.fn(async () => ({
-      certNumber: '70539858',
-      labelText: 'PSA 9 CHARIZARD',
+    const nativeScanPSALabel = jest.fn(async () => ({
+      width: 1200,
+      height: 500,
+      textBlocks: [],
+      barcodes: [],
     }));
-    const moduleExports = loadModule({ nativeAnalyzeLabel });
+    const moduleExports = loadModule({ nativeScanPSALabel });
 
     const result = await moduleExports.analyzePSASlabLabelNative('  file:///slab.jpg  ');
 
-    expect(nativeAnalyzeLabel).toHaveBeenCalledWith('file:///slab.jpg');
+    expect(nativeScanPSALabel).toHaveBeenCalledWith('file:///slab.jpg');
     expect(result).toEqual({
-      certNumber: '70539858',
-      labelText: 'PSA 9 CHARIZARD',
+      width: 1200,
+      height: 500,
+      textBlocks: [],
+      barcodes: [],
     });
   });
 
   it('rejects blank image uris before touching native code', async () => {
-    const nativeAnalyzeLabel = jest.fn();
-    const moduleExports = loadModule({ nativeAnalyzeLabel });
+    const nativeScanPSALabel = jest.fn();
+    const moduleExports = loadModule({ nativeScanPSALabel });
 
     await expect(moduleExports.analyzePSASlabLabelNative('   ')).rejects.toMatchObject({
       code: 'invalid_image_uri',
       name: 'PSASlabNativeAnalysisError',
     });
-    expect(nativeAnalyzeLabel).not.toHaveBeenCalled();
-  });
-
-  it('throws an unsupported-platform error outside iOS', async () => {
-    const moduleExports = loadModule({
-      nativeAnalyzeLabel: jest.fn(),
-      os: 'android',
-    });
-
-    await expect(moduleExports.analyzePSASlabLabelNative('file:///slab.jpg')).rejects.toMatchObject({
-      code: 'unsupported_platform',
-    });
+    expect(nativeScanPSALabel).not.toHaveBeenCalled();
   });
 
   it('throws a native-module-unavailable error when the bridge is missing', async () => {
-    const moduleExports = loadModule({ os: 'ios' });
+    const moduleExports = loadModule({ nativeScanPSALabel: null });
 
     await expect(moduleExports.analyzePSASlabLabelNative('file:///slab.jpg')).rejects.toMatchObject({
       code: 'native_module_unavailable',
+      message: expect.stringContaining('SpotlightSlabScanner'),
     });
   });
 
   it('wraps native failures with a slab analysis error', async () => {
     const moduleExports = loadModule({
-      nativeAnalyzeLabel: jest.fn(async () => {
-        throw new Error('vision request failed');
+      nativeScanPSALabel: jest.fn(async () => {
+        throw new Error('ml kit text recognition failed');
       }),
     });
 
     await expect(moduleExports.analyzePSASlabLabelNative('file:///slab.jpg')).rejects.toMatchObject({
       code: 'native_analysis_failed',
-      message: expect.stringContaining('vision request failed'),
+      message: expect.stringContaining('ml kit text recognition failed'),
     });
   });
 
   it('builds parsed scanner match fields from the native analysis result', async () => {
     const nativeAnalysis = {
+      width: 1200,
+      height: 500,
+      textBlocks: [{ text: 'PSA 70539858', boundingBox: { x: 100, y: 40, width: 300, height: 40 } }],
+      barcodes: [],
       certNumber: '70539858',
-      labelText: 'PSA 9 CHARIZARD',
     };
-    const nativeAnalyzeLabel = jest.fn(async () => nativeAnalysis);
-    const moduleExports = loadModule({ nativeAnalyzeLabel });
+    const nativeScanPSALabel = jest.fn(async () => nativeAnalysis);
+    const moduleExports = loadModule({ nativeScanPSALabel });
 
     const result = await moduleExports.analyzePSASlabCapture('file:///slab.jpg');
 

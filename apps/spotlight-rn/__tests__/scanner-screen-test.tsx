@@ -717,7 +717,7 @@ describe('ScannerScreen', () => {
   it('shows a slab-analysis-unavailable review reason when the native slab bridge is missing', async () => {
     mockAnalyzeSlabCapture.mockRejectedValueOnce({
       code: 'native_module_unavailable',
-      message: 'Native module SpotlightPSASlabAnalysis is not registered in this build.',
+      message: 'Native module SpotlightSlabScanner is not registered in this build.',
     });
 
     const matchScannerCapture = jest.fn(async () => ({

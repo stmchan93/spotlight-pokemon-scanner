@@ -1,0 +1,42 @@
+apply plugin: 'com.android.library'
+apply plugin: 'kotlin-android'
+
+group = 'expo.modules.spotlightslabscanner'
+version = '0.1.0'
+
+def expoModulesCorePlugin = new File(project(':expo-modules-core').projectDir.absolutePath, 'ExpoModulesCorePlugin.gradle')
+apply from: expoModulesCorePlugin
+applyKotlinExpoModulesCorePlugin()
+useCoreDependencies()
+useExpoPublishing()
+
+android {
+  namespace 'expo.modules.spotlightslabscanner'
+
+  compileSdkVersion safeExtGet('compileSdkVersion', 35)
+
+  defaultConfig {
+    minSdkVersion safeExtGet('minSdkVersion', 24)
+    targetSdkVersion safeExtGet('targetSdkVersion', 35)
+  }
+
+  buildFeatures {
+    buildConfig true
+  }
+}
+
+dependencies {
+  implementation project(':expo-modules-core')
+
+  // Google ML Kit on-device models. Versions pinned to known-stable releases.
+  // text-recognition 16.0.1 -> latin script default options (matches iOS MLKTextRecognitionLatin).
+  // barcode-scanning 17.3.0 -> stable release with all the symbologies the iOS module enables.
+  implementation 'com.google.mlkit:text-recognition:16.0.1'
+  implementation 'com.google.mlkit:barcode-scanning:17.3.0'
+
+  // Coroutines + Tasks <-> coroutines bridge for awaiting ML Kit's Task-based callbacks.
+  // expo-modules-core typically already pulls coroutines in transitively, but pinning
+  // explicitly here protects this module from upstream version drift.
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1'
+  implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1'
+}

@@ -830,7 +830,7 @@ export function buildPSASlabScannerMatchFields(params: {
     slabClassifierReasons: parsed.reasons,
     slabRecommendedLookupPath: parsed.recommendedLookupPath,
     ocrAnalysis: {
-      engine: 'ios_native_vision_label_first_v1',
+      engine: 'ml_kit_label_first_v1',
       imageSize: {
         width: nativeAnalysis.width,
         height: nativeAnalysis.height,
