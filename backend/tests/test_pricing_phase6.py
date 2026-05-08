@@ -39,6 +39,8 @@ from scrydex_adapter import (  # noqa: E402
     fetch_scrydex_cards_page,
     persist_scrydex_all_graded_snapshots,
     persist_scrydex_daily_history_from_card_payload,
+    persist_scrydex_psa_snapshot,
+    persist_scrydex_raw_snapshot,
     reset_scrydex_request_stats,
     scrydex_request_audit_summary,
     store_scrydex_request_audit,
@@ -910,6 +912,57 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual((psa8 or {})["market"], 700.0)
         self.assertEqual((psa9 or {})["market"], 1200.0)
 
+    def test_persist_scrydex_psa_snapshot_writes_exact_grade_context(self) -> None:
+        payload = {
+            "id": "base1-4",
+            "name": "Charizard",
+            "expansion": {"name": "Base Set"},
+            "variants": [
+                {
+                    "name": "holofoil",
+                    "prices": [
+                        {
+                            "type": "graded",
+                            "company": "PSA",
+                            "grade": "9",
+                            "currency": "USD",
+                            "market": 1200.0,
+                            "mid": 1180.0,
+                        },
+                    ],
+                },
+            ],
+        }
+
+        persisted = persist_scrydex_psa_snapshot(
+            self.connection,
+            card_id="base1-4",
+            payload=payload,
+            grader="PSA",
+            grade="9",
+            preferred_variant="Holofoil",
+            commit=False,
+        )
+        self.connection.commit()
+
+        snapshot = price_snapshot_for_card(
+            self.connection,
+            "base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            grader="PSA",
+            grade="9",
+            variant="Holofoil",
+        )
+
+        self.assertIsNotNone(persisted)
+        self.assertIsNotNone(snapshot)
+        assert snapshot is not None
+        self.assertEqual(snapshot["provider"], "scrydex")
+        self.assertEqual(snapshot["grader"], "PSA")
+        self.assertEqual(snapshot["grade"], "9")
+        self.assertEqual(snapshot["variant"], "Holofoil")
+        self.assertEqual(snapshot["market"], 1200.0)
+
     def test_backend_env_loader_falls_back_without_python_dotenv(self) -> None:
         env_path = Path(self.tempdir.name) / "backend.env"
         env_path.write_text(
@@ -1383,6 +1436,131 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(sync_run["raw_snapshots_upserted"], 1)
         self.assertEqual(sync_run["graded_snapshots_upserted"], 1)
 
+    def test_sync_scrydex_catalog_preserves_existing_graded_contexts_when_payload_is_raw_only(self) -> None:
+        upsert_price_snapshot(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            provider="scrydex",
+            currency_code="USD",
+            variant="First Edition Shadowless Holofoil",
+            grader="PSA",
+            grade="9",
+            low_price=65000.0,
+            market_price=68537.88,
+            mid_price=67000.0,
+            high_price=70000.0,
+            payload={"provider": "scrydex", "variantKey": "firstEditionShadowlessHolofoil"},
+        )
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-28",
+            currency_code="USD",
+            variant="First Edition Shadowless Holofoil",
+            grader="PSA",
+            grade="9",
+            low_price=65000.0,
+            market_price=68537.88,
+            mid_price=67000.0,
+            high_price=70000.0,
+            payload={"provider": "scrydex", "variantKey": "firstEditionShadowlessHolofoil"},
+        )
+        self.connection.commit()
+
+        sync_payload = [
+            {
+                "id": "base1-4",
+                "name": "Charizard",
+                "language_code": "en",
+                "printed_number": "4",
+                "number": "4/102",
+                "rarity": "Rare Holo",
+                "artist": "Mitsuhiro Arita",
+                "supertype": "Pokemon",
+                "subtypes": ["Stage 2"],
+                "types": ["Fire"],
+                "expansion": {
+                    "id": "base1",
+                    "name": "Base",
+                    "code": "BS",
+                    "series": "Base",
+                    "release_date": "1999-01-09",
+                    "language": "en",
+                },
+                "images": [
+                    {
+                        "type": "front",
+                        "small": "https://images.scrydex.example/cards/base1-4/small",
+                        "large": "https://images.scrydex.example/cards/base1-4/large",
+                    }
+                ],
+                "variants": [
+                    {
+                        "name": "firstEditionShadowlessHolofoil",
+                        "prices": [
+                            {
+                                "type": "raw",
+                                "condition": "NM",
+                                "currency": "USD",
+                                "market": 490.0,
+                                "mid": 470.0,
+                                "low": 450.0,
+                                "high": 525.0,
+                            }
+                        ],
+                    }
+                ],
+            }
+        ]
+
+        with patch.dict(
+            os.environ,
+            {"SCRYDEX_API_KEY": "scrydex-key", "SCRYDEX_TEAM_ID": "team-id"},
+            clear=False,
+        ), patch("sync_scrydex_catalog.fetch_scrydex_cards_page", return_value=sync_payload):
+            summary = sync_scrydex_catalog(
+                database_path=self.database_path,
+                repo_root=REPO_ROOT,
+                page_size=1,
+                max_pages=1,
+                price_date="2026-04-28",
+            )
+
+        self.assertEqual(summary["rawSnapshotsUpserted"], 1)
+        self.assertEqual(summary["gradedSnapshotsUpserted"], 0)
+
+        raw_snapshot = price_snapshot_for_card(
+            self.connection,
+            "base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+        )
+        graded_snapshot = price_snapshot_for_card(
+            self.connection,
+            "base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            grader="PSA",
+            grade="9",
+        )
+        graded_rows = price_history_rows_for_card(
+            self.connection,
+            "base1-4",
+            provider="scrydex",
+            days=30,
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            grader="PSA",
+            grade="9",
+        )
+
+        self.assertIsNotNone(raw_snapshot)
+        self.assertEqual(raw_snapshot["market"], 490.0)
+        self.assertIsNotNone(graded_snapshot)
+        self.assertEqual(graded_snapshot["market"], 68537.88)
+        self.assertEqual(len(graded_rows), 1)
+        self.assertEqual(graded_rows[0]["market"], 68537.88)
+
     def test_raw_candidate_payload_uses_cached_snapshot_only_under_manual_mirror(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         candidate = {
@@ -1666,6 +1844,143 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertEqual(graded_rows[0]["grade"], "9")
         self.assertEqual(graded_rows[0]["market"], 1000.0)
 
+    def test_persist_scrydex_daily_history_from_card_payload_preserves_existing_graded_rows_when_payload_is_raw_only(self) -> None:
+        upsert_price_history_daily(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            provider="scrydex",
+            price_date="2026-04-14",
+            currency_code="USD",
+            variant="First Edition Shadowless Holofoil",
+            grader="PSA",
+            grade="9",
+            low_price=65000.0,
+            market_price=68537.88,
+            mid_price=67000.0,
+            high_price=70000.0,
+            payload={"provider": "scrydex", "variantKey": "firstEditionShadowlessHolofoil"},
+        )
+        self.connection.commit()
+
+        counts = persist_scrydex_daily_history_from_card_payload(
+            self.connection,
+            card_id="base1-4",
+            payload={
+                "data": {
+                    "variants": [
+                        {
+                            "name": "firstEditionShadowlessHolofoil",
+                            "prices": [
+                                {
+                                    "type": "raw",
+                                    "condition": "NM",
+                                    "currency": "USD",
+                                    "low": 450.0,
+                                    "market": 490.0,
+                                    "mid": 470.0,
+                                    "high": 525.0,
+                                }
+                            ],
+                        }
+                    ]
+                }
+            },
+            price_date="2026-04-14",
+            commit=False,
+        )
+        self.connection.commit()
+
+        raw_rows = price_history_rows_for_card(
+            self.connection,
+            "base1-4",
+            provider="scrydex",
+            days=30,
+            pricing_mode=RAW_PRICING_MODE,
+            variant="First Edition Shadowless Holofoil",
+            condition="NM",
+        )
+        graded_rows = price_history_rows_for_card(
+            self.connection,
+            "base1-4",
+            provider="scrydex",
+            days=30,
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            grader="PSA",
+            grade="9",
+        )
+
+        self.assertEqual(counts, {"rawCount": 1, "gradedCount": 0})
+        self.assertEqual(len(raw_rows), 1)
+        self.assertEqual(raw_rows[0]["market"], 490.0)
+        self.assertEqual(len(graded_rows), 1)
+        self.assertEqual(graded_rows[0]["market"], 68537.88)
+
+    def test_persist_scrydex_raw_snapshot_preserves_existing_graded_snapshot_when_payload_is_raw_only(self) -> None:
+        upsert_price_snapshot(
+            self.connection,
+            card_id="base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            provider="scrydex",
+            currency_code="USD",
+            variant="First Edition Shadowless Holofoil",
+            grader="PSA",
+            grade="9",
+            low_price=65000.0,
+            market_price=68537.88,
+            mid_price=67000.0,
+            high_price=70000.0,
+            payload={"provider": "scrydex", "variantKey": "firstEditionShadowlessHolofoil"},
+        )
+        self.connection.commit()
+
+        persisted = persist_scrydex_raw_snapshot(
+            self.connection,
+            "base1-4",
+            {
+                "data": {
+                    "name": "Charizard",
+                    "expansion": {"name": "Base"},
+                    "variants": [
+                        {
+                            "name": "firstEditionShadowlessHolofoil",
+                            "prices": [
+                                {
+                                    "type": "raw",
+                                    "condition": "NM",
+                                    "currency": "USD",
+                                    "low": 450.0,
+                                    "market": 490.0,
+                                    "mid": 470.0,
+                                    "high": 525.0,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+            commit=False,
+        )
+        self.connection.commit()
+
+        self.assertIsNotNone(persisted)
+        raw_snapshot = price_snapshot_for_card(
+            self.connection,
+            "base1-4",
+            pricing_mode=RAW_PRICING_MODE,
+        )
+        graded_snapshot = price_snapshot_for_card(
+            self.connection,
+            "base1-4",
+            pricing_mode=PSA_GRADE_PRICING_MODE,
+            grader="PSA",
+            grade="9",
+        )
+        self.assertIsNotNone(raw_snapshot)
+        self.assertEqual(raw_snapshot["market"], 490.0)
+        self.assertIsNotNone(graded_snapshot)
+        self.assertEqual(graded_snapshot["market"], 68537.88)
+
     def test_card_market_history_returns_raw_points_and_deltas_from_sqlite(self) -> None:
         upsert_price_snapshot(
             self.connection,
@@ -1748,6 +2063,92 @@ class PricingPhase6Tests(unittest.TestCase):
         self.assertAlmostEqual(payload["deltas"]["days7"]["percentChange"], 25.0)
         self.assertAlmostEqual(payload["deltas"]["days30"]["priceChange"], 5.0)
         self.assertAlmostEqual(payload["deltas"]["days30"]["percentChange"], 50.0)
+
+    def _seed_multi_condition_raw_history(self) -> None:
+        for condition_code, market in (("NM", 15.0), ("LP", 12.0), ("MP", 9.0), ("HP", 6.0), ("DM", 3.0)):
+            upsert_price_snapshot(
+                self.connection,
+                card_id="base1-4",
+                pricing_mode=RAW_PRICING_MODE,
+                provider="scrydex",
+                currency_code="USD",
+                variant="Holofoil",
+                condition=condition_code,
+                low_price=market - 0.5,
+                market_price=market,
+                mid_price=market,
+                high_price=market + 0.5,
+                payload={"provider": "scrydex", "variantKey": "holofoil"},
+            )
+            upsert_price_history_daily(
+                self.connection,
+                card_id="base1-4",
+                pricing_mode=RAW_PRICING_MODE,
+                provider="scrydex",
+                price_date="2026-04-14",
+                currency_code="USD",
+                variant="Holofoil",
+                condition=condition_code,
+                low_price=market - 0.5,
+                market_price=market,
+                mid_price=market,
+                high_price=market + 0.5,
+                payload={"provider": "scrydex", "variantKey": "holofoil"},
+            )
+        self.connection.commit()
+
+    def test_card_market_history_accepts_long_form_condition_codes(self) -> None:
+        """Frontend may send 'lightly_played' etc. — backend must resolve to LP, not silently fall back to NM."""
+        self._seed_multi_condition_raw_history()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload_lp = service.card_market_history("base1-4", days=30, condition="lightly_played")
+            payload_mp = service.card_market_history("base1-4", days=30, condition="moderately_played")
+            payload_hp = service.card_market_history("base1-4", days=30, condition="heavily_played")
+            payload_dm = service.card_market_history("base1-4", days=30, condition="damaged")
+            payload_nm = service.card_market_history("base1-4", days=30, condition="near_mint")
+        finally:
+            service.connection.close()
+
+        for payload, expected_condition, expected_market in (
+            (payload_lp, "LP", 12.0),
+            (payload_mp, "MP", 9.0),
+            (payload_hp, "HP", 6.0),
+            (payload_dm, "DM", 3.0),
+            (payload_nm, "NM", 15.0),
+        ):
+            self.assertIsNotNone(payload)
+            assert payload is not None
+            self.assertEqual(payload["selectedCondition"], expected_condition)
+            self.assertEqual(payload["points"][-1]["market"], expected_market)
+
+    def test_card_market_history_accepts_short_condition_codes(self) -> None:
+        """Backwards-compatible: short codes (NM, LP, ...) still work after the long-form normalization patch."""
+        self._seed_multi_condition_raw_history()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.card_market_history("base1-4", days=30, condition="LP")
+        finally:
+            service.connection.close()
+
+        assert payload is not None
+        self.assertEqual(payload["selectedCondition"], "LP")
+        self.assertEqual(payload["points"][-1]["market"], 12.0)
+
+    def test_card_market_history_falls_back_to_nm_for_unrecognized_condition(self) -> None:
+        """An unknown condition string should still resolve to a sensible default (NM) rather than blowing up."""
+        self._seed_multi_condition_raw_history()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.card_market_history("base1-4", days=30, condition="totally_made_up")
+        finally:
+            service.connection.close()
+
+        assert payload is not None
+        self.assertEqual(payload["selectedCondition"], "NM")
 
     def test_card_market_history_returns_graded_points_from_sqlite(self) -> None:
         upsert_price_snapshot(

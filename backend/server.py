@@ -2052,7 +2052,9 @@ class SpotlightScanService:
         requested_condition: str | None,
     ) -> str | None:
         available_conditions = self._raw_history_conditions(card_id, variant)
-        requested = str(requested_condition or "").strip().upper() or None
+        requested = self._portfolio_condition_code(requested_condition)
+        if requested is None:
+            requested = str(requested_condition or "").strip().upper() or None
         if requested and requested in available_conditions:
             return requested
         for candidate in ("NM", "LP", "MP", "HP", "DM"):
@@ -3956,6 +3958,9 @@ class SpotlightScanService:
             for text in [label_text, *parsed_label_text]
             if text
         ).strip()
+        normalized_text = re.sub(r"[^A-Z0-9]+", " ", combined_upper).strip()
+        if re.search(r"\bJPN\b", normalized_text) or "JPNLXY" in normalized_text:
+            return "Japanese"
         language_tokens = (
             ("JAPANESE", "Japanese"),
             ("FRENCH", "French"),
@@ -3998,7 +4003,15 @@ class SpotlightScanService:
             add("pgo")
             return hints
 
-        if "JAPANESE" in combined_upper and "PROMO" in combined_upper and re.search(r"\bXY\b", combined_upper):
+        if (
+            (
+                "JAPANESE" in combined_upper
+                or re.search(r"\bJPN\.?\b", combined_upper)
+                or "JPNLXY" in combined_upper
+            )
+            and "PROMO" in combined_upper
+            and re.search(r"\bXY\b", combined_upper)
+        ):
             add("XY Promos")
             add("xyp_ja")
             add("XY")
@@ -4042,6 +4055,8 @@ class SpotlightScanService:
             "SHIPPING",
             "SHIP",
             "JAPANESE",
+            "JPN",
+            "JPNLXY",
             "GAME",
             "PROMO",
             "PROMOS",
@@ -4125,6 +4140,7 @@ class SpotlightScanService:
             "STAGE",
             "STAGEL",
             "TOXIC",
+            "BOX",
             "FRENCH",
             "ENGLISH",
             "GERMAN",
@@ -4180,7 +4196,9 @@ class SpotlightScanService:
                         break
                     leading_title.append(normalized_token)
                 if leading_title:
-                    title_candidates.append(leading_title)
+                    max_window = min(5, len(leading_title))
+                    for window_size in range(1, max_window + 1):
+                        title_candidates.append(leading_title[:window_size])
 
                 pre_tokens = SpotlightScanService._strip_slab_condition_phrase_tokens(
                     SpotlightScanService._normalize_slab_title_tokens([

@@ -393,6 +393,38 @@ def sample_japanese_base_charizard_slab_scan_payload() -> dict[str, object]:
     }
 
 
+def sample_luigi_pikachu_japanese_xy_promo_slab_scan_payload() -> dict[str, object]:
+    return {
+        "scanID": "scan-slab-luigi-pikachu-japanese-xy-promo",
+        "capturedAt": "2026-05-07T21:21:07Z",
+        "resolverModeHint": "psa_slab",
+        "cropConfidence": 1.0,
+        "setHintTokens": [],
+        "warnings": [],
+        "ocrAnalysis": {
+            "slabEvidence": {
+                "titleTextPrimary": "2016 P.M. JPN. XY PROMO",
+                "titleTextSecondary": "2016 P.M. JPN. XY PROMO",
+                "cardNumber": "296",
+                "setHints": [],
+                "grader": "PSA",
+                "grade": "10",
+                "cert": "97974877",
+                "labelWideText": "2016 P.M. JPN. XY PROMO #296 FA/LUIGI PIKACHU GEM MT LUIGI PIKACHU SPECIAL BOX 10 97974877",
+            }
+        },
+        "slabGrader": "PSA",
+        "slabGrade": "10",
+        "slabCertNumber": "97974877",
+        "slabCardNumberRaw": "296",
+        "slabParsedLabelText": [
+            "2016 P.M. JPN. XY PROMO",
+            "#296 FA/LUIGI PIKACHU GEM MT LUIGI PIKACHU SPECIAL BOX 10 97974877",
+        ],
+        "slabRecommendedLookupPath": "psa_cert",
+    }
+
+
 def sample_first_edition_base_charizard_slab_scan_payload() -> dict[str, object]:
     return {
         "scanID": "scan-slab-first-edition-base-charizard",
@@ -1986,6 +2018,21 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(evidence.matched_set_alias, "P.M. JAPANESE BASIC")
         self.assertEqual(evidence.set_hint_source, "psa_alias_map")
 
+    def test_build_slab_evidence_recovers_luigi_pikachu_from_jpn_xy_promo_label(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        evidence = service._build_slab_evidence(sample_luigi_pikachu_japanese_xy_promo_slab_scan_payload())
+        service.connection.close()
+
+        self.assertEqual(evidence.card_number, "296")
+        self.assertEqual(evidence.language_hint, "Japanese")
+        self.assertEqual(evidence.title_text_primary, "Luigi Pikachu")
+        self.assertEqual(evidence.title_text_secondary, "Luigi Pikachu")
+        self.assertIn("xy promos", evidence.set_hint_tokens)
+        self.assertIn("xyp_ja", evidence.set_hint_tokens)
+        self.assertEqual(evidence.matched_set_alias, "JPN XY PROMO")
+        self.assertEqual(evidence.set_hint_source, "psa_alias_map")
+
     def test_build_slab_evidence_prefers_mega_charizard_title_over_generic_rarity_phrase(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
 
@@ -2773,6 +2820,68 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(top_candidate["id"], "base1_ja-21")
         self.assertEqual(top_candidate["setName"], "拡張パック")
         self.assertNotEqual(top_candidate["id"], "topsun_ja-6")
+
+    def test_match_scan_resolves_luigi_pikachu_japanese_xy_promo_slab(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="xyp_ja-296",
+            name="Luigi Pikachu",
+            set_name="XY Promos",
+            number="296/XY-P",
+            rarity="Promo",
+            variant="Raw",
+            language="Japanese",
+            source_provider="scrydex",
+            source_record_id="xyp_ja-296",
+            set_id="xyp_ja",
+            set_series="XY Promos",
+            set_release_date="2016-01-01",
+            supertype="Pokemon",
+            source_payload={
+                "translation": {
+                    "en": {
+                        "name": "Luigi Pikachu",
+                    }
+                }
+            },
+        )
+        upsert_card(
+            service.connection,
+            card_id="smp_ja-296",
+            name="Tate & Liza",
+            set_name="Sun & Moon Promos",
+            number="296/SM-P",
+            rarity="Promo",
+            variant="Raw",
+            language="Japanese",
+            source_provider="scrydex",
+            source_record_id="smp_ja-296",
+            set_id="smp_ja",
+            set_series="Sun & Moon Promos",
+            set_release_date="2016-01-01",
+            supertype="Pokemon",
+        )
+        service.connection.commit()
+
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+            search_scrydex.return_value = type("SlabSearchResult", (), {
+                "cards": [],
+                "attempts": [],
+            })()
+            response = service.match_scan(sample_luigi_pikachu_japanese_xy_promo_slab_scan_payload())
+
+        service.connection.close()
+
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["slabContext"]["grader"], "PSA")
+        self.assertEqual(response["slabContext"]["grade"], "10")
+        self.assertEqual(response["confidence"], "high")
+        self.assertEqual(response["reviewDisposition"], "ready")
+        top_candidate = response["topCandidates"][0]["candidate"]
+        self.assertEqual(top_candidate["id"], "xyp_ja-296")
+        self.assertEqual(top_candidate["name"], "Luigi Pikachu")
+        self.assertNotEqual(top_candidate["id"], "smp_ja-296")
 
     def test_build_slab_match_response_returns_top_ten_candidates(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)

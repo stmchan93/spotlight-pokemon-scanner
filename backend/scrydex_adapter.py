@@ -1042,14 +1042,16 @@ def persist_scrydex_daily_history_from_card_payload(
             "rawCount": 0,
             "gradedCount": 0,
         }
+    raw_contexts_to_store = raw_contexts if raw_count > 0 else None
+    graded_contexts_to_store = graded_contexts if graded_count > 0 else None
     upsert_price_history_daily(
         connection,
         card_id=card_id,
         provider=SCRYDEX_PROVIDER,
         price_date=normalized_price_date,
         display_currency_code=display_currency_code,
-        raw_contexts=raw_contexts,
-        graded_contexts=graded_contexts,
+        raw_contexts=raw_contexts_to_store,
+        graded_contexts=graded_contexts_to_store,
         source_url=source_url,
         payload={
             "provider": SCRYDEX_PROVIDER,
@@ -1160,13 +1162,15 @@ def persist_scrydex_raw_snapshot(
     if raw_count <= 0 and graded_count <= 0:
         return None
     source_url = scrydex_request_url(f"/pokemon/v1/cards/{card_id}", include="prices")
+    raw_contexts_to_store = raw_contexts if raw_count > 0 else None
+    graded_contexts_to_store = graded_contexts if graded_count > 0 else None
     upsert_price_snapshot(
         connection,
         card_id=card_id,
         provider=SCRYDEX_PROVIDER,
         display_currency_code=display_currency_code,
-        raw_contexts=raw_contexts,
-        graded_contexts=graded_contexts,
+        raw_contexts=raw_contexts_to_store,
+        graded_contexts=graded_contexts_to_store,
         source_updated_at=None,
         source_url=source_url,
         payload={
@@ -1894,7 +1898,7 @@ def persist_scrydex_psa_snapshot(
     upsert_price_snapshot(
         connection,
         card_id=card_id,
-        source=SCRYDEX_PROVIDER,
+        provider=SCRYDEX_PROVIDER,
         display_currency_code=display_currency_code,
         graded_contexts=graded_contexts,
         source_url=source_url,
