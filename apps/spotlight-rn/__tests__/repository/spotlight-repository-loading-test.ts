@@ -984,4 +984,72 @@ describe('HttpSpotlightRepository', () => {
     expect(dashboard.ranges.ALL.sales[0]?.shortLabel).toBe('Apr 2025');
     expect(dashboard.ranges.ALL.sales[dashboard.ranges.ALL.sales.length - 1]?.shortLabel).toBe('Apr 2026');
   });
+
+  describe('getCardMarketHistory condition encoding', () => {
+    function captureMarketHistoryCalls() {
+      const calls: string[] = [];
+      global.fetch = jest.fn().mockImplementation(async (url: string) => {
+        calls.push(url);
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          currentPrice: 1.0,
+          points: [],
+          availableVariants: [],
+          availableConditions: [],
+        });
+      }) as typeof fetch;
+      return calls;
+    }
+
+    it.each([
+      ['near_mint', 'NM'],
+      ['lightly_played', 'LP'],
+      ['moderately_played', 'MP'],
+      ['heavily_played', 'HP'],
+      ['damaged', 'DM'],
+    ])('translates frontend condition code %s to backend short code %s', async (input, expected) => {
+      const calls = captureMarketHistoryCalls();
+      const repository = new HttpSpotlightRepository('http://example.test');
+
+      await repository.getCardMarketHistory({ cardId: 'sm7-1', condition: input });
+
+      expect(calls).toHaveLength(1);
+      const queryString = calls[0]?.split('?')[1] ?? '';
+      const params = new URLSearchParams(queryString);
+      expect(params.get('condition')).toBe(expected);
+    });
+
+    it('passes already-short condition codes through unchanged', async () => {
+      const calls = captureMarketHistoryCalls();
+      const repository = new HttpSpotlightRepository('http://example.test');
+
+      await repository.getCardMarketHistory({ cardId: 'sm7-1', condition: 'LP' });
+
+      const params = new URLSearchParams(calls[0]?.split('?')[1] ?? '');
+      expect(params.get('condition')).toBe('LP');
+    });
+
+    it('omits the condition param when none is provided for a slab query', async () => {
+      const calls = captureMarketHistoryCalls();
+      const repository = new HttpSpotlightRepository('http://example.test');
+
+      await repository.getCardMarketHistory({
+        cardId: 'sm7-1',
+        slabContext: { grader: 'PSA', grade: '9' },
+      });
+
+      const params = new URLSearchParams(calls[0]?.split('?')[1] ?? '');
+      expect(params.get('condition')).toBeNull();
+    });
+
+    it('falls back to NM when no condition is provided for a raw query', async () => {
+      const calls = captureMarketHistoryCalls();
+      const repository = new HttpSpotlightRepository('http://example.test');
+
+      await repository.getCardMarketHistory({ cardId: 'sm7-1' });
+
+      const params = new URLSearchParams(calls[0]?.split('?')[1] ?? '');
+      expect(params.get('condition')).toBe('NM');
+    });
+  });
 });

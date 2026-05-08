@@ -950,6 +950,37 @@ function normalizeConditionCode(condition?: string | null): InventoryCardEntry['
   }
 }
 
+export function toMarketHistoryConditionCode(condition?: string | null): string | null {
+  const trimmed = condition?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  switch (trimmed.toLowerCase()) {
+    case 'nm':
+    case 'near_mint':
+    case 'near mint':
+      return 'NM';
+    case 'lp':
+    case 'lightly_played':
+    case 'lightly played':
+      return 'LP';
+    case 'mp':
+    case 'moderately_played':
+    case 'moderately played':
+      return 'MP';
+    case 'hp':
+    case 'heavily_played':
+    case 'heavily played':
+      return 'HP';
+    case 'dm':
+    case 'dmg':
+    case 'damaged':
+      return 'DM';
+    default:
+      return trimmed.toUpperCase();
+  }
+}
+
 function normalizeImageUrl(value: unknown, baseUrl?: string) {
   const trimmed = normalizeString(value);
   if (!trimmed) {
@@ -2929,7 +2960,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       historyQuery.set('variant', query.variant);
     }
     if (query.condition) {
-      historyQuery.set('condition', query.condition);
+      const shortCode = toMarketHistoryConditionCode(query.condition);
+      if (shortCode) {
+        historyQuery.set('condition', shortCode);
+      }
     } else if (!query.slabContext?.grader && !query.slabContext?.grade) {
       historyQuery.set('condition', 'NM');
     }
