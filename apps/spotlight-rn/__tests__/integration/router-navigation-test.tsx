@@ -10,7 +10,7 @@ describe('mobile app routing', () => {
     await waitFor(() => {
       expect(screen.getByTestId('scanner-preview').props.accessibilityState?.disabled).toBe(false);
     });
-    expect(screen.getByTestId('scanner-prompt').props.children).toBe('Tap inside frame to scan');
+    expect(screen.getByTestId('scanner-prompt').props.children).toBe('Tap to scan');
     expect(screen.getByTestId('scanner-tray')).toBeTruthy();
 
     // No bottom nav on scanner page
@@ -45,7 +45,7 @@ describe('mobile app routing', () => {
       // Bottom nav disappears on scanner page
       expect(screen.queryByTestId('bottom-nav-portfolio')).toBeNull();
     });
-    expect(screen.getByTestId('scanner-prompt').props.children).toBe('Tap inside frame to scan');
+    expect(screen.getByTestId('scanner-prompt').props.children).toBe('Tap to scan');
   });
 
   it('renders the sales-history route directly', async () => {

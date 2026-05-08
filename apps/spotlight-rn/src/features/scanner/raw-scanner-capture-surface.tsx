@@ -29,7 +29,9 @@ export const rawScannerTrayCollapsedRowHeight = 74;
 export const rawScannerModeToggleReservedHeight = 89;
 export const slabLabelDividerRatio = 0.28;
 export const slabLabelAnalysisBottomRatio = 0.34;
-export const scannerReticleCornerStrokeWidth = 1.7;
+export const scannerReticleGuideStrokeWidth = 1.7;
+export const scannerReticleCornerSize = 22;
+export const scannerReticleCornerStrokeWidth = 3;
 export const slabGuideHorizontalInset = 8;
 
 export type RawScannerCaptureLayout = {
@@ -280,10 +282,22 @@ export function RawScannerCaptureSurface({
             />
           ) : null}
 
-          <View style={[styles.reticleCorner, styles.reticleTopLeft, styles.reticleTopLeftPosition]} />
-          <View style={[styles.reticleCorner, styles.reticleTopRight, styles.reticleTopRightPosition]} />
-          <View style={[styles.reticleCorner, styles.reticleBottomLeft, styles.reticleBottomLeftPosition]} />
-          <View style={[styles.reticleCorner, styles.reticleBottomRight, styles.reticleBottomRightPosition]} />
+          <View style={[styles.reticleCorner, styles.reticleTopLeftPosition]}>
+            <View style={[styles.reticleCornerHorizontal, styles.reticleCornerTopEdge]} />
+            <View style={[styles.reticleCornerVertical, styles.reticleCornerLeftEdge]} />
+          </View>
+          <View style={[styles.reticleCorner, styles.reticleTopRightPosition]}>
+            <View style={[styles.reticleCornerHorizontal, styles.reticleCornerTopEdge]} />
+            <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge]} />
+          </View>
+          <View style={[styles.reticleCorner, styles.reticleBottomLeftPosition]}>
+            <View style={[styles.reticleCornerHorizontal, styles.reticleCornerBottomEdge]} />
+            <View style={[styles.reticleCornerVertical, styles.reticleCornerLeftEdge]} />
+          </View>
+          <View style={[styles.reticleCorner, styles.reticleBottomRightPosition]}>
+            <View style={[styles.reticleCornerHorizontal, styles.reticleCornerBottomEdge]} />
+            <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge]} />
+          </View>
         </View>
       </View>
 
@@ -332,19 +346,9 @@ const styles = StyleSheet.create({
     flex: 1,
     overflow: 'hidden',
   },
-  reticleBottomLeft: {
-    borderBottomLeftRadius: 14,
-    borderBottomWidth: scannerReticleCornerStrokeWidth,
-    borderLeftWidth: scannerReticleCornerStrokeWidth,
-  },
   reticleBottomLeftPosition: {
     bottom: 0,
     left: 0,
-  },
-  reticleBottomRight: {
-    borderBottomRightRadius: 14,
-    borderBottomWidth: scannerReticleCornerStrokeWidth,
-    borderRightWidth: scannerReticleCornerStrokeWidth,
   },
   reticleBottomRightPosition: {
     bottom: 0,
@@ -354,10 +358,35 @@ const styles = StyleSheet.create({
     position: 'absolute',
   },
   reticleCorner: {
-    borderColor: colors.scannerTextPrimary,
-    height: 20,
+    height: scannerReticleCornerSize,
     position: 'absolute',
-    width: 20,
+    width: scannerReticleCornerSize,
+  },
+  reticleCornerBottomEdge: {
+    bottom: 0,
+  },
+  reticleCornerHorizontal: {
+    backgroundColor: colors.brand,
+    height: scannerReticleCornerStrokeWidth,
+    left: 0,
+    position: 'absolute',
+    right: 0,
+  },
+  reticleCornerLeftEdge: {
+    left: 0,
+  },
+  reticleCornerRightEdge: {
+    right: 0,
+  },
+  reticleCornerTopEdge: {
+    top: 0,
+  },
+  reticleCornerVertical: {
+    backgroundColor: colors.brand,
+    bottom: 0,
+    position: 'absolute',
+    top: 0,
+    width: scannerReticleCornerStrokeWidth,
   },
   reticleShell: {
     borderColor: colors.scannerOutline,
@@ -365,19 +394,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     position: 'absolute',
   },
-  reticleTopLeft: {
-    borderLeftWidth: scannerReticleCornerStrokeWidth,
-    borderTopLeftRadius: 14,
-    borderTopWidth: scannerReticleCornerStrokeWidth,
-  },
   reticleTopLeftPosition: {
     left: 0,
     top: 0,
-  },
-  reticleTopRight: {
-    borderRightWidth: scannerReticleCornerStrokeWidth,
-    borderTopRightRadius: 14,
-    borderTopWidth: scannerReticleCornerStrokeWidth,
   },
   reticleTopRightPosition: {
     right: 0,
@@ -398,7 +417,7 @@ const styles = StyleSheet.create({
   },
   slabGuide: {
     backgroundColor: colors.scannerTextPrimary,
-    height: scannerReticleCornerStrokeWidth,
+    height: scannerReticleGuideStrokeWidth,
     left: slabGuideHorizontalInset,
     position: 'absolute',
     right: slabGuideHorizontalInset,

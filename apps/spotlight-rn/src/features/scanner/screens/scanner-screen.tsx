@@ -125,8 +125,8 @@ type CaptureMatchParams = {
 };
 
 const scannerModes: readonly { label: string; value: ScannerMode }[] = [
-  { label: 'RAW', value: 'raw' },
-  { label: 'SLABS', value: 'slabs' },
+  { label: 'UNGRADED', value: 'raw' },
+  { label: 'GRADED', value: 'slabs' },
 ];
 
 const unsupportedSlabTitle = 'Slab type is currently not supported';
@@ -2089,7 +2089,7 @@ export function ScannerScreen({
       ? 'Allow camera access to scan'
       : isCapturing
         ? 'Capturing scan...'
-        : 'Tap inside frame to scan';
+        : 'Tap to scan';
 
   const renderCaptureRow = (capture: RecentCapture, index: number) => {
     const candidate = activeCandidateForCapture(capture);

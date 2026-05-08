@@ -157,8 +157,8 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
     expect(screen.getByTestId('scanner-mode-toggle')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
-    expect(screen.getByText('RAW')).toBeTruthy();
-    expect(screen.getByText('SLABS')).toBeTruthy();
+    expect(screen.getByText('UNGRADED')).toBeTruthy();
+    expect(screen.getByText('GRADED')).toBeTruthy();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
     expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
     const previewStyle = StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style);
@@ -173,7 +173,7 @@ describe('ScannerScreen', () => {
     expect(previewStyle.bottom).toBeUndefined();
     expect(previewStyle.right).toBeUndefined();
 
-    fireEvent.press(screen.getByText('SLABS'));
+    fireEvent.press(screen.getByText('GRADED'));
 
     expect(screen.getByTestId('scanner-slab-guide')).toBeTruthy();
   });
@@ -658,7 +658,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('SLABS'));
+    fireEvent.press(screen.getByText('GRADED'));
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -702,7 +702,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('SLABS'));
+    fireEvent.press(screen.getByText('GRADED'));
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -730,7 +730,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('SLABS'));
+    fireEvent.press(screen.getByText('GRADED'));
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -772,7 +772,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('SLABS'));
+    fireEvent.press(screen.getByText('GRADED'));
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -869,7 +869,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('SLABS'));
+    fireEvent.press(screen.getByText('GRADED'));
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -1229,7 +1229,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('SLABS'));
+    fireEvent.press(screen.getByText('GRADED'));
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
