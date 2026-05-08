@@ -166,7 +166,7 @@ print(actual_commit)
 PY
 }
 
-if [ -z "${MOBILE_EAS_ENV_FILE:-}" ] && [ "$ENVIRONMENT" = "staging" ]; then
+if [ -z "${MOBILE_EAS_ENV_FILE:-}" ] && { [ "$ENVIRONMENT" = "staging" ] || [ "$ENVIRONMENT" = "development" ]; }; then
   TEMP_ENV_FILE="$(create_temp_env_file "$ENVIRONMENT")"
   python3 "$ENV_RESOLVER_SCRIPT" --environment "$ENVIRONMENT" --profile "$PROFILE" --output "$TEMP_ENV_FILE"
   ENV_FILE="$TEMP_ENV_FILE"

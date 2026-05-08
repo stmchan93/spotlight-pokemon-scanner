@@ -134,7 +134,7 @@ pnpm backend:start:phone
 Terminal 2:
 
 ```bash
-pnpm mobile:start:phone:frontend
+pnpm mobile:start:phone -- --frontend-only
 ```
 
 If you already have a custom iOS dev client installed and want to use that instead of Expo Go:
@@ -349,17 +349,17 @@ The TestFlight workflow uses the same release-note generator for previews/build 
 For a higher-trust staging release gate, use:
 
 ```bash
-pnpm release:gate:staging
-pnpm release:gate:staging:build
-pnpm release:gate:staging:release
+pnpm deploy:staging
+pnpm deploy:staging -- build
+pnpm deploy:staging -- release
 ```
 
 The staging wrapper now skips smoke by default so frontend/TestFlight work is not blocked on local smoke credentials or fixture reset state. To force the staging gate to run smoke again, pass:
 
 ```bash
-pnpm release:gate:staging -- --run-smoke
-pnpm release:gate:staging:build -- --run-smoke
-pnpm release:gate:staging:release -- --run-smoke
+pnpm deploy:staging -- --run-smoke
+pnpm deploy:staging -- build --run-smoke
+pnpm deploy:staging -- release --run-smoke
 ```
 
 Those commands run one wrapper, [tools/run_release_gate.py](/Users/stephenchan/Code/spotlight/tools/run_release_gate.py:1), which can:
@@ -537,7 +537,7 @@ For physical-phone local development, prefer the phone helper launcher instead o
 
 ```bash
 pnpm backend:start:phone
-pnpm mobile:start:phone:frontend:dev-client
+pnpm mobile:start:phone:dev-client -- --frontend-only
 ```
 
 That launcher keeps `.env.development` local-first while overriding Expo at runtime with `http://<your-mac-lan-ip>:8788`.

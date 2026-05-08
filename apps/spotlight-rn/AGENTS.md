@@ -54,7 +54,7 @@ Scoped workflow notes for agents working under `apps/spotlight-rn`.
 ## Environment And Native Notes
 
 - Prefer repo root commands. The common phone path is `pnpm mobile:start:phone`.
-- For split terminals, use `pnpm backend:start:phone` plus `pnpm mobile:start:phone:frontend` or `pnpm mobile:start:phone:dev-client`.
+- For split terminals, use `pnpm backend:start:phone` plus `pnpm mobile:start:phone -- --frontend-only`, or `pnpm mobile:start:phone:dev-client -- --frontend-only` if you want the custom dev client.
 - Expo public env vars are the primary RN runtime-config path. Minimum env values are documented in `README.md`.
 - Keep `.env.development` local-backend-oriented, staging pointed at hosted staging, and production pointed at hosted production.
 - For physical phones, prefer the helper launcher over editing `.env.development` for the current LAN IP.

@@ -131,9 +131,9 @@ Those commands run `tools/deploy_backend.sh`, which:
 If you want the deploy plus authenticated staging smoke plus optional TestFlight step in one gate, use:
 
 ```bash
-pnpm release:gate:staging
-pnpm release:gate:staging:build
-pnpm release:gate:staging:release
+pnpm deploy:staging
+pnpm deploy:staging -- build
+pnpm deploy:staging -- release
 ```
 
 That wrapper lives in [tools/run_release_gate.py](/Users/stephenchan/Code/spotlight/tools/run_release_gate.py:1) and expects a dedicated staging smoke user via `SPOTLIGHT_STAGING_SMOKE_EMAIL` / `SPOTLIGHT_STAGING_SMOKE_PASSWORD`.
