@@ -612,7 +612,9 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByText('Treecko')).toBeTruthy();
     expect(screen.getByText('PSA • 8')).toBeTruthy();
     expect(await screen.findByText('PSA 8 Treecko recent sale')).toBeTruthy();
+    expect(String(screen.getByTestId('detail-recent-sales-updated').props.children)).toContain('Updated ');
     expect(screen.getByTestId('detail-recent-sales-refresh')).toBeTruthy();
+    expect(screen.queryByText('Refresh')).toBeNull();
 
     fireEvent.press(screen.getByTestId('detail-recent-sales-refresh'));
     expect(await screen.findByText('PSA 8 Treecko refreshed sale')).toBeTruthy();

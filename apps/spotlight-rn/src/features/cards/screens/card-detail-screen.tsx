@@ -5,8 +5,10 @@ import {
   IconHeartFilled,
   IconMinus,
   IconPlus,
+  IconRefresh,
 } from '@tabler/icons-react-native';
 import {
+  ActivityIndicator,
   Image,
   Linking,
   Pressable,
@@ -23,7 +25,7 @@ import {
   type CardDetailRecord,
   type CardRecentSalesRecord,
 } from '@spotlight/api-client';
-import { Button, SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, IconButton, SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
 
 import { resolveConditionDisplayLabel } from '@/lib/condition-display';
 import { ChromeBackButton } from '@/components/chrome-back-button';
@@ -1507,10 +1509,37 @@ export function CardDetailScreen({
 
             <View testID="detail-recent-sales-card">
               <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
-                {recentSalesUpdatedLabel ? (
-                  <Text style={[theme.typography.caption, styles.marketTimestamp]} testID="detail-recent-sales-updated">
-                    {recentSalesUpdatedLabel}
-                  </Text>
+                {recentSalesUpdatedLabel || shouldShowRecentSalesRefresh ? (
+                  <View style={styles.marketTimestampRow}>
+                    {recentSalesUpdatedLabel ? (
+                      <Text style={[theme.typography.caption, styles.marketTimestamp]} testID="detail-recent-sales-updated">
+                        {recentSalesUpdatedLabel}
+                      </Text>
+                    ) : (
+                      <View />
+                    )}
+
+                    {shouldShowRecentSalesRefresh ? (
+                      isRecentSalesLoading && recentSales ? (
+                        <View style={styles.marketTimestampAction} testID="detail-recent-sales-loading-inline">
+                          <ActivityIndicator color="rgba(15, 15, 18, 0.52)" size="small" />
+                        </View>
+                      ) : (
+                        <IconButton
+                          accessibilityLabel="Refresh recent eBay sales"
+                          onPress={() => {
+                            void loadRecentSales('refresh');
+                          }}
+                          size={28}
+                          style={styles.marketTimestampAction}
+                          testID="detail-recent-sales-refresh"
+                          variant="ghost"
+                        >
+                          <IconRefresh color="rgba(15, 15, 18, 0.58)" size={16} strokeWidth={1.9} />
+                        </IconButton>
+                      )
+                    ) : null}
+                  </View>
                 ) : null}
 
                 {recentSales?.status === 'available' && sortedRecentSales.length > 0 ? (
@@ -1623,41 +1652,8 @@ export function CardDetailScreen({
                     <Text style={[theme.typography.caption, styles.ebayMeta]}>
                       {recentSalesErrorMessage ?? recentSales?.unavailableReason ?? 'No recent sold sales were returned for this slab.'}
                     </Text>
-                    {shouldShowRecentSalesRefresh ? (
-                      <Button
-                        contentStyle={styles.ebayButtonContent}
-                        disabled={isRecentSalesLoading}
-                        label={isRecentSalesLoading ? 'Refreshing...' : 'Refresh'}
-                        labelStyle={styles.marketplaceButtonLabel}
-                        leadingAccessory={<EbayWordmarkBadge />}
-                        onPress={() => {
-                          void loadRecentSales('refresh');
-                        }}
-                        size="lg"
-                        style={styles.ebayViewAllButton}
-                        testID="detail-recent-sales-refresh"
-                        variant="secondary"
-                      />
-                    ) : null}
                   </View>
                 )}
-
-                {recentSales?.status === 'available' && shouldShowRecentSalesRefresh ? (
-                  <Button
-                    contentStyle={styles.ebayButtonContent}
-                    disabled={isRecentSalesLoading}
-                    label={isRecentSalesLoading ? 'Refreshing...' : 'Refresh'}
-                    labelStyle={styles.marketplaceButtonLabel}
-                    leadingAccessory={<EbayWordmarkBadge />}
-                    onPress={() => {
-                      void loadRecentSales('refresh');
-                    }}
-                    size="lg"
-                    style={styles.ebayViewAllButton}
-                    testID="detail-recent-sales-refresh"
-                    variant="secondary"
-                  />
-                ) : null}
                 {recentSales?.status === 'available' && recentSalesErrorMessage ? (
                   <Text style={[theme.typography.caption, styles.ebayMeta]}>
                     {recentSalesErrorMessage}
@@ -2098,6 +2094,20 @@ const styles = StyleSheet.create({
   },
   marketTimestamp: {
     color: 'rgba(15, 15, 18, 0.52)',
+  },
+  marketTimestampAction: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 28,
+    justifyContent: 'center',
+    marginRight: -6,
+    width: 28,
+  },
+  marketTimestampRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+    justifyContent: 'space-between',
   },
   marketValueTitle: {
     color: '#0F0F12',
