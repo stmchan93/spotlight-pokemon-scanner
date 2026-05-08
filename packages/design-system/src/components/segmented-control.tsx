@@ -19,18 +19,21 @@ type SegmentedControlProps<T extends string> = {
 const sizeMetrics = {
   lg: {
     containerPadding: 6,
+    fontSize: undefined,
     minHeight: 50,
     paddingHorizontal: 22,
     paddingVertical: 10,
   },
   md: {
     containerPadding: 4,
+    fontSize: undefined,
     minHeight: 34,
     paddingHorizontal: 10,
     paddingVertical: 7,
   },
   scanner: {
     containerPadding: 4,
+    fontSize: 14,
     minHeight: 48,
     paddingHorizontal: 22,
     paddingVertical: 9,
@@ -96,6 +99,7 @@ export function SegmentedControl<T extends string>({
                 theme.typography.control,
                 {
                   color: selected ? shellColors.selectedTextColor : shellColors.textColor,
+                  ...(metrics.fontSize != null ? { fontSize: metrics.fontSize } : {}),
                 },
               ]}
             >
