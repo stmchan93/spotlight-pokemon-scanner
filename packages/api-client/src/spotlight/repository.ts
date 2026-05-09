@@ -23,6 +23,7 @@ import type {
   CardRecentSalesQuery,
   CardRecentSalesRecord,
   CatalogSearchResult,
+  ExpansionRecord,
   InventoryEntryCreateRequestPayload,
   InventoryEntryCreateResponsePayload,
   InventoryCardEntry,
@@ -102,6 +103,8 @@ export interface SpotlightRepository {
     payload: PortfolioImportResolveRequestPayload,
   ): Promise<PortfolioImportJobRecord>;
   commitPortfolioImportJob(jobID: string): Promise<PortfolioImportCommitResponsePayload>;
+  listExpansions(game?: string): Promise<ExpansionRecord[]>;
+  listCardsInExpansion(expansionId: string, query?: string, limit?: number): Promise<CatalogSearchResult[]>;
 }
 
 type SpotlightRepositoryErrorKind = 'request_failed' | 'invalid_response' | 'not_found';
@@ -2435,6 +2438,17 @@ export class MockSpotlightRepository implements SpotlightRepository {
       message: committedCount > 0 ? `Imported ${committedCount} row${committedCount === 1 ? '' : 's'}.` : null,
     };
   }
+
+  async listExpansions(_game?: string): Promise<ExpansionRecord[]> {
+    return [];
+  }
+
+  async listCardsInExpansion(_expansionId: string, query?: string, _limit?: number): Promise<CatalogSearchResult[]> {
+    if (!query?.trim()) {
+      return [];
+    }
+    return this.searchCatalogCards(query);
+  }
 }
 
 export class HttpSpotlightRepository implements SpotlightRepository {
@@ -3182,6 +3196,56 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     );
     const inventoryEntries = await this.getInventoryEntries().catch(() => []);
     return normalizePortfolioImportCommitResponse(response, this.baseUrl, inventoryEntries);
+  }
+
+  async listExpansions(game = 'pokemon'): Promise<ExpansionRecord[]> {
+    const params = new URLSearchParams({ game });
+    const response = await this.requestJson<{ expansions: ExpansionRecord[] }>(
+      `${this.baseUrl}/api/v1/expansions?${params.toString()}`,
+    );
+    if (response.kind !== 'success') {
+      return [];
+    }
+    return Array.isArray(response.data?.expansions) ? response.data.expansions : [];
+  }
+
+  async listCardsInExpansion(expansionId: string, query = '', limit = 50): Promise<CatalogSearchResult[]> {
+    const params = new URLSearchParams({ limit: String(Math.max(1, Math.min(limit, 200))) });
+    if (query.trim()) {
+      params.set('q', query.trim());
+    }
+    const [searchResponse, inventoryResult] = await Promise.all([
+      this.requestJson<SearchResultsDTO>(
+        `${this.baseUrl}/api/v1/expansions/${encodeURIComponent(expansionId)}/cards?${params.toString()}`,
+      ),
+      this.loadInventoryEntries(),
+    ]);
+    if (searchResponse.kind !== 'success') {
+      return [];
+    }
+    const inventoryEntries = inventoryResult.data ?? [];
+    const rawResults = Array.isArray(searchResponse.data?.results) ? searchResponse.data.results : [];
+    return rawResults.flatMap((result: CardCandidateDTO) => {
+      const card = normalizeCardCandidate(result, this.baseUrl);
+      if (!card) {
+        return [];
+      }
+      return [{
+        id: card.id,
+        cardId: card.id,
+        name: card.name,
+        cardNumber: withCardNumberPrefix(card.number),
+        setName: card.setName,
+        subtitle: null,
+        imageUrl: pickImageUrl([card.imageLargeURL, card.imageSmallURL], this.baseUrl),
+        marketPrice: card.pricing.market,
+        currencyCode: card.pricing.currencyCode,
+        ownedQuantity: inventoryEntries
+          .filter((entry: InventoryCardEntry) => entry.cardId === card.id)
+          .reduce((sum: number, entry: InventoryCardEntry) => sum + entry.quantity, 0),
+        isFavorite: card.isFavorite,
+      }];
+    });
   }
 
   private async loadPortfolioHistory(range: keyof PortfolioDashboard['ranges']) {

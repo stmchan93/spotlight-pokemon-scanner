@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  IconAdjustmentsHorizontal,
   IconHeart,
   IconHeartFilled,
   IconMinus,
@@ -801,11 +802,13 @@ function RefreshIcon({ color, size = 18 }: { color: string; size?: number }) {
 
 function ScannerSearchLauncher({
   onChangeText,
+  onFilterPress,
   onFocusChange,
   onSubmit,
   value,
 }: {
   onChangeText: (value: string) => void;
+  onFilterPress?: () => void;
   onFocusChange: (focused: boolean) => void;
   onSubmit: () => void;
   value: string;
@@ -824,6 +827,13 @@ function ScannerSearchLauncher({
       containerTestID="scanner-search-launcher"
       inputStyle={styles.searchLauncherInput}
       leading={<IconSearch color={colors.scannerTextSecondary} size={18} strokeWidth={2} />}
+      trailing={
+        onFilterPress ? (
+          <Pressable hitSlop={8} onPress={onFilterPress}>
+            <IconAdjustmentsHorizontal color={colors.scannerTextSecondary} size={16} strokeWidth={2} />
+          </Pressable>
+        ) : undefined
+      }
       onBlur={() => {
         onFocusChange(false);
       }}
@@ -1967,6 +1977,10 @@ export function ScannerScreen({
     });
   }, [catalogSearchQuery, router]);
 
+  const handleOpenExpansionBrowser = useCallback(() => {
+    router.push('/catalog/expansion-browser');
+  }, [router]);
+
   const trayHeaderPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) =>
       shouldSetRecentCaptureTrayVerticalResponder(gestureState),
@@ -2318,6 +2332,7 @@ export function ScannerScreen({
           />
           <ScannerSearchLauncher
             onChangeText={setCatalogSearchQuery}
+            onFilterPress={handleOpenExpansionBrowser}
             onFocusChange={setIsCatalogSearchFocused}
             onSubmit={handleSubmitCatalogSearch}
             value={catalogSearchQuery}

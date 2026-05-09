@@ -77,6 +77,10 @@ from catalog_tools import (
     search_cards_local_collector_set,
     search_cards_local_title_only,
     search_cards_local_title_set,
+    expansion_count,
+    get_cards_by_expansion,
+    list_local_expansions,
+    list_persisted_expansions,
     runtime_setting,
     tokenize,
     upsert_catalog_card,
@@ -109,6 +113,8 @@ from scrydex_adapter import (
     best_remote_scrydex_raw_candidates,
     fetch_scrydex_recent_sales,
     fetch_scrydex_price_history,
+    fetch_scrydex_expansions,
+    sync_scrydex_expansions,
     map_scrydex_catalog_card,
     persist_scrydex_price_history_payload,
     persist_scrydex_raw_snapshot,
@@ -4971,6 +4977,21 @@ class SpotlightScanService:
     def search(self, query: str, *, limit: int = 20) -> dict[str, Any]:
         return {"results": search_cards(self.connection, query, limit=limit)}
 
+    def list_expansions(self, game: str = "pokemon", *, refresh: bool = False) -> dict[str, Any]:
+        if refresh or expansion_count(self.connection) == 0:
+            try:
+                sync_scrydex_expansions(self.connection, game=game)
+            except Exception:
+                traceback.print_exc()
+        expansions = list_persisted_expansions(self.connection)
+        if not expansions:
+            expansions = list_local_expansions(self.connection)
+        return {"expansions": expansions}
+
+    def search_expansion_cards(self, expansion_id: str, query: str = "", limit: int = 50) -> dict[str, Any]:
+        cards = get_cards_by_expansion(self.connection, expansion_id, query=query, limit=limit)
+        return {"results": cards}
+
     def _persist_mapped_catalog_card(
         self,
         *,
@@ -9013,6 +9034,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
                 return
             self._write_json(HTTPStatus.OK, self.service.search(query, limit=limit))
+            return
+
+        if parsed.path == "/api/v1/expansions":
+            query_params = parse_qs(parsed.query)
+            game = query_params.get("game", ["pokemon"])[0]
+            refresh_flag = query_params.get("refresh", ["false"])[0].lower() in ("1", "true", "yes")
+            self._write_json(HTTPStatus.OK, self.service.list_expansions(game=game, refresh=refresh_flag))
+            return
+
+        expansion_cards_match = re.match(r"^/api/v1/expansions/([^/]+)/cards$", parsed.path)
+        if expansion_cards_match:
+            expansion_id = expansion_cards_match.group(1)
+            query_params = parse_qs(parsed.query)
+            query = query_params.get("q", [""])[0]
+            try:
+                limit = int(query_params.get("limit", ["50"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            self._write_json(HTTPStatus.OK, self.service.search_expansion_cards(expansion_id, query=query, limit=limit))
             return
 
         ebay_listings_suffixes = ("/graded-comps", "/ebay-comps", "/comps", "/ebay-listings")

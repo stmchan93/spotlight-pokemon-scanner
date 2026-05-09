@@ -157,6 +157,14 @@ export function createTestSpotlightRepository(
       return overrides.abortLabelingSession?.(...args)
         ?? baseRepository.abortLabelingSession(...args);
     },
+    listExpansions: async (...args) => {
+      return overrides.listExpansions?.(...args)
+        ?? baseRepository.listExpansions(...args);
+    },
+    listCardsInExpansion: async (...args) => {
+      return overrides.listCardsInExpansion?.(...args)
+        ?? baseRepository.listCardsInExpansion(...args);
+    },
   };
 }
 

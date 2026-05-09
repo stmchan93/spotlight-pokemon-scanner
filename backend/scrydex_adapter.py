@@ -1340,6 +1340,121 @@ def fetch_scrydex_recent_sales(
     }
 
 
+def _map_scrydex_expansion(data: dict[str, Any]) -> dict[str, Any]:
+    images = data.get("images")
+    image_url = None
+    if isinstance(images, dict):
+        image_url = images.get("logo") or images.get("symbol") or images.get("large") or images.get("small")
+    elif isinstance(images, list):
+        for img in images:
+            if isinstance(img, dict):
+                image_url = img.get("logo") or img.get("large") or img.get("url")
+                if image_url:
+                    break
+    if not image_url:
+        image_url = data.get("logo") or data.get("image") or data.get("imageUrl") or data.get("image_url")
+    return {
+        "id": str(data.get("id") or ""),
+        "name": str(data.get("name") or ""),
+        "series": data.get("series"),
+        "code": data.get("code") or data.get("ptcgo_code"),
+        "releaseDate": data.get("release_date") or data.get("releaseDate"),
+        "imageUrl": image_url,
+    }
+
+
+def fetch_scrydex_expansions(game: str = "pokemon") -> list[dict[str, Any]]:
+    normalized_game = str(game or "pokemon").strip().lower()
+    try:
+        payload = scrydex_api_request(
+            f"/{normalized_game}/v1/expansions",
+            request_type="expansions_list",
+        )
+    except Exception:
+        return []
+
+    items = payload if isinstance(payload, list) else (
+        payload.get("expansions")
+        or payload.get("results")
+        or payload.get("data")
+        or []
+    )
+    if not isinstance(items, list):
+        return []
+
+    mapped = [_map_scrydex_expansion(item) for item in items if isinstance(item, dict) and item.get("id")]
+    mapped.sort(key=lambda e: str(e.get("releaseDate") or ""), reverse=True)
+    return mapped
+
+
+def fetch_scrydex_expansions_raw(game: str = "pokemon") -> list[dict[str, Any]]:
+    normalized_game = str(game or "pokemon").strip().lower()
+    try:
+        payload = scrydex_api_request(
+            f"/{normalized_game}/v1/expansions",
+            request_type="expansions_list",
+        )
+    except Exception:
+        return []
+
+    items = payload if isinstance(payload, list) else (
+        payload.get("expansions")
+        or payload.get("results")
+        or payload.get("data")
+        or []
+    )
+    if not isinstance(items, list):
+        return []
+    return [item for item in items if isinstance(item, dict) and item.get("id")]
+
+
+def sync_scrydex_expansions(connection: Any, *, game: str = "pokemon") -> int:
+    from catalog_tools import upsert_expansion, utc_now
+
+    raw_expansions = fetch_scrydex_expansions_raw(game=game)
+    if not raw_expansions:
+        return 0
+
+    imported_at = utc_now()
+    count = 0
+    for item in raw_expansions:
+        mapped = _map_scrydex_expansion(item)
+        if not mapped.get("id"):
+            continue
+
+        images = item.get("images") if isinstance(item.get("images"), dict) else {}
+        logo_url = (
+            images.get("logo")
+            or item.get("logo")
+            or item.get("logo_url")
+        )
+        symbol_url = (
+            images.get("symbol")
+            or item.get("symbol")
+            or item.get("symbol_url")
+        )
+        image_url = mapped.get("imageUrl") or images.get("large") or images.get("small")
+
+        upsert_expansion(
+            connection,
+            expansion_id=str(mapped["id"]),
+            name=str(mapped.get("name") or ""),
+            series=mapped.get("series"),
+            code=mapped.get("code"),
+            language=item.get("language") or item.get("language_code"),
+            release_date=mapped.get("releaseDate"),
+            logo_url=logo_url,
+            symbol_url=symbol_url,
+            image_url=image_url,
+            source_provider=SCRYDEX_PROVIDER,
+            source_payload=item,
+            imported_at=imported_at,
+        )
+        count += 1
+    connection.commit()
+    return count
+
+
 def fetch_scrydex_cards_page(
     *,
     page: int,

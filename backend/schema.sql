@@ -27,6 +27,25 @@ CREATE TABLE IF NOT EXISTS cards (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS expansions (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    series TEXT,
+    code TEXT,
+    language TEXT,
+    release_date TEXT,
+    logo_url TEXT,
+    symbol_url TEXT,
+    image_url TEXT,
+    source_provider TEXT,
+    source_payload_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_expansions_release_date ON expansions(release_date);
+CREATE INDEX IF NOT EXISTS idx_expansions_series ON expansions(series);
+
 CREATE TABLE IF NOT EXISTS card_name_aliases (
     card_id TEXT NOT NULL REFERENCES cards(id) ON DELETE CASCADE,
     alias TEXT NOT NULL,

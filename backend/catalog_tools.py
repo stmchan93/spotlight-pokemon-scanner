@@ -2819,6 +2819,174 @@ def search_cards_local(connection: sqlite3.Connection, query: str, limit: int = 
     return search_cards(connection, query, limit=limit)
 
 
+def get_cards_by_expansion(
+    connection: sqlite3.Connection,
+    set_id: str,
+    *,
+    query: str = "",
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    normalized_set_id = str(set_id or "").strip()
+    if not normalized_set_id:
+        return []
+    clamped_limit = max(1, min(limit, 200))
+    normalized_query = str(query or "").strip()
+
+    if not normalized_query:
+        rows = connection.execute(
+            "SELECT * FROM cards WHERE set_id = ? ORDER BY number ASC LIMIT ?",
+            (normalized_set_id, clamped_limit),
+        ).fetchall()
+        return [r for r in (_card_row_to_dict(row) for row in rows) if r is not None]
+
+    clean = normalized_query.lstrip("#").strip()
+    if not clean:
+        return []
+
+    number_patterns: list[str] = [clean]
+    if clean.isdigit():
+        for width in (2, 3):
+            padded = clean.zfill(width)
+            if padded not in number_patterns:
+                number_patterns.append(padded)
+
+    or_parts: list[str] = ["LOWER(name) LIKE ?"]
+    params: list[str] = [f"%{clean.lower()}%"]
+    for pattern in number_patterns:
+        or_parts.append("number = ?")
+        params.append(pattern)
+        or_parts.append("number LIKE ?")
+        params.append(f"{pattern}/%")
+
+    sql = f"""
+        SELECT * FROM cards
+        WHERE set_id = ?
+          AND ({" OR ".join(or_parts)})
+        ORDER BY
+          CASE WHEN LOWER(name) LIKE ? THEN 0 ELSE 1 END,
+          number ASC
+        LIMIT ?
+    """
+    final_params: list[Any] = [normalized_set_id, *params, f"{clean.lower()}%", clamped_limit]
+    rows = connection.execute(sql, tuple(final_params)).fetchall()
+    return [r for r in (_card_row_to_dict(row) for row in rows) if r is not None]
+
+
+def list_local_expansions(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    persisted = list_persisted_expansions(connection)
+    if persisted:
+        return persisted
+    rows = connection.execute(
+        """
+        SELECT set_id, set_name, set_series, set_release_date
+        FROM cards
+        WHERE set_id IS NOT NULL AND set_id != ''
+        GROUP BY set_id
+        ORDER BY set_release_date DESC
+        """,
+    ).fetchall()
+    return [
+        {
+            "id": row["set_id"],
+            "name": row["set_name"],
+            "series": row["set_series"],
+            "code": None,
+            "releaseDate": row["set_release_date"],
+            "imageUrl": None,
+        }
+        for row in rows
+    ]
+
+
+def list_persisted_expansions(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    rows = connection.execute(
+        """
+        SELECT id, name, series, code, release_date, logo_url, symbol_url, image_url
+        FROM expansions
+        ORDER BY release_date DESC NULLS LAST, name ASC
+        """,
+    ).fetchall()
+    return [
+        {
+            "id": row["id"],
+            "name": row["name"],
+            "series": row["series"],
+            "code": row["code"],
+            "releaseDate": row["release_date"],
+            "imageUrl": row["logo_url"] or row["image_url"] or row["symbol_url"],
+        }
+        for row in rows
+    ]
+
+
+def expansion_count(connection: sqlite3.Connection) -> int:
+    row = connection.execute("SELECT COUNT(*) AS count FROM expansions").fetchone()
+    return int(row["count"]) if row else 0
+
+
+def upsert_expansion(
+    connection: sqlite3.Connection,
+    *,
+    expansion_id: str,
+    name: str,
+    series: str | None = None,
+    code: str | None = None,
+    language: str | None = None,
+    release_date: str | None = None,
+    logo_url: str | None = None,
+    symbol_url: str | None = None,
+    image_url: str | None = None,
+    source_provider: str | None = None,
+    source_payload: dict[str, Any] | None = None,
+    imported_at: str | None = None,
+) -> None:
+    normalized_id = str(expansion_id or "").strip()
+    if not normalized_id:
+        raise ValueError("expansion_id is required")
+    timestamp = imported_at or utc_now()
+    payload_json = json.dumps(source_payload or {}, ensure_ascii=False)
+    connection.execute(
+        """
+        INSERT INTO expansions (
+            id, name, series, code, language, release_date,
+            logo_url, symbol_url, image_url,
+            source_provider, source_payload_json, created_at, updated_at
+        ) VALUES (
+            ?, ?, ?, ?, ?, ?,
+            ?, ?, ?,
+            ?, ?, ?, ?
+        )
+        ON CONFLICT(id) DO UPDATE SET
+            name=excluded.name,
+            series=excluded.series,
+            code=excluded.code,
+            language=excluded.language,
+            release_date=excluded.release_date,
+            logo_url=excluded.logo_url,
+            symbol_url=excluded.symbol_url,
+            image_url=excluded.image_url,
+            source_provider=excluded.source_provider,
+            source_payload_json=excluded.source_payload_json,
+            updated_at=excluded.updated_at
+        """,
+        (
+            normalized_id,
+            str(name or "").strip(),
+            series,
+            code,
+            language,
+            release_date,
+            logo_url,
+            symbol_url,
+            image_url,
+            source_provider,
+            payload_json,
+            timestamp,
+            timestamp,
+        ),
+    )
+
+
 def upsert_price_snapshot(
     connection: sqlite3.Connection,
     *,

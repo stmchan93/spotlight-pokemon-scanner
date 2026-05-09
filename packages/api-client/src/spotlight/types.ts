@@ -273,6 +273,15 @@ export type CatalogSearchResult = {
   isFavorite?: boolean;
 };
 
+export type ExpansionRecord = {
+  id: string;
+  name: string;
+  series: string | null;
+  code: string | null;
+  releaseDate: string | null;
+  imageUrl: string | null;
+};
+
 export type MarketHistoryOption = {
   id: string;
   label: string;

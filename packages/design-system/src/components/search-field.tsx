@@ -17,6 +17,7 @@ type SearchFieldProps = Omit<TextInputProps, 'style'> & {
   containerTestID?: string;
   inputStyle?: StyleProp<TextStyle>;
   leading?: ReactNode;
+  trailing?: ReactNode;
 };
 
 export function SearchField({
@@ -24,6 +25,7 @@ export function SearchField({
   containerTestID,
   inputStyle,
   leading,
+  trailing,
   placeholderTextColor,
   ...inputProps
 }: SearchFieldProps) {
@@ -51,6 +53,7 @@ export function SearchField({
         style={[theme.typography.body, styles.input, inputStyle]}
         {...inputProps}
       />
+      {trailing}
     </View>
   );
 }
