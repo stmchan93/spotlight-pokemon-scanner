@@ -113,9 +113,9 @@ function buildDynamicRanges(
   const currentValue = inventoryMarketValue(inventoryEntries);
 
   return {
-    '7D': {
-      portfolio: replaceLastPointValue(dashboardRanges['7D'].portfolio, currentValue),
-      sales: rebuildSalesSeries(dashboardRanges['7D'].sales, recentSales),
+    '1W': {
+      portfolio: replaceLastPointValue(dashboardRanges['1W'].portfolio, currentValue),
+      sales: rebuildSalesSeries(dashboardRanges['1W'].sales, recentSales),
     },
     '1M': {
       portfolio: replaceLastPointValue(dashboardRanges['1M'].portfolio, currentValue),
@@ -124,6 +124,10 @@ function buildDynamicRanges(
     '3M': {
       portfolio: replaceLastPointValue(dashboardRanges['3M'].portfolio, currentValue),
       sales: rebuildSalesSeries(dashboardRanges['3M'].sales, recentSales),
+    },
+    YTD: {
+      portfolio: replaceLastPointValue(dashboardRanges.YTD.portfolio, currentValue),
+      sales: rebuildSalesSeries(dashboardRanges.YTD.sales, recentSales),
     },
     '1Y': {
       portfolio: replaceLastPointValue(dashboardRanges['1Y'].portfolio, currentValue),
@@ -137,7 +141,7 @@ function buildDynamicRanges(
 }
 
 function buildDynamicSummary(ranges: Record<PortfolioHistoryRange, RangeChartData>) {
-  const points = ranges['7D'].portfolio;
+  const points = ranges['1W'].portfolio;
   const lastPoint = points[points.length - 1];
   const baselinePoint = points.find((point) => point.value > 0) ?? points[0];
   const changeAmount = baselinePoint && lastPoint
@@ -775,7 +779,7 @@ export const mockCardDetails: Record<string, CardDetailRecord> = {
 };
 
 const dashboardRanges = {
-  '7D': {
+  '1W': {
     portfolio: createHistorySeries(
       [0, 82.41, 145.11, 151.72, 151.72, 181.6, 194.61],
       ['Apr 15', 'Apr 16', 'Apr 17', 'Apr 18', 'Apr 19', 'Apr 20', 'Apr 21'],
@@ -809,6 +813,18 @@ const dashboardRanges = {
       [0, 4, 21, 60],
       ['Jan', 'Feb', 'Mar', 'Apr'],
       ['2026-01-21', '2026-02-21', '2026-03-21', '2026-04-21'],
+    ),
+  },
+  YTD: {
+    portfolio: createHistorySeries(
+      [0, 12, 28, 64, 130, 194.61],
+      ['Jan 1', 'Jan 31', 'Feb 28', 'Mar 14', 'Apr 7', 'Apr 21'],
+      ['2026-01-01', '2026-01-31', '2026-02-28', '2026-03-14', '2026-04-07', '2026-04-21'],
+    ),
+    sales: createHistorySeries(
+      [0, 2, 9, 18, 38, 60],
+      ['Jan 1', 'Jan 31', 'Feb 28', 'Mar 14', 'Apr 7', 'Apr 21'],
+      ['2026-01-01', '2026-01-31', '2026-02-28', '2026-03-14', '2026-04-07', '2026-04-21'],
     ),
   },
   '1Y': {

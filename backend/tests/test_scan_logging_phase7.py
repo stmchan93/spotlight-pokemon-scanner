@@ -1674,16 +1674,30 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         )
 
         with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
-            ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
+            ledger_1w = self.service.portfolio_ledger(days=365, range_label="1W", time_zone_name="UTC")
+            ledger_7d_alias = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
             ledger_30d = self.service.portfolio_ledger(days=365, range_label="30D", time_zone_name="UTC")
             ledger_90d = self.service.portfolio_ledger(days=365, range_label="90D", time_zone_name="UTC")
+            ledger_ytd = self.service.portfolio_ledger(days=365, range_label="YTD", time_zone_name="UTC")
             ledger_1y = self.service.portfolio_ledger(days=30, range_label="1Y", time_zone_name="UTC")
             ledger_all = self.service.portfolio_ledger(days=365, range_label="ALL", time_zone_name="UTC")
 
-        self.assertEqual(len(ledger_7d["dailySeries"]), 7)
+        self.assertEqual(len(ledger_1w["dailySeries"]), 7)
+        # `7D` continues to work as a backward-compat alias for `1W`.
+        self.assertEqual(ledger_1w["range"], "1W")
+        self.assertEqual(ledger_7d_alias["range"], "1W")
+        self.assertEqual(
+            len(ledger_7d_alias["dailySeries"]),
+            len(ledger_1w["dailySeries"]),
+        )
         self.assertEqual(len(ledger_30d["dailySeries"]), 12)
         self.assertEqual(len(ledger_90d["dailySeries"]), 12)
         self.assertEqual(len(ledger_1y["dailySeries"]), 12)
+        # YTD nominally spans Jan 1 → frozen-now (2026-04-26), but here it gets
+        # clamped to the earliest portfolio activity (2026-04-15).
+        self.assertEqual(ledger_ytd["range"], "YTD")
+        self.assertEqual(ledger_ytd["dailySeries"][0]["date"], "2026-04-15")
+        self.assertEqual(ledger_ytd["dailySeries"][-1]["date"], "2026-04-26")
         self.assertGreaterEqual(len(ledger_all["dailySeries"]), 1)
         self.assertEqual(ledger_30d["dailySeries"][0]["date"], "2026-04-15")
         self.assertEqual(ledger_90d["dailySeries"][0]["date"], "2026-04-15")
@@ -1730,7 +1744,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(history_1y["points"][0]["date"], "2026-04-15")
         self.assertEqual(history_1y["points"][-1]["date"], "2026-04-26")
 
-    def test_portfolio_ranges_clamp_7d_when_first_activity_is_newer_than_a_week(self) -> None:
+    def test_portfolio_ranges_clamp_1w_when_first_activity_is_newer_than_a_week(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
         upsert_card_price_summary(
             self.service.connection,
@@ -1761,15 +1775,22 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         )
 
         with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            ledger_1w = self.service.portfolio_ledger(days=365, range_label="1W", time_zone_name="UTC")
+            history_1w = self.service.deck_history(days=365, range_label="1W", time_zone_name="UTC")
+            # Backward-compat: legacy `7D` clients should produce the same shape.
             ledger_7d = self.service.portfolio_ledger(days=365, range_label="7D", time_zone_name="UTC")
             history_7d = self.service.deck_history(days=365, range_label="7D", time_zone_name="UTC")
 
-        self.assertEqual(ledger_7d["dailySeries"][0]["date"], "2026-04-23")
-        self.assertEqual(ledger_7d["dailySeries"][-1]["date"], "2026-04-26")
-        self.assertEqual(len(ledger_7d["dailySeries"]), 4)
-        self.assertEqual(history_7d["points"][0]["date"], "2026-04-23")
-        self.assertEqual(history_7d["points"][-1]["date"], "2026-04-26")
-        self.assertEqual(len(history_7d["points"]), 4)
+        self.assertEqual(ledger_1w["dailySeries"][0]["date"], "2026-04-23")
+        self.assertEqual(ledger_1w["dailySeries"][-1]["date"], "2026-04-26")
+        self.assertEqual(len(ledger_1w["dailySeries"]), 4)
+        self.assertEqual(history_1w["points"][0]["date"], "2026-04-23")
+        self.assertEqual(history_1w["points"][-1]["date"], "2026-04-26")
+        self.assertEqual(len(history_1w["points"]), 4)
+        self.assertEqual(ledger_7d["range"], "1W")
+        self.assertEqual(history_7d["range"], "1W")
+        self.assertEqual(len(ledger_7d["dailySeries"]), len(ledger_1w["dailySeries"]))
+        self.assertEqual(len(history_7d["points"]), len(history_1w["points"]))
 
     def test_deck_history_buckets_by_timezone(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")
@@ -1943,6 +1964,175 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
 
         deck_payload = self.service.deck_entries(limit=10)
         self.assertEqual(deck_payload["entries"][0]["condition"], "lightly_played")
+
+
+class DeckEntriesDayChangeTests(ScanLoggingPhase7Tests):
+    """Day-over-day change fields on inventory entries.
+
+    Inherits the in-memory SQLite + service fixture from the phase-7 suite.
+    """
+
+    def _seed_raw_entry(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_price_snapshot(
+            self.service.connection,
+            card_id="gym1-60",
+            provider="scrydex",
+            pricing_mode="raw",
+            currency_code="USD",
+            variant="Normal",
+            condition="near_mint",
+            low_price=9.0,
+            market_price=12.5,
+            mid_price=12.0,
+            high_price=13.0,
+            direct_low_price=8.5,
+            trend_price=12.25,
+            payload={"variant": "Normal", "condition": "NM"},
+        )
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="gym1-60",
+            quantity=1,
+            condition="near_mint",
+            variant_name="Normal",
+            unit_price=8.0,
+            currency_code="USD",
+            event_kind="buy",
+            added_at="2026-04-20T09:00:00Z",
+            updated_at="2026-04-20T09:00:00Z",
+        )
+        self.service.connection.commit()
+
+    def _seed_yesterday_history(self, *, market_price: float) -> None:
+        upsert_price_history_daily(
+            self.service.connection,
+            card_id="gym1-60",
+            pricing_mode="raw",
+            provider="scrydex",
+            price_date="2026-04-25",
+            currency_code="USD",
+            variant="Normal",
+            condition="NM",
+            low_price=max(market_price - 1.0, 0.0),
+            market_price=market_price,
+            mid_price=market_price,
+            high_price=market_price + 1.0,
+            source_url="https://prices.example/gym1-60/2026-04-25",
+            payload={"source": "scrydex"},
+        )
+
+    def test_deck_entries_includes_day_change_when_yesterday_snapshot_exists(self) -> None:
+        self._seed_raw_entry()
+        self._seed_yesterday_history(market_price=10.0)
+
+        with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            payload = self.service.deck_entries(limit=10)
+
+        entry = payload["entries"][0]
+        self.assertIn("dayChangeAmount", entry)
+        self.assertIn("dayChangePercent", entry)
+        # Today price = 12.5, yesterday market = 10.0 -> +2.5, +25%
+        assert entry["dayChangeAmount"] is not None
+        assert entry["dayChangePercent"] is not None
+        self.assertAlmostEqual(entry["dayChangeAmount"], 2.5, places=2)
+        self.assertAlmostEqual(entry["dayChangePercent"], 25.0, places=2)
+
+    def test_deck_entries_returns_null_day_change_when_no_yesterday_snapshot(self) -> None:
+        # Mirrors the user's local backend, which does not run the daily
+        # snapshot job. We must return null rather than crash.
+        self._seed_raw_entry()
+
+        with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            payload = self.service.deck_entries(limit=10)
+
+        entry = payload["entries"][0]
+        self.assertIsNone(entry["dayChangeAmount"])
+        self.assertIsNone(entry["dayChangePercent"])
+
+    def test_deck_entries_returns_null_percent_when_yesterday_price_is_zero(self) -> None:
+        self._seed_raw_entry()
+        self._seed_yesterday_history(market_price=0.0)
+
+        with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            payload = self.service.deck_entries(limit=10)
+
+        entry = payload["entries"][0]
+        # Today's price = 12.5, yesterday market is 0 (use mid 0 then low 0 then high 1.0)
+        # so primary is 0 and percent is undefined; amount is the raw delta vs 0.
+        # _history_primary_price_value walks market -> mid -> low -> high and
+        # short-circuits on the first numeric, so primary = 0 here.
+        self.assertIsNotNone(entry["dayChangeAmount"])
+        self.assertIsNone(entry["dayChangePercent"])
+
+    def test_deck_history_ytd_starts_at_jan_first(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        # Seed activity on Jan 1 so the YTD bound is not clamped forward by
+        # earliest_activity_at logic.
+        upsert_price_history_daily(
+            self.service.connection,
+            card_id="gym1-60",
+            pricing_mode="raw",
+            provider="scrydex",
+            price_date="2026-01-01",
+            currency_code="USD",
+            variant="Normal",
+            condition="NM",
+            low_price=4.0,
+            market_price=5.0,
+            mid_price=5.0,
+            high_price=6.0,
+            source_url="https://prices.example/gym1-60/2026-01-01",
+            payload={"source": "scrydex"},
+        )
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="gym1-60",
+            quantity=1,
+            condition="near_mint",
+            unit_price=4.0,
+            currency_code="USD",
+            event_kind="buy",
+            added_at="2026-01-01T00:00:00Z",
+            updated_at="2026-01-01T00:00:00Z",
+        )
+        self.service.connection.commit()
+
+        with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            history = self.service.deck_history(days=30, range_label="YTD", time_zone_name="UTC")
+
+        self.assertEqual(history["range"], "YTD")
+        # Jan 1 → Apr 26 inclusive = 116 days.
+        self.assertEqual(history["points"][0]["date"], "2026-01-01")
+        self.assertEqual(history["points"][-1]["date"], "2026-04-26")
+        self.assertEqual(len(history["points"]), 116)
+
+    def test_portfolio_history_treats_legacy_7d_as_1w_alias(self) -> None:
+        self._insert_card("gym1-60", name="Sabrina's Slowbro")
+        upsert_deck_entry(
+            self.service.connection,
+            card_id="gym1-60",
+            quantity=1,
+            condition="near_mint",
+            unit_price=4.0,
+            currency_code="USD",
+            event_kind="buy",
+            added_at="2026-04-22T00:00:00Z",
+            updated_at="2026-04-22T00:00:00Z",
+        )
+        self.service.connection.commit()
+
+        with self._freeze_runtime_now("2026-04-26T12:00:00Z"):
+            history_legacy = self.service.deck_history(days=30, range_label="7D", time_zone_name="UTC")
+            history_canonical = self.service.deck_history(days=30, range_label="1W", time_zone_name="UTC")
+
+        # Both inputs must yield the same canonical `1W` output.
+        self.assertEqual(history_legacy["range"], "1W")
+        self.assertEqual(history_canonical["range"], "1W")
+        self.assertEqual(
+            [point["date"] for point in history_legacy["points"]],
+            [point["date"] for point in history_canonical["points"]],
+        )
 
 
 if __name__ == "__main__":

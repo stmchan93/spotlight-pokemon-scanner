@@ -1089,6 +1089,19 @@ class SpotlightScanService:
         return datetime.combine(day, datetime.min.time(), tzinfo=time_zone)
 
     @classmethod
+    def _normalize_portfolio_range_label(cls, range_label: str | None) -> str | None:
+        """Normalize the inbound range label and apply backward-compat aliases.
+
+        The canonical history range tokens are ``1W``, ``1M``, ``3M``, ``YTD``,
+        ``1Y``, ``ALL`` (plus the legacy day-based labels ``30D``, ``90D``).
+        Older clients may still send ``7D``; treat it as an alias for ``1W``.
+        """
+        normalized = str(range_label or "").strip().upper() or None
+        if normalized == "7D":
+            return "1W"
+        return normalized
+
+    @classmethod
     def _portfolio_date_bounds(
         cls,
         *,
@@ -1101,20 +1114,25 @@ class SpotlightScanService:
         end_date = datetime.now(time_zone).date()
         resolved_days = max(1, min(int(days), 365))
         start_date = end_date - timedelta(days=resolved_days - 1)
-        normalized_range = str(range_label or "").strip().upper() or None
-        if normalized_range == "7D":
+        normalized_range = cls._normalize_portfolio_range_label(range_label)
+        if normalized_range == "1W":
             start_date = end_date - timedelta(days=6)
         elif normalized_range == "30D":
             start_date = end_date - timedelta(days=29)
         elif normalized_range == "90D":
             start_date = end_date - timedelta(days=89)
+        elif normalized_range == "YTD":
+            start_date = date(end_date.year, 1, 1)
         elif normalized_range == "1Y":
             start_date = end_date - timedelta(days=364)
         if earliest_at is not None:
             earliest_date = earliest_at.astimezone(time_zone).date()
             if normalized_range == "ALL":
                 start_date = earliest_date
-            elif normalized_range in {"7D", "30D", "90D", "1Y"} and earliest_date > start_date:
+            elif (
+                normalized_range in {"1W", "30D", "90D", "YTD", "1Y"}
+                and earliest_date > start_date
+            ):
                 start_date = earliest_date
         return time_zone, start_date, end_date
 
@@ -2541,6 +2559,86 @@ class SpotlightScanService:
             )
         return series
 
+    def _yesterday_price_history_row_for_card(
+        self,
+        card_id: str,
+        *,
+        time_zone_name: str | None = None,
+    ) -> sqlite3.Row | None:
+        """Latest price-history row dated strictly before today (in the local tz).
+
+        Returns ``None`` when no snapshot exists for any prior day. Local backends
+        that do not run the daily snapshot job will see this naturally.
+        """
+        normalized_card_id = str(card_id or "").strip()
+        if not normalized_card_id:
+            return None
+        time_zone = self._portfolio_time_zone(time_zone_name)
+        today_iso = datetime.now(time_zone).date().isoformat()
+        return self.connection.execute(
+            """
+            SELECT *
+            FROM card_price_history_daily
+            WHERE card_id = ? AND provider = ? AND price_date < ?
+            ORDER BY price_date DESC, updated_at DESC
+            LIMIT 1
+            """,
+            (normalized_card_id, SCRYDEX_PROVIDER, today_iso),
+        ).fetchone()
+
+    def _day_change_for_entry(
+        self,
+        *,
+        card_id: str,
+        item_kind: str | None,
+        grader: str | None,
+        grade: str | None,
+        variant_name: str | None,
+        condition_code: str | None,
+        today_pricing: dict[str, Any] | None,
+        time_zone_name: str | None = None,
+    ) -> tuple[float | None, float | None]:
+        """Compute (dayChangeAmount, dayChangePercent) for a single inventory entry.
+
+        Returns ``(None, None)`` when no yesterday snapshot exists (e.g. the
+        daily snapshot job has not run on this server yet) or when today's
+        price is unavailable. Returns ``(amount, None)`` when yesterday's
+        primary price was 0 (percent change is undefined).
+        """
+        today_price = self._history_primary_price_value(today_pricing)
+        if today_price is None:
+            return None, None
+        yesterday_row = self._yesterday_price_history_row_for_card(
+            card_id,
+            time_zone_name=time_zone_name,
+        )
+        if yesterday_row is None:
+            return None, None
+        # Deck-entry conditions are stored as long-form codes (e.g. ``near_mint``).
+        # ``_portfolio_history_price_row_from_history_row`` expects the
+        # short-form raw context key (``NM``/``LP``/...) used inside the
+        # raw_contexts JSON, so normalize before lookup.
+        history_entry = {
+            "cardID": card_id,
+            "itemKind": "slab" if str(item_kind or "").strip().lower() == "slab" else "raw",
+            "grader": grader,
+            "grade": grade,
+            "variantName": variant_name,
+        }
+        yesterday_pricing = self._portfolio_history_price_row_from_history_row(
+            history_entry,
+            row=yesterday_row,
+            condition_code=self._portfolio_condition_code(condition_code),
+        )
+        yesterday_price = self._history_primary_price_value(yesterday_pricing)
+        if yesterday_price is None:
+            return None, None
+        amount = round(float(today_price) - float(yesterday_price), 4)
+        if yesterday_price == 0:
+            return amount, None
+        percent = round((amount / float(yesterday_price)) * 100.0, 4)
+        return amount, percent
+
     def deck_history(
         self,
         *,
@@ -2549,9 +2647,9 @@ class SpotlightScanService:
         time_zone_name: str | None = None,
     ) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
-        normalized_range = str(range_label or "").strip().upper() or None
+        normalized_range = self._normalize_portfolio_range_label(range_label)
         earliest_at: datetime | None = None
-        if normalized_range in {"7D", "30D", "90D", "1Y", "ALL"}:
+        if normalized_range in {"1W", "30D", "90D", "YTD", "1Y", "ALL"}:
             earliest_at = self._portfolio_earliest_activity_at()
         time_zone, start_date, end_date = self._portfolio_date_bounds(
             days=days,
@@ -2905,9 +3003,9 @@ class SpotlightScanService:
         offset: int = 0,
     ) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
-        normalized_range = str(range_label or "").strip().upper() or None
+        normalized_range = self._normalize_portfolio_range_label(range_label)
         earliest_at: datetime | None = None
-        if normalized_range in {"7D", "30D", "90D", "1Y", "ALL"}:
+        if normalized_range in {"1W", "30D", "90D", "YTD", "1Y", "ALL"}:
             earliest_at = self._portfolio_earliest_activity_at()
         time_zone, start_date, end_date = self._portfolio_date_bounds(
             days=days,
@@ -8779,6 +8877,16 @@ class SpotlightScanService:
             else:
                 raw_count += 1
 
+            day_change_amount, day_change_percent = self._day_change_for_entry(
+                card_id=card_id,
+                item_kind=row["item_kind"],
+                grader=grader,
+                grade=grade,
+                variant_name=variant_name,
+                condition_code=condition,
+                today_pricing=pricing,
+            )
+
             entries.append(
                 {
                     "id": row["id"],
@@ -8795,6 +8903,8 @@ class SpotlightScanService:
                     "sourceScanID": row["source_scan_id"],
                     "sourceConfirmationID": row["source_confirmation_id"],
                     "isFavorite": card_id in favorite_rows_by_card_id,
+                    "dayChangeAmount": day_change_amount,
+                    "dayChangePercent": day_change_percent,
                 }
             )
 

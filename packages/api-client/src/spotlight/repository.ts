@@ -191,6 +191,8 @@ type DeckEntryDTO = {
   costBasisCurrencyCode?: string | null;
   addedAt?: string;
   isFavorite?: boolean | null;
+  dayChangeAmount?: number | null;
+  dayChangePercent?: number | null;
 };
 
 type PortfolioHistoryDTO = {
@@ -1232,6 +1234,8 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
         : null,
     costBasisTotal: costBasisTotal ?? null,
     isFavorite: normalizeBoolean(entry.isFavorite) ?? card.isFavorite,
+    dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
+    dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
   };
 }
 
@@ -1267,7 +1271,7 @@ function aggregateDailySalesSeries(
   points: PortfolioChartPoint[],
   range: keyof PortfolioDashboard['ranges'],
 ) {
-  if (range === '7D' || range === '1M' || points.length <= 1) {
+  if (range === '1W' || range === '1M' || points.length <= 1) {
     return points.map((point) => ({
       ...point,
       rangeEndISO: point.rangeEndISO ?? point.isoDate,
@@ -1411,12 +1415,15 @@ function buildSalesSeries(
 
 function mapRangeToBackend(range: keyof PortfolioDashboard['ranges']) {
   switch (range) {
-    case '7D':
-      return '7D';
+    case '1W':
+      // Backend accepts both `1W` and the legacy `7D` alias for one release cycle.
+      return '1W';
     case '1M':
       return '30D';
     case '3M':
       return '90D';
+    case 'YTD':
+      return 'YTD';
     case '1Y':
       return '1Y';
     case 'ALL':
@@ -1455,9 +1462,10 @@ function buildEmptyPortfolioDashboard(): PortfolioDashboard {
     inventoryItems: [],
     recentSales: [],
     ranges: {
-      '7D': { portfolio: [], sales: [] },
+      '1W': { portfolio: [], sales: [] },
       '1M': { portfolio: [], sales: [] },
       '3M': { portfolio: [], sales: [] },
+      YTD: { portfolio: [], sales: [] },
       '1Y': { portfolio: [], sales: [] },
       ALL: { portfolio: [], sales: [] },
     },
@@ -2573,58 +2581,64 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async loadPortfolioDashboard() {
     const [
       inventoryResult,
-      history7d,
+      history1w,
       history1m,
       history3m,
+      historyYtd,
       history1y,
       historyAll,
-      ledger7d,
+      ledger1w,
       ledger30d,
       ledger90d,
+      ledgerYtd,
       ledger1y,
       ledgerAll,
     ] = await Promise.all([
       this.loadInventoryEntries(),
-      this.loadPortfolioHistory('7D'),
+      this.loadPortfolioHistory('1W'),
       this.loadPortfolioHistory('1M'),
       this.loadPortfolioHistory('3M'),
+      this.loadPortfolioHistory('YTD'),
       this.loadPortfolioHistory('1Y'),
       this.loadPortfolioHistory('ALL'),
-      this.loadPortfolioLedger('7D'),
+      this.loadPortfolioLedger('1W'),
       this.loadPortfolioLedger('30D'),
       this.loadPortfolioLedger('90D'),
+      this.loadPortfolioLedger('YTD'),
       this.loadPortfolioLedger('1Y'),
       this.loadPortfolioLedger('ALL'),
     ]);
 
     const safeInventoryEntries = inventoryResult.data ?? [];
-    const safeHistory7d = history7d.data ?? buildEmptyPortfolioHistory();
+    const safeHistory1w = history1w.data ?? buildEmptyPortfolioHistory();
     const safeHistory1m = history1m.data ?? buildEmptyPortfolioHistory();
     const safeHistory3m = history3m.data ?? buildEmptyPortfolioHistory();
+    const safeHistoryYtd = historyYtd.data ?? buildEmptyPortfolioHistory();
     const safeHistory1y = history1y.data ?? buildEmptyPortfolioHistory();
     const safeHistoryAll = historyAll.data ?? buildEmptyPortfolioHistory();
-    const safeLedger7d = ledger7d.data ?? buildEmptyPortfolioLedger();
+    const safeLedger1w = ledger1w.data ?? buildEmptyPortfolioLedger();
     const safeLedger30d = ledger30d.data ?? buildEmptyPortfolioLedger();
     const safeLedger90d = ledger90d.data ?? buildEmptyPortfolioLedger();
+    const safeLedgerYtd = ledgerYtd.data ?? buildEmptyPortfolioLedger();
     const safeLedger1y = ledger1y.data ?? buildEmptyPortfolioLedger();
     const safeLedgerAll = ledgerAll.data ?? buildEmptyPortfolioLedger();
 
     const dashboard: PortfolioDashboard = {
       summary: {
-        currentValue: safeHistory7d.summary.currentValue,
-        changeAmount: safeHistory7d.summary.deltaValue,
-        changePercent: safeHistory7d.summary.deltaPercent ?? 0,
-        asOfLabel: safeHistory7d.points.length > 0
-          ? formatShortDate(safeHistory7d.points[safeHistory7d.points.length - 1]?.date ?? '')
+        currentValue: safeHistory1w.summary.currentValue,
+        changeAmount: safeHistory1w.summary.deltaValue,
+        changePercent: safeHistory1w.summary.deltaPercent ?? 0,
+        asOfLabel: safeHistory1w.points.length > 0
+          ? formatShortDate(safeHistory1w.points[safeHistory1w.points.length - 1]?.date ?? '')
           : 'Today',
       },
       inventoryCount: safeInventoryEntries.length,
       inventoryItems: safeInventoryEntries,
       recentSales: buildRecentSales(safeLedgerAll.transactions, this.baseUrl),
       ranges: {
-        '7D': {
-          portfolio: mapPortfolioSeries(safeHistory7d),
-          sales: buildSalesSeries(safeLedger7d, '7D'),
+        '1W': {
+          portfolio: mapPortfolioSeries(safeHistory1w),
+          sales: buildSalesSeries(safeLedger1w, '1W'),
         },
         '1M': {
           portfolio: mapPortfolioSeries(safeHistory1m),
@@ -2633,6 +2647,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         '3M': {
           portfolio: mapPortfolioSeries(safeHistory3m),
           sales: buildSalesSeries(safeLedger90d, '3M'),
+        },
+        YTD: {
+          portfolio: mapPortfolioSeries(safeHistoryYtd),
+          sales: buildSalesSeries(safeLedgerYtd, 'YTD'),
         },
         '1Y': {
           portfolio: mapPortfolioSeries(safeHistory1y),
@@ -2647,13 +2665,17 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
     const errorMessage = [
       inventoryResult,
-      history7d,
+      history1w,
       history1m,
       history3m,
+      historyYtd,
+      history1y,
       historyAll,
-      ledger7d,
+      ledger1w,
       ledger30d,
       ledger90d,
+      ledgerYtd,
+      ledger1y,
       ledgerAll,
     ].find((result) => result.state === 'error')?.errorMessage ?? null;
 
@@ -3265,7 +3287,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return buildLoadResult(history.points.length > 0 ? 'success' : 'empty', history);
   }
 
-  private async loadPortfolioLedger(range: '1Y' | '30D' | '90D' | 'ALL' | '7D') {
+  private async loadPortfolioLedger(range: '1Y' | '30D' | '90D' | 'ALL' | '1W' | 'YTD') {
     const queryParams = new URLSearchParams({
       range,
       timeZone: 'America/Los_Angeles',

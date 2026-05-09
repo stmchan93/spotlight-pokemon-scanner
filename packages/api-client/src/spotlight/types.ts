@@ -1,6 +1,13 @@
-export const historyRanges = ['7D', '1M', '3M', '1Y', 'ALL'] as const;
+export const historyRanges = ['1W', '1M', '3M', 'YTD', '1Y', 'ALL'] as const;
 
 export type PortfolioHistoryRange = (typeof historyRanges)[number];
+
+// Backend accepts the legacy `7D` token as an alias for `1W` for at least one
+// release cycle. The mobile app emits `1W`; older clients can keep sending `7D`
+// and the backend will treat it the same.
+export const legacyPortfolioHistoryRangeAliases: Record<string, PortfolioHistoryRange> = {
+  '7D': '1W',
+};
 
 export type ChartMode = 'portfolio' | 'sales';
 export type ScannerMode = 'raw' | 'slabs';
@@ -229,6 +236,11 @@ export type InventoryCardEntry = {
   costBasisPerUnit?: number | null;
   costBasisTotal?: number | null;
   isFavorite?: boolean;
+  // Day-over-day change in marketPrice computed from the previous day's price
+  // history snapshot. Both fields are null when no yesterday snapshot exists,
+  // and dayChangePercent is also null when yesterday's price was 0.
+  dayChangeAmount?: number | null;
+  dayChangePercent?: number | null;
 };
 
 export type PortfolioInventoryItem = InventoryCardEntry;
