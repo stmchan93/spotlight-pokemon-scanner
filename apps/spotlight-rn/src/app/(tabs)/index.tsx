@@ -22,7 +22,6 @@ export default function TabsRoot() {
       portfolioSlot={(
         <PortfolioScreen
           accountInitials={currentUser ? getUserInitials(currentUser) : 'AC'}
-          onOpenAddCard={() => router.push('/catalog/search')}
           onOpenAccount={() => router.push('/account')}
           onOpenInventory={() => router.push('/inventory')}
           onOpenInventoryEntry={(entry) =>
@@ -34,15 +33,7 @@ export default function TabsRoot() {
                 previewId: saveCardDetailPreviewFromInventoryEntry(entry),
               },
             })}
-          onOpenSalesHistory={() => router.push('/sales-history')}
-          onOpenSellSelection={(entryId) =>
-            router.push({
-              pathname: '/inventory',
-              params: {
-                mode: 'select',
-                ...(entryId ? { selected: entryId } : {}),
-              },
-            })}
+          onOpenSalesHistory={() => router.push('/sales')}
         />
       )}
       renderScannerSlot={(onExitToPortfolio, onTopLevelSwipeEnabledChange) => (

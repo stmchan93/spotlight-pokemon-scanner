@@ -264,29 +264,33 @@ describe('route wiring flows', () => {
       'inventory/index': InventoryRouteHarness,
     });
 
-    expect(await screen.findByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
+    expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('portfolio-see-more'));
+    // The Portfolio screen's "View All" inventory action replaces the old
+    // `portfolio-see-more` entry point.
+    fireEvent.press(screen.getByTestId('portfolio-inventory-view-all'));
 
     expect(await screen.findByText('All cards')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('inventory-back'));
 
     await waitFor(() => {
-      expect(screen.getByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-title')).toBeTruthy();
     });
   });
 
   it('navigates from add-card search to detail and through add-to-collection', async () => {
     jest.useFakeTimers();
 
-    renderAppRouter('/portfolio', {
+    // Add Card moved from the Portfolio screen to the Inventory Browser, so
+    // this flow now starts from `/inventory` instead of `/portfolio`.
+    renderAppRouter('/inventory', {
       'catalog/search': CatalogSearchRouteHarness,
       'cards/[cardId]': CardDetailRouteHarness,
       'collection/add/[cardId]': AddToCollectionRoute,
     });
 
-    fireEvent.press(await screen.findByTestId('portfolio-add-card'));
+    fireEvent.press(await screen.findByTestId('inventory-add-card'));
     expect(await screen.findByText('Add Card')).toBeTruthy();
 
     fireEvent.changeText(screen.getByPlaceholderText('Search by name, set, or number'), 'tree');
@@ -378,7 +382,7 @@ describe('route wiring flows', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-title')).toBeTruthy();
     });
   });
 
@@ -418,7 +422,7 @@ describe('route wiring flows', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-title')).toBeTruthy();
     });
   });
 });

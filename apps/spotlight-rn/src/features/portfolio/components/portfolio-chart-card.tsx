@@ -32,31 +32,24 @@ import type {
 } from '@spotlight/api-client';
 import {
   PillButton,
-  SurfaceCard,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
 import {
-  formatCompactCurrency,
   formatCurrency,
   formatPercent,
   formatSignedCurrency,
 } from './portfolio-formatting';
 
-const chartModeItems = [
-  { label: 'Collection', value: 'portfolio' },
-  { label: 'Sales', value: 'sales' },
-] as const;
-
 const rangeItems = [
-  { label: '7D', value: '7D' },
+  { label: '1W', value: '1W' },
   { label: '1M', value: '1M' },
   { label: '3M', value: '3M' },
+  { label: 'YTD', value: 'YTD' },
   { label: '1Y', value: '1Y' },
   { label: 'All', value: 'ALL' },
 ] as const;
 
-const axisLabelColumnWidth = 56;
 const skeletonBarScales = [0.42, 0.62, 0.5, 0.74, 0.58, 0.82, 0.68, 0.9, 0.76, 0.56, 0.72, 0.64];
 
 function buildLinePath(points: readonly { x: number; y: number }[]) {
@@ -86,15 +79,17 @@ function normalizeChartPointDate(isoDate: string) {
   return isoDate.includes('T') ? isoDate : `${isoDate}T12:00:00.000Z`;
 }
 
-function formatShortDateLabel(isoDate: string) {
+// "May 7, 2026" — used by the parent header when the user is scrubbing the chart.
+function formatHoverDateLabel(isoDate: string) {
   const date = new Date(normalizeChartPointDate(isoDate));
   if (Number.isNaN(date.valueOf())) {
     return '';
   }
 
   return date.toLocaleDateString('en-US', {
-    month: 'short',
+    month: 'long',
     day: 'numeric',
+    year: 'numeric',
     timeZone: 'UTC',
   });
 }
@@ -102,71 +97,7 @@ function formatShortDateLabel(isoDate: string) {
 function buildRoundedCurrencyTicks(values: number[]) {
   const maxValue = Math.max(...values, 0);
   const upperTick = maxValue > 0 ? Number(maxValue.toFixed(2)) : 1;
-  const middleTick = Number((upperTick / 2).toFixed(2));
-
-  return [0, middleTick, upperTick];
-}
-
-function formatSaleCount(count: number) {
-  return `${count} sale${count === 1 ? '' : 's'}`;
-}
-
-function formatSalesRangeLabel(
-  points: readonly PortfolioDashboard['ranges'][PortfolioHistoryRange]['sales'][number][],
-) {
-  const startAxisLabel = points[0]?.axisLabel ?? '';
-  const endAxisLabel = points[points.length - 1]?.axisLabel ?? '';
-  if (startAxisLabel || endAxisLabel) {
-    if (!startAxisLabel) {
-      return endAxisLabel;
-    }
-
-    if (!endAxisLabel || startAxisLabel === endAxisLabel) {
-      return startAxisLabel;
-    }
-
-    return `${startAxisLabel} - ${endAxisLabel}`;
-  }
-
-  const startDate = points[0]?.isoDate ?? '';
-  const endDate = points[points.length - 1]?.rangeEndISO ?? points[points.length - 1]?.isoDate ?? '';
-
-  const startLabel = startDate ? formatShortDateLabel(startDate) : '';
-  const endLabel = endDate ? formatShortDateLabel(endDate) : '';
-
-  if (!startLabel) {
-    return endLabel;
-  }
-
-  if (!endLabel || startLabel === endLabel) {
-    return startLabel;
-  }
-
-  return `${startLabel} - ${endLabel}`;
-}
-
-function formatSalesAxisStartLabel(
-  point: PortfolioDashboard['ranges'][PortfolioHistoryRange]['sales'][number] | undefined,
-) {
-  if (!point) {
-    return '';
-  }
-
-  return point.axisLabel ?? formatShortDateLabel(point.isoDate);
-}
-
-function formatSalesAxisEndLabel(
-  point: PortfolioDashboard['ranges'][PortfolioHistoryRange]['sales'][number] | undefined,
-) {
-  if (!point) {
-    return '';
-  }
-
-  if (point.axisLabel) {
-    return point.axisLabel;
-  }
-
-  return formatShortDateLabel(point.rangeEndISO ?? point.isoDate);
+  return upperTick;
 }
 
 function findPortfolioBaselinePoint(
@@ -179,30 +110,6 @@ function findPortfolioBaselinePoint(
   });
 
   return firstPositivePoint ?? points[0] ?? null;
-}
-
-function buildPortfolioSummaryForPoints(
-  points: readonly PortfolioDashboard['ranges'][PortfolioHistoryRange]['portfolio'][number][],
-  fallback: PortfolioDashboard['summary'],
-) {
-  const lastPoint = points[points.length - 1];
-  const baselinePoint = findPortfolioBaselinePoint(points);
-
-  if (!baselinePoint || !lastPoint) {
-    return fallback;
-  }
-
-  const changeAmount = Number((lastPoint.value - baselinePoint.value).toFixed(2));
-  const changePercent = baselinePoint.value > 0
-    ? Number(((changeAmount / baselinePoint.value) * 100).toFixed(2))
-    : 0;
-
-  return {
-    currentValue: lastPoint.value,
-    changeAmount,
-    changePercent,
-    asOfLabel: lastPoint.shortLabel,
-  };
 }
 
 function buildSalesPointCounts(
@@ -258,16 +165,9 @@ function buildSalesPointCounts(
 
 function portfolioChangeForPoint(
   points: PortfolioDashboard['ranges'][PortfolioHistoryRange]['portfolio'],
-  index: number | null,
+  index: number,
   fallback: PortfolioDashboard['summary'],
 ) {
-  if (index == null) {
-    return {
-      amount: fallback.changeAmount,
-      percent: fallback.changePercent,
-    };
-  }
-
   const point = points[index];
   if (!point) {
     return {
@@ -295,20 +195,26 @@ function portfolioChangeForPoint(
   };
 }
 
-function formatSummaryDetailLabel(amount: number, percent: number) {
-  return `${formatSignedCurrency(amount)} · ${formatPercent(percent)}`;
-}
+export type PortfolioChartActivePoint = {
+  valueLabel: string;
+  dateLabel: string;
+  changeAmount: number;
+  changePercent: number;
+  changeAmountLabel: string;
+  changePercentLabel: string;
+  isHovering: boolean;
+};
 
 type PortfolioChartCardProps = {
   chartMode: ChartMode;
   dashboard: PortfolioDashboard;
   isLoading?: boolean;
   selectedRange: PortfolioHistoryRange;
-  onModeChange: (value: ChartMode) => void;
   onRangeChange: (value: PortfolioHistoryRange) => void;
+  onActivePointChange?: (active: PortfolioChartActivePoint | null) => void;
 };
 
-function ChartSkeleton({ chartMode }: { chartMode: ChartMode }) {
+function ChartSkeleton() {
   const theme = useSpotlightTheme();
   const pulseOpacity = useRef(new Animated.Value(0.72)).current;
 
@@ -344,46 +250,21 @@ function ChartSkeleton({ chartMode }: { chartMode: ChartMode }) {
   return (
     <View pointerEvents="none" style={styles.skeletonChart} testID="portfolio-chart-skeleton">
       <Animated.View style={[styles.skeletonPulseLayer, { opacity: pulseOpacity }]}>
-        <View
-          style={[
-            styles.skeletonPanel,
-            {
-              backgroundColor: theme.colors.canvasElevated,
-              borderColor: theme.colors.outlineSubtle,
-            },
-          ]}
-          testID="portfolio-chart-skeleton-panel"
-        >
-          <View style={styles.skeletonGridLines}>
-            {Array.from({ length: 4 }).map((_, index) => (
-              <View
-                key={index}
-                style={[styles.gridLine, { borderColor: theme.colors.chartGrid }]}
-              />
-            ))}
-          </View>
-
-          <View style={styles.skeletonBarRow} testID="portfolio-chart-skeleton-bars">
-            {skeletonBarScales.map((heightScale, index) => (
-              <View
-                key={index}
-                style={[
-                  styles.skeletonBar,
-                  {
-                    backgroundColor: theme.colors.outlineStrong,
-                    height: Math.round(142 * heightScale),
-                    opacity: chartMode === 'sales' ? 0.62 : 0.46,
-                  },
-                ]}
-                testID={`portfolio-chart-skeleton-bar-${index}`}
-              />
-            ))}
-          </View>
-        </View>
-
-        <View style={styles.skeletonXAxisRow}>
-          <View style={[styles.skeletonAxisPill, { backgroundColor: theme.colors.outlineSubtle }]} />
-          <View style={[styles.skeletonAxisPill, { backgroundColor: theme.colors.outlineSubtle }]} />
+        <View style={styles.skeletonBarRow} testID="portfolio-chart-skeleton-bars">
+          {skeletonBarScales.map((heightScale, index) => (
+            <View
+              key={index}
+              style={[
+                styles.skeletonBar,
+                {
+                  backgroundColor: theme.colors.outlineStrong,
+                  height: Math.round(142 * heightScale),
+                  opacity: 0.46,
+                },
+              ]}
+              testID={`portfolio-chart-skeleton-bar-${index}`}
+            />
+          ))}
         </View>
       </Animated.View>
     </View>
@@ -395,29 +276,26 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   dashboard,
   isLoading = false,
   selectedRange,
-  onModeChange,
   onRangeChange,
+  onActivePointChange,
 }: PortfolioChartCardProps) {
   const theme = useSpotlightTheme();
   const [chartWidth, setChartWidth] = useState(0);
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
-  const chartHeight = 212;
-  const chartPadding = 16;
+  const chartHeight = 200;
+  const chartPadding = 12;
   const activeRange = dashboard.ranges[selectedRange];
   const series = chartMode === 'portfolio' ? activeRange.portfolio : activeRange.sales;
   const isChartSkeletonVisible = isLoading && series.length === 0;
   const salesPointCounts = useMemo(() => {
     return buildSalesPointCounts(activeRange.sales, dashboard.recentSales);
   }, [activeRange.sales, dashboard.recentSales]);
-  const summaryCaption = chartMode === 'portfolio' ? 'PORTFOLIO VALUE' : 'GROSS SALES';
   const chartAccentColor = theme.colors.brand;
 
-  const yAxisValues = useMemo(() => {
+  const yAxisMaxValue = useMemo(() => {
     return buildRoundedCurrencyTicks(series.map((point) => point.value));
   }, [series]);
-  const yAxisMaxValue = yAxisValues[yAxisValues.length - 1] ?? 1;
-  const chartCanvasWidth = Math.max(chartWidth - axisLabelColumnWidth, 1);
-  const plotWidth = Math.max(chartCanvasWidth - chartPadding * 2, 1);
+  const plotWidth = Math.max(chartWidth - chartPadding * 2, 1);
   const plotHeight = Math.max(chartHeight - chartPadding * 2, 1);
 
   useEffect(() => {
@@ -515,53 +393,63 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     };
   }, [activePointIndex, chartMode, coordinates, salesBars, series]);
 
-  const resolvedSalesPointIndex = chartMode === 'sales' ? activePointIndex : null;
-  const selectedPoint = chartMode === 'portfolio'
-    ? (activePointIndex == null ? null : series[activePointIndex] ?? null)
-    : (resolvedSalesPointIndex == null ? null : series[resolvedSalesPointIndex] ?? null);
-  const displayPoint = selectedPoint ?? series[series.length - 1] ?? null;
-  const portfolioSummary = chartMode === 'portfolio'
-    ? buildPortfolioSummaryForPoints(activeRange.portfolio, dashboard.summary)
-    : null;
-  const totalSalesValue = chartMode === 'sales'
-    ? Number(series.reduce((sum, point) => sum + point.value, 0).toFixed(2))
-    : 0;
-  const displayValue = chartMode === 'portfolio'
-    ? (selectedPoint?.value ?? displayPoint?.value ?? portfolioSummary?.currentValue ?? dashboard.summary.currentValue)
-    : (selectedPoint?.value ?? totalSalesValue);
-  const displayDateLabel = isChartSkeletonVisible
-    ? (chartMode === 'portfolio' && dashboard.summary.currentValue > 0 ? dashboard.summary.asOfLabel : '')
-    : (chartMode === 'portfolio'
-        ? (displayPoint?.shortLabel ?? portfolioSummary?.asOfLabel ?? dashboard.summary.asOfLabel)
-        : (selectedPoint?.shortLabel ?? formatSalesRangeLabel(activeRange.sales)));
-  const portfolioChange = chartMode === 'portfolio'
-    ? portfolioChangeForPoint(series, activePointIndex, portfolioSummary ?? dashboard.summary)
-    : null;
-  const totalSalesCount = chartMode === 'sales'
-    ? salesPointCounts.reduce((sum, count) => sum + count, 0)
-    : 0;
-  const displaySalesCount = chartMode === 'sales'
-    ? (resolvedSalesPointIndex == null
-        ? totalSalesCount
-        : (salesPointCounts[resolvedSalesPointIndex] ?? 0))
-    : 0;
-  const summaryDetailLabel = isChartSkeletonVisible
-    ? ''
-    : (chartMode === 'portfolio'
-        ? formatSummaryDetailLabel(
-            portfolioChange?.amount ?? portfolioSummary?.changeAmount ?? dashboard.summary.changeAmount,
-            portfolioChange?.percent ?? portfolioSummary?.changePercent ?? dashboard.summary.changePercent,
-          )
-        : (displaySalesCount > 0 ? formatSaleCount(displaySalesCount) : 'No sales'));
-  const shouldShowSummaryValueSkeleton = isChartSkeletonVisible
-    && (chartMode === 'sales' || dashboard.summary.currentValue <= 0);
+  // Bubble the active hovered point up to the parent so it can render the
+  // big value, date, and delta in the screen header.
+  useEffect(() => {
+    if (!onActivePointChange) {
+      return;
+    }
+
+    if (activePointIndex == null) {
+      onActivePointChange(null);
+      return;
+    }
+
+    const point = series[activePointIndex];
+    if (!point) {
+      onActivePointChange(null);
+      return;
+    }
+
+    if (chartMode === 'portfolio') {
+      const change = portfolioChangeForPoint(activeRange.portfolio, activePointIndex, dashboard.summary);
+      onActivePointChange({
+        valueLabel: formatCurrency(point.value),
+        dateLabel: formatHoverDateLabel(point.isoDate),
+        changeAmount: change.amount,
+        changePercent: change.percent,
+        changeAmountLabel: formatSignedCurrency(change.amount),
+        changePercentLabel: formatPercent(change.percent),
+        isHovering: true,
+      });
+    } else {
+      const salesCount = salesPointCounts[activePointIndex] ?? 0;
+      onActivePointChange({
+        valueLabel: formatCurrency(point.value),
+        dateLabel: formatHoverDateLabel(point.isoDate),
+        changeAmount: salesCount,
+        changePercent: 0,
+        changeAmountLabel: `${salesCount} sale${salesCount === 1 ? '' : 's'}`,
+        changePercentLabel: '',
+        isHovering: true,
+      });
+    }
+  }, [
+    activePointIndex,
+    activeRange.portfolio,
+    chartMode,
+    dashboard.summary,
+    onActivePointChange,
+    salesPointCounts,
+    series,
+  ]);
 
   const updateActivePoint = (event: GestureResponderEvent) => {
     if (chartWidth === 0 || series.length === 0) {
       return;
     }
 
-    const locationX = clamp(event.nativeEvent.locationX, 0, chartCanvasWidth);
+    const locationX = clamp(event.nativeEvent.locationX, 0, chartWidth);
     let nearestIndex = 0;
     let nearestDistance = Number.POSITIVE_INFINITY;
 
@@ -586,277 +474,112 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     setActivePointIndex(nearestIndex);
   };
 
+  const releaseActivePoint = () => {
+    setActivePointIndex(null);
+  };
+
   return (
-    <SurfaceCard
-      padding={16}
-      radius={theme.layout.chartCardRadius}
-      style={styles.card}
-    >
-      <View style={styles.cardHeader}>
-        <View style={styles.headerCopy}>
-          <Text
-            style={[
-              theme.typography.micro,
-              styles.eyebrow,
-              {
-                color: theme.colors.textSecondary,
-              },
-            ]}
-          >
-            {summaryCaption}
-          </Text>
-        </View>
-
-        <View
-          style={[
-            styles.toggleWrap,
-            {
-              backgroundColor: theme.colors.surfaceMuted,
-            },
-          ]}
-        >
-          {chartModeItems.map((item) => {
-            const selected = item.value === chartMode;
-
-            return (
-              <PillButton
-                key={item.value}
-                label={item.label}
-                minWidth={72}
-                onPress={() => onModeChange(item.value)}
-                selected={selected}
-                style={styles.togglePill}
-                testID={`chart-mode-${item.value}`}
-              />
-            );
-          })}
-        </View>
-      </View>
-
-      <View style={styles.valueBlock}>
-        {shouldShowSummaryValueSkeleton ? (
-          <View
-            style={[styles.summaryValueSkeleton, { backgroundColor: theme.colors.outlineSubtle }]}
-            testID="portfolio-chart-summary-value-skeleton"
-          />
-        ) : (
-          <Text style={[theme.typography.display, styles.value]} testID="portfolio-chart-summary-value">
-            {formatCurrency(displayValue)}
-          </Text>
-        )}
-
-        {(displayDateLabel || summaryDetailLabel) ? (
-          <View style={styles.valueMetaRow}>
-            {displayDateLabel ? (
-              <Text
-                style={[
-                  theme.typography.caption,
-                  styles.valueMetaDate,
-                  { color: theme.colors.textPrimary },
-                ]}
-                testID="portfolio-chart-summary-date"
-              >
-                {displayDateLabel}
-              </Text>
-            ) : null}
-
-            {summaryDetailLabel ? (
-              <Text
-                style={[
-                  theme.typography.caption,
-                  styles.valueMetaDetail,
-                  { color: theme.colors.textPrimary },
-                ]}
-                testID="portfolio-chart-summary-detail"
-              >
-                {summaryDetailLabel}
-              </Text>
-            ) : null}
-          </View>
-        ) : null}
-      </View>
-
+    <View style={styles.container}>
       <View
         onLayout={onChartLayout}
-        style={styles.chartShell}
+        style={[styles.chartArea, { height: chartHeight }]}
         testID={`portfolio-chart-${chartMode}`}
       >
-        <View style={styles.axisLabelColumn}>
-          {isChartSkeletonVisible
-            ? Array.from({ length: 3 }).map((_, index) => (
-                <View
-                  key={index}
-                  style={[
-                    styles.axisLabelSkeleton,
-                    {
-                      backgroundColor: theme.colors.outlineSubtle,
-                    },
-                  ]}
-                />
-              ))
-            : yAxisValues
-                .slice()
-                .reverse()
-                .map((value) => {
-                  return (
-                    <Text
-                      ellipsizeMode="clip"
-                      key={value}
-                      numberOfLines={1}
-                      style={[
-                        theme.typography.micro,
-                        styles.axisLabel,
-                        {
-                          color: theme.colors.chartAxisLabel,
-                        },
-                      ]}
-                    >
-                      {formatCompactCurrency(value)}
-                    </Text>
-                  );
-                })}
-        </View>
+        {isChartSkeletonVisible ? (
+          <ChartSkeleton />
+        ) : chartWidth > 0 ? (
+          <>
+            <Svg height={chartHeight} width="100%">
+              <Defs>
+                <LinearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
+                  <Stop offset="0" stopColor={chartAccentColor} stopOpacity="0.28" />
+                  <Stop offset="1" stopColor={chartAccentColor} stopOpacity="0.02" />
+                </LinearGradient>
+              </Defs>
 
-        <View style={styles.chartArea}>
-          {isChartSkeletonVisible ? (
-            <ChartSkeleton chartMode={chartMode} />
-          ) : (
-            <>
-              <View pointerEvents="none" style={styles.gridLines}>
-                {Array.from({ length: 3 }).map((_, index) => {
-                  return (
-                    <View
-                      key={index}
-                      style={[
-                        styles.gridLine,
-                        {
-                          borderColor: theme.colors.chartGrid,
-                        },
-                      ]}
-                    />
-                  );
-                })}
-              </View>
-
-              {chartWidth > 0 ? (
-                <Svg height={chartHeight} width="100%">
-                  <Defs>
-                    <LinearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
-                      <Stop offset="0" stopColor={theme.colors.brand} stopOpacity="0.28" />
-                      <Stop offset="1" stopColor={theme.colors.brand} stopOpacity="0.02" />
-                    </LinearGradient>
-                  </Defs>
-
-                  {chartMode === 'portfolio' ? (
+              {chartMode === 'portfolio' ? (
+                <>
+                  <Path d={fillPath} fill="url(#portfolioFill)" />
+                  <Path
+                    d={linePath}
+                    fill="none"
+                    stroke={chartAccentColor}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2.5}
+                  />
+                  {activeSelection ? (
                     <>
-                      <Path d={fillPath} fill="url(#portfolioFill)" />
-                      <Path
-                        d={linePath}
-                        fill="none"
+                      <Line
+                        stroke={theme.colors.chartGuide}
+                        strokeWidth={1.5}
+                        x1={activeSelection.x}
+                        x2={activeSelection.x}
+                        y1={chartPadding}
+                        y2={chartHeight - chartPadding}
+                      />
+                      <Circle
+                        cx={activeSelection.x}
+                        cy={activeSelection.y}
+                        fill={theme.colors.canvasElevated}
+                        r={7}
                         stroke={chartAccentColor}
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
                         strokeWidth={2.5}
                       />
-                      {activeSelection ? (
-                        <>
-                          <Line
-                            stroke={theme.colors.chartGuide}
-                            strokeWidth={1.5}
-                            x1={activeSelection.x}
-                            x2={activeSelection.x}
-                            y1={chartPadding}
-                            y2={chartHeight - chartPadding}
-                          />
-                          <Circle
-                            cx={activeSelection.x}
-                            cy={activeSelection.y}
-                            fill={theme.colors.canvasElevated}
-                            r={7}
-                            stroke={chartAccentColor}
-                            strokeWidth={2.5}
-                          />
-                        </>
-                      ) : coordinates.length > 0 ? (
-                        <Circle
-                          cx={coordinates[coordinates.length - 1]?.x ?? 0}
-                          cy={coordinates[coordinates.length - 1]?.y ?? 0}
-                          fill={theme.colors.canvasElevated}
-                          r={7}
-                          stroke={chartAccentColor}
-                          strokeWidth={2.5}
-                        />
-                      ) : null}
                     </>
-                  ) : (
-                    <>
-                      {salesBars.map((bar, index) => {
-                        return (
-                          <Rect
-                            key={series[index]?.isoDate ?? index}
-                            fill={chartAccentColor}
-                            height={bar.height}
-                            opacity={activePointIndex == null || activePointIndex === index ? 1 : 0.45}
-                            rx={8}
-                            width={bar.width}
-                            x={bar.x}
-                            y={bar.y}
-                          />
-                        );
-                      })}
-                      {activeSelection ? (
-                        <Line
-                          stroke={theme.colors.chartGuide}
-                          strokeWidth={1.5}
-                          x1={activeSelection.x}
-                          x2={activeSelection.x}
-                          y1={chartPadding}
-                          y2={chartHeight - chartPadding}
-                        />
-                      ) : null}
-                    </>
-                  )}
-                </Svg>
-              ) : null}
+                  ) : coordinates.length > 0 ? (
+                    <Circle
+                      cx={coordinates[coordinates.length - 1]?.x ?? 0}
+                      cy={coordinates[coordinates.length - 1]?.y ?? 0}
+                      fill={theme.colors.canvasElevated}
+                      r={7}
+                      stroke={chartAccentColor}
+                      strokeWidth={2.5}
+                    />
+                  ) : null}
+                </>
+              ) : (
+                <>
+                  {salesBars.map((bar, index) => {
+                    return (
+                      <Rect
+                        key={series[index]?.isoDate ?? index}
+                        fill={chartAccentColor}
+                        height={bar.height}
+                        opacity={activePointIndex == null || activePointIndex === index ? 1 : 0.45}
+                        rx={8}
+                        width={bar.width}
+                        x={bar.x}
+                        y={bar.y}
+                      />
+                    );
+                  })}
+                  {activeSelection ? (
+                    <Line
+                      stroke={theme.colors.chartGuide}
+                      strokeWidth={1.5}
+                      x1={activeSelection.x}
+                      x2={activeSelection.x}
+                      y1={chartPadding}
+                      y2={chartHeight - chartPadding}
+                    />
+                  ) : null}
+                </>
+              )}
+            </Svg>
 
-              <View style={styles.xAxisLabels}>
-                <Text
-                  style={[
-                    theme.typography.micro,
-                    {
-                      color: theme.colors.chartAxisLabel,
-                    },
-                  ]}
-                >
-                  {chartMode === 'sales'
-                    ? formatSalesAxisStartLabel(series[0])
-                    : series[0]?.shortLabel}
-                </Text>
-                <Text
-                  style={[
-                    theme.typography.micro,
-                    {
-                      color: theme.colors.chartAxisLabel,
-                    },
-                  ]}
-                >
-                  {chartMode === 'sales'
-                    ? formatSalesAxisEndLabel(series[series.length - 1])
-                    : series[series.length - 1]?.shortLabel}
-                </Text>
-              </View>
-
-              <View
-                onMoveShouldSetResponder={() => true}
-                onResponderGrant={updateActivePoint}
-                onResponderMove={updateActivePoint}
-                onStartShouldSetResponder={() => true}
-                style={styles.chartTouchTarget}
-                testID="portfolio-chart-touch-target"
-              />
-            </>
-          )}
-        </View>
+            <View
+              onMoveShouldSetResponder={() => true}
+              onResponderGrant={updateActivePoint}
+              onResponderMove={updateActivePoint}
+              onResponderRelease={releaseActivePoint}
+              onResponderTerminate={releaseActivePoint}
+              onStartShouldSetResponder={() => true}
+              style={styles.chartTouchTarget}
+              testID="portfolio-chart-touch-target"
+            />
+          </>
+        ) : null}
       </View>
 
       <View
@@ -880,62 +603,29 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
           );
         })}
       </View>
-    </SurfaceCard>
+    </View>
   );
 });
 
+export type { PortfolioChartCardProps };
+
 const styles = StyleSheet.create({
-  axisLabel: {
-    textAlign: 'left',
-  },
-  axisLabelSkeleton: {
-    borderRadius: 999,
-    height: 10,
-    width: 34,
-  },
-  axisLabelColumn: {
-    justifyContent: 'space-between',
-    paddingBottom: 28,
-    paddingRight: 8,
-    width: axisLabelColumnWidth,
-  },
-  card: {
+  container: {
     gap: 12,
   },
-  cardHeader: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
   chartArea: {
-    flex: 1,
     position: 'relative',
-  },
-  chartShell: {
-    flexDirection: 'row',
-    marginTop: 8,
-    minHeight: 236,
+    width: '100%',
   },
   chartTouchTarget: {
     ...StyleSheet.absoluteFillObject,
   },
-  eyebrow: {
-    letterSpacing: 1.2,
-  },
-  gridLine: {
-    borderTopWidth: 1,
-    width: '100%',
-  },
-  gridLines: {
-    bottom: 28,
-    justifyContent: 'space-between',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    top: 16,
-  },
-  headerCopy: {
-    flex: 1,
+  rangeRow: {
+    borderRadius: 999,
+    flexDirection: 'row',
+    gap: 8,
+    marginHorizontal: 16,
+    padding: 4,
   },
   rangePill: {
     alignItems: 'center',
@@ -945,18 +635,6 @@ const styles = StyleSheet.create({
     minHeight: 36,
     paddingHorizontal: 12,
     paddingVertical: 8,
-  },
-  rangeRow: {
-    borderRadius: 999,
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 4,
-    padding: 4,
-  },
-  skeletonAxisPill: {
-    borderRadius: 999,
-    height: 10,
-    width: 54,
   },
   skeletonBar: {
     borderRadius: 6,
@@ -974,82 +652,11 @@ const styles = StyleSheet.create({
   },
   skeletonChart: {
     flex: 1,
-    minHeight: 236,
+    minHeight: 200,
     overflow: 'hidden',
     position: 'relative',
   },
-  skeletonGridLines: {
-    bottom: 18,
-    justifyContent: 'space-between',
-    left: 14,
-    position: 'absolute',
-    right: 14,
-    top: 18,
-  },
-  skeletonPanel: {
-    borderRadius: 24,
-    borderWidth: 1,
-    bottom: 28,
-    left: 0,
-    overflow: 'hidden',
-    position: 'absolute',
-    right: 0,
-    top: 0,
-  },
   skeletonPulseLayer: {
     ...StyleSheet.absoluteFillObject,
-  },
-  skeletonXAxisRow: {
-    alignItems: 'center',
-    bottom: 2,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-  },
-  summaryValueSkeleton: {
-    borderRadius: 16,
-    height: 52,
-    marginTop: 8,
-    width: 168,
-  },
-  toggleWrap: {
-    borderRadius: 999,
-    flexDirection: 'row',
-    gap: 8,
-    padding: 4,
-  },
-  togglePill: {
-    flexShrink: 0,
-  },
-  value: {
-    marginTop: 2,
-  },
-  valueBlock: {
-    alignItems: 'flex-start',
-    gap: 8,
-    marginTop: 4,
-  },
-  valueMetaDate: {
-    textAlign: 'left',
-  },
-  valueMetaDetail: {
-    textAlign: 'left',
-  },
-  valueMetaRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    justifyContent: 'flex-start',
-  },
-  xAxisLabels: {
-    bottom: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    left: 0,
-    position: 'absolute',
-    right: 0,
   },
 });

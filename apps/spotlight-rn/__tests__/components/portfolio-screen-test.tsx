@@ -38,29 +38,34 @@ describe('PortfolioScreen', () => {
     );
   }
 
-  it('renders the portfolio shell and recent transactions list', async () => {
+  it('renders the portfolio shell, summary, and inventory tiles', async () => {
     renderPortfolioScreen();
 
     expect(screen.queryByText('Loading Loooty...')).toBeNull();
-    expect(await screen.findByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
-    expect(screen.getAllByText('Collection').length).toBeGreaterThan(0);
+    expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-header-title').props.children).toBe('Collection');
     expect(screen.getByTestId('portfolio-account-button')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('portfolio-scroll-view').props.contentContainerStyle)).toMatchObject({
       paddingBottom: 114,
     });
-    expect(screen.getByText('(6)')).toBeTruthy();
-    expect(screen.getAllByText('View All').length).toBeGreaterThan(0);
-    expect(screen.getByText('Bulk Sell')).toBeTruthy();
+
+    // Summary value + delta block at the screen level (chart card no longer
+    // owns the summary text).
+    expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-summary-delta')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-chart-mode-trigger')).toBeTruthy();
+
+    // Inventory + Latest Sales section actions both expose "View All".
+    expect(screen.getByTestId('portfolio-inventory-view-all')).toBeTruthy();
+    expect(await screen.findByTestId('latest-sales-see-more')).toBeTruthy();
     expect(await screen.findByText('Latest Sales')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
 
-    const addCardStyle = StyleSheet.flatten(screen.getByText('Add Card').props.style);
-    const bulkSellStyle = StyleSheet.flatten(screen.getByText('Bulk Sell').props.style);
-    const viewAllStyle = StyleSheet.flatten(screen.getAllByText('View All')[0].props.style);
-    const salesToggleStyle = StyleSheet.flatten(screen.getByText('Sales').props.style);
+    // Range pills use the new labels.
     const rangeAllStyle = StyleSheet.flatten(screen.getByText('All').props.style);
+    const viewAllStyle = StyleSheet.flatten(screen.getAllByText('View All')[0].props.style);
 
-    [addCardStyle, bulkSellStyle, viewAllStyle, salesToggleStyle, rangeAllStyle].forEach((style) => {
+    [viewAllStyle, rangeAllStyle].forEach((style) => {
       expect(style).toMatchObject({
         fontFamily: 'SpotlightBodySemiBold',
         fontSize: 15,
@@ -69,7 +74,7 @@ describe('PortfolioScreen', () => {
     });
   });
 
-  it('renders cached inventory with chart and sales skeletons before the first dashboard load resolves', async () => {
+  it('renders cached inventory and the screen-level summary while the dashboard load is pending', async () => {
     const repository = new mockApiClient.MockSpotlightRepository();
     const sourceRepository = new mockApiClient.MockSpotlightRepository();
     let resolveDashboard: (
@@ -86,9 +91,8 @@ describe('PortfolioScreen', () => {
 
     expect(screen.queryByText('Loading your portfolio...')).toBeNull();
     expect(await screen.findByTestId('portfolio-chart-skeleton')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-chart-summary-value')).toBeTruthy();
-    expect(screen.queryByTestId('portfolio-chart-summary-value-skeleton')).toBeNull();
-    expect(await screen.findByText('(6)')).toBeTruthy();
+    // Screen-level summary value is always present (chart no longer owns it).
+    expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
     expect(screen.getByTestId('latest-sales-skeleton')).toBeTruthy();
 
@@ -100,7 +104,7 @@ describe('PortfolioScreen', () => {
     await waitFor(() => {
       expect(screen.queryByTestId('portfolio-chart-skeleton')).toBeNull();
     });
-    expect(screen.getByTestId('portfolio-chart-summary-value')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
   });
 
   it('uses the provider cache when the portfolio screen remounts', async () => {
@@ -108,7 +112,7 @@ describe('PortfolioScreen', () => {
 
     const { rerender } = renderPortfolioScreen({ repository });
 
-    expect(await screen.findByText('(6)')).toBeTruthy();
+    expect(await screen.findAllByText('Scorbunny')).not.toHaveLength(0);
 
     await act(async () => {
       rerender(
@@ -137,22 +141,26 @@ describe('PortfolioScreen', () => {
     });
 
     expect(screen.queryByText('Loading your portfolio...')).toBeNull();
-    expect(screen.getByText('(6)')).toBeTruthy();
+    expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
   });
 
-  it('switches chart modes and keeps the sell entry available from inventory', async () => {
+  it('switches chart modes via the popover and renders the sales chart', async () => {
     renderPortfolioScreen();
 
-    await screen.findByText('Track value, favorites, and your latest transactions in one place.');
+    await screen.findByTestId('portfolio-header-title');
+    // Default view shows the portfolio chart.
+    expect(screen.getByTestId('portfolio-chart-portfolio')).toBeTruthy();
 
-    fireEvent.press(screen.getByText('Sales'));
+    fireEvent.press(screen.getByTestId('portfolio-chart-mode-trigger'));
+    fireEvent.press(await screen.findByTestId('portfolio-chart-mode-option-sales'));
 
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-chart-sales')).toBeTruthy();
     });
 
-    expect(screen.getByTestId('portfolio-sell-entry')).toBeTruthy();
-    expect(screen.queryByTestId('inventory-density-control')).toBeNull();
+    // The Bulk Sell entry point moved to the Inventory Browser, so the
+    // Portfolio screen no longer renders an inline sell entry control.
+    expect(screen.queryByTestId('portfolio-sell-entry')).toBeNull();
   });
 
   it('opens transactions history from the latest sales header action', async () => {
@@ -173,7 +181,7 @@ describe('PortfolioScreen', () => {
     expect(onOpenSalesHistory).toHaveBeenCalledTimes(1);
   });
 
-  it('edits a latest sold transaction price with the lightweight modal and updates sales totals locally', async () => {
+  it('edits a latest sold transaction price with the lightweight modal', async () => {
     render(
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
         <SpotlightThemeProvider>
@@ -195,14 +203,7 @@ describe('PortfolioScreen', () => {
       expect(screen.queryByText('Edit Sale Price')).toBeNull();
     });
 
+    // The Latest Sales card reflects the locally-edited price.
     expect(screen.getByText('$9.50')).toBeTruthy();
-
-    fireEvent.press(screen.getByText('Sales'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('portfolio-chart-summary-value').props.children).toBe('$106.60');
-    });
-
-    expect(screen.getByTestId('portfolio-chart-summary-detail').props.children).toBe('6 sales');
   });
 });

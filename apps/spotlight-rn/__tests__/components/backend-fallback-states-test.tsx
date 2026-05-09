@@ -39,11 +39,12 @@ describe('backend-backed fallback states', () => {
       { spotlightRepository: repository },
     );
 
-    expect(await screen.findByText('Track value, favorites, and your latest transactions in one place.')).toBeTruthy();
+    // Portfolio shell uses a centered "Collection" title in the redesign.
+    expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
     await waitFor(() => {
       expect(screen.queryByText('Loading Loooty...')).toBeNull();
     });
-    expect(screen.getByText('Could not load your backend data')).toBeTruthy();
+    expect(await screen.findByText('Could not load your backend data')).toBeTruthy();
     expect(screen.getByText('backend offline')).toBeTruthy();
   });
 

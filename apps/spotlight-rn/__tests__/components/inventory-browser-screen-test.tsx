@@ -14,6 +14,7 @@ describe('InventoryBrowserScreen', () => {
       <InventoryBrowserScreen
         initialMode="select"
         onBack={jest.fn()}
+        onOpenAddCard={jest.fn()}
         onOpenBulkSell={onOpenBulkSell}
         onOpenEntry={jest.fn()}
       />,
@@ -43,6 +44,7 @@ describe('InventoryBrowserScreen', () => {
         initialMode="select"
         initialSelectedIds={['entry-1']}
         onBack={jest.fn()}
+        onOpenAddCard={jest.fn()}
         onOpenBulkSell={onOpenBulkSell}
         onOpenEntry={jest.fn()}
       />,
@@ -65,6 +67,7 @@ describe('InventoryBrowserScreen', () => {
     renderWithProviders(
       <InventoryBrowserScreen
         onBack={jest.fn()}
+        onOpenAddCard={jest.fn()}
         onOpenBulkSell={jest.fn()}
         onOpenEntry={jest.fn()}
       />,
@@ -79,7 +82,32 @@ describe('InventoryBrowserScreen', () => {
     ).toBeTruthy();
   });
 
-  it('updates visible inventory results when filter chips change', async () => {
+  it('renders Add Card and Bulk Sell buttons at the top and toggles select mode', async () => {
+    const onOpenAddCard = jest.fn();
+
+    renderWithProviders(
+      <InventoryBrowserScreen
+        onBack={jest.fn()}
+        onOpenAddCard={onOpenAddCard}
+        onOpenBulkSell={jest.fn()}
+        onOpenEntry={jest.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('View all cards')).toBeTruthy();
+
+    expect(screen.getByTestId('inventory-add-card')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('inventory-add-card'));
+    expect(onOpenAddCard).toHaveBeenCalledTimes(1);
+
+    // Bulk Sell toggles selection mode in-place. Selection bar appears with
+    // the "Sell selected" action.
+    expect(screen.queryByTestId('inventory-sell-selected')).toBeNull();
+    fireEvent.press(screen.getByTestId('inventory-bulk-sell-toggle'));
+    expect(screen.getByTestId('inventory-sell-selected')).toBeTruthy();
+  });
+
+  it('updates visible inventory results when filter dropdown options change', async () => {
     const spotlightRepository = createTestSpotlightRepository({
       loadInventoryEntries: async () => ({
         state: 'success',
@@ -115,6 +143,7 @@ describe('InventoryBrowserScreen', () => {
     renderWithProviders(
       <InventoryBrowserScreen
         onBack={jest.fn()}
+        onOpenAddCard={jest.fn()}
         onOpenBulkSell={jest.fn()}
         onOpenEntry={jest.fn()}
       />,
@@ -125,18 +154,22 @@ describe('InventoryBrowserScreen', () => {
     expect(screen.getByText('Scorbunny')).toBeTruthy();
     expect(screen.getByText('Charizard')).toBeTruthy();
 
+    // Open the filter dropdown attached to the search field.
+    fireEvent.press(screen.getByTestId('inventory-filter-button'));
     fireEvent.press(screen.getByTestId('inventory-filter-graded'));
 
     expect(screen.getByText('1 shown')).toBeTruthy();
     expect(screen.getByText('Charizard')).toBeTruthy();
     expect(screen.queryByText('Scorbunny')).toBeNull();
 
+    fireEvent.press(screen.getByTestId('inventory-filter-button'));
     fireEvent.press(screen.getByTestId('inventory-filter-raw'));
 
     expect(screen.getByText('6 shown')).toBeTruthy();
     expect(screen.getByText('Scorbunny')).toBeTruthy();
     expect(screen.queryByText('Charizard')).toBeNull();
 
+    fireEvent.press(screen.getByTestId('inventory-filter-button'));
     fireEvent.press(screen.getByTestId('inventory-filter-favorite'));
 
     expect(screen.getByText('2 shown')).toBeTruthy();

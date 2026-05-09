@@ -27,7 +27,7 @@ describe('MockSpotlightRepository', () => {
     expect(dashboard.summary.currentValue).toBe(194.92);
     expect(dashboard.summary.changeAmount).toBe(112.51);
     expect(dashboard.summary.changePercent).toBe(136.52);
-    expect(dashboard.ranges['7D'].portfolio[dashboard.ranges['7D'].portfolio.length - 1]?.value).toBe(194.92);
+    expect(dashboard.ranges['1W'].portfolio[dashboard.ranges['1W'].portfolio.length - 1]?.value).toBe(194.92);
     expect(dashboard.recentSales[0]?.kind).toBe('traded');
   });
 
@@ -48,7 +48,7 @@ describe('MockSpotlightRepository', () => {
     });
 
     const dashboard = await repository.getPortfolioDashboard();
-    const grossSales7d = dashboard.ranges['7D'].sales.reduce((sum, point) => sum + point.value, 0);
+    const grossSales7d = dashboard.ranges['1W'].sales.reduce((sum, point) => sum + point.value, 0);
 
     expect(dashboard.summary.currentValue).toBe(194.23);
     expect(dashboard.recentSales[0]?.soldPrice).toBe(2);

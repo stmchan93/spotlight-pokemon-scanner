@@ -908,7 +908,7 @@ describe('HttpSpotlightRepository', () => {
   it('keeps date-only dashboard labels aligned to the actual range endpoints and slices 1Y separately from ALL', async () => {
     const allDates = dateSequence('2025-04-22', 370);
     const historyPointsByRange = {
-      '7D': dateSequence('2026-04-20', 7),
+      '1W': dateSequence('2026-04-20', 7),
       '30D': dateSequence('2026-03-28', 30),
       '90D': dateSequence('2026-01-27', 90),
       '1Y': dateSequence('2025-04-27', 365),
@@ -959,12 +959,12 @@ describe('HttpSpotlightRepository', () => {
     const repository = new HttpSpotlightRepository('http://example.test');
     const dashboard = await repository.getPortfolioDashboard();
 
-    expect(dashboard.ranges['7D'].portfolio[0]?.shortLabel).toBe('Apr 20');
-    expect(dashboard.ranges['7D'].portfolio[dashboard.ranges['7D'].portfolio.length - 1]?.shortLabel).toBe('Apr 26');
-    expect(dashboard.ranges['7D'].sales[0]?.shortLabel).toBe('Apr 20');
-    expect(dashboard.ranges['7D'].sales[dashboard.ranges['7D'].sales.length - 1]?.shortLabel).toBe('Apr 26');
-    expect(dashboard.ranges['7D'].sales[0]?.salesCount).toBe(2);
-    expect(dashboard.ranges['7D'].sales[1]?.salesCount).toBe(0);
+    expect(dashboard.ranges['1W'].portfolio[0]?.shortLabel).toBe('Apr 20');
+    expect(dashboard.ranges['1W'].portfolio[dashboard.ranges['1W'].portfolio.length - 1]?.shortLabel).toBe('Apr 26');
+    expect(dashboard.ranges['1W'].sales[0]?.shortLabel).toBe('Apr 20');
+    expect(dashboard.ranges['1W'].sales[dashboard.ranges['1W'].sales.length - 1]?.shortLabel).toBe('Apr 26');
+    expect(dashboard.ranges['1W'].sales[0]?.salesCount).toBe(2);
+    expect(dashboard.ranges['1W'].sales[1]?.salesCount).toBe(0);
     expect(dashboard.ranges['1M'].sales).toHaveLength(30);
     expect(dashboard.ranges['1M'].sales[0]?.shortLabel).toBe('Mar 28');
     expect(dashboard.ranges['1M'].sales[dashboard.ranges['1M'].sales.length - 1]?.shortLabel).toBe('Apr 26');

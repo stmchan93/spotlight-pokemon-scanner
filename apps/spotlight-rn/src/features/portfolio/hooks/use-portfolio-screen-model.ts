@@ -35,9 +35,10 @@ const emptyPortfolioDashboard: PortfolioDashboard = {
   inventoryItems: [],
   recentSales: [],
   ranges: {
-    '7D': { portfolio: [], sales: [] },
+    '1W': { portfolio: [], sales: [] },
     '1M': { portfolio: [], sales: [] },
     '3M': { portfolio: [], sales: [] },
+    YTD: { portfolio: [], sales: [] },
     '1Y': { portfolio: [], sales: [] },
     ALL: { portfolio: [], sales: [] },
   },
@@ -172,9 +173,9 @@ function applySalePriceEdit(
     ...dashboard,
     recentSales,
     ranges: {
-      '7D': {
-        ...dashboard.ranges['7D'],
-        sales: updateSalesSeriesForSalePrice(dashboard.ranges['7D'].sales, existingSale, priceDelta),
+      '1W': {
+        ...dashboard.ranges['1W'],
+        sales: updateSalesSeriesForSalePrice(dashboard.ranges['1W'].sales, existingSale, priceDelta),
       },
       '1M': {
         ...dashboard.ranges['1M'],
@@ -183,6 +184,10 @@ function applySalePriceEdit(
       '3M': {
         ...dashboard.ranges['3M'],
         sales: updateSalesSeriesForSalePrice(dashboard.ranges['3M'].sales, existingSale, priceDelta),
+      },
+      YTD: {
+        ...dashboard.ranges.YTD,
+        sales: updateSalesSeriesForSalePrice(dashboard.ranges.YTD.sales, existingSale, priceDelta),
       },
       '1Y': {
         ...dashboard.ranges['1Y'],
@@ -214,7 +219,7 @@ export function usePortfolioScreenModel() {
   const [isLoadingInventory, setIsLoadingInventory] = useState(inventoryEntriesCache === null);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(portfolioDashboardCache === null);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [selectedRange, setSelectedRange] = useState<PortfolioHistoryRange>('7D');
+  const [selectedRange, setSelectedRange] = useState<PortfolioHistoryRange>('1W');
   const [chartMode, setChartMode] = useState<ChartMode>('portfolio');
   const [inventoryExpanded, setInventoryExpanded] = useState(true);
   const [recentSalesExpanded, setRecentSalesExpanded] = useState(true);

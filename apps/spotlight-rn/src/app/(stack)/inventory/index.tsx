@@ -39,6 +39,7 @@ export default function InventoryRoute() {
       initialMode={initialMode}
       initialSelectedIds={initialSelectedIds}
       onBack={() => router.back()}
+      onOpenAddCard={() => router.push('/catalog/search')}
       onOpenBulkSell={(entryIds) => {
         if (entryIds.length === 0) {
           return;
