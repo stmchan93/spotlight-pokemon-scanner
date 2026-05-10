@@ -221,6 +221,13 @@ export const textStyles = {
     lineHeight: 16.8,
     color: colors.textPrimary,
   } satisfies TextStyle,
+  // Bottom-tab labels — 10/600, no explicit lineHeight per Figma spec.
+  navLabel: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 10,
+    color: colors.textPrimary,
+  } satisfies TextStyle,
 } as const;
 
 export const spotlightTheme = {

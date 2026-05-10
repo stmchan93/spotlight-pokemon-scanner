@@ -194,8 +194,8 @@ export function TopTabsPager({
                 icon: (
                   <Suitcase
                     color={theme.colors.textPrimary}
-                    height={24}
-                    width={24}
+                    height={20}
+                    width={20}
                   />
                 ),
               },
@@ -208,8 +208,8 @@ export function TopTabsPager({
                 icon: (
                   <Scanning
                     color={theme.colors.textPrimary}
-                    height={24}
-                    width={24}
+                    height={20}
+                    width={20}
                   />
                 ),
               },
@@ -222,8 +222,8 @@ export function TopTabsPager({
                 icon: (
                   <Calendar
                     color={theme.colors.textPrimary}
-                    height={24}
-                    width={24}
+                    height={20}
+                    width={20}
                   />
                 ),
               },
