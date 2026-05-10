@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Filter, MoreHoriz } from 'iconoir-react-native';
+import { Filter, MoreHorizCircle } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ChartMode, InventoryCardEntry } from '@spotlight/api-client';
@@ -144,7 +144,7 @@ export function PortfolioScreen({
   const summaryValueLabel = activeChartPoint?.valueLabel
     ?? formatCurrency(summary.currentValue);
   const summaryDateLabel = activeChartPoint?.dateLabel ?? 'Today';
-  const summaryDeltaLabel = activeChartPoint
+  const summaryDeltaAmountLabel = activeChartPoint
     ? `${activeChartPoint.changeAmountLabel} (${activeChartPoint.changePercentLabel})`
     : `${formatSignedCurrency(summary.changeAmount)} (${formatPercent(summary.changePercent)})`;
   const summaryDeltaIsPositive = activeChartPoint
@@ -340,29 +340,29 @@ export function PortfolioScreen({
               <View style={styles.summaryDeltaRow}>
                 <Text
                   style={[
-                    theme.typography.caption,
+                    theme.typography.overline,
                     {
-                      color: summaryDeltaIsPositive ? theme.colors.success : theme.colors.danger,
+                      color: summaryDeltaIsPositive ? theme.colors.greenDelta : theme.colors.redDelta,
                     },
                   ]}
                   testID="portfolio-summary-delta"
                 >
-                  {summaryDeltaLabel} {summaryDateLabel}
+                  {summaryDeltaAmountLabel}
+                </Text>
+                <Text
+                  style={[theme.typography.overline, { color: theme.colors.gray600 }]}
+                  testID="portfolio-summary-delta-date"
+                >
+                  {summaryDateLabel}
                 </Text>
                 <Pressable
                   accessibilityRole="button"
                   hitSlop={8}
                   onPress={() => setChartModeMenuOpen(true)}
-                  style={[
-                    styles.modeMenuButton,
-                    {
-                      backgroundColor: theme.colors.canvasElevated,
-                      borderColor: theme.colors.outlineSubtle,
-                    },
-                  ]}
+                  style={styles.modeMenuButton}
                   testID="portfolio-chart-mode-trigger"
                 >
-                  <MoreHoriz color={theme.colors.textSecondary} height={14} width={14} />
+                  <MoreHorizCircle color={theme.colors.textSecondary} height={20} width={20} />
                 </Pressable>
               </View>
             </View>
@@ -562,8 +562,7 @@ const styles = StyleSheet.create({
   },
   modeMenuButton: {
     alignItems: 'center',
-    borderRadius: 999,
-    borderWidth: 1,
+    backgroundColor: 'transparent',
     height: 28,
     justifyContent: 'center',
     width: 28,

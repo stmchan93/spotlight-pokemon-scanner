@@ -75,6 +75,8 @@ describe('PortfolioChartCard', () => {
         changeAmountLabel: expect.any(String),
       }),
     );
+
+    expect(screen.getByTestId('portfolio-chart-hover-tooltip')).toBeTruthy();
   });
 
   it('shows the skeleton when loading and no series points are available', () => {

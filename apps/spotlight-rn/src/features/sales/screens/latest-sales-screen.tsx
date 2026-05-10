@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { ArrowDown, ArrowUp } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { RecentSaleRecord } from '@spotlight/api-client';
@@ -27,11 +28,23 @@ function formattedCardNumber(cardNumber: string) {
   return cardNumber.startsWith('#') ? cardNumber : `#${cardNumber}`;
 }
 
+// Future-state delta data not yet on RecentSaleRecord; keep null until backend
+// surfaces gain/loss for sold inventory. JSX below already wires the pill.
+type LatestSaleGain = {
+  amountLabel: string;
+  direction: 'up' | 'down';
+} | null;
+
+function getLatestSaleGain(_sale: RecentSaleRecord): LatestSaleGain {
+  return null;
+}
+
 function LatestSaleRow({ sale }: { sale: RecentSaleRecord }) {
   const theme = useSpotlightTheme();
   const cardHeight = theme.layout.recentSaleHeight;
   const cardPadding = theme.spacing.xxs;
   const artHeight = cardHeight - cardPadding * 2;
+  const gain = getLatestSaleGain(sale);
 
   return (
     <Pressable
@@ -47,25 +60,63 @@ function LatestSaleRow({ sale }: { sale: RecentSaleRecord }) {
         />
 
         <View style={[styles.copy, { minHeight: artHeight }]}>
-          <View style={styles.titleRow}>
-            <Text
-              numberOfLines={1}
-              style={[theme.typography.headline, styles.titleText, { color: theme.colors.textPrimary }]}
-            >
-              {sale.name}
-            </Text>
-            <Text style={[theme.typography.headline, styles.priceText, { color: theme.colors.textPrimary }]}>
-              {formatCurrency(sale.soldPrice, sale.currencyCode)}
-            </Text>
-          </View>
-          <Text numberOfLines={2} style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.headline, { color: theme.colors.textPrimary }]}
+          >
+            {sale.name}
+          </Text>
+          <Text
+            numberOfLines={2}
+            style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
+          >
             {formattedCardNumber(sale.cardNumber)}
             {' • '}
             {sale.setName}
           </Text>
-          <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-            {sale.soldAtLabel}
+          <Text style={[theme.typography.overline, { color: theme.colors.textMuted }]}>
+            {`Sold on ${sale.soldAtLabel}`}
           </Text>
+          <View style={styles.priceRow}>
+            <Text
+              style={[theme.typography.caption, { color: theme.colors.textPrimary }]}
+            >
+              {formatCurrency(sale.soldPrice, sale.currencyCode)}
+            </Text>
+            {gain ? (
+              <View
+                style={[
+                  styles.deltaPill,
+                  {
+                    backgroundColor:
+                      gain.direction === 'down'
+                        ? 'rgba(224, 82, 76, 0.12)'
+                        : 'rgba(76, 175, 110, 0.12)',
+                    borderRadius: theme.radii.pill,
+                  },
+                ]}
+              >
+                {gain.direction === 'down' ? (
+                  <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
+                ) : (
+                  <ArrowUp color={theme.colors.greenDelta} height={12} width={12} />
+                )}
+                <Text
+                  style={[
+                    theme.typography.deltaPill,
+                    {
+                      color:
+                        gain.direction === 'down'
+                          ? theme.colors.redDelta
+                          : theme.colors.greenDelta,
+                    },
+                  ]}
+                >
+                  {gain.amountLabel}
+                </Text>
+              </View>
+            ) : null}
+          </View>
         </View>
       </SurfaceCard>
     </Pressable>
@@ -228,8 +279,15 @@ const styles = StyleSheet.create({
   },
   copy: {
     flex: 1,
-    gap: 6,
+    gap: 4,
     justifyContent: 'center',
+  },
+  deltaPill: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
   headerCopy: {
     gap: 4,
@@ -237,9 +295,11 @@ const styles = StyleSheet.create({
   list: {
     gap: 12,
   },
-  priceText: {
-    flexShrink: 0,
-    textAlign: 'right',
+  priceRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
   },
   safeArea: {
     flex: 1,
@@ -281,15 +341,5 @@ const styles = StyleSheet.create({
     alignItems: 'baseline',
     flexDirection: 'row',
     gap: 8,
-  },
-  titleRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  titleText: {
-    flex: 1,
   },
 });

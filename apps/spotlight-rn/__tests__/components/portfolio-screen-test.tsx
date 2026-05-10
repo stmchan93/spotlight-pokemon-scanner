@@ -64,10 +64,10 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('portfolio-inventory-view-all')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
 
-    // Range pill 'All' uses control typography.
+    // Range pill 'All' uses overline typography (Plus Jakarta Sans Medium 500).
     const rangeAllStyle = StyleSheet.flatten(screen.getByText('All').props.style);
     expect(rangeAllStyle).toMatchObject({
-      fontFamily: 'SpotlightBodySemiBold',
+      fontFamily: 'SpotlightBodyMedium',
     });
   });
 

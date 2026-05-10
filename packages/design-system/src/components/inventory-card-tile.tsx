@@ -112,6 +112,8 @@ export function InventoryCardTile({
       style={({ pressed }) => [
         styles.pressable,
         {
+          backgroundColor: theme.colors.gray50,
+          borderRadius: theme.radii.md,
           opacity: pressed ? 0.92 : 1,
         },
       ]}
@@ -310,9 +312,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   pressable: {
+    alignItems: 'stretch',
     alignSelf: 'stretch',
+    flex: 1,
     flexDirection: 'column',
-    gap: 16,
+    gap: 8,
+    padding: 16,
     width: '100%',
   },
   price: {

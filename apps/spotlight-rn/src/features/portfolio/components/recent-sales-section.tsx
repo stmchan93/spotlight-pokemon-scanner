@@ -1,4 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { ArrowDown, ArrowUp } from 'iconoir-react-native';
 
 import type { RecentSaleRecord } from '@spotlight/api-client';
 import {
@@ -11,6 +12,17 @@ import {
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { getCardImageSource } from '@/lib/card-images';
 import { formatCurrency } from './portfolio-formatting';
+
+// Future-state delta data not yet on RecentSaleRecord; keep null until backend
+// surfaces gain/loss for sold inventory. JSX below already wires the pill.
+type RecentSaleGain = {
+  amountLabel: string;
+  direction: 'up' | 'down';
+} | null;
+
+function getRecentSaleGain(_sale: RecentSaleRecord): RecentSaleGain {
+  return null;
+}
 
 function formattedCardNumber(cardNumber: string) {
   return cardNumber.startsWith('#') ? cardNumber : `#${cardNumber}`;
@@ -28,6 +40,7 @@ function RecentSaleCard({
   const cardHeight = theme.layout.recentSaleHeight;
   const cardPadding = theme.spacing.xxs;
   const artHeight = cardHeight - cardPadding * 2;
+  const gain = getRecentSaleGain(sale);
 
   return (
     <Pressable
@@ -45,30 +58,63 @@ function RecentSaleCard({
         />
 
         <View style={[styles.copy, { minHeight: artHeight }]}>
-          <View style={styles.titleRow}>
-            <Text
-              numberOfLines={1}
-              style={[theme.typography.headline, styles.titleText, { color: theme.colors.textPrimary }]}
-            >
-              {sale.name}
-            </Text>
-            <Text style={[theme.typography.headline, styles.priceText, { color: theme.colors.textPrimary }]}>
-              {formatCurrency(sale.soldPrice, sale.currencyCode)}
-            </Text>
-          </View>
-          <Text numberOfLines={2} style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.headline, { color: theme.colors.textPrimary }]}
+          >
+            {sale.name}
+          </Text>
+          <Text
+            numberOfLines={2}
+            style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
+          >
             {formattedCardNumber(sale.cardNumber)}
             {' • '}
             {sale.setName}
           </Text>
-          <View style={styles.detailRow}>
-            <Text style={[theme.typography.caption, styles.date, { color: theme.colors.textSecondary }]}>
-              {sale.soldAtLabel}
+          <Text
+            style={[theme.typography.overline, { color: theme.colors.textMuted }]}
+          >
+            {`Sold on ${sale.soldAtLabel}`}
+          </Text>
+          <View style={styles.priceRow}>
+            <Text
+              style={[theme.typography.caption, { color: theme.colors.textPrimary }]}
+            >
+              {formatCurrency(sale.soldPrice, sale.currencyCode)}
             </Text>
-            {sale.kind === 'sold' ? (
-              <Text style={[theme.typography.caption, styles.icon, { color: theme.colors.textSecondary }]}>
-                ✎
-              </Text>
+            {gain ? (
+              <View
+                style={[
+                  styles.deltaPill,
+                  {
+                    backgroundColor:
+                      gain.direction === 'down'
+                        ? 'rgba(224, 82, 76, 0.12)'
+                        : 'rgba(76, 175, 110, 0.12)',
+                    borderRadius: theme.radii.pill,
+                  },
+                ]}
+              >
+                {gain.direction === 'down' ? (
+                  <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
+                ) : (
+                  <ArrowUp color={theme.colors.greenDelta} height={12} width={12} />
+                )}
+                <Text
+                  style={[
+                    theme.typography.deltaPill,
+                    {
+                      color:
+                        gain.direction === 'down'
+                          ? theme.colors.redDelta
+                          : theme.colors.greenDelta,
+                    },
+                  ]}
+                >
+                  {gain.amountLabel}
+                </Text>
+              </View>
             ) : null}
           </View>
         </View>
@@ -181,43 +227,31 @@ const styles = StyleSheet.create({
   },
   copy: {
     flex: 1,
-    gap: 6,
+    gap: 4,
     justifyContent: 'center',
   },
-  date: {
-    flex: 1,
-  },
-  detailRow: {
+  deltaPill: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
   emptyStateCard: {
     marginTop: 16,
-  },
-  icon: {
-    marginTop: 1,
   },
   list: {
     gap: 12,
     marginTop: 16,
   },
+  priceRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 2,
+  },
   section: {
     gap: 0,
-  },
-  titleRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  titleText: {
-    flex: 1,
-  },
-  priceText: {
-    flexShrink: 0,
-    textAlign: 'right',
   },
   skeletonArt: {
     borderRadius: 12,

@@ -288,7 +288,9 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const salesPointCounts = useMemo(() => {
     return buildSalesPointCounts(activeRange.sales, dashboard.recentSales);
   }, [activeRange.sales, dashboard.recentSales]);
-  const chartAccentColor = theme.colors.brand;
+  const chartAccentColor = theme.colors.chartLine;
+  const chartFillColor = theme.colors.chartLine;
+  const [tooltipWidth, setTooltipWidth] = useState(0);
 
   const yAxisMaxValue = useMemo(() => {
     return buildRoundedCurrencyTicks(series.map((point) => point.value));
@@ -490,8 +492,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
             <Svg height={chartHeight} width="100%">
               <Defs>
                 <LinearGradient id="portfolioFill" x1="0" x2="0" y1="0" y2="1">
-                  <Stop offset="0" stopColor={chartAccentColor} stopOpacity="0.28" />
-                  <Stop offset="1" stopColor={chartAccentColor} stopOpacity="0.02" />
+                  <Stop offset="0" stopColor={chartFillColor} stopOpacity="0.28" />
+                  <Stop offset="1" stopColor={chartFillColor} stopOpacity="0.02" />
                 </LinearGradient>
               </Defs>
 
@@ -566,6 +568,33 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               )}
             </Svg>
 
+            {activeSelection ? (
+              <View
+                onLayout={(event) => setTooltipWidth(event.nativeEvent.layout.width)}
+                pointerEvents="none"
+                style={[
+                  styles.hoverTooltip,
+                  {
+                    backgroundColor: theme.colors.chartLine,
+                    left: activeSelection.x,
+                    top: Math.max(activeSelection.y - 24, 0),
+                    transform: [{ translateX: -tooltipWidth / 2 }],
+                  },
+                ]}
+                testID="portfolio-chart-hover-tooltip"
+              >
+                <Text
+                  style={[
+                    theme.typography.overline,
+                    styles.hoverTooltipLabel,
+                    { color: theme.colors.textMuted },
+                  ]}
+                >
+                  {formatHoverDateLabel(activeSelection.point.isoDate)}
+                </Text>
+              </View>
+            ) : null}
+
             <View
               onMoveShouldSetResponder={() => true}
               onResponderGrant={updateActivePoint}
@@ -591,7 +620,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               style={({ pressed }) => [
                 styles.rangePill,
                 isSelected
-                  ? { backgroundColor: theme.colors.brand }
+                  ? [styles.rangePillSelected, { backgroundColor: theme.colors.brand }]
                   : null,
                 pressed ? { opacity: 0.88 } : null,
               ]}
@@ -599,13 +628,9 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
             >
               <Text
                 style={[
-                  theme.typography.control,
+                  theme.typography.overline,
                   styles.rangePillLabel,
-                  {
-                    color: isSelected
-                      ? theme.colors.textPrimary
-                      : theme.colors.textSecondary,
-                  },
+                  { color: theme.colors.textMuted },
                 ]}
               >
                 {item.label}
@@ -638,13 +663,29 @@ const styles = StyleSheet.create({
   },
   rangePill: {
     alignItems: 'center',
-    borderRadius: 999,
     flex: 1,
-    height: 28,
     justifyContent: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  rangePillSelected: {
+    alignItems: 'center',
+    borderRadius: 8,
+    gap: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   rangePillLabel: {
+    textAlign: 'center',
+  },
+  hoverTooltip: {
+    borderRadius: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    position: 'absolute',
+  },
+  hoverTooltipLabel: {
     textAlign: 'center',
   },
   skeletonBar: {
