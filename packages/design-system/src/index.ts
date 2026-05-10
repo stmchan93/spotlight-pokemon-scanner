@@ -11,6 +11,7 @@ export * from './components/page-tabs';
 export * from './components/pill-button';
 export * from './components/price-text';
 export * from './components/quantity-stepper';
+export * from './components/rolling-number-text';
 export * from './components/search-field';
 export * from './components/screen-header';
 export * from './components/segmented-control';

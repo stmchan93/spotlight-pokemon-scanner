@@ -14,6 +14,7 @@ import type { ChartMode, InventoryCardEntry } from '@spotlight/api-client';
 import {
   InventoryCardTile,
   PageTabs,
+  RollingNumberText,
   SearchField,
   SectionHeader,
   StateCard,
@@ -333,12 +334,11 @@ export function PortfolioScreen({
           <>
             <View style={styles.summaryBlock}>
               <View style={styles.summaryValueRow}>
-                <Text
+                <RollingNumberText
                   style={[theme.typography.display, styles.summaryValue, { color: theme.colors.textPrimary }]}
                   testID="portfolio-summary-value"
-                >
-                  {summaryValueLabel}
-                </Text>
+                  value={summaryValueLabel}
+                />
                 <Pressable
                   accessibilityRole="button"
                   hitSlop={8}
