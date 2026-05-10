@@ -261,6 +261,14 @@ export type RecentSaleRecord = {
   imageUrl: string;
   smallImageUrl?: string | null;
   largeImageUrl?: string | null;
+  /**
+   * Pre-formatted quality label for display on Recent Sales cards.
+   * Raw: condition like "Near Mint". Slab: "<Grader> <Grade>"
+   * such as "PSA 10". Null when the backend hasn't surfaced it.
+   */
+  qualityLabel?: string | null;
+  /** Quantity sold or traded in this transaction. Null when not surfaced. */
+  quantity?: number | null;
 };
 
 export type PortfolioDashboard = {

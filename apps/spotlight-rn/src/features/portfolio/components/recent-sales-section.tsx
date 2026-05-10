@@ -1,5 +1,5 @@
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { ArrowDown, ArrowUp } from 'iconoir-react-native';
+import { ArrowDown, ArrowUp, EditPencil } from 'iconoir-react-native';
 
 import type { RecentSaleRecord } from '@spotlight/api-client';
 import {
@@ -111,11 +111,37 @@ function RecentSaleCard({
               </View>
             ) : null}
           </View>
-          <Text
-            style={[theme.typography.overline, styles.soldOn, { color: theme.colors.textMuted }]}
-          >
-            {formatSaleActionLabel(sale)}
-          </Text>
+          {sale.qualityLabel ? (
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
+            >
+              {sale.qualityLabel}
+            </Text>
+          ) : null}
+          {sale.quantity != null ? (
+            <Text
+              numberOfLines={1}
+              style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
+            >
+              {`Qty: ${sale.quantity}`}
+            </Text>
+          ) : null}
+          <View style={styles.soldOnRow}>
+            <Text
+              style={[theme.typography.overline, styles.soldOnText, { color: theme.colors.textMuted }]}
+            >
+              {formatSaleActionLabel(sale)}
+            </Text>
+            {canEdit ? (
+              <EditPencil
+                color={theme.colors.textMuted}
+                height={16}
+                testID={`recent-sale-card-${sale.id}-edit-icon`}
+                width={16}
+              />
+            ) : null}
+          </View>
         </View>
       </SurfaceCard>
     </Pressable>
@@ -258,9 +284,16 @@ const styles = StyleSheet.create({
     flex: 1,
     flexShrink: 1,
   },
-  soldOn: {
+  soldOnRow: {
+    alignItems: 'center',
     alignSelf: 'stretch',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
     marginTop: 12,
+  },
+  soldOnText: {
+    flex: 1,
   },
   titleText: {
     flex: 1,
