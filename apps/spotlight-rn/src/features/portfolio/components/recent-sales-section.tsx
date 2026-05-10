@@ -28,6 +28,14 @@ function formattedCardNumber(cardNumber: string) {
   return cardNumber.startsWith('#') ? cardNumber : `#${cardNumber}`;
 }
 
+function formatSaleActionLabel(sale: RecentSaleRecord) {
+  // Strip any verb the backend already prepended so we don't end up
+  // with strings like "Sold on Traded on May 3, 2026".
+  const dateOnly = sale.soldAtLabel.replace(/^(Sold on|Traded on)\s+/i, '');
+  const verb = sale.kind === 'traded' ? 'Traded' : 'Sold';
+  return `${verb} on ${dateOnly}`;
+}
+
 function RecentSaleCard({
   onPress,
   sale,
@@ -58,44 +66,30 @@ function RecentSaleCard({
         />
 
         <View style={[styles.copy, { minHeight: artHeight }]}>
-          <Text
-            numberOfLines={1}
-            style={[theme.typography.headline, { color: theme.colors.textPrimary }]}
-          >
-            {sale.name}
-          </Text>
-          <Text
-            numberOfLines={2}
-            style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
-          >
-            {formattedCardNumber(sale.cardNumber)}
-            {' • '}
-            {sale.setName}
-          </Text>
-          <Text
-            style={[theme.typography.overline, { color: theme.colors.textMuted }]}
-          >
-            {`Sold on ${sale.soldAtLabel}`}
-          </Text>
-          <View style={styles.priceRow}>
+          <View style={styles.topRow}>
             <Text
-              style={[theme.typography.caption, { color: theme.colors.textPrimary }]}
+              numberOfLines={1}
+              style={[theme.typography.headline, styles.titleText, { color: theme.colors.textPrimary }]}
+            >
+              {sale.name}
+            </Text>
+            <Text
+              style={[theme.typography.headline, { color: theme.colors.textPrimary }]}
             >
               {formatCurrency(sale.soldPrice, sale.currencyCode)}
             </Text>
+          </View>
+          <View style={styles.metaRow}>
+            <Text
+              numberOfLines={2}
+              style={[theme.typography.cardMeta, styles.metaText, { color: theme.colors.textMuted }]}
+            >
+              {formattedCardNumber(sale.cardNumber)}
+              {' · '}
+              {sale.setName}
+            </Text>
             {gain ? (
-              <View
-                style={[
-                  styles.deltaPill,
-                  {
-                    backgroundColor:
-                      gain.direction === 'down'
-                        ? 'rgba(224, 82, 76, 0.12)'
-                        : 'rgba(76, 175, 110, 0.12)',
-                    borderRadius: theme.radii.pill,
-                  },
-                ]}
-              >
+              <View style={styles.deltaInline}>
                 {gain.direction === 'down' ? (
                   <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
                 ) : (
@@ -117,6 +111,11 @@ function RecentSaleCard({
               </View>
             ) : null}
           </View>
+          <Text
+            style={[theme.typography.overline, styles.soldOn, { color: theme.colors.textMuted }]}
+          >
+            {formatSaleActionLabel(sale)}
+          </Text>
         </View>
       </SurfaceCard>
     </Pressable>
@@ -234,7 +233,13 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     gap: 4,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+  },
+  deltaInline: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+    flexShrink: 0,
   },
   deltaPill: {
     alignItems: 'center',
@@ -242,6 +247,30 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
+  },
+  metaRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  metaText: {
+    flex: 1,
+    flexShrink: 1,
+  },
+  soldOn: {
+    alignSelf: 'stretch',
+    marginTop: 12,
+  },
+  titleText: {
+    flex: 1,
+    flexShrink: 1,
+  },
+  topRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
   },
   emptyStateCard: {
     marginTop: 16,

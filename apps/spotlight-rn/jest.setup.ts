@@ -27,6 +27,7 @@ jest.mock('iconoir-react-native', () => {
     FilterList: make('filter-list'),
     MoreHoriz: make('more-horiz'),
     MoreHorizCircle: make('more-horiz-circle'),
+    NavArrowLeft: make('nav-arrow-left'),
     Search: make('search'),
   };
 });

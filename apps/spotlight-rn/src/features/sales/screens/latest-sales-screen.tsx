@@ -7,7 +7,8 @@ import {
   Text,
   View,
 } from 'react-native';
-import { ArrowDown, ArrowUp } from 'iconoir-react-native';
+import { ArrowDown, ArrowUp, NavArrowLeft } from 'iconoir-react-native';
+import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { RecentSaleRecord } from '@spotlight/api-client';
@@ -26,6 +27,14 @@ const PAGE_GUTTER = 16;
 
 function formattedCardNumber(cardNumber: string) {
   return cardNumber.startsWith('#') ? cardNumber : `#${cardNumber}`;
+}
+
+function formatSaleActionLabel(sale: RecentSaleRecord) {
+  // Strip any verb the backend already prepended so we don't end up
+  // with strings like "Sold on Traded on May 3, 2026".
+  const dateOnly = sale.soldAtLabel.replace(/^(Sold on|Traded on)\s+/i, '');
+  const verb = sale.kind === 'traded' ? 'Traded' : 'Sold';
+  return `${verb} on ${dateOnly}`;
 }
 
 // Future-state delta data not yet on RecentSaleRecord; keep null until backend
@@ -60,42 +69,30 @@ function LatestSaleRow({ sale }: { sale: RecentSaleRecord }) {
         />
 
         <View style={[styles.copy, { minHeight: artHeight }]}>
-          <Text
-            numberOfLines={1}
-            style={[theme.typography.headline, { color: theme.colors.textPrimary }]}
-          >
-            {sale.name}
-          </Text>
-          <Text
-            numberOfLines={2}
-            style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
-          >
-            {formattedCardNumber(sale.cardNumber)}
-            {' • '}
-            {sale.setName}
-          </Text>
-          <Text style={[theme.typography.overline, { color: theme.colors.textMuted }]}>
-            {`Sold on ${sale.soldAtLabel}`}
-          </Text>
-          <View style={styles.priceRow}>
+          <View style={styles.topRow}>
             <Text
-              style={[theme.typography.caption, { color: theme.colors.textPrimary }]}
+              numberOfLines={1}
+              style={[theme.typography.headline, styles.titleText, { color: theme.colors.textPrimary }]}
+            >
+              {sale.name}
+            </Text>
+            <Text
+              style={[theme.typography.headline, { color: theme.colors.textPrimary }]}
             >
               {formatCurrency(sale.soldPrice, sale.currencyCode)}
             </Text>
+          </View>
+          <View style={styles.metaRow}>
+            <Text
+              numberOfLines={2}
+              style={[theme.typography.cardMeta, styles.metaText, { color: theme.colors.textMuted }]}
+            >
+              {formattedCardNumber(sale.cardNumber)}
+              {' · '}
+              {sale.setName}
+            </Text>
             {gain ? (
-              <View
-                style={[
-                  styles.deltaPill,
-                  {
-                    backgroundColor:
-                      gain.direction === 'down'
-                        ? 'rgba(224, 82, 76, 0.12)'
-                        : 'rgba(76, 175, 110, 0.12)',
-                    borderRadius: theme.radii.pill,
-                  },
-                ]}
-              >
+              <View style={styles.deltaInline}>
                 {gain.direction === 'down' ? (
                   <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
                 ) : (
@@ -117,6 +114,9 @@ function LatestSaleRow({ sale }: { sale: RecentSaleRecord }) {
               </View>
             ) : null}
           </View>
+          <Text style={[theme.typography.overline, styles.soldOn, { color: theme.colors.textMuted }]}>
+            {formatSaleActionLabel(sale)}
+          </Text>
         </View>
       </SurfaceCard>
     </Pressable>
@@ -158,6 +158,7 @@ function LatestSalesSkeleton() {
 export function LatestSalesScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { spotlightRepository, dataVersion } = useAppServices();
 
   const [sales, setSales] = useState<RecentSaleRecord[]>([]);
@@ -211,18 +212,19 @@ export function LatestSalesScreen() {
       style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
     >
       <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
+        <View style={styles.navRow}>
+          <Pressable
+            accessibilityRole="button"
+            hitSlop={12}
+            onPress={() => router.back()}
+            style={styles.backButton}
+            testID="latest-sales-back"
+          >
+            <NavArrowLeft color={theme.colors.textPrimary} height={24} width={24} />
+          </Pressable>
+        </View>
         <View style={styles.headerCopy}>
-          <View style={styles.titleLine}>
-            <Text style={theme.typography.display}>Latest Sales</Text>
-            {sales.length > 0 ? (
-              <Text
-                style={[theme.typography.headline, { color: theme.colors.textSecondary }]}
-                testID="latest-sales-count"
-              >
-                ({sales.length})
-              </Text>
-            ) : null}
-          </View>
+          <Text style={theme.typography.display}>Latest Sales</Text>
         </View>
 
         {showInitialSkeleton ? (
@@ -280,7 +282,13 @@ const styles = StyleSheet.create({
   copy: {
     flex: 1,
     gap: 4,
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
+  },
+  deltaInline: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexShrink: 0,
+    gap: 2,
   },
   deltaPill: {
     alignItems: 'center',
@@ -288,6 +296,40 @@ const styles = StyleSheet.create({
     gap: 4,
     paddingHorizontal: 6,
     paddingVertical: 2,
+  },
+  metaRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  metaText: {
+    flex: 1,
+    flexShrink: 1,
+  },
+  soldOn: {
+    alignSelf: 'stretch',
+    marginTop: 12,
+  },
+  titleText: {
+    flex: 1,
+    flexShrink: 1,
+  },
+  topRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'space-between',
+  },
+  backButton: {
+    alignItems: 'center',
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  navRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
   },
   headerCopy: {
     gap: 4,

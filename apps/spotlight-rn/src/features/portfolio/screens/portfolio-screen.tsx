@@ -260,7 +260,6 @@ export function PortfolioScreen({
         isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
         onOpenSalesHistory={onOpenSalesHistory}
         onSalePress={model.openSaleEditor}
-        onToggleExpanded={() => {}}
         sales={recentSalesTabItems}
         title="Latest Sales"
       />
@@ -331,12 +330,23 @@ export function PortfolioScreen({
         ) : (
           <>
             <View style={styles.summaryBlock}>
-              <Text
-                style={[theme.typography.display, styles.summaryValue, { color: theme.colors.textPrimary }]}
-                testID="portfolio-summary-value"
-              >
-                {summaryValueLabel}
-              </Text>
+              <View style={styles.summaryValueRow}>
+                <Text
+                  style={[theme.typography.display, styles.summaryValue, { color: theme.colors.textPrimary }]}
+                  testID="portfolio-summary-value"
+                >
+                  {summaryValueLabel}
+                </Text>
+                <Pressable
+                  accessibilityRole="button"
+                  hitSlop={8}
+                  onPress={() => setChartModeMenuOpen(true)}
+                  style={styles.modeMenuButton}
+                  testID="portfolio-chart-mode-trigger"
+                >
+                  <MoreHorizCircle color={theme.colors.textSecondary} height={20} width={20} />
+                </Pressable>
+              </View>
               <View style={styles.summaryDeltaRow}>
                 <Text
                   style={[
@@ -355,15 +365,6 @@ export function PortfolioScreen({
                 >
                   {summaryDateLabel}
                 </Text>
-                <Pressable
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={() => setChartModeMenuOpen(true)}
-                  style={styles.modeMenuButton}
-                  testID="portfolio-chart-mode-trigger"
-                >
-                  <MoreHorizCircle color={theme.colors.textSecondary} height={20} width={20} />
-                </Pressable>
               </View>
             </View>
 
@@ -579,7 +580,14 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   summaryValue: {
+    flexShrink: 1,
     fontWeight: '700',
+  },
+  summaryValueRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
   },
   tabContent: {
     gap: 12,

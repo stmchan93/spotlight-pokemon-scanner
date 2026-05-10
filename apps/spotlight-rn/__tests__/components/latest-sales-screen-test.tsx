@@ -34,13 +34,12 @@ function buildEmptyDashboard() {
 }
 
 describe('LatestSalesScreen', () => {
-  it('renders the title, count badge, and the full virtualized list of latest sales', async () => {
+  it('renders the title and the full virtualized list of latest sales', async () => {
     renderWithProviders(<LatestSalesScreen />);
 
     expect(await screen.findByText('Latest Sales')).toBeTruthy();
-    expect(screen.getByTestId('latest-sales-count')).toBeTruthy();
-    // Mock fixture seeds 9 recent sales and the screen renders all of them.
-    expect(screen.getByText('(9)')).toBeTruthy();
+    // Count badge intentionally removed per Figma; ensure it is gone.
+    expect(screen.queryByTestId('latest-sales-count')).toBeNull();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Oshawott').length).toBeGreaterThan(0);
     expect(screen.queryByTestId('latest-sales-screen-skeleton')).toBeNull();
@@ -63,11 +62,11 @@ describe('LatestSalesScreen', () => {
     expect(screen.queryByTestId('latest-sales-count')).toBeNull();
   });
 
-  it('does not render an in-screen back button (back is via tab nav)', async () => {
+  it('renders a back button that pops the navigation stack', async () => {
     renderWithProviders(<LatestSalesScreen />);
 
     await screen.findByText('Latest Sales');
-    expect(screen.queryByTestId('latest-sales-back')).toBeNull();
+    expect(screen.getByTestId('latest-sales-back')).toBeTruthy();
   });
 
   it('reloads the sales list when pull-to-refresh fires', async () => {
