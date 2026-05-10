@@ -1,7 +1,6 @@
 import type { ReactNode } from 'react';
 import {
   StyleSheet,
-  Text,
   TextInput,
   type StyleProp,
   type TextInputProps,
@@ -9,6 +8,7 @@ import {
   type ViewStyle,
   View,
 } from 'react-native';
+import { Search as SearchIcon } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '../theme';
 
@@ -57,14 +57,12 @@ export function SearchField({
       testID={containerTestID}
     >
       {leading ?? (
-        <Text style={[theme.typography.titleCompact, styles.glyph, { color: theme.colors.textSecondary }]}>
-          ⌕
-        </Text>
+        <SearchIcon color={theme.colors.gray400} height={16} width={16} />
       )}
       <TextInput
-        placeholderTextColor={placeholderTextColor ?? theme.colors.textSecondary}
+        placeholderTextColor={placeholderTextColor ?? theme.colors.gray400}
         style={[
-          theme.typography.body,
+          isCompact ? theme.typography.label : theme.typography.body,
           styles.input,
           isCompact ? styles.inputCompact : null,
           inputStyle,
@@ -94,9 +92,6 @@ const styles = StyleSheet.create({
     height: 32,
     paddingHorizontal: 8,
     paddingVertical: 7,
-  },
-  glyph: {
-    lineHeight: 24,
   },
   input: {
     flex: 1,

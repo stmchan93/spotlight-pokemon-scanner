@@ -521,20 +521,16 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                       <Circle
                         cx={activeSelection.x}
                         cy={activeSelection.y}
-                        fill={theme.colors.canvasElevated}
-                        r={7}
-                        stroke={chartAccentColor}
-                        strokeWidth={2.5}
+                        fill={chartAccentColor}
+                        r={4}
                       />
                     </>
                   ) : coordinates.length > 0 ? (
                     <Circle
                       cx={coordinates[coordinates.length - 1]?.x ?? 0}
                       cy={coordinates[coordinates.length - 1]?.y ?? 0}
-                      fill={theme.colors.canvasElevated}
-                      r={7}
-                      stroke={chartAccentColor}
-                      strokeWidth={2.5}
+                      fill={chartAccentColor}
+                      r={4}
                     />
                   ) : null}
                 </>

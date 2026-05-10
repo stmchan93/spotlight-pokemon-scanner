@@ -205,7 +205,7 @@ export function InventoryCardTile({
               color="textPrimary"
               numberOfLines={1}
               style={styles.price}
-              variant="caption"
+              variant="priceCaption"
             >
               {priceLabel ?? '—'}
             </AppText>

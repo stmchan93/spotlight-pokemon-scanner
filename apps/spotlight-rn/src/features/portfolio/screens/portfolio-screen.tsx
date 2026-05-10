@@ -7,7 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Filter, MoreHorizCircle } from 'iconoir-react-native';
+import { FilterList, MoreHorizCircle } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ChartMode, InventoryCardEntry } from '@spotlight/api-client';
@@ -182,7 +182,7 @@ export function PortfolioScreen({
       style={styles.filterIconPressable}
       testID="portfolio-inventory-filter-trigger"
     >
-      <Filter color={theme.colors.textSecondary} height={16} width={16} />
+      <FilterList color={theme.colors.gray400} height={16} width={16} />
     </Pressable>
   ), [theme.colors.textSecondary]);
 

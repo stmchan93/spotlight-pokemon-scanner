@@ -268,7 +268,7 @@ describe('ScannerScreen', () => {
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-recent-title').props.style)).toMatchObject({
       fontSize: 16,
-      lineHeight: 20,
+      lineHeight: 21.6,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-value-pill-text').props.style)).toMatchObject({
       fontSize: 15,
@@ -313,7 +313,7 @@ describe('ScannerScreen', () => {
 
     expect(StyleSheet.flatten(screen.getByTestId('scanner-prompt').props.style)).toMatchObject({
       fontSize: 16,
-      lineHeight: 20,
+      lineHeight: 21.6,
     });
 
     await waitForScannerReady();

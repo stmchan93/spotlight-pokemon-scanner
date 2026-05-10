@@ -128,7 +128,12 @@ type RecentSalesSectionProps = {
   isLoading?: boolean;
   onOpenSalesHistory?: () => void;
   onSalePress?: (sale: RecentSaleRecord) => void;
-  onToggleExpanded: () => void;
+  /**
+   * Optional. When provided, the SectionHeader renders the legacy
+   * expand/collapse chevron. The Recent Sales tab in the redesigned
+   * Portfolio surface omits this so no chevron renders.
+   */
+  onToggleExpanded?: () => void;
   sales: RecentSaleRecord[];
   title?: string;
 };
@@ -188,7 +193,8 @@ export function RecentSalesSection({
         onPress={onToggleExpanded}
         subtitle={showSubtitle ? 'Completed transactions will show up here.' : undefined}
         title={title}
-      />
+      />{/* When onToggleExpanded is undefined (default in the new Portfolio
+            tabs), SectionHeader hides the legacy expand/collapse chevron. */}
 
       {expanded ? (
         sales.length === 0 && isLoading ? (
