@@ -218,6 +218,18 @@ type PortfolioLedgerDTO = {
     totalPrice: number;
     currencyCode: string;
     occurredAt: string;
+    /**
+     * Backend-supplied condition code (e.g. "near_mint", "NM", "lightly_played").
+     * The client formats it via mapDeckCondition into a user-friendly label.
+     */
+    condition?: string | null;
+    /**
+     * Slab context with grader + grade for graded cards.
+     */
+    slabContext?: {
+      grader?: string | null;
+      grade?: string | null;
+    } | null;
   }>;
   dailySeries?: Array<{
     date: string;
@@ -1249,6 +1261,18 @@ function buildRecentSales(transactions: PortfolioLedgerDTO['transactions'], base
         return [];
       }
 
+      // Compose the display "qualityLabel" the UI shows on the Recent Sales
+      // card. For slabs, prefer "<Grader> <Grade>" (e.g. "PSA 10"). For raw,
+      // fall back to the human-readable condition label derived from the
+      // condition code (e.g. "near_mint" -> "Near Mint").
+      const grader = normalizeString(transaction.slabContext?.grader);
+      const grade = normalizeString(transaction.slabContext?.grade);
+      const conditionCopy = mapDeckCondition(transaction.condition);
+      const derivedQualityLabel = (grader && grade ? `${grader} ${grade}` : '')
+        || conditionCopy.label
+        || '';
+      const quantity = normalizeNumber(transaction.quantity);
+
       return [{
         id,
         cardId: card.id,
@@ -1263,6 +1287,8 @@ function buildRecentSales(transactions: PortfolioLedgerDTO['transactions'], base
         imageUrl: pickImageUrl([card.imageSmallURL, card.imageLargeURL], baseUrl),
         smallImageUrl: pickImageUrl([card.imageSmallURL], baseUrl) || null,
         largeImageUrl: pickImageUrl([card.imageLargeURL], baseUrl) || null,
+        qualityLabel: derivedQualityLabel || null,
+        quantity: quantity ?? null,
       } satisfies RecentSaleRecord];
     });
 }

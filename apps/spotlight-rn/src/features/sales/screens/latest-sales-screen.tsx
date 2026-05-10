@@ -20,6 +20,12 @@ import {
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
+import {
+  formatEditableSellPrice,
+  parseSellPrice,
+  sanitizeSellPriceText,
+} from '@/features/sell/sell-order-helpers';
 import { getCardImageSource } from '@/lib/card-images';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -48,8 +54,15 @@ function getLatestSaleGain(_sale: RecentSaleRecord): LatestSaleGain {
   return null;
 }
 
-function LatestSaleRow({ sale }: { sale: RecentSaleRecord }) {
+function LatestSaleRow({
+  onPress,
+  sale,
+}: {
+  onPress?: (sale: RecentSaleRecord) => void;
+  sale: RecentSaleRecord;
+}) {
   const theme = useSpotlightTheme();
+  const canEdit = sale.kind === 'sold' && !!onPress;
   const cardHeight = theme.layout.recentSaleHeight;
   const cardPadding = theme.spacing.xxs;
   const artHeight = cardHeight - cardPadding * 2;
@@ -57,7 +70,9 @@ function LatestSaleRow({ sale }: { sale: RecentSaleRecord }) {
 
   return (
     <Pressable
-      style={styles.cardPressable}
+      accessibilityRole={canEdit ? 'button' : undefined}
+      onPress={canEdit ? () => onPress?.(sale) : undefined}
+      style={({ pressed }) => [styles.cardPressable, canEdit ? { opacity: pressed ? 0.94 : 1 } : null]}
       testID={`latest-sale-card-${sale.id}`}
     >
       <SurfaceCard padding={cardPadding} radius={16} style={[styles.card, { minHeight: cardHeight }]}>
@@ -134,7 +149,7 @@ function LatestSaleRow({ sale }: { sale: RecentSaleRecord }) {
             <Text style={[theme.typography.overline, styles.soldOnText, { color: theme.colors.textMuted }]}>
               {formatSaleActionLabel(sale)}
             </Text>
-            {sale.kind === 'sold' ? (
+            {canEdit ? (
               <EditPencil
                 color={theme.colors.textMuted}
                 height={16}
@@ -192,6 +207,35 @@ export function LatestSalesScreen() {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
+  const [editingSalePriceText, setEditingSalePriceText] = useState('');
+
+  const editingSale = sales.find((sale) => sale.id === editingSaleId && sale.kind === 'sold') ?? null;
+  const parsedEditingSalePrice = parseSellPrice(editingSalePriceText);
+  const canConfirmSalePriceEdit = editingSale !== null && parsedEditingSalePrice != null;
+
+  const openSaleEditor = useCallback((sale: RecentSaleRecord) => {
+    if (sale.kind !== 'sold') return;
+    setEditingSaleId(sale.id);
+    setEditingSalePriceText(formatEditableSellPrice(sale.soldPrice));
+  }, []);
+
+  const closeSaleEditor = useCallback(() => {
+    setEditingSaleId(null);
+    setEditingSalePriceText('');
+  }, []);
+
+  const updateEditingSalePriceText = useCallback((value: string) => {
+    setEditingSalePriceText(sanitizeSellPriceText(value));
+  }, []);
+
+  const confirmSalePriceEdit = useCallback(() => {
+    if (!editingSaleId || parsedEditingSalePrice == null) return;
+    setSales((prev) => prev.map((sale) => (
+      sale.id === editingSaleId ? { ...sale, soldPrice: parsedEditingSalePrice } : sale
+    )));
+    closeSaleEditor();
+  }, [closeSaleEditor, editingSaleId, parsedEditingSalePrice]);
 
   const loadSales = useCallback(async () => {
     const loadResult = await spotlightRepository.loadPortfolioDashboard();
@@ -281,12 +325,21 @@ export function LatestSalesScreen() {
                 tintColor={theme.colors.textSecondary}
               />
             )}
-            renderItem={({ item }) => <LatestSaleRow sale={item} />}
+            renderItem={({ item }) => <LatestSaleRow onPress={openSaleEditor} sale={item} />}
             showsVerticalScrollIndicator={false}
             testID="latest-sales-list"
           />
         )}
       </View>
+
+      <SalePriceEditSheet
+        canConfirm={canConfirmSalePriceEdit}
+        onChangePriceText={updateEditingSalePriceText}
+        onClose={closeSaleEditor}
+        onConfirm={confirmSalePriceEdit}
+        priceText={editingSalePriceText}
+        sale={editingSale}
+      />
     </SafeAreaView>
   );
 }
