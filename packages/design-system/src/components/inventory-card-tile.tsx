@@ -5,6 +5,8 @@ import { AppText } from './app-text';
 
 export type InventoryCardTileKind = 'raw' | 'slab';
 
+export type InventoryCardTileDirection = 'up' | 'down';
+
 export type InventoryCardTileProps = {
   imageUrl: string | null;
   name: string;
@@ -17,6 +19,7 @@ export type InventoryCardTileProps = {
   quantity: number;
   priceLabel: string | null;
   dayChangeLabel: string | null;
+  dayChangeDirection?: InventoryCardTileDirection | null;
   isFavorite: boolean;
   selected?: boolean;
   onPress: () => void;
@@ -25,20 +28,34 @@ export type InventoryCardTileProps = {
 };
 
 const STAR_COLOR = '#F5C518';
-const DELTA_BACKGROUND = '#E2F4E8';
-const DELTA_FOREGROUND = '#2D9148';
+const STAR_OUTLINE_COLOR = '#BEBEBE';
+const DELTA_UP_BACKGROUND = '#E2F4E8';
+const DELTA_UP_FOREGROUND = '#2D9148';
+const DELTA_DOWN_BACKGROUND = '#FDE7E7';
+const DELTA_DOWN_FOREGROUND = '#C0392B';
+
+function formatCardNumberWithHash(value: string | null): string | null {
+  if (value == null) {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return null;
+  }
+  return `#${trimmed.replace(/^#/, '')}`;
+}
 
 function buildSetLine(setName: string, cardNumber: string | null) {
   const trimmedSet = setName.trim();
-  const trimmedNumber = (cardNumber ?? '').trim();
-  if (trimmedSet && trimmedNumber) {
-    return `${trimmedSet} #${trimmedNumber}`;
+  const formattedNumber = formatCardNumberWithHash(cardNumber);
+  if (trimmedSet && formattedNumber) {
+    return `${formattedNumber} · ${trimmedSet}`;
   }
   if (trimmedSet) {
     return trimmedSet;
   }
-  if (trimmedNumber) {
-    return `#${trimmedNumber}`;
+  if (formattedNumber) {
+    return formattedNumber;
   }
   return '';
 }
@@ -69,6 +86,7 @@ export function InventoryCardTile({
   quantity,
   priceLabel,
   dayChangeLabel,
+  dayChangeDirection = null,
   isFavorite,
   selected = false,
   onPress,
@@ -80,7 +98,9 @@ export function InventoryCardTile({
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
   const showDelta = dayChangeLabel !== null && dayChangeLabel.trim().length > 0;
-  const showStar = isFavorite;
+  const deltaBackground = dayChangeDirection === 'down' ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND;
+  const deltaForeground = dayChangeDirection === 'down' ? DELTA_DOWN_FOREGROUND : DELTA_UP_FOREGROUND;
+  const deltaArrow = dayChangeDirection === 'down' ? '↓' : dayChangeDirection === 'up' ? '↑' : null;
 
   return (
     <Pressable
@@ -128,15 +148,25 @@ export function InventoryCardTile({
           </View>
         )}
 
-        {showStar ? (
-          <View
-            pointerEvents="none"
-            style={styles.starBadge}
-            testID={testID ? `${testID}-star` : undefined}
+        <View
+          pointerEvents="none"
+          style={styles.starBadge}
+          testID={testID ? `${testID}-star` : undefined}
+        >
+          <AppText
+            style={[
+              styles.starGlyph,
+              { color: isFavorite ? STAR_COLOR : STAR_OUTLINE_COLOR },
+            ]}
+            testID={
+              testID
+                ? `${testID}-star-${isFavorite ? 'filled' : 'outlined'}`
+                : undefined
+            }
           >
-            <AppText style={[styles.starGlyph, { color: STAR_COLOR }]}>★</AppText>
-          </View>
-        ) : null}
+            {isFavorite ? '★' : '☆'}
+          </AppText>
+        </View>
 
         {selected ? (
           <View
@@ -201,14 +231,27 @@ export function InventoryCardTile({
               style={[
                 styles.deltaPill,
                 {
-                  backgroundColor: DELTA_BACKGROUND,
+                  backgroundColor: deltaBackground,
                   borderRadius: theme.radii.pill,
                 },
               ]}
               testID={testID ? `${testID}-delta` : undefined}
             >
+              {deltaArrow ? (
+                <AppText
+                  style={[styles.deltaArrow, { color: deltaForeground }]}
+                  testID={
+                    testID
+                      ? `${testID}-delta-arrow-${dayChangeDirection ?? 'none'}`
+                      : undefined
+                  }
+                  variant="caption"
+                >
+                  {deltaArrow}
+                </AppText>
+              ) : null}
               <AppText
-                style={[styles.deltaLabel, { color: DELTA_FOREGROUND }]}
+                style={[styles.deltaLabel, { color: deltaForeground }]}
                 variant="caption"
               >
                 {dayChangeLabel}
@@ -227,11 +270,18 @@ const styles = StyleSheet.create({
     marginTop: 8,
     width: '100%',
   },
+  deltaArrow: {
+    fontSize: 11,
+    lineHeight: 14,
+  },
   deltaLabel: {
     fontSize: 11,
     lineHeight: 14,
   },
   deltaPill: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
     paddingHorizontal: 8,
     paddingVertical: 2,
   },

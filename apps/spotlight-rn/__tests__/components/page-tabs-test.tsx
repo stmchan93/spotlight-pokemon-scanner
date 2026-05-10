@@ -1,0 +1,80 @@
+import { fireEvent, screen } from '@testing-library/react-native';
+
+import { PageTabs } from '@spotlight/design-system';
+
+import { renderWithProviders } from '../test-utils';
+
+type TabValue = 'portfolio' | 'recent-sales' | 'favorites';
+
+const TABS: ReadonlyArray<{ value: TabValue; label: string }> = [
+  { value: 'portfolio', label: 'Portfolio' },
+  { value: 'recent-sales', label: 'Recent Sales' },
+  { value: 'favorites', label: 'Favorites' },
+];
+
+describe('PageTabs', () => {
+  it('renders every tab label from the tabs array', () => {
+    renderWithProviders(
+      <PageTabs<TabValue>
+        tabs={TABS}
+        value="portfolio"
+        onChange={jest.fn()}
+        testID="page-tabs"
+      />,
+    );
+
+    expect(screen.getByText('Portfolio')).toBeTruthy();
+    expect(screen.getByText('Recent Sales')).toBeTruthy();
+    expect(screen.getByText('Favorites')).toBeTruthy();
+  });
+
+  it('marks the tab matching value as selected via accessibilityState', () => {
+    renderWithProviders(
+      <PageTabs<TabValue>
+        tabs={TABS}
+        value="recent-sales"
+        onChange={jest.fn()}
+        testID="page-tabs"
+      />,
+    );
+
+    const selectedTab = screen.getByTestId('page-tabs-tab-recent-sales');
+    const otherTab = screen.getByTestId('page-tabs-tab-portfolio');
+
+    expect(selectedTab.props.accessibilityState).toMatchObject({ selected: true });
+    expect(otherTab.props.accessibilityState).toMatchObject({ selected: false });
+  });
+
+  it('calls onChange with the tapped tab value', () => {
+    const onChange = jest.fn();
+    renderWithProviders(
+      <PageTabs<TabValue>
+        tabs={TABS}
+        value="portfolio"
+        onChange={onChange}
+        testID="page-tabs"
+      />,
+    );
+
+    fireEvent.press(screen.getByTestId('page-tabs-tab-favorites'));
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(onChange).toHaveBeenCalledWith('favorites');
+  });
+
+  it('exposes the container testID and per-tab testIDs', () => {
+    renderWithProviders(
+      <PageTabs<TabValue>
+        tabs={TABS}
+        value="portfolio"
+        onChange={jest.fn()}
+        testID="page-tabs"
+      />,
+    );
+
+    expect(screen.getByTestId('page-tabs')).toBeTruthy();
+    expect(screen.getByTestId('page-tabs-tab-portfolio')).toBeTruthy();
+    expect(screen.getByTestId('page-tabs-tab-recent-sales')).toBeTruthy();
+    expect(screen.getByTestId('page-tabs-tab-favorites')).toBeTruthy();
+  });
+});
