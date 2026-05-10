@@ -45,7 +45,7 @@ export function BottomTabBar({
         styles.bar,
         {
           backgroundColor: theme.colors.canvasElevated,
-          borderTopColor: theme.colors.searchBorder,
+          borderTopColor: theme.colors.gray100,
           paddingBottom: bottomInset,
         },
         style,
@@ -97,12 +97,13 @@ const styles = StyleSheet.create({
   row: {
     alignItems: 'center',
     flexDirection: 'row',
-    paddingTop: 12,
-    paddingBottom: 8,
+    gap: 32,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
+    paddingTop: 4,
   },
   tab: {
     alignItems: 'center',
-    flex: 1,
     gap: 4,
     justifyContent: 'center',
   },
