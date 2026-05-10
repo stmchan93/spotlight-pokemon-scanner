@@ -1638,6 +1638,18 @@ function normalizePortfolioLedger(value: PortfolioLedgerDTO | null | undefined) 
         return [];
       }
 
+      // Preserve the backend's quality fields so buildRecentSales can map
+      // them to a "Near Mint" / "PSA 10" qualityLabel for the Recent Sales
+      // cards. Previously the normalizer dropped these, so qualityLabel
+      // was always null even though the backend supplied the data.
+      const slabContextRaw = transaction?.slabContext;
+      const slabContext = slabContextRaw && typeof slabContextRaw === 'object'
+        ? {
+            grader: normalizeString(slabContextRaw.grader),
+            grade: normalizeString(slabContextRaw.grade),
+          }
+        : null;
+
       return [{
         id,
         kind,
@@ -1647,6 +1659,8 @@ function normalizePortfolioLedger(value: PortfolioLedgerDTO | null | undefined) 
         totalPrice: normalizeNumber(transaction?.totalPrice) ?? 0,
         currencyCode: normalizeCurrencyCode(transaction?.currencyCode),
         occurredAt,
+        condition: normalizeString(transaction?.condition),
+        slabContext,
       }];
     }),
     dailySeries: dailySeries.flatMap((point) => {
