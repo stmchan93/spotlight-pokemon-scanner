@@ -76,7 +76,8 @@ describe('PortfolioChartCard', () => {
       }),
     );
 
-    expect(screen.getByTestId('portfolio-chart-hover-tooltip')).toBeTruthy();
+    // (Hover tooltip removed — date label is rendered in the screen
+    // header instead, so the on-chart tooltip no longer exists.)
   });
 
   it('shows the skeleton when loading and no series points are available', () => {

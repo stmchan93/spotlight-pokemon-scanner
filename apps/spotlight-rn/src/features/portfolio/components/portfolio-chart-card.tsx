@@ -301,7 +301,6 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   }, [activeRange.sales, dashboard.recentSales]);
   const chartAccentColor = theme.colors.chartLine;
   const chartFillColor = theme.colors.chartLine;
-  const [tooltipWidth, setTooltipWidth] = useState(0);
 
   const yAxisMaxValue = useMemo(() => {
     return buildRoundedCurrencyTicks(series.map((point) => point.value));
@@ -666,32 +665,10 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               )}
             </Svg>
 
-            {activeSelection ? (
-              <View
-                onLayout={(event) => setTooltipWidth(event.nativeEvent.layout.width)}
-                pointerEvents="none"
-                style={[
-                  styles.hoverTooltip,
-                  {
-                    backgroundColor: theme.colors.chartLine,
-                    left: activeSelection.x,
-                    top: Math.max(activeSelection.y - 24, 0),
-                    transform: [{ translateX: -tooltipWidth / 2 }],
-                  },
-                ]}
-                testID="portfolio-chart-hover-tooltip"
-              >
-                <Text
-                  style={[
-                    theme.typography.overline,
-                    styles.hoverTooltipLabel,
-                    { color: theme.colors.textMuted },
-                  ]}
-                >
-                  {formatHoverDateLabel(activeSelection.point.isoDate)}
-                </Text>
-              </View>
-            ) : null}
+            {/* The on-chart yellow date tooltip was redundant with the
+                date label rendered in the screen header. Removed to keep
+                the chart surface clean during scrub — header copy is the
+                source of truth for the active point's date. */}
 
             <View
               onMoveShouldSetResponder={() => true}
@@ -775,15 +752,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   rangePillLabel: {
-    textAlign: 'center',
-  },
-  hoverTooltip: {
-    borderRadius: 5,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    position: 'absolute',
-  },
-  hoverTooltipLabel: {
     textAlign: 'center',
   },
   skeletonBar: {

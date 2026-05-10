@@ -146,8 +146,12 @@ export function PortfolioScreen({
   const summaryValueLabel = activeChartPoint?.valueLabel
     ?? formatCurrency(summary.currentValue);
   const summaryDateLabel = activeChartPoint?.dateLabel ?? 'Today';
+  // Sales mode emits an empty changePercentLabel (no percent applies to
+  // a sale count). Skip the trailing "()" when there's no percent value.
   const summaryDeltaAmountLabel = activeChartPoint
-    ? `${activeChartPoint.changeAmountLabel} (${activeChartPoint.changePercentLabel})`
+    ? activeChartPoint.changePercentLabel
+      ? `${activeChartPoint.changeAmountLabel} (${activeChartPoint.changePercentLabel})`
+      : activeChartPoint.changeAmountLabel
     : `${formatSignedCurrency(summary.changeAmount)} (${formatPercent(summary.changePercent)})`;
   const summaryDeltaIsPositive = activeChartPoint
     ? activeChartPoint.changeAmount >= 0
