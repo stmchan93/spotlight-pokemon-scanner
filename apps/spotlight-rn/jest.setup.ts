@@ -2,6 +2,32 @@ jest.mock('expo-font', () => ({
   useFonts: () => [true, null],
 }));
 
+jest.mock('iconoir-react-native', () => {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const React = require('react');
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { View } = require('react-native');
+
+  const make = (name: string) => {
+    const Component = (props: Record<string, unknown>) =>
+      React.createElement(View, {
+        ...props,
+        testID: props.testID ?? `iconoir-${name}`,
+      });
+    Component.displayName = `MockIconoir(${name})`;
+    return Component;
+  };
+
+  return {
+    Star: make('star'),
+    StarSolid: make('star-solid'),
+    ArrowUp: make('arrow-up'),
+    ArrowDown: make('arrow-down'),
+    Filter: make('filter'),
+    MoreHoriz: make('more-horiz'),
+  };
+});
+
 jest.mock('expo-splash-screen', () => ({
   hideAsync: jest.fn(),
   preventAutoHideAsync: jest.fn(),

@@ -1,3 +1,4 @@
+import { ArrowDown, ArrowUp, Star, StarSolid } from 'iconoir-react-native';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
@@ -27,12 +28,8 @@ export type InventoryCardTileProps = {
   testID?: string;
 };
 
-const STAR_COLOR = '#F5C518';
-const STAR_OUTLINE_COLOR = '#BEBEBE';
-const DELTA_UP_BACKGROUND = '#E2F4E8';
-const DELTA_UP_FOREGROUND = '#2D9148';
-const DELTA_DOWN_BACKGROUND = '#FDE7E7';
-const DELTA_DOWN_FOREGROUND = '#C0392B';
+const DELTA_UP_BACKGROUND = 'rgba(76, 175, 110, 0.15)';
+const DELTA_DOWN_BACKGROUND = 'rgba(224, 82, 76, 0.15)';
 
 function formatCardNumberWithHash(value: string | null): string | null {
   if (value == null) {
@@ -97,10 +94,13 @@ export function InventoryCardTile({
 
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
-  const showDelta = dayChangeLabel !== null && dayChangeLabel.trim().length > 0;
-  const deltaBackground = dayChangeDirection === 'down' ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND;
-  const deltaForeground = dayChangeDirection === 'down' ? DELTA_DOWN_FOREGROUND : DELTA_UP_FOREGROUND;
-  const deltaArrow = dayChangeDirection === 'down' ? '↓' : dayChangeDirection === 'up' ? '↑' : null;
+  const showDelta =
+    dayChangeDirection != null &&
+    dayChangeLabel !== null &&
+    dayChangeLabel.trim().length > 0;
+  const isDown = dayChangeDirection === 'down';
+  const deltaBackground = isDown ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND;
+  const deltaForeground = isDown ? theme.colors.redDelta : theme.colors.greenDelta;
 
   return (
     <Pressable
@@ -153,19 +153,21 @@ export function InventoryCardTile({
           style={styles.starBadge}
           testID={testID ? `${testID}-star` : undefined}
         >
-          <AppText
-            style={[
-              styles.starGlyph,
-              { color: isFavorite ? STAR_COLOR : STAR_OUTLINE_COLOR },
-            ]}
-            testID={
-              testID
-                ? `${testID}-star-${isFavorite ? 'filled' : 'outlined'}`
-                : undefined
-            }
-          >
-            {isFavorite ? '★' : '☆'}
-          </AppText>
+          {isFavorite ? (
+            <StarSolid
+              color={theme.colors.starFavorited}
+              height={20}
+              testID={testID ? `${testID}-star-filled` : undefined}
+              width={20}
+            />
+          ) : (
+            <Star
+              color={theme.colors.starOutline}
+              height={20}
+              testID={testID ? `${testID}-star-outlined` : undefined}
+              width={20}
+            />
+          )}
         </View>
 
         {selected ? (
@@ -187,42 +189,43 @@ export function InventoryCardTile({
         <AppText
           color="textPrimary"
           numberOfLines={1}
-          style={styles.name}
           variant="headline"
         >
           {name}
         </AppText>
 
-        {setLine ? (
-          <AppText
-            color="textSecondary"
-            numberOfLines={1}
-            variant="caption"
-          >
-            {setLine}
-          </AppText>
-        ) : null}
+        <View style={styles.metaStack}>
+          {setLine ? (
+            <AppText
+              color="textMuted"
+              numberOfLines={1}
+              variant="cardMeta"
+            >
+              {setLine}
+            </AppText>
+          ) : null}
 
-        {qualityLine ? (
-          <AppText
-            color="textSecondary"
-            numberOfLines={1}
-            variant="caption"
-          >
-            {qualityLine}
-          </AppText>
-        ) : null}
+          {qualityLine ? (
+            <AppText
+              color="textMuted"
+              numberOfLines={1}
+              variant="cardMeta"
+            >
+              {qualityLine}
+            </AppText>
+          ) : null}
 
-        <AppText color="textSecondary" numberOfLines={1} variant="caption">
-          {`Qty: ${quantity}`}
-        </AppText>
+          <AppText color="textMuted" numberOfLines={1} variant="cardMeta">
+            {`Qty: ${quantity}`}
+          </AppText>
+        </View>
 
         <View style={styles.priceRow}>
           <AppText
             color="textPrimary"
             numberOfLines={1}
             style={styles.price}
-            variant="headline"
+            variant="caption"
           >
             {priceLabel ?? '—'}
           </AppText>
@@ -237,22 +240,28 @@ export function InventoryCardTile({
               ]}
               testID={testID ? `${testID}-delta` : undefined}
             >
-              {deltaArrow ? (
-                <AppText
-                  style={[styles.deltaArrow, { color: deltaForeground }]}
+              {isDown ? (
+                <ArrowDown
+                  color={deltaForeground}
+                  height={12}
                   testID={
-                    testID
-                      ? `${testID}-delta-arrow-${dayChangeDirection ?? 'none'}`
-                      : undefined
+                    testID ? `${testID}-delta-arrow-down` : undefined
                   }
-                  variant="caption"
-                >
-                  {deltaArrow}
-                </AppText>
-              ) : null}
+                  width={12}
+                />
+              ) : (
+                <ArrowUp
+                  color={deltaForeground}
+                  height={12}
+                  testID={
+                    testID ? `${testID}-delta-arrow-up` : undefined
+                  }
+                  width={12}
+                />
+              )}
               <AppText
                 style={[styles.deltaLabel, { color: deltaForeground }]}
-                variant="caption"
+                variant="deltaPill"
               >
                 {dayChangeLabel}
               </AppText>
@@ -266,23 +275,18 @@ export function InventoryCardTile({
 
 const styles = StyleSheet.create({
   copyStack: {
-    gap: 2,
-    marginTop: 8,
+    alignItems: 'flex-start',
+    gap: 4,
     width: '100%',
   },
-  deltaArrow: {
-    fontSize: 11,
-    lineHeight: 14,
-  },
   deltaLabel: {
-    fontSize: 11,
-    lineHeight: 14,
+    // color overridden inline; spacing handled via pill padding
   },
   deltaPill: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 2,
-    paddingHorizontal: 8,
+    gap: 4,
+    paddingHorizontal: 6,
     paddingVertical: 2,
   },
   image: {
@@ -300,8 +304,15 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
-  name: {},
+  metaStack: {
+    alignItems: 'flex-start',
+    gap: 4,
+    width: '100%',
+  },
   pressable: {
+    alignSelf: 'stretch',
+    flexDirection: 'column',
+    gap: 16,
     width: '100%',
   },
   price: {
@@ -320,12 +331,5 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 8,
     top: 8,
-  },
-  starGlyph: {
-    fontSize: 20,
-    lineHeight: 22,
-    textShadowColor: 'rgba(0, 0, 0, 0.25)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 2,
   },
 });

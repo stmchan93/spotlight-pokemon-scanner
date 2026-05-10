@@ -88,7 +88,6 @@ describe('InventoryCardTile', () => {
     expect(screen.getByTestId('tile-star')).toBeTruthy();
     expect(screen.getByTestId('tile-star-outlined')).toBeTruthy();
     expect(screen.queryByTestId('tile-star-filled')).toBeNull();
-    expect(screen.getByText('☆')).toBeTruthy();
   });
 
   it('renders a filled star when isFavorite is true', () => {
@@ -97,7 +96,6 @@ describe('InventoryCardTile', () => {
     expect(screen.getByTestId('tile-star')).toBeTruthy();
     expect(screen.getByTestId('tile-star-filled')).toBeTruthy();
     expect(screen.queryByTestId('tile-star-outlined')).toBeNull();
-    expect(screen.getByText('★')).toBeTruthy();
   });
 
   it('hides the day-change pill when dayChangeLabel is null', () => {
@@ -113,7 +111,6 @@ describe('InventoryCardTile', () => {
     expect(screen.getByTestId('tile-delta')).toBeTruthy();
     expect(screen.getByTestId('tile-delta-arrow-up')).toBeTruthy();
     expect(screen.queryByTestId('tile-delta-arrow-down')).toBeNull();
-    expect(screen.getByText('↑')).toBeTruthy();
     expect(screen.getByText('$3.99')).toBeTruthy();
     expect(screen.queryByText('+ $3.99')).toBeNull();
   });
@@ -124,7 +121,6 @@ describe('InventoryCardTile', () => {
     expect(screen.getByTestId('tile-delta')).toBeTruthy();
     expect(screen.getByTestId('tile-delta-arrow-down')).toBeTruthy();
     expect(screen.queryByTestId('tile-delta-arrow-up')).toBeNull();
-    expect(screen.getByText('↓')).toBeTruthy();
     expect(screen.queryByText('- $3.99')).toBeNull();
   });
 

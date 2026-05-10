@@ -54,6 +54,7 @@
     "expo-system-ui": "~55.0.16",
     "expo-updates": "~55.0.21",
     "expo-web-browser": "~55.0.14",
+    "iconoir-react-native": "^7.11.0",
     "js-sha256": "^0.11.1",
     "posthog-react-native": "^4.43.13",
     "react": "19.2.0",
