@@ -125,6 +125,7 @@ export function PortfolioScreen({
   const insets = useSafeAreaInsets();
   const model = usePortfolioScreenModel();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
+  const [isChartScrubbing, setIsChartScrubbing] = useState(false);
   const [chartModeMenuOpen, setChartModeMenuOpen] = useState(false);
   const [typeFilter, setTypeFilter] = useState<InventoryTypeFilter>('all');
   const [typeFilterMenuOpen, setTypeFilterMenuOpen] = useState(false);
@@ -299,6 +300,7 @@ export function PortfolioScreen({
             paddingTop: theme.layout.pageTopInset,
           },
         ]}
+        scrollEnabled={!isChartScrubbing}
       >
         <View style={styles.header}>
           <View style={styles.headerSpacer} />
@@ -375,6 +377,7 @@ export function PortfolioScreen({
                 isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
                 onActivePointChange={setActiveChartPoint}
                 onRangeChange={model.setSelectedRange}
+                onScrubLockChange={setIsChartScrubbing}
                 selectedRange={model.selectedRange}
               />
             </View>

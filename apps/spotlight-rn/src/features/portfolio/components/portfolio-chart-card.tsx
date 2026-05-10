@@ -213,6 +213,13 @@ type PortfolioChartCardProps = {
   selectedRange: PortfolioHistoryRange;
   onRangeChange: (value: PortfolioHistoryRange) => void;
   onActivePointChange?: (active: PortfolioChartActivePoint | null) => void;
+  /**
+   * Fires true when the long-press lock activates and false when it
+   * releases. Parents (e.g. the Portfolio ScrollView) should set their
+   * scroll-enabled state from this so vertical scrolling doesn't steal
+   * the responder mid-scrub.
+   */
+  onScrubLockChange?: (locked: boolean) => void;
 };
 
 function ChartSkeleton() {
@@ -279,6 +286,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   selectedRange,
   onRangeChange,
   onActivePointChange,
+  onScrubLockChange,
 }: PortfolioChartCardProps) {
   const theme = useSpotlightTheme();
   const [chartWidth, setChartWidth] = useState(0);
@@ -518,6 +526,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const beginScrubLock = (locationX: number) => {
     isScrubLockedRef.current = true;
     chartScrubLockRef.current = true;
+    onScrubLockChange?.(true);
     if (!isTestEnv) {
       void Haptics.selectionAsync().catch(() => {});
     }
@@ -533,6 +542,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     if (isScrubLockedRef.current) {
       isScrubLockedRef.current = false;
       chartScrubLockRef.current = false;
+      onScrubLockChange?.(false);
     }
     releaseActivePoint();
   };
