@@ -7,6 +7,7 @@ import {
   Text,
   View,
 } from 'react-native';
+import { Filter, MoreHoriz } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ChartMode, InventoryCardEntry } from '@spotlight/api-client';
@@ -40,10 +41,8 @@ type PortfolioScreenProps = {
   onOpenInventory?: () => void;
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
   /**
-   * Kept on the public API for the route layer; the Recent Sales tab
-   * is now the View-All experience itself, so this is currently unused
-   * inside the screen. Will be re-wired if a deeper sales-history screen
-   * is reintroduced.
+   * Wired to the View All link inside the Recent Sales tab — navigates
+   * to the full-screen virtualized sales list at /sales.
    */
   onOpenSalesHistory?: () => void;
 };
@@ -113,11 +112,14 @@ const collectionTabs = [
   { value: 'favorites', label: 'Favorites' },
 ] as const satisfies ReadonlyArray<{ value: CollectionTab; label: string }>;
 
+const recentSalesTabLimit = 6;
+
 export function PortfolioScreen({
   accountInitials = 'AC',
   onOpenAccount = () => {},
   onOpenInventory = () => {},
   onOpenInventoryEntry = () => {},
+  onOpenSalesHistory,
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
@@ -180,11 +182,9 @@ export function PortfolioScreen({
       style={styles.filterIconPressable}
       testID="portfolio-inventory-filter-trigger"
     >
-      <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-        {'≡'}
-      </Text>
+      <Filter color={theme.colors.textSecondary} height={16} width={16} />
     </Pressable>
-  ), [theme.colors.textSecondary, theme.typography.caption]);
+  ), [theme.colors.textSecondary]);
 
   const renderInventoryTile = useCallback((entry: InventoryCardEntry) => {
     const tileKind = entry.kind === 'graded' ? 'slab' : 'raw';
@@ -231,6 +231,7 @@ export function PortfolioScreen({
       <SearchField
         onChangeText={model.setSearchQuery}
         placeholder="Search inventory"
+        size="compact"
         testID="portfolio-inventory-search"
         trailing={filterTriggerIcon}
         value={model.searchQuery}
@@ -250,14 +251,17 @@ export function PortfolioScreen({
     </View>
   );
 
+  const recentSalesTabItems = model.recentSales.slice(0, recentSalesTabLimit);
+
   const renderRecentSalesTab = () => (
     <View style={styles.tabContent}>
       <RecentSalesSection
         expanded
         isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
+        onOpenSalesHistory={onOpenSalesHistory}
         onSalePress={model.openSaleEditor}
         onToggleExpanded={() => {}}
-        sales={model.recentSales}
+        sales={recentSalesTabItems}
         title="Latest Sales"
       />
     </View>
@@ -358,9 +362,7 @@ export function PortfolioScreen({
                   ]}
                   testID="portfolio-chart-mode-trigger"
                 >
-                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                    ⋯
-                  </Text>
+                  <MoreHoriz color={theme.colors.textSecondary} height={14} width={14} />
                 </Pressable>
               </View>
             </View>

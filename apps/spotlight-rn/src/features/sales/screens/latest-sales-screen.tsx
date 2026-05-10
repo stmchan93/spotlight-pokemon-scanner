@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
+  FlatList,
   Pressable,
   RefreshControl,
-  ScrollView,
   StyleSheet,
   Text,
   View,
@@ -17,14 +17,9 @@ import {
 } from '@spotlight/design-system';
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
-import { ChromeBackButton } from '@/components/chrome-back-button';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { getCardImageSource } from '@/lib/card-images';
 import { useAppServices } from '@/providers/app-providers';
-
-type LatestSalesScreenProps = {
-  onBack: () => void;
-};
 
 const PAGE_GUTTER = 16;
 
@@ -109,7 +104,7 @@ function LatestSalesSkeleton() {
   );
 }
 
-export function LatestSalesScreen({ onBack }: LatestSalesScreenProps) {
+export function LatestSalesScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const { spotlightRepository, dataVersion } = useAppServices();
@@ -165,12 +160,6 @@ export function LatestSalesScreen({ onBack }: LatestSalesScreenProps) {
       style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
     >
       <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
-        <View style={styles.navRow}>
-          <ChromeBackButton onPress={onBack} testID="latest-sales-back" />
-          <Text style={[theme.typography.headline, { color: theme.colors.textSecondary }]}>Sales</Text>
-          <View style={styles.navSpacer} />
-        </View>
-
         <View style={styles.headerCopy}>
           <View style={styles.titleLine}>
             <Text style={theme.typography.display}>Latest Sales</Text>
@@ -185,42 +174,39 @@ export function LatestSalesScreen({ onBack }: LatestSalesScreenProps) {
           </View>
         </View>
 
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          refreshControl={(
-            <RefreshControl
-              onRefresh={handleRefresh}
-              refreshing={isRefreshing}
-              testID="latest-sales-refresh"
-              tintColor={theme.colors.textSecondary}
-            />
-          )}
-          showsVerticalScrollIndicator={false}
-          testID="latest-sales-scroll"
-        >
-          {showInitialSkeleton ? (
-            <LatestSalesSkeleton />
-          ) : showInitialError ? (
-            <StateCard
-              message={loadError ?? 'Please try again once your backend is reachable.'}
-              style={styles.stateCard}
-              title="Could not load sales"
-              variant="field"
-            />
-          ) : showEmptyState ? (
-            <StateCard
-              message="Completed sales will appear here as soon as you start moving inventory."
-              style={styles.stateCard}
-              title="No sales yet"
-            />
-          ) : (
-            <View style={styles.list}>
-              {sales.map((sale) => (
-                <LatestSaleRow key={sale.id} sale={sale} />
-              ))}
-            </View>
-          )}
-        </ScrollView>
+        {showInitialSkeleton ? (
+          <LatestSalesSkeleton />
+        ) : showInitialError ? (
+          <StateCard
+            message={loadError ?? 'Please try again once your backend is reachable.'}
+            style={styles.stateCard}
+            title="Could not load sales"
+            variant="field"
+          />
+        ) : showEmptyState ? (
+          <StateCard
+            message="Completed sales will appear here as soon as you start moving inventory."
+            style={styles.stateCard}
+            title="No sales yet"
+          />
+        ) : (
+          <FlatList
+            contentContainerStyle={styles.scrollContent}
+            data={sales}
+            keyExtractor={(sale) => sale.id}
+            refreshControl={(
+              <RefreshControl
+                onRefresh={handleRefresh}
+                refreshing={isRefreshing}
+                testID="latest-sales-refresh"
+                tintColor={theme.colors.textSecondary}
+              />
+            )}
+            renderItem={({ item }) => <LatestSaleRow sale={item} />}
+            showsVerticalScrollIndicator={false}
+            testID="latest-sales-list"
+          />
+        )}
       </View>
     </SafeAreaView>
   );
@@ -250,14 +236,6 @@ const styles = StyleSheet.create({
   },
   list: {
     gap: 12,
-  },
-  navRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  navSpacer: {
-    width: 44,
   },
   priceText: {
     flexShrink: 0,
