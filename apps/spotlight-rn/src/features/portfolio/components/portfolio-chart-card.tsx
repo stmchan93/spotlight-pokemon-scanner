@@ -528,7 +528,11 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     chartScrubLockRef.current = true;
     onScrubLockChange?.(true);
     if (!isTestEnv) {
-      void Haptics.selectionAsync().catch(() => {});
+      // impactAsync(Light) is the noticeable "thump" most apps use for
+      // gesture-lock confirmation. selectionAsync (what we used before)
+      // is the intentionally-subtle picker-wheel tick and many users
+      // never feel it.
+      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     }
     // Synthesize a responder-like event and update the scrub indicator
     // to the initial touch position so the user sees feedback immediately.
