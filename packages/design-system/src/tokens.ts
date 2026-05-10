@@ -23,7 +23,7 @@ export const colors = {
   info: '#B89A33',
   warning: '#F7C23D',
   danger: '#F27676',
-  gray50: '#F2F2F2',
+  gray50: '#FAFAFA',
   gray400: '#BEBEBE',
   gray600: '#717171',
   gray900: '#1A1A1A',
