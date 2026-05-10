@@ -180,7 +180,7 @@ describe('ScannerScreen', () => {
 
   it('does not show the camera permission card when the scanner is mounted offscreen with granted permission', () => {
     renderWithProviders(
-      <TabsPageContext.Provider value={{ activePage: 'portfolio' }}>
+      <TabsPageContext.Provider value={{ activePage: 'portfolio', chartScrubLockRef: { current: false } }}>
         <ScannerScreen />
       </TabsPageContext.Provider>,
     );

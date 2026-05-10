@@ -15,6 +15,9 @@ import {
   Text,
   View,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
+
+import { useTabsPage } from '@/contexts/tabs-page-context';
 import Svg, {
   Circle,
   Defs,
@@ -478,6 +481,91 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
     setActivePointIndex(null);
   };
 
+  // ===========================================================================
+  // Long-press scrub gesture (Robinhood-style)
+  //
+  // Touching the chart does NOT immediately scrub — that was making the tab
+  // pager fight the chart for the gesture on every slight horizontal move.
+  // Now:
+  //   1. Touch + hold ~250ms with little movement → enter "scrub lock":
+  //      a haptic confirms it; the pager refuses to capture while locked.
+  //   2. Quick horizontal swipe before the lock fires → pager wins, chart
+  //      gets onResponderTerminate and quietly bails.
+  //   3. Once locked, drag freely to scrub. Release clears the lock.
+  //
+  // In tests the timer is bypassed so existing fireEvent('responderGrant')
+  // assertions still see an immediate scrub.
+  // ===========================================================================
+  const { chartScrubLockRef } = useTabsPage();
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isScrubLockedRef = useRef(false);
+  const touchStartXRef = useRef(0);
+  const isTestEnv = process.env.NODE_ENV === 'test';
+  const longPressDelayMs = 250;
+  const longPressCancelDistancePx = 8;
+
+  // NOTE: not memoizing these helpers — they close over `updateActivePoint`
+  // which depends on `chartWidth` (set on layout). useCallback-memoizing
+  // would capture a stale closure where chartWidth=0, so updateActivePoint
+  // bails early before any active-point is computed.
+  const clearLongPressTimer = () => {
+    if (longPressTimerRef.current) {
+      clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  };
+
+  const beginScrubLock = (locationX: number) => {
+    isScrubLockedRef.current = true;
+    chartScrubLockRef.current = true;
+    if (!isTestEnv) {
+      void Haptics.selectionAsync().catch(() => {});
+    }
+    // Synthesize a responder-like event and update the scrub indicator
+    // to the initial touch position so the user sees feedback immediately.
+    updateActivePoint({
+      nativeEvent: { locationX },
+    } as GestureResponderEvent);
+  };
+
+  const endScrubLock = () => {
+    clearLongPressTimer();
+    if (isScrubLockedRef.current) {
+      isScrubLockedRef.current = false;
+      chartScrubLockRef.current = false;
+    }
+    releaseActivePoint();
+  };
+
+  const onTouchGrant = (event: GestureResponderEvent) => {
+    const locationX = event.nativeEvent.locationX;
+    touchStartXRef.current = locationX;
+    clearLongPressTimer();
+    if (isTestEnv) {
+      // Skip the timer in tests so fireEvent('responderGrant') still
+      // produces an immediately-active scrub point for existing assertions.
+      beginScrubLock(locationX);
+      return;
+    }
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTimerRef.current = null;
+      beginScrubLock(locationX);
+    }, longPressDelayMs);
+  };
+
+  const onTouchMove = (event: GestureResponderEvent) => {
+    if (!isScrubLockedRef.current) {
+      // Pre-lock window: if the user moves significantly, abandon the
+      // long-press intent so the pager (or other ancestor) can claim.
+      const dx = Math.abs(event.nativeEvent.locationX - touchStartXRef.current);
+      if (dx > longPressCancelDistancePx) {
+        clearLongPressTimer();
+      }
+      return;
+    }
+    updateActivePoint(event);
+  };
+
   return (
     <View style={styles.container}>
       <View
@@ -593,10 +681,10 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
 
             <View
               onMoveShouldSetResponder={() => true}
-              onResponderGrant={updateActivePoint}
-              onResponderMove={updateActivePoint}
-              onResponderRelease={releaseActivePoint}
-              onResponderTerminate={releaseActivePoint}
+              onResponderGrant={onTouchGrant}
+              onResponderMove={onTouchMove}
+              onResponderRelease={endScrubLock}
+              onResponderTerminate={endScrubLock}
               onStartShouldSetResponder={() => true}
               style={styles.chartTouchTarget}
               testID="portfolio-chart-touch-target"

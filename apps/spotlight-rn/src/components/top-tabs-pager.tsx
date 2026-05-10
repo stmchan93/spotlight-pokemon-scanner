@@ -58,6 +58,7 @@ export function TopTabsPager({
   const isScannerSwipeEnabledRef = useRef(true);
   const isTransitioningRef = useRef(false);
   const directionRef = useRef<'left' | 'right' | null>(null);
+  const chartScrubLockRef = useRef(false);
   const translateX = useRef(new Animated.Value(initialTranslateX)).current;
 
   useEffect(() => {
@@ -104,13 +105,26 @@ export function TopTabsPager({
     if (isTransitioningRef.current || !isHorizontalSwipe(gs)) {
       return false;
     }
-    if (activePageRef.current === 'portfolio' && gs.dx <= -8) {
+    // The chart's long-press scrub owns the gesture once active — don't
+    // rip it out from under the user mid-drag.
+    if (chartScrubLockRef.current) {
+      return false;
+    }
+    // Require either a fast horizontal flick OR a significant horizontal
+    // distance before stealing the gesture. Avoids the previous hair-
+    // trigger 8px threshold that grabbed gestures during chart scrub.
+    const isFastSwipe = Math.abs(gs.vx) > 0.4;
+    const isLongSwipe = Math.abs(gs.dx) > 24;
+    if (!isFastSwipe && !isLongSwipe) {
+      return false;
+    }
+    if (activePageRef.current === 'portfolio' && gs.dx < 0) {
       return true;
     }
     if (activePageRef.current === 'scanner' && !isScannerSwipeEnabledRef.current) {
       return false;
     }
-    if (activePageRef.current === 'scanner' && gs.dx >= 8) {
+    if (activePageRef.current === 'scanner' && gs.dx > 0) {
       return true;
     }
     return false;
@@ -171,7 +185,7 @@ export function TopTabsPager({
   const goToPortfolio = useCallback(() => goToPage('portfolio'), [goToPage]);
 
   return (
-    <TabsPageContext.Provider value={{ activePage }}>
+    <TabsPageContext.Provider value={{ activePage, chartScrubLockRef }}>
       <View {...panResponder.panHandlers} style={styles.container} testID="top-tabs-pager">
         <Animated.View style={[styles.row, { width: width * 2, transform: [{ translateX }] }]}>
           <View style={[styles.slot, { width }]}>

@@ -2,6 +2,14 @@ jest.mock('expo-font', () => ({
   useFonts: () => [true, null],
 }));
 
+jest.mock('expo-haptics', () => ({
+  selectionAsync: jest.fn(async () => {}),
+  impactAsync: jest.fn(async () => {}),
+  notificationAsync: jest.fn(async () => {}),
+  ImpactFeedbackStyle: { Light: 'light', Medium: 'medium', Heavy: 'heavy' },
+  NotificationFeedbackType: { Success: 'success', Warning: 'warning', Error: 'error' },
+}));
+
 jest.mock('iconoir-react-native', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
