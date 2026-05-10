@@ -10,6 +10,7 @@ import {
   Easing,
   GestureResponderEvent,
   LayoutChangeEvent,
+  Pressable,
   StyleSheet,
   Text,
   View,
@@ -30,10 +31,7 @@ import type {
   PortfolioHistoryRange,
   RecentSaleRecord,
 } from '@spotlight/api-client';
-import {
-  PillButton,
-  useSpotlightTheme,
-} from '@spotlight/design-system';
+import { useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   formatCurrency,
@@ -582,24 +580,37 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
         ) : null}
       </View>
 
-      <View
-        style={[
-          styles.rangeRow,
-          {
-            backgroundColor: theme.colors.surfaceMuted,
-          },
-        ]}
-      >
+      <View style={styles.rangeRow}>
         {rangeItems.map((item) => {
+          const isSelected = item.value === selectedRange;
           return (
-            <PillButton
+            <Pressable
+              accessibilityRole="button"
               key={item.value}
-              label={item.label}
               onPress={() => onRangeChange(item.value as PortfolioHistoryRange)}
-              selected={item.value === selectedRange}
-              style={styles.rangePill}
+              style={({ pressed }) => [
+                styles.rangePill,
+                isSelected
+                  ? { backgroundColor: theme.colors.brand }
+                  : null,
+                pressed ? { opacity: 0.88 } : null,
+              ]}
               testID={`range-${item.value}`}
-            />
+            >
+              <Text
+                style={[
+                  theme.typography.control,
+                  styles.rangePillLabel,
+                  {
+                    color: isSelected
+                      ? theme.colors.textPrimary
+                      : theme.colors.textSecondary,
+                  },
+                ]}
+              >
+                {item.label}
+              </Text>
+            </Pressable>
           );
         })}
       </View>
@@ -621,20 +632,20 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   rangeRow: {
-    borderRadius: 999,
     flexDirection: 'row',
     gap: 8,
     marginHorizontal: 16,
-    padding: 4,
   },
   rangePill: {
     alignItems: 'center',
     borderRadius: 999,
     flex: 1,
+    height: 28,
     justifyContent: 'center',
-    minHeight: 36,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+  },
+  rangePillLabel: {
+    textAlign: 'center',
   },
   skeletonBar: {
     borderRadius: 6,

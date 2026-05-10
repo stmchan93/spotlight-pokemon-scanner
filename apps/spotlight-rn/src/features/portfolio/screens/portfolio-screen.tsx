@@ -11,12 +11,11 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type { ChartMode, InventoryCardEntry } from '@spotlight/api-client';
 import {
-  IconButton,
   InventoryCardTile,
+  PageTabs,
   SearchField,
   SectionHeader,
   StateCard,
-  SurfaceCard,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -40,19 +39,23 @@ type PortfolioScreenProps = {
   onOpenAccount?: () => void;
   onOpenInventory?: () => void;
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
-  onOpenSalesHistory: () => void;
+  /**
+   * Kept on the public API for the route layer; the Recent Sales tab
+   * is now the View-All experience itself, so this is currently unused
+   * inside the screen. Will be re-wired if a deeper sales-history screen
+   * is reintroduced.
+   */
+  onOpenSalesHistory?: () => void;
 };
 
-type InventoryFilter = 'all' | 'raw' | 'graded' | 'favorites';
+type InventoryTypeFilter = 'all' | 'raw' | 'graded';
+type CollectionTab = 'portfolio' | 'recent-sales' | 'favorites';
 
 const inventoryHighlightLimit = 6;
 
-function applyInventoryFilter(items: InventoryCardEntry[], filter: InventoryFilter) {
+function applyTypeFilter(items: InventoryCardEntry[], filter: InventoryTypeFilter) {
   if (filter === 'all') {
     return items;
-  }
-  if (filter === 'favorites') {
-    return items.filter((item) => item.isFavorite === true);
   }
   if (filter === 'raw') {
     return items.filter((item) => item.kind === 'raw');
@@ -93,11 +96,10 @@ function sortByMarketPriceDesc(items: InventoryCardEntry[]) {
   });
 }
 
-const inventoryFilterOptions: ReadonlyArray<{ value: InventoryFilter; label: string }> = [
+const inventoryTypeFilterOptions: ReadonlyArray<{ value: InventoryTypeFilter; label: string }> = [
   { value: 'all', label: 'All' },
   { value: 'raw', label: 'Raw' },
   { value: 'graded', label: 'Graded' },
-  { value: 'favorites', label: 'Favorites' },
 ];
 
 const chartModeOptions: ReadonlyArray<{ value: ChartMode; label: string }> = [
@@ -105,20 +107,26 @@ const chartModeOptions: ReadonlyArray<{ value: ChartMode; label: string }> = [
   { value: 'sales', label: 'Sales' },
 ];
 
+const collectionTabs = [
+  { value: 'portfolio', label: 'Portfolio' },
+  { value: 'recent-sales', label: 'Recent Sales' },
+  { value: 'favorites', label: 'Favorites' },
+] as const satisfies ReadonlyArray<{ value: CollectionTab; label: string }>;
+
 export function PortfolioScreen({
   accountInitials = 'AC',
   onOpenAccount = () => {},
   onOpenInventory = () => {},
   onOpenInventoryEntry = () => {},
-  onOpenSalesHistory,
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const model = usePortfolioScreenModel();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [chartModeMenuOpen, setChartModeMenuOpen] = useState(false);
-  const [inventoryFilter, setInventoryFilter] = useState<InventoryFilter>('all');
-  const [inventoryFilterMenuOpen, setInventoryFilterMenuOpen] = useState(false);
+  const [typeFilter, setTypeFilter] = useState<InventoryTypeFilter>('all');
+  const [typeFilterMenuOpen, setTypeFilterMenuOpen] = useState(false);
+  const [activeTab, setActiveTab] = useState<CollectionTab>('portfolio');
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -130,8 +138,6 @@ export function PortfolioScreen({
     && !model.isLoading
     && model.loadError !== null;
 
-  // Header value/delta — bound to chart hover when scrubbing, otherwise
-  // resolves to today's portfolio summary or a placeholder during load.
   const summary = model.dashboard.summary;
   const summaryValueLabel = activeChartPoint?.valueLabel
     ?? formatCurrency(summary.currentValue);
@@ -143,19 +149,23 @@ export function PortfolioScreen({
     ? activeChartPoint.changeAmount >= 0
     : summary.changeAmount >= 0;
 
-  const filteredInventory = useMemo(() => {
-    const filtered = applyInventoryFilter(model.dashboard.inventoryItems, inventoryFilter);
+  const baseInventory = model.dashboard.inventoryItems;
+
+  const portfolioTabHighlights = useMemo(() => {
+    const filtered = applyTypeFilter(baseInventory, typeFilter);
     const searched = applyInventorySearch(filtered, model.searchQuery);
+    return sortByMarketPriceDesc(searched).slice(0, inventoryHighlightLimit);
+  }, [baseInventory, model.searchQuery, typeFilter]);
+
+  const favoritesTabItems = useMemo(() => {
+    const favoritesOnly = baseInventory.filter((item) => item.isFavorite === true);
+    const searched = applyInventorySearch(favoritesOnly, model.searchQuery);
     return sortByMarketPriceDesc(searched);
-  }, [inventoryFilter, model.dashboard.inventoryItems, model.searchQuery]);
+  }, [baseInventory, model.searchQuery]);
 
-  const inventoryHighlights = useMemo(() => {
-    return filteredInventory.slice(0, inventoryHighlightLimit);
-  }, [filteredInventory]);
-
-  const handleSelectInventoryFilter = useCallback((filter: InventoryFilter) => {
-    setInventoryFilter(filter);
-    setInventoryFilterMenuOpen(false);
+  const handleSelectTypeFilter = useCallback((filter: InventoryTypeFilter) => {
+    setTypeFilter(filter);
+    setTypeFilterMenuOpen(false);
   }, []);
 
   const handleSelectChartMode = useCallback((mode: ChartMode) => {
@@ -163,15 +173,15 @@ export function PortfolioScreen({
     setChartModeMenuOpen(false);
   }, [model]);
 
-  const inventoryFilterIcon = useMemo(() => (
+  const filterTriggerIcon = useMemo(() => (
     <Pressable
       hitSlop={8}
-      onPress={() => setInventoryFilterMenuOpen(true)}
+      onPress={() => setTypeFilterMenuOpen(true)}
       style={styles.filterIconPressable}
       testID="portfolio-inventory-filter-trigger"
     >
       <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-        ▾
+        {'≡'}
       </Text>
     </Pressable>
   ), [theme.colors.textSecondary, theme.typography.caption]);
@@ -179,9 +189,11 @@ export function PortfolioScreen({
   const renderInventoryTile = useCallback((entry: InventoryCardEntry) => {
     const tileKind = entry.kind === 'graded' ? 'slab' : 'raw';
     const dayDelta = entry.dayChangeAmount ?? null;
-    const dayChangeLabel = dayDelta == null || dayDelta === 0
-      ? null
-      : `${dayDelta >= 0 ? '+ ' : '- '}${formatCurrency(Math.abs(dayDelta), entry.currencyCode)}`;
+    const hasDelta = dayDelta != null && dayDelta !== 0;
+    const dayChangeLabel = hasDelta
+      ? formatCurrency(Math.abs(dayDelta), entry.currencyCode)
+      : null;
+    const dayChangeDirection = hasDelta ? (dayDelta > 0 ? 'up' : 'down') : null;
 
     return (
       <View key={entry.id} style={styles.inventoryTileWrap}>
@@ -197,6 +209,7 @@ export function PortfolioScreen({
           quantity={entry.quantity}
           priceLabel={entry.hasMarketPrice ? formatOptionalCurrency(entry.marketPrice, entry.currencyCode) : null}
           dayChangeLabel={dayChangeLabel}
+          dayChangeDirection={dayChangeDirection}
           isFavorite={entry.isFavorite === true}
           onPress={() => onOpenInventoryEntry(entry)}
           testID={`portfolio-inventory-tile-${entry.id}`}
@@ -204,6 +217,69 @@ export function PortfolioScreen({
       </View>
     );
   }, [onOpenInventoryEntry]);
+
+  const renderPortfolioTab = () => (
+    <View style={styles.tabContent}>
+      <SectionHeader
+        actionLabel="View All"
+        actionTestID="portfolio-inventory-view-all"
+        expanded
+        onActionPress={onOpenInventory}
+        title="Collection"
+      />
+
+      <SearchField
+        onChangeText={model.setSearchQuery}
+        placeholder="Search inventory"
+        testID="portfolio-inventory-search"
+        trailing={filterTriggerIcon}
+        value={model.searchQuery}
+      />
+
+      {model.hasInventoryEntries ? (
+        <View style={styles.inventoryGrid}>
+          {portfolioTabHighlights.map(renderInventoryTile)}
+        </View>
+      ) : (
+        <StateCard
+          message="Add cards from the scanner to see your highest-value picks here."
+          style={styles.emptyStateCard}
+          title="No cards in your collection yet"
+        />
+      )}
+    </View>
+  );
+
+  const renderRecentSalesTab = () => (
+    <View style={styles.tabContent}>
+      <RecentSalesSection
+        expanded
+        isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
+        onSalePress={model.openSaleEditor}
+        onToggleExpanded={() => {}}
+        sales={model.recentSales}
+        title="Latest Sales"
+      />
+    </View>
+  );
+
+  const renderFavoritesTab = () => (
+    <View style={styles.tabContent}>
+      <SectionHeader expanded title="Favorites" />
+
+      {favoritesTabItems.length > 0 ? (
+        <View style={styles.inventoryGrid}>
+          {favoritesTabItems.map(renderInventoryTile)}
+        </View>
+      ) : (
+        <StateCard
+          message="Tap the star on a card's detail page to favorite it. Your favorites will appear here."
+          style={styles.emptyStateCard}
+          title="No favorites yet"
+        />
+      )}
+    </View>
+  );
 
   return (
     <SafeAreaView
@@ -275,7 +351,10 @@ export function PortfolioScreen({
                   onPress={() => setChartModeMenuOpen(true)}
                   style={[
                     styles.modeMenuButton,
-                    { backgroundColor: theme.colors.surfaceMuted },
+                    {
+                      backgroundColor: theme.colors.canvasElevated,
+                      borderColor: theme.colors.outlineSubtle,
+                    },
                   ]}
                   testID="portfolio-chart-mode-trigger"
                 >
@@ -305,47 +384,18 @@ export function PortfolioScreen({
               />
             ) : null}
 
-            <View style={styles.inventorySection}>
-              <SectionHeader
-                actionLabel="View All"
-                actionTestID="portfolio-inventory-view-all"
-                expanded
-                onActionPress={onOpenInventory}
-                title="Inventory"
-              />
+            <PageTabs<CollectionTab>
+              onChange={setActiveTab}
+              tabs={collectionTabs}
+              testID="portfolio-collection-tabs"
+              value={activeTab}
+            />
 
-              <SearchField
-                onChangeText={model.setSearchQuery}
-                placeholder="Search for a card"
-                testID="portfolio-inventory-search"
-                trailing={inventoryFilterIcon}
-                value={model.searchQuery}
-              />
-
-              {model.hasInventoryEntries ? (
-                <View style={styles.inventoryGrid}>
-                  {inventoryHighlights.map(renderInventoryTile)}
-                </View>
-              ) : (
-                <StateCard
-                  message="Add cards from the scanner to see your highest-value picks here."
-                  style={styles.emptyStateCard}
-                  title="No cards in your collection yet"
-                />
-              )}
-            </View>
-
-            <View style={styles.recentSalesWrap}>
-              <RecentSalesSection
-                expanded
-                isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
-                onOpenSalesHistory={onOpenSalesHistory}
-                onSalePress={model.openSaleEditor}
-                onToggleExpanded={() => {}}
-                sales={model.recentSales}
-                title="Latest Sales"
-              />
-            </View>
+            {activeTab === 'portfolio'
+              ? renderPortfolioTab()
+              : activeTab === 'recent-sales'
+                ? renderRecentSalesTab()
+                : renderFavoritesTab()}
           </>
         )}
       </ScrollView>
@@ -395,12 +445,12 @@ export function PortfolioScreen({
 
       <Modal
         animationType="fade"
-        onRequestClose={() => setInventoryFilterMenuOpen(false)}
+        onRequestClose={() => setTypeFilterMenuOpen(false)}
         transparent
-        visible={inventoryFilterMenuOpen}
+        visible={typeFilterMenuOpen}
       >
         <Pressable
-          onPress={() => setInventoryFilterMenuOpen(false)}
+          onPress={() => setTypeFilterMenuOpen(false)}
           style={styles.menuBackdrop}
           testID="portfolio-inventory-filter-menu-backdrop"
         >
@@ -408,13 +458,13 @@ export function PortfolioScreen({
             onPress={() => {}}
             style={[styles.menuSheet, { backgroundColor: theme.colors.canvasElevated }]}
           >
-            {inventoryFilterOptions.map((option) => {
-              const selected = option.value === inventoryFilter;
+            {inventoryTypeFilterOptions.map((option) => {
+              const selected = option.value === typeFilter;
               return (
                 <Pressable
                   accessibilityRole="button"
                   key={option.value}
-                  onPress={() => handleSelectInventoryFilter(option.value)}
+                  onPress={() => handleSelectTypeFilter(option.value)}
                   style={({ pressed }) => [
                     styles.menuOption,
                     pressed ? { backgroundColor: theme.colors.surfaceMuted } : null,
@@ -448,10 +498,6 @@ export function PortfolioScreen({
   );
 }
 
-// Suppress unused import for IconButton — kept for potential future use of a dedicated trailing icon button.
-void IconButton;
-void SurfaceCard;
-
 const styles = StyleSheet.create({
   accountBadge: {
     alignItems: 'center',
@@ -460,9 +506,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 36,
   },
-  chartWrap: {
-    // Edge-to-edge chart: cancel parent horizontal padding (set in render).
-  },
+  chartWrap: {},
   content: {
     gap: 16,
   },
@@ -494,9 +538,6 @@ const styles = StyleSheet.create({
     gap: 12,
     marginTop: 12,
   },
-  inventorySection: {
-    gap: 12,
-  },
   inventoryTileWrap: {
     width: '48%',
   },
@@ -520,11 +561,11 @@ const styles = StyleSheet.create({
   modeMenuButton: {
     alignItems: 'center',
     borderRadius: 999,
-    height: 24,
+    borderWidth: 1,
+    height: 28,
     justifyContent: 'center',
-    width: 24,
+    width: 28,
   },
-  recentSalesWrap: {},
   safeArea: {
     flex: 1,
   },
@@ -538,5 +579,8 @@ const styles = StyleSheet.create({
   },
   summaryValue: {
     fontWeight: '700',
+  },
+  tabContent: {
+    gap: 12,
   },
 });

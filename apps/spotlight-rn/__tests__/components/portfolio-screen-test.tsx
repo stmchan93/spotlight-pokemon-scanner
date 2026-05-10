@@ -28,7 +28,7 @@ describe('PortfolioScreen', () => {
         <SpotlightThemeProvider>
           <AppProviders spotlightRepository={repository}>
             {showPortfolio ? (
-              <PortfolioScreen onOpenSalesHistory={jest.fn()} />
+              <PortfolioScreen />
             ) : (
               <Text testID="portfolio-placeholder">Portfolio hidden</Text>
             )}
@@ -38,7 +38,7 @@ describe('PortfolioScreen', () => {
     );
   }
 
-  it('renders the portfolio shell, summary, and inventory tiles', async () => {
+  it('renders the portfolio shell, summary, tabs, and inventory tiles', async () => {
     renderPortfolioScreen();
 
     expect(screen.queryByText('Loading Loooty...')).toBeNull();
@@ -49,28 +49,25 @@ describe('PortfolioScreen', () => {
       paddingBottom: 114,
     });
 
-    // Summary value + delta block at the screen level (chart card no longer
-    // owns the summary text).
+    // Summary block at the screen level.
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
     expect(screen.getByTestId('portfolio-summary-delta')).toBeTruthy();
     expect(screen.getByTestId('portfolio-chart-mode-trigger')).toBeTruthy();
 
-    // Inventory + Latest Sales section actions both expose "View All".
+    // Page-tabs primitive between chart and content.
+    expect(screen.getByTestId('portfolio-collection-tabs')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-collection-tabs-tab-portfolio')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-collection-tabs-tab-recent-sales')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-collection-tabs-tab-favorites')).toBeTruthy();
+
+    // Default tab is Portfolio: shows Collection section header + grid.
     expect(screen.getByTestId('portfolio-inventory-view-all')).toBeTruthy();
-    expect(await screen.findByTestId('latest-sales-see-more')).toBeTruthy();
-    expect(await screen.findByText('Latest Sales')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
 
-    // Range pills use the new labels.
+    // Range pill 'All' uses control typography.
     const rangeAllStyle = StyleSheet.flatten(screen.getByText('All').props.style);
-    const viewAllStyle = StyleSheet.flatten(screen.getAllByText('View All')[0].props.style);
-
-    [viewAllStyle, rangeAllStyle].forEach((style) => {
-      expect(style).toMatchObject({
-        fontFamily: 'SpotlightBodySemiBold',
-        fontSize: 15,
-        lineHeight: 20,
-      });
+    expect(rangeAllStyle).toMatchObject({
+      fontFamily: 'SpotlightBodySemiBold',
     });
   });
 
@@ -91,10 +88,8 @@ describe('PortfolioScreen', () => {
 
     expect(screen.queryByText('Loading your portfolio...')).toBeNull();
     expect(await screen.findByTestId('portfolio-chart-skeleton')).toBeTruthy();
-    // Screen-level summary value is always present (chart no longer owns it).
     expect(screen.getByTestId('portfolio-summary-value')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
-    expect(screen.getByTestId('latest-sales-skeleton')).toBeTruthy();
 
     const dashboardResult = await sourceRepository.loadPortfolioDashboard();
     await act(async () => {
@@ -133,7 +128,7 @@ describe('PortfolioScreen', () => {
         <SafeAreaProvider initialMetrics={safeAreaMetrics}>
           <SpotlightThemeProvider>
             <AppProviders spotlightRepository={repository}>
-              <PortfolioScreen onOpenSalesHistory={jest.fn()} />
+              <PortfolioScreen />
             </AppProviders>
           </SpotlightThemeProvider>
         </SafeAreaProvider>,
@@ -148,7 +143,6 @@ describe('PortfolioScreen', () => {
     renderPortfolioScreen();
 
     await screen.findByTestId('portfolio-header-title');
-    // Default view shows the portfolio chart.
     expect(screen.getByTestId('portfolio-chart-portfolio')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('portfolio-chart-mode-trigger'));
@@ -157,28 +151,33 @@ describe('PortfolioScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('portfolio-chart-sales')).toBeTruthy();
     });
-
-    // The Bulk Sell entry point moved to the Inventory Browser, so the
-    // Portfolio screen no longer renders an inline sell entry control.
-    expect(screen.queryByTestId('portfolio-sell-entry')).toBeNull();
   });
 
-  it('opens transactions history from the latest sales header action', async () => {
-    const onOpenSalesHistory = jest.fn();
+  it('switches to the Recent Sales tab to see the sales list', async () => {
+    renderPortfolioScreen();
 
-    render(
-      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
-        <SpotlightThemeProvider>
-          <AppProviders>
-            <PortfolioScreen onOpenSalesHistory={onOpenSalesHistory} />
-          </AppProviders>
-        </SpotlightThemeProvider>
-      </SafeAreaProvider>,
-    );
+    await screen.findByTestId('portfolio-header-title');
 
-    fireEvent.press(await screen.findByTestId('latest-sales-see-more'));
+    // Recent Sales not visible while Portfolio tab is active.
+    expect(screen.queryByTestId('recent-sale-card-sale-1')).toBeNull();
 
-    expect(onOpenSalesHistory).toHaveBeenCalledTimes(1);
+    fireEvent.press(screen.getByTestId('portfolio-collection-tabs-tab-recent-sales'));
+
+    expect(await screen.findByTestId('recent-sale-card-sale-1')).toBeTruthy();
+    expect(screen.getByText('Latest Sales')).toBeTruthy();
+  });
+
+  it('switches to Favorites tab and shows the empty state when no favorites', async () => {
+    renderPortfolioScreen();
+
+    await screen.findByTestId('portfolio-header-title');
+
+    fireEvent.press(screen.getByTestId('portfolio-collection-tabs-tab-favorites'));
+
+    // Mock data has no favorited entries → empty state shown.
+    await waitFor(() => {
+      expect(screen.getByText('No favorites yet')).toBeTruthy();
+    });
   });
 
   it('edits a latest sold transaction price with the lightweight modal', async () => {
@@ -186,11 +185,16 @@ describe('PortfolioScreen', () => {
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
         <SpotlightThemeProvider>
           <AppProviders>
-            <PortfolioScreen onOpenSalesHistory={jest.fn()} />
+            <PortfolioScreen />
           </AppProviders>
         </SpotlightThemeProvider>
       </SafeAreaProvider>,
     );
+
+    await screen.findByTestId('portfolio-header-title');
+
+    // Switch to Recent Sales tab to see the sales cards.
+    fireEvent.press(screen.getByTestId('portfolio-collection-tabs-tab-recent-sales'));
 
     fireEvent.press(await screen.findByTestId('recent-sale-card-sale-1'));
 
@@ -203,7 +207,6 @@ describe('PortfolioScreen', () => {
       expect(screen.queryByText('Edit Sale Price')).toBeNull();
     });
 
-    // The Latest Sales card reflects the locally-edited price.
     expect(screen.getByText('$9.50')).toBeTruthy();
   });
 });

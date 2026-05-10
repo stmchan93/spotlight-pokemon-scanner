@@ -98,16 +98,21 @@ function dayChangeLabelFor(entry: InventoryCardEntry) {
   if (amount == null || amount === 0) {
     return null;
   }
+  // The tile renders its own ↑ / ↓ arrow based on `dayChangeDirection`, so
+  // we strip the leading sign and pass an unsigned currency string here.
   const formatted = formatSignedCurrency(amount, entry.currencyCode);
-  // formatSignedCurrency returns "+$3.99" / "-$3.99"; design calls for a
-  // narrow space after the sign for legibility.
-  if (formatted.startsWith('+')) {
-    return `+ ${formatted.slice(1)}`;
-  }
-  if (formatted.startsWith('-')) {
-    return `- ${formatted.slice(1)}`;
+  if (formatted.startsWith('+') || formatted.startsWith('-')) {
+    return formatted.slice(1);
   }
   return formatted;
+}
+
+function dayChangeDirectionFor(entry: InventoryCardEntry) {
+  const amount = entry.dayChangeAmount;
+  if (amount == null || amount === 0) {
+    return null;
+  }
+  return amount > 0 ? 'up' : 'down';
 }
 
 function SortRow({
@@ -389,6 +394,7 @@ export function InventoryBrowserScreen({
                       <InventoryCardTile
                         cardNumber={entry.cardNumber ?? null}
                         conditionLabel={tileKind === 'raw' ? rawConditionLabelFor(entry) : null}
+                        dayChangeDirection={dayChangeDirectionFor(entry)}
                         dayChangeLabel={dayChangeLabelFor(entry)}
                         gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
                         graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
