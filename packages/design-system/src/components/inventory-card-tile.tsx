@@ -119,165 +119,177 @@ export function InventoryCardTile({
       ]}
       testID={testID}
     >
-      <View
-        style={[
-          styles.imageFrame,
-          {
-            backgroundColor: theme.colors.surface,
-            borderRadius: theme.layout.inventoryArtRadius,
-            borderColor: selected ? theme.colors.brand : 'transparent',
-            borderWidth: selected ? 2 : 0,
-          },
-        ]}
-        testID={testID ? `${testID}-image-frame` : undefined}
-      >
-        {imageUrl ? (
-          <Image
-            accessibilityIgnoresInvertColors
-            resizeMode="contain"
-            source={{ uri: imageUrl }}
-            style={[
-              styles.image,
-              { borderRadius: theme.layout.inventoryArtRadius },
-            ]}
-            testID={testID ? `${testID}-image` : undefined}
-          />
-        ) : (
-          <View style={styles.imagePlaceholder}>
-            <AppText color="textSecondary" variant="micro">
-              CARD
-            </AppText>
-          </View>
-        )}
-
+      <View style={styles.cardContent}>
         <View
-          pointerEvents="none"
-          style={styles.starBadge}
-          testID={testID ? `${testID}-star` : undefined}
+          style={[
+            styles.imageFrame,
+            {
+              borderRadius: theme.layout.inventoryArtRadius,
+              borderColor: selected ? theme.colors.brand : 'transparent',
+              borderWidth: selected ? 2 : 0,
+            },
+          ]}
+          testID={testID ? `${testID}-image-frame` : undefined}
         >
-          {isFavorite ? (
-            <StarSolid
-              color={theme.colors.starFavorited}
-              height={20}
-              testID={testID ? `${testID}-star-filled` : undefined}
-              width={20}
+          {imageUrl ? (
+            <Image
+              accessibilityIgnoresInvertColors
+              resizeMode="contain"
+              source={{ uri: imageUrl }}
+              style={[
+                styles.image,
+                { borderRadius: theme.layout.inventoryArtRadius },
+              ]}
+              testID={testID ? `${testID}-image` : undefined}
             />
           ) : (
-            <Star
-              color={theme.colors.starOutline}
-              height={20}
-              testID={testID ? `${testID}-star-outlined` : undefined}
-              width={20}
-            />
+            <View style={styles.imagePlaceholder}>
+              <AppText color="textSecondary" variant="micro">
+                CARD
+              </AppText>
+            </View>
           )}
+
+          {selected ? (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.selectionVeil,
+                {
+                  backgroundColor: 'rgba(254, 227, 51, 0.16)',
+                  borderRadius: theme.layout.inventoryArtRadius,
+                },
+              ]}
+              testID={testID ? `${testID}-selection-overlay` : undefined}
+            />
+          ) : null}
         </View>
 
-        {selected ? (
-          <View
-            pointerEvents="none"
-            style={[
-              styles.selectionVeil,
-              {
-                backgroundColor: 'rgba(254, 227, 51, 0.16)',
-                borderRadius: theme.layout.inventoryArtRadius,
-              },
-            ]}
-            testID={testID ? `${testID}-selection-overlay` : undefined}
-          />
-        ) : null}
-      </View>
-
-      <View style={styles.copyStack}>
-        <AppText
-          color="textPrimary"
-          numberOfLines={1}
-          variant="headline"
-        >
-          {name}
-        </AppText>
-
-        <View style={styles.metaStack}>
-          {setLine ? (
-            <AppText
-              color="textMuted"
-              numberOfLines={1}
-              variant="cardMeta"
-            >
-              {setLine}
-            </AppText>
-          ) : null}
-
-          {qualityLine ? (
-            <AppText
-              color="textMuted"
-              numberOfLines={1}
-              variant="cardMeta"
-            >
-              {qualityLine}
-            </AppText>
-          ) : null}
-
-          <AppText color="textMuted" numberOfLines={1} variant="cardMeta">
-            {`Qty: ${quantity}`}
-          </AppText>
-        </View>
-
-        <View style={styles.priceRow}>
+        <View style={styles.copyStack}>
           <AppText
             color="textPrimary"
             numberOfLines={1}
-            style={styles.price}
-            variant="caption"
+            variant="headline"
           >
-            {priceLabel ?? '—'}
+            {name}
           </AppText>
-          {showDelta ? (
-            <View
-              style={[
-                styles.deltaPill,
-                {
-                  backgroundColor: deltaBackground,
-                  borderRadius: theme.radii.pill,
-                },
-              ]}
-              testID={testID ? `${testID}-delta` : undefined}
-            >
-              {isDown ? (
-                <ArrowDown
-                  color={deltaForeground}
-                  height={12}
-                  testID={
-                    testID ? `${testID}-delta-arrow-down` : undefined
-                  }
-                  width={12}
-                />
-              ) : (
-                <ArrowUp
-                  color={deltaForeground}
-                  height={12}
-                  testID={
-                    testID ? `${testID}-delta-arrow-up` : undefined
-                  }
-                  width={12}
-                />
-              )}
+
+          <View style={styles.metaStack}>
+            {setLine ? (
               <AppText
-                style={[styles.deltaLabel, { color: deltaForeground }]}
-                variant="deltaPill"
+                color="textMuted"
+                numberOfLines={1}
+                variant="cardMeta"
               >
-                {dayChangeLabel}
+                {setLine}
               </AppText>
-            </View>
-          ) : null}
+            ) : null}
+
+            {qualityLine ? (
+              <AppText
+                color="textMuted"
+                numberOfLines={1}
+                variant="cardMeta"
+              >
+                {qualityLine}
+              </AppText>
+            ) : null}
+
+            <AppText color="textMuted" numberOfLines={1} variant="cardMeta">
+              {`Qty: ${quantity}`}
+            </AppText>
+          </View>
+
+          <View style={styles.priceRow}>
+            <AppText
+              color="textPrimary"
+              numberOfLines={1}
+              style={styles.price}
+              variant="caption"
+            >
+              {priceLabel ?? '—'}
+            </AppText>
+            {showDelta ? (
+              <View
+                style={[
+                  styles.deltaPill,
+                  {
+                    backgroundColor: deltaBackground,
+                    borderRadius: theme.radii.pill,
+                  },
+                ]}
+                testID={testID ? `${testID}-delta` : undefined}
+              >
+                {isDown ? (
+                  <ArrowDown
+                    color={deltaForeground}
+                    height={12}
+                    testID={
+                      testID ? `${testID}-delta-arrow-down` : undefined
+                    }
+                    width={12}
+                  />
+                ) : (
+                  <ArrowUp
+                    color={deltaForeground}
+                    height={12}
+                    testID={
+                      testID ? `${testID}-delta-arrow-up` : undefined
+                    }
+                    width={12}
+                  />
+                )}
+                <AppText
+                  style={[styles.deltaLabel, { color: deltaForeground }]}
+                  variant="deltaPill"
+                >
+                  {dayChangeLabel}
+                </AppText>
+              </View>
+            ) : null}
+          </View>
         </View>
+      </View>
+
+      {/* Star sits on the wrapper (not the imageFrame) so it has 4px-ish
+          breathing room from the card art and visually floats in the gray
+          padding area at the top-right of the tile. */}
+      <View
+        pointerEvents="none"
+        style={styles.starBadge}
+        testID={testID ? `${testID}-star` : undefined}
+      >
+        {isFavorite ? (
+          <StarSolid
+            color={theme.colors.starFavorited}
+            height={18}
+            testID={testID ? `${testID}-star-filled` : undefined}
+            width={18}
+          />
+        ) : (
+          <Star
+            color={theme.colors.starOutline}
+            height={18}
+            testID={testID ? `${testID}-star-outlined` : undefined}
+            width={18}
+          />
+        )}
       </View>
     </Pressable>
   );
 }
 
 const styles = StyleSheet.create({
+  cardContent: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    flex: 1,
+    flexDirection: 'column',
+    gap: 16,
+  },
   copyStack: {
     alignItems: 'flex-start',
+    alignSelf: 'stretch',
     gap: 4,
     width: '100%',
   },
@@ -312,12 +324,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   pressable: {
-    alignItems: 'stretch',
     alignSelf: 'stretch',
-    flex: 1,
     flexDirection: 'column',
-    gap: 8,
+    height: 280,
+    overflow: 'hidden',
     padding: 16,
+    position: 'relative',
     width: '100%',
   },
   price: {
@@ -334,7 +346,7 @@ const styles = StyleSheet.create({
   },
   starBadge: {
     position: 'absolute',
-    right: 8,
-    top: 8,
+    right: 12,
+    top: 12,
   },
 });
