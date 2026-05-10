@@ -14,10 +14,11 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { IconBriefcase2, IconScan } from '@tabler/icons-react-native';
+import { Calendar, Scanning, Suitcase } from 'iconoir-react-native';
+import { useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { FloatingBottomNav, useSpotlightTheme } from '@spotlight/design-system';
+import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
 
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 
@@ -48,6 +49,7 @@ export function TopTabsPager({
 }: TopTabsPagerProps) {
   const { width } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const theme = useSpotlightTheme();
 
   const initialTranslateX = initialPage === 'portfolio' ? 0 : -width;
@@ -180,8 +182,8 @@ export function TopTabsPager({
           </View>
         </Animated.View>
         {activePage === 'portfolio' ? (
-          <FloatingBottomNav
-            bottomInset={Math.max(insets.bottom - 8, 0)}
+          <BottomTabBar
+            bottomInset={Math.max(insets.bottom, 0)}
             items={[
               {
                 key: 'portfolio',
@@ -190,10 +192,10 @@ export function TopTabsPager({
                 onPress: () => {},
                 testID: 'bottom-nav-portfolio',
                 icon: (
-                  <IconBriefcase2
+                  <Suitcase
                     color={theme.colors.textPrimary}
-                    size={20}
-                    strokeWidth={2.15}
+                    height={24}
+                    width={24}
                   />
                 ),
               },
@@ -204,15 +206,28 @@ export function TopTabsPager({
                 onPress: () => goToPage('scanner'),
                 testID: 'bottom-nav-scan',
                 icon: (
-                  <IconScan
+                  <Scanning
                     color={theme.colors.textPrimary}
-                    size={20}
-                    strokeWidth={2.15}
+                    height={24}
+                    width={24}
+                  />
+                ),
+              },
+              {
+                key: 'events',
+                label: 'Events',
+                selected: false,
+                onPress: () => router.push('/events'),
+                testID: 'bottom-nav-events',
+                icon: (
+                  <Calendar
+                    color={theme.colors.textPrimary}
+                    height={24}
+                    width={24}
                   />
                 ),
               },
             ]}
-            surface="default"
           />
         ) : null}
       </View>
