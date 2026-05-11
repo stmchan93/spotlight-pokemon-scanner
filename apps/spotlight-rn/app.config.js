@@ -274,9 +274,6 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
       'expo-channel-name': releaseOverrides.updateChannel,
     };
   }
-  if (resolvedAppEnv === 'staging' || releaseOverrides.updateChannel === 'staging') {
-    updates.checkAutomatically = 'ON_ERROR_RECOVERY';
-  }
 
   let resolvedPlugins = withPlugin([...(baseExpoConfig.plugins ?? [])], 'expo-localization');
   resolvedPlugins = withPlugin(resolvedPlugins, [
