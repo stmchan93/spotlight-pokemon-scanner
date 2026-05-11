@@ -23,6 +23,7 @@ import {
   PillButton,
   SearchField,
   StateCard,
+  colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -161,7 +162,7 @@ export function InventoryBrowserScreen({
   const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
 
   const tileWidth = useMemo(() => {
-    return Math.max(96, Math.floor((width - PAGE_GUTTER * 2 - GRID_GAP * 2) / 3));
+    return Math.max(96, Math.floor((width - PAGE_GUTTER * 2 - GRID_GAP) / 2));
   }, [width]);
 
   const loadEntries = useCallback(async () => {
@@ -286,7 +287,7 @@ export function InventoryBrowserScreen({
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
+      style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.navRow}>
@@ -307,7 +308,7 @@ export function InventoryBrowserScreen({
         <View style={styles.actionRow}>
           <Button
             label="Add Card"
-            labelStyleVariant="caption"
+            labelStyleVariant="control"
             onPress={() => onOpenAddCard?.()}
             size="sm"
             style={styles.actionButton}
@@ -316,7 +317,7 @@ export function InventoryBrowserScreen({
           />
           <Button
             label={selectionMode ? 'Cancel' : 'Bulk Sell'}
-            labelStyleVariant="caption"
+            labelStyleVariant="control"
             onPress={handleToggleBulkSell}
             size="sm"
             style={styles.actionButton}
@@ -533,8 +534,8 @@ export function InventoryBrowserScreen({
 const styles = StyleSheet.create({
   actionButton: {
     flex: 1,
-    height: 32,
-    minHeight: 32,
+    height: 44,
+    minHeight: 44,
     paddingVertical: 0,
   },
   actionRow: {

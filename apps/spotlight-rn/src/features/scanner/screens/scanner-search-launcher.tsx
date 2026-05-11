@@ -25,6 +25,7 @@ export function ScannerSearchLauncher({
       containerTestID="scanner-search-launcher"
       inputStyle={styles.searchLauncherInput}
       leading={<IconSearch color={colors.gray0} size={18} strokeWidth={2} />}
+      size="compact"
       trailing={
         onFilterPress ? (
           <Pressable hitSlop={8} onPress={onFilterPress}>
@@ -52,13 +53,8 @@ const styles = StyleSheet.create({
   searchLauncher: {
     backgroundColor: 'transparent',
     borderColor: colors.gray0,
-    borderRadius: 999,
-    borderWidth: 1,
     flex: 1,
-    minHeight: 0,
     minWidth: 0,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
   },
   searchLauncherInput: {
     color: colors.gray0,

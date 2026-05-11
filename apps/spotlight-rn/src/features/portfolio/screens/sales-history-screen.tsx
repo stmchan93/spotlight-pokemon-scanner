@@ -13,6 +13,7 @@ import {
   SearchField,
   StateCard,
   SurfaceCard,
+  colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -233,7 +234,7 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
+      style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
         <View style={styles.navRow}>

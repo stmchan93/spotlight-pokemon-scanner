@@ -270,7 +270,7 @@ export function PortfolioScreen({
 
       <SearchField
         onChangeText={model.setSearchQuery}
-        placeholder="Search inventory"
+        placeholder="Search collection"
         size="compact"
         testID="portfolio-inventory-search"
         trailing={filterTriggerIcon}

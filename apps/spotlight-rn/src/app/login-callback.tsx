@@ -3,6 +3,8 @@ import * as Linking from 'expo-linking';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
+import { colors } from '@spotlight/design-system';
+
 import { restoreSessionFromUrl } from '@/features/auth/auth-service';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -90,7 +92,7 @@ export default function LoginCallbackScreen() {
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
-    backgroundColor: '#ffffff',
+    backgroundColor: colors.gray0,
     flex: 1,
     justifyContent: 'center',
   },

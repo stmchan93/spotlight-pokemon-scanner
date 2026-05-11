@@ -19,7 +19,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import { SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
+import { SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { formatCurrency, formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -567,7 +567,7 @@ export function SingleSellScreen({
 
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
         <View style={styles.loadingState}>
           <Text style={theme.typography.headline}>Loading sell order...</Text>
         </View>
@@ -577,7 +577,7 @@ export function SingleSellScreen({
 
   if (!displayEntry) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
         <View style={styles.loadingState}>
           <Text style={theme.typography.headline}>Card unavailable</Text>
           <Text style={[theme.typography.body, styles.unavailableCopy]}>
@@ -625,7 +625,7 @@ export function SingleSellScreen({
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
+      style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <SellBackdrop imageUrl={displayEntry.imageUrl} variant="single" />
 

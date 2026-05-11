@@ -25,7 +25,7 @@ import {
   type CardDetailRecord,
   type CardRecentSalesRecord,
 } from '@spotlight/api-client';
-import { Button, IconButton, SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, IconButton, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { resolveConditionDisplayLabel } from '@/lib/condition-display';
 import { ChromeBackButton } from '@/components/chrome-back-button';
@@ -1044,7 +1044,7 @@ export function CardDetailScreen({
 
   if (!hasDisplayContent && !errorMessage) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
         <View style={styles.loadingState}>
           <Text style={theme.typography.headline}>Loading card...</Text>
         </View>
@@ -1054,7 +1054,7 @@ export function CardDetailScreen({
 
   if (!hasDisplayContent) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
         <View style={styles.loadingState}>
           <Text style={theme.typography.headline}>Card unavailable</Text>
           <Text style={[theme.typography.body, styles.errorCopy]}>{errorMessage}</Text>
@@ -1109,7 +1109,7 @@ export function CardDetailScreen({
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
+      style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <SellBackdrop imageUrl={displayImageUrl ?? undefined} variant="single" />
 

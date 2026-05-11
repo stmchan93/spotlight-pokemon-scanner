@@ -62,11 +62,7 @@ export function SearchField({
       <TextInput
         placeholderTextColor={placeholderTextColor ?? theme.colors.gray400}
         style={[
-          isCompact ? theme.typography.label : theme.typography.body,
-          // The `label` typography variant ships with a gray foreground (it's
-          // primarily for placeholders/captions). When used as actual input
-          // text it reads as disabled — force the entered text to render in
-          // the primary text color regardless of size.
+          theme.typography.body,
           { color: theme.colors.textPrimary },
           styles.input,
           isCompact ? styles.inputCompact : null,
@@ -94,7 +90,7 @@ const styles = StyleSheet.create({
   containerCompact: {
     borderRadius: 999,
     gap: 8,
-    height: 32,
+    height: 44,
     paddingHorizontal: 8,
     paddingVertical: 7,
   },

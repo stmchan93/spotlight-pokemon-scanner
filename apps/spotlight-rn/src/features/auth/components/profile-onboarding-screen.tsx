@@ -1,7 +1,7 @@
 import { KeyboardAvoidingView, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
+import { SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { type AppUser, getResolvedDisplayName } from '@/features/auth/auth-models';
 
@@ -31,7 +31,7 @@ export function ProfileOnboardingScreen({
       style={[
         styles.safeArea,
         {
-          backgroundColor: theme.colors.canvas,
+          backgroundColor: colors.gray0,
         },
       ]}
     >

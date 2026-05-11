@@ -13,7 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { FilterList } from 'iconoir-react-native';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
-import { SearchField, StateCard, useSpotlightTheme } from '@spotlight/design-system';
+import { SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -253,7 +253,7 @@ export function CatalogSearchScreen({
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.searchScreen, { backgroundColor: theme.colors.pageLight }]}
+      style={[styles.searchScreen, { backgroundColor: colors.gray0 }]}
     >
       <ScrollView
         contentContainerStyle={styles.searchContent}

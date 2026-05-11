@@ -16,7 +16,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
-import { Button, SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
 import { makeBulkSellSmokeTestID } from '@/features/inventory/inventory-smoke-selectors';
@@ -692,7 +692,7 @@ export function BulkSellScreen({
 
   if (isLoading) {
     return (
-      <SafeAreaView style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}>
+      <SafeAreaView style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
         <View style={styles.loadingState}>
           <Text style={theme.typography.headline}>Loading sell order...</Text>
         </View>
@@ -720,7 +720,7 @@ export function BulkSellScreen({
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
+      style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <SellBackdrop imageUrl={entries[0]?.imageUrl} variant="bulk" />
 
