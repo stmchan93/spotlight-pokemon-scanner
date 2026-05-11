@@ -216,6 +216,7 @@ export function usePortfolioScreenModel() {
   const [topMovers, setTopMovers] = useState<TopMoversResult>(emptyTopMovers);
   const [hasLoadedTopMovers, setHasLoadedTopMovers] = useState(false);
   const [isLoadingTopMovers, setIsLoadingTopMovers] = useState(true);
+  const [topMoversLoadError, setTopMoversLoadError] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [dashboard, setDashboard] = useState<PortfolioDashboard>(
     () => portfolioDashboardCache
@@ -278,6 +279,9 @@ export function usePortfolioScreenModel() {
     if (loadResult.data && loadResult.state !== 'error') {
       setTopMovers(loadResult.data);
       setHasLoadedTopMovers(true);
+      setTopMoversLoadError(null);
+    } else if (loadResult.state === 'error') {
+      setTopMoversLoadError(loadResult.errorMessage);
     }
     setIsLoadingTopMovers(false);
   }, [spotlightRepository]);
@@ -396,6 +400,7 @@ export function usePortfolioScreenModel() {
     topMovers,
     hasLoadedTopMovers,
     isLoadingTopMovers,
+    topMoversLoadError,
     isRefreshing,
     closeSaleEditor,
     confirmSalePriceEdit,

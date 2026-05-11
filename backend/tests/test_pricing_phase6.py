@@ -2517,6 +2517,37 @@ class TopMoversTests(unittest.TestCase):
         self.assertEqual(payload["movers"][0]["name"], "Card 4")
         self.assertEqual(payload["movers"][1]["name"], "Card 3")
 
+    def test_top_movers_compares_only_the_latest_two_global_dates(self) -> None:
+        # "Today's mover" has snapshots on today + yesterday — these are the
+        # global latest two dates and the card should appear.
+        self._seed_card_with_history(
+            card_id="today-mover",
+            name="Today's Mover",
+            prior_price=10.0,
+            current_price=15.0,
+        )
+        # "Older mover" only has snapshots on 3 + 4 days ago. Even though it's
+        # technically within max_age_days=7 and is a strong gainer, it does
+        # NOT have a snapshot on today (the global max), so the JOIN finds no
+        # match and the card is correctly excluded under 24h semantics.
+        self._seed_card_with_history(
+            card_id="older-mover",
+            name="Older Mover",
+            prior_price=10.0,
+            current_price=25.0,
+            days_ago=3,
+        )
+        self.connection.commit()
+
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        try:
+            payload = service.top_movers(limit=10, max_age_days=7)
+        finally:
+            service.connection.close()
+
+        names = [m["name"] for m in payload["movers"]]
+        self.assertEqual(names, ["Today's Mover"])
+
 
 if __name__ == "__main__":
     unittest.main()
