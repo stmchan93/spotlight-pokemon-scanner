@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { FilterList } from 'iconoir-react-native';
+
 import type { CatalogSearchResult } from '@spotlight/api-client';
 import { SearchField, StateCard, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -21,6 +23,13 @@ type CatalogSearchScreenProps = {
   initialQuery?: string;
   onClose: () => void;
   onOpenCard: (result: CatalogSearchResult) => void;
+  /**
+   * Optional handler for the filter icon next to the search input. When
+   * provided, the icon is rendered and tapping it opens the expansion
+   * browser — mirroring the scanner's search affordance so users can
+   * browse all expansions instead of having to type a query.
+   */
+  onOpenExpansionBrowser?: () => void;
 };
 
 function resultNumberLabel(result: CatalogSearchResult) {
@@ -151,6 +160,7 @@ export function CatalogSearchScreen({
   initialQuery = '',
   onClose,
   onOpenCard,
+  onOpenExpansionBrowser,
 }: CatalogSearchScreenProps) {
   const theme = useSpotlightTheme();
   const { spotlightRepository } = useAppServices();
@@ -275,6 +285,17 @@ export function CatalogSearchScreen({
           onChangeText={setQuery}
           placeholder="Search by name, set, or number"
           returnKeyType="search"
+          trailing={onOpenExpansionBrowser ? (
+            <Pressable
+              accessibilityLabel="Browse all expansions"
+              hitSlop={8}
+              onPress={onOpenExpansionBrowser}
+              style={styles.filterIconPressable}
+              testID="catalog-search-expansion-trigger"
+            >
+              <FilterList color={theme.colors.gray400} height={16} width={16} />
+            </Pressable>
+          ) : undefined}
           value={query}
         />
 
@@ -325,6 +346,10 @@ export function CatalogSearchScreen({
 const styles = StyleSheet.create({
   closeButton: {
     flexShrink: 0,
+  },
+  filterIconPressable: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   ownedBadge: {
     borderRadius: 999,

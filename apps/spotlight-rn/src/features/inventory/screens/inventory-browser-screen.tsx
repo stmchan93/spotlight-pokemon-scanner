@@ -10,6 +10,8 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { FilterList } from 'iconoir-react-native';
+
 import type {
   InventoryCardEntry,
   InventoryFilterOption,
@@ -17,7 +19,6 @@ import type {
 } from '@spotlight/api-client';
 import {
   Button,
-  IconButton,
   InventoryCardTile,
   PillButton,
   SearchField,
@@ -306,14 +307,18 @@ export function InventoryBrowserScreen({
         <View style={styles.actionRow}>
           <Button
             label="Add Card"
+            labelStyleVariant="caption"
             onPress={() => onOpenAddCard?.()}
+            size="sm"
             style={styles.actionButton}
             testID="inventory-add-card"
             variant="primary"
           />
           <Button
             label={selectionMode ? 'Cancel' : 'Bulk Sell'}
+            labelStyleVariant="caption"
             onPress={handleToggleBulkSell}
+            size="sm"
             style={styles.actionButton}
             testID="inventory-bulk-sell-toggle"
             variant="secondary"
@@ -325,30 +330,23 @@ export function InventoryBrowserScreen({
           onChangeText={setSearchQuery}
           placeholder="Search collection cards"
           returnKeyType="search"
+          size="compact"
           value={searchQuery}
-          trailing={
-            <IconButton
+          trailing={(
+            <Pressable
               accessibilityLabel="Filter inventory"
+              hitSlop={8}
               onPress={() => setFilterMenuOpen(true)}
-              size={32}
+              style={styles.filterIconPressable}
               testID="inventory-filter-button"
-              variant={filterOption === 'all' ? 'elevated' : 'brand'}
             >
-              <Text
-                style={[
-                  theme.typography.caption,
-                  {
-                    color:
-                      filterOption === 'all'
-                        ? theme.colors.textSecondary
-                        : theme.colors.textInverse,
-                  },
-                ]}
-              >
-                ⛛
-              </Text>
-            </IconButton>
-          }
+              <FilterList
+                color={filterOption === 'all' ? theme.colors.gray400 : theme.colors.brand}
+                height={16}
+                width={16}
+              />
+            </Pressable>
+          )}
         />
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
@@ -359,6 +357,7 @@ export function InventoryBrowserScreen({
                 label={option.label}
                 onPress={() => setSortOption(option.value)}
                 selected={sortOption === option.value}
+                style={styles.sortPill}
                 testID={`inventory-sort-${option.value}`}
               />
             ))}
@@ -534,6 +533,9 @@ export function InventoryBrowserScreen({
 const styles = StyleSheet.create({
   actionButton: {
     flex: 1,
+    height: 32,
+    minHeight: 32,
+    paddingVertical: 0,
   },
   actionRow: {
     flexDirection: 'row',
@@ -546,6 +548,10 @@ const styles = StyleSheet.create({
   },
   controlGroup: {
     gap: 10,
+  },
+  filterIconPressable: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   filterBackdrop: {
     backgroundColor: 'rgba(0, 0, 0, 0.45)',
@@ -625,6 +631,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 12,
+  },
+  sortPill: {
+    height: 32,
+    paddingVertical: 0,
   },
   stateCard: {
     alignItems: 'flex-start',
