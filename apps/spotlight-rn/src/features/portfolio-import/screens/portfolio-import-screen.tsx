@@ -24,6 +24,7 @@ import {
   SearchField,
   SheetHeader,
   SurfaceCard,
+  colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -332,7 +333,7 @@ function ResolveRowModal({
         style={[
           styles.safeArea,
           {
-            backgroundColor: theme.colors.canvas,
+            backgroundColor: colors.gray0,
           },
         ]}
       >
@@ -742,7 +743,7 @@ export function PortfolioImportScreen({ onClose }: PortfolioImportScreenProps) {
         style={[
           styles.safeArea,
           {
-            backgroundColor: theme.colors.canvas,
+            backgroundColor: colors.gray0,
           },
         ]}
       >

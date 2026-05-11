@@ -17,7 +17,7 @@ import {
   type DeckConditionCode,
   type GraderOption,
 } from '@spotlight/api-client';
-import { PillButton, useSpotlightTheme } from '@spotlight/design-system';
+import { PillButton, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -345,14 +345,14 @@ export function AddToCollectionScreen({
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.pageLight }]}
+      style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <View style={styles.sheetViewport}>
         <View
           style={[
             styles.sheetWrap,
             {
-              backgroundColor: theme.colors.pageLight,
+              backgroundColor: colors.gray0,
               paddingBottom: insets.bottom + 12,
             },
           ]}

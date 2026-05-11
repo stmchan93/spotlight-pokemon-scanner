@@ -280,7 +280,9 @@ describe('app config local overrides bridge', () => {
     expect(config.extra?.spotlightAuthScheme).toBe('looty');
     expect(config.extra?.eas?.projectId).toBe('12345678-1234-1234-1234-1234567890ab');
     expect(config.updates?.requestHeaders?.['expo-channel-name']).toBe('staging');
-    expect(config.updates?.checkAutomatically).toBe('ON_ERROR_RECOVERY');
+    // ON_ERROR_RECOVERY override was removed in 48e5112 so staging checks
+    // for OTA updates on every launch (the Expo default ON_LOAD behavior).
+    expect(config.updates?.checkAutomatically).toBeUndefined();
     expect(config.runtimeVersion).toBe('0.1.0');
 
     Object.assign(process.env, previousEnv);

@@ -12,6 +12,7 @@ import type {
   PortfolioChartPoint,
   PortfolioHistoryRange,
   RecentSaleRecord,
+  TopMoversResult,
 } from '@spotlight/api-client';
 
 import { prefetchCardImages } from '@/lib/card-images';
@@ -201,6 +202,8 @@ function applySalePriceEdit(
   };
 }
 
+const emptyTopMovers: TopMoversResult = { asOfDate: null, movers: [] };
+
 export function usePortfolioScreenModel() {
   const {
     spotlightRepository,
@@ -210,6 +213,11 @@ export function usePortfolioScreenModel() {
     portfolioDashboardCache,
     setPortfolioDashboardCache,
   } = useAppServices();
+  const [topMovers, setTopMovers] = useState<TopMoversResult>(emptyTopMovers);
+  const [hasLoadedTopMovers, setHasLoadedTopMovers] = useState(false);
+  const [isLoadingTopMovers, setIsLoadingTopMovers] = useState(true);
+  const [topMoversLoadError, setTopMoversLoadError] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [dashboard, setDashboard] = useState<PortfolioDashboard>(
     () => portfolioDashboardCache
       ?? (inventoryEntriesCache ? buildInventoryFallbackDashboard(inventoryEntriesCache) : emptyPortfolioDashboard),
@@ -265,10 +273,33 @@ export function usePortfolioScreenModel() {
     setIsLoadingDashboard(false);
   }, [setInventoryEntriesCache, setPortfolioDashboardCache, spotlightRepository]);
 
+  const loadTopMovers = useCallback(async () => {
+    setIsLoadingTopMovers(true);
+    const loadResult = await spotlightRepository.loadTopMovers({ limit: 20 });
+    if (loadResult.data && loadResult.state !== 'error') {
+      setTopMovers(loadResult.data);
+      setHasLoadedTopMovers(true);
+      setTopMoversLoadError(null);
+    } else if (loadResult.state === 'error') {
+      setTopMoversLoadError(loadResult.errorMessage);
+    }
+    setIsLoadingTopMovers(false);
+  }, [spotlightRepository]);
+
+  const refresh = useCallback(async () => {
+    setIsRefreshing(true);
+    try {
+      await Promise.all([loadInventory(), loadDashboard(), loadTopMovers()]);
+    } finally {
+      setIsRefreshing(false);
+    }
+  }, [loadDashboard, loadInventory, loadTopMovers]);
+
   useEffect(() => {
     void loadInventory();
     void loadDashboard();
-  }, [dataVersion, loadDashboard, loadInventory]);
+    void loadTopMovers();
+  }, [dataVersion, loadDashboard, loadInventory, loadTopMovers]);
 
   useEffect(() => {
     if (dashboard.inventoryItems.length === 0 && dashboard.recentSales.length === 0) {
@@ -366,9 +397,15 @@ export function usePortfolioScreenModel() {
     recentSalesExpanded,
     searchQuery,
     selectedRange,
+    topMovers,
+    hasLoadedTopMovers,
+    isLoadingTopMovers,
+    topMoversLoadError,
+    isRefreshing,
     closeSaleEditor,
     confirmSalePriceEdit,
     openSaleEditor,
+    refresh,
     setChartMode,
     setInventoryExpanded,
     setRecentSalesExpanded,

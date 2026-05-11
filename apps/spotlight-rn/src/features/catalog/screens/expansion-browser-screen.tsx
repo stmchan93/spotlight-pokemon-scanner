@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { ExpansionRecord } from '@spotlight/api-client';
-import { SearchField, StateCard, useSpotlightTheme } from '@spotlight/design-system';
+import { SearchField, StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { useAppServices } from '@/providers/app-providers';
@@ -156,7 +156,7 @@ export function ExpansionBrowserScreen({ game = 'pokemon', onClose, onSelectExpa
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.screen, { backgroundColor: theme.colors.pageLight }]}
+      style={[styles.screen, { backgroundColor: colors.gray0 }]}
     >
       <FlatList
         ListHeaderComponent={

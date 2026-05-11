@@ -649,8 +649,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not args.skip_check:
             run_subprocess_step(
                 summary,
-                name="release:check",
-                command=["pnpm", "release:check"],
+                name="check",
+                command=["pnpm", "check"],
                 cwd=root,
             )
 

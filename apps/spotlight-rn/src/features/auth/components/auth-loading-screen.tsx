@@ -1,18 +1,16 @@
 import { StyleSheet } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { colors } from '@spotlight/design-system';
 
 export function AuthLoadingScreen() {
-  const theme = useSpotlightTheme();
-
   return (
     <SafeAreaView
       edges={['top', 'left', 'right']}
       style={[
         styles.safeArea,
         {
-          backgroundColor: theme.colors.canvas,
+          backgroundColor: colors.gray0,
         },
       ]}
       testID="auth-loading-screen"

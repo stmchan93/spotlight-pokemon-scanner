@@ -67,6 +67,7 @@ Repo-specific workflow notes for future coding agents.
 - Run the relevant tests for the area you changed.
 - Use the scoped `AGENTS.md` file for exact commands and validation expectations.
 - Before any staging backend deploy or staging iOS build/release, route through the staging release gate instead of calling the raw deploy/EAS wrappers directly:
-  - `pnpm deploy:staging`
-  - `pnpm deploy:staging -- build`
-  - `pnpm deploy:staging -- release`
+  - `pnpm backend:deploy:staging` — deploy backend only
+  - `pnpm frontend:build:staging` — new native iOS build (no TestFlight submit)
+  - `pnpm frontend:release:staging` — new native iOS build + submit to TestFlight
+  - `pnpm frontend:update:staging` — OTA JS push to staging channel (no new binary)

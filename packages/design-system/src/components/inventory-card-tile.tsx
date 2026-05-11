@@ -251,9 +251,9 @@ export function InventoryCardTile({
         </View>
       </View>
 
-      {/* Star sits on the wrapper (not the imageFrame) so it has 4px-ish
-          breathing room from the card art and visually floats in the gray
-          padding area at the top-right of the tile. */}
+      {/* Star sits on the wrapper (not the imageFrame) so it has consistent
+          breathing room (8px) from the card art and visually floats in the
+          gray padding area at the top-right of the tile. */}
       <View
         pointerEvents="none"
         style={styles.starBadge}
@@ -326,7 +326,6 @@ const styles = StyleSheet.create({
   pressable: {
     alignSelf: 'stretch',
     flexDirection: 'column',
-    height: 280,
     overflow: 'hidden',
     padding: 16,
     position: 'relative',
@@ -346,7 +345,7 @@ const styles = StyleSheet.create({
   },
   starBadge: {
     position: 'absolute',
-    right: 12,
-    top: 12,
+    right: 8,
+    top: 8,
   },
 });

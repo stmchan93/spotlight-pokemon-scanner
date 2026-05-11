@@ -165,6 +165,14 @@ export function createTestSpotlightRepository(
       return overrides.listCardsInExpansion?.(...args)
         ?? baseRepository.listCardsInExpansion(...args);
     },
+    loadTopMovers: (...args) => {
+      return overrides.loadTopMovers?.(...args)
+        ?? baseRepository.loadTopMovers(...args);
+    },
+    getTopMovers: (...args) => {
+      return overrides.getTopMovers?.(...args)
+        ?? baseRepository.getTopMovers(...args);
+    },
   };
 }
 

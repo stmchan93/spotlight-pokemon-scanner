@@ -245,6 +245,26 @@ export type InventoryCardEntry = {
 
 export type PortfolioInventoryItem = InventoryCardEntry;
 
+export type TopMoverEntry = {
+  cardId: string;
+  name: string;
+  setName: string | null;
+  cardNumber: string | null;
+  imageUrl: string | null;
+  currencyCode: string;
+  currentPrice: number;
+  priorPrice: number;
+  changeAmount: number;
+  changePercent: number;
+  currentDate: string | null;
+  priorDate: string | null;
+};
+
+export type TopMoversResult = {
+  asOfDate: string | null;
+  movers: TopMoverEntry[];
+};
+
 export type RecentTransactionKind = 'sold' | 'traded';
 
 export type RecentSaleRecord = {

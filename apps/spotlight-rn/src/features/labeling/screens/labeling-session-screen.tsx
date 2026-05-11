@@ -20,6 +20,7 @@ import {
   SearchField,
   StateCard,
   SurfaceCard,
+  colors,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -611,7 +612,7 @@ export function LabelingSessionScreen() {
 
   if (!hasLabelingAccess) {
     return (
-      <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.colors.pageLight }]}>
+      <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
         {renderHeader('Label Session')}
         <StateCard
           actionLabel="Back"
@@ -718,7 +719,7 @@ export function LabelingSessionScreen() {
   }
 
   return (
-    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: theme.colors.pageLight }]}>
+    <SafeAreaView edges={['top', 'left', 'right', 'bottom']} style={[styles.safeArea, { backgroundColor: colors.gray0 }]}>
       <ScrollView
         contentContainerStyle={styles.content}
         keyboardShouldPersistTaps="handled"

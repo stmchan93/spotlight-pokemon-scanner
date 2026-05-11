@@ -1,0 +1,7 @@
+#!/usr/bin/env sh
+# Pre-commit checks for the React Native app.
+# Backend has its own pytest workflow under backend/.
+set -e
+
+pnpm -C apps/spotlight-rn typecheck
+pnpm -C apps/spotlight-rn lint

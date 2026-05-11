@@ -18,4 +18,28 @@ module.exports = {
   transformIgnorePatterns: [
     'node_modules/(?!(?:.pnpm/)?((jest-)?react-native|@react-native|expo(nent)?|@expo(nent)?/.*|expo-router|@react-navigation/.*|react-native-svg))',
   ],
+  collectCoverageFrom: [
+    'src/**/*.{ts,tsx}',
+    '!src/**/*.d.ts',
+    '!src/**/__mocks__/**',
+    '!src/**/types.ts',
+    '!src/**/index.ts',
+  ],
+  // File-scoped thresholds: enforce 70% only on the seed modules we have
+  // dedicated tests for. Global thresholds stay disabled until coverage of
+  // the rest of the app catches up.
+  coverageThreshold: {
+    'src/features/scanner/recent-capture-swipe.ts': {
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70,
+    },
+    'src/features/portfolio/components/portfolio-formatting.ts': {
+      branches: 70,
+      functions: 70,
+      lines: 70,
+      statements: 70,
+    },
+  },
 };

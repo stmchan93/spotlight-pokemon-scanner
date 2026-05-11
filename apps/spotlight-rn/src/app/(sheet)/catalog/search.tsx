@@ -23,6 +23,7 @@ export default function CatalogSearchRoute() {
           },
         });
       }}
+      onOpenExpansionBrowser={() => router.push('/catalog/expansion-browser')}
     />
   );
 }

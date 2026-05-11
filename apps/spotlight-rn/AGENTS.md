@@ -77,9 +77,8 @@ Scoped workflow notes for agents working under `apps/spotlight-rn`.
 ## Validation
 
 - Basic RN checks:
-  - `pnpm mobile:lint`
-  - `pnpm mobile:typecheck`
-  - `pnpm mobile:test`
+  - `pnpm check` — lint + typecheck + test coverage (full gate)
+  - `pnpm test:mobile` — tests only
 - Focused tests are preferred when the touched surface is narrow, for example:
   - `pnpm --filter @spotlight/mobile-app test -- __tests__/components/scanner-screen-test.tsx`
   - `pnpm --filter @spotlight/mobile-app test -- __tests__/repository/spotlight-repository-loading-test.ts`

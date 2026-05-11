@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { SurfaceCard, useSpotlightTheme } from '@spotlight/design-system';
+import { SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
@@ -26,7 +26,7 @@ export function AccountScreen() {
       style={[
         styles.safeArea,
         {
-          backgroundColor: theme.colors.canvas,
+          backgroundColor: colors.gray0,
         },
       ]}
     >

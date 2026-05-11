@@ -2380,6 +2380,114 @@ class SpotlightScanService:
             "livePricingEnabled": self._live_pricing_enabled(),
         }
 
+    def top_movers(
+        self,
+        *,
+        limit: int = 20,
+        min_prior_price: float = 5.0,
+        max_age_days: int = 7,
+    ) -> dict[str, Any]:
+        """Return market-wide top 24h raw-price gainers.
+
+        Compares each card's price on the latest global snapshot date against
+        its price on the immediately preceding global snapshot date (typically
+        "today vs yesterday"). Cards without a snapshot on both of those exact
+        dates are excluded. ``min_prior_price`` filters out penny-card noise.
+        ``max_age_days`` is a freshness guard: if the latest global snapshot is
+        older than that many days, the response is empty.
+
+        This form intentionally avoids a window-function CTE so the covering
+        index ``idx_price_history_daily_top_movers_covering`` can satisfy the
+        entire query from index pages, keeping cold-cache cost in the hundreds
+        of milliseconds instead of minutes on the staging dataset (~1M rows).
+        """
+        clamped_limit = max(1, min(int(limit), 100))
+        clamped_floor = max(0.0, float(min_prior_price))
+        clamped_age_days = max(1, min(int(max_age_days), 60))
+
+        rows = self.connection.execute(
+            """
+            SELECT
+                curr.card_id AS card_id,
+                curr.price_date AS current_date,
+                prev.price_date AS prior_date,
+                curr.default_raw_market_price AS current_price,
+                prev.default_raw_market_price AS prior_price,
+                curr.display_currency_code AS currency_code,
+                (curr.default_raw_market_price - prev.default_raw_market_price) AS change_amount,
+                ((curr.default_raw_market_price - prev.default_raw_market_price) * 100.0
+                    / prev.default_raw_market_price) AS change_percent,
+                c.name AS card_name,
+                c.set_name AS set_name,
+                c.number AS card_number,
+                c.image_small_url AS image_small_url,
+                c.image_url AS image_url
+            FROM card_price_history_daily AS curr
+            JOIN card_price_history_daily AS prev
+              ON prev.card_id = curr.card_id
+             AND prev.price_date = (
+                 SELECT MAX(price_date)
+                 FROM card_price_history_daily
+                 WHERE default_raw_market_price IS NOT NULL
+                   AND default_raw_market_price > 0
+                   AND price_date < (
+                       SELECT MAX(price_date)
+                       FROM card_price_history_daily
+                       WHERE default_raw_market_price IS NOT NULL
+                         AND default_raw_market_price > 0
+                   )
+             )
+            JOIN cards AS c ON c.id = curr.card_id
+            WHERE curr.price_date = (
+                SELECT MAX(price_date)
+                FROM card_price_history_daily
+                WHERE default_raw_market_price IS NOT NULL
+                  AND default_raw_market_price > 0
+            )
+              AND curr.price_date >= date('now', ?)
+              AND curr.default_raw_market_price IS NOT NULL
+              AND curr.default_raw_market_price > 0
+              AND prev.default_raw_market_price >= ?
+              AND curr.default_raw_market_price > prev.default_raw_market_price
+            ORDER BY change_percent DESC, curr.card_id ASC
+            LIMIT ?
+            """,
+            (f"-{clamped_age_days} days", clamped_floor, clamped_limit),
+        ).fetchall()
+
+        movers: list[dict[str, Any]] = []
+        latest_current_date: str | None = None
+        for row in rows:
+            current_date = str(row["current_date"] or "").strip() or None
+            if current_date and (latest_current_date is None or current_date > latest_current_date):
+                latest_current_date = current_date
+
+            image_url = (
+                str(row["image_small_url"] or "").strip()
+                or str(row["image_url"] or "").strip()
+                or None
+            )
+            movers.append({
+                "cardID": str(row["card_id"]),
+                "name": str(row["card_name"] or "").strip(),
+                "setName": str(row["set_name"] or "").strip() or None,
+                "cardNumber": str(row["card_number"] or "").strip() or None,
+                "imageURL": image_url,
+                "currencyCode": str(row["currency_code"] or "USD").strip() or "USD",
+                "currentPrice": round(float(row["current_price"]), 2),
+                "priorPrice": round(float(row["prior_price"]), 2),
+                "changeAmount": round(float(row["change_amount"]), 2),
+                "changePercent": round(float(row["change_percent"]), 2),
+                "currentDate": current_date,
+                "priorDate": str(row["prior_date"] or "").strip() or None,
+            })
+
+        return {
+            "asOfDate": latest_current_date,
+            "minPriorPrice": clamped_floor,
+            "movers": movers,
+        }
+
     def _portfolio_history_price_row_for_entry_on_day(
         self,
         entry: dict[str, Any],
@@ -9144,6 +9252,33 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
                 return
             self._write_json(HTTPStatus.OK, self.service.search(query, limit=limit))
+            return
+
+        if parsed.path == "/api/v1/cards/top-movers":
+            query_params = parse_qs(parsed.query)
+            try:
+                limit = int(query_params.get("limit", ["20"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                min_prior_price = float(query_params.get("minPriorPrice", ["5"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "minPriorPrice must be a number"})
+                return
+            try:
+                max_age_days = int(query_params.get("maxAgeDays", ["7"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "maxAgeDays must be an integer"})
+                return
+            self._write_json(
+                HTTPStatus.OK,
+                self.service.top_movers(
+                    limit=limit,
+                    min_prior_price=min_prior_price,
+                    max_age_days=max_age_days,
+                ),
+            )
             return
 
         if parsed.path == "/api/v1/expansions":

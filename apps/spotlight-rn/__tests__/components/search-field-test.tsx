@@ -26,7 +26,7 @@ describe('SearchField', () => {
     expect(flattened.height).toBeUndefined();
   });
 
-  it('renders the compact variant with the 32px height pill spec', () => {
+  it('renders the compact variant with the 44px height pill spec', () => {
     renderWithProviders(
       <SearchField
         containerTestID="search-compact"
@@ -41,7 +41,7 @@ describe('SearchField', () => {
     expect(flattened).toMatchObject({
       borderRadius: 999,
       borderWidth: 1,
-      height: 32,
+      height: 44,
       paddingHorizontal: 8,
       paddingVertical: 7,
     });

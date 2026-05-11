@@ -32,11 +32,11 @@ const sizeMetrics = {
     paddingVertical: 7,
   },
   scanner: {
-    containerPadding: 4,
-    fontSize: 14,
-    minHeight: 48,
-    paddingHorizontal: 22,
-    paddingVertical: 9,
+    containerPadding: 2,
+    fontSize: 13,
+    minHeight: undefined,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
   },
 } as const;
 
@@ -50,26 +50,39 @@ export function SegmentedControl<T extends string>({
 }: SegmentedControlProps<T>) {
   const theme = useSpotlightTheme();
   const metrics = sizeMetrics[size];
-  const shellColors = tone === 'inverted'
+  const shell = tone === 'inverted'
     ? {
-        backgroundColor: theme.colors.scannerTray,
-        selectedBackgroundColor: theme.colors.brand,
-        selectedTextColor: theme.colors.textInverse,
-        textColor: theme.colors.scannerTextPrimary,
+        backgroundColor: 'transparent' as const,
+        borderColor: theme.colors.gray300,
+        borderWidth: 0.5,
+        containerBorderRadius: 12,
+        segmentBorderRadius: 10,
+        selectedBackgroundColor: theme.colors.gray0,
+        selectedTextColor: theme.colors.gray900,
+        textColor: theme.colors.gray900,
       }
     : {
         backgroundColor: theme.colors.surfaceMuted,
+        borderColor: 'transparent' as const,
+        borderWidth: 0,
+        containerBorderRadius: 999,
+        segmentBorderRadius: 999,
         selectedBackgroundColor: theme.colors.brand,
         selectedTextColor: theme.colors.textPrimary,
         textColor: theme.colors.textPrimary,
       };
+
+  const labelStyle = size === 'scanner' ? theme.typography.label : theme.typography.control;
 
   return (
     <View
       style={[
         styles.container,
         {
-          backgroundColor: shellColors.backgroundColor,
+          backgroundColor: shell.backgroundColor,
+          borderColor: shell.borderColor,
+          borderRadius: shell.containerBorderRadius,
+          borderWidth: shell.borderWidth,
           padding: metrics.containerPadding,
         },
       ]}
@@ -86,19 +99,20 @@ export function SegmentedControl<T extends string>({
             style={({ pressed }) => [
               styles.segment,
               {
-                backgroundColor: selected ? shellColors.selectedBackgroundColor : 'transparent',
-                minHeight: metrics.minHeight,
+                backgroundColor: selected ? shell.selectedBackgroundColor : 'transparent',
+                borderRadius: shell.segmentBorderRadius,
                 opacity: pressed ? 0.86 : 1,
                 paddingHorizontal: metrics.paddingHorizontal,
                 paddingVertical: metrics.paddingVertical,
+                ...(metrics.minHeight != null ? { minHeight: metrics.minHeight } : {}),
               },
             ]}
           >
             <Text
               style={[
-                theme.typography.control,
+                labelStyle,
                 {
-                  color: selected ? shellColors.selectedTextColor : shellColors.textColor,
+                  color: selected ? shell.selectedTextColor : shell.textColor,
                   ...(metrics.fontSize != null ? { fontSize: metrics.fontSize } : {}),
                 },
               ]}
@@ -114,13 +128,11 @@ export function SegmentedControl<T extends string>({
 
 const styles = StyleSheet.create({
   container: {
-    borderRadius: 999,
     flexDirection: 'row',
     gap: 4,
   },
   segment: {
     alignItems: 'center',
-    borderRadius: 999,
     flex: 1,
     justifyContent: 'center',
   },

@@ -1,14 +1,12 @@
+import { BlurView } from 'expo-blur';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  IconAdjustmentsHorizontal,
-  IconHeart,
-  IconHeartFilled,
-  IconMinus,
-  IconSearch,
+  IconChevronLeft,
+  IconPlus,
 } from '@tabler/icons-react-native';
 import {
   ActivityIndicator,
@@ -17,14 +15,12 @@ import {
   Keyboard,
   LayoutAnimation,
   PanResponder,
-  type PanResponderGestureState,
   Platform,
   Pressable,
   ScrollView,
   StyleSheet,
   Text,
   UIManager,
-  Vibration,
   View,
   useWindowDimensions,
 } from 'react-native';
@@ -32,33 +28,20 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import Svg, { Path } from 'react-native-svg';
 
 import {
-  isSpotlightRepositoryRequestError,
   type CatalogSearchResult,
   type InventoryCardEntry,
   type ScannerCapturePayload,
-  type ScannerSlabAnalysisPayload,
   type SlabContext,
 } from '@spotlight/api-client';
 import {
   Button,
   colors,
-  SearchField,
   SegmentedControl,
   textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { ChromeBackButton } from '@/components/chrome-back-button';
 import { useTabsPage } from '@/contexts/tabs-page-context';
-import {
-  clampRecentCaptureSwipeTranslate,
-  recentCaptureActionRailRevealWidth,
-  recentCaptureDeleteRevealWidth,
-  recentCaptureFavoriteRevealWidth,
-  shouldCollapseRecentCaptureDeleteFromSwipe,
-  shouldRevealRecentCaptureDeleteFromSwipe,
-  shouldSetRecentCaptureSwipeResponder,
-} from '@/features/scanner/recent-capture-swipe';
 import {
   shouldSetRecentCaptureTrayShellResponder,
   shouldSetRecentCaptureTrayVerticalResponder,
@@ -72,7 +55,6 @@ import {
   buildNormalizedScannerTarget,
   makeOrientationFixedSourceImageDimensions,
   makeReticleSourceImageCrop,
-  type NormalizedScannerTarget,
 } from '@/features/scanner/scanner-normalized-target';
 import {
   chooseRawVisualPictureSize,
@@ -82,62 +64,58 @@ import {
   rawScannerTrayEmptyPeekHeight,
   rawVisualCaptureQuality,
 } from '@/features/scanner/raw-scanner-capture-surface';
-import { analyzePSASlabCapture } from '@/features/scanner/slab-native-analysis';
 import { buildSlabScannerTarget } from '@/features/scanner/scanner-slab-target';
 import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fixtures';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
 
-type ScannerMode = 'raw' | 'slabs';
-
-type RecentCapture = {
-  candidates: CatalogSearchResult[];
-  hasTrackedSelectionEvent: boolean;
-  id: string;
-  isAddingToInventory: boolean;
-  isLoadingCandidates: boolean;
-  matchReviewDisposition: string | null;
-  matchReviewReason: string | null;
-  mode: ScannerMode;
-  normalizedImageDimensions: ScanSourceImageDimensions | null;
-  normalizedImageUri: string | null;
-  scanID: string | null;
-  slabContext: SlabContext | null;
-  sourceImageCrop: ScanSourceImageCrop | null;
-  sourceImageDimensions: ScanSourceImageDimensions | null;
-  sourceImageRotationDegrees: number;
-  uri: string;
-  activeCandidateIndex: number;
-};
-
-type CaptureMatchParams = {
-  captureId: string;
-  captureMs: number;
-  captureSource: 'camera' | 'smoke_fixture';
-  matchPayload: ScannerCapturePayload;
-  matchTarget: NormalizedScannerTarget;
-  mode: ScannerMode;
-  normalizeMs: number;
-  rawSourceImageDimensions: ScanSourceImageDimensions;
-  scanStartedAt: number;
-  slabAnalysisMs?: number | null;
-  sourceImageDimensions: ScanSourceImageDimensions;
-};
+import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
+import { ScannerSearchLauncher } from './scanner-search-launcher';
+import {
+  activeCandidateForCapture,
+  alignToFourPointGrid,
+  analyzeSlabCapture,
+  buildScanMatchFailureProperties,
+  buildScanMatchSuccessProperties,
+  buildScanSelectionProperties,
+  capturePrimaryLabel,
+  captureFailureSubtitle,
+  captureFailureTitle,
+  formatCurrency,
+  isFinitePrice,
+  isNonPSAUnsupportedSlabCapture,
+  logScannerDiagnostic,
+  scannerCapturePriceLabel,
+  scannerCaptureThumbUri,
+  scannerErrorKind,
+  scannerErrorMessage,
+  scannerPreparationReviewReason,
+  scannerSlabInlineLabel,
+  scannerSlabSubtitle,
+  slabContextFromAnalysis,
+  triggerScannerHaptic,
+  unsupportedSlabSubtitle,
+  unsupportedSlabTitle,
+  withOptimisticInventoryAdd,
+  withUpdatedCaptureFavoriteState,
+  withUpdatedInventoryFavoriteState,
+} from './scanner-screen-helpers';
+import type {
+  CaptureMatchParams,
+  RecentCapture,
+  ScannerMode,
+} from './scanner-screen-types';
 
 const scannerModes: readonly { label: string; value: ScannerMode }[] = [
-  { label: 'UNGRADED', value: 'raw' },
-  { label: 'GRADED', value: 'slabs' },
+  { label: 'Ungraded', value: 'raw' },
+  { label: 'Graded', value: 'slabs' },
 ];
-
-const unsupportedSlabTitle = 'Slab type is currently not supported';
-const unsupportedSlabSubtitle = 'We currently only support PSA slabs for now.';
 
 const maxStoredCaptures = 12;
 const collapsedVisibleCaptures = 1;
-const captureRowHeight = 74;
+const captureRowHeight = 88;
 const captureRowGap = 8;
-const favoriteHeartColor = '#E83E8C';
 const traySwipeThreshold = 20;
 const trayVelocityThreshold = 0.22;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
@@ -158,626 +136,6 @@ const scannerTrayLayoutAnimation = {
   },
 } as const;
 
-function scannerErrorMessage(error: unknown) {
-  if (isSpotlightRepositoryRequestError(error)) {
-    return `${error.kind}:${error.status ?? 'n/a'}:${error.message}`;
-  }
-
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return 'Unknown scanner error';
-}
-
-function scannerErrorKind(error: unknown) {
-  if (isSpotlightRepositoryRequestError(error)) {
-    return error.kind;
-  }
-
-  if (
-    error != null
-    && typeof error === 'object'
-    && 'code' in error
-    && typeof (error as { code?: unknown }).code === 'string'
-  ) {
-    return (error as { code: string }).code;
-  }
-
-  if (error instanceof Error) {
-    const trimmedMessage = error.message.trim();
-    if (/^[a-z0-9_:-]+$/i.test(trimmedMessage) && trimmedMessage.length > 0) {
-      return trimmedMessage;
-    }
-
-    return error.name || error.constructor.name || 'Error';
-  }
-
-  return 'UnknownError';
-}
-
-function logScannerDiagnostic(message: string, error?: unknown) {
-  if (process.env.NODE_ENV === 'test') {
-    return;
-  }
-
-  // Keep scanner failures out of React Native LogBox. These are expected runtime
-  // failures when the network/auth/backend flakes and should not appear as UI.
-  const suffix = error ? ` native=${scannerErrorMessage(error)}` : '';
-  console.info(`${message}${suffix}`);
-}
-
-function alignToFourPointGrid(value: number) {
-  return Math.max(0, Math.round(value / 4) * 4);
-}
-
-function capturePrimaryLabel(mode: ScannerMode) {
-  return mode === 'slabs' ? 'SLAB scan' : 'RAW scan';
-}
-
-function isNonPSAUnsupportedSlabCapture(capture: RecentCapture) {
-  if (capture.mode !== 'slabs' || capture.matchReviewDisposition !== 'unsupported') {
-    return false;
-  }
-
-  const reviewReason = capture.matchReviewReason?.trim();
-  return reviewReason === 'PSA only for now.' || reviewReason === unsupportedSlabSubtitle;
-}
-
-function captureFailureTitle(capture: RecentCapture) {
-  if (isNonPSAUnsupportedSlabCapture(capture)) {
-    return unsupportedSlabTitle;
-  }
-
-  return capturePrimaryLabel(capture.mode);
-}
-
-function captureFailureSubtitle(capture: RecentCapture) {
-  if (isNonPSAUnsupportedSlabCapture(capture)) {
-    return unsupportedSlabSubtitle;
-  }
-
-  const reviewReason = capture.matchReviewReason?.trim();
-  if (reviewReason) {
-    return reviewReason;
-  }
-
-  return 'Photo captured, but matches could not load';
-}
-
-function activeCandidateForCapture(capture: RecentCapture) {
-  return capture.candidates[capture.activeCandidateIndex] ?? null;
-}
-
-function buildScanSelectionProperties(capture: RecentCapture) {
-  return {
-    candidate_count: capture.candidates.length,
-    mode: capture.mode,
-    selection_rank: capture.activeCandidateIndex + 1,
-  };
-}
-
-function buildScanMatchSuccessProperties(params: {
-  artifactUploadMs?: number | null;
-  candidateCount: number;
-  captureMs?: number | null;
-  endToEndMs?: number | null;
-  mode: ScannerMode;
-  normalizeMs?: number | null;
-  requestAttemptCount?: number | null;
-  reviewDisposition?: string | null;
-  roundTripMs?: number | null;
-  slabAnalysisMs?: number | null;
-  serverProcessingMs?: number | null;
-}) {
-  const properties: Record<string, number | string> = {
-    candidate_count: params.candidateCount,
-    mode: params.mode,
-  };
-
-  if (typeof params.requestAttemptCount === 'number') {
-    properties.request_attempt_count = params.requestAttemptCount;
-  }
-
-  if (typeof params.captureMs === 'number') {
-    properties.capture_ms = params.captureMs;
-  }
-
-  if (typeof params.normalizeMs === 'number') {
-    properties.normalize_ms = params.normalizeMs;
-  }
-
-  if (typeof params.slabAnalysisMs === 'number') {
-    properties.slab_analysis_ms = params.slabAnalysisMs;
-  }
-
-  if (typeof params.endToEndMs === 'number') {
-    properties.end_to_end_ms = params.endToEndMs;
-  }
-
-  if (typeof params.reviewDisposition === 'string' && params.reviewDisposition.length > 0) {
-    properties.review_disposition = params.reviewDisposition;
-  }
-
-  if (typeof params.roundTripMs === 'number') {
-    properties.round_trip_ms = params.roundTripMs;
-  }
-
-  if (typeof params.serverProcessingMs === 'number') {
-    properties.server_processing_ms = params.serverProcessingMs;
-  }
-
-  if (typeof params.artifactUploadMs === 'number') {
-    properties.artifact_upload_ms = params.artifactUploadMs;
-  }
-
-  return properties;
-}
-
-function buildScanMatchFailureProperties(params: {
-  captureMs?: number | null;
-  endToEndMs?: number | null;
-  errorKind: string;
-  mode: ScannerMode;
-  normalizeMs?: number | null;
-  slabAnalysisMs?: number | null;
-}) {
-  const properties: Record<string, number | string> = {
-    error_kind: params.errorKind,
-    mode: params.mode,
-  };
-
-  if (typeof params.captureMs === 'number') {
-    properties.capture_ms = params.captureMs;
-  }
-
-  if (typeof params.normalizeMs === 'number') {
-    properties.normalize_ms = params.normalizeMs;
-  }
-
-  if (typeof params.slabAnalysisMs === 'number') {
-    properties.slab_analysis_ms = params.slabAnalysisMs;
-  }
-
-  if (typeof params.endToEndMs === 'number') {
-    properties.end_to_end_ms = params.endToEndMs;
-  }
-
-  return properties;
-}
-
-function formatCurrency(amount: number, currencyCode = 'USD') {
-  return new Intl.NumberFormat('en-US', {
-    style: 'currency',
-    currency: currencyCode,
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2,
-  }).format(amount);
-}
-
-function isFinitePrice(value: number | null | undefined): value is number {
-  return typeof value === 'number' && Number.isFinite(value);
-}
-
-function formatOptionalCurrency(amount: number | null | undefined, currencyCode = 'USD') {
-  if (!isFinitePrice(amount)) {
-    return '—';
-  }
-
-  return formatCurrency(amount, currencyCode);
-}
-
-function withOptimisticInventoryAdd(
-  entries: InventoryCardEntry[],
-  candidate: CatalogSearchResult,
-  addedAt: string,
-  options: {
-    mode: ScannerMode;
-    slabContext: SlabContext | null;
-  },
-): InventoryCardEntry[] {
-  const slabContext = options.slabContext;
-  const isSlab = options.mode === 'slabs';
-  const existingIndex = entries.findIndex((entry) => (
-    entry.cardId === candidate.cardId
-    && (
-      isSlab
-        ? entry.kind === 'graded' && sameSlabContext(entry.slabContext ?? null, slabContext)
-        : entry.kind === 'raw'
-          && (entry.conditionCode ?? 'near_mint') === 'near_mint'
-          && !entry.variantName
-    )
-  ));
-
-  if (existingIndex >= 0) {
-    return entries.map((entry, index) => (
-      index === existingIndex
-        ? { ...entry, quantity: entry.quantity + 1 }
-        : entry
-    ));
-  }
-
-  return [
-    {
-      addedAt,
-      cardId: candidate.cardId,
-      cardNumber: candidate.cardNumber,
-      conditionCode: isSlab ? null : 'near_mint',
-      conditionLabel: isSlab ? null : 'Near Mint',
-      conditionShortLabel: isSlab ? null : 'NM',
-      costBasisPerUnit: null,
-      costBasisTotal: 0,
-      currencyCode: candidate.currencyCode ?? 'USD',
-      hasMarketPrice: candidate.marketPrice != null,
-      id: isSlab
-        ? `optimistic|graded|${candidate.cardId}|${slabContext?.grader ?? 'unknown'}|${slabContext?.grade ?? 'unknown'}|${slabContext?.certNumber ?? 'uncertified'}`
-        : `optimistic|raw|${candidate.cardId}`,
-      imageUrl: candidate.imageUrl,
-      kind: isSlab ? 'graded' : 'raw',
-      marketPrice: candidate.marketPrice ?? 0,
-      name: candidate.name,
-      quantity: 1,
-      setName: candidate.setName,
-      slabContext,
-      isFavorite: candidate.isFavorite,
-      variantName: slabContext?.variantName ?? null,
-    },
-    ...entries,
-  ];
-}
-
-function withUpdatedInventoryFavoriteState(
-  entries: InventoryCardEntry[],
-  cardId: string,
-  isFavorite: boolean,
-) {
-  return entries.map((entry) => (
-    entry.cardId === cardId
-      ? { ...entry, isFavorite }
-      : entry
-  ));
-}
-
-function withUpdatedCaptureFavoriteState(
-  captures: RecentCapture[],
-  cardId: string,
-  isFavorite: boolean,
-) {
-  return captures.map((capture) => ({
-    ...capture,
-    candidates: capture.candidates.map((candidate) => (
-      candidate.cardId === cardId
-        ? { ...candidate, isFavorite }
-        : candidate
-    )),
-  }));
-}
-
-function normalizeSlabText(value: unknown) {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-function normalizeSlabNumber(value: unknown) {
-  return typeof value === 'number' && Number.isFinite(value) ? value : null;
-}
-
-function normalizeSlabTextList(value: unknown) {
-  if (!Array.isArray(value)) {
-    return [];
-  }
-
-  return value.flatMap((entry) => {
-    const normalized = normalizeSlabText(entry);
-    return normalized ? [normalized] : [];
-  });
-}
-
-function sameSlabContext(left: SlabContext | null, right: SlabContext | null) {
-  if (!left && !right) {
-    return true;
-  }
-
-  if (!left || !right) {
-    return false;
-  }
-
-  return (
-    normalizeSlabText(left.grader)?.toUpperCase() === normalizeSlabText(right.grader)?.toUpperCase()
-    && normalizeSlabText(left.grade) === normalizeSlabText(right.grade)
-    && normalizeSlabText(left.certNumber) === normalizeSlabText(right.certNumber)
-    && normalizeSlabText(left.variantName) === normalizeSlabText(right.variantName)
-  );
-}
-
-function normalizeScannerSlabAnalysis(
-  value: ScannerSlabAnalysisPayload | null | undefined,
-): ScannerSlabAnalysisPayload {
-  return {
-    slabGrader: normalizeSlabText(value?.slabGrader),
-    slabGrade: normalizeSlabText(value?.slabGrade),
-    slabCertNumber: normalizeSlabText(value?.slabCertNumber),
-    slabBarcodePayloads: normalizeSlabTextList(value?.slabBarcodePayloads),
-    slabParsedLabelText: normalizeSlabTextList(value?.slabParsedLabelText),
-    slabCardNumberRaw: normalizeSlabText(value?.slabCardNumberRaw),
-    slabGraderConfidence: normalizeSlabNumber(value?.slabGraderConfidence),
-    slabGradeConfidence: normalizeSlabNumber(value?.slabGradeConfidence),
-    slabCertConfidence: normalizeSlabNumber(value?.slabCertConfidence),
-    slabClassifierReasons: normalizeSlabTextList(value?.slabClassifierReasons),
-    slabRecommendedLookupPath: value?.slabRecommendedLookupPath ?? null,
-    ocrAnalysis: value?.ocrAnalysis ?? null,
-  };
-}
-
-async function analyzeSlabCapture(imageUri: string): Promise<ScannerSlabAnalysisPayload> {
-  const result = await analyzePSASlabCapture(imageUri);
-  if (result.parsed.unsupportedReason === 'non_psa_slab_not_supported_yet') {
-    throw new Error('psa_only_for_now');
-  }
-
-  if (!result) {
-    throw new Error('slab_analysis_empty');
-  }
-
-  return normalizeScannerSlabAnalysis(result.scannerMatchFields);
-}
-
-function slabContextFromAnalysis(analysis: ScannerSlabAnalysisPayload): SlabContext | null {
-  const grader = normalizeSlabText(analysis.slabGrader);
-  if (!grader) {
-    return null;
-  }
-
-  const grade = normalizeSlabText(analysis.slabGrade);
-  const certNumber = normalizeSlabText(analysis.slabCertNumber);
-  return {
-    grader,
-    grade,
-    certNumber,
-    variantName: grade ? `${grader} ${grade}` : grader,
-  };
-}
-
-function scannerSlabInlineLabel(capture: RecentCapture) {
-  const grader = normalizeSlabText(capture.slabContext?.grader);
-  const grade = normalizeSlabText(capture.slabContext?.grade);
-  if (grader && grade) {
-    return `${grader} • ${grade}`;
-  }
-  return grader ?? normalizeSlabText(capture.slabContext?.variantName);
-}
-
-function scannerSlabSubtitle(capture: RecentCapture, candidate: CatalogSearchResult) {
-  void capture;
-  return [candidate.cardNumber?.trim(), candidate.setName].filter(Boolean).join(' • ');
-}
-
-function scannerCapturePriceLabel(capture: RecentCapture) {
-  void capture;
-  return 'MARKET';
-}
-
-function scannerCaptureThumbUri(capture: RecentCapture, candidate: CatalogSearchResult | null) {
-  if (capture.mode === 'slabs') {
-    return candidate?.imageUrl || capture.uri || null;
-  }
-
-  return candidate?.imageUrl || capture.uri || null;
-}
-
-function scannerPreparationReviewReason(mode: ScannerMode, error: unknown) {
-  if (mode !== 'slabs') {
-    return null;
-  }
-
-  const errorKind = scannerErrorKind(error);
-  switch (errorKind) {
-    case 'native_module_unavailable':
-    case 'unsupported_platform':
-      return 'Slab analysis is unavailable on this build.';
-    case 'invalid_image_uri':
-      return 'Could not prepare this slab capture for analysis.';
-    case 'native_analysis_failed':
-      return 'Could not read this slab label strongly enough.';
-    case 'slab_analysis_empty':
-      return 'Could not read this slab label strongly enough.';
-    case 'normalized_target_unavailable':
-      return 'Could not isolate the PSA label inside the guide.';
-    case 'psa_only_for_now':
-      return unsupportedSlabSubtitle;
-    default:
-      return error instanceof Error && error.message.trim().length > 0
-        ? error.message.trim()
-        : 'Could not analyze this slab label.';
-  }
-}
-
-
-async function triggerScannerHaptic() {
-  if (process.env.NODE_ENV === 'test') {
-    return;
-  }
-
-  try {
-    const Haptics = await import('expo-haptics');
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-  } catch {
-    if (Platform.OS !== 'web') {
-      Vibration.vibrate(10);
-    }
-  }
-}
-
-type RecentCaptureSwipeRowProps = {
-  actionRailKey: string;
-  children: ReactNode;
-  onActionRailVisibilityChange?: (key: string, visible: boolean) => void;
-  onDelete: () => void;
-  onFavorite: () => void;
-  isFavorite: boolean;
-  testID: string;
-};
-
-function RecentCaptureSwipeRow({
-  actionRailKey,
-  children,
-  isFavorite,
-  onActionRailVisibilityChange,
-  onDelete,
-  onFavorite,
-  testID,
-}: RecentCaptureSwipeRowProps) {
-  const [isActionRailRevealed, setIsActionRailRevealed] = useState(false);
-  const translateX = useRef(new Animated.Value(0)).current;
-  const deleteOpacity = useMemo(() => translateX.interpolate({
-    extrapolate: 'clamp',
-    inputRange: [-recentCaptureActionRailRevealWidth, 0],
-    outputRange: [1, 0],
-  }), [translateX]);
-
-  const settleClosed = useCallback(() => {
-    setIsActionRailRevealed(false);
-    onActionRailVisibilityChange?.(actionRailKey, false);
-    Animated.spring(translateX, {
-      bounciness: 0,
-      speed: 16,
-      toValue: 0,
-      useNativeDriver: true,
-    }).start();
-  }, [actionRailKey, onActionRailVisibilityChange, translateX]);
-
-  const revealActionRail = useCallback(() => {
-    setIsActionRailRevealed(true);
-    onActionRailVisibilityChange?.(actionRailKey, true);
-    Animated.spring(translateX, {
-      bounciness: 0,
-      speed: 18,
-      toValue: -recentCaptureActionRailRevealWidth,
-      useNativeDriver: true,
-    }).start();
-  }, [actionRailKey, onActionRailVisibilityChange, translateX]);
-
-  const handleSwipeMove = useCallback((gestureState: PanResponderGestureState) => {
-    translateX.setValue(clampRecentCaptureSwipeTranslate(gestureState.dx, isActionRailRevealed));
-  }, [isActionRailRevealed, translateX]);
-
-  const handleSwipeEnd = useCallback((gestureState: PanResponderGestureState) => {
-    if (isActionRailRevealed) {
-      if (shouldCollapseRecentCaptureDeleteFromSwipe(gestureState)) {
-        settleClosed();
-        return;
-      }
-
-      revealActionRail();
-      return;
-    }
-
-    if (shouldRevealRecentCaptureDeleteFromSwipe(gestureState)) {
-      revealActionRail();
-      return;
-    }
-
-    settleClosed();
-  }, [isActionRailRevealed, revealActionRail, settleClosed]);
-
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gestureState) => shouldSetRecentCaptureSwipeResponder(gestureState, isActionRailRevealed),
-    onPanResponderMove: (_, gestureState) => handleSwipeMove(gestureState),
-    onPanResponderRelease: (_, gestureState) => handleSwipeEnd(gestureState),
-    onPanResponderTerminate: () => {
-      settleClosed();
-    },
-  }), [handleSwipeEnd, handleSwipeMove, isActionRailRevealed, settleClosed]);
-
-  useEffect(() => {
-    return () => {
-      onActionRailVisibilityChange?.(actionRailKey, false);
-    };
-  }, [actionRailKey, onActionRailVisibilityChange]);
-
-  return (
-    <View
-      style={styles.captureSwipeShell}
-      testID={testID}
-      {...panResponder.panHandlers}
-    >
-      {process.env.NODE_ENV === 'test' ? (
-        <>
-          <Pressable
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            onPress={revealActionRail}
-            style={styles.captureSwipeTestControl}
-            testID={`${testID}-reveal-actions`}
-          />
-          <Pressable
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            onPress={settleClosed}
-            style={styles.captureSwipeTestControl}
-            testID={`${testID}-collapse-delete`}
-          />
-        </>
-      ) : null}
-      <Animated.View
-        pointerEvents={isActionRailRevealed ? 'auto' : 'none'}
-        style={[styles.captureDeleteUnderlay, { opacity: deleteOpacity }]}
-        testID={`${testID}-actions-underlay`}
-      >
-        <View style={styles.captureActionRail}>
-          <Pressable
-            accessibilityElementsHidden={!isActionRailRevealed}
-            accessibilityLabel={isFavorite ? 'Remove favorite' : 'Favorite recent scan'}
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !isActionRailRevealed }}
-            importantForAccessibility={isActionRailRevealed ? 'auto' : 'no-hide-descendants'}
-            onPress={isActionRailRevealed
-              ? () => {
-                  onFavorite();
-                  settleClosed();
-                }
-              : undefined}
-            style={({ pressed }) => [
-              styles.captureFavoriteButton,
-              pressed ? styles.captureFavoriteButtonPressed : null,
-            ]}
-            testID={`${testID}-favorite-button`}
-          >
-            {isFavorite ? (
-              <IconHeartFilled color={favoriteHeartColor} size={16} />
-            ) : (
-              <IconHeart color={favoriteHeartColor} size={16} strokeWidth={2} />
-            )}
-            <Text style={styles.captureFavoriteLabel}>FAVORITE</Text>
-          </Pressable>
-          <Pressable
-            accessibilityElementsHidden={!isActionRailRevealed}
-            accessibilityLabel="Delete recent scan"
-            accessibilityRole="button"
-            accessibilityState={{ disabled: !isActionRailRevealed }}
-            importantForAccessibility={isActionRailRevealed ? 'auto' : 'no-hide-descendants'}
-            onPress={isActionRailRevealed ? onDelete : undefined}
-            style={({ pressed }) => [
-              styles.captureDeleteButton,
-              pressed ? styles.captureDeleteUnderlayPressed : null,
-            ]}
-            testID={`${testID}-delete-button`}
-          >
-            <IconMinus color="#FFFFFF" size={18} strokeWidth={2.4} />
-            <Text style={styles.captureDeleteLabel}>DELETE</Text>
-          </Pressable>
-        </View>
-      </Animated.View>
-      <Animated.View style={[styles.captureSwipeContent, { transform: [{ translateX }] }]}>
-        {children}
-      </Animated.View>
-    </View>
-  );
-}
 
 function RefreshIcon({ color, size = 18 }: { color: string; size?: number }) {
   return (
@@ -797,56 +155,6 @@ function RefreshIcon({ color, size = 18 }: { color: string; size?: number }) {
         strokeWidth={1.8}
       />
     </Svg>
-  );
-}
-
-function ScannerSearchLauncher({
-  onChangeText,
-  onFilterPress,
-  onFocusChange,
-  onSubmit,
-  value,
-}: {
-  onChangeText: (value: string) => void;
-  onFilterPress?: () => void;
-  onFocusChange: (focused: boolean) => void;
-  onSubmit: () => void;
-  value: string;
-}) {
-  return (
-    <SearchField
-      autoCapitalize="none"
-      autoCorrect={false}
-      containerStyle={[
-        styles.searchLauncher,
-        {
-          backgroundColor: colors.scannerSurfaceStrong,
-          borderColor: colors.scannerTextPrimary,
-        },
-      ]}
-      containerTestID="scanner-search-launcher"
-      inputStyle={styles.searchLauncherInput}
-      leading={<IconSearch color={colors.scannerTextSecondary} size={18} strokeWidth={2} />}
-      trailing={
-        onFilterPress ? (
-          <Pressable hitSlop={8} onPress={onFilterPress}>
-            <IconAdjustmentsHorizontal color={colors.scannerTextSecondary} size={16} strokeWidth={2} />
-          </Pressable>
-        ) : undefined
-      }
-      onBlur={() => {
-        onFocusChange(false);
-      }}
-      onChangeText={onChangeText}
-      onFocus={() => {
-        onFocusChange(true);
-      }}
-      onSubmitEditing={onSubmit}
-      placeholder="Search card to add"
-      placeholderTextColor={colors.scannerTextSecondary}
-      returnKeyType="search"
-      value={value}
-    />
   );
 }
 
@@ -942,10 +250,12 @@ export function ScannerScreen({
   const trayExpandedBodyHeight = alignToFourPointGrid(
     Math.min(Math.max((windowHeight - insets.top - insets.bottom) * 0.5, 272), 428),
   );
-  const trayScrollViewportHeight = Math.max(140, trayExpandedBodyHeight);
   const trayContentHeight = recentCaptures.length === 0
     ? 0
     : (recentCaptures.length * captureRowHeight) + ((recentCaptures.length - 1) * captureRowGap);
+  const trayScrollViewportHeight = recentCaptures.length > 0
+    ? Math.min(trayContentHeight, trayExpandedBodyHeight)
+    : Math.max(140, trayExpandedBodyHeight);
   const trayScrollEnabled = trayContentHeight > trayScrollViewportHeight;
   const shouldLoadInventory = recentCaptures.length > 0 || dataVersion > 0;
 
@@ -1171,20 +481,12 @@ export function ScannerScreen({
   }, [inventoryEntries]);
 
   const trayPriceSummary = useMemo(() => {
-    let hasPricedCapture = false;
     const total = recentCaptures.reduce((sum, capture) => {
       const marketPrice = activeCandidateForCapture(capture)?.marketPrice;
-      if (!isFinitePrice(marketPrice)) {
-        return sum;
-      }
-      hasPricedCapture = true;
-      return sum + marketPrice;
+      return isFinitePrice(marketPrice) ? sum + marketPrice : sum;
     }, 0);
 
-    return {
-      hasPricedCapture,
-      total,
-    };
+    return { total };
   }, [recentCaptures]);
 
   const clearRecentCaptures = useCallback(() => {
@@ -2127,6 +1429,12 @@ export function ScannerScreen({
         testID={`scanner-tray-swipe-${index}`}
       >
         <View style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
+          <BlurView
+            intensity={20}
+            pointerEvents="none"
+            style={StyleSheet.absoluteFill}
+            tint="dark"
+          />
           <Pressable
             accessibilityLabel={canCycleCandidate ? `Refresh match for ${candidate?.name ?? `recent scan ${index + 1}`}` : undefined}
             accessibilityRole={canCycleCandidate ? 'button' : undefined}
@@ -2197,27 +1505,20 @@ export function ScannerScreen({
                 </>
               ) : candidate ? (
                 <>
-                  {capture.mode === 'slabs' ? (
-                    <>
-                      <Text numberOfLines={1} style={[styles.captureTitle, styles.captureTitleSlab]}>
-                        {candidate.name}
-                      </Text>
-                      {scannerSlabInlineLabel(capture) ? (
-                        <Text numberOfLines={1} style={styles.captureSubtitle}>
-                          {scannerSlabInlineLabel(capture)}
-                        </Text>
-                      ) : null}
-                    </>
-                  ) : (
-                    <Text numberOfLines={1} style={styles.captureTitle}>
-                      {candidate.name}
-                    </Text>
-                  )}
-                  <Text numberOfLines={1} style={styles.captureSubtitle}>
-                    {capture.mode === 'slabs'
-                      ? scannerSlabSubtitle(capture, candidate)
-                      : `${candidate.setName} • ${candidate.cardNumber}`}
+                  <Text numberOfLines={1} style={styles.captureTitle}>
+                    {candidate.name}
                   </Text>
+                  <Text numberOfLines={1} style={styles.captureSubtitle}>
+                    {candidate.cardNumber}
+                  </Text>
+                  <Text numberOfLines={1} style={styles.captureSubtitle}>
+                    {candidate.setName}
+                  </Text>
+                  {capture.mode === 'slabs' && scannerSlabInlineLabel(capture) ? (
+                    <Text numberOfLines={1} style={styles.captureSubtitle}>
+                      {scannerSlabInlineLabel(capture)}
+                    </Text>
+                  ) : null}
                 </>
               ) : (
                 <>
@@ -2229,10 +1530,10 @@ export function ScannerScreen({
 
             {candidate ? (
               <View style={styles.capturePriceWrap}>
-                <Text style={styles.capturePriceLabel}>{scannerCapturePriceLabel(capture)}</Text>
                 <Text style={styles.capturePriceValue}>
-                  {formatOptionalCurrency(marketPrice, currencyCode)}
+                  {formatCurrency(isFinitePrice(marketPrice) ? marketPrice : 0, currencyCode)}
                 </Text>
+                <Text style={styles.capturePriceLabel}>Market value</Text>
                 {quantity > 0 ? (
                   <Text style={styles.captureQuantityText} testID={`scanner-tray-qty-${index}`}>QTY {quantity}</Text>
                 ) : null}
@@ -2241,29 +1542,26 @@ export function ScannerScreen({
           </Pressable>
 
         {candidate ? (
-          <View style={styles.captureActionWrap}>
-            <Pressable
-              accessibilityLabel={`Add ${candidate.name} to inventory`}
-              accessibilityRole="button"
-              disabled={capture.isAddingToInventory}
-              onPress={() => {
-                void handleAddToInventory(capture.id);
-              }}
-              style={({ pressed }) => [
-                styles.captureAddButton,
-                pressed ? styles.captureAddButtonPressed : null,
-                capture.isAddingToInventory ? styles.captureAddButtonDisabled : null,
-              ]}
-              testID={`scanner-tray-add-${index}`}
-            >
-              {capture.isAddingToInventory ? (
-                <ActivityIndicator color={colors.scannerCanvas} size="small" />
-              ) : (
-                <Text style={styles.captureAddIcon}>+</Text>
-              )}
-            </Pressable>
-            <Text style={styles.captureAddLabel}>ADD</Text>
-          </View>
+          <Pressable
+            accessibilityLabel={`Add ${candidate.name} to inventory`}
+            accessibilityRole="button"
+            disabled={capture.isAddingToInventory}
+            onPress={() => {
+              void handleAddToInventory(capture.id);
+            }}
+            style={({ pressed }) => [
+              styles.captureAddButton,
+              pressed ? styles.captureAddButtonPressed : null,
+              capture.isAddingToInventory ? styles.captureAddButtonDisabled : null,
+            ]}
+            testID={`scanner-tray-add-${index}`}
+          >
+            {capture.isAddingToInventory ? (
+              <ActivityIndicator color={colors.brand} size="small" />
+            ) : (
+              <IconPlus color={colors.brand} size={20} strokeWidth={2} />
+            )}
+          </Pressable>
         ) : null}
         </View>
       </RecentCaptureSwipeRow>
@@ -2303,6 +1601,16 @@ export function ScannerScreen({
         showSlabGuide={scannerMode === 'slabs'}
         testIDPrefix="scanner"
       >
+        {isTrayExpanded ? (
+          <Pressable
+            accessibilityLabel="Collapse recent scans"
+            accessibilityRole="button"
+            onPress={() => commitTrayExpandedState(false)}
+            style={StyleSheet.absoluteFillObject}
+            testID="scanner-tray-collapse-backdrop"
+          />
+        ) : null}
+
         <View
           pointerEvents="none"
           style={[
@@ -2325,11 +1633,16 @@ export function ScannerScreen({
             },
           ]}
         >
-          <ChromeBackButton
+          <Pressable
             accessibilityLabel="Exit scanner"
+            accessibilityRole="button"
+            hitSlop={8}
             onPress={handleExitScanner}
+            style={styles.scannerBackButton}
             testID="scanner-back-button"
-          />
+          >
+            <IconChevronLeft color={colors.gray0} size={18} strokeWidth={1} />
+          </Pressable>
           <ScannerSearchLauncher
             onChangeText={setCatalogSearchQuery}
             onFilterPress={handleOpenExpansionBrowser}
@@ -2416,7 +1729,7 @@ export function ScannerScreen({
                     ]}
                     testID="scanner-clear-button"
                   >
-                    <Text style={styles.clearPillText}>CLEAR</Text>
+                    <Text style={styles.clearPillText}>Clear</Text>
                   </Pressable>
                 ) : null}
               </View>
@@ -2424,7 +1737,7 @@ export function ScannerScreen({
               <View style={styles.recentScansActions}>
                 <View style={styles.valuePill}>
                   <Text style={styles.valuePillText} testID="scanner-value-pill-text">
-                    {trayPriceSummary.hasPricedCapture ? formatCurrency(trayPriceSummary.total) : '—'}
+                    {formatCurrency(trayPriceSummary.total)}
                   </Text>
                 </View>
               </View>
@@ -2478,17 +1791,18 @@ export function ScannerScreen({
 }
 
 const styles = StyleSheet.create({
-  searchLauncher: {
-    borderRadius: 18,
-    flex: 1,
-    minHeight: 40,
-    minWidth: 0,
-  },
-  searchLauncherInput: {
-    color: colors.scannerTextPrimary,
+  scannerBackButton: {
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    borderColor: colors.gray0,
+    borderRadius: 22,
+    borderWidth: 1,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
   },
   topChromeBackdrop: {
-    backgroundColor: colors.scannerTray,
+    backgroundColor: 'transparent',
     left: 0,
     position: 'absolute',
     right: 0,
@@ -2507,39 +1821,20 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 5,
   },
-  captureActionWrap: {
-    alignItems: 'center',
-    gap: 4,
-    justifyContent: 'center',
-    width: 56,
-  },
   captureAddButton: {
     alignItems: 'center',
-    backgroundColor: colors.brand,
-    borderRadius: 10,
-    height: 40,
+    backgroundColor: 'transparent',
+    borderColor: colors.brand,
+    borderRadius: 8,
+    borderWidth: 0.651,
     justifyContent: 'center',
-    width: 40,
+    padding: 10,
   },
   captureAddButtonDisabled: {
     opacity: 0.52,
   },
   captureAddButtonPressed: {
     opacity: 0.86,
-  },
-  captureAddIcon: {
-    color: colors.scannerCanvas,
-    fontSize: 28,
-    fontWeight: '700',
-    lineHeight: 30,
-    marginTop: -2,
-    textAlign: 'center',
-  },
-  captureAddLabel: {
-    ...textStyles.control,
-    color: colors.brand,
-    fontSize: 12,
-    lineHeight: 14,
   },
   captureCopy: {
     flex: 1,
@@ -2566,7 +1861,6 @@ const styles = StyleSheet.create({
   capturePriceLabel: {
     ...textStyles.caption,
     color: colors.scannerTextMeta,
-    letterSpacing: 0.7,
   },
   capturePriceValue: {
     ...textStyles.headline,
@@ -2588,69 +1882,15 @@ const styles = StyleSheet.create({
   },
   captureRow: {
     alignItems: 'center',
-    backgroundColor: colors.scannerSurfaceMuted,
-    borderColor: colors.scannerOutlineSubtle,
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 10,
-    minHeight: captureRowHeight,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    width: '100%',
-  },
-  captureDeleteLabel: {
-    ...textStyles.control,
-    color: '#FFFFFF',
-    fontSize: 10,
-    lineHeight: 12,
-    textAlign: 'center',
-  },
-  captureDeleteUnderlay: {
-    alignItems: 'center',
-    borderRadius: 18,
-    bottom: 0,
-    justifyContent: 'center',
-    position: 'absolute',
-    right: 0,
-    top: 0,
-    width: recentCaptureActionRailRevealWidth,
-  },
-  captureDeleteButton: {
-    alignItems: 'center',
-    backgroundColor: '#B91C1C',
-    gap: 6,
-    justifyContent: 'center',
-    minHeight: captureRowHeight,
-    width: recentCaptureDeleteRevealWidth,
-  },
-  captureDeleteUnderlayPressed: {
-    opacity: 0.82,
-  },
-  captureActionRail: {
-    alignItems: 'stretch',
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
     borderRadius: 18,
     flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'center',
+    minHeight: captureRowHeight,
     overflow: 'hidden',
-    width: recentCaptureActionRailRevealWidth,
-  },
-  captureFavoriteButton: {
-    alignItems: 'center',
-    backgroundColor: colors.brand,
-    gap: 6,
-    justifyContent: 'center',
-    minHeight: captureRowHeight,
-    width: recentCaptureFavoriteRevealWidth,
-  },
-  captureFavoriteButtonPressed: {
-    opacity: 0.84,
-  },
-  captureFavoriteLabel: {
-    ...textStyles.control,
-    color: colors.scannerCanvas,
-    fontSize: 10,
-    lineHeight: 12,
-    textAlign: 'center',
+    padding: 12,
+    width: '100%',
   },
   captureRefreshButton: {
     alignItems: 'center',
@@ -2703,15 +1943,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 13,
   },
-  captureSwipeShell: {
-    borderRadius: 18,
-    overflow: 'hidden',
-    position: 'relative',
-    width: '100%',
-  },
-  captureSwipeContent: {
-    width: '100%',
-  },
   captureThumb: {
     backgroundColor: colors.scannerSurfaceStrong,
     borderRadius: 14,
@@ -2730,14 +1961,6 @@ const styles = StyleSheet.create({
     height: 54,
     position: 'relative',
     width: 44,
-  },
-  captureSwipeTestControl: {
-    height: 1,
-    left: -1000,
-    opacity: 0,
-    position: 'absolute',
-    top: -1000,
-    width: 1,
   },
   captureTitle: {
     ...textStyles.bodyStrong,
@@ -2870,7 +2093,7 @@ const styles = StyleSheet.create({
     minHeight: rawScannerTrayEmptyPeekHeight,
   },
   trayHeader: {
-    backgroundColor: colors.scannerTray,
+    backgroundColor: 'transparent',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingBottom: 4,
@@ -2900,11 +2123,9 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   trayShell: {
-    backgroundColor: colors.scannerTray,
-    borderColor: colors.scannerOutlineSubtle,
+    backgroundColor: 'transparent',
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    borderTopWidth: 1,
     bottom: 0,
     left: 0,
     position: 'absolute',

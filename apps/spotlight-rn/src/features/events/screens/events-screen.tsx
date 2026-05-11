@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { StateCard, useSpotlightTheme } from '@spotlight/design-system';
+import { StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 export function EventsScreen() {
   const theme = useSpotlightTheme();
@@ -15,7 +15,7 @@ export function EventsScreen() {
   return (
     <SafeAreaView
       edges={['top', 'left', 'right']}
-      style={[styles.safeArea, { backgroundColor: theme.colors.canvas }]}
+      style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <View
         style={[

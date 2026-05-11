@@ -10,7 +10,7 @@ import {
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
-import { SectionHeader, useSpotlightTheme } from '@spotlight/design-system';
+import { SectionHeader, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import {
@@ -96,7 +96,7 @@ export function ScanCandidateReviewScreen({
   return (
     <SafeAreaView
       edges={['top', 'left', 'right', 'bottom']}
-      style={[styles.scanReviewSafeArea, { backgroundColor: theme.colors.canvas }]}
+      style={[styles.scanReviewSafeArea, { backgroundColor: colors.gray0 }]}
       testID="detail-scan-candidate-review"
     >
       <View style={[styles.scanReviewHeader, { paddingHorizontal: theme.layout.pageGutter }]}>

@@ -62,7 +62,8 @@ export function SearchField({
       <TextInput
         placeholderTextColor={placeholderTextColor ?? theme.colors.gray400}
         style={[
-          isCompact ? theme.typography.label : theme.typography.body,
+          theme.typography.body,
+          { color: theme.colors.textPrimary },
           styles.input,
           isCompact ? styles.inputCompact : null,
           inputStyle,
@@ -89,7 +90,7 @@ const styles = StyleSheet.create({
   containerCompact: {
     borderRadius: 999,
     gap: 8,
-    height: 32,
+    height: 44,
     paddingHorizontal: 8,
     paddingVertical: 7,
   },
