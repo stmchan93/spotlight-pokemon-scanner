@@ -56,6 +56,8 @@ import type {
   ScannerMode,
   SlabContext,
   SpotlightRepositoryLoadResult,
+  TopMoverEntry,
+  TopMoversResult,
 } from './types';
 
 export interface SpotlightRepository {
@@ -105,7 +107,15 @@ export interface SpotlightRepository {
   commitPortfolioImportJob(jobID: string): Promise<PortfolioImportCommitResponsePayload>;
   listExpansions(game?: string): Promise<ExpansionRecord[]>;
   listCardsInExpansion(expansionId: string, query?: string, limit?: number): Promise<CatalogSearchResult[]>;
+  loadTopMovers(options?: TopMoversQuery): Promise<SpotlightRepositoryLoadResult<TopMoversResult>>;
+  getTopMovers(options?: TopMoversQuery): Promise<TopMoversResult>;
 }
+
+export type TopMoversQuery = {
+  limit?: number;
+  minPriorPrice?: number;
+  maxAgeDays?: number;
+};
 
 type SpotlightRepositoryErrorKind = 'request_failed' | 'invalid_response' | 'not_found';
 
@@ -283,6 +293,27 @@ type CardFavoriteDTO = {
   cardId?: string | null;
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
+};
+
+type TopMoverDTO = {
+  cardID?: string;
+  name?: string;
+  setName?: string | null;
+  cardNumber?: string | null;
+  imageURL?: string | null;
+  currencyCode?: string | null;
+  currentPrice?: number | string;
+  priorPrice?: number | string;
+  changeAmount?: number | string;
+  changePercent?: number | string;
+  currentDate?: string | null;
+  priorDate?: string | null;
+};
+
+type TopMoversDTO = {
+  asOfDate?: string | null;
+  minPriorPrice?: number | null;
+  movers?: TopMoverDTO[];
 };
 
 type CardMarketHistoryDTO = {
@@ -1968,6 +1999,43 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
+  async loadTopMovers(options?: TopMoversQuery) {
+    const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
+    const movers: TopMoverEntry[] = this.inventoryEntries
+      .filter((entry) => entry.hasMarketPrice && entry.marketPrice > 0 && entry.kind === 'raw')
+      .map<TopMoverEntry>((entry, index) => {
+        const seed = (index + 1) * 3.17;
+        const changePercent = Number((seed % 25 + 1).toFixed(2));
+        const changeAmount = Number((entry.marketPrice * (changePercent / 100)).toFixed(2));
+        return {
+          cardId: entry.cardId,
+          name: entry.name,
+          setName: entry.setName ?? null,
+          cardNumber: entry.cardNumber ?? null,
+          imageUrl: entry.smallImageUrl ?? entry.imageUrl ?? null,
+          currencyCode: entry.currencyCode,
+          currentPrice: entry.marketPrice,
+          priorPrice: Number((entry.marketPrice - changeAmount).toFixed(2)),
+          changeAmount,
+          changePercent,
+          currentDate: null,
+          priorDate: null,
+        };
+      })
+      .sort((a, b) => b.changePercent - a.changePercent)
+      .slice(0, limit);
+
+    return buildLoadResult(
+      movers.length > 0 ? 'success' : 'empty',
+      { asOfDate: null, movers },
+    );
+  }
+
+  async getTopMovers(options?: TopMoversQuery) {
+    const result = await this.loadTopMovers(options);
+    return result.data ?? { asOfDate: null, movers: [] };
+  }
+
   async loadCatalogCards(query: string, limit = 20) {
     const normalized = query.trim().toLowerCase();
     if (normalized.length < 2) {
@@ -2761,6 +2829,70 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async getInventoryEntries(query?: InventoryEntriesQuery) {
     const result = await this.loadInventoryEntries(query);
     return result.data ?? [];
+  }
+
+  async loadTopMovers(options?: TopMoversQuery) {
+    const queryParams = new URLSearchParams();
+    if (options?.limit !== undefined) {
+      queryParams.set('limit', String(Math.max(1, Math.min(options.limit, 100))));
+    }
+    if (options?.minPriorPrice !== undefined) {
+      queryParams.set('minPriorPrice', String(Math.max(0, options.minPriorPrice)));
+    }
+    if (options?.maxAgeDays !== undefined) {
+      queryParams.set('maxAgeDays', String(Math.max(1, Math.min(options.maxAgeDays, 60))));
+    }
+
+    const url = `${this.baseUrl}/api/v1/cards/top-movers${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    const response = await this.requestJson<TopMoversDTO>(url);
+
+    if (response.kind !== 'success') {
+      return buildLoadResult('error', { asOfDate: null, movers: [] }, response.error.message);
+    }
+
+    const movers = (Array.isArray(response.data?.movers) ? response.data.movers : [])
+      .map((entry): TopMoverEntry | null => {
+        const cardId = typeof entry?.cardID === 'string' ? entry.cardID.trim() : '';
+        if (cardId.length === 0) {
+          return null;
+        }
+        const currentPrice = typeof entry.currentPrice === 'number' ? entry.currentPrice : Number(entry.currentPrice);
+        const priorPrice = typeof entry.priorPrice === 'number' ? entry.priorPrice : Number(entry.priorPrice);
+        const changeAmount = typeof entry.changeAmount === 'number' ? entry.changeAmount : Number(entry.changeAmount);
+        const changePercent = typeof entry.changePercent === 'number' ? entry.changePercent : Number(entry.changePercent);
+        if (!Number.isFinite(currentPrice) || !Number.isFinite(priorPrice)) {
+          return null;
+        }
+        return {
+          cardId,
+          name: typeof entry.name === 'string' ? entry.name : '',
+          setName: typeof entry.setName === 'string' && entry.setName.length > 0 ? entry.setName : null,
+          cardNumber: typeof entry.cardNumber === 'string' && entry.cardNumber.length > 0 ? entry.cardNumber : null,
+          imageUrl: normalizeImageUrl(entry.imageURL, this.baseUrl) || null,
+          currencyCode: typeof entry.currencyCode === 'string' && entry.currencyCode.length > 0 ? entry.currencyCode : 'USD',
+          currentPrice,
+          priorPrice,
+          changeAmount: Number.isFinite(changeAmount) ? changeAmount : currentPrice - priorPrice,
+          changePercent: Number.isFinite(changePercent) ? changePercent : 0,
+          currentDate: typeof entry.currentDate === 'string' && entry.currentDate.length > 0 ? entry.currentDate : null,
+          priorDate: typeof entry.priorDate === 'string' && entry.priorDate.length > 0 ? entry.priorDate : null,
+        };
+      })
+      .filter((entry): entry is TopMoverEntry => entry !== null);
+
+    const result: TopMoversResult = {
+      asOfDate: typeof response.data?.asOfDate === 'string' && response.data.asOfDate.length > 0
+        ? response.data.asOfDate
+        : null,
+      movers,
+    };
+
+    return buildLoadResult(movers.length > 0 ? 'success' : 'empty', result);
+  }
+
+  async getTopMovers(options?: TopMoversQuery) {
+    const result = await this.loadTopMovers(options);
+    return result.data ?? { asOfDate: null, movers: [] };
   }
 
   async loadCatalogCards(query: string, limit = 20) {
