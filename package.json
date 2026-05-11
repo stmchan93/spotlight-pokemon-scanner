@@ -42,11 +42,15 @@
     "release:audit:production": "python3 tools/audit_release_config.py --environment production",
     "release:notes:preview": "node tools/release_notes.mjs --format preview",
     "release:notes:testflight": "node tools/release_notes.mjs --format testflight",
-    "release:notes:build-message": "node tools/release_notes.mjs --format build-message"
+    "release:notes:build-message": "node tools/release_notes.mjs --format build-message",
+    "prepare": "husky"
   },
   "dependencies": {
     "expo": "~55.0.18",
     "react": "19.2.0",
     "react-native": "0.83.6"
+  },
+  "devDependencies": {
+    "husky": "^9.1.7"
   }
 }
