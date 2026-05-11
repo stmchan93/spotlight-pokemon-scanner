@@ -12,6 +12,7 @@
     "check": "pnpm --filter @spotlight/mobile-app lint && pnpm --filter @spotlight/mobile-app typecheck && pnpm --filter @spotlight/mobile-app test:coverage && bash backend/run_all_tests.sh coverage",
     "backend:deploy:staging": "bash tools/run_staging_release_gate.sh",
     "backend:deploy:production": "bash tools/deploy_backend.sh production",
+    "backend:restore:local": "bash tools/restore_staging_db_local.sh",
     "frontend:build:staging": "bash tools/run_staging_mobile_release_gate.sh build",
     "frontend:release:staging": "bash tools/run_staging_mobile_release_gate.sh release",
     "frontend:update:staging": "bash tools/run_mobile_eas.sh staging update ios staging",
