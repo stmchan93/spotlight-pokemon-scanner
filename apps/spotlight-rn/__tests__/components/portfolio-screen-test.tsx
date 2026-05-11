@@ -71,6 +71,36 @@ describe('PortfolioScreen', () => {
     });
   });
 
+  it('renders the top-movers carousel above the summary when movers are present', async () => {
+    renderPortfolioScreen();
+
+    const carousel = await screen.findByTestId('portfolio-top-movers-carousel');
+    expect(carousel).toBeTruthy();
+  });
+
+  it('invokes onOpenCardDetail when a top-mover tile is pressed', async () => {
+    const onOpenCardDetail = jest.fn();
+    render(
+      <SafeAreaProvider initialMetrics={safeAreaMetrics}>
+        <SpotlightThemeProvider>
+          <AppProviders>
+            <PortfolioScreen onOpenCardDetail={onOpenCardDetail} />
+          </AppProviders>
+        </SpotlightThemeProvider>
+      </SafeAreaProvider>,
+    );
+
+    const carousel = await screen.findByTestId('portfolio-top-movers-carousel');
+    const allTiles = carousel.findAll((node: { props: { testID?: string } }) =>
+      String(node.props.testID ?? '').startsWith('portfolio-top-movers-carousel-item-')
+    );
+    expect(allTiles.length).toBeGreaterThan(0);
+
+    fireEvent.press(allTiles[0]!);
+    expect(onOpenCardDetail).toHaveBeenCalledTimes(1);
+    expect(typeof onOpenCardDetail.mock.calls[0][0]).toBe('string');
+  });
+
   it('renders cached inventory and the screen-level summary while the dashboard load is pending', async () => {
     const repository = new mockApiClient.MockSpotlightRepository();
     const sourceRepository = new mockApiClient.MockSpotlightRepository();
