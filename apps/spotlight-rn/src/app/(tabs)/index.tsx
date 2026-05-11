@@ -33,6 +33,11 @@ export default function TabsRoot() {
                 previewId: saveCardDetailPreviewFromInventoryEntry(entry),
               },
             })}
+          onOpenCardDetail={(cardId) =>
+            router.push({
+              pathname: '/cards/[cardId]',
+              params: { cardId },
+            })}
           onOpenSalesHistory={() => router.push('/sales')}
         />
       )}
