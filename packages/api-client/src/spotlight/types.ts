@@ -387,6 +387,12 @@ export type CardRecentSalesRecord = {
   sales: CardRecentSaleRecord[];
 };
 
+export type CardPricingTrendsPct = {
+  days7: number | null;
+  days30: number | null;
+  days90: number | null;
+};
+
 export type CardDetailRecord = {
   cardId: string;
   name: string;
@@ -404,6 +410,12 @@ export type CardDetailRecord = {
   variantOptions: MarketHistoryOption[];
   isFavorite?: boolean;
   favoritedAt?: string | null;
+  /**
+   * Scrydex percent-change trends for the active pricing context's resolved
+   * condition. Values are nullable when the upstream provider omits a bucket.
+   * Null at the top level when the snapshot has no trend data at all.
+   */
+  trendsPct?: CardPricingTrendsPct | null;
 };
 
 export type InventoryEntriesQuery = {

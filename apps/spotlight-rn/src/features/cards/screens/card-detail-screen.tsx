@@ -1,16 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  IconEdit,
+  IconChevronDown,
+  IconChevronUp,
+  IconDots,
   IconHeart,
   IconHeartFilled,
-  IconMinus,
   IconPlus,
   IconRefresh,
+  IconTrendingDown,
+  IconTrendingUp,
 } from '@tabler/icons-react-native';
 import {
   ActivityIndicator,
   Image,
   Linking,
+  Modal,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -23,11 +27,11 @@ import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg'
 import {
   deckConditionOptions,
   type CardDetailRecord,
+  type CardPricingTrendsPct,
   type CardRecentSalesRecord,
 } from '@spotlight/api-client';
-import { Button, IconButton, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
-import { resolveConditionDisplayLabel } from '@/lib/condition-display';
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import {
   resolveActiveScanReviewCandidate,
@@ -41,10 +45,9 @@ import {
 import {
   formatCurrency,
   formatOptionalCurrency,
-  formatPercent,
-  formatSignedCurrency,
 } from '@/features/portfolio/components/portfolio-formatting';
-import { collectionSummaryLine, slabGradeSummary } from '@/features/sell/sell-order-helpers';
+import { useSuggestedDiscount } from '@/features/pricing/use-suggested-discount';
+import { slabGradeSummary } from '@/features/sell/sell-order-helpers';
 import { SellBackdrop } from '@/features/sell/components/sell-ui';
 import {
   getScanCandidateReviewSession,
@@ -93,6 +96,26 @@ function buildTcgPlayerSearchUrl(params: {
 
 const favoriteHeartColor = '#E83E8C';
 const recentSalesPageSize = 25;
+const slabLastSoldRowLimit = 2;
+
+type TimeframeId = '7d' | '30d' | '90d' | '180d' | '1y' | 'all';
+
+type TimeframeOption = {
+  id: TimeframeId;
+  label: string;
+  days: number | null;
+};
+
+const timeframeOptions: readonly TimeframeOption[] = [
+  { id: '7d', label: '7d', days: 7 },
+  { id: '30d', label: '30d', days: 30 },
+  { id: '90d', label: '90d', days: 90 },
+  { id: '180d', label: '180d', days: 180 },
+  { id: '1y', label: '1y', days: 365 },
+  { id: 'all', label: 'All', days: null },
+] as const;
+
+const defaultTimeframeId: TimeframeId = '90d';
 
 type CardDetailScreenProps = {
   cardId: string;
@@ -130,19 +153,6 @@ function compactCurrency(value: number, currencyCode: string) {
   }).format(value);
 }
 
-function ownedCollectionLabel(entry: CardDetailRecord['ownedEntries'][number]) {
-  if (entry.kind === 'graded') {
-    return collectionSummaryLine(entry);
-  }
-
-  const condition = resolveConditionDisplayLabel({
-    conditionCode: entry.conditionCode,
-    conditionLabel: entry.conditionLabel,
-    conditionShortLabel: entry.conditionShortLabel,
-  });
-  return condition;
-}
-
 function normalizeMarketConditionId(value?: string | null) {
   const normalized = value?.trim().toLowerCase();
 
@@ -177,39 +187,6 @@ function defaultMarketConditionId(history?: CardDetailRecord['marketHistory'] | 
     ?? normalizeMarketConditionId(history?.availableConditions[0]?.id)
     ?? normalizeMarketConditionId(history?.availableConditions[0]?.label)
     ?? null;
-}
-
-function ChevronIcon({
-  collapsed = false,
-  testID,
-}: {
-  collapsed?: boolean;
-  testID?: string;
-}) {
-  return (
-    <View style={styles.chevronIconFrame} testID={testID}>
-      <View style={[styles.chevronIconInner, collapsed ? styles.chevronCollapsed : undefined]}>
-        <View style={[styles.chevronIconStem, styles.chevronIconStemLeft]} />
-        <View style={[styles.chevronIconStem, styles.chevronIconStemRight]} />
-      </View>
-    </View>
-  );
-}
-
-function TrashIcon() {
-  return <IconMinus color="#4D4F57" size={16} strokeWidth={2.1} />;
-}
-
-function PlusIcon() {
-  return <IconPlus color="#0F0F12" size={16} strokeWidth={2.1} />;
-}
-
-function EditIcon() {
-  return <IconEdit color="#4D4F57" size={16} strokeWidth={1.9} />;
-}
-
-function SellEntryIcon() {
-  return <Text style={styles.collectionSellButtonLabel}>$</Text>;
 }
 
 type ParsedListingDate = {
@@ -326,7 +303,7 @@ function compareRecentSalesBySoldDateDesc(
   return left.title.localeCompare(right.title);
 }
 
-function formatRecentSalesAgeLabel(value?: string | null) {
+function formatPricesFreshnessLabel(value?: string | null): string | null {
   const trimmed = value?.trim();
   if (!trimmed) {
     return null;
@@ -337,18 +314,22 @@ function formatRecentSalesAgeLabel(value?: string | null) {
     return null;
   }
   const diffMs = Date.now() - timestamp;
-  if (!Number.isFinite(diffMs)) {
-    return null;
+  if (!Number.isFinite(diffMs) || diffMs < 0) {
+    return 'Prices · just now';
   }
-  if (diffMs < 60000) {
-    return 'Updated now';
+  if (diffMs < 60_000) {
+    return 'Prices · just now';
   }
-  const minutes = Math.max(0, Math.floor(diffMs / 60000));
+  const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 60) {
-    return `Updated ${minutes}m ago`;
+    return `Prices · ${minutes}m ago`;
   }
-  const hours = Math.max(0, Math.floor(diffMs / 3600000));
-  return `Updated ${hours}h ago`;
+  const hours = Math.floor(diffMs / 3_600_000);
+  if (hours < 24) {
+    return `Prices · ${hours}h ago`;
+  }
+  const days = Math.floor(diffMs / 86_400_000);
+  return `Prices · ${days}d ago`;
 }
 
 function recentSalesAgeHours(value?: string | null) {
@@ -424,19 +405,6 @@ function recentSalesSectionState(value: CardRecentSalesRecord | null) {
   return 'unavailable';
 }
 
-function EbayWordmarkBadge() {
-  return (
-    <View style={styles.ebayBadge}>
-      <Text accessibilityLabel="eBay" style={styles.ebayWordmark}>
-        <Text style={styles.ebayRed}>e</Text>
-        <Text style={styles.ebayBlue}>b</Text>
-        <Text style={styles.ebayYellow}>a</Text>
-        <Text style={styles.ebayGreen}>y</Text>
-      </Text>
-    </View>
-  );
-}
-
 function SimilarCardsButton({
   count,
   onPress,
@@ -469,6 +437,8 @@ function SimilarCardsButton({
   );
 }
 
+type ChartPoint = CardDetailRecord['marketHistory']['points'][number];
+
 function HistoryChart({
   currencyCode,
   currentPrice,
@@ -477,7 +447,7 @@ function HistoryChart({
 }: {
   currencyCode: string;
   currentPrice: number;
-  points: CardDetailRecord['marketHistory']['points'];
+  points: ChartPoint[];
   tintColor: string;
 }) {
   const theme = useSpotlightTheme();
@@ -498,9 +468,12 @@ function HistoryChart({
     );
   }
 
-  const rawValues = [...points.map((point) => point.value), currentPrice];
-  const minValue = Math.max(0, Math.min(...rawValues));
-  const maxValue = Math.max(...rawValues);
+  const valuePool = [
+    ...points.map((point) => point.value),
+    currentPrice,
+  ];
+  const minValue = Math.max(0, Math.min(...valuePool));
+  const maxValue = Math.max(...valuePool);
   const minimumVisiblePadding = maxValue >= 1 ? 0.1 : 0.02;
   const paddingValue = Math.max((maxValue - minValue) * 0.18, maxValue * 0.06, minimumVisiblePadding);
   const chartMin = Math.max(0, minValue - paddingValue);
@@ -510,13 +483,15 @@ function HistoryChart({
   const baseline = height - paddingBottom;
   const gridValues = Array.from({ length: 4 }, (_, index) => chartMax - (chartRange / 3) * index);
 
-  const plottedPoints = points.map((point, index) => {
-    const normalized = (point.value - chartMin) / chartRange;
+  const project = (value: number, index: number) => {
+    const normalized = (value - chartMin) / chartRange;
     return {
       x: paddingLeft + (chartWidth * index) / Math.max(points.length - 1, 1),
       y: baseline - normalized * (baseline - paddingTop),
     };
-  });
+  };
+
+  const plottedPoints = points.map((point, index) => project(point.value, index));
 
   const linePath = buildPath(plottedPoints);
   const areaPath = buildAreaPath(plottedPoints, baseline);
@@ -565,6 +540,138 @@ function HistoryChart({
   );
 }
 
+function TrendChip({
+  days,
+  value,
+  testID,
+}: {
+  days: 7 | 30 | 90;
+  value: number | null | undefined;
+  testID: string;
+}) {
+  const theme = useSpotlightTheme();
+  const label = `${days}d`;
+
+  if (value == null || !Number.isFinite(value)) {
+    return (
+      <View style={styles.trendChip} testID={testID}>
+        <Text style={[theme.typography.micro, styles.trendChipLabel]}>{label}</Text>
+        <Text style={[theme.typography.bodyStrong, styles.trendChipValueMuted]}>—</Text>
+      </View>
+    );
+  }
+
+  const isUp = value >= 0;
+  const tone = isUp ? theme.colors.success : theme.colors.danger;
+  const Icon = isUp ? IconTrendingUp : IconTrendingDown;
+  const formatted = `${isUp ? '+' : '-'}${Math.abs(value).toFixed(1)}%`;
+
+  return (
+    <View style={styles.trendChip} testID={testID}>
+      <Text style={[theme.typography.micro, styles.trendChipLabel]}>{label}</Text>
+      <View style={styles.trendChipValueRow}>
+        <Icon color={tone} size={14} strokeWidth={2.2} />
+        <Text style={[theme.typography.bodyStrong, { color: tone }]}>{formatted}</Text>
+      </View>
+    </View>
+  );
+}
+
+function ConditionDropdown({
+  options,
+  selectedId,
+  selectedLabel,
+  disabled,
+  onSelect,
+  testID,
+}: {
+  options: { id: string; label: string; shortLabel: string; isAvailable: boolean; currentPrice: number | null }[];
+  selectedId: string | null;
+  selectedLabel: string;
+  disabled?: boolean;
+  onSelect: (id: string) => void;
+  testID?: string;
+}) {
+  const theme = useSpotlightTheme();
+  const [isOpen, setIsOpen] = useState(false);
+
+  const close = () => setIsOpen(false);
+
+  return (
+    <View>
+      <Pressable
+        accessibilityRole="button"
+        disabled={disabled}
+        onPress={() => setIsOpen(true)}
+        style={({ pressed }) => [
+          styles.dropdownTrigger,
+          {
+            borderColor: theme.colors.outlineSubtle,
+            opacity: disabled ? 0.5 : pressed ? 0.88 : 1,
+          },
+        ]}
+        testID={testID}
+      >
+        <Text
+          style={[theme.typography.control, styles.dropdownTriggerLabel]}
+          testID={testID ? `${testID}-label` : undefined}
+        >
+          {selectedLabel}
+        </Text>
+        <IconChevronDown color={theme.colors.textPrimary} size={16} strokeWidth={2.2} />
+      </Pressable>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={close}
+        transparent
+        visible={isOpen}
+      >
+        <Pressable
+          accessibilityLabel="Close condition picker"
+          onPress={close}
+          style={styles.dropdownBackdrop}
+          testID={testID ? `${testID}-backdrop` : undefined}
+        >
+          <Pressable onPress={() => undefined} style={styles.dropdownSheet}>
+            {options.map((option) => {
+              const isSelected = option.id === selectedId;
+              return (
+                <Pressable
+                  key={option.id}
+                  accessibilityRole="button"
+                  disabled={!option.isAvailable}
+                  onPress={() => {
+                    onSelect(option.id);
+                    close();
+                  }}
+                  style={({ pressed }) => [
+                    styles.dropdownOption,
+                    {
+                      backgroundColor: isSelected ? theme.colors.surfaceMuted : 'transparent',
+                      opacity: option.isAvailable ? (pressed ? 0.84 : 1) : 0.42,
+                    },
+                  ]}
+                  testID={testID ? `${testID}-option-${option.id}` : undefined}
+                >
+                  <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
+                    {option.label}
+                  </Text>
+                  <Text style={[theme.typography.bodyStrong, styles.dropdownOptionPrice]}>
+                    {option.currentPrice != null
+                      ? formatCurrency(option.currentPrice, 'USD')
+                      : '—'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </Pressable>
+        </Pressable>
+      </Modal>
+    </View>
+  );
+}
+
 export function CardDetailScreen({
   cardId,
   entryId,
@@ -586,15 +693,15 @@ export function CardDetailScreen({
   const [detail, setDetail] = useState<CardDetailRecord | null>(null);
   const [marketHistory, setMarketHistory] = useState<CardDetailRecord['marketHistory'] | null>(null);
   const [recentSalesState, setRecentSalesState] = useState<CardRecentSalesRecord | null>(null);
-  const [recentSalesErrorMessage, setRecentSalesErrorMessage] = useState<string | null>(null);
   const [isRecentSalesLoading, setIsRecentSalesLoading] = useState(false);
   const [hasResolvedRecentSalesState, setHasResolvedRecentSalesState] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [isCollectionExpanded, setIsCollectionExpanded] = useState(true);
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
-  const [inventoryActionError, setInventoryActionError] = useState<string | null>(null);
-  const [isAdjustingInventory, setIsAdjustingInventory] = useState(false);
   const [isFavoritePending, setIsFavoritePending] = useState(false);
+  const [isPriceDetailsExpanded, setIsPriceDetailsExpanded] = useState(false);
+  const [selectedTimeframeId, setSelectedTimeframeId] = useState<TimeframeId>(defaultTimeframeId);
+  const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
+  const { discountPct } = useSuggestedDiscount();
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
     [scanReviewId],
@@ -645,7 +752,6 @@ export function CardDetailScreen({
         }
 
         setDetail(nextDetail);
-        setInventoryActionError(null);
       })
       .catch(() => {
         if (cancelled) {
@@ -663,6 +769,8 @@ export function CardDetailScreen({
   useEffect(() => {
     setSelectedConditionId(null);
     setMarketHistory(null);
+    setIsPriceDetailsExpanded(false);
+    setSelectedTimeframeId(defaultTimeframeId);
   }, [cardId]);
 
   const selectedEntry = useMemo(() => {
@@ -677,21 +785,6 @@ export function CardDetailScreen({
 
     return detail.ownedEntries.find((entry) => entry.id === entryId) ?? detail.ownedEntries[0] ?? null;
   }, [detail, detailPreview?.ownedEntry, entryId]);
-
-  const ownedEntries = useMemo(() => {
-    if (!detail) {
-      return selectedEntry ? [selectedEntry] : [];
-    }
-
-    if (!selectedEntry) {
-      return detail.ownedEntries;
-    }
-
-    return [
-      selectedEntry,
-      ...detail.ownedEntries.filter((entry) => entry.id !== selectedEntry.id),
-    ];
-  }, [detail, selectedEntry]);
 
   const selectedSlabContext = selectedEntry?.slabContext ?? scanReviewSession?.slabContext ?? null;
   const shouldShowRecentSales = selectedEntry?.kind === 'graded' || selectedSlabContext != null;
@@ -720,7 +813,7 @@ export function CardDetailScreen({
 
     void spotlightRepository.getCardMarketHistory({
       cardId,
-      days: 30,
+      days: 90,
       condition: requestedCondition,
       slabContext: selectedSlabContext,
       variant: selectedSlabContext?.variantName ?? undefined,
@@ -762,7 +855,6 @@ export function CardDetailScreen({
       });
     }
     setIsRecentSalesLoading(true);
-    setRecentSalesErrorMessage(null);
     try {
       const nextRecentSales = await spotlightRepository.getCardRecentSales({
         cardId,
@@ -788,7 +880,6 @@ export function CardDetailScreen({
         sales_source: 'ebay',
       });
     } catch {
-      setRecentSalesErrorMessage('Could not load recent eBay sales right now.');
       setHasResolvedRecentSalesState(true);
       capturePostHogEvent('card_recent_sales_request_completed', {
         detail_kind: 'slab',
@@ -801,12 +892,11 @@ export function CardDetailScreen({
     } finally {
       setIsRecentSalesLoading(false);
     }
-  }, [cardId, recentSalesState?.fetchedAt, recentSalesState?.saleCount, recentSalesState?.sales.length, recentSalesState?.canRefresh, selectedSlabContext, shouldShowRecentSales, spotlightRepository]);
+  }, [cardId, recentSalesState?.fetchedAt, recentSalesState?.saleCount, recentSalesState?.sales.length, selectedSlabContext, shouldShowRecentSales, spotlightRepository]);
 
   useEffect(() => {
     let cancelled = false;
     setRecentSalesState(null);
-    setRecentSalesErrorMessage(null);
     setIsRecentSalesLoading(false);
     setHasResolvedRecentSalesState(false);
 
@@ -831,7 +921,6 @@ export function CardDetailScreen({
       })
       .catch(() => {
         if (!cancelled) {
-          setRecentSalesErrorMessage('Could not load recent eBay sales right now.');
           setHasResolvedRecentSalesState(true);
         }
       })
@@ -949,65 +1038,10 @@ export function CardDetailScreen({
     () => recentSales?.sales.slice().sort(compareRecentSalesBySoldDateDesc) ?? [],
     [recentSales?.sales],
   );
-
-  const handleDecrementCollection = (entry: CardDetailRecord['ownedEntries'][number]) => {
-    if (isAdjustingInventory) {
-      return;
-    }
-
-    setIsAdjustingInventory(true);
-    setInventoryActionError(null);
-
-    void spotlightRepository.createPortfolioSale({
-      deckEntryID: entry.id,
-      cardID: entry.cardId,
-      slabContext: entry.slabContext ?? null,
-      quantity: 1,
-      unitPrice: 0,
-      currencyCode: entry.currencyCode,
-      paymentMethod: null,
-      soldAt: new Date().toISOString(),
-      showSessionID: null,
-      note: 'Inventory decrement from card detail trash control.',
-      sourceScanID: null,
-      saleSource: 'inventory_adjustment',
-    })
-      .then((sale) => {
-        setDetail((currentDetail) => {
-          if (!currentDetail) {
-            return currentDetail;
-          }
-
-          return {
-            ...currentDetail,
-            ownedEntries: currentDetail.ownedEntries.flatMap((ownedEntry) => {
-              if (ownedEntry.id !== sale.deckEntryID) {
-                return [ownedEntry];
-              }
-
-              if (sale.remainingQuantity <= 0) {
-                return [];
-              }
-
-              return [{
-                ...ownedEntry,
-                costBasisTotal: ownedEntry.costBasisPerUnit
-                  ? Number((ownedEntry.costBasisPerUnit * sale.remainingQuantity).toFixed(2))
-                  : ownedEntry.costBasisTotal,
-                quantity: sale.remainingQuantity,
-              }];
-            }),
-          };
-        });
-        refreshData();
-      })
-      .catch(() => {
-        setInventoryActionError('Could not update this inventory row right now.');
-      })
-      .finally(() => {
-        setIsAdjustingInventory(false);
-      });
-  };
+  const slabLastSoldRows = useMemo(
+    () => sortedRecentSales.slice(0, slabLastSoldRowLimit),
+    [sortedRecentSales],
+  );
 
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
@@ -1040,6 +1074,27 @@ export function CardDetailScreen({
       });
   }, [cardId, detail?.isFavorite, isFavoritePending, refreshData, spotlightRepository]);
 
+  const timeframeFilteredPoints = useMemo<ChartPoint[]>(() => {
+    const allPoints = (effectiveMarketHistory?.points ?? []) as ChartPoint[];
+    if (allPoints.length === 0) {
+      return [];
+    }
+    const option = timeframeOptions.find((entry) => entry.id === selectedTimeframeId);
+    const days = option?.days ?? null;
+    if (days == null) {
+      return allPoints;
+    }
+    const cutoffMs = Date.now() - days * 86_400_000;
+    const filtered = allPoints.filter((point) => {
+      const parsed = Date.parse(point.isoDate);
+      if (!Number.isFinite(parsed)) {
+        return true;
+      }
+      return parsed >= cutoffMs;
+    });
+    return filtered.length > 0 ? filtered : allPoints;
+  }, [effectiveMarketHistory?.points, selectedTimeframeId]);
+
   const hasDisplayContent = detail != null || detailPreview != null;
 
   if (!hasDisplayContent && !errorMessage) {
@@ -1070,7 +1125,7 @@ export function CardDetailScreen({
     ?? detailPreview?.imageUrl
     ?? null;
   const displayedPrice = isSlabDetail
-    ? (slabDisplayedPrice ?? effectiveMarketHistory?.currentPrice)
+    ? (slabDisplayedPrice ?? effectiveMarketHistory?.currentPrice ?? null)
     : (
       selectedCondition?.currentPrice
       ?? effectiveMarketHistory?.currentPrice
@@ -1081,30 +1136,41 @@ export function CardDetailScreen({
   const displayCurrencyCode = isSlabDetail
     ? (effectiveMarketHistory?.currencyCode ?? selectedEntry?.currencyCode ?? detailPreview?.currencyCode ?? detail?.currencyCode ?? 'USD')
     : (detail?.currencyCode ?? detailPreview?.currencyCode ?? 'USD');
+  const isFavorite = detail?.isFavorite ?? false;
   const isOwned = selectedEntry != null;
-  const heroMeta = detail
-    ? `${displayNumber(detail.cardNumber)} • ${detail.setName}`
-    : `${detailPreview ? displayNumber(detailPreview.cardNumber) : '#--'} • ${detailPreview?.setName ?? ''}`;
   const slabHeroSubtitle = slabGradeSummary(selectedSlabContext);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
-  const isFavorite = detail?.isFavorite ?? false;
-  const recentSalesUpdatedLabel = formatRecentSalesAgeLabel(recentSales?.fetchedAt);
-  const shouldShowRecentSalesLoad = recentSales == null || recentSales.statusReason === 'not_loaded';
-  const shouldShowRecentSalesRefresh = Boolean(recentSales?.canRefresh);
-  const ownedCopiesCount = ownedEntries.reduce((sum, entry) => sum + Math.max(0, entry.quantity), 0);
-  const hasSingleOwnedEntry = ownedEntries.length === 1;
-  const collectionTitle = ownedCopiesCount > 1
-    ? `In your collection (${ownedCopiesCount})`
-    : 'In your collection';
   const marketplaceUrl = detail?.marketplaceUrl ?? buildTcgPlayerSearchUrl({
     cardNumber: displayCardNumber,
     name: displayName,
     setName: displaySetName,
   });
-  const marketplaceLabel = detail?.marketplaceLabel ?? 'TCGPLAYER BUYING OPTIONS';
   const sellEntryId = selectedEntry?.id ?? entryId;
-  const hasMarketHistoryPoints = (effectiveMarketHistory?.points.length ?? 0) > 0;
+
+  const conditionDropdownLabel = isSlabDetail
+    ? (slabHeroSubtitle ?? 'Slab')
+    : (selectedCondition?.label ?? 'Condition');
+
+  const pricesFreshnessLabel = formatPricesFreshnessLabel(recentSales?.fetchedAt);
+  const shouldShowRecentSalesRefresh = Boolean(recentSales?.canRefresh);
+
+  const suggestedDisplayPrice = (
+    discountPct != null
+    && typeof displayedPrice === 'number'
+    && Number.isFinite(displayedPrice)
+    && displayedPrice > 0
+  )
+    ? Number((displayedPrice * (1 - discountPct / 100)).toFixed(2))
+    : null;
+
+  const activeTrendsPct: CardPricingTrendsPct | null = detail?.trendsPct ?? null;
+
+  const hasMarketHistoryPoints = timeframeFilteredPoints.length > 0;
+
+  const safeNumericDisplayedPrice = typeof displayedPrice === 'number' && Number.isFinite(displayedPrice)
+    ? displayedPrice
+    : 0;
 
   return (
     <SafeAreaView
@@ -1122,556 +1188,431 @@ export function CardDetailScreen({
 
         <View testID="detail-hero-card">
           <SurfaceCard padding={20} radius={28} style={styles.heroCard}>
-            <View style={styles.heroCopy}>
-              <Text style={[theme.typography.display, styles.heroName]}>{displayName}</Text>
-              {slabHeroSubtitle ? (
+            <View style={styles.heroRow}>
+              <View style={styles.heroArtStage}>
+                {displayImageUrl ? (
+                  <Image
+                    source={{ uri: displayImageUrl }}
+                    style={styles.heroArt}
+                  />
+                ) : (
+                  <View style={styles.heroArtFallback}>
+                    <Text style={[theme.typography.titleCompact, styles.heroArtFallbackText]}>{displayName}</Text>
+                  </View>
+                )}
+              </View>
+
+              <View style={styles.heroCopy}>
+                <Text
+                  numberOfLines={2}
+                  style={[theme.typography.title, styles.heroName]}
+                >
+                  {displayName}
+                </Text>
+
                 <Text
                   style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
-                  testID="detail-hero-slab-meta"
+                  testID="detail-hero-meta"
                 >
-                  {slabHeroSubtitle}
+                  {displayNumber(displayCardNumber)} • {displaySetName}
                 </Text>
-              ) : null}
-              <Text
-                style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
-                testID="detail-hero-meta"
-              >
-                {heroMeta}
-              </Text>
-            </View>
 
-            <View style={styles.heroArtStage}>
-              {displayImageUrl ? (
-                <Image
-                  source={{ uri: displayImageUrl }}
-                  style={styles.heroArt}
-                />
-              ) : (
-                <View style={styles.heroArtFallback}>
-                  <Text style={[theme.typography.titleCompact, styles.heroArtFallbackText]}>{displayName}</Text>
+                {slabHeroSubtitle ? (
+                  <Text
+                    style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
+                    testID="detail-hero-slab-meta"
+                  >
+                    {slabHeroSubtitle}
+                  </Text>
+                ) : null}
+
+                <View style={styles.heroIconRow} testID="detail-action-stack">
+                  <Pressable
+                    accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Favorite card'}
+                    accessibilityRole="button"
+                    disabled={isFavoritePending}
+                    onPress={handleToggleFavorite}
+                    style={({ pressed }) => [
+                      styles.heroIconButton,
+                      {
+                        borderColor: theme.colors.outlineSubtle,
+                        opacity: isFavoritePending ? 0.45 : pressed ? 0.84 : 1,
+                      },
+                    ]}
+                    testID="detail-favorite-card"
+                  >
+                    {isFavorite ? (
+                      <IconHeartFilled color={favoriteHeartColor} size={18} />
+                    ) : (
+                      <IconHeart color={favoriteHeartColor} size={18} strokeWidth={2} />
+                    )}
+                  </Pressable>
+
+                  <Pressable
+                    accessibilityLabel={isOwned ? 'Add another copy to collection' : 'Add to collection'}
+                    accessibilityRole="button"
+                    onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, isOwned ? sellEntryId : undefined)}
+                    style={({ pressed }) => [
+                      styles.heroIconButton,
+                      {
+                        borderColor: theme.colors.outlineSubtle,
+                        opacity: pressed ? 0.84 : 1,
+                      },
+                    ]}
+                    testID="detail-add-to-collection"
+                  >
+                    <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                  </Pressable>
+
+                  <Pressable
+                    accessibilityLabel="More actions"
+                    accessibilityRole="button"
+                    onPress={() => setIsOverflowMenuOpen(true)}
+                    style={({ pressed }) => [
+                      styles.heroIconButton,
+                      {
+                        borderColor: theme.colors.outlineSubtle,
+                        opacity: pressed ? 0.84 : 1,
+                      },
+                    ]}
+                    testID="detail-overflow-menu"
+                  >
+                    <IconDots color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                  </Pressable>
                 </View>
-              )}
+              </View>
             </View>
           </SurfaceCard>
         </View>
 
-        <View style={styles.actionStack} testID="detail-action-stack">
-          {isOwned && hasSingleOwnedEntry ? (
-            <Button
-              contentStyle={styles.primaryButtonContent}
-              disabled={!onOpenSell || !sellEntryId}
-              label="SELL CARD"
-              labelStyle={styles.primaryButtonLabel}
-              onPress={() => {
-                if (sellEntryId && onOpenSell) {
-                  onOpenSell(sellEntryId);
-                }
-              }}
-              size="lg"
-              testID="detail-sell-card"
-              variant="primary"
-            />
-          ) : !isOwned ? (
-            <Button
-              contentStyle={styles.primaryButtonContent}
-              label="ADD TO COLLECTION"
-              labelStyle={styles.primaryButtonLabel}
-              onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId)}
-              size="lg"
-              testID="detail-add-to-collection"
-              variant="primary"
-            />
-          ) : null}
-
+        {isOwned && sellEntryId && onOpenSell ? (
           <Button
-            contentStyle={styles.marketplaceButtonContent}
-            disabled={!marketplaceUrl}
-            label={marketplaceLabel}
-            labelStyle={styles.marketplaceButtonLabel}
-            onPress={marketplaceUrl
-              ? () => {
-                  void Linking.openURL(marketplaceUrl);
-                }
-              : undefined}
+            contentStyle={styles.primaryButtonContent}
+            label="SELL CARD"
+            labelStyle={styles.primaryButtonLabel}
+            onPress={() => {
+              onOpenSell(sellEntryId);
+            }}
             size="lg"
-            style={styles.marketplaceAction}
-            testID="detail-marketplace-cta"
-            trailingAccessory={(
-              <Image
-                source={require('../../../../assets/images/tcgplayer-icon.png')}
-                style={styles.marketplaceIcon}
-                testID="detail-marketplace-icon"
-              />
-            )}
-            variant="secondary"
+            testID="detail-sell-card"
+            variant="primary"
           />
+        ) : null}
 
-          <Button
-            contentStyle={styles.favoriteButtonContent}
-            disabled={isFavoritePending}
-            label={isFavorite ? 'FAVORITED' : 'FAVORITE CARD'}
-            labelStyle={styles.favoriteButtonLabel}
-            leadingAccessory={isFavorite
-              ? <IconHeartFilled color={favoriteHeartColor} size={18} />
-              : <IconHeart color={favoriteHeartColor} size={18} strokeWidth={2} />}
-            onPress={handleToggleFavorite}
-            size="lg"
-            testID="detail-favorite-card"
-            variant="secondary"
+        {similarScanCandidates.length > 0 ? (
+          <SimilarCardsButton
+            count={similarScanCandidates.length}
+            onPress={() => {
+              if (scanReviewId) {
+                onOpenScanCandidateReview?.(scanReviewId);
+              }
+            }}
           />
-
-          {similarScanCandidates.length > 0 ? (
-            <SimilarCardsButton
-              count={similarScanCandidates.length}
-              onPress={() => {
-                if (scanReviewId) {
-                  onOpenScanCandidateReview?.(scanReviewId);
-                }
-              }}
-            />
-          ) : null}
-        </View>
-
-        {selectedEntry ? (
-          <View style={styles.section}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => setIsCollectionExpanded((current) => !current)}
-              style={styles.sectionHeader}
-              testID="detail-collection-header-toggle"
-            >
-              <View style={styles.sectionHeaderButtonRow}>
-                <Text style={[theme.typography.title, styles.sectionHeaderTitle]} testID="detail-collection-header-label">
-                  {collectionTitle}
-                </Text>
-                <View style={styles.sectionHeaderChevronInline} testID="detail-collection-chevron-slot">
-                  <ChevronIcon
-                    collapsed={!isCollectionExpanded}
-                    testID="detail-collection-chevron-glyph"
-                  />
-                </View>
-              </View>
-            </Pressable>
-
-            {isCollectionExpanded ? (
-              <View style={styles.collectionList} testID="detail-collection-card">
-                {ownedEntries.map((entry, index) => (
-                  <View key={entry.id}>
-                    {index > 0 ? (
-                      <View
-                        style={[
-                          styles.collectionDivider,
-                          { backgroundColor: theme.colors.outlineSubtle },
-                        ]}
-                        testID={`detail-collection-divider-${index}`}
-                      />
-                    ) : null}
-
-                    <View style={styles.collectionRow} testID={`detail-collection-row-${entry.id}`}>
-                      <View style={styles.collectionArtPlate}>
-                        <Image
-                          source={{ uri: entry.imageUrl }}
-                          style={styles.collectionArt}
-                          testID={`detail-collection-art-${entry.id}`}
-                        />
-                      </View>
-
-                      <View style={styles.collectionBody}>
-                        <View style={styles.collectionTopRow}>
-                          <Text
-                            numberOfLines={1}
-                            style={[theme.typography.bodyStrong, styles.collectionSummary]}
-                            testID={`detail-collection-summary-${entry.id}`}
-                          >
-                            {ownedCollectionLabel(entry)}
-                          </Text>
-                        </View>
-
-                        <Text numberOfLines={2} style={[theme.typography.caption, styles.collectionMeta]}>
-                          {entry.setName}
-                        </Text>
-
-                        <Text
-                          style={[theme.typography.bodyStrong, styles.collectionPrice]}
-                          testID={`detail-collection-price-${entry.id}`}
-                        >
-                          {formatOptionalCurrency(
-                            entry.hasMarketPrice ? entry.marketPrice : null,
-                            entry.currencyCode,
-                          )}
-                        </Text>
-                      </View>
-
-                      <View style={styles.collectionActionsRow}>
-                        <View style={styles.collectionControlPill} testID={`detail-collection-controls-${entry.id}`}>
-                          <Pressable
-                            accessibilityLabel="Remove one from collection"
-                            accessibilityRole="button"
-                            disabled={isAdjustingInventory}
-                            onPress={() => handleDecrementCollection(entry)}
-                            style={({ pressed }) => [
-                              styles.collectionControlIconButton,
-                              {
-                                opacity: isAdjustingInventory ? 0.42 : pressed ? 0.7 : 1,
-                              },
-                            ]}
-                            testID={`detail-collection-decrement-${entry.id}`}
-                          >
-                            <TrashIcon />
-                          </Pressable>
-
-                          <Text
-                            style={[theme.typography.bodyStrong, styles.collectionControlQuantity]}
-                            testID={`detail-collection-quantity-${entry.id}`}
-                          >
-                            {entry.quantity}
-                          </Text>
-
-                          <Pressable
-                            accessibilityLabel="Add to collection"
-                            accessibilityRole="button"
-                            onPress={() => onOpenAddToCollection(selectedEntry.cardId)}
-                            style={({ pressed }) => [
-                              styles.collectionControlIconButton,
-                              {
-                                opacity: pressed ? 0.7 : 1,
-                              },
-                            ]}
-                          >
-                            <PlusIcon />
-                          </Pressable>
-                        </View>
-
-                        <View style={styles.collectionSecondaryActions}>
-                          <Pressable
-                            accessibilityLabel="Edit collection item"
-                            accessibilityRole="button"
-                            onPress={() => onOpenAddToCollection(selectedEntry.cardId, entry.id)}
-                            style={({ pressed }) => [
-                              styles.collectionEditButton,
-                              {
-                                opacity: pressed ? 0.72 : 1,
-                              },
-                            ]}
-                            testID={`detail-collection-edit-${entry.id}`}
-                          >
-                            <EditIcon />
-                          </Pressable>
-
-                          <Pressable
-                            accessibilityLabel="Sell collection item"
-                            accessibilityRole="button"
-                            disabled={!onOpenSell}
-                            onPress={() => {
-                              if (onOpenSell) {
-                                onOpenSell(entry.id);
-                              }
-                            }}
-                            style={({ pressed }) => [
-                              styles.collectionSellButton,
-                              {
-                                opacity: !onOpenSell ? 0.42 : pressed ? 0.72 : 1,
-                              },
-                            ]}
-                            testID={`detail-collection-sell-${entry.id}`}
-                          >
-                            <SellEntryIcon />
-                          </Pressable>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-                ))}
-
-                {inventoryActionError ? (
-                  <Text style={[theme.typography.caption, styles.inventoryActionError, { color: theme.colors.danger }]}>
-                    {inventoryActionError}
-                  </Text>
-                ) : null}
-              </View>
-            ) : null}
-          </View>
         ) : null}
 
         <View style={styles.section}>
-          <View style={styles.marketHeader}>
-            <Text style={[theme.typography.headline, styles.marketHeaderTitle]} testID="detail-market-header-label">
-              Market value
-            </Text>
-          </View>
-
           <View testID="detail-market-card">
             <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
-              {hasMarketHistoryPoints && effectiveMarketHistory ? (
-                <>
+              <View style={styles.priceHeaderRow}>
+                <ConditionDropdown
+                  disabled={isSlabDetail || marketConditionOptions.length === 0}
+                  onSelect={(id) => setSelectedConditionId(id)}
+                  options={marketConditionOptions}
+                  selectedId={selectedCondition?.id ?? null}
+                  selectedLabel={conditionDropdownLabel}
+                  testID="detail-condition-dropdown"
+                />
+                {pricesFreshnessLabel ? (
+                  <View style={styles.freshnessRow}>
+                    <Text
+                      style={[theme.typography.caption, styles.priceFreshnessLabel]}
+                      testID="detail-prices-freshness"
+                    >
+                      {pricesFreshnessLabel}
+                    </Text>
+                    {shouldShowRecentSalesRefresh ? (
+                      isRecentSalesLoading && recentSales ? (
+                        <ActivityIndicator color="rgba(15, 15, 18, 0.52)" size="small" testID="detail-recent-sales-loading-inline" />
+                      ) : (
+                        <Pressable
+                          accessibilityLabel="Refresh recent eBay sales"
+                          accessibilityRole="button"
+                          onPress={() => {
+                            void loadRecentSales('refresh');
+                          }}
+                          style={({ pressed }) => [
+                            styles.freshnessRefreshButton,
+                            { opacity: pressed ? 0.72 : 1 },
+                          ]}
+                          testID="detail-recent-sales-refresh"
+                        >
+                          <IconRefresh color="rgba(15, 15, 18, 0.58)" size={14} strokeWidth={1.9} />
+                        </Pressable>
+                      )
+                    ) : null}
+                  </View>
+                ) : null}
+              </View>
+
+              <View style={styles.priceRow}>
+                <View style={styles.priceColumn}>
                   <Text
                     style={[theme.typography.display, styles.marketValueTitle]}
                     testID="detail-market-price"
                   >
                     {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
                   </Text>
-                  <View style={styles.insightsRow}>
-                    {effectiveMarketHistory.insights.map((insight) => (
-                      <View key={insight.id} style={styles.insightBlock}>
-                        {insight.deltaAmount != null ? (
-                          <Text
-                            style={[
-                              theme.typography.caption,
-                              { color: (insight.deltaAmount ?? 0) >= 0 ? theme.colors.success : theme.colors.danger },
-                            ]}
-                          >
-                            {formatSignedCurrency(insight.deltaAmount, displayCurrencyCode)}
-                            {' '}
-                            ({formatPercent(insight.deltaPercent ?? 0)})
-                          </Text>
-                        ) : (
-                          <Text style={[theme.typography.caption, styles.insightMuted]}>—</Text>
-                        )}
-                        <Text style={[theme.typography.micro, styles.insightLabel]}>{insight.label}</Text>
-                      </View>
-                    ))}
-                  </View>
-
-                  <HistoryChart
-                    currencyCode={displayCurrencyCode}
-                    currentPrice={displayedPrice ?? 0}
-                    points={effectiveMarketHistory.points}
-                    tintColor={marketTint}
-                  />
-                </>
-              ) : (
-                <View style={styles.lazyMarketBlock} testID="detail-scan-preview-market">
-                  <Text style={styles.previewMarketValue} testID="detail-market-price">
-                    {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
-                  </Text>
-                  {errorMessage ? (
-                    <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
-                      {errorMessage}
-                    </Text>
-                  ) : null}
+                  <Text style={[theme.typography.caption, styles.priceColumnLabel]}>Market price</Text>
                 </View>
-              )}
 
-              {!isSlabDetail && marketConditionOptions.length > 0 ? (
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.conditionChipRow}
-                  testID="detail-condition-chip-scroll"
-                >
-                  {marketConditionOptions.map((condition) => {
-                    const isSelected = condition.id === selectedCondition?.id;
+                {suggestedDisplayPrice != null ? (
+                  <View style={styles.priceColumn} testID="detail-suggested-price-column">
+                    <Text
+                      style={[theme.typography.display, styles.suggestedValueTitle]}
+                      testID="detail-suggested-price"
+                    >
+                      {formatCurrency(suggestedDisplayPrice, displayCurrencyCode)}
+                    </Text>
+                    <Text
+                      style={[theme.typography.caption, styles.priceColumnLabel]}
+                      testID="detail-suggested-price-label"
+                    >
+                      {`Suggested (−${discountPct ?? 0}%)`}
+                    </Text>
+                  </View>
+                ) : null}
+              </View>
 
+              {isSlabDetail && slabLastSoldRows.length > 0 ? (
+                <View style={styles.slabLastSoldBlock} testID="detail-slab-last-sold">
+                  <Text style={[theme.typography.caption, styles.slabLastSoldHeader]}>
+                    Last sold · eBay
+                  </Text>
+                  {slabLastSoldRows.map((sale, index) => {
+                    const soldDateLabel = formatListingDateLabel(sale.soldAt);
                     return (
                       <Pressable
-                        key={condition.id}
-                        accessibilityRole="button"
-                        disabled={!condition.isAvailable}
+                        key={sale.id}
+                        accessibilityRole={sale.saleUrl ? 'button' : undefined}
+                        disabled={!sale.saleUrl}
                         onPress={() => {
-                          if (condition.isAvailable) {
-                            setSelectedConditionId(condition.id);
+                          if (sale.saleUrl) {
+                            capturePostHogEvent('card_recent_sales_row_opened', {
+                              detail_kind: 'slab',
+                              row_index: index,
+                              sale_count_bucket: recentSalesCountBucket(recentSales?.saleCount ?? recentSales?.sales.length ?? 0),
+                              sales_provider: 'scrydex',
+                              sales_source: 'ebay',
+                            });
+                            void Linking.openURL(sale.saleUrl);
                           }
                         }}
                         style={({ pressed }) => [
-                          styles.conditionChip,
-                          {
-                            backgroundColor: isSelected ? theme.colors.surfaceMuted : '#F7F8FA',
-                            borderColor: isSelected ? theme.colors.brand : 'rgba(15, 15, 18, 0.08)',
-                            opacity: condition.isAvailable ? (pressed ? 0.92 : 1) : 0.56,
-                          },
+                          styles.slabLastSoldRow,
+                          { opacity: sale.saleUrl && pressed ? 0.9 : 1 },
                         ]}
-                        testID={`detail-condition-chip-${condition.id}`}
+                        testID={`detail-slab-last-sold-row-${index}`}
                       >
-                        <Text style={[theme.typography.caption, styles.conditionLabel]}>
-                          {condition.shortLabel}
-                        </Text>
-                        <Text style={[theme.typography.bodyStrong, styles.conditionPrice]}>
-                          {condition.currentPrice != null
-                            ? formatCurrency(condition.currentPrice, displayCurrencyCode)
+                        <View style={styles.slabLastSoldRowMain}>
+                          <Text
+                            numberOfLines={1}
+                            style={[theme.typography.bodyStrong, styles.slabLastSoldTitle]}
+                          >
+                            {sale.title}
+                          </Text>
+                          {soldDateLabel ? (
+                            <Text style={[theme.typography.micro, styles.slabLastSoldMeta]}>
+                              {soldDateLabel}
+                            </Text>
+                          ) : null}
+                        </View>
+                        <Text style={[theme.typography.bodyStrong, styles.slabLastSoldPrice]}>
+                          {sale.priceAmount != null
+                            ? formatCurrency(sale.priceAmount, sale.currencyCode)
                             : '—'}
                         </Text>
                       </Pressable>
                     );
                   })}
-                </ScrollView>
+                </View>
+              ) : null}
+
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => setIsPriceDetailsExpanded((current) => !current)}
+                style={({ pressed }) => [
+                  styles.priceDetailsToggle,
+                  { opacity: pressed ? 0.72 : 1 },
+                ]}
+                testID="detail-price-details-toggle"
+              >
+                <Text style={[theme.typography.control, styles.priceDetailsToggleLabel]}>
+                  {isPriceDetailsExpanded ? 'Show less' : 'Show more'}
+                </Text>
+                {isPriceDetailsExpanded ? (
+                  <IconChevronUp color={theme.colors.textPrimary} size={16} strokeWidth={2.2} />
+                ) : (
+                  <IconChevronDown color={theme.colors.textPrimary} size={16} strokeWidth={2.2} />
+                )}
+              </Pressable>
+
+              {isPriceDetailsExpanded ? (
+                <View style={styles.priceDetailsBody} testID="detail-price-details-body">
+                  <View style={styles.trendChipRow} testID="detail-trend-chip-row">
+                    <TrendChip days={7} testID="detail-trend-chip-7d" value={activeTrendsPct?.days7 ?? null} />
+                    <TrendChip days={30} testID="detail-trend-chip-30d" value={activeTrendsPct?.days30 ?? null} />
+                    <TrendChip days={90} testID="detail-trend-chip-90d" value={activeTrendsPct?.days90 ?? null} />
+                  </View>
+                </View>
               ) : null}
             </SurfaceCard>
           </View>
         </View>
 
-        {shouldShowRecentSales ? (
-          <View style={styles.section}>
-            <View style={styles.marketHeader}>
-              <Text style={[theme.typography.headline, styles.marketHeaderTitle]} testID="detail-recent-sales-header-label">
-                Recent Sales
-              </Text>
-            </View>
-
-            <View testID="detail-recent-sales-card">
-              <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
-                {recentSalesUpdatedLabel || shouldShowRecentSalesRefresh ? (
-                  <View style={styles.marketTimestampRow}>
-                    {recentSalesUpdatedLabel ? (
-                      <Text style={[theme.typography.caption, styles.marketTimestamp]} testID="detail-recent-sales-updated">
-                        {recentSalesUpdatedLabel}
-                      </Text>
-                    ) : (
-                      <View />
-                    )}
-
-                    {shouldShowRecentSalesRefresh ? (
-                      isRecentSalesLoading && recentSales ? (
-                        <View style={styles.marketTimestampAction} testID="detail-recent-sales-loading-inline">
-                          <ActivityIndicator color="rgba(15, 15, 18, 0.52)" size="small" />
-                        </View>
-                      ) : (
-                        <IconButton
-                          accessibilityLabel="Refresh recent eBay sales"
-                          onPress={() => {
-                            void loadRecentSales('refresh');
-                          }}
-                          size={28}
-                          style={styles.marketTimestampAction}
-                          testID="detail-recent-sales-refresh"
-                          variant="ghost"
-                        >
-                          <IconRefresh color="rgba(15, 15, 18, 0.58)" size={16} strokeWidth={1.9} />
-                        </IconButton>
-                      )
-                    ) : null}
-                  </View>
-                ) : null}
-
-                {recentSales?.status === 'available' && sortedRecentSales.length > 0 ? (
-                  <>
-                    <ScrollView
-                      contentContainerStyle={styles.ebayList}
-                      nestedScrollEnabled
-                      showsVerticalScrollIndicator={sortedRecentSales.length > 5}
-                      style={styles.ebayListScroll}
-                      testID="detail-recent-sales-list"
-                    >
-                      {sortedRecentSales.map((sale, index) => {
-                        const soldDateLabel = formatListingDateLabel(sale.soldAt);
-
-                        return (
-                          <Pressable
-                            key={sale.id}
-                            accessibilityRole={sale.saleUrl ? 'button' : undefined}
-                            disabled={!sale.saleUrl}
-                            onPress={() => {
-                              if (sale.saleUrl) {
-                                capturePostHogEvent('card_recent_sales_row_opened', {
-                                  detail_kind: 'slab',
-                                  row_index: index,
-                                  sale_count_bucket: recentSalesCountBucket(recentSales?.saleCount ?? recentSales?.sales.length ?? 0),
-                                  sales_provider: 'scrydex',
-                                  sales_source: 'ebay',
-                                });
-                                void Linking.openURL(sale.saleUrl);
-                              }
-                            }}
-                            style={({ pressed }) => [
-                              styles.ebayRow,
-                              {
-                                opacity: sale.saleUrl && pressed ? 0.9 : 1,
-                              },
-                            ]}
-                            testID={`detail-recent-sales-row-${index}`}
-                          >
-                            <EbayWordmarkBadge />
-
-                            <View style={styles.ebayRowBody}>
-                              <Text numberOfLines={2} style={[theme.typography.bodyStrong, styles.ebayTitle]}>
-                                {sale.title}
-                              </Text>
-                              {soldDateLabel ? (
-                                <Text style={[theme.typography.caption, styles.ebayMeta]}>
-                                  {soldDateLabel}
-                                </Text>
-                              ) : null}
-                            </View>
-
-                            <View style={styles.ebayPriceBlock}>
-                              <Text style={[theme.typography.bodyStrong, styles.ebayPrice]}>
-                                {sale.priceAmount != null
-                                  ? formatCurrency(sale.priceAmount, sale.currencyCode)
-                                  : '—'}
-                              </Text>
-                              <Text style={[theme.typography.micro, styles.ebayOpenCopy]}>
-                                {sale.saleUrl ? 'Sold' : 'Unavailable'}
-                              </Text>
-                            </View>
-                          </Pressable>
-                        );
-                      })}
-                    </ScrollView>
-                  </>
-                ) : isRecentSalesLoading && !recentSales ? (
-                  <View style={styles.ebayEmptyState}>
-                    <Text style={[theme.typography.bodyStrong, styles.ebayTitle]}>
-                      Recent Sales
-                    </Text>
-                    <Text style={[theme.typography.caption, styles.ebayMeta]}>
-                      Loading recent eBay sales...
-                    </Text>
-                  </View>
-                ) : shouldShowRecentSalesLoad ? (
-                  <View style={styles.ebayEmptyState}>
-                    <Text style={[theme.typography.bodyStrong, styles.ebayTitle]}>
-                      Recent Sales
-                    </Text>
-                    <Text style={[theme.typography.caption, styles.ebayMeta]}>
-                      Load recent eBay sales for this slab when you need them.
-                    </Text>
-                    <Button
-                      contentStyle={styles.ebayButtonContent}
-                      disabled={isRecentSalesLoading}
-                      label={isRecentSalesLoading ? 'Loading recent eBay sales...' : 'Load recent eBay sales'}
-                      labelStyle={styles.marketplaceButtonLabel}
-                      leadingAccessory={<EbayWordmarkBadge />}
-                      onPress={() => {
-                        void loadRecentSales('load');
-                      }}
-                      size="lg"
-                      style={styles.ebayViewAllButton}
-                      testID="detail-recent-sales-load"
-                      variant="secondary"
-                    />
-                    {recentSalesErrorMessage ? (
-                      <Text style={[theme.typography.caption, styles.ebayMeta]}>
-                        {recentSalesErrorMessage}
-                      </Text>
-                    ) : null}
-                  </View>
-                ) : (
-                  <View style={styles.ebayEmptyState}>
-                    <Text style={[theme.typography.bodyStrong, styles.ebayTitle]}>
-                      Recent eBay sales unavailable
-                    </Text>
-                    <Text style={[theme.typography.caption, styles.ebayMeta]}>
-                      {recentSalesErrorMessage ?? recentSales?.unavailableReason ?? 'No recent sold sales were returned for this slab.'}
-                    </Text>
-                  </View>
-                )}
-                {recentSales?.status === 'available' && recentSalesErrorMessage ? (
-                  <Text style={[theme.typography.caption, styles.ebayMeta]}>
-                    {recentSalesErrorMessage}
+        <View style={styles.section}>
+          <View testID="detail-history-card">
+            <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
+              {hasMarketHistoryPoints ? (
+                <HistoryChart
+                  currencyCode={displayCurrencyCode}
+                  currentPrice={safeNumericDisplayedPrice}
+                  points={timeframeFilteredPoints}
+                  tintColor={marketTint}
+                />
+              ) : (
+                <View style={styles.lazyMarketBlock} testID="detail-history-empty">
+                  <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
+                    Price history is still populating.
                   </Text>
-                ) : null}
-              </SurfaceCard>
-            </View>
+                </View>
+              )}
+
+              <View style={styles.timeframeRow} testID="detail-timeframe-row">
+                {timeframeOptions.map((option) => {
+                  const isSelected = option.id === selectedTimeframeId;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      accessibilityRole="button"
+                      onPress={() => setSelectedTimeframeId(option.id)}
+                      style={({ pressed }) => [
+                        styles.timeframeChip,
+                        {
+                          backgroundColor: isSelected ? theme.colors.surfaceMuted : '#F7F8FA',
+                          borderColor: isSelected ? theme.colors.brand : 'rgba(15, 15, 18, 0.08)',
+                          opacity: pressed ? 0.92 : 1,
+                        },
+                      ]}
+                      testID={`detail-timeframe-${option.id}`}
+                    >
+                      <Text style={[theme.typography.caption, styles.timeframeChipLabel]}>
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </SurfaceCard>
           </View>
-        ) : null}
+        </View>
+
+        <Button
+          contentStyle={styles.marketplaceButtonContent}
+          disabled={!marketplaceUrl}
+          label="View on TCGplayer"
+          labelStyle={styles.marketplaceButtonLabel}
+          onPress={marketplaceUrl
+            ? () => {
+                void Linking.openURL(marketplaceUrl);
+              }
+            : undefined}
+          size="lg"
+          style={styles.marketplaceAction}
+          testID="detail-marketplace-cta"
+          trailingAccessory={(
+            <Image
+              source={require('../../../../assets/images/tcgplayer-icon.png')}
+              style={styles.marketplaceIcon}
+              testID="detail-marketplace-icon"
+            />
+          )}
+          variant="secondary"
+        />
       </ScrollView>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setIsOverflowMenuOpen(false)}
+        transparent
+        visible={isOverflowMenuOpen}
+      >
+        <Pressable
+          accessibilityLabel="Close menu"
+          onPress={() => setIsOverflowMenuOpen(false)}
+          style={styles.dropdownBackdrop}
+          testID="detail-overflow-backdrop"
+        >
+          <Pressable onPress={() => undefined} style={styles.dropdownSheet}>
+            {sellEntryId && onOpenSell ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setIsOverflowMenuOpen(false);
+                  onOpenSell(sellEntryId);
+                }}
+                style={({ pressed }) => [
+                  styles.dropdownOption,
+                  { opacity: pressed ? 0.84 : 1 },
+                ]}
+                testID="detail-overflow-sell"
+              >
+                <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
+                  Sell card
+                </Text>
+              </Pressable>
+            ) : null}
+            <Pressable
+              accessibilityRole="button"
+              onPress={() => {
+                setIsOverflowMenuOpen(false);
+                onOpenAddToCollection(detail?.cardId ?? cardId, isOwned ? sellEntryId : undefined);
+              }}
+              style={({ pressed }) => [
+                styles.dropdownOption,
+                { opacity: pressed ? 0.84 : 1 },
+              ]}
+              testID="detail-overflow-edit-collection"
+            >
+              <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
+                {isOwned ? 'Edit collection entry' : 'Add to collection'}
+              </Text>
+            </Pressable>
+            {marketplaceUrl ? (
+              <Pressable
+                accessibilityRole="button"
+                onPress={() => {
+                  setIsOverflowMenuOpen(false);
+                  void Linking.openURL(marketplaceUrl);
+                }}
+                style={({ pressed }) => [
+                  styles.dropdownOption,
+                  { opacity: pressed ? 0.84 : 1 },
+                ]}
+                testID="detail-overflow-tcgplayer"
+              >
+                <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
+                  View on TCGplayer
+                </Text>
+              </Pressable>
+            ) : null}
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  actionStack: {
-    gap: 12,
-  },
   backPlate: {
     alignSelf: 'flex-start',
   },
@@ -1686,22 +1627,6 @@ const styles = StyleSheet.create({
   },
   chartContainer: {
     gap: 2,
-  },
-  chartEmptyCopy: {
-    color: 'rgba(15, 15, 18, 0.52)',
-    textAlign: 'center',
-  },
-  chartEmptyState: {
-    alignItems: 'center',
-    backgroundColor: '#F4F6F8',
-    borderRadius: 18,
-    gap: 8,
-    minHeight: 210,
-    justifyContent: 'center',
-    paddingHorizontal: 20,
-  },
-  chartEmptyTitle: {
-    textAlign: 'center',
   },
   chartFrame: {
     backgroundColor: '#F7F8FA',
@@ -1726,244 +1651,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     paddingHorizontal: 10,
   },
-  chevronCollapsed: {
-    transform: [{ rotate: '-90deg' }],
-  },
-  chevronIconFrame: {
-    alignItems: 'center',
-    height: 20,
-    justifyContent: 'center',
-    width: 20,
-  },
-  chevronIconInner: {
-    height: 9,
-    position: 'relative',
-    width: 14,
-  },
-  chevronIconStem: {
-    backgroundColor: 'rgba(15, 15, 18, 0.58)',
-    borderRadius: 999,
-    height: 2.2,
-    position: 'absolute',
-    top: 3,
-    width: 8,
-  },
-  chevronIconStemLeft: {
-    left: 0,
-    transform: [{ rotate: '45deg' }],
-  },
-  chevronIconStemRight: {
-    right: 0,
-    transform: [{ rotate: '-45deg' }],
-  },
   chartSvg: {
     ...StyleSheet.absoluteFillObject,
-  },
-  ebayBadge: {
-    alignItems: 'center',
-    backgroundColor: '#F7F8FA',
-    borderColor: 'rgba(15, 15, 18, 0.08)',
-    borderRadius: 12,
-    borderWidth: 1,
-    height: 38,
-    justifyContent: 'center',
-    width: 38,
-  },
-  ebayBlue: {
-    color: '#0064D2',
-  },
-  ebayEmptyState: {
-    gap: 6,
-  },
-  ebayGreen: {
-    color: '#86B817',
-  },
-  ebayList: {
-    gap: 10,
-  },
-  ebayListScroll: {
-    maxHeight: 392,
-  },
-  ebayMeta: {
-    color: 'rgba(15, 15, 18, 0.52)',
-  },
-  ebayOpenCopy: {
-    color: 'rgba(15, 15, 18, 0.44)',
-  },
-  ebayPrice: {
-    color: '#0F0F12',
-    textAlign: 'right',
-  },
-  ebayPriceBlock: {
-    alignItems: 'flex-end',
-    gap: 4,
-    minWidth: 74,
-  },
-  ebayRed: {
-    color: '#E53238',
-  },
-  ebayRow: {
-    alignItems: 'center',
-    backgroundColor: '#F7F8FA',
-    borderColor: 'rgba(15, 15, 18, 0.08)',
-    borderRadius: 18,
-    borderWidth: 1,
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-  },
-  ebayRowBody: {
-    flex: 1,
-    gap: 4,
-  },
-  ebayTitle: {
-    color: '#0F0F12',
-  },
-  ebayViewAllButton: {
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderColor: 'rgba(15, 15, 18, 0.08)',
-  },
-  ebayWordmark: {
-    fontSize: 13,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-  },
-  ebayYellow: {
-    color: '#F5AF02',
-  },
-  collectionArt: {
-    height: '100%',
-    resizeMode: 'cover',
-    width: '100%',
-  },
-  collectionArtPlate: {
-    backgroundColor: 'transparent',
-    borderRadius: 14,
-    height: 64,
-    overflow: 'hidden',
-    width: 48,
-  },
-  collectionActionsRow: {
-    alignItems: 'center',
-    alignSelf: 'center',
-    flexDirection: 'row',
-    flexShrink: 0,
-    gap: 8,
-  },
-  collectionBody: {
-    flex: 1,
-    gap: 6,
-    minHeight: 64,
-    minWidth: 0,
-  },
-  collectionDivider: {
-    height: 1,
-    marginVertical: 10,
-    width: '100%',
-  },
-  collectionControlIconButton: {
-    alignItems: 'center',
-    borderRadius: 999,
-    height: 24,
-    justifyContent: 'center',
-    width: 24,
-  },
-  collectionControlPill: {
-    alignItems: 'center',
-    backgroundColor: '#F3F0E8',
-    borderRadius: 999,
-    flexDirection: 'row',
-    flexShrink: 0,
-    gap: 4,
-    minHeight: 40,
-    paddingHorizontal: 4,
-  },
-  collectionControlQuantity: {
-    color: '#0F0F12',
-    fontSize: 14,
-    lineHeight: 16,
-    minWidth: 20,
-    textAlign: 'center',
-  },
-  collectionEditButton: {
-    alignItems: 'center',
-    backgroundColor: '#F7F8FA',
-    borderRadius: 999,
-    height: 28,
-    justifyContent: 'center',
-    width: 28,
-  },
-  collectionSecondaryActions: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  collectionSellButton: {
-    alignItems: 'center',
-    backgroundColor: '#FFE24B',
-    borderRadius: 999,
-    height: 28,
-    justifyContent: 'center',
-    width: 28,
-  },
-  collectionSellButtonLabel: {
-    color: '#0F0F12',
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 16,
-    textAlign: 'center',
-  },
-  collectionList: {
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderColor: 'rgba(15, 15, 18, 0.06)',
-    borderRadius: 24,
-    borderWidth: 1,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-  },
-  collectionMeta: {
-    color: 'rgba(15, 15, 18, 0.5)',
-  },
-  collectionPrice: {
-    color: '#0F0F12',
-    fontSize: 16,
-    lineHeight: 20,
-  },
-  collectionRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
-    minHeight: 72,
-  },
-  collectionSummary: {
-    color: '#0F0F12',
-    flexShrink: 1,
-    fontSize: 14,
-    lineHeight: 18,
-  },
-  collectionTopRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-  },
-  conditionChip: {
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 6,
-    minWidth: 100,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  conditionChipRow: {
-    gap: 8,
-    paddingRight: 8,
-    paddingTop: 4,
-  },
-  conditionLabel: {
-    color: 'rgba(15, 15, 18, 0.72)',
-  },
-  conditionPrice: {
-    color: '#0F0F12',
   },
   content: {
     gap: 20,
@@ -1971,31 +1660,76 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
   },
+  dropdownBackdrop: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.42)',
+    flex: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 24,
+  },
+  dropdownOption: {
+    alignItems: 'center',
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 12,
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 12,
+  },
+  dropdownOptionLabel: {
+    flex: 1,
+  },
+  dropdownOptionPrice: {
+    textAlign: 'right',
+  },
+  dropdownSheet: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    padding: 8,
+    width: '100%',
+  },
+  dropdownTrigger: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 999,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  dropdownTriggerLabel: {
+    color: '#0F0F12',
+  },
   errorCopy: {
     marginTop: 8,
     textAlign: 'center',
   },
-  favoriteButtonContent: {
-    justifyContent: 'flex-start',
-    width: '100%',
+  freshnessRefreshButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    height: 24,
+    justifyContent: 'center',
+    width: 24,
   },
-  favoriteButtonLabel: {
-    flex: 1,
-    textAlign: 'left',
+  freshnessRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
   },
   heroArt: {
-    height: 320,
+    height: 160,
     resizeMode: 'contain',
-    width: 230,
+    width: 112,
   },
   heroArtFallback: {
     alignItems: 'center',
     backgroundColor: '#FFFFFF',
-    borderRadius: 26,
-    height: 320,
+    borderRadius: 14,
+    height: 160,
     justifyContent: 'center',
-    paddingHorizontal: 20,
-    width: 230,
+    paddingHorizontal: 10,
+    width: 112,
   },
   heroArtFallbackText: {
     color: 'rgba(15, 15, 18, 0.5)',
@@ -2004,13 +1738,10 @@ const styles = StyleSheet.create({
   heroArtStage: {
     alignItems: 'center',
     backgroundColor: 'transparent',
-    borderRadius: 32,
-    height: 388,
+    borderRadius: 18,
+    flexShrink: 0,
     justifyContent: 'center',
-    marginTop: 20,
     overflow: 'hidden',
-    paddingHorizontal: 12,
-    paddingVertical: 20,
   },
   heroCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.92)',
@@ -2020,38 +1751,55 @@ const styles = StyleSheet.create({
   },
   heroCopy: {
     alignItems: 'flex-start',
+    flex: 1,
     gap: 6,
-    width: '100%',
+    minWidth: 0,
+  },
+  heroIconButton: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderRadius: 999,
+    borderWidth: 1,
+    height: 34,
+    justifyContent: 'center',
+    width: 34,
+  },
+  heroIconRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
   },
   heroName: {
-    marginTop: 2,
+    width: '100%',
+  },
+  heroRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 16,
     width: '100%',
   },
   heroSubtitle: {
     width: '100%',
   },
-  insightBlock: {
-    flex: 1,
-    gap: 4,
+  lazyDetailCopy: {
+    color: 'rgba(15, 15, 18, 0.52)',
   },
-  insightLabel: {
-    color: 'rgba(15, 15, 18, 0.46)',
-  },
-  insightMuted: {
-    color: 'rgba(15, 15, 18, 0.36)',
-  },
-  insightsRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  inventoryActionError: {
-    lineHeight: 16,
+  lazyMarketBlock: {
+    gap: 8,
   },
   loadingState: {
     alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 32,
+  },
+  marketCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    gap: 16,
+  },
+  marketValueTitle: {
+    color: '#0F0F12',
+    marginBottom: 4,
   },
   marketplaceAction: {
     backgroundColor: 'rgba(255, 255, 255, 0.92)',
@@ -2071,47 +1819,46 @@ const styles = StyleSheet.create({
     height: 26,
     width: 26,
   },
-  lazyDetailCopy: {
+  priceColumn: {
+    flex: 1,
+    gap: 2,
+  },
+  priceColumnLabel: {
     color: 'rgba(15, 15, 18, 0.52)',
   },
-  lazyMarketBlock: {
-    gap: 8,
+  priceDetailsBody: {
+    gap: 14,
   },
-  ebayButtonContent: {
-    justifyContent: 'flex-start',
-    width: '100%',
-  },
-  marketCard: {
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    gap: 16,
-  },
-  marketHeader: {
-    alignItems: 'flex-start',
-  },
-  marketHeaderTitle: {
-    fontSize: 18,
-    lineHeight: 22,
-  },
-  marketTimestamp: {
-    color: 'rgba(15, 15, 18, 0.52)',
-  },
-  marketTimestampAction: {
+  priceDetailsToggle: {
     alignItems: 'center',
-    borderRadius: 999,
-    height: 28,
-    justifyContent: 'center',
-    marginRight: -6,
-    width: 28,
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    gap: 4,
+    paddingVertical: 4,
   },
-  marketTimestampRow: {
+  priceDetailsToggleLabel: {
+    color: '#0F0F12',
+  },
+  priceFreshnessLabel: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  priceHeaderRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 2,
+    flexWrap: 'wrap',
+    gap: 8,
     justifyContent: 'space-between',
   },
-  marketValueTitle: {
+  priceRow: {
+    alignItems: 'flex-start',
+    flexDirection: 'row',
+    gap: 16,
+  },
+  previewMarketValue: {
     color: '#0F0F12',
-    marginBottom: 4,
+    fontSize: 48,
+    fontWeight: '800',
+    lineHeight: 56,
   },
   primaryButtonContent: {
     justifyContent: 'flex-start',
@@ -2121,35 +1868,11 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'left',
   },
-  previewMarketValue: {
-    color: '#0F0F12',
-    fontSize: 48,
-    fontWeight: '800',
-    lineHeight: 56,
-  },
   safeArea: {
     flex: 1,
   },
   section: {
     gap: 12,
-  },
-  sectionHeader: {
-    alignSelf: 'flex-start',
-  },
-  sectionHeaderButtonRow: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-  },
-  sectionHeaderChevronInline: {
-    alignItems: 'center',
-    height: 20,
-    justifyContent: 'center',
-    marginLeft: -2,
-    width: 20,
-  },
-  sectionHeaderTitle: {
-    paddingRight: 4,
   },
   similarCardsButton: {
     alignItems: 'center',
@@ -2176,5 +1899,81 @@ const styles = StyleSheet.create({
     color: '#0F0F12',
     flex: 1,
     textAlign: 'left',
+  },
+  slabLastSoldBlock: {
+    gap: 6,
+  },
+  slabLastSoldHeader: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  slabLastSoldMeta: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  slabLastSoldPrice: {
+    color: '#0F0F12',
+    minWidth: 70,
+    textAlign: 'right',
+  },
+  slabLastSoldRow: {
+    alignItems: 'center',
+    backgroundColor: '#F7F8FA',
+    borderColor: 'rgba(15, 15, 18, 0.08)',
+    borderRadius: 14,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  slabLastSoldRowMain: {
+    flex: 1,
+    gap: 2,
+  },
+  slabLastSoldTitle: {
+    color: '#0F0F12',
+  },
+  suggestedValueTitle: {
+    color: '#0F0F12',
+    marginBottom: 4,
+  },
+  timeframeChip: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  timeframeChipLabel: {
+    color: 'rgba(15, 15, 18, 0.72)',
+  },
+  timeframeRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  trendChip: {
+    alignItems: 'flex-start',
+    backgroundColor: '#F7F8FA',
+    borderColor: 'rgba(15, 15, 18, 0.08)',
+    borderRadius: 14,
+    borderWidth: 1,
+    flex: 1,
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  trendChipLabel: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  trendChipRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  trendChipValueMuted: {
+    color: 'rgba(15, 15, 18, 0.42)',
+  },
+  trendChipValueRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 4,
   },
 });

@@ -791,7 +791,7 @@ describe('ScannerScreen', () => {
     expect(screen.getByText('PSA • 9')).toBeTruthy();
     expect(screen.getByText('#232/193')).toBeTruthy();
     expect(screen.getByText('Mega 2A')).toBeTruthy();
-    expect(screen.getByText('Market value')).toBeTruthy();
+    expect(screen.getByText('Market avg')).toBeTruthy();
     expect(screen.getAllByText('$30.83').length).toBeGreaterThan(0);
     expect(screen.getByTestId('scanner-tray-image-0').props.source).toEqual({
       uri: 'https://cdn.spotlight.test/m2a-232.png',

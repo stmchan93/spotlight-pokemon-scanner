@@ -1713,6 +1713,8 @@ def _default_display_currency_code(
 def _coerce_price_summary_from_entry(entry: dict[str, Any] | None) -> dict[str, Any] | None:
     if not isinstance(entry, dict):
         return None
+    trends_pct_raw = entry.get("trendsPct")
+    trends_pct = dict(trends_pct_raw) if isinstance(trends_pct_raw, dict) else None
     return {
         "currencyCode": entry.get("currencyCode"),
         "low": entry.get("low"),
@@ -1721,6 +1723,7 @@ def _coerce_price_summary_from_entry(entry: dict[str, Any] | None) -> dict[str, 
         "high": entry.get("high"),
         "directLow": entry.get("directLow"),
         "trend": entry.get("trend"),
+        "trendsPct": trends_pct,
         "payload": dict(entry.get("payload") or {}),
     }
 
@@ -3618,6 +3621,7 @@ def price_snapshot_for_card(
         "high": summary.get("high"),
         "directLow": summary.get("directLow"),
         "trend": summary.get("trend"),
+        "trendsPct": summary.get("trendsPct"),
         "sourceURL": row["source_url"],
         "updatedAt": row["source_updated_at"],
         "refreshedAt": row["updated_at"],

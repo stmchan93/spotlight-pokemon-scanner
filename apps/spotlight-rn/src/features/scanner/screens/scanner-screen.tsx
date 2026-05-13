@@ -1533,7 +1533,7 @@ export function ScannerScreen({
                 <Text style={styles.capturePriceValue}>
                   {formatCurrency(isFinitePrice(marketPrice) ? marketPrice : 0, currencyCode)}
                 </Text>
-                <Text style={styles.capturePriceLabel}>Market value</Text>
+                <Text style={styles.capturePriceLabel}>Market avg</Text>
                 {quantity > 0 ? (
                   <Text style={styles.captureQuantityText} testID={`scanner-tray-qty-${index}`}>QTY {quantity}</Text>
                 ) : null}
