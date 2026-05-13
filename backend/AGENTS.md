@@ -66,6 +66,7 @@ Backend-specific workflow notes for future coding agents.
 - For current raw model metrics, dataset workflows, and active artifact aliases, read:
   - [docs/raw-visual-model-improvement-spec-2026-04-11.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-model-improvement-spec-2026-04-11.md)
   - [docs/raw-visual-local-dataset-workflow-2026-04-12.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-local-dataset-workflow-2026-04-12.md)
+- The matcher supports an optional stage-2 user-photo rerank ("Option D") gated on `SPOTLIGHT_VISUAL_USER_PHOTO_RERANK` (default off). When enabled, it loads a separate rerank pool artifact (`backend/data/visual-index/visual_index_user_photos_rerank_pool_v002_*`) built by [tools/build_user_photo_rerank_pool.py](/Users/stephenchan/Code/spotlight/tools/build_user_photo_rerank_pool.py). Stage 1 is unchanged Scrydex-only retrieval; stage 2 looks up rerank-pool rows for each shortlist card and adds `alpha * max_user_photo_similarity` to the score when that similarity is above the threshold. Defaults: `alpha=0.10`, `threshold=0.90`, `shortlist_k=50`. Rerank pool rows are kept SEPARATE from the main visual index because mixing capture-domain and digital-domain rows in the same search matrix breaks retrieval — see [docs/raw-visual-user-photo-rerank-2026-05-12.md](/Users/stephenchan/Code/spotlight/docs/raw-visual-user-photo-rerank-2026-05-12.md).
 
 ## Slab Rules
 
