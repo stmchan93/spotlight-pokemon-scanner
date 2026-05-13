@@ -3,11 +3,13 @@ from __future__ import annotations
 
 import argparse
 import copy
+import io
 import json
 import random
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from time import perf_counter
 from typing import Any
 
 from raw_visual_dataset_paths import default_raw_visual_scan_registry_path, default_raw_visual_train_manifest_path
@@ -15,6 +17,7 @@ from raw_visual_dataset_paths import default_raw_visual_scan_registry_path, defa
 import numpy as np
 import torch
 import torch.nn.functional as F
+from PIL import Image, ImageEnhance
 
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -24,7 +27,7 @@ if not (BACKEND_ROOT / "server.py").exists():
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from raw_visual_model import DEFAULT_VISUAL_MODEL_ID, RawVisualFrozenEncoder, RawVisualProjectionAdapter, resolve_torch_device  # noqa: E402
+from raw_visual_model import DEFAULT_VISUAL_MODEL_ID, RawVisualFrozenEncoder, RawVisualProjectionAdapter, project_embeddings_tensor, resolve_torch_device  # noqa: E402
 
 
 def utc_now_iso() -> str:
@@ -232,19 +235,26 @@ def split_provider_ids(
     return train_ids, val_ids
 
 
-def compute_base_embeddings(
+def compute_scan_embeddings(
     records: list[TrainingRecord],
     *,
     encoder: RawVisualFrozenEncoder,
     batch_size: int,
-) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, dict[str, Any]]]:
+) -> dict[str, torch.Tensor]:
     scan_paths = [record.normalized_image_path for record in records]
     scan_embeddings_np = encoder.embed_image_paths(scan_paths, batch_size=batch_size)
-    scan_embeddings = {
+    return {
         record.fixture_name: torch.from_numpy(scan_embeddings_np[index]).float()
         for index, record in enumerate(records)
     }
 
+
+def compute_reference_embeddings(
+    records: list[TrainingRecord],
+    *,
+    encoder: RawVisualFrozenEncoder,
+    batch_size: int,
+) -> tuple[dict[str, torch.Tensor], dict[str, dict[str, Any]]]:
     reference_by_provider: dict[str, Path] = {}
     reference_metadata: dict[str, dict[str, Any]] = {}
     for record in records:
@@ -268,7 +278,157 @@ def compute_base_embeddings(
         provider_id: torch.from_numpy(reference_embeddings_np[index]).float()
         for index, provider_id in enumerate(provider_ids)
     }
+    return reference_embeddings, reference_metadata
+
+
+def compute_base_embeddings(
+    records: list[TrainingRecord],
+    *,
+    encoder: RawVisualFrozenEncoder,
+    batch_size: int,
+) -> tuple[dict[str, torch.Tensor], dict[str, torch.Tensor], dict[str, dict[str, Any]]]:
+    scan_embeddings = compute_scan_embeddings(records, encoder=encoder, batch_size=batch_size)
+    reference_embeddings, reference_metadata = compute_reference_embeddings(
+        records, encoder=encoder, batch_size=batch_size
+    )
     return scan_embeddings, reference_embeddings, reference_metadata
+
+
+@dataclass(frozen=True)
+class ScanAugmentationConfig:
+    brightness_jitter: float = 0.15
+    contrast_jitter: float = 0.15
+    saturation_jitter: float = 0.10
+    hue_jitter: float = 0.02
+    rotation_degrees: float = 2.0
+    translation_fraction: float = 0.02
+    jpeg_quality_min: int = 70
+    jpeg_quality_max: int = 95
+    apply_probability: float = 1.0
+
+
+class RawVisualScanAugmentor:
+    """Per-epoch augmentation tuned for tightly-normalized 630x880 card crops.
+
+    Notes:
+      - DOES NOT random-crop or perspective-warp (would lose footer/title).
+      - Uses PIL primitives only (no torchvision dep).
+    """
+
+    def __init__(self, config: ScanAugmentationConfig, *, seed: int) -> None:
+        self.config = config
+        self._rng = random.Random(seed)
+
+    def reseed(self, seed: int) -> None:
+        self._rng = random.Random(seed)
+
+    def _sample_factor(self, jitter: float) -> float:
+        if jitter <= 0.0:
+            return 1.0
+        return 1.0 + self._rng.uniform(-jitter, jitter)
+
+    def _apply_color_jitter(self, image: Image.Image) -> Image.Image:
+        cfg = self.config
+        if cfg.brightness_jitter > 0:
+            image = ImageEnhance.Brightness(image).enhance(self._sample_factor(cfg.brightness_jitter))
+        if cfg.contrast_jitter > 0:
+            image = ImageEnhance.Contrast(image).enhance(self._sample_factor(cfg.contrast_jitter))
+        if cfg.saturation_jitter > 0:
+            image = ImageEnhance.Color(image).enhance(self._sample_factor(cfg.saturation_jitter))
+        if cfg.hue_jitter > 0:
+            shift = int(round(self._rng.uniform(-cfg.hue_jitter, cfg.hue_jitter) * 255.0))
+            if shift != 0:
+                hsv = np.array(image.convert("HSV"), dtype=np.int16)
+                hsv[..., 0] = (hsv[..., 0] + shift) % 256
+                image = Image.fromarray(hsv.astype(np.uint8), "HSV").convert("RGB")
+        return image
+
+    def _apply_affine(self, image: Image.Image) -> Image.Image:
+        cfg = self.config
+        rotation = 0.0
+        if cfg.rotation_degrees > 0:
+            rotation = self._rng.uniform(-cfg.rotation_degrees, cfg.rotation_degrees)
+        translate_x = 0.0
+        translate_y = 0.0
+        if cfg.translation_fraction > 0:
+            translate_x = self._rng.uniform(-cfg.translation_fraction, cfg.translation_fraction) * image.width
+            translate_y = self._rng.uniform(-cfg.translation_fraction, cfg.translation_fraction) * image.height
+
+        if abs(rotation) > 1e-3:
+            image = image.rotate(rotation, resample=Image.BILINEAR, fillcolor=(0, 0, 0))
+        if abs(translate_x) > 0.5 or abs(translate_y) > 0.5:
+            image = image.transform(
+                image.size,
+                Image.AFFINE,
+                (1, 0, -translate_x, 0, 1, -translate_y),
+                resample=Image.BILINEAR,
+                fillcolor=(0, 0, 0),
+            )
+        return image
+
+    def _apply_jpeg_jitter(self, image: Image.Image) -> Image.Image:
+        cfg = self.config
+        if cfg.jpeg_quality_max <= 0 or cfg.jpeg_quality_min > cfg.jpeg_quality_max:
+            return image
+        quality = self._rng.randint(cfg.jpeg_quality_min, cfg.jpeg_quality_max)
+        buf = io.BytesIO()
+        image.save(buf, format="JPEG", quality=quality)
+        buf.seek(0)
+        return Image.open(buf).convert("RGB")
+
+    def augment(self, image: Image.Image) -> Image.Image:
+        if self._rng.random() > self.config.apply_probability:
+            return image
+        out = image.convert("RGB") if image.mode != "RGB" else image.copy()
+        out = self._apply_color_jitter(out)
+        out = self._apply_affine(out)
+        out = self._apply_jpeg_jitter(out)
+        return out
+
+
+def encode_scan_records_with_augmentation(
+    records: list[TrainingRecord],
+    *,
+    encoder: RawVisualFrozenEncoder,
+    augmentor: RawVisualScanAugmentor,
+    batch_size: int,
+) -> dict[str, torch.Tensor]:
+    """Re-encode scan images each epoch with augmentation applied in-memory.
+
+    Returns a fixture_name -> base CLIP embedding dict.
+    """
+    if not records:
+        return {}
+    fixture_names: list[str] = [record.fixture_name for record in records]
+    image_paths: list[Path] = [record.normalized_image_path for record in records]
+
+    embeddings_np_chunks: list[np.ndarray] = []
+    for start in range(0, len(image_paths), batch_size):
+        batch_paths = image_paths[start : start + batch_size]
+        batch_images: list[Image.Image] = []
+        try:
+            for path in batch_paths:
+                with Image.open(path) as src:
+                    src.load()
+                    augmented = augmentor.augment(src)
+                batch_images.append(augmented)
+            embeddings_np_chunks.append(encoder.embed_images(batch_images, batch_size=batch_size))
+        finally:
+            for image in batch_images:
+                try:
+                    image.close()
+                except Exception:
+                    pass
+
+    embeddings_np = (
+        np.concatenate(embeddings_np_chunks, axis=0)
+        if embeddings_np_chunks
+        else np.zeros((0, encoder.embedding_dim), dtype=np.float32)
+    )
+    return {
+        fixture_name: torch.from_numpy(embeddings_np[index]).float()
+        for index, fixture_name in enumerate(fixture_names)
+    }
 
 
 def load_index_reference_embeddings(
@@ -463,53 +623,105 @@ def retrieval_metrics(
     query_base: torch.Tensor,
     gallery_provider_ids: list[str],
     gallery_base: torch.Tensor,
+    gallery_already_projected: bool = False,
+    query_chunk_size: int = 256,
 ) -> tuple[dict[str, float], list[dict[str, Any]]]:
+    """Compute recall@k for query embeddings against a (possibly large) gallery.
+
+    Args:
+      gallery_already_projected: when True, gallery_base is treated as already
+        projected through the adapter (used for the full visual index path so
+        we don't reproject ~44k rows every epoch).
+      query_chunk_size: queries are scored in chunks to bound peak memory on
+        large galleries (~44k rows x 256 queries x 4 bytes ~ 45MB per chunk).
+    """
     adapter.eval()
+    device = query_base.device
+    if gallery_base.device != device:
+        gallery_base = gallery_base.to(device)
     with torch.inference_mode():
         query_projected = adapter(query_base)
-        gallery_projected = adapter(gallery_base)
-        scores = torch.matmul(query_projected, gallery_projected.T)
+        if gallery_already_projected:
+            gallery_projected = gallery_base
+        else:
+            gallery_projected = adapter(gallery_base)
 
-    gallery_index = {provider_id: index for index, provider_id in enumerate(gallery_provider_ids)}
+    gallery_index_lookup: dict[str, list[int]] = {}
+    for index, provider_id in enumerate(gallery_provider_ids):
+        gallery_index_lookup.setdefault(provider_id, []).append(index)
+
+    gallery_size = len(gallery_provider_ids)
+    top_k_keep = min(10, gallery_size)
     details: list[dict[str, Any]] = []
     hit1 = 0
     hit5 = 0
     hit10 = 0
     reciprocal_rank_sum = 0.0
+    skipped_query_count = 0
 
-    for row_index, provider_id in enumerate(query_provider_ids):
-        true_index = gallery_index[provider_id]
-        sorted_indices = torch.argsort(scores[row_index], descending=True)
-        rank = int((sorted_indices == true_index).nonzero(as_tuple=False)[0].item()) + 1
-        reciprocal_rank_sum += 1.0 / rank
-        hit1 += int(rank <= 1)
-        hit5 += int(rank <= min(5, len(gallery_provider_ids)))
-        hit10 += int(rank <= min(10, len(gallery_provider_ids)))
+    with torch.inference_mode():
+        for chunk_start in range(0, query_projected.shape[0], query_chunk_size):
+            chunk = query_projected[chunk_start : chunk_start + query_chunk_size]
+            scores_chunk = torch.matmul(chunk, gallery_projected.T)
+            top_scores, top_indices = torch.topk(scores_chunk, k=top_k_keep, dim=1, largest=True, sorted=True)
+            top_indices_cpu = top_indices.cpu()
+            top_scores_cpu = top_scores.cpu()
+            scores_cpu = scores_chunk.cpu()
+            for offset in range(scores_chunk.shape[0]):
+                row_index = chunk_start + offset
+                provider_id = query_provider_ids[row_index]
+                truth_indices = gallery_index_lookup.get(provider_id) or []
+                if not truth_indices:
+                    skipped_query_count += 1
+                    details.append(
+                        {
+                            "providerCardId": provider_id,
+                            "rank": None,
+                            "skipped": True,
+                            "skippedReason": "providerCardIdMissingFromGallery",
+                            "topCandidates": [
+                                {
+                                    "providerCardId": gallery_provider_ids[int(top_indices_cpu[offset, k].item())],
+                                    "similarity": round(float(top_scores_cpu[offset, k].item()), 6),
+                                }
+                                for k in range(top_k_keep)
+                            ],
+                        }
+                    )
+                    continue
+                truth_score_max = max(float(scores_cpu[offset, idx].item()) for idx in truth_indices)
+                rank = int((scores_cpu[offset] > truth_score_max).sum().item()) + 1
+                reciprocal_rank_sum += 1.0 / rank
+                hit1 += int(rank <= 1)
+                hit5 += int(rank <= min(5, gallery_size))
+                hit10 += int(rank <= min(10, gallery_size))
 
-        top_candidates = []
-        for candidate_index in sorted_indices[: min(10, len(gallery_provider_ids))].tolist():
-            top_candidates.append(
-                {
-                    "providerCardId": gallery_provider_ids[candidate_index],
-                    "similarity": round(float(scores[row_index, candidate_index].item()), 6),
-                }
-            )
-        details.append(
-            {
-                "providerCardId": provider_id,
-                "rank": rank,
-                "topCandidates": top_candidates,
-            }
-        )
+                top_candidates = []
+                for k in range(top_k_keep):
+                    cand_index = int(top_indices_cpu[offset, k].item())
+                    top_candidates.append(
+                        {
+                            "providerCardId": gallery_provider_ids[cand_index],
+                            "similarity": round(float(top_scores_cpu[offset, k].item()), 6),
+                        }
+                    )
+                details.append(
+                    {
+                        "providerCardId": provider_id,
+                        "rank": rank,
+                        "topCandidates": top_candidates,
+                    }
+                )
 
-    total = max(1, len(query_provider_ids))
+    total = max(1, len(query_provider_ids) - skipped_query_count)
     metrics = {
         "recallAt1": hit1 / total,
         "recallAt5": hit5 / total,
         "recallAt10": hit10 / total,
         "meanReciprocalRank": reciprocal_rank_sum / total,
         "queryCount": float(total),
-        "galleryCount": float(len(gallery_provider_ids)),
+        "galleryCount": float(gallery_size),
+        "skippedQueryCount": float(skipped_query_count),
     }
     return metrics, details
 
@@ -664,6 +876,83 @@ def parse_args() -> argparse.Namespace:
         default=Path("backend/data/visual-index/visual_index_active_manifest.json"),
         help="Base visual index manifest path used to resolve hard-negative embeddings.",
     )
+    parser.add_argument(
+        "--augment-scans",
+        dest="augment_scans",
+        action="store_true",
+        default=True,
+        help="Re-encode scans with per-epoch augmentation. ON by default for v011.",
+    )
+    parser.add_argument(
+        "--no-augment-scans",
+        dest="augment_scans",
+        action="store_false",
+        help="Disable per-epoch scan augmentation; pre-compute scan embeddings once (legacy behaviour).",
+    )
+    parser.add_argument(
+        "--augmentation-brightness",
+        type=float,
+        default=0.15,
+        help="ColorJitter brightness range (image_factor uniformly in [1 - x, 1 + x]).",
+    )
+    parser.add_argument(
+        "--augmentation-contrast",
+        type=float,
+        default=0.15,
+        help="ColorJitter contrast range.",
+    )
+    parser.add_argument(
+        "--augmentation-saturation",
+        type=float,
+        default=0.10,
+        help="ColorJitter saturation range.",
+    )
+    parser.add_argument(
+        "--augmentation-hue",
+        type=float,
+        default=0.02,
+        help="ColorJitter hue shift fraction (0..0.5).",
+    )
+    parser.add_argument(
+        "--augmentation-rotation-degrees",
+        type=float,
+        default=2.0,
+        help="Random rotation in +/- degrees. Mild because scans are tightly normalized.",
+    )
+    parser.add_argument(
+        "--augmentation-translation-fraction",
+        type=float,
+        default=0.02,
+        help="Random translation as fraction of width/height.",
+    )
+    parser.add_argument(
+        "--augmentation-jpeg-quality-min",
+        type=int,
+        default=70,
+        help="Minimum JPEG re-encode quality used for augmentation.",
+    )
+    parser.add_argument(
+        "--augmentation-jpeg-quality-max",
+        type=int,
+        default=95,
+        help="Maximum JPEG re-encode quality used for augmentation.",
+    )
+    parser.add_argument(
+        "--validation-gallery",
+        choices=["train_only", "full_index"],
+        default="full_index",
+        help=(
+            "Which gallery to score validation queries against. 'train_only' uses just the "
+            "training providers (~221, saturates quickly). 'full_index' uses the full active "
+            "visual index (~44k rows) so validation R@k reflects deployment-scale ranking."
+        ),
+    )
+    parser.add_argument(
+        "--validation-query-chunk-size",
+        type=int,
+        default=256,
+        help="Chunk size used when scoring validation queries against a large gallery.",
+    )
     return parser.parse_args()
 
 
@@ -715,7 +1004,15 @@ def main() -> None:
     )
 
     encoder = RawVisualFrozenEncoder(model_id=args.model_id, device=args.device)
-    scan_embeddings, reference_embeddings, reference_metadata = compute_base_embeddings(
+    reference_embeddings, reference_metadata = compute_reference_embeddings(
+        records,
+        encoder=encoder,
+        batch_size=args.embedding_batch_size,
+    )
+    # When augmentation is OFF we precompute scan embeddings once (legacy behaviour).
+    # When augmentation is ON we compute a clean baseline (used for validation queries)
+    # and re-encode with augmentation each epoch for training.
+    clean_scan_embeddings = compute_scan_embeddings(
         records,
         encoder=encoder,
         batch_size=args.embedding_batch_size,
@@ -746,10 +1043,62 @@ def main() -> None:
     adapter = RawVisualProjectionAdapter(embedding_dim=encoder.embedding_dim).to(device)
     optimizer = torch.optim.AdamW(adapter.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
 
-    gallery_provider_ids = sorted(reference_embeddings)
-    gallery_base = torch.stack([reference_embeddings[provider_id] for provider_id in gallery_provider_ids]).to(device)
+    augmentor: RawVisualScanAugmentor | None = None
+    if args.augment_scans:
+        augmentor = RawVisualScanAugmentor(
+            ScanAugmentationConfig(
+                brightness_jitter=args.augmentation_brightness,
+                contrast_jitter=args.augmentation_contrast,
+                saturation_jitter=args.augmentation_saturation,
+                hue_jitter=args.augmentation_hue,
+                rotation_degrees=args.augmentation_rotation_degrees,
+                translation_fraction=args.augmentation_translation_fraction,
+                jpeg_quality_min=args.augmentation_jpeg_quality_min,
+                jpeg_quality_max=args.augmentation_jpeg_quality_max,
+            ),
+            seed=args.seed,
+        )
+
+    # Validation gallery: either the small train-only provider set (legacy)
+    # or the full active visual index (~44k rows) projected through the adapter.
+    full_index_base_matrix: np.ndarray | None = None
+    full_index_provider_ids: list[str] | None = None
+    if args.validation_gallery == "full_index":
+        index_manifest = json.loads(args.index_manifest.resolve().read_text())
+        index_rows = [entry for entry in index_manifest.get("entries", []) if isinstance(entry, dict)]
+        full_index_base_matrix = np.asarray(np.load(args.index_npz.resolve())["embeddings"], dtype=np.float32)
+        if full_index_base_matrix.ndim != 2 or full_index_base_matrix.shape[0] != len(index_rows):
+            raise SystemExit("Visual index NPZ/manifest mismatch while building full-gallery validation.")
+        full_index_provider_ids = [str(entry.get("providerCardId") or "").strip() for entry in index_rows]
+        # Sanity check: every validation provider should resolve in the full index.
+        full_index_provider_set = set(full_index_provider_ids)
+        missing_validation_providers = sorted(set(val_provider_ids) - full_index_provider_set)
+        if missing_validation_providers:
+            print(
+                f"WARNING: {len(missing_validation_providers)} validation providers are not in the "
+                f"full visual index and will be skipped from recall calculations. "
+                f"First few: {missing_validation_providers[:5]}",
+                flush=True,
+            )
+        gallery_size_for_log = len(full_index_provider_ids)
+    else:
+        full_index_provider_ids = sorted(reference_embeddings)
+        gallery_size_for_log = len(full_index_provider_ids)
+
+    print(
+        f"Validation gallery mode={args.validation_gallery} galleryCount={gallery_size_for_log} "
+        f"augment_scans={args.augment_scans}",
+        flush=True,
+    )
+
     val_query_provider_ids = [record.provider_card_id for record in val_records]
-    val_query_base = torch.stack([scan_embeddings[record.fixture_name] for record in val_records]).to(device)
+    val_query_base = torch.stack([clean_scan_embeddings[record.fixture_name] for record in val_records]).to(device)
+
+    # Pre-stage the full-index base matrix on the training device so we can project it
+    # through the adapter once per epoch (cheap O(N*d^2)) without re-loading every time.
+    full_index_base_tensor: torch.Tensor | None = None
+    if args.validation_gallery == "full_index" and full_index_base_matrix is not None:
+        full_index_base_tensor = torch.from_numpy(full_index_base_matrix).to(device)
 
     history: list[dict[str, Any]] = []
     best_epoch = 0
@@ -760,6 +1109,10 @@ def main() -> None:
 
     for epoch in range(1, args.epochs + 1):
         adapter.train()
+        if augmentor is not None:
+            # Re-seed each epoch so augmentations vary epoch-to-epoch but stay reproducible.
+            augmentor.reseed(args.seed * 1000 + epoch)
+
         train_scan_records, epoch_sampling = build_epoch_train_records(
             train_records_by_provider=train_records_by_provider,
             seed=args.seed,
@@ -768,6 +1121,25 @@ def main() -> None:
             focus_batch_ids=focus_batch_ids,
             focus_batch_provider_ratio=args.focus_batch_provider_ratio,
         )
+
+        # Compute the scan embeddings used for THIS epoch's training. With augmentation
+        # we must re-encode every scan record in train_scan_records. Without augmentation
+        # we reuse the precomputed clean embeddings.
+        epoch_scan_encode_started_at = perf_counter()
+        if augmentor is not None:
+            unique_records_for_encode: dict[str, TrainingRecord] = {}
+            for record in train_scan_records:
+                unique_records_for_encode.setdefault(record.fixture_name, record)
+            epoch_scan_embeddings = encode_scan_records_with_augmentation(
+                list(unique_records_for_encode.values()),
+                encoder=encoder,
+                augmentor=augmentor,
+                batch_size=args.embedding_batch_size,
+            )
+        else:
+            epoch_scan_embeddings = clean_scan_embeddings
+        epoch_scan_encode_seconds = perf_counter() - epoch_scan_encode_started_at
+
         train_batches = max(1, (len(train_scan_records) + args.batch_size - 1) // args.batch_size)
         batch_losses: list[float] = []
         batch_top1_values: list[float] = []
@@ -776,7 +1148,7 @@ def main() -> None:
 
         for batch_index in range(train_batches):
             batch_records = train_scan_records[batch_index * args.batch_size : (batch_index + 1) * args.batch_size]
-            scan_base = torch.stack([scan_embeddings[record.fixture_name] for record in batch_records]).to(device)
+            scan_base = torch.stack([epoch_scan_embeddings[record.fixture_name] for record in batch_records]).to(device)
             ref_base = torch.stack([reference_embeddings[record.provider_card_id] for record in batch_records]).to(device)
             extra_ref_base, extra_negative_count = build_batch_hard_negative_tensor(
                 batch_records=batch_records,
@@ -796,13 +1168,37 @@ def main() -> None:
             batch_logit_scales.append(batch_metrics["logitScale"])
             batch_extra_negative_counts.append(float(extra_negative_count))
 
-        val_metrics, val_details = retrieval_metrics(
-            adapter=adapter,
-            query_provider_ids=val_query_provider_ids,
-            query_base=val_query_base,
-            gallery_provider_ids=gallery_provider_ids,
-            gallery_base=gallery_base,
-        )
+        # Validation: build the gallery for this epoch.
+        val_started_at = perf_counter()
+        if args.validation_gallery == "full_index" and full_index_base_tensor is not None:
+            adapter.eval()
+            with torch.inference_mode():
+                gallery_projected = project_embeddings_tensor(adapter, full_index_base_tensor, batch_size=4096)
+            val_metrics, val_details = retrieval_metrics(
+                adapter=adapter,
+                query_provider_ids=val_query_provider_ids,
+                query_base=val_query_base,
+                gallery_provider_ids=full_index_provider_ids or [],
+                gallery_base=gallery_projected,
+                gallery_already_projected=True,
+                query_chunk_size=args.validation_query_chunk_size,
+            )
+        else:
+            train_only_gallery_provider_ids = sorted(reference_embeddings)
+            train_only_gallery_base = torch.stack(
+                [reference_embeddings[provider_id] for provider_id in train_only_gallery_provider_ids]
+            ).to(device)
+            val_metrics, val_details = retrieval_metrics(
+                adapter=adapter,
+                query_provider_ids=val_query_provider_ids,
+                query_base=val_query_base,
+                gallery_provider_ids=train_only_gallery_provider_ids,
+                gallery_base=train_only_gallery_base,
+                gallery_already_projected=False,
+                query_chunk_size=args.validation_query_chunk_size,
+            )
+        val_seconds = perf_counter() - val_started_at
+
         epoch_summary = {
             "epoch": epoch,
             "trainLoss": sum(batch_losses) / max(1, len(batch_losses)),
@@ -811,6 +1207,9 @@ def main() -> None:
             "trainExtraNegativeCount": sum(batch_extra_negative_counts) / max(1, len(batch_extra_negative_counts)),
             "sampling": epoch_sampling,
             "validation": val_metrics,
+            "epochScanEncodeSeconds": round(epoch_scan_encode_seconds, 3),
+            "validationSeconds": round(val_seconds, 3),
+            "scanAugmentationApplied": augmentor is not None,
         }
         history.append(epoch_summary)
         print(
@@ -823,7 +1222,9 @@ def main() -> None:
             f"val_r1={val_metrics['recallAt1']:.4f} "
             f"val_r5={val_metrics['recallAt5']:.4f} "
             f"val_r10={val_metrics['recallAt10']:.4f} "
-            f"val_mrr={val_metrics['meanReciprocalRank']:.4f}",
+            f"val_mrr={val_metrics['meanReciprocalRank']:.4f} "
+            f"scan_encode_s={epoch_scan_encode_seconds:.1f} "
+            f"val_s={val_seconds:.1f}",
             flush=True,
         )
 
@@ -889,7 +1290,23 @@ def main() -> None:
         "bestValidation": best_metrics,
         "outputMetricsPath": str(metrics_path),
         "outputSplitPath": str(split_path),
+        "augmentScans": bool(args.augment_scans),
+        "augmentation": {
+            "brightness": args.augmentation_brightness,
+            "contrast": args.augmentation_contrast,
+            "saturation": args.augmentation_saturation,
+            "hue": args.augmentation_hue,
+            "rotationDegrees": args.augmentation_rotation_degrees,
+            "translationFraction": args.augmentation_translation_fraction,
+            "jpegQualityMin": args.augmentation_jpeg_quality_min,
+            "jpegQualityMax": args.augmentation_jpeg_quality_max,
+        } if args.augment_scans else None,
+        "validationGallery": args.validation_gallery,
+        "validationGalleryCount": gallery_size_for_log,
+        "validationIndexNpzPath": str(args.index_npz.resolve()) if args.validation_gallery == "full_index" else None,
+        "validationIndexManifestPath": str(args.index_manifest.resolve()) if args.validation_gallery == "full_index" else None,
     }
+    train_only_gallery_provider_ids = sorted(reference_embeddings)
     metrics_payload = {
         "generatedAt": utc_now_iso(),
         "artifactVersion": args.artifact_version,
@@ -897,14 +1314,16 @@ def main() -> None:
         "bestEpoch": best_epoch,
         "bestValidation": best_metrics,
         "bestValidationDetails": best_details,
+        "validationGallery": args.validation_gallery,
+        "validationGalleryCount": gallery_size_for_log,
         "referenceGallery": {
-            "providerCount": len(gallery_provider_ids),
+            "providerCount": len(train_only_gallery_provider_ids),
             "providers": [
                 {
                     "providerCardId": provider_id,
                     **reference_metadata.get(provider_id, {}),
                 }
-                for provider_id in gallery_provider_ids
+                for provider_id in train_only_gallery_provider_ids
             ],
         },
     }
