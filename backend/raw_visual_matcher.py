@@ -13,6 +13,7 @@ import numpy as np
 
 from raw_visual_index import RawVisualIndex, RawVisualSearchMatch
 from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy
+from raw_visual_user_photo_rerank import RawVisualUserPhotoRerankPool
 
 
 def _is_japanese_character(value: str) -> bool:
@@ -69,6 +70,33 @@ class DecodedQueryImage:
     decodedHeight: int
 
 
+def _env_flag_enabled(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() in {"1", "true", "on", "yes"}
+
+
+def _env_float(name: str, default: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        return default
+
+
+def _env_int(name: str, default: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
 class RawVisualMatcher:
     def __init__(
         self,
@@ -79,6 +107,8 @@ class RawVisualMatcher:
         index_manifest_path: Path | None = None,
         adapter_checkpoint_path: Path | None = None,
         adapter_metadata_path: Path | None = None,
+        user_photo_rerank_npz_path: Path | None = None,
+        user_photo_rerank_manifest_path: Path | None = None,
     ) -> None:
         self.repo_root = repo_root
         default_root = repo_root / "backend" / "data" / "visual-index"
@@ -128,6 +158,30 @@ class RawVisualMatcher:
             adapter_metadata_value,
             default_adapter_metadata_path,
         )
+        # User-photo rerank pool (Option D): defaults off, enable via env var.
+        # Pool path defaults to the canonical artifact built by tools/build_user_photo_rerank_pool.py.
+        rerank_npz_env = os.environ.get("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_NPZ_PATH")
+        rerank_manifest_env = os.environ.get("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_MANIFEST_PATH")
+        default_rerank_npz_path = default_root / "visual_index_user_photos_rerank_pool_v002_clip-vit-base-patch32.npz"
+        default_rerank_manifest_path = default_root / "visual_index_user_photos_rerank_pool_v002_manifest.json"
+        self.user_photo_rerank_npz_path = user_photo_rerank_npz_path or resolve_repo_relative_path(
+            repo_root, rerank_npz_env, default_rerank_npz_path,
+        )
+        self.user_photo_rerank_manifest_path = user_photo_rerank_manifest_path or resolve_repo_relative_path(
+            repo_root, rerank_manifest_env, default_rerank_manifest_path,
+        )
+        self.user_photo_rerank_enabled = _env_flag_enabled("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK", default=False)
+        self.user_photo_rerank_alpha = _env_float("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_ALPHA", 0.1)
+        # Threshold gate: only boost when user-photo similarity is high enough to be trustworthy.
+        # 0.90 was chosen 2026-05-12 because:
+        #   - same-card user-photo similarities cluster ~0.95 (covered queries)
+        #   - cross-card lookalike similarities cluster <0.86 (the held-out umbreon vs me2-75 case)
+        #   - 0.90 is between the two distributions, preserves all held-out top-1 results
+        #     while still gaining +13 top-1 fixtures on covered cards
+        self.user_photo_rerank_threshold = _env_float("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_THRESHOLD", 0.90)
+        self.user_photo_rerank_shortlist_k = _env_int("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_SHORTLIST_K", 50)
+        self._user_photo_rerank_pool: RawVisualUserPhotoRerankPool | None = None
+
         self._encoder: RawVisualFrozenEncoder | None = None
         self._adapter = None
         self._runtime_lock = threading.Lock()
@@ -232,6 +286,22 @@ class RawVisualMatcher:
                 )
             self._encoder = encoder
             self._adapter = adapter
+            rerank_enabled = getattr(self, "user_photo_rerank_enabled", False)
+            rerank_npz = getattr(self, "user_photo_rerank_npz_path", None)
+            rerank_manifest = getattr(self, "user_photo_rerank_manifest_path", None)
+            if (
+                rerank_enabled
+                and rerank_npz
+                and rerank_manifest
+                and rerank_npz.exists()
+                and rerank_manifest.exists()
+            ):
+                pool = RawVisualUserPhotoRerankPool(
+                    npz_path=rerank_npz,
+                    manifest_path=rerank_manifest,
+                )
+                pool.load()
+                self._user_photo_rerank_pool = pool
             self._runtime_ready = True
 
     def _load_query_image(self, payload: dict[str, Any]) -> DecodedQueryImage:
@@ -444,6 +514,72 @@ class RawVisualMatcher:
         adjusted_matches.sort(key=lambda item: item.similarity, reverse=True)
         return adjusted_matches
 
+    def _apply_user_photo_rerank(
+        self,
+        matches: list[RawVisualSearchMatch],
+        *,
+        query_embedding: np.ndarray,
+        top_k: int,
+    ) -> tuple[list[RawVisualSearchMatch], dict[str, Any]]:
+        pool = getattr(self, "_user_photo_rerank_pool", None)
+        if pool is None or not matches:
+            return matches[:top_k], {
+                "applied": False,
+                "reason": "pool_unavailable" if pool is None else "no_matches",
+                "shortlistConsidered": len(matches),
+                "boostsApplied": 0,
+            }
+
+        alpha = float(getattr(self, "user_photo_rerank_alpha", 0.1))
+        threshold = float(getattr(self, "user_photo_rerank_threshold", 0.90))
+        boost_log: list[dict[str, Any]] = []
+        boosted_matches: list[RawVisualSearchMatch] = []
+        for match in matches:
+            provider_card_id = str(match.entry.get("providerCardId") or match.entry.get("id") or "").strip()
+            adjusted_similarity = float(match.similarity)
+            user_photo_max: float | None = None
+            boost_value = 0.0
+            if provider_card_id and pool.has_rows_for(provider_card_id):
+                user_photo_max = pool.max_similarity_for(provider_card_id, query_embedding)
+                if user_photo_max is not None and user_photo_max >= threshold:
+                    boost_value = alpha * user_photo_max
+                    adjusted_similarity += boost_value
+                    boost_log.append({
+                        "providerCardId": provider_card_id,
+                        "userPhotoMaxSimilarity": round(user_photo_max, 6),
+                        "boost": round(boost_value, 6),
+                        "preBoostSimilarity": round(float(match.similarity), 6),
+                        "postBoostSimilarity": round(adjusted_similarity, 6),
+                    })
+
+            entry = dict(match.entry)
+            entry["_userPhotoRerankApplied"] = boost_value > 0.0
+            entry["_userPhotoMaxSimilarity"] = (
+                round(user_photo_max, 6) if user_photo_max is not None else None
+            )
+            entry["_userPhotoBoost"] = round(boost_value, 6)
+            entry["_userPhotoPreBoostSimilarity"] = round(float(match.similarity), 6)
+            boosted_matches.append(
+                RawVisualSearchMatch(
+                    row_index=match.row_index,
+                    similarity=adjusted_similarity,
+                    entry=entry,
+                )
+            )
+
+        boosted_matches.sort(key=lambda item: item.similarity, reverse=True)
+        return boosted_matches[:top_k], {
+            "applied": True,
+            "alpha": round(alpha, 6),
+            "threshold": round(threshold, 6),
+            "shortlistConsidered": len(matches),
+            "boostsApplied": len(boost_log),
+            "poolUniqueCardCount": pool.unique_card_count,
+            "poolRowCount": pool.row_count,
+            "poolArtifactVersion": pool.artifact_version,
+            "boosts": boost_log[:20],
+        }
+
     @staticmethod
     def _merge_variant_matches(
         variant_matches: list[list[RawVisualSearchMatch]],
@@ -510,9 +646,12 @@ class RawVisualMatcher:
             embedding_normalize_ms = 0.0
             variant_debug: list[dict[str, Any]] = []
             variant_matches: list[list[RawVisualSearchMatch]] = []
+            base_variant_embedding: np.ndarray | None = None
             query_variants = self._query_variants(payload, decoded_query.image)
             for query_variant in query_variants:
                 embedding, embedding_timing = self._image_embedding_with_timing(query_variant.image)
+                if query_variant.name == "base":
+                    base_variant_embedding = embedding
                 embedding_ms += float(embedding_timing.get("embeddingMs") or 0.0)
                 encoder_preprocess_ms += float(embedding_timing.get("encoderPreprocessMs") or 0.0)
                 encoder_forward_ms += float(embedding_timing.get("encoderForwardMs") or 0.0)
@@ -546,7 +685,44 @@ class RawVisualMatcher:
                     }
                 )
 
-            matches = self._merge_variant_matches(variant_matches, top_k=top_k)
+            # Use getattr defaults so tests that bypass __init__ (object.__new__)
+            # don't blow up. In normal construction these are set by __init__.
+            rerank_enabled = getattr(self, "user_photo_rerank_enabled", False)
+            rerank_pool = getattr(self, "_user_photo_rerank_pool", None)
+            rerank_shortlist_k = getattr(self, "user_photo_rerank_shortlist_k", 50)
+            rerank_active = (
+                rerank_enabled
+                and rerank_pool is not None
+                and base_variant_embedding is not None
+            )
+            shortlist_k = max(top_k, rerank_shortlist_k) if rerank_active else top_k
+            shortlist = self._merge_variant_matches(variant_matches, top_k=shortlist_k)
+
+            rerank_started_at = perf_counter()
+            if rerank_active:
+                matches, rerank_debug = self._apply_user_photo_rerank(
+                    shortlist,
+                    query_embedding=base_variant_embedding,  # type: ignore[arg-type]
+                    top_k=top_k,
+                )
+            else:
+                matches = shortlist[:top_k]
+                rerank_debug = {
+                    "applied": False,
+                    "reason": (
+                        "feature_disabled"
+                        if not rerank_enabled
+                        else (
+                            "pool_unavailable"
+                            if rerank_pool is None
+                            else "no_base_embedding"
+                        )
+                    ),
+                    "shortlistConsidered": len(shortlist),
+                    "boostsApplied": 0,
+                }
+            user_photo_rerank_ms = (perf_counter() - rerank_started_at) * 1000.0
+
             debug = {
                 "modelId": self.model_id,
                 "indexNpzPath": str(self.index.npz_path),
@@ -572,6 +748,7 @@ class RawVisualMatcher:
                     "decodedWidth": decoded_query.decodedWidth,
                     "decodedHeight": decoded_query.decodedHeight,
                 },
+                "userPhotoRerank": rerank_debug,
                 "timings": {
                     "imageDecodeMs": round(image_decode_ms, 3),
                     "ensureRuntimeMs": round(ensure_runtime_ms, 3),
@@ -582,6 +759,7 @@ class RawVisualMatcher:
                     "adapterProjectMs": round(adapter_project_ms, 3),
                     "embeddingNormalizeMs": round(embedding_normalize_ms, 3),
                     "indexSearchMs": round(index_search_ms, 3),
+                    "userPhotoRerankMs": round(user_photo_rerank_ms, 3),
                     "matchPayloadMs": round((perf_counter() - match_started_at) * 1000.0, 3),
                 },
             }

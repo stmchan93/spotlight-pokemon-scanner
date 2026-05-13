@@ -1,12 +1,19 @@
-import { useCallback } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  SectionHeader,
+  SurfaceCard,
+  TextField,
+  colors,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { useSuggestedDiscount } from '@/features/pricing/use-suggested-discount';
 import { useAuth } from '@/providers/auth-provider';
 
 export function AccountScreen() {
@@ -16,9 +23,48 @@ export function AccountScreen() {
   const user = auth.currentUser;
   const canStartLabelingSession = !!(user?.labelerEnabled || user?.adminEnabled);
 
+  const { discountPct, setDiscountPct } = useSuggestedDiscount();
+  const [discountText, setDiscountText] = useState<string>(
+    discountPct == null ? '' : String(discountPct),
+  );
+
+  useEffect(() => {
+    // Keep the input mirror in sync if the persisted value changes elsewhere
+    // (e.g. async hydration on mount or another mount of this screen). We only
+    // overwrite if the integer parse of the current text doesn't already match
+    // the persisted value, so the user's in-progress typing isn't stomped.
+    const parsed = discountText === '' ? null : Number.parseInt(discountText, 10);
+    const parsedMatchesStored =
+      (parsed == null && discountPct == null) ||
+      (Number.isFinite(parsed) && parsed === discountPct);
+    if (!parsedMatchesStored) {
+      setDiscountText(discountPct == null ? '' : String(discountPct));
+    }
+  }, [discountPct, discountText]);
+
   const openLabelingSession = useCallback(() => {
     router.push('/labeling/session');
   }, [router]);
+
+  const handleDiscountChange = useCallback(
+    (rawValue: string) => {
+      // Allow only digits, max 3 characters; clamp to 0–100 and persist.
+      const digitsOnly = rawValue.replace(/[^0-9]/g, '').slice(0, 3);
+      setDiscountText(digitsOnly);
+
+      if (digitsOnly === '') {
+        setDiscountPct(null);
+        return;
+      }
+
+      const parsed = Number.parseInt(digitsOnly, 10);
+      if (!Number.isFinite(parsed) || parsed < 0 || parsed > 100) {
+        return;
+      }
+      setDiscountPct(parsed);
+    },
+    [setDiscountPct],
+  );
 
   return (
     <SafeAreaView
@@ -82,6 +128,35 @@ export function AccountScreen() {
             </View>
           </View>
         </SurfaceCard>
+
+        <View style={styles.section} testID="account-pricing-section">
+          <SectionHeader
+            subtitle="Optional markdown applied to market prices when shown in the app."
+            testID="account-pricing-header"
+            title="Pricing"
+          />
+          <SurfaceCard padding={20} radius={28}>
+            <TextField
+              helperText="Leave empty to hide suggested price"
+              keyboardType="number-pad"
+              label="Suggested discount"
+              maxLength={3}
+              onChangeText={handleDiscountChange}
+              placeholder="0"
+              returnKeyType="done"
+              testID="account-pricing-discount-input"
+              trailing={
+                <Text
+                  style={[theme.typography.body, { color: theme.colors.textSecondary }]}
+                  testID="account-pricing-discount-suffix"
+                >
+                  %
+                </Text>
+              }
+              value={discountText}
+            />
+          </SurfaceCard>
+        </View>
 
         {canStartLabelingSession ? (
           <SurfaceCard padding={20} radius={28}>
@@ -178,6 +253,9 @@ const styles = StyleSheet.create({
   },
   safeArea: {
     flex: 1,
+  },
+  section: {
+    gap: 12,
   },
   signOutButton: {
     alignItems: 'center',

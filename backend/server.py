@@ -1777,6 +1777,7 @@ class SpotlightScanService:
             "high": summary.get("high"),
             "directLow": summary.get("directLow"),
             "trend": summary.get("trend"),
+            "trendsPct": summary.get("trendsPct"),
             "sourceURL": snapshot_row["source_url"],
             "updatedAt": snapshot_row["source_updated_at"],
             "refreshedAt": snapshot_row["updated_at"],
@@ -6535,10 +6536,12 @@ class SpotlightScanService:
         *,
         api_key: str | None = None,
     ) -> dict[str, Any]:
+        handler_started_at = perf_counter()
         self._emit_structured_log(self._scan_request_log_payload(payload))
         scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
         scan_id = str(payload.get("scanID") or "")
         match_started = perf_counter()
+        pre_visual_setup_ms = (match_started - handler_started_at) * 1000.0
         try:
             matches, debug, visual_match_ms = self._run_raw_visual_phase(payload, requested_top_k=10)
         except Exception as exc:
@@ -6562,6 +6565,7 @@ class SpotlightScanService:
             )
             return response
 
+        build_response_started_at = perf_counter()
         response, scored_candidates, _ = self._build_raw_visual_only_response(
             payload,
             matches=matches,
@@ -6571,6 +6575,8 @@ class SpotlightScanService:
             is_provisional=True,
             finalize_response=False,
         )
+        build_response_total_ms = (perf_counter() - build_response_started_at) * 1000.0
+        store_pending_started_at = perf_counter()
         self._store_pending_visual_scan(
             scan_id=scan_id,
             visual_matches=matches,
@@ -6578,6 +6584,7 @@ class SpotlightScanService:
             requested_top_k=10,
             visual_match_ms=visual_match_ms,
         )
+        store_pending_ms = (perf_counter() - store_pending_started_at) * 1000.0
         self._finalize_scan_response(payload, response, scored_candidates)
         print(
             "[SCAN CACHE] Visual phase ready for rerank: "
@@ -6586,11 +6593,26 @@ class SpotlightScanService:
             f"resolverPath={response.get('resolverPath') or '<none>'} "
             f"provisional={bool(response.get('isProvisional'))}"
         )
+        self._record_backend_timing(
+            response,
+            preVisualSetupMs=pre_visual_setup_ms,
+            buildResponseTotalMs=build_response_total_ms,
+            storePendingVisualScanMs=store_pending_ms,
+        )
+        scrydex_usage_log_started_at = perf_counter()
         self._log_scrydex_match_usage(
             scan_id,
             before_total=scrydex_before_total,
             started_at=match_started,
             response=response,
+        )
+        scrydex_usage_log_ms = (perf_counter() - scrydex_usage_log_started_at) * 1000.0
+        visual_match_scan_total_ms = (perf_counter() - handler_started_at) * 1000.0
+        print(
+            "[SCAN HANDLER TIMING] "
+            f"scan={scan_id} "
+            f"scrydexUsageLogMs={scrydex_usage_log_ms:.1f} "
+            f"visualMatchScanTotalMs={visual_match_scan_total_ms:.1f}"
         )
         return response
 

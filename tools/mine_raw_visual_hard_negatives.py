@@ -22,7 +22,13 @@ if not (BACKEND_ROOT / "server.py").exists():
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from raw_visual_model import DEFAULT_VISUAL_MODEL_ID, RawVisualFrozenEncoder  # noqa: E402
+from raw_visual_model import (  # noqa: E402
+    DEFAULT_VISUAL_MODEL_ID,
+    RawVisualFrozenEncoder,
+    load_projection_adapter,
+    project_embeddings_numpy,
+    resolve_torch_device,
+)
 
 
 def utc_now_iso() -> str:
@@ -111,6 +117,22 @@ def parse_args() -> argparse.Namespace:
         default=5,
         help="How many wrong candidates to keep per fixture.",
     )
+    parser.add_argument(
+        "--adapter-checkpoint",
+        type=Path,
+        default=None,
+        help=(
+            "Optional trained adapter checkpoint. When provided, both the index NPZ rows and "
+            "the query embeddings are projected through the adapter before mining so the "
+            "negatives reflect what the deployed model actually confuses today."
+        ),
+    )
+    parser.add_argument(
+        "--projection-batch-size",
+        type=int,
+        default=4096,
+        help="Batch size when projecting embeddings through the adapter.",
+    )
     return parser.parse_args()
 
 
@@ -127,6 +149,28 @@ def main() -> None:
     encoder = RawVisualFrozenEncoder(model_id=args.model_id, device=args.device)
     normalized_paths = [Path(str(row["normalizedImagePath"])).resolve() for row in manifest_rows]
     query_embeddings = encoder.embed_image_paths(normalized_paths, batch_size=args.embedding_batch_size)
+
+    adapter_checkpoint_path: Path | None = None
+    if args.adapter_checkpoint is not None:
+        adapter_checkpoint_path = args.adapter_checkpoint.resolve()
+        device = resolve_torch_device(args.device)
+        adapter = load_projection_adapter(
+            adapter_checkpoint_path,
+            embedding_dim=encoder.embedding_dim,
+            device=device,
+        )
+        index_matrix = project_embeddings_numpy(
+            adapter,
+            index_matrix,
+            device=device,
+            batch_size=args.projection_batch_size,
+        )
+        query_embeddings = project_embeddings_numpy(
+            adapter,
+            query_embeddings,
+            device=device,
+            batch_size=args.projection_batch_size,
+        )
 
     output_entries: dict[str, list[dict[str, Any]]] = {}
     confusion_summary: list[dict[str, Any]] = []
@@ -170,6 +214,7 @@ def main() -> None:
         "modelId": args.model_id,
         "indexNpzPath": str(args.index_npz.resolve()),
         "indexManifestPath": str(args.index_manifest.resolve()),
+        "adapterCheckpointPath": str(adapter_checkpoint_path) if adapter_checkpoint_path else None,
         "topK": args.top_k,
         "perFixtureLimit": args.per_fixture_limit,
         "fixtureCount": len(manifest_rows),

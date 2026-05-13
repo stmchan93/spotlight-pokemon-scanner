@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 from time import perf_counter
 from typing import Iterable
@@ -13,6 +14,30 @@ from transformers import CLIPModel, CLIPProcessor
 
 
 DEFAULT_VISUAL_MODEL_ID = "openai/clip-vit-base-patch32"
+
+# Optional letterbox-to-square preprocessing (off by default).
+# Measured 2026-05-12 on a 71-fixture held-out subset (base CLIP, no
+# adapter): letterbox HURT visual top-10 by 9 fixtures (46.5% -> 33.8%).
+# The padding bars cost more effective resolution than the footer-crop
+# was saving. Keep this code path available for future experiments
+# (e.g. paired with a higher-resolution backbone) but default to OFF.
+LETTERBOX_PAD_RGB = (114, 114, 114)
+
+
+def _should_letterbox() -> bool:
+    value = os.environ.get("SPOTLIGHT_VISUAL_LETTERBOX", "0").strip().lower()
+    return value in {"1", "true", "on", "yes"}
+
+
+def letterbox_to_square(image: Image.Image, *, pad_rgb: tuple[int, int, int] = LETTERBOX_PAD_RGB) -> Image.Image:
+    width, height = image.size
+    if width == height:
+        return image
+    side = max(width, height)
+    canvas = Image.new("RGB", (side, side), pad_rgb)
+    offset = ((side - width) // 2, (side - height) // 2)
+    canvas.paste(image, offset)
+    return canvas
 
 
 def resolve_torch_device(device_name: str = "auto") -> torch.device:
@@ -116,6 +141,8 @@ class RawVisualFrozenEncoder:
 
     def _embed_batch_with_timing(self, images: list[Image.Image]) -> tuple[np.ndarray, dict[str, float]]:
         preprocess_started_at = perf_counter()
+        if _should_letterbox():
+            images = [letterbox_to_square(image) for image in images]
         inputs = self.processor(images=images, return_tensors="pt")
         inputs = {key: value.to(self.device) for key, value in inputs.items()}
         preprocess_ms = (perf_counter() - preprocess_started_at) * 1000.0

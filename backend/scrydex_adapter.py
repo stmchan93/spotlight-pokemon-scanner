@@ -774,6 +774,30 @@ def _scrydex_trend_price(price: dict[str, Any]) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
 
+def _scrydex_trends_pct(price: dict[str, Any]) -> dict[str, float | None]:
+    """Extract days_7/30/90 percent_change values from a Scrydex price entry.
+
+    Returns a dict with keys days7/days30/days90 — values are floats or None
+    when the bucket or numeric value is missing.
+    """
+    trends = price.get("trends") if isinstance(price, dict) else None
+    if not isinstance(trends, dict):
+        return {"days7": None, "days30": None, "days90": None}
+
+    def _pct(bucket_key: str) -> float | None:
+        bucket = trends.get(bucket_key)
+        if not isinstance(bucket, dict):
+            return None
+        value = bucket.get("percent_change")
+        return float(value) if isinstance(value, (int, float)) else None
+
+    return {
+        "days7": _pct("days_7"),
+        "days30": _pct("days_30"),
+        "days90": _pct("days_90"),
+    }
+
+
 def _scrydex_variant_display_name(value: str | None) -> str:
     normalized = str(value or "").strip().lower()
     if normalized in {"", "raw", "normal", "standard"}:
@@ -927,6 +951,7 @@ def _upsert_raw_context(
         "high": price.get("high"),
         "directLow": price.get("direct_low"),
         "trend": ((price.get("trends") or {}).get("days_30") or {}).get("price_change"),
+        "trendsPct": _scrydex_trends_pct(price),
         "payload": _payload_context_stub(variant_key=variant_key, variant_label=variant_label, price=price),
     }
 
@@ -965,6 +990,7 @@ def _upsert_graded_context(
         "high": price.get("high"),
         "directLow": price.get("direct_low"),
         "trend": ((price.get("trends") or {}).get("days_30") or {}).get("price_change"),
+        "trendsPct": _scrydex_trends_pct(price),
         "isPerfect": bool(price.get("is_perfect")),
         "isSigned": bool(price.get("is_signed")),
         "isError": bool(price.get("is_error")),

@@ -164,10 +164,17 @@ type RepositoryClientContext = {
   buildNumber?: string | null;
 };
 
+type CardPricingTrendsPctDTO = {
+  days7?: number | null;
+  days30?: number | null;
+  days90?: number | null;
+};
+
 type CardPricingSummaryDTO = {
   currencyCode?: string;
   market?: number | null;
   variant?: string | null;
+  trendsPct?: CardPricingTrendsPctDTO | null;
   payload?: {
     condition?: string | null;
   } | null;
@@ -459,6 +466,12 @@ type PortfolioImportCommitResponseDTO = {
   message?: string | null;
 };
 
+type NormalizedCardPricingTrendsPct = {
+  days7: number | null;
+  days30: number | null;
+  days90: number | null;
+};
+
 type NormalizedCardCandidate = {
   id: string;
   name: string;
@@ -472,8 +485,24 @@ type NormalizedCardCandidate = {
     market: number | null;
     variant?: string | null;
     condition?: string | null;
+    trendsPct?: NormalizedCardPricingTrendsPct | null;
   };
 };
+
+function normalizePricingTrendsPct(
+  value: { days7?: number | null; days30?: number | null; days90?: number | null } | null | undefined,
+): NormalizedCardPricingTrendsPct | null {
+  if (!value || typeof value !== 'object') {
+    return null;
+  }
+  const days7 = normalizeNumber(value.days7);
+  const days30 = normalizeNumber(value.days30);
+  const days90 = normalizeNumber(value.days90);
+  if (days7 === null && days30 === null && days90 === null) {
+    return null;
+  }
+  return { days7, days30, days90 };
+}
 
 function buildLoadResult<T>(
   state: SpotlightRepositoryLoadResult<T>['state'],
@@ -1101,6 +1130,7 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
       market: normalizeNumber(candidate?.pricing?.market),
       variant: normalizeString(candidate?.pricing?.variant),
       condition: normalizeString(candidate?.pricing?.payload?.condition),
+      trendsPct: normalizePricingTrendsPct(candidate?.pricing?.trendsPct ?? null),
     },
   } satisfies NormalizedCardCandidate;
 }
@@ -3140,6 +3170,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       variantOptions: marketHistory.availableVariants,
       isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
+      trendsPct: card.pricing.trendsPct ?? null,
     };
 
     return buildLoadResult('success', detail);
