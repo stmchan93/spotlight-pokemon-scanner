@@ -654,7 +654,6 @@ export function CardDetailScreen({
   const {
     spotlightRepository,
     dataVersion,
-    refreshData,
     inventoryEntriesCache,
     portfolioDashboardCache,
   } = useAppServices();
@@ -665,6 +664,10 @@ export function CardDetailScreen({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
   const [isFavoritePending, setIsFavoritePending] = useState(false);
+  const [favoriteState, setFavoriteState] = useState<{ isFavorite: boolean; favoritedAt: string | null }>({
+    favoritedAt: null,
+    isFavorite: false,
+  });
   const [selectedTimeframeId, setSelectedTimeframeId] = useState<TimeframeId>(defaultTimeframeId);
   const [showAllSales, setShowAllSales] = useState(false);
   const scanReviewSession = useMemo(
@@ -736,7 +739,18 @@ export function CardDetailScreen({
     setMarketHistory(null);
     setSelectedTimeframeId(defaultTimeframeId);
     setShowAllSales(false);
+    setFavoriteState({ favoritedAt: null, isFavorite: false });
   }, [cardId]);
+
+  useEffect(() => {
+    if (!detail) {
+      return;
+    }
+    setFavoriteState({
+      favoritedAt: detail.favoritedAt ?? null,
+      isFavorite: detail.isFavorite ?? false,
+    });
+  }, [detail?.cardId, detail?.favoritedAt, detail?.isFavorite]);
 
   const selectedEntry = useMemo(() => {
     if (!detail) {
@@ -957,31 +971,26 @@ export function CardDetailScreen({
       return;
     }
 
+    const previousFavoriteState = favoriteState;
+    const nextIsFavorite = !favoriteState.isFavorite;
+    setFavoriteState((current) => ({ ...current, isFavorite: nextIsFavorite }));
     setIsFavoritePending(true);
-    const nextFavoriteState = !(detail?.isFavorite ?? false);
 
-    void spotlightRepository.setCardFavorite(cardId, nextFavoriteState)
-      .then((favoriteState) => {
-        setDetail((currentDetail) => {
-          if (!currentDetail) {
-            return currentDetail;
-          }
-
-          return {
-            ...currentDetail,
-            favoritedAt: favoriteState.favoritedAt ?? null,
-            isFavorite: favoriteState.isFavorite,
-          };
+    void spotlightRepository.setCardFavorite(cardId, nextIsFavorite)
+      .then((result) => {
+        setFavoriteState({
+          favoritedAt: result.favoritedAt ?? null,
+          isFavorite: result.isFavorite,
         });
-        refreshData();
       })
       .catch(() => {
+        setFavoriteState(previousFavoriteState);
         setErrorMessage('Could not update favorite right now.');
       })
       .finally(() => {
         setIsFavoritePending(false);
       });
-  }, [cardId, detail?.isFavorite, isFavoritePending, refreshData, spotlightRepository]);
+  }, [cardId, favoriteState, isFavoritePending, spotlightRepository]);
 
   const timeframeFilteredPoints = useMemo<ChartPoint[]>(() => {
     const allPoints = (effectiveMarketHistory?.points ?? []) as ChartPoint[];
@@ -1059,7 +1068,7 @@ export function CardDetailScreen({
   const displayCurrencyCode = isSlabDetail
     ? (effectiveMarketHistory?.currencyCode ?? selectedEntry?.currencyCode ?? detailPreview?.currencyCode ?? detail?.currencyCode ?? 'USD')
     : (detail?.currencyCode ?? detailPreview?.currencyCode ?? 'USD');
-  const isFavorite = detail?.isFavorite ?? false;
+  const isFavorite = favoriteState.isFavorite;
   const isOwned = selectedEntry != null;
   const slabHeroSubtitle = slabGradeSummary(selectedSlabContext);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
