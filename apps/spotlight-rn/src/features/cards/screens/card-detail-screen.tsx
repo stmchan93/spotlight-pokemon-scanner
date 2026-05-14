@@ -94,7 +94,7 @@ const favoriteHeartColor = '#E83E8C';
 const recentSalesPageSize = 25;
 const slabLastSoldRowLimit = 2;
 
-type TimeframeId = '7d' | '30d' | '90d';
+type TimeframeId = '7d' | '30d';
 
 type TimeframeOption = {
   id: TimeframeId;
@@ -105,7 +105,6 @@ type TimeframeOption = {
 const timeframeOptions: readonly TimeframeOption[] = [
   { id: '7d', label: '7d', days: 7 },
   { id: '30d', label: '30d', days: 30 },
-  { id: '90d', label: '90d', days: 90 },
 ] as const;
 
 const defaultTimeframeId: TimeframeId = '30d';
@@ -942,6 +941,16 @@ export function CardDetailScreen({
     [showAllSales, sortedRecentSales],
   );
   const hasMoreSales = sortedRecentSales.length > slabLastSoldRowLimit && !showAllSales;
+  const salesEmptyCopy = useMemo(() => {
+    if (!hasResolvedRecentSalesState) {
+      return 'Loading recent sales…';
+    }
+    const state = recentSalesSectionState(recentSales);
+    if (state === 'unavailable') {
+      return 'eBay sales are unavailable for this slab right now.';
+    }
+    return 'No recent eBay sales found for this slab yet.';
+  }, [hasResolvedRecentSalesState, recentSales]);
 
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
@@ -1168,7 +1177,7 @@ export function CardDetailScreen({
                         <IconHeart color={favoriteHeartColor} size={18} strokeWidth={2} />
                       )}
                     </IconButton>
-                    <Text style={[theme.typography.micro, styles.actionCellLabel]}>Save</Text>
+                    <Text style={[theme.typography.micro, styles.actionCellLabel]}>Favorite</Text>
                   </View>
 
                   {canShowSellAction ? (
@@ -1218,6 +1227,9 @@ export function CardDetailScreen({
             <View style={styles.pricingBodyRow}>
               <View style={styles.pricingLeftColumn}>
                 <Text
+                  adjustsFontSizeToFit
+                  minimumFontScale={0.7}
+                  numberOfLines={1}
                   style={[theme.typography.display, styles.marketValueTitle]}
                   testID="detail-market-price"
                 >
@@ -1259,69 +1271,78 @@ export function CardDetailScreen({
             </View>
 
             {isSlabDetail ? (
-              visibleSales.length > 0 ? (
-                <View style={styles.latestSalesSection} testID="detail-slab-last-sold">
-                  <Text style={[theme.typography.caption, styles.latestSalesHeader]}>
-                    Latest sales from eBay
-                  </Text>
-                  {visibleSales.map((sale, index) => {
-                    const soldDateLabel = formatListingDateLabel(sale.soldAt);
-                    return (
-                      <Pressable
-                        key={sale.id}
-                        accessibilityRole={sale.saleUrl ? 'button' : undefined}
-                        disabled={!sale.saleUrl}
-                        onPress={() => {
-                          if (sale.saleUrl) {
-                            capturePostHogEvent('card_recent_sales_row_opened', {
-                              detail_kind: 'slab',
-                              row_index: index,
-                              sale_count_bucket: recentSalesCountBucket(recentSales?.saleCount ?? recentSales?.sales.length ?? 0),
-                              sales_provider: 'scrydex',
-                              sales_source: 'ebay',
-                            });
-                            void Linking.openURL(sale.saleUrl);
-                          }
-                        }}
-                        style={({ pressed }) => [
-                          styles.slabLastSoldRow,
-                          { opacity: sale.saleUrl && pressed ? 0.9 : 1 },
-                        ]}
-                        testID={`detail-slab-last-sold-row-${index}`}
-                      >
-                        <View style={styles.slabLastSoldRowMain}>
-                          <Text
-                            numberOfLines={1}
-                            style={[theme.typography.bodyStrong, styles.slabLastSoldTitle]}
-                          >
-                            {sale.title}
-                          </Text>
-                          {soldDateLabel ? (
-                            <Text style={[theme.typography.micro, styles.slabLastSoldMeta]}>
-                              {soldDateLabel}
+              <View style={styles.latestSalesSection} testID="detail-slab-last-sold">
+                <Text style={[theme.typography.caption, styles.latestSalesHeader]}>
+                  Latest sales from eBay
+                </Text>
+                {visibleSales.length === 0 ? (
+                  <View style={styles.latestSalesEmpty} testID="detail-slab-last-sold-empty">
+                    <Text style={[theme.typography.body, styles.latestSalesEmptyText]}>
+                      {salesEmptyCopy}
+                    </Text>
+                  </View>
+                ) : null}
+                {visibleSales.length > 0 ? (
+                  <>
+                    {visibleSales.map((sale, index) => {
+                      const soldDateLabel = formatListingDateLabel(sale.soldAt);
+                      return (
+                        <Pressable
+                          key={sale.id}
+                          accessibilityRole={sale.saleUrl ? 'button' : undefined}
+                          disabled={!sale.saleUrl}
+                          onPress={() => {
+                            if (sale.saleUrl) {
+                              capturePostHogEvent('card_recent_sales_row_opened', {
+                                detail_kind: 'slab',
+                                row_index: index,
+                                sale_count_bucket: recentSalesCountBucket(recentSales?.saleCount ?? recentSales?.sales.length ?? 0),
+                                sales_provider: 'scrydex',
+                                sales_source: 'ebay',
+                              });
+                              void Linking.openURL(sale.saleUrl);
+                            }
+                          }}
+                          style={({ pressed }) => [
+                            styles.slabLastSoldRow,
+                            { opacity: sale.saleUrl && pressed ? 0.9 : 1 },
+                          ]}
+                          testID={`detail-slab-last-sold-row-${index}`}
+                        >
+                          <View style={styles.slabLastSoldRowMain}>
+                            <Text
+                              numberOfLines={1}
+                              style={[theme.typography.bodyStrong, styles.slabLastSoldTitle]}
+                            >
+                              {sale.title}
                             </Text>
-                          ) : null}
-                        </View>
-                        <Text style={[theme.typography.bodyStrong, styles.slabLastSoldPrice]}>
-                          {sale.priceAmount != null
-                            ? formatCurrency(sale.priceAmount, sale.currencyCode)
-                            : '—'}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                  {hasMoreSales ? (
-                    <Button
-                      label="Load more sales"
-                      onPress={() => setShowAllSales(true)}
-                      size="lg"
-                      style={styles.loadMoreButton}
-                      testID="detail-slab-load-more-sales"
-                      variant="secondary"
-                    />
-                  ) : null}
-                </View>
-              ) : null
+                            {soldDateLabel ? (
+                              <Text style={[theme.typography.micro, styles.slabLastSoldMeta]}>
+                                {soldDateLabel}
+                              </Text>
+                            ) : null}
+                          </View>
+                          <Text style={[theme.typography.bodyStrong, styles.slabLastSoldPrice]}>
+                            {sale.priceAmount != null
+                              ? formatCurrency(sale.priceAmount, sale.currencyCode)
+                              : '—'}
+                          </Text>
+                        </Pressable>
+                      );
+                    })}
+                    {hasMoreSales ? (
+                      <Button
+                        label="Load more sales"
+                        onPress={() => setShowAllSales(true)}
+                        size="lg"
+                        style={styles.loadMoreButton}
+                        testID="detail-slab-load-more-sales"
+                        variant="secondary"
+                      />
+                    ) : null}
+                  </>
+                ) : null}
+              </View>
             ) : (
               <Pressable
                 accessibilityRole="button"
@@ -1544,6 +1565,17 @@ const styles = StyleSheet.create({
   inlineMarketplaceRow: {
     gap: 0,
   },
+  latestSalesEmpty: {
+    backgroundColor: '#F7F8FA',
+    borderColor: 'rgba(15, 15, 18, 0.08)',
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+  },
+  latestSalesEmptyText: {
+    color: 'rgba(15, 15, 18, 0.62)',
+  },
   latestSalesHeader: {
     color: 'rgba(15, 15, 18, 0.52)',
   },
@@ -1596,15 +1628,18 @@ const styles = StyleSheet.create({
   },
   pricingLeftColumn: {
     alignItems: 'flex-start',
-    flexBasis: '40%',
+    flexBasis: 'auto',
     flexGrow: 0,
     flexShrink: 0,
     gap: 4,
     justifyContent: 'center',
+    maxWidth: '55%',
+    minWidth: '42%',
   },
   pricingRightColumn: {
     flexGrow: 1,
     flexShrink: 1,
+    minWidth: 0,
   },
   pricingTopRow: {
     alignItems: 'center',

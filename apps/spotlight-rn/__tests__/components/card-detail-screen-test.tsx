@@ -237,7 +237,7 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-sell-card')).toBeNull();
   });
 
-  it('defaults the timeframe selector to 30d and offers only 7d, 30d, 90d', async () => {
+  it('defaults the timeframe selector to 30d and offers only 7d and 30d', async () => {
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
@@ -253,7 +253,7 @@ describe('CardDetailScreen', () => {
     fireEvent.press(screen.getByTestId('detail-timeframe-dropdown'));
     expect(await screen.findByTestId('detail-timeframe-dropdown-option-7d')).toBeTruthy();
     expect(screen.getByTestId('detail-timeframe-dropdown-option-30d')).toBeTruthy();
-    expect(screen.getByTestId('detail-timeframe-dropdown-option-90d')).toBeTruthy();
+    expect(screen.queryByTestId('detail-timeframe-dropdown-option-90d')).toBeNull();
     expect(screen.queryByTestId('detail-timeframe-dropdown-option-180d')).toBeNull();
     expect(screen.queryByTestId('detail-timeframe-dropdown-option-1y')).toBeNull();
     expect(screen.queryByTestId('detail-timeframe-dropdown-option-all')).toBeNull();
@@ -493,6 +493,74 @@ describe('CardDetailScreen', () => {
       expect(screen.getByTestId('detail-slab-last-sold-row-2')).toBeTruthy();
       expect(screen.getByTestId('detail-slab-last-sold-row-3')).toBeTruthy();
     });
+    expect(screen.queryByTestId('detail-slab-load-more-sales')).toBeNull();
+  });
+
+  it('renders the empty-state copy when a slab returns zero eBay sales', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-empty-sales-entry',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity: 1,
+      setName: '裂空のカリスマ',
+      slabContext: {
+        certNumber: '00000002',
+        grade: '9',
+        grader: 'PSA',
+        variantName: 'PSA 9',
+      },
+      variantName: 'PSA 9',
+    };
+    const getCardRecentSales = jest.fn(async () => ({
+      source: 'ebay' as const,
+      status: 'available' as const,
+      statusReason: 'no_results' as const,
+      unavailableReason: null,
+      fetchedAt: null,
+      canRefresh: false,
+      saleCount: 0,
+      sales: [],
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="graded-empty-sales-entry"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        onOpenSell={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [gradedEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+          getCardRecentSales,
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(await screen.findByText('Latest sales from eBay')).toBeTruthy();
+    const emptyBlock = await screen.findByTestId('detail-slab-last-sold-empty');
+    expect(emptyBlock).toBeTruthy();
+    expect(screen.queryByTestId('detail-slab-last-sold-row-0')).toBeNull();
     expect(screen.queryByTestId('detail-slab-load-more-sales')).toBeNull();
   });
 
