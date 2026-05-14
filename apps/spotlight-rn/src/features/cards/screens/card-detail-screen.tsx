@@ -1,17 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  IconBolt,
+  IconCash,
   IconChevronDown,
-  IconChevronUp,
-  IconDots,
   IconHeart,
   IconHeartFilled,
   IconPlus,
-  IconRefresh,
   IconTrendingDown,
   IconTrendingUp,
 } from '@tabler/icons-react-native';
 import {
-  ActivityIndicator,
   Image,
   Linking,
   Modal,
@@ -27,10 +25,9 @@ import Svg, { Circle, Defs, LinearGradient, Path, Stop } from 'react-native-svg'
 import {
   deckConditionOptions,
   type CardDetailRecord,
-  type CardPricingTrendsPct,
   type CardRecentSalesRecord,
 } from '@spotlight/api-client';
-import { Button, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import { Button, IconButton, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import {
@@ -46,7 +43,6 @@ import {
   formatCurrency,
   formatOptionalCurrency,
 } from '@/features/portfolio/components/portfolio-formatting';
-import { useSuggestedDiscount } from '@/features/pricing/use-suggested-discount';
 import { slabGradeSummary } from '@/features/sell/sell-order-helpers';
 import { SellBackdrop } from '@/features/sell/components/sell-ui';
 import {
@@ -98,24 +94,21 @@ const favoriteHeartColor = '#E83E8C';
 const recentSalesPageSize = 25;
 const slabLastSoldRowLimit = 2;
 
-type TimeframeId = '7d' | '30d' | '90d' | '180d' | '1y' | 'all';
+type TimeframeId = '7d' | '30d' | '90d';
 
 type TimeframeOption = {
   id: TimeframeId;
   label: string;
-  days: number | null;
+  days: number;
 };
 
 const timeframeOptions: readonly TimeframeOption[] = [
   { id: '7d', label: '7d', days: 7 },
   { id: '30d', label: '30d', days: 30 },
   { id: '90d', label: '90d', days: 90 },
-  { id: '180d', label: '180d', days: 180 },
-  { id: '1y', label: '1y', days: 365 },
-  { id: 'all', label: 'All', days: null },
 ] as const;
 
-const defaultTimeframeId: TimeframeId = '90d';
+const defaultTimeframeId: TimeframeId = '30d';
 
 type CardDetailScreenProps = {
   cardId: string;
@@ -314,53 +307,19 @@ function formatPricesFreshnessLabel(value?: string | null): string | null {
     return null;
   }
   const diffMs = Date.now() - timestamp;
-  if (!Number.isFinite(diffMs) || diffMs < 0) {
-    return 'Prices · just now';
-  }
-  if (diffMs < 60_000) {
-    return 'Prices · just now';
+  if (!Number.isFinite(diffMs) || diffMs < 60_000) {
+    return 'Refreshed just now';
   }
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 60) {
-    return `Prices · ${minutes}m ago`;
+    return `Refreshed ${minutes}m ago`;
   }
   const hours = Math.floor(diffMs / 3_600_000);
   if (hours < 24) {
-    return `Prices · ${hours}h ago`;
+    return `Refreshed ${hours}h ago`;
   }
   const days = Math.floor(diffMs / 86_400_000);
-  return `Prices · ${days}d ago`;
-}
-
-function recentSalesAgeHours(value?: string | null) {
-  const trimmed = value?.trim();
-  if (!trimmed) {
-    return null;
-  }
-  const parsed = new Date(trimmed);
-  const timestamp = parsed.getTime();
-  if (!Number.isFinite(timestamp)) {
-    return null;
-  }
-  const diffMs = Date.now() - timestamp;
-  if (!Number.isFinite(diffMs)) {
-    return null;
-  }
-  return Math.max(0, Math.floor(diffMs / 3600000));
-}
-
-function recentSalesAgeBucket(value?: string | null) {
-  const hours = recentSalesAgeHours(value);
-  if (hours == null) {
-    return 'none';
-  }
-  if (hours < 24) {
-    return '<24h';
-  }
-  if (hours < 48) {
-    return '24_47h';
-  }
-  return '48h_plus';
+  return `Refreshed ${days}d ago`;
 }
 
 function recentSalesCountBucket(value?: number | null) {
@@ -377,19 +336,6 @@ function recentSalesCountBucket(value?: number | null) {
     return '2_5';
   }
   return '6_plus';
-}
-
-function recentSalesLatencyBucket(value: number) {
-  if (value < 500) {
-    return '<500';
-  }
-  if (value < 1500) {
-    return '500_1500';
-  }
-  if (value < 5000) {
-    return '1500_5000';
-  }
-  return '5000_plus';
 }
 
 function recentSalesSectionState(value: CardRecentSalesRecord | null) {
@@ -413,7 +359,7 @@ function SimilarCardsButton({
   onPress: () => void;
 }) {
   const theme = useSpotlightTheme();
-  const title = count === 1 ? '1 similar card found' : `${count} similar cards found`;
+  const title = `${count} similar`;
 
   return (
     <Pressable
@@ -425,6 +371,7 @@ function SimilarCardsButton({
       ]}
       testID="detail-similar-cards-button"
     >
+      <IconBolt color="#9C7A12" size={14} strokeWidth={2.2} />
       <Text
         style={[theme.typography.bodyStrong, styles.similarCardsTitle]}
         testID="detail-similar-cards-title"
@@ -443,20 +390,24 @@ function HistoryChart({
   currencyCode,
   currentPrice,
   points,
+  showAxisLabels = false,
+  showGridLabels = false,
   tintColor,
 }: {
   currencyCode: string;
   currentPrice: number;
   points: ChartPoint[];
+  showAxisLabels?: boolean;
+  showGridLabels?: boolean;
   tintColor: string;
 }) {
   const theme = useSpotlightTheme();
   const width = 320;
   const height = 210;
-  const paddingLeft = 56;
+  const paddingLeft = showGridLabels ? 56 : 8;
   const paddingRight = 16;
   const paddingTop = 16;
-  const paddingBottom = 30;
+  const paddingBottom = 24;
 
   if (points.length === 0) {
     return (
@@ -502,15 +453,34 @@ function HistoryChart({
       <View style={styles.chartFrame}>
         {gridValues.map((value, index) => (
           <View key={`${value}-${index}`} style={styles.chartGridRow}>
-            <Text
-              style={[theme.typography.micro, styles.chartGridLabel]}
-              testID={`detail-market-grid-label-${index}`}
-            >
-              {compactCurrency(value, currencyCode)}
-            </Text>
+            {showGridLabels ? (
+              <Text
+                style={[theme.typography.micro, styles.chartGridLabel]}
+                testID={`detail-market-grid-label-${index}`}
+              >
+                {compactCurrency(value, currencyCode)}
+              </Text>
+            ) : null}
             <View style={styles.chartGridLine} />
           </View>
         ))}
+
+        <View
+          pointerEvents="none"
+          style={[styles.chartAxisLineVertical, {
+            bottom: paddingBottom,
+            left: paddingLeft - 1,
+            top: paddingTop,
+          }]}
+        />
+        <View
+          pointerEvents="none"
+          style={[styles.chartAxisLineHorizontal, {
+            bottom: paddingBottom - 1,
+            left: paddingLeft,
+            right: paddingRight,
+          }]}
+        />
 
         <Svg height="100%" style={styles.chartSvg} viewBox={`0 0 ${width} ${height}`} width="100%">
           <Defs>
@@ -532,31 +502,29 @@ function HistoryChart({
         </Svg>
       </View>
 
-      <View style={styles.chartAxisRow}>
-        <Text style={[theme.typography.micro, styles.chartAxisText]}>{points[0]?.shortLabel}</Text>
-        <Text style={[theme.typography.micro, styles.chartAxisText]}>{points[points.length - 1]?.shortLabel}</Text>
-      </View>
+      {showAxisLabels ? (
+        <View style={styles.chartAxisRow}>
+          <Text style={[theme.typography.micro, styles.chartAxisText]}>{points[0]?.shortLabel}</Text>
+          <Text style={[theme.typography.micro, styles.chartAxisText]}>{points[points.length - 1]?.shortLabel}</Text>
+        </View>
+      ) : null}
     </View>
   );
 }
 
-function TrendChip({
-  days,
-  value,
+function TrendLabel({
   testID,
+  value,
 }: {
-  days: 7 | 30 | 90;
-  value: number | null | undefined;
   testID: string;
+  value: number | null | undefined;
 }) {
   const theme = useSpotlightTheme();
-  const label = `${days}d`;
 
   if (value == null || !Number.isFinite(value)) {
     return (
-      <View style={styles.trendChip} testID={testID}>
-        <Text style={[theme.typography.micro, styles.trendChipLabel]}>{label}</Text>
-        <Text style={[theme.typography.bodyStrong, styles.trendChipValueMuted]}>—</Text>
+      <View style={styles.trendInline} testID={testID}>
+        <Text style={[theme.typography.bodyStrong, styles.trendInlineMuted]}>—</Text>
       </View>
     );
   }
@@ -567,29 +535,28 @@ function TrendChip({
   const formatted = `${isUp ? '+' : '-'}${Math.abs(value).toFixed(1)}%`;
 
   return (
-    <View style={styles.trendChip} testID={testID}>
-      <Text style={[theme.typography.micro, styles.trendChipLabel]}>{label}</Text>
-      <View style={styles.trendChipValueRow}>
-        <Icon color={tone} size={14} strokeWidth={2.2} />
-        <Text style={[theme.typography.bodyStrong, { color: tone }]}>{formatted}</Text>
-      </View>
+    <View style={styles.trendInline} testID={testID}>
+      <Icon color={tone} size={14} strokeWidth={2.2} />
+      <Text style={[theme.typography.bodyStrong, { color: tone }]}>{formatted}</Text>
     </View>
   );
 }
 
 function ConditionDropdown({
+  disabled,
+  hideOptionPrice = false,
+  onSelect,
   options,
   selectedId,
   selectedLabel,
-  disabled,
-  onSelect,
   testID,
 }: {
+  disabled?: boolean;
+  hideOptionPrice?: boolean;
+  onSelect: (id: string) => void;
   options: { id: string; label: string; shortLabel: string; isAvailable: boolean; currentPrice: number | null }[];
   selectedId: string | null;
   selectedLabel: string;
-  disabled?: boolean;
-  onSelect: (id: string) => void;
   testID?: string;
 }) {
   const theme = useSpotlightTheme();
@@ -657,11 +624,13 @@ function ConditionDropdown({
                   <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
                     {option.label}
                   </Text>
-                  <Text style={[theme.typography.bodyStrong, styles.dropdownOptionPrice]}>
-                    {option.currentPrice != null
-                      ? formatCurrency(option.currentPrice, 'USD')
-                      : '—'}
-                  </Text>
+                  {hideOptionPrice ? null : (
+                    <Text style={[theme.typography.bodyStrong, styles.dropdownOptionPrice]}>
+                      {option.currentPrice != null
+                        ? formatCurrency(option.currentPrice, 'USD')
+                        : '—'}
+                    </Text>
+                  )}
                 </Pressable>
               );
             })}
@@ -693,15 +662,12 @@ export function CardDetailScreen({
   const [detail, setDetail] = useState<CardDetailRecord | null>(null);
   const [marketHistory, setMarketHistory] = useState<CardDetailRecord['marketHistory'] | null>(null);
   const [recentSalesState, setRecentSalesState] = useState<CardRecentSalesRecord | null>(null);
-  const [isRecentSalesLoading, setIsRecentSalesLoading] = useState(false);
   const [hasResolvedRecentSalesState, setHasResolvedRecentSalesState] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
   const [isFavoritePending, setIsFavoritePending] = useState(false);
-  const [isPriceDetailsExpanded, setIsPriceDetailsExpanded] = useState(false);
   const [selectedTimeframeId, setSelectedTimeframeId] = useState<TimeframeId>(defaultTimeframeId);
-  const [isOverflowMenuOpen, setIsOverflowMenuOpen] = useState(false);
-  const { discountPct } = useSuggestedDiscount();
+  const [showAllSales, setShowAllSales] = useState(false);
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
     [scanReviewId],
@@ -769,8 +735,8 @@ export function CardDetailScreen({
   useEffect(() => {
     setSelectedConditionId(null);
     setMarketHistory(null);
-    setIsPriceDetailsExpanded(false);
     setSelectedTimeframeId(defaultTimeframeId);
+    setShowAllSales(false);
   }, [cardId]);
 
   const selectedEntry = useMemo(() => {
@@ -834,70 +800,9 @@ export function CardDetailScreen({
     };
   }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, selectedSlabContext, spotlightRepository]);
 
-  const loadRecentSales = useCallback(async (requestMode: 'load' | 'refresh') => {
-    if (!shouldShowRecentSales || !selectedSlabContext) {
-      return;
-    }
-    const startedAt = Date.now();
-    if (requestMode === 'refresh') {
-      capturePostHogEvent('card_recent_sales_refresh_tapped', {
-        cache_age_bucket: recentSalesAgeBucket(recentSalesState?.fetchedAt),
-        detail_kind: 'slab',
-        sale_count_bucket: recentSalesCountBucket(recentSalesState?.saleCount ?? recentSalesState?.sales.length ?? 0),
-        sales_provider: 'scrydex',
-        sales_source: 'ebay',
-      });
-    } else {
-      capturePostHogEvent('card_recent_sales_load_tapped', {
-        detail_kind: 'slab',
-        sales_provider: 'scrydex',
-        sales_source: 'ebay',
-      });
-    }
-    setIsRecentSalesLoading(true);
-    try {
-      const nextRecentSales = await spotlightRepository.getCardRecentSales({
-        cardId,
-        limit: recentSalesPageSize,
-        refresh: true,
-        slabContext: selectedSlabContext,
-        source: 'ebay',
-      });
-      setRecentSalesState(nextRecentSales);
-      setHasResolvedRecentSalesState(true);
-      capturePostHogEvent('card_recent_sales_request_completed', {
-        can_refresh: Boolean(nextRecentSales?.canRefresh),
-        detail_kind: 'slab',
-        latency_ms_bucket: recentSalesLatencyBucket(Date.now() - startedAt),
-        request_mode: requestMode,
-        result: nextRecentSales?.status === 'available'
-          ? 'available'
-          : nextRecentSales?.statusReason === 'no_results'
-            ? 'no_results'
-            : 'unavailable',
-        sale_count_bucket: recentSalesCountBucket(nextRecentSales?.saleCount ?? nextRecentSales?.sales.length ?? 0),
-        sales_provider: 'scrydex',
-        sales_source: 'ebay',
-      });
-    } catch {
-      setHasResolvedRecentSalesState(true);
-      capturePostHogEvent('card_recent_sales_request_completed', {
-        detail_kind: 'slab',
-        latency_ms_bucket: recentSalesLatencyBucket(Date.now() - startedAt),
-        request_mode: requestMode,
-        result: 'failed',
-        sales_provider: 'scrydex',
-        sales_source: 'ebay',
-      });
-    } finally {
-      setIsRecentSalesLoading(false);
-    }
-  }, [cardId, recentSalesState?.fetchedAt, recentSalesState?.saleCount, recentSalesState?.sales.length, selectedSlabContext, shouldShowRecentSales, spotlightRepository]);
-
   useEffect(() => {
     let cancelled = false;
     setRecentSalesState(null);
-    setIsRecentSalesLoading(false);
     setHasResolvedRecentSalesState(false);
 
     if (!shouldShowRecentSales || !selectedSlabContext) {
@@ -906,7 +811,6 @@ export function CardDetailScreen({
       };
     }
 
-    setIsRecentSalesLoading(true);
     void spotlightRepository.getCardRecentSales({
       cardId,
       limit: recentSalesPageSize,
@@ -922,11 +826,6 @@ export function CardDetailScreen({
       .catch(() => {
         if (!cancelled) {
           setHasResolvedRecentSalesState(true);
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsRecentSalesLoading(false);
         }
       });
 
@@ -1038,10 +937,11 @@ export function CardDetailScreen({
     () => recentSales?.sales.slice().sort(compareRecentSalesBySoldDateDesc) ?? [],
     [recentSales?.sales],
   );
-  const slabLastSoldRows = useMemo(
-    () => sortedRecentSales.slice(0, slabLastSoldRowLimit),
-    [sortedRecentSales],
+  const visibleSales = useMemo(
+    () => (showAllSales ? sortedRecentSales : sortedRecentSales.slice(0, slabLastSoldRowLimit)),
+    [showAllSales, sortedRecentSales],
   );
+  const hasMoreSales = sortedRecentSales.length > slabLastSoldRowLimit && !showAllSales;
 
   const handleToggleFavorite = useCallback(() => {
     if (isFavoritePending) {
@@ -1094,6 +994,20 @@ export function CardDetailScreen({
     });
     return filtered.length > 0 ? filtered : allPoints;
   }, [effectiveMarketHistory?.points, selectedTimeframeId]);
+
+  const timeframeDropdownOptions = useMemo(() => (
+    timeframeOptions.map((option) => ({
+      currentPrice: null,
+      id: option.id,
+      isAvailable: true,
+      label: option.label,
+      shortLabel: option.label,
+    }))
+  ), []);
+
+  const selectedTimeframeLabel = useMemo(() => (
+    timeframeOptions.find((option) => option.id === selectedTimeframeId)?.label ?? defaultTimeframeId
+  ), [selectedTimeframeId]);
 
   const hasDisplayContent = detail != null || detailPreview != null;
 
@@ -1152,25 +1066,17 @@ export function CardDetailScreen({
     ? (slabHeroSubtitle ?? 'Slab')
     : (selectedCondition?.label ?? 'Condition');
 
-  const pricesFreshnessLabel = formatPricesFreshnessLabel(recentSales?.fetchedAt);
-  const shouldShowRecentSalesRefresh = Boolean(recentSales?.canRefresh);
+  const pricesFreshnessLabel = formatPricesFreshnessLabel(recentSales?.fetchedAt ?? null);
 
-  const suggestedDisplayPrice = (
-    discountPct != null
-    && typeof displayedPrice === 'number'
-    && Number.isFinite(displayedPrice)
-    && displayedPrice > 0
-  )
-    ? Number((displayedPrice * (1 - discountPct / 100)).toFixed(2))
-    : null;
-
-  const activeTrendsPct: CardPricingTrendsPct | null = detail?.trendsPct ?? null;
+  const trendValue = detail?.trendsPct?.days30 ?? null;
 
   const hasMarketHistoryPoints = timeframeFilteredPoints.length > 0;
 
   const safeNumericDisplayedPrice = typeof displayedPrice === 'number' && Number.isFinite(displayedPrice)
     ? displayedPrice
     : 0;
+
+  const canShowSellAction = isOwned && Boolean(sellEntryId) && Boolean(onOpenSell);
 
   return (
     <SafeAreaView
@@ -1180,11 +1086,20 @@ export function CardDetailScreen({
       <SellBackdrop imageUrl={displayImageUrl ?? undefined} variant="single" />
 
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-        <ChromeBackButton
-          onPress={onBack}
-          style={styles.backPlate}
-          testID="detail-back"
-        />
+        <View style={styles.headerRow}>
+          <ChromeBackButton
+            onPress={onBack}
+            testID="detail-back"
+          />
+          {scanReviewId && similarScanCandidates.length > 0 ? (
+            <SimilarCardsButton
+              count={similarScanCandidates.length}
+              onPress={() => {
+                onOpenScanCandidateReview?.(scanReviewId);
+              }}
+            />
+          ) : null}
+        </View>
 
         <View testID="detail-hero-card">
           <SurfaceCard padding={20} radius={28} style={styles.heroCard}>
@@ -1226,169 +1141,130 @@ export function CardDetailScreen({
                   </Text>
                 ) : null}
 
-                <View style={styles.heroIconRow} testID="detail-action-stack">
-                  <Pressable
-                    accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Favorite card'}
-                    accessibilityRole="button"
-                    disabled={isFavoritePending}
-                    onPress={handleToggleFavorite}
-                    style={({ pressed }) => [
-                      styles.heroIconButton,
-                      {
-                        borderColor: theme.colors.outlineSubtle,
-                        opacity: isFavoritePending ? 0.45 : pressed ? 0.84 : 1,
-                      },
-                    ]}
-                    testID="detail-favorite-card"
-                  >
-                    {isFavorite ? (
-                      <IconHeartFilled color={favoriteHeartColor} size={18} />
-                    ) : (
-                      <IconHeart color={favoriteHeartColor} size={18} strokeWidth={2} />
-                    )}
-                  </Pressable>
+                <View style={styles.actionRow} testID="detail-action-stack">
+                  <View style={styles.actionCell}>
+                    <IconButton
+                      accessibilityLabel={isOwned ? 'Add another copy to collection' : 'Add to collection'}
+                      onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, isOwned ? sellEntryId : undefined)}
+                      testID="detail-add-to-collection"
+                      variant="elevated"
+                    >
+                      <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                    </IconButton>
+                    <Text style={[theme.typography.micro, styles.actionCellLabel]}>Add</Text>
+                  </View>
 
-                  <Pressable
-                    accessibilityLabel={isOwned ? 'Add another copy to collection' : 'Add to collection'}
-                    accessibilityRole="button"
-                    onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, isOwned ? sellEntryId : undefined)}
-                    style={({ pressed }) => [
-                      styles.heroIconButton,
-                      {
-                        borderColor: theme.colors.outlineSubtle,
-                        opacity: pressed ? 0.84 : 1,
-                      },
-                    ]}
-                    testID="detail-add-to-collection"
-                  >
-                    <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                  </Pressable>
+                  <View style={styles.actionCell}>
+                    <IconButton
+                      accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Favorite card'}
+                      disabled={isFavoritePending}
+                      onPress={handleToggleFavorite}
+                      testID="detail-favorite-card"
+                      variant="elevated"
+                    >
+                      {isFavorite ? (
+                        <IconHeartFilled color={favoriteHeartColor} size={18} />
+                      ) : (
+                        <IconHeart color={favoriteHeartColor} size={18} strokeWidth={2} />
+                      )}
+                    </IconButton>
+                    <Text style={[theme.typography.micro, styles.actionCellLabel]}>Save</Text>
+                  </View>
 
-                  <Pressable
-                    accessibilityLabel="More actions"
-                    accessibilityRole="button"
-                    onPress={() => setIsOverflowMenuOpen(true)}
-                    style={({ pressed }) => [
-                      styles.heroIconButton,
-                      {
-                        borderColor: theme.colors.outlineSubtle,
-                        opacity: pressed ? 0.84 : 1,
-                      },
-                    ]}
-                    testID="detail-overflow-menu"
-                  >
-                    <IconDots color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                  </Pressable>
+                  {canShowSellAction ? (
+                    <View style={styles.actionCell}>
+                      <IconButton
+                        accessibilityLabel="Sell card"
+                        onPress={() => {
+                          if (sellEntryId && onOpenSell) {
+                            onOpenSell(sellEntryId);
+                          }
+                        }}
+                        testID="detail-sell-card"
+                        variant="elevated"
+                      >
+                        <IconCash color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                      </IconButton>
+                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Sell</Text>
+                    </View>
+                  ) : null}
                 </View>
               </View>
             </View>
           </SurfaceCard>
         </View>
 
-        {isOwned && sellEntryId && onOpenSell ? (
-          <Button
-            contentStyle={styles.primaryButtonContent}
-            label="SELL CARD"
-            labelStyle={styles.primaryButtonLabel}
-            onPress={() => {
-              onOpenSell(sellEntryId);
-            }}
-            size="lg"
-            testID="detail-sell-card"
-            variant="primary"
-          />
-        ) : null}
+        <View testID="detail-market-card">
+          <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
+            <View style={styles.pricingTopRow}>
+              <ConditionDropdown
+                disabled={isSlabDetail || marketConditionOptions.length === 0}
+                onSelect={(id) => setSelectedConditionId(id)}
+                options={marketConditionOptions}
+                selectedId={selectedCondition?.id ?? null}
+                selectedLabel={conditionDropdownLabel}
+                testID="detail-condition-dropdown"
+              />
+              {pricesFreshnessLabel ? (
+                <Text
+                  style={[theme.typography.caption, styles.priceFreshnessLabel]}
+                  testID="detail-prices-freshness"
+                >
+                  {pricesFreshnessLabel}
+                </Text>
+              ) : null}
+            </View>
 
-        {similarScanCandidates.length > 0 ? (
-          <SimilarCardsButton
-            count={similarScanCandidates.length}
-            onPress={() => {
-              if (scanReviewId) {
-                onOpenScanCandidateReview?.(scanReviewId);
-              }
-            }}
-          />
-        ) : null}
+            <View style={styles.pricingBodyRow}>
+              <View style={styles.pricingLeftColumn}>
+                <Text
+                  style={[theme.typography.display, styles.marketValueTitle]}
+                  testID="detail-market-price"
+                >
+                  {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
+                </Text>
+                <Text style={[theme.typography.caption, styles.priceColumnLabel]}>Market price</Text>
 
-        <View style={styles.section}>
-          <View testID="detail-market-card">
-            <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
-              <View style={styles.priceHeaderRow}>
-                <ConditionDropdown
-                  disabled={isSlabDetail || marketConditionOptions.length === 0}
-                  onSelect={(id) => setSelectedConditionId(id)}
-                  options={marketConditionOptions}
-                  selectedId={selectedCondition?.id ?? null}
-                  selectedLabel={conditionDropdownLabel}
-                  testID="detail-condition-dropdown"
-                />
-                {pricesFreshnessLabel ? (
-                  <View style={styles.freshnessRow}>
-                    <Text
-                      style={[theme.typography.caption, styles.priceFreshnessLabel]}
-                      testID="detail-prices-freshness"
-                    >
-                      {pricesFreshnessLabel}
-                    </Text>
-                    {shouldShowRecentSalesRefresh ? (
-                      isRecentSalesLoading && recentSales ? (
-                        <ActivityIndicator color="rgba(15, 15, 18, 0.52)" size="small" testID="detail-recent-sales-loading-inline" />
-                      ) : (
-                        <Pressable
-                          accessibilityLabel="Refresh recent eBay sales"
-                          accessibilityRole="button"
-                          onPress={() => {
-                            void loadRecentSales('refresh');
-                          }}
-                          style={({ pressed }) => [
-                            styles.freshnessRefreshButton,
-                            { opacity: pressed ? 0.72 : 1 },
-                          ]}
-                          testID="detail-recent-sales-refresh"
-                        >
-                          <IconRefresh color="rgba(15, 15, 18, 0.58)" size={14} strokeWidth={1.9} />
-                        </Pressable>
-                      )
-                    ) : null}
-                  </View>
-                ) : null}
-              </View>
-
-              <View style={styles.priceRow}>
-                <View style={styles.priceColumn}>
-                  <Text
-                    style={[theme.typography.display, styles.marketValueTitle]}
-                    testID="detail-market-price"
-                  >
-                    {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
-                  </Text>
-                  <Text style={[theme.typography.caption, styles.priceColumnLabel]}>Market price</Text>
+                <View style={styles.trendAndPickerRow}>
+                  <TrendLabel testID="detail-market-trend" value={trendValue} />
+                  <ConditionDropdown
+                    hideOptionPrice
+                    onSelect={(id) => setSelectedTimeframeId(id as TimeframeId)}
+                    options={timeframeDropdownOptions}
+                    selectedId={selectedTimeframeId}
+                    selectedLabel={selectedTimeframeLabel}
+                    testID="detail-timeframe-dropdown"
+                  />
                 </View>
-
-                {suggestedDisplayPrice != null ? (
-                  <View style={styles.priceColumn} testID="detail-suggested-price-column">
-                    <Text
-                      style={[theme.typography.display, styles.suggestedValueTitle]}
-                      testID="detail-suggested-price"
-                    >
-                      {formatCurrency(suggestedDisplayPrice, displayCurrencyCode)}
-                    </Text>
-                    <Text
-                      style={[theme.typography.caption, styles.priceColumnLabel]}
-                      testID="detail-suggested-price-label"
-                    >
-                      {`Suggested (−${discountPct ?? 0}%)`}
-                    </Text>
-                  </View>
-                ) : null}
               </View>
 
-              {isSlabDetail && slabLastSoldRows.length > 0 ? (
-                <View style={styles.slabLastSoldBlock} testID="detail-slab-last-sold">
-                  <Text style={[theme.typography.caption, styles.slabLastSoldHeader]}>
-                    Last sold · eBay
+              <View style={styles.pricingRightColumn}>
+                {hasMarketHistoryPoints ? (
+                  <HistoryChart
+                    currencyCode={displayCurrencyCode}
+                    currentPrice={safeNumericDisplayedPrice}
+                    points={timeframeFilteredPoints}
+                    showAxisLabels={false}
+                    showGridLabels={false}
+                    tintColor={marketTint}
+                  />
+                ) : (
+                  <View style={styles.lazyMarketBlock} testID="detail-history-empty">
+                    <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
+                      Price history is still populating.
+                    </Text>
+                  </View>
+                )}
+              </View>
+            </View>
+
+            {isSlabDetail ? (
+              visibleSales.length > 0 ? (
+                <View style={styles.latestSalesSection} testID="detail-slab-last-sold">
+                  <Text style={[theme.typography.caption, styles.latestSalesHeader]}>
+                    Latest sales from eBay
                   </Text>
-                  {slabLastSoldRows.map((sale, index) => {
+                  {visibleSales.map((sale, index) => {
                     const soldDateLabel = formatListingDateLabel(sale.soldAt);
                     return (
                       <Pressable
@@ -1434,187 +1310,75 @@ export function CardDetailScreen({
                       </Pressable>
                     );
                   })}
+                  {hasMoreSales ? (
+                    <Button
+                      label="Load more sales"
+                      onPress={() => setShowAllSales(true)}
+                      size="lg"
+                      style={styles.loadMoreButton}
+                      testID="detail-slab-load-more-sales"
+                      variant="secondary"
+                    />
+                  ) : null}
                 </View>
-              ) : null}
-
+              ) : null
+            ) : (
               <Pressable
                 accessibilityRole="button"
-                onPress={() => setIsPriceDetailsExpanded((current) => !current)}
+                disabled={!marketplaceUrl}
+                onPress={marketplaceUrl
+                  ? () => {
+                      void Linking.openURL(marketplaceUrl);
+                    }
+                  : undefined}
                 style={({ pressed }) => [
-                  styles.priceDetailsToggle,
-                  { opacity: pressed ? 0.72 : 1 },
+                  styles.inlineMarketplaceRow,
+                  { opacity: marketplaceUrl ? (pressed ? 0.72 : 1) : 0.5 },
                 ]}
-                testID="detail-price-details-toggle"
+                testID="detail-marketplace-cta"
               >
-                <Text style={[theme.typography.control, styles.priceDetailsToggleLabel]}>
-                  {isPriceDetailsExpanded ? 'Show less' : 'Show more'}
-                </Text>
-                {isPriceDetailsExpanded ? (
-                  <IconChevronUp color={theme.colors.textPrimary} size={16} strokeWidth={2.2} />
-                ) : (
-                  <IconChevronDown color={theme.colors.textPrimary} size={16} strokeWidth={2.2} />
-                )}
-              </Pressable>
-
-              {isPriceDetailsExpanded ? (
-                <View style={styles.priceDetailsBody} testID="detail-price-details-body">
-                  <View style={styles.trendChipRow} testID="detail-trend-chip-row">
-                    <TrendChip days={7} testID="detail-trend-chip-7d" value={activeTrendsPct?.days7 ?? null} />
-                    <TrendChip days={30} testID="detail-trend-chip-30d" value={activeTrendsPct?.days30 ?? null} />
-                    <TrendChip days={90} testID="detail-trend-chip-90d" value={activeTrendsPct?.days90 ?? null} />
-                  </View>
-                </View>
-              ) : null}
-            </SurfaceCard>
-          </View>
-        </View>
-
-        <View style={styles.section}>
-          <View testID="detail-history-card">
-            <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
-              {hasMarketHistoryPoints ? (
-                <HistoryChart
-                  currencyCode={displayCurrencyCode}
-                  currentPrice={safeNumericDisplayedPrice}
-                  points={timeframeFilteredPoints}
-                  tintColor={marketTint}
-                />
-              ) : (
-                <View style={styles.lazyMarketBlock} testID="detail-history-empty">
-                  <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
-                    Price history is still populating.
+                <View style={styles.inlineMarketplaceDivider} />
+                <View style={styles.inlineMarketplaceContent}>
+                  <Text style={[theme.typography.bodyStrong, styles.inlineMarketplaceLabel]}>
+                    View on TCGplayer
                   </Text>
+                  <Image
+                    source={require('../../../../assets/images/tcgplayer-icon.png')}
+                    style={styles.marketplaceIcon}
+                    testID="detail-marketplace-icon"
+                  />
                 </View>
-              )}
-
-              <View style={styles.timeframeRow} testID="detail-timeframe-row">
-                {timeframeOptions.map((option) => {
-                  const isSelected = option.id === selectedTimeframeId;
-                  return (
-                    <Pressable
-                      key={option.id}
-                      accessibilityRole="button"
-                      onPress={() => setSelectedTimeframeId(option.id)}
-                      style={({ pressed }) => [
-                        styles.timeframeChip,
-                        {
-                          backgroundColor: isSelected ? theme.colors.surfaceMuted : '#F7F8FA',
-                          borderColor: isSelected ? theme.colors.brand : 'rgba(15, 15, 18, 0.08)',
-                          opacity: pressed ? 0.92 : 1,
-                        },
-                      ]}
-                      testID={`detail-timeframe-${option.id}`}
-                    >
-                      <Text style={[theme.typography.caption, styles.timeframeChipLabel]}>
-                        {option.label}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            </SurfaceCard>
-          </View>
+              </Pressable>
+            )}
+          </SurfaceCard>
         </View>
-
-        <Button
-          contentStyle={styles.marketplaceButtonContent}
-          disabled={!marketplaceUrl}
-          label="View on TCGplayer"
-          labelStyle={styles.marketplaceButtonLabel}
-          onPress={marketplaceUrl
-            ? () => {
-                void Linking.openURL(marketplaceUrl);
-              }
-            : undefined}
-          size="lg"
-          style={styles.marketplaceAction}
-          testID="detail-marketplace-cta"
-          trailingAccessory={(
-            <Image
-              source={require('../../../../assets/images/tcgplayer-icon.png')}
-              style={styles.marketplaceIcon}
-              testID="detail-marketplace-icon"
-            />
-          )}
-          variant="secondary"
-        />
       </ScrollView>
-
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setIsOverflowMenuOpen(false)}
-        transparent
-        visible={isOverflowMenuOpen}
-      >
-        <Pressable
-          accessibilityLabel="Close menu"
-          onPress={() => setIsOverflowMenuOpen(false)}
-          style={styles.dropdownBackdrop}
-          testID="detail-overflow-backdrop"
-        >
-          <Pressable onPress={() => undefined} style={styles.dropdownSheet}>
-            {sellEntryId && onOpenSell ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setIsOverflowMenuOpen(false);
-                  onOpenSell(sellEntryId);
-                }}
-                style={({ pressed }) => [
-                  styles.dropdownOption,
-                  { opacity: pressed ? 0.84 : 1 },
-                ]}
-                testID="detail-overflow-sell"
-              >
-                <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
-                  Sell card
-                </Text>
-              </Pressable>
-            ) : null}
-            <Pressable
-              accessibilityRole="button"
-              onPress={() => {
-                setIsOverflowMenuOpen(false);
-                onOpenAddToCollection(detail?.cardId ?? cardId, isOwned ? sellEntryId : undefined);
-              }}
-              style={({ pressed }) => [
-                styles.dropdownOption,
-                { opacity: pressed ? 0.84 : 1 },
-              ]}
-              testID="detail-overflow-edit-collection"
-            >
-              <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
-                {isOwned ? 'Edit collection entry' : 'Add to collection'}
-              </Text>
-            </Pressable>
-            {marketplaceUrl ? (
-              <Pressable
-                accessibilityRole="button"
-                onPress={() => {
-                  setIsOverflowMenuOpen(false);
-                  void Linking.openURL(marketplaceUrl);
-                }}
-                style={({ pressed }) => [
-                  styles.dropdownOption,
-                  { opacity: pressed ? 0.84 : 1 },
-                ]}
-                testID="detail-overflow-tcgplayer"
-              >
-                <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
-                  View on TCGplayer
-                </Text>
-              </Pressable>
-            ) : null}
-          </Pressable>
-        </Pressable>
-      </Modal>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  backPlate: {
-    alignSelf: 'flex-start',
+  actionCell: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  actionCellLabel: {
+    color: 'rgba(15, 15, 18, 0.62)',
+  },
+  actionRow: {
+    flexDirection: 'row',
+    gap: 14,
+    marginTop: 6,
+  },
+  chartAxisLineHorizontal: {
+    backgroundColor: 'rgba(15, 15, 18, 0.18)',
+    height: 1,
+    position: 'absolute',
+  },
+  chartAxisLineVertical: {
+    backgroundColor: 'rgba(15, 15, 18, 0.18)',
+    position: 'absolute',
+    width: 1,
   },
   chartAxisRow: {
     flexDirection: 'row',
@@ -1631,7 +1395,7 @@ const styles = StyleSheet.create({
   chartFrame: {
     backgroundColor: '#F7F8FA',
     borderRadius: 18,
-    height: 210,
+    height: 160,
     overflow: 'hidden',
     paddingVertical: 14,
   },
@@ -1655,7 +1419,7 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   content: {
-    gap: 20,
+    gap: 16,
     paddingBottom: 40,
     paddingHorizontal: 16,
     paddingTop: 12,
@@ -1705,17 +1469,11 @@ const styles = StyleSheet.create({
     marginTop: 8,
     textAlign: 'center',
   },
-  freshnessRefreshButton: {
-    alignItems: 'center',
-    borderRadius: 999,
-    height: 24,
-    justifyContent: 'center',
-    width: 24,
-  },
-  freshnessRow: {
+  headerRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 4,
+    gap: 8,
+    justifyContent: 'space-between',
   },
   heroArt: {
     height: 160,
@@ -1755,20 +1513,6 @@ const styles = StyleSheet.create({
     gap: 6,
     minWidth: 0,
   },
-  heroIconButton: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderRadius: 999,
-    borderWidth: 1,
-    height: 34,
-    justifyContent: 'center',
-    width: 34,
-  },
-  heroIconRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 6,
-  },
   heroName: {
     width: '100%',
   },
@@ -1781,11 +1525,39 @@ const styles = StyleSheet.create({
   heroSubtitle: {
     width: '100%',
   },
+  inlineMarketplaceContent: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingTop: 12,
+  },
+  inlineMarketplaceDivider: {
+    backgroundColor: 'rgba(15, 15, 18, 0.08)',
+    height: 1,
+    width: '100%',
+  },
+  inlineMarketplaceLabel: {
+    color: '#0F0F12',
+    flex: 1,
+    textAlign: 'left',
+  },
+  inlineMarketplaceRow: {
+    gap: 0,
+  },
+  latestSalesHeader: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  latestSalesSection: {
+    gap: 8,
+  },
   lazyDetailCopy: {
     color: 'rgba(15, 15, 18, 0.52)',
   },
   lazyMarketBlock: {
     gap: 8,
+  },
+  loadMoreButton: {
+    marginTop: 4,
   },
   loadingState: {
     alignItems: 'center',
@@ -1799,60 +1571,11 @@ const styles = StyleSheet.create({
   },
   marketValueTitle: {
     color: '#0F0F12',
-    marginBottom: 4,
-  },
-  marketplaceAction: {
-    backgroundColor: 'rgba(255, 255, 255, 0.92)',
-    borderColor: 'rgba(15, 15, 18, 0.08)',
-  },
-  marketplaceButtonContent: {
-    justifyContent: 'space-between',
-    width: '100%',
-  },
-  marketplaceButtonLabel: {
-    color: '#0F0F12',
-    flex: 1,
-    textAlign: 'left',
   },
   marketplaceIcon: {
     borderRadius: 8,
     height: 26,
     width: 26,
-  },
-  priceColumn: {
-    flex: 1,
-    gap: 2,
-  },
-  priceColumnLabel: {
-    color: 'rgba(15, 15, 18, 0.52)',
-  },
-  priceDetailsBody: {
-    gap: 14,
-  },
-  priceDetailsToggle: {
-    alignItems: 'center',
-    alignSelf: 'flex-start',
-    flexDirection: 'row',
-    gap: 4,
-    paddingVertical: 4,
-  },
-  priceDetailsToggleLabel: {
-    color: '#0F0F12',
-  },
-  priceFreshnessLabel: {
-    color: 'rgba(15, 15, 18, 0.52)',
-  },
-  priceHeaderRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    justifyContent: 'space-between',
-  },
-  priceRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 16,
   },
   previewMarketValue: {
     color: '#0F0F12',
@@ -1860,19 +1583,38 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     lineHeight: 56,
   },
-  primaryButtonContent: {
-    justifyContent: 'flex-start',
-    width: '100%',
+  priceColumnLabel: {
+    color: 'rgba(15, 15, 18, 0.52)',
   },
-  primaryButtonLabel: {
-    flex: 1,
-    textAlign: 'left',
+  priceFreshnessLabel: {
+    color: 'rgba(15, 15, 18, 0.52)',
+  },
+  pricingBodyRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 12,
+  },
+  pricingLeftColumn: {
+    alignItems: 'flex-start',
+    flexBasis: '40%',
+    flexGrow: 0,
+    flexShrink: 0,
+    gap: 4,
+    justifyContent: 'center',
+  },
+  pricingRightColumn: {
+    flexGrow: 1,
+    flexShrink: 1,
+  },
+  pricingTopRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    justifyContent: 'space-between',
   },
   safeArea: {
     flex: 1,
-  },
-  section: {
-    gap: 12,
   },
   similarCardsButton: {
     alignItems: 'center',
@@ -1881,30 +1623,21 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     borderWidth: 1.4,
     flexDirection: 'row',
-    minHeight: 48,
-    paddingHorizontal: 18,
-    paddingVertical: 10,
-    width: '100%',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   similarCardsButtonPressed: {
     opacity: 0.9,
   },
   similarCardsChevron: {
     color: 'rgba(15, 15, 18, 0.68)',
-    fontSize: 28,
+    fontSize: 18,
     fontWeight: '500',
-    lineHeight: 28,
+    lineHeight: 20,
   },
   similarCardsTitle: {
     color: '#0F0F12',
-    flex: 1,
-    textAlign: 'left',
-  },
-  slabLastSoldBlock: {
-    gap: 6,
-  },
-  slabLastSoldHeader: {
-    color: 'rgba(15, 15, 18, 0.52)',
   },
   slabLastSoldMeta: {
     color: 'rgba(15, 15, 18, 0.52)',
@@ -1932,48 +1665,19 @@ const styles = StyleSheet.create({
   slabLastSoldTitle: {
     color: '#0F0F12',
   },
-  suggestedValueTitle: {
-    color: '#0F0F12',
-    marginBottom: 4,
-  },
-  timeframeChip: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-  },
-  timeframeChipLabel: {
-    color: 'rgba(15, 15, 18, 0.72)',
-  },
-  timeframeRow: {
+  trendAndPickerRow: {
+    alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 8,
+    marginTop: 6,
   },
-  trendChip: {
-    alignItems: 'flex-start',
-    backgroundColor: '#F7F8FA',
-    borderColor: 'rgba(15, 15, 18, 0.08)',
-    borderRadius: 14,
-    borderWidth: 1,
-    flex: 1,
-    gap: 4,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-  },
-  trendChipLabel: {
-    color: 'rgba(15, 15, 18, 0.52)',
-  },
-  trendChipRow: {
-    flexDirection: 'row',
-    gap: 8,
-  },
-  trendChipValueMuted: {
-    color: 'rgba(15, 15, 18, 0.42)',
-  },
-  trendChipValueRow: {
+  trendInline: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
+  },
+  trendInlineMuted: {
+    color: 'rgba(15, 15, 18, 0.42)',
   },
 });
