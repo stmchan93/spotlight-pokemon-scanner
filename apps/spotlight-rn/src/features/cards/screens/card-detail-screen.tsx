@@ -823,7 +823,7 @@ export function CardDetailScreen({
 
   useEffect(() => {
     let cancelled = false;
-    const requestedCondition = selectedSlabContext == null
+    const requestedCondition = selectedSlabContextForPricing == null
       ? (
         selectedConditionId
         ?? defaultMarketConditionId(detail?.marketHistory ?? null)
@@ -869,6 +869,7 @@ export function CardDetailScreen({
     void spotlightRepository.getCardRecentSales({
       cardId,
       limit: recentSalesPageSize,
+      refresh: true,
       slabContext: selectedSlabContextForPricing,
       source: 'ebay',
     })
