@@ -173,6 +173,26 @@ export function createTestSpotlightRepository(
       return overrides.getTopMovers?.(...args)
         ?? baseRepository.getTopMovers(...args);
     },
+    startStripeOnboarding: (...args) => {
+      return overrides.startStripeOnboarding?.(...args)
+        ?? baseRepository.startStripeOnboarding(...args);
+    },
+    getStripeConnectStatus: (...args) => {
+      return overrides.getStripeConnectStatus?.(...args)
+        ?? baseRepository.getStripeConnectStatus(...args);
+    },
+    createPaymentOrder: (...args) => {
+      return overrides.createPaymentOrder?.(...args)
+        ?? baseRepository.createPaymentOrder(...args);
+    },
+    getPaymentOrder: (...args) => {
+      return overrides.getPaymentOrder?.(...args)
+        ?? baseRepository.getPaymentOrder(...args);
+    },
+    cancelPaymentOrder: (...args) => {
+      return overrides.cancelPaymentOrder?.(...args)
+        ?? baseRepository.cancelPaymentOrder(...args);
+    },
   };
 }
 
@@ -322,6 +342,41 @@ export function renderAppRouter(
     candidates: [
       { key: '(sheet)/sell/batch', modulePath: '@/app/(sheet)/sell/batch' },
       { key: 'sell/batch', modulePath: '@/app/sell/batch' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(sheet)/sell-stripe', modulePath: '@/app/(sheet)/sell-stripe' },
+      { key: 'sell-stripe', modulePath: '@/app/sell-stripe' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(stack)/sell-stripe-qr', modulePath: '@/app/(stack)/sell-stripe-qr' },
+      { key: 'sell-stripe-qr', modulePath: '@/app/sell-stripe-qr' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(sheet)/buy', modulePath: '@/app/(sheet)/buy' },
+      { key: 'buy', modulePath: '@/app/buy' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(sheet)/trade', modulePath: '@/app/(sheet)/trade' },
+      { key: 'trade', modulePath: '@/app/trade' },
+    ],
+    optional: true,
+  });
+  registerRoute(routeMap, routeAliases, {
+    candidates: [
+      { key: '(modal)/stripe-onboarding', modulePath: '@/app/(modal)/stripe-onboarding' },
+      { key: 'stripe-onboarding', modulePath: '@/app/stripe-onboarding' },
     ],
     optional: true,
   });

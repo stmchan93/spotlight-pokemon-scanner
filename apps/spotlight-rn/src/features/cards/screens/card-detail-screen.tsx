@@ -125,8 +125,14 @@ type CardDetailScreenProps = {
   entryId?: string;
   onBack: () => void;
   onOpenAddToCollection: (cardId: string, entryId?: string) => void;
+  onOpenBuy?: (cardId: string) => void;
   onOpenScanCandidateReview?: (scanReviewId: string) => void;
   onOpenSell?: (entryId: string) => void;
+  // TODO(payments-mvp): coexists with `onOpenSell` for now. Long-term we may
+  // migrate the existing manual sell flow to the Stripe surface. See
+  // /docs/payments-mvp-plan-2026-05-15.md.
+  onOpenStripeSell?: (entryId: string) => void;
+  onOpenTrade?: (cardId: string) => void;
   previewId?: string;
   scanReviewId?: string;
 };
@@ -673,8 +679,11 @@ export function CardDetailScreen({
   entryId,
   onBack,
   onOpenAddToCollection,
+  onOpenBuy,
   onOpenScanCandidateReview,
   onOpenSell,
+  onOpenStripeSell,
+  onOpenTrade,
   previewId,
   scanReviewId,
 }: CardDetailScreenProps) {
@@ -1200,6 +1209,9 @@ export function CardDetailScreen({
     : 0;
 
   const canShowSellAction = isOwned && Boolean(sellEntryId) && Boolean(onOpenSell);
+  const canShowBuyAction = Boolean(onOpenBuy);
+  const canShowStripeSellAction = isOwned && Boolean(sellEntryId) && Boolean(onOpenStripeSell);
+  const canShowTradeAction = Boolean(onOpenTrade);
 
   return (
     <SafeAreaView
@@ -1341,6 +1353,52 @@ export function CardDetailScreen({
                         <IconCash color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
                       </IconButton>
                       <Text style={[theme.typography.micro, styles.actionCellLabel]}>Sell</Text>
+                    </View>
+                  ) : null}
+
+                  {canShowBuyAction ? (
+                    <View style={styles.actionCell}>
+                      <IconButton
+                        accessibilityLabel="Log a buy"
+                        onPress={() => onOpenBuy?.(detail?.cardId ?? cardId)}
+                        testID="detail-buy-card"
+                        variant="elevated"
+                      >
+                        <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                      </IconButton>
+                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Buy</Text>
+                    </View>
+                  ) : null}
+
+                  {canShowStripeSellAction ? (
+                    <View style={styles.actionCell}>
+                      <IconButton
+                        accessibilityLabel="Sell with Stripe"
+                        onPress={() => {
+                          if (sellEntryId && onOpenStripeSell) {
+                            onOpenStripeSell(sellEntryId);
+                          }
+                        }}
+                        testID="detail-stripe-sell-card"
+                        variant="elevated"
+                      >
+                        <IconBolt color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                      </IconButton>
+                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Sell (Stripe)</Text>
+                    </View>
+                  ) : null}
+
+                  {canShowTradeAction ? (
+                    <View style={styles.actionCell}>
+                      <IconButton
+                        accessibilityLabel="Log a trade"
+                        onPress={() => onOpenTrade?.(detail?.cardId ?? cardId)}
+                        testID="detail-trade-card"
+                        variant="elevated"
+                      >
+                        <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                      </IconButton>
+                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Trade</Text>
                     </View>
                   ) : null}
                 </View>

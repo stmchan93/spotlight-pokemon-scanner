@@ -681,3 +681,76 @@ export type CardRecentSalesQuery = CardDetailQuery & {
 export function deckConditionFromCode(code?: DeckConditionCode | null) {
   return deckConditionOptions.find((option) => option.code === code) ?? null;
 }
+
+// ---------------------------------------------------------------------------
+// Payments — Stripe Connect onboarding + P2P checkout orders.
+// Backend contract lives in /docs/payments-mvp-plan-2026-05-15.md.
+// ---------------------------------------------------------------------------
+
+export type StripeConnectStatus = {
+  onboarded: boolean;
+  chargesEnabled: boolean;
+  payoutsEnabled: boolean;
+  requirementsDue: string[];
+  stripeAccountId: string | null;
+};
+
+export type StripeOnboardingResponse = {
+  onboardingUrl: string;
+};
+
+export const paymentOrderStatuses = [
+  'pending',
+  'paid',
+  'cancelled',
+  'refunded',
+  'failed',
+  'disputed',
+] as const;
+
+export type PaymentOrderStatus = (typeof paymentOrderStatuses)[number];
+
+export type CreateOrderRequest = {
+  deckEntryId: string;
+  amountCents: number;
+  condition?: string | null;
+  description?: string | null;
+};
+
+export type CreateOrderResponse = {
+  orderId: string;
+  qrUrl: string;
+  checkoutUrl: string;
+  status: PaymentOrderStatus;
+};
+
+export type PaymentOrder = {
+  orderId: string;
+  status: PaymentOrderStatus;
+  amountCents: number;
+  applicationFeeCents: number;
+  currencyCode: string;
+  createdAt: string;
+  paidAt: string | null;
+  cancelledAt: string | null;
+  cardId: string | null;
+  condition: string | null;
+  description: string | null;
+  sellerUserId: string | null;
+  buyerUserId: string | null;
+  qrUrl?: string | null;
+  checkoutUrl?: string | null;
+};
+
+/**
+ * Thrown / surfaced when the backend reports Stripe is not configured in this
+ * environment (HTTP 503 with body `{error: 'Stripe not configured ...'}`).
+ * Screens should render `PaymentsNotEnabledState` rather than a generic error.
+ */
+export class PaymentsNotEnabledError extends Error {
+  readonly code = 'payments_not_enabled' as const;
+  constructor(message = 'Payments are not enabled in this environment.') {
+    super(message);
+    this.name = 'PaymentsNotEnabledError';
+  }
+}

@@ -51,12 +51,32 @@ export default function CardDetailRoute() {
           },
         });
       }}
+      onOpenBuy={(nextCardId) => {
+        router.push({
+          pathname: '/buy',
+          params: { cardId: nextCardId },
+        });
+      }}
       onOpenSell={(selectedEntryId) => {
         router.push({
           pathname: '/sell/[entryId]',
           params: {
             entryId: selectedEntryId,
           },
+        });
+      }}
+      onOpenStripeSell={(selectedEntryId) => {
+        router.push({
+          pathname: '/sell-stripe',
+          params: {
+            entryId: selectedEntryId,
+          },
+        });
+      }}
+      onOpenTrade={(nextCardId) => {
+        router.push({
+          pathname: '/trade',
+          params: { cardId: nextCardId },
         });
       }}
       previewId={previewId}

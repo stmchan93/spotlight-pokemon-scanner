@@ -13,6 +13,7 @@ import {
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { getResolvedDisplayName, getUserInitials } from '@/features/auth/auth-models';
+import { StripeOnboardingEntry } from '@/features/payments/screens/stripe-onboarding-entry';
 import { useSuggestedDiscount } from '@/features/pricing/use-suggested-discount';
 import { useAuth } from '@/providers/auth-provider';
 
@@ -128,6 +129,10 @@ export function AccountScreen() {
             </View>
           </View>
         </SurfaceCard>
+
+        <View testID="account-payments-section">
+          <StripeOnboardingEntry testID="account-payments-entry" />
+        </View>
 
         <View style={styles.section} testID="account-pricing-section">
           <SectionHeader

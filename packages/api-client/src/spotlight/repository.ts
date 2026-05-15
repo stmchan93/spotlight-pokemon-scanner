@@ -10,7 +10,7 @@ import {
   seedMockScannerCandidates,
   updateInventoryForSale,
 } from './mock-data';
-import { labelingSessionAngleLabels } from './types';
+import { labelingSessionAngleLabels, PaymentsNotEnabledError, paymentOrderStatuses } from './types';
 import type {
   AddToCollectionOptions,
   CardFavoriteRecord,
@@ -23,6 +23,8 @@ import type {
   CardRecentSalesQuery,
   CardRecentSalesRecord,
   CatalogSearchResult,
+  CreateOrderRequest,
+  CreateOrderResponse,
   ExpansionRecord,
   InventoryEntryCreateRequestPayload,
   InventoryEntryCreateResponsePayload,
@@ -32,6 +34,8 @@ import type {
   LabelingSessionArtifactUploadPayload,
   LabelingSessionCreatePayload,
   LabelingSessionRecord,
+  PaymentOrder,
+  PaymentOrderStatus,
   PortfolioEntryReplaceRequestPayload,
   PortfolioEntryReplaceResponsePayload,
   PortfolioImportCommitResponsePayload,
@@ -56,6 +60,8 @@ import type {
   ScannerMode,
   SlabContext,
   SpotlightRepositoryLoadResult,
+  StripeConnectStatus,
+  StripeOnboardingResponse,
   TopMoverEntry,
   TopMoversResult,
 } from './types';
@@ -109,6 +115,13 @@ export interface SpotlightRepository {
   listCardsInExpansion(expansionId: string, query?: string, limit?: number): Promise<CatalogSearchResult[]>;
   loadTopMovers(options?: TopMoversQuery): Promise<SpotlightRepositoryLoadResult<TopMoversResult>>;
   getTopMovers(options?: TopMoversQuery): Promise<TopMoversResult>;
+
+  // Payments — Stripe Connect + checkout orders.
+  startStripeOnboarding(refreshUrl: string, returnUrl: string): Promise<StripeOnboardingResponse>;
+  getStripeConnectStatus(): Promise<StripeConnectStatus>;
+  createPaymentOrder(request: CreateOrderRequest): Promise<CreateOrderResponse>;
+  getPaymentOrder(orderId: string): Promise<PaymentOrder>;
+  cancelPaymentOrder(orderId: string): Promise<PaymentOrder>;
 }
 
 export type TopMoversQuery = {
@@ -2595,6 +2608,108 @@ export class MockSpotlightRepository implements SpotlightRepository {
     }
     return this.searchCatalogCards(query);
   }
+
+  // -----------------------------------------------------------------------
+  // Payments mock — single in-memory order store and a configurable
+  // onboarding flag. Tests can flip these to exercise both branches.
+  // -----------------------------------------------------------------------
+  private mockStripeOnboarded = false;
+  private mockChargesEnabled = false;
+  private mockPayoutsEnabled = false;
+  private mockStripeAccountId: string | null = null;
+  private mockPaymentOrders = new Map<string, PaymentOrder>();
+  private mockOrderCounter = 0;
+
+  /** Test helper — set the mock Connect status. */
+  setMockStripeStatus(status: Partial<StripeConnectStatus>) {
+    if (typeof status.onboarded === 'boolean') {
+      this.mockStripeOnboarded = status.onboarded;
+    }
+    if (typeof status.chargesEnabled === 'boolean') {
+      this.mockChargesEnabled = status.chargesEnabled;
+    }
+    if (typeof status.payoutsEnabled === 'boolean') {
+      this.mockPayoutsEnabled = status.payoutsEnabled;
+    }
+    if ('stripeAccountId' in status) {
+      this.mockStripeAccountId = status.stripeAccountId ?? null;
+    }
+  }
+
+  async startStripeOnboarding(_refreshUrl: string, _returnUrl: string): Promise<StripeOnboardingResponse> {
+    return {
+      onboardingUrl: 'https://connect.stripe.com/express/onboarding/mock_acct_session',
+    };
+  }
+
+  async getStripeConnectStatus(): Promise<StripeConnectStatus> {
+    return {
+      onboarded: this.mockStripeOnboarded,
+      chargesEnabled: this.mockChargesEnabled,
+      payoutsEnabled: this.mockPayoutsEnabled,
+      requirementsDue: this.mockStripeOnboarded ? [] : ['individual.verification.document'],
+      stripeAccountId: this.mockStripeAccountId,
+    };
+  }
+
+  async createPaymentOrder(request: CreateOrderRequest): Promise<CreateOrderResponse> {
+    this.mockOrderCounter += 1;
+    const orderId = `order_mock_${this.mockOrderCounter}`;
+    const order: PaymentOrder = {
+      orderId,
+      status: 'pending',
+      amountCents: request.amountCents,
+      applicationFeeCents: Math.round(request.amountCents * 0.04),
+      currencyCode: 'USD',
+      createdAt: new Date().toISOString(),
+      paidAt: null,
+      cancelledAt: null,
+      cardId: null,
+      condition: request.condition ?? null,
+      description: request.description ?? null,
+      sellerUserId: null,
+      buyerUserId: null,
+      qrUrl: `https://pay.looty.app/o/${orderId}`,
+      checkoutUrl: `https://checkout.stripe.com/c/pay/${orderId}`,
+    };
+    this.mockPaymentOrders.set(orderId, order);
+    return {
+      orderId,
+      qrUrl: order.qrUrl ?? '',
+      checkoutUrl: order.checkoutUrl ?? '',
+      status: 'pending',
+    };
+  }
+
+  async getPaymentOrder(orderId: string): Promise<PaymentOrder> {
+    const order = this.mockPaymentOrders.get(orderId);
+    if (!order) {
+      throw new SpotlightRepositoryRequestError(
+        'Order not found in mock repository.',
+        'not_found',
+        404,
+      );
+    }
+    return order;
+  }
+
+  async cancelPaymentOrder(orderId: string): Promise<PaymentOrder> {
+    const order = this.mockPaymentOrders.get(orderId);
+    if (!order) {
+      throw new SpotlightRepositoryRequestError(
+        'Order not found in mock repository.',
+        'not_found',
+        404,
+      );
+    }
+    const next: PaymentOrder = {
+      ...order,
+      status: 'cancelled',
+      cancelledAt: new Date().toISOString(),
+    };
+    this.mockPaymentOrders.set(orderId, next);
+    return next;
+  }
 }
 
 export class HttpSpotlightRepository implements SpotlightRepository {
@@ -3753,4 +3868,178 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       uploadedAt: normalizeString(response.data?.uploadedAt),
     } satisfies ScannerMatchResult['artifactUpload'];
   }
+
+  // ---------------------------------------------------------------------
+  // Payments — Stripe Connect onboarding + checkout-style orders.
+  // The backend may respond 503 when Stripe keys are not configured for
+  // the environment. We convert that single case into a
+  // `PaymentsNotEnabledError` so screens can render a graceful state
+  // rather than a generic request_failed.
+  // ---------------------------------------------------------------------
+
+  private async paymentsRequest<T>(
+    url: string,
+    init?: RequestInit,
+    options?: JsonRequestOptions,
+  ): Promise<T> {
+    const result = await this.requestJson<T>(url, init, options);
+    if (result.kind === 'success') {
+      if (result.data === null) {
+        throw new SpotlightRepositoryRequestError(
+          'Received an empty payments response from the Spotlight backend.',
+          'invalid_response',
+        );
+      }
+      return result.data;
+    }
+
+    if (result.kind === 'error' && result.error.status === 503) {
+      throw new PaymentsNotEnabledError(result.error.message);
+    }
+
+    throw result.error;
+  }
+
+  async startStripeOnboarding(refreshUrl: string, returnUrl: string): Promise<StripeOnboardingResponse> {
+    const response = await this.paymentsRequest<{
+      onboarding_url?: string;
+      onboardingUrl?: string;
+    }>(`${this.baseUrl}/api/v1/payments/stripe/connect/onboard`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        refresh_url: refreshUrl,
+        return_url: returnUrl,
+      }),
+    });
+    const onboardingUrl =
+      normalizeString(response.onboarding_url) ?? normalizeString(response.onboardingUrl) ?? '';
+    if (!onboardingUrl) {
+      throw new SpotlightRepositoryRequestError(
+        'Onboarding URL was missing from the payments response.',
+        'invalid_response',
+      );
+    }
+    return { onboardingUrl };
+  }
+
+  async getStripeConnectStatus(): Promise<StripeConnectStatus> {
+    const response = await this.paymentsRequest<{
+      onboarded?: boolean | null;
+      charges_enabled?: boolean | null;
+      chargesEnabled?: boolean | null;
+      payouts_enabled?: boolean | null;
+      payoutsEnabled?: boolean | null;
+      requirements_due?: string[] | null;
+      requirementsDue?: string[] | null;
+      stripe_account_id?: string | null;
+      stripeAccountId?: string | null;
+    }>(`${this.baseUrl}/api/v1/payments/stripe/connect/status`);
+    const requirementsRaw = response.requirements_due ?? response.requirementsDue ?? [];
+    const requirementsDue = Array.isArray(requirementsRaw)
+      ? requirementsRaw.filter((item): item is string => typeof item === 'string' && item.length > 0)
+      : [];
+    return {
+      onboarded: normalizeBoolean(response.onboarded) ?? false,
+      chargesEnabled: normalizeBoolean(response.charges_enabled ?? response.chargesEnabled) ?? false,
+      payoutsEnabled: normalizeBoolean(response.payouts_enabled ?? response.payoutsEnabled) ?? false,
+      requirementsDue,
+      stripeAccountId: normalizeString(response.stripe_account_id ?? response.stripeAccountId),
+    };
+  }
+
+  async createPaymentOrder(request: CreateOrderRequest): Promise<CreateOrderResponse> {
+    const response = await this.paymentsRequest<{
+      order_id?: string;
+      orderId?: string;
+      qr_url?: string;
+      qrUrl?: string;
+      checkout_url?: string;
+      checkoutUrl?: string;
+      status?: string;
+    }>(`${this.baseUrl}/api/v1/payments/orders`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        deck_entry_id: request.deckEntryId,
+        amount_cents: request.amountCents,
+        condition: request.condition ?? null,
+        description: request.description ?? null,
+      }),
+    });
+    const orderId = normalizeString(response.order_id ?? response.orderId);
+    if (!orderId) {
+      throw new SpotlightRepositoryRequestError(
+        'Order ID was missing from the payments response.',
+        'invalid_response',
+      );
+    }
+    return {
+      orderId,
+      qrUrl: normalizeString(response.qr_url ?? response.qrUrl) ?? '',
+      checkoutUrl: normalizeString(response.checkout_url ?? response.checkoutUrl) ?? '',
+      status: normalizePaymentOrderStatus(response.status) ?? 'pending',
+    };
+  }
+
+  async getPaymentOrder(orderId: string): Promise<PaymentOrder> {
+    const encoded = encodeURIComponent(orderId);
+    const response = await this.paymentsRequest<Record<string, unknown>>(
+      `${this.baseUrl}/api/v1/payments/orders/${encoded}`,
+    );
+    return normalizePaymentOrderRecord(response, orderId);
+  }
+
+  async cancelPaymentOrder(orderId: string): Promise<PaymentOrder> {
+    const encoded = encodeURIComponent(orderId);
+    const response = await this.paymentsRequest<Record<string, unknown>>(
+      `${this.baseUrl}/api/v1/payments/orders/${encoded}/cancel`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      },
+    );
+    return normalizePaymentOrderRecord(response, orderId);
+  }
+}
+
+function normalizePaymentOrderStatus(value: unknown): PaymentOrderStatus | null {
+  if (typeof value !== 'string') {
+    return null;
+  }
+  const normalized = value.trim().toLowerCase() as PaymentOrderStatus;
+  return paymentOrderStatuses.includes(normalized) ? normalized : null;
+}
+
+function normalizePaymentOrderRecord(
+  raw: Record<string, unknown>,
+  fallbackOrderId: string,
+): PaymentOrder {
+  const orderId = normalizeString(raw.order_id) ?? normalizeString(raw.orderId) ?? fallbackOrderId;
+  const amountRaw = raw.amount_cents ?? raw.amountCents;
+  const feeRaw = raw.application_fee_cents ?? raw.applicationFeeCents;
+  return {
+    orderId,
+    status: normalizePaymentOrderStatus(raw.status) ?? 'pending',
+    amountCents: typeof amountRaw === 'number' ? amountRaw : Number(amountRaw) || 0,
+    applicationFeeCents: typeof feeRaw === 'number' ? feeRaw : Number(feeRaw) || 0,
+    currencyCode: normalizeString(raw.currency_code) ?? normalizeString(raw.currencyCode) ?? 'USD',
+    createdAt: normalizeString(raw.created_at) ?? normalizeString(raw.createdAt) ?? new Date().toISOString(),
+    paidAt: normalizeString(raw.paid_at ?? raw.paidAt),
+    cancelledAt: normalizeString(raw.cancelled_at ?? raw.cancelledAt),
+    cardId: normalizeString(raw.card_id ?? raw.cardId),
+    condition: normalizeString(raw.condition),
+    description: normalizeString(raw.description),
+    sellerUserId: normalizeString(raw.seller_user_id ?? raw.sellerUserId),
+    buyerUserId: normalizeString(raw.buyer_user_id ?? raw.buyerUserId),
+    qrUrl: normalizeString(raw.qr_url ?? raw.qrUrl),
+    checkoutUrl: normalizeString(raw.checkout_url ?? raw.checkoutUrl),
+  };
 }
