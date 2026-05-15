@@ -8,12 +8,10 @@ import { createTestSpotlightRepository, renderWithProviders } from '../test-util
 
 describe('TradeSheet', () => {
   it('does not submit until at least one outbound card is selected', async () => {
-    const createPortfolioBuy = jest.fn();
-    const createPortfolioSale = jest.fn();
+    const createTrade = jest.fn();
     const repository = createTestSpotlightRepository({
       getInventoryEntries: async () => mockInventoryEntries,
-      createPortfolioBuy,
-      createPortfolioSale,
+      createTrade,
     });
 
     renderWithProviders(
@@ -26,36 +24,52 @@ describe('TradeSheet', () => {
     });
 
     fireEvent.press(screen.getByTestId('trade-sheet-submit'));
-    expect(createPortfolioSale).not.toHaveBeenCalled();
-    expect(createPortfolioBuy).not.toHaveBeenCalled();
+    expect(createTrade).not.toHaveBeenCalled();
   });
 
-  it('records a sale per selected outbound entry, then a buy on the inbound card with the cash delta', async () => {
-    const createPortfolioBuy = jest.fn(async () => ({
-      deckEntryID: 'entry-x',
-      cardID: 'mcdonalds25-16',
-      inserted: true,
-      quantityAdded: 1,
-      totalSpend: 5,
-      boughtAt: new Date().toISOString(),
-    }));
-    const createPortfolioSale = jest.fn(async () => ({
-      saleID: 'sale-x',
-      deckEntryID: 'entry-2',
-      remainingQuantity: 1,
-      grossTotal: 0.56,
-      soldAt: new Date().toISOString(),
-      showSessionID: null,
+  it('calls /trades once with the inbound card, outbound selection, and cash delta', async () => {
+    const createTrade = jest.fn(async () => ({
+      tradeId: 'trade_mock_1',
+      ownerUserId: 'mock-user',
+      inboundCardId: 'mcdonalds25-16',
+      inboundCondition: 'near_mint',
+      inboundGrader: null,
+      inboundGrade: null,
+      inboundCertNumber: null,
+      inboundMarketValueCents: 250,
+      inboundDeckEntryId: 'entry-trade-mock',
+      cashDeltaCents: 500,
+      outboundTotalMarketValueCents: 56,
+      showSessionId: null,
+      notes: null,
+      createdAt: new Date().toISOString(),
+      outboundEntries: [
+        {
+          outboundIndex: 0,
+          deckEntryId: 'entry-2',
+          cardId: 'mcdonalds25-21',
+          condition: 'near_mint',
+          grader: null,
+          grade: null,
+          certNumber: null,
+          quantity: 1,
+          marketValueCents: 56,
+        },
+      ],
     }));
     const onComplete = jest.fn();
     const repository = createTestSpotlightRepository({
       getInventoryEntries: async () => mockInventoryEntries,
-      createPortfolioBuy,
-      createPortfolioSale,
+      createTrade,
     });
 
     renderWithProviders(
-      <TradeSheet cardId="mcdonalds25-16" onClose={jest.fn()} onComplete={onComplete} />,
+      <TradeSheet
+        cardId="mcdonalds25-16"
+        inboundMarketPrice={2.5}
+        onClose={jest.fn()}
+        onComplete={onComplete}
+      />,
       { spotlightRepository: repository },
     );
 
@@ -68,14 +82,22 @@ describe('TradeSheet', () => {
     fireEvent.press(screen.getByTestId('trade-sheet-submit'));
 
     await waitFor(() => {
-      expect(createPortfolioSale).toHaveBeenCalledTimes(1);
+      expect(createTrade).toHaveBeenCalledTimes(1);
     });
-    expect(createPortfolioBuy).toHaveBeenCalledWith(
+    expect(createTrade).toHaveBeenCalledWith(
       expect.objectContaining({
-        cardID: 'mcdonalds25-16',
-        unitPrice: 5,
-        quantity: 1,
-        paymentMethod: 'trade',
+        inbound: expect.objectContaining({
+          cardId: 'mcdonalds25-16',
+          marketValueCents: 250,
+        }),
+        outbound: [
+          expect.objectContaining({
+            deckEntryId: 'entry-2',
+            quantity: 1,
+            marketValueCents: 56,
+          }),
+        ],
+        cashDeltaCents: 500,
       }),
     );
     expect(onComplete).toHaveBeenCalledTimes(1);

@@ -25,6 +25,8 @@ import type {
   CatalogSearchResult,
   CreateOrderRequest,
   CreateOrderResponse,
+  CreateTradeRequest,
+  CreateTradeResponse,
   ExpansionRecord,
   InventoryEntryCreateRequestPayload,
   InventoryEntryCreateResponsePayload,
@@ -64,6 +66,8 @@ import type {
   StripeOnboardingResponse,
   TopMoverEntry,
   TopMoversResult,
+  Trade,
+  TradeOutboundEntry,
 } from './types';
 
 export interface SpotlightRepository {
@@ -122,6 +126,9 @@ export interface SpotlightRepository {
   createPaymentOrder(request: CreateOrderRequest): Promise<CreateOrderResponse>;
   getPaymentOrder(orderId: string): Promise<PaymentOrder>;
   cancelPaymentOrder(orderId: string): Promise<PaymentOrder>;
+
+  // Trades — atomic inventory trade log (no payment movement).
+  createTrade(request: CreateTradeRequest): Promise<CreateTradeResponse>;
 }
 
 export type TopMoversQuery = {
@@ -2710,6 +2717,85 @@ export class MockSpotlightRepository implements SpotlightRepository {
     this.mockPaymentOrders.set(orderId, next);
     return next;
   }
+
+  async createTrade(request: CreateTradeRequest): Promise<CreateTradeResponse> {
+    if (!request.inbound?.cardId) {
+      throw new SpotlightRepositoryRequestError(
+        'inbound.cardId is required',
+        'request_failed',
+      );
+    }
+    if (!Array.isArray(request.outbound) || request.outbound.length === 0) {
+      throw new SpotlightRepositoryRequestError(
+        'outbound must be a non-empty list',
+        'request_failed',
+      );
+    }
+
+    const now = new Date().toISOString();
+    const tradeId = `trade_mock_${Math.random().toString(36).slice(2, 10)}`;
+    let outboundTotal: number | null = null;
+
+    // Decrement outbound entries in the mock inventory and append an
+    // event for each so downstream views look right.
+    const outboundEntries: TradeOutboundEntry[] = request.outbound.map((entry, index) => {
+      const quantity = Math.max(1, entry.quantity ?? 1);
+      const existing = this.inventoryEntries.find((row) => row.id === entry.deckEntryId);
+      if (!existing) {
+        throw new SpotlightRepositoryRequestError(
+          `deck entry ${entry.deckEntryId} not found`,
+          'not_found',
+          404,
+        );
+      }
+      if (existing.quantity < quantity) {
+        throw new SpotlightRepositoryRequestError(
+          'outbound quantity exceeds inventory',
+          'request_failed',
+        );
+      }
+      this.inventoryEntries = this.inventoryEntries.map((row) =>
+        row.id === entry.deckEntryId
+          ? { ...row, quantity: row.quantity - quantity }
+          : row,
+      );
+      if (typeof entry.marketValueCents === 'number') {
+        outboundTotal = (outboundTotal ?? 0) + entry.marketValueCents;
+      }
+      return {
+        outboundIndex: index,
+        deckEntryId: entry.deckEntryId,
+        cardId: existing.cardId,
+        condition: existing.conditionCode ?? null,
+        grader: existing.slabContext?.grader ?? null,
+        grade: existing.slabContext?.grade ?? null,
+        certNumber: existing.slabContext?.certNumber ?? null,
+        quantity,
+        marketValueCents: entry.marketValueCents ?? null,
+      };
+    });
+
+    // Add an inbound deck entry. Keep the mock simple — just append a fresh row.
+    const inboundDeckEntryId = `entry-trade-${Math.random().toString(36).slice(2, 10)}`;
+
+    return {
+      tradeId,
+      ownerUserId: 'mock-user',
+      inboundCardId: request.inbound.cardId,
+      inboundCondition: request.inbound.condition ?? null,
+      inboundGrader: request.inbound.grader ?? null,
+      inboundGrade: request.inbound.grade ?? null,
+      inboundCertNumber: request.inbound.certNumber ?? null,
+      inboundMarketValueCents: request.inbound.marketValueCents ?? null,
+      inboundDeckEntryId,
+      cashDeltaCents: request.cashDeltaCents ?? 0,
+      outboundTotalMarketValueCents: outboundTotal,
+      showSessionId: request.showSessionId ?? null,
+      notes: request.notes ?? null,
+      createdAt: now,
+      outboundEntries,
+    };
+  }
 }
 
 export class HttpSpotlightRepository implements SpotlightRepository {
@@ -4008,6 +4094,39 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     );
     return normalizePaymentOrderRecord(response, orderId);
   }
+
+  async createTrade(request: CreateTradeRequest): Promise<CreateTradeResponse> {
+    const inbound = request.inbound ?? ({} as CreateTradeRequest['inbound']);
+    const body = {
+      inbound: {
+        card_id: inbound.cardId,
+        condition: inbound.condition ?? null,
+        grader: inbound.grader ?? null,
+        grade: inbound.grade ?? null,
+        cert_number: inbound.certNumber ?? null,
+        market_value_cents: inbound.marketValueCents ?? null,
+      },
+      outbound: (request.outbound ?? []).map((entry) => ({
+        deck_entry_id: entry.deckEntryId,
+        quantity: entry.quantity ?? 1,
+        market_value_cents: entry.marketValueCents ?? null,
+      })),
+      cash_delta_cents: request.cashDeltaCents ?? 0,
+      show_session_id: request.showSessionId ?? null,
+      notes: request.notes ?? null,
+    };
+    const response = await this.requestJsonOrThrow<Record<string, unknown>>(
+      `${this.baseUrl}/api/v1/trades`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    return normalizeTradeRecord(response);
+  }
 }
 
 function normalizePaymentOrderStatus(value: unknown): PaymentOrderStatus | null {
@@ -4041,5 +4160,71 @@ function normalizePaymentOrderRecord(
     buyerUserId: normalizeString(raw.buyer_user_id ?? raw.buyerUserId),
     qrUrl: normalizeString(raw.qr_url ?? raw.qrUrl),
     checkoutUrl: normalizeString(raw.checkout_url ?? raw.checkoutUrl),
+  };
+}
+
+function normalizeOptionalInt(value: unknown): number | null {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return null;
+  }
+  return Math.trunc(parsed);
+}
+
+function normalizeTradeOutboundEntry(raw: unknown): TradeOutboundEntry | null {
+  if (!raw || typeof raw !== 'object') {
+    return null;
+  }
+  const row = raw as Record<string, unknown>;
+  const deckEntryId = normalizeString(row.deck_entry_id ?? row.deckEntryID ?? row.deckEntryId);
+  const cardId = normalizeString(row.card_id ?? row.cardID ?? row.cardId);
+  if (!deckEntryId || !cardId) {
+    return null;
+  }
+  return {
+    outboundIndex: normalizeOptionalInt(row.outbound_index ?? row.outboundIndex) ?? 0,
+    deckEntryId,
+    cardId,
+    condition: normalizeString(row.condition),
+    grader: normalizeString(row.grader),
+    grade: normalizeString(row.grade),
+    certNumber: normalizeString(row.cert_number ?? row.certNumber),
+    quantity: normalizeOptionalInt(row.quantity) ?? 1,
+    marketValueCents: normalizeOptionalInt(row.market_value_cents ?? row.marketValueCents),
+  };
+}
+
+function normalizeTradeRecord(raw: Record<string, unknown>): Trade {
+  const outboundRaw = raw.outbound_entries ?? raw.outboundEntries;
+  const outboundEntries: TradeOutboundEntry[] = Array.isArray(outboundRaw)
+    ? outboundRaw
+        .map((entry) => normalizeTradeOutboundEntry(entry))
+        .filter((entry): entry is TradeOutboundEntry => entry !== null)
+    : [];
+  return {
+    tradeId: normalizeString(raw.trade_id ?? raw.tradeID ?? raw.tradeId) ?? '',
+    ownerUserId: normalizeString(raw.owner_user_id ?? raw.ownerUserID ?? raw.ownerUserId) ?? '',
+    inboundCardId: normalizeString(raw.inbound_card_id ?? raw.inboundCardID ?? raw.inboundCardId) ?? '',
+    inboundCondition: normalizeString(raw.inbound_condition ?? raw.inboundCondition),
+    inboundGrader: normalizeString(raw.inbound_grader ?? raw.inboundGrader),
+    inboundGrade: normalizeString(raw.inbound_grade ?? raw.inboundGrade),
+    inboundCertNumber: normalizeString(raw.inbound_cert_number ?? raw.inboundCertNumber),
+    inboundMarketValueCents: normalizeOptionalInt(
+      raw.inbound_market_value_cents ?? raw.inboundMarketValueCents,
+    ),
+    inboundDeckEntryId: normalizeString(
+      raw.inbound_deck_entry_id ?? raw.inboundDeckEntryID ?? raw.inboundDeckEntryId,
+    ),
+    cashDeltaCents: normalizeOptionalInt(raw.cash_delta_cents ?? raw.cashDeltaCents) ?? 0,
+    outboundTotalMarketValueCents: normalizeOptionalInt(
+      raw.outbound_total_market_value_cents ?? raw.outboundTotalMarketValueCents,
+    ),
+    showSessionId: normalizeString(raw.show_session_id ?? raw.showSessionID ?? raw.showSessionId),
+    notes: normalizeString(raw.notes),
+    createdAt: normalizeString(raw.created_at ?? raw.createdAt) ?? new Date().toISOString(),
+    outboundEntries,
   };
 }

@@ -754,3 +754,66 @@ export class PaymentsNotEnabledError extends Error {
     this.name = 'PaymentsNotEnabledError';
   }
 }
+
+// ---------------------------------------------------------------------------
+// Trades — atomic inventory trade log (single inbound + N outbound + cash).
+// Backend contract lives in /docs/payments-mvp-plan-2026-05-15.md.
+// ---------------------------------------------------------------------------
+
+export type TradeInbound = {
+  cardId: string;
+  condition?: string | null;
+  grader?: string | null;
+  grade?: string | null;
+  certNumber?: string | null;
+  /** Market value at trade time, snapshotted. */
+  marketValueCents?: number | null;
+};
+
+export type TradeOutboundEntryRequest = {
+  deckEntryId: string;
+  quantity?: number;
+  /** Market value at trade time, snapshotted. */
+  marketValueCents?: number | null;
+};
+
+export type TradeOutboundEntry = {
+  outboundIndex: number;
+  deckEntryId: string;
+  cardId: string;
+  condition: string | null;
+  grader: string | null;
+  grade: string | null;
+  certNumber: string | null;
+  quantity: number;
+  marketValueCents: number | null;
+};
+
+export type Trade = {
+  tradeId: string;
+  ownerUserId: string;
+  inboundCardId: string;
+  inboundCondition: string | null;
+  inboundGrader: string | null;
+  inboundGrade: string | null;
+  inboundCertNumber: string | null;
+  inboundMarketValueCents: number | null;
+  inboundDeckEntryId: string | null;
+  cashDeltaCents: number;
+  outboundTotalMarketValueCents: number | null;
+  showSessionId: string | null;
+  notes: string | null;
+  createdAt: string;
+  outboundEntries: TradeOutboundEntry[];
+};
+
+export type CreateTradeRequest = {
+  inbound: TradeInbound;
+  outbound: TradeOutboundEntryRequest[];
+  /** Positive: you received cash. Negative: you paid cash. */
+  cashDeltaCents?: number;
+  showSessionId?: string | null;
+  notes?: string | null;
+};
+
+export type CreateTradeResponse = Trade;

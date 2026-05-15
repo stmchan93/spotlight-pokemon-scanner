@@ -193,6 +193,10 @@ export function createTestSpotlightRepository(
       return overrides.cancelPaymentOrder?.(...args)
         ?? baseRepository.cancelPaymentOrder(...args);
     },
+    createTrade: (...args) => {
+      return overrides.createTrade?.(...args)
+        ?? baseRepository.createTrade(...args);
+    },
   };
 }
 

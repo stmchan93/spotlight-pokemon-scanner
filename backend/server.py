@@ -157,6 +157,7 @@ SCAN_ARTIFACT_UPLOADS_ENABLED_ENV = "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED"
 SUPABASE_URL_ENV = "SUPABASE_URL"
 SUPABASE_JWKS_URL_ENV = "SUPABASE_JWKS_URL"
 SUPABASE_JWT_SECRET_ENV = "SUPABASE_JWT_SECRET"
+SUPABASE_ANON_KEY_ENV = "SUPABASE_ANON_KEY"
 AUTH_REQUIRED_ENV = "SPOTLIGHT_AUTH_REQUIRED"
 AUTH_FALLBACK_USER_ID_ENV = "SPOTLIGHT_AUTH_FALLBACK_USER_ID"
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
@@ -464,6 +465,58 @@ def _apply_stripe_payments_schema_patch(connection: sqlite3.Connection) -> None:
     )
 
 
+def _apply_trades_schema_patch(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS trades (
+            trade_id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL,
+            inbound_card_id TEXT NOT NULL,
+            inbound_condition TEXT,
+            inbound_grader TEXT,
+            inbound_grade TEXT,
+            inbound_cert_number TEXT,
+            inbound_market_value_cents INTEGER,
+            inbound_deck_entry_id TEXT,
+            cash_delta_cents INTEGER NOT NULL DEFAULT 0,
+            outbound_total_market_value_cents INTEGER,
+            show_session_id TEXT,
+            notes TEXT,
+            created_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_trades_owner
+        ON trades(owner_user_id, created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS trade_outbound_entries (
+            trade_id TEXT NOT NULL REFERENCES trades(trade_id) ON DELETE CASCADE,
+            outbound_index INTEGER NOT NULL,
+            deck_entry_id TEXT NOT NULL,
+            card_id TEXT NOT NULL,
+            condition TEXT,
+            grader TEXT,
+            grade TEXT,
+            cert_number TEXT,
+            quantity INTEGER NOT NULL DEFAULT 1,
+            market_value_cents INTEGER,
+            PRIMARY KEY (trade_id, outbound_index)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_trade_outbound_deck_entry
+        ON trade_outbound_entries(deck_entry_id)
+        """
+    )
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw_value = os.environ.get(name)
     if raw_value is None:
@@ -638,6 +691,7 @@ class SpotlightScanService:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
             _apply_card_favorites_schema_patch(bootstrap_connection)
             _apply_stripe_payments_schema_patch(bootstrap_connection)
+            _apply_trades_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -9833,6 +9887,399 @@ class StripePaymentsService:
         }
 
 
+def _trade_outbound_row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    market_value = row["market_value_cents"]
+    return {
+        "outboundIndex": int(row["outbound_index"] or 0),
+        "deckEntryID": str(row["deck_entry_id"]),
+        "cardID": str(row["card_id"]),
+        "condition": str(row["condition"]) if row["condition"] else None,
+        "grader": str(row["grader"]) if row["grader"] else None,
+        "grade": str(row["grade"]) if row["grade"] else None,
+        "certNumber": str(row["cert_number"]) if row["cert_number"] else None,
+        "quantity": int(row["quantity"] or 0),
+        "marketValueCents": int(market_value) if market_value is not None else None,
+    }
+
+
+def _trade_row_to_dict(
+    row: sqlite3.Row | None,
+    outbound_rows: list[sqlite3.Row] | None = None,
+) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    inbound_market = row["inbound_market_value_cents"]
+    outbound_total = row["outbound_total_market_value_cents"]
+    return {
+        "tradeID": str(row["trade_id"]),
+        "ownerUserID": str(row["owner_user_id"]),
+        "inboundCardID": str(row["inbound_card_id"]),
+        "inboundCondition": str(row["inbound_condition"]) if row["inbound_condition"] else None,
+        "inboundGrader": str(row["inbound_grader"]) if row["inbound_grader"] else None,
+        "inboundGrade": str(row["inbound_grade"]) if row["inbound_grade"] else None,
+        "inboundCertNumber": str(row["inbound_cert_number"]) if row["inbound_cert_number"] else None,
+        "inboundMarketValueCents": int(inbound_market) if inbound_market is not None else None,
+        "inboundDeckEntryID": str(row["inbound_deck_entry_id"]) if row["inbound_deck_entry_id"] else None,
+        "cashDeltaCents": int(row["cash_delta_cents"] or 0),
+        "outboundTotalMarketValueCents": int(outbound_total) if outbound_total is not None else None,
+        "showSessionID": str(row["show_session_id"]) if row["show_session_id"] else None,
+        "notes": str(row["notes"]) if row["notes"] else None,
+        "createdAt": str(row["created_at"]),
+        "outboundEntries": [
+            entry
+            for entry in (_trade_outbound_row_to_dict(outbound_row) for outbound_row in (outbound_rows or []))
+            if entry is not None
+        ],
+    }
+
+
+class TradesService:
+    """Atomically logs a single inventory trade event.
+
+    A trade is one inbound card the user receives plus one or more outbound
+    cards they give away from their inventory, with an optional cash delta.
+    Each call is fully atomic: outbound inventory is decremented with a
+    ``WHERE quantity >= ?`` guard, the inbound ``deck_entries`` row is
+    upserted, and the ``trades`` + ``trade_outbound_entries`` rows are
+    written in the same SQLite transaction.
+    """
+
+    def __init__(self, scan_service: SpotlightScanService) -> None:
+        self._scan_service = scan_service
+
+    @property
+    def connection(self) -> sqlite3.Connection:
+        return self._scan_service.connection
+
+    def _current_owner_user_id(self) -> str:
+        return self._scan_service._current_owner_user_id()
+
+    @staticmethod
+    def _coerce_int(value: Any, *, field: str) -> int:
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{field} must be an integer") from None
+
+    @staticmethod
+    def _coerce_optional_int(value: Any, *, field: str) -> int | None:
+        if value is None:
+            return None
+        if isinstance(value, str) and not value.strip():
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            raise ValueError(f"{field} must be an integer") from None
+
+    @staticmethod
+    def _clean_str(value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip()
+        return text or None
+
+    def _trade_row(self, trade_id: str) -> sqlite3.Row | None:
+        return self.connection.execute(
+            "SELECT * FROM trades WHERE trade_id = ? LIMIT 1",
+            (trade_id,),
+        ).fetchone()
+
+    def _outbound_rows(self, trade_id: str) -> list[sqlite3.Row]:
+        return list(
+            self.connection.execute(
+                """
+                SELECT * FROM trade_outbound_entries
+                WHERE trade_id = ?
+                ORDER BY outbound_index ASC
+                """,
+                (trade_id,),
+            ).fetchall()
+        )
+
+    def create_trade(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        if not isinstance(payload, dict):
+            raise ValueError("payload must be a JSON object")
+
+        inbound_payload = payload.get("inbound") or {}
+        if not isinstance(inbound_payload, dict):
+            raise ValueError("inbound must be a JSON object")
+        inbound_card_id = self._clean_str(
+            inbound_payload.get("card_id") or inbound_payload.get("cardID")
+        )
+        if not inbound_card_id:
+            raise ValueError("inbound.card_id is required")
+
+        outbound_payload = payload.get("outbound")
+        if not isinstance(outbound_payload, list) or not outbound_payload:
+            raise ValueError("outbound must be a non-empty list")
+
+        cash_delta_cents = self._coerce_int(
+            payload.get("cash_delta_cents") or payload.get("cashDeltaCents") or 0,
+            field="cash_delta_cents",
+        )
+        show_session_id = self._clean_str(
+            payload.get("show_session_id") or payload.get("showSessionID")
+        )
+        notes = self._clean_str(payload.get("notes"))
+
+        inbound_condition = self._clean_str(
+            inbound_payload.get("condition")
+        )
+        inbound_grader = self._clean_str(inbound_payload.get("grader"))
+        inbound_grade = self._clean_str(inbound_payload.get("grade"))
+        inbound_cert_number = self._clean_str(
+            inbound_payload.get("cert_number") or inbound_payload.get("certNumber")
+        )
+        inbound_market_value_cents = self._coerce_optional_int(
+            inbound_payload.get("market_value_cents")
+            or inbound_payload.get("marketValueCents"),
+            field="inbound.market_value_cents",
+        )
+
+        # Pre-validate the inbound card exists in our catalog.
+        inbound_card = card_by_id(self.connection, inbound_card_id)
+        if inbound_card is None:
+            raise FileNotFoundError("inbound card not found")
+
+        # Pre-validate each outbound entry and accumulate normalized rows.
+        normalized_outbound: list[dict[str, Any]] = []
+        outbound_total_market_value_cents: int | None = None
+        for index, raw_entry in enumerate(outbound_payload):
+            if not isinstance(raw_entry, dict):
+                raise ValueError(f"outbound[{index}] must be a JSON object")
+            deck_entry_id = self._clean_str(
+                raw_entry.get("deck_entry_id") or raw_entry.get("deckEntryID")
+            )
+            if not deck_entry_id:
+                raise ValueError(f"outbound[{index}].deck_entry_id is required")
+            quantity = self._coerce_int(
+                raw_entry.get("quantity") or 1,
+                field=f"outbound[{index}].quantity",
+            )
+            if quantity < 1:
+                raise ValueError(f"outbound[{index}].quantity must be >= 1")
+            market_value_cents = self._coerce_optional_int(
+                raw_entry.get("market_value_cents")
+                or raw_entry.get("marketValueCents"),
+                field=f"outbound[{index}].market_value_cents",
+            )
+            deck_row = self.connection.execute(
+                """
+                SELECT id, owner_user_id, card_id, condition, grader, grade, cert_number, quantity
+                FROM deck_entries
+                WHERE id = ?
+                LIMIT 1
+                """,
+                (deck_entry_id,),
+            ).fetchone()
+            if deck_row is None:
+                raise FileNotFoundError(f"deck entry {deck_entry_id} not found")
+            if str(deck_row["owner_user_id"] or "") != owner_user_id:
+                raise PermissionError("not authorized to trade away this deck entry")
+            if int(deck_row["quantity"] or 0) < quantity:
+                raise ValueError(
+                    f"outbound[{index}].quantity exceeds available inventory"
+                )
+            normalized_outbound.append(
+                {
+                    "deck_entry_id": deck_entry_id,
+                    "card_id": str(deck_row["card_id"]),
+                    "condition": str(deck_row["condition"]) if deck_row["condition"] else None,
+                    "grader": str(deck_row["grader"]) if deck_row["grader"] else None,
+                    "grade": str(deck_row["grade"]) if deck_row["grade"] else None,
+                    "cert_number": str(deck_row["cert_number"]) if deck_row["cert_number"] else None,
+                    "quantity": quantity,
+                    "market_value_cents": market_value_cents,
+                }
+            )
+            if market_value_cents is not None:
+                outbound_total_market_value_cents = (
+                    (outbound_total_market_value_cents or 0) + market_value_cents
+                )
+
+        trade_id = f"trade:{uuid.uuid4().hex}"
+        now = utc_now()
+
+        try:
+            # Atomic block: decrement outbound, append events, upsert inbound,
+            # insert trade rows. Any failure rolls back the whole thing.
+            for entry in normalized_outbound:
+                cursor = self.connection.execute(
+                    """
+                    UPDATE deck_entries
+                    SET quantity = quantity - ?,
+                        updated_at = ?
+                    WHERE id = ?
+                      AND owner_user_id = ?
+                      AND quantity >= ?
+                    """,
+                    (
+                        entry["quantity"],
+                        now,
+                        entry["deck_entry_id"],
+                        owner_user_id,
+                        entry["quantity"],
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise ValueError(
+                        "deck entry inventory changed during trade; please retry"
+                    )
+                append_deck_entry_event(
+                    self.connection,
+                    owner_user_id=owner_user_id,
+                    deck_entry_id=entry["deck_entry_id"],
+                    card_id=entry["card_id"],
+                    event_kind="trade_outbound",
+                    quantity_delta=-entry["quantity"],
+                    payment_method="trade",
+                    condition=entry["condition"],
+                    grader=entry["grader"],
+                    grade=entry["grade"],
+                    cert_number=entry["cert_number"],
+                    created_at=now,
+                )
+
+            # Upsert the inbound deck entry. Use upsert_deck_entry so the
+            # add/buy event is appended automatically and slab vs raw dedupe
+            # works exactly like the rest of inventory.
+            inbound_deck_entry_id = upsert_deck_entry(
+                self.connection,
+                owner_user_id=owner_user_id,
+                card_id=inbound_card_id,
+                grader=inbound_grader,
+                grade=inbound_grade,
+                cert_number=inbound_cert_number,
+                condition=inbound_condition,
+                quantity=1,
+                unit_price=None,
+                currency_code="USD",
+                payment_method="trade",
+                added_at=now,
+                updated_at=now,
+                event_kind="trade_inbound",
+            )
+
+            self.connection.execute(
+                """
+                INSERT INTO trades (
+                    trade_id, owner_user_id, inbound_card_id,
+                    inbound_condition, inbound_grader, inbound_grade, inbound_cert_number,
+                    inbound_market_value_cents, inbound_deck_entry_id,
+                    cash_delta_cents, outbound_total_market_value_cents,
+                    show_session_id, notes, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    trade_id,
+                    owner_user_id,
+                    inbound_card_id,
+                    inbound_condition,
+                    inbound_grader,
+                    inbound_grade,
+                    inbound_cert_number,
+                    inbound_market_value_cents,
+                    inbound_deck_entry_id,
+                    cash_delta_cents,
+                    outbound_total_market_value_cents,
+                    show_session_id,
+                    notes,
+                    now,
+                ),
+            )
+
+            for index, entry in enumerate(normalized_outbound):
+                self.connection.execute(
+                    """
+                    INSERT INTO trade_outbound_entries (
+                        trade_id, outbound_index, deck_entry_id, card_id,
+                        condition, grader, grade, cert_number,
+                        quantity, market_value_cents
+                    )
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        trade_id,
+                        index,
+                        entry["deck_entry_id"],
+                        entry["card_id"],
+                        entry["condition"],
+                        entry["grader"],
+                        entry["grade"],
+                        entry["cert_number"],
+                        entry["quantity"],
+                        entry["market_value_cents"],
+                    ),
+                )
+
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return _trade_row_to_dict(self._trade_row(trade_id), self._outbound_rows(trade_id)) or {}
+
+    def get_trade(self, trade_id: str) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        row = self._trade_row(trade_id)
+        if row is None:
+            raise FileNotFoundError("trade not found")
+        if str(row["owner_user_id"] or "") != owner_user_id:
+            raise PermissionError("not authorized to view this trade")
+        return _trade_row_to_dict(row, self._outbound_rows(trade_id)) or {}
+
+    def list_trades(self, *, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        normalized_limit = max(1, min(int(limit or 50), 200))
+        normalized_offset = max(0, int(offset or 0))
+        rows = self.connection.execute(
+            """
+            SELECT * FROM trades
+            WHERE owner_user_id = ?
+            ORDER BY created_at DESC, trade_id DESC
+            LIMIT ? OFFSET ?
+            """,
+            (owner_user_id, normalized_limit, normalized_offset),
+        ).fetchall()
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            outbound_rows = self._outbound_rows(str(row["trade_id"]))
+            payload = _trade_row_to_dict(row, outbound_rows)
+            if payload is not None:
+                results.append(payload)
+        return {
+            "trades": results,
+            "limit": normalized_limit,
+            "offset": normalized_offset,
+        }
+
+
+def _claim_page_supabase_config() -> tuple[str | None, str | None]:
+    """Return ``(supabase_url, anon_key)`` for the claim page, or ``(None, None)``.
+
+    Both env vars are public values (the anon key is designed to ship to
+    browser JS) so it is safe to interpolate them into the rendered HTML.
+    """
+    raw_url = (
+        os.environ.get(SUPABASE_URL_ENV)
+        or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+        or ""
+    ).strip().rstrip("/")
+    raw_anon = (
+        os.environ.get(SUPABASE_ANON_KEY_ENV)
+        or os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
+        or ""
+    ).strip()
+    if not raw_url or not raw_anon:
+        return None, None
+    return raw_url, raw_anon
+
+
 def _render_claim_html(context: dict[str, Any]) -> str:
     """Render the post-purchase claim landing HTML page."""
     if not context:
@@ -9862,10 +10309,92 @@ def _render_claim_html(context: dict[str, Any]) -> str:
     set_html = f'<div class="set-name">{_html_escape(set_name)}</div>' if set_name else ""
     condition_html = f'<div class="condition">Condition: {_html_escape(condition)}</div>' if condition else ""
 
-    # TODO(payments-mvp): the Save CTA below stubs the buyer flow with a plain
-    # link to the claim endpoint. Full Supabase web sign-in (Apple/Google)
-    # lands post-MVP.
-    claim_href = f"/api/v1/payments/orders/{_html_escape(order_id)}/claim?stripe_session_id={_html_escape(session_id)}"
+    base_url = public_base_url()
+    claim_url = f"{base_url}/claim/{_html_escape(order_id)}"
+    claim_api_path = f"/api/v1/payments/orders/{_html_escape(order_id)}/claim"
+    app_deeplink = f"looty://order/{_html_escape(order_id)}"
+    app_store_url = "https://apps.apple.com/app/looty"
+
+    supabase_url, supabase_anon = _claim_page_supabase_config()
+    oauth_configured = bool(supabase_url and supabase_anon)
+
+    # TODO(payments-mvp): once we go live, the operator must allowlist the
+    # claim URL pattern (e.g. ``https://app.looty.com/claim/*``) in the
+    # Supabase project's Auth -> URL Configuration -> Redirect URLs list, or
+    # Supabase will reject the OAuth round-trip with a "redirect_to is not
+    # allowed" error. This is a one-time manual step per Supabase project.
+    if oauth_configured:
+        supabase_config_js = (
+            f"window.__SPOTLIGHT_CLAIM__ = {{\n"
+            f"  supabaseUrl: {json.dumps(supabase_url)},\n"
+            f"  supabaseAnonKey: {json.dumps(supabase_anon)},\n"
+            f"  orderId: {json.dumps(order_id)},\n"
+            f"  stripeSessionId: {json.dumps(session_id)},\n"
+            f"  claimUrl: {json.dumps(claim_url)},\n"
+            f"  claimApiPath: {json.dumps(claim_api_path)},\n"
+            f"  appDeepLink: {json.dumps(app_deeplink)},\n"
+            f"  appStoreUrl: {json.dumps(app_store_url)},\n"
+            f"}};"
+        )
+        supabase_cdn_script = (
+            '<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2'
+            '/dist/umd/supabase.min.js"></script>'
+        )
+        oauth_section_html = (
+            '<section id="state-initial" class="state state-active">\n'
+            '  <p class="subtitle">Save this card to your Spotlight collection.'
+            ' Sign in to claim ownership; it will sync to the app automatically.</p>\n'
+            '  <div class="cta-row">\n'
+            '    <button type="button" class="cta cta-primary" data-oauth="apple">Continue with Apple</button>\n'
+            '    <button type="button" class="cta cta-secondary" data-oauth="google">Continue with Google</button>\n'
+            '    <a class="cta cta-link" href="#" data-action="maybe-later">Maybe later</a>\n'
+            '  </div>\n'
+            '</section>\n'
+            '<section id="state-signing-in" class="state">\n'
+            '  <p class="subtitle">Signing you in...</p>\n'
+            '  <div class="spinner" aria-hidden="true"></div>\n'
+            '</section>\n'
+            '<section id="state-claimed" class="state">\n'
+            '  <div class="banner banner-paid">Saved &#10003; - your card is in your collection</div>\n'
+            '  <div class="cta-row">\n'
+            f'    <a class="cta cta-primary" id="open-app-link" href="{app_deeplink}">Open Spotlight</a>\n'
+            '    <a class="cta cta-secondary" href="#" data-action="done">Done</a>\n'
+            '  </div>\n'
+            '</section>\n'
+            '<section id="state-error" class="state">\n'
+            '  <div class="banner banner-pending" id="error-message">Something went wrong.</div>\n'
+            '  <div class="cta-row">\n'
+            '    <button type="button" class="cta cta-primary" data-action="retry">Try again</button>\n'
+            '    <button type="button" class="cta cta-secondary" data-action="cancel">Cancel</button>\n'
+            '  </div>\n'
+            '</section>\n'
+            '<section id="state-receipt" class="state">\n'
+            '  <p class="subtitle">Receipt saved. You can claim this card in the app any time.</p>\n'
+            '  <div class="cta-row">\n'
+            f'    <a class="cta cta-primary" href="{app_deeplink}">Open Spotlight</a>\n'
+            f'    <a class="cta cta-secondary" href="{app_store_url}">Get the Spotlight app</a>\n'
+            '  </div>\n'
+            '</section>'
+        )
+        # The page-level JS lives entirely in this single inline script. No
+        # build step. It parses the OAuth redirect hash, calls
+        # ``supabase.auth.setSession``, posts to the claim API with the bearer
+        # token, and toggles the four state sections.
+        page_script = _CLAIM_PAGE_OAUTH_SCRIPT
+    else:
+        supabase_config_js = ""
+        supabase_cdn_script = ""
+        oauth_section_html = (
+            '<section id="state-receipt" class="state state-active">\n'
+            '  <p class="subtitle">Sign-in is not configured on this backend.'
+            ' Open the Spotlight app to claim this card.</p>\n'
+            '  <div class="cta-row">\n'
+            f'    <a class="cta cta-primary" href="{app_deeplink}">Open Spotlight</a>\n'
+            f'    <a class="cta cta-secondary" href="{app_store_url}">Get the Spotlight app</a>\n'
+            '  </div>\n'
+            '</section>'
+        )
+        page_script = ""
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -9886,18 +10415,32 @@ def _render_claim_html(context: dict[str, Any]) -> str:
   .set-name {{ text-align: center; color: #555; margin-bottom: 4px; }}
   .price {{ text-align: center; font-size: 28px; font-weight: 700; margin: 8px 0; }}
   .condition {{ text-align: center; color: #555; margin-bottom: 16px; }}
-  .cta-row {{ display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }}
-  a.cta {{ display: block; text-align: center; padding: 14px 16px; border-radius: 12px; text-decoration: none; font-weight: 600; }}
-  a.cta-primary {{ background: #1a73e8; color: white; }}
-  a.cta-secondary {{ background: #eef0f4; color: #111; }}
+  .subtitle {{ text-align: center; color: #555; margin: 12px 0 16px; line-height: 1.4; }}
+  .state {{ display: none; }}
+  .state.state-active {{ display: block; }}
+  .cta-row {{ display: flex; flex-direction: column; gap: 12px; margin-top: 16px; }}
+  .cta {{ display: block; width: 100%; box-sizing: border-box; text-align: center;
+          padding: 14px 16px; border-radius: 12px; text-decoration: none;
+          font-weight: 600; font-size: 16px; cursor: pointer; border: none; }}
+  button.cta {{ font-family: inherit; }}
+  .cta-primary {{ background: #111; color: #fff; }}
+  .cta-secondary {{ background: transparent; color: #111; border: 1.5px solid #111; }}
+  .cta-link {{ background: transparent; color: #555; text-decoration: underline; }}
+  .spinner {{ width: 28px; height: 28px; margin: 16px auto;
+              border: 3px solid #d4d4d4; border-top-color: #111;
+              border-radius: 50%; animation: spin 0.8s linear infinite; }}
+  @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
   @media (prefers-color-scheme: dark) {{
     body {{ background: #111; color: #f4f4f4; }}
     .banner-pending {{ background: #2c2010; color: #f5d68a; }}
     .banner-paid {{ background: #0d2a17; color: #a4ebbb; }}
-    .set-name, .condition {{ color: #bbb; }}
-    a.cta-secondary {{ background: #1d1d20; color: #f4f4f4; }}
+    .set-name, .condition, .subtitle, .cta-link {{ color: #bbb; }}
+    .cta-primary {{ background: #f4f4f4; color: #111; }}
+    .cta-secondary {{ color: #f4f4f4; border-color: #f4f4f4; }}
+    .spinner {{ border-color: #333; border-top-color: #f4f4f4; }}
   }}
 </style>
+{supabase_cdn_script}
 </head>
 <body>
   <main class="page">
@@ -9907,13 +10450,143 @@ def _render_claim_html(context: dict[str, Any]) -> str:
     {set_html}
     <div class="price">${amount:,.2f} {_html_escape(currency)}</div>
     {condition_html}
-    <div class="cta-row">
-      <a class="cta cta-primary" href="{claim_href}">Save to my Spotlight collection</a>
-      <a class="cta cta-secondary" href="https://apps.apple.com/app/looty">Open Spotlight</a>
-    </div>
+    {oauth_section_html}
   </main>
+<script>
+{supabase_config_js}
+{page_script}
+</script>
 </body>
 </html>"""
+
+
+_CLAIM_PAGE_OAUTH_SCRIPT = r"""
+(function () {
+  var cfg = window.__SPOTLIGHT_CLAIM__;
+  if (!cfg) { return; }
+  if (typeof window.supabase === 'undefined' || !window.supabase.createClient) {
+    console.warn('Supabase JS failed to load; OAuth disabled.');
+    return;
+  }
+
+  var client = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+    auth: { detectSessionInUrl: false, persistSession: false, autoRefreshToken: false }
+  });
+
+  var states = ['initial', 'signing-in', 'claimed', 'error', 'receipt'];
+  function show(name) {
+    for (var i = 0; i < states.length; i += 1) {
+      var el = document.getElementById('state-' + states[i]);
+      if (el) {
+        if (states[i] === name) { el.classList.add('state-active'); }
+        else { el.classList.remove('state-active'); }
+      }
+    }
+  }
+
+  function parseHashTokens() {
+    var hash = window.location.hash || '';
+    if (hash.indexOf('#') === 0) { hash = hash.substring(1); }
+    if (!hash) { return null; }
+    var params = {};
+    var parts = hash.split('&');
+    for (var i = 0; i < parts.length; i += 1) {
+      var kv = parts[i].split('=');
+      if (kv.length === 2) {
+        params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1]);
+      }
+    }
+    if (!params.access_token || !params.refresh_token) { return null; }
+    return params;
+  }
+
+  function clearHash() {
+    if (window.history && window.history.replaceState) {
+      window.history.replaceState(null, '', window.location.pathname + window.location.search);
+    } else {
+      window.location.hash = '';
+    }
+  }
+
+  function showError(message) {
+    var el = document.getElementById('error-message');
+    if (el) { el.textContent = message || 'Something went wrong.'; }
+    show('error');
+  }
+
+  async function claimWithToken(accessToken, refreshToken) {
+    show('signing-in');
+    try {
+      await client.auth.setSession({ access_token: accessToken, refresh_token: refreshToken });
+      var resp = await fetch(cfg.claimApiPath, {
+        method: 'POST',
+        headers: {
+          'Authorization': 'Bearer ' + accessToken,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ stripe_session_id: cfg.stripeSessionId || null })
+      });
+      if (!resp.ok) {
+        var detail = '';
+        try { detail = (await resp.json()).error || ''; } catch (_) {}
+        throw new Error(detail || ('Claim failed (' + resp.status + ')'));
+      }
+      show('claimed');
+    } catch (err) {
+      showError(err && err.message ? err.message : 'Claim failed.');
+    }
+  }
+
+  async function startOAuth(provider) {
+    show('signing-in');
+    try {
+      var result = await client.auth.signInWithOAuth({
+        provider: provider,
+        options: { redirectTo: cfg.claimUrl }
+      });
+      if (result && result.error) { throw result.error; }
+      // Supabase redirects the browser; nothing else to do here.
+    } catch (err) {
+      showError(err && err.message ? err.message : 'Sign-in failed.');
+    }
+  }
+
+  document.addEventListener('click', function (event) {
+    var target = event.target;
+    if (!target) { return; }
+    var providerBtn = target.closest && target.closest('[data-oauth]');
+    if (providerBtn) {
+      event.preventDefault();
+      startOAuth(providerBtn.getAttribute('data-oauth'));
+      return;
+    }
+    var actionBtn = target.closest && target.closest('[data-action]');
+    if (!actionBtn) { return; }
+    var action = actionBtn.getAttribute('data-action');
+    if (action === 'maybe-later') {
+      event.preventDefault();
+      show('receipt');
+    } else if (action === 'retry') {
+      event.preventDefault();
+      show('initial');
+    } else if (action === 'cancel') {
+      event.preventDefault();
+      show('receipt');
+    } else if (action === 'done') {
+      event.preventDefault();
+      show('receipt');
+    }
+  });
+
+  var tokens = parseHashTokens();
+  if (tokens) {
+    clearHash();
+    claimWithToken(tokens.access_token, tokens.refresh_token);
+  } else {
+    show('initial');
+  }
+})();
+"""
 
 
 def _render_claim_error_html(message: str) -> str:
@@ -9949,6 +10622,7 @@ def _html_escape(value: Any) -> str:
 class SpotlightRequestHandler(BaseHTTPRequestHandler):
     service: SpotlightScanService
     payments_service: "StripePaymentsService | None" = None
+    trades_service: "TradesService | None" = None
 
     def _require_request_identity(self) -> RequestIdentity | None:
         try:
@@ -10402,6 +11076,63 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, order_payload)
             return
 
+        if parsed.path == "/api/v1/trades":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                limit_raw = query.get("limit", ["50"])[0]
+                offset_raw = query.get("offset", ["0"])[0]
+                limit_value = int(limit_raw)
+                offset_value = int(offset_raw)
+            except (TypeError, ValueError):
+                self._write_json(
+                    HTTPStatus.BAD_REQUEST,
+                    {"error": "limit and offset must be integers"},
+                )
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    trades_payload = self._trades_service().list_trades(
+                        limit=limit_value, offset=offset_value
+                    )
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"List trades failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, trades_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/trades/"):
+            trade_id = unquote(parsed.path.removeprefix("/api/v1/trades/").rstrip("/"))
+            if not trade_id or "/" in trade_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    trade_payload = self._trades_service().get_trade(trade_id)
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except PermissionError as error:
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Get trade failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, trade_payload)
+            return
+
         if parsed.path.startswith("/o/"):
             qr_token = unquote(parsed.path.removeprefix("/o/").rstrip("/"))
             if not qr_token or "/" in qr_token:
@@ -10436,6 +11167,13 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         if existing is None:
             existing = StripePaymentsService(self.service)
             type(self).payments_service = existing
+        return existing
+
+    def _trades_service(self) -> "TradesService":
+        existing = type(self).trades_service
+        if existing is None:
+            existing = TradesService(self.service)
+            type(self).trades_service = existing
         return existing
 
     def _write_html(self, status: HTTPStatus, body: str) -> None:
@@ -11263,6 +12001,32 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, claim_payload)
             return
 
+        if parsed.path == "/api/v1/trades":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    trade_payload = self._trades_service().create_trade(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except PermissionError as error:
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Create trade failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.CREATED, trade_payload)
+            return
+
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
 
     def _handle_stripe_webhook(self) -> None:
@@ -11414,6 +12178,7 @@ def main() -> None:
 
     SpotlightRequestHandler.service = SpotlightScanService(database_path, repo_root)
     SpotlightRequestHandler.payments_service = StripePaymentsService(SpotlightRequestHandler.service)
+    SpotlightRequestHandler.trades_service = TradesService(SpotlightRequestHandler.service)
     startup_visual_runtime = SpotlightRequestHandler.service._prewarm_raw_visual_runtime(run_inference=False)
     SpotlightRequestHandler.service._emit_structured_log(
         {

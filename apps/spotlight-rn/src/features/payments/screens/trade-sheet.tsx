@@ -42,17 +42,30 @@ function parseCashDelta(text: string): number | null {
   return Number(parsed.toFixed(2));
 }
 
+type TradeSheetExtraProps = {
+  /**
+   * Market value of the inbound card right now (USD dollars). Snapshotted to
+   * the trade so analytics can show profit-over-time independent of future
+   * price moves. Optional — backend treats it as nullable.
+   */
+  inboundMarketPrice?: number | null;
+};
+
 /**
  * Inventory-only trade-logging sheet. Multi-select outbound entries
  * from the seller's inventory; optionally enter a cash delta.
  *
- * MVP: this writes a portfolio buy on the inbound card and a sale per
- * outbound card. Until a dedicated /trades endpoint exists on the
- * backend, that's the safest way to keep both sides of the trade in
- * the existing transaction ledger. The cash delta is recorded as the
- * inbound buy's effective unit price.
+ * Calls the atomic `/api/v1/trades` endpoint so the inbound card and the
+ * outbound deck entries move together in a single SQLite transaction and
+ * the trade is preserved as one event for analytics.
  */
-export function TradeSheet({ cardId, slabContext, onClose, onComplete }: TradeSheetProps) {
+export function TradeSheet({
+  cardId,
+  slabContext,
+  inboundMarketPrice,
+  onClose,
+  onComplete,
+}: TradeSheetProps & TradeSheetExtraProps) {
   const theme = useSpotlightTheme();
   const { refreshData, spotlightRepository } = useAppServices();
 
@@ -119,40 +132,31 @@ export function TradeSheet({ cardId, slabContext, onClose, onComplete }: TradeSh
     setSubmitState('submitting');
     setErrorMessage(null);
 
-    const inboundUnitPrice = Math.max(0, cashDelta);
-    const nowIso = new Date().toISOString();
+    const inboundMarketValueCents =
+      typeof inboundMarketPrice === 'number' && inboundMarketPrice > 0
+        ? Math.round(inboundMarketPrice * 100)
+        : null;
+    const cashDeltaCents = Math.round(cashDelta * 100);
 
     try {
-      // Outbound — record a sale per selected entry (quantity=1).
-      for (const entry of selectedEntries) {
-        await spotlightRepository.createPortfolioSale({
-          deckEntryID: entry.id,
-          cardID: entry.cardId,
-          slabContext: entry.slabContext ?? null,
+      await spotlightRepository.createTrade({
+        inbound: {
+          cardId,
+          condition: slabContext ? null : 'near_mint',
+          grader: slabContext?.grader ?? null,
+          grade: slabContext?.grade ?? null,
+          certNumber: slabContext?.certNumber ?? null,
+          marketValueCents: inboundMarketValueCents,
+        },
+        outbound: selectedEntries.map((entry) => ({
+          deckEntryId: entry.id,
           quantity: 1,
-          unitPrice: entry.marketPrice || 0,
-          currencyCode: entry.currencyCode || 'USD',
-          paymentMethod: 'trade',
-          soldAt: nowIso,
-          saleSource: 'trade',
-          showSessionID: null,
-          note: 'Trade outbound',
-          sourceScanID: null,
-        });
-      }
-
-      // Inbound — record a buy at the cash-delta value.
-      await spotlightRepository.createPortfolioBuy({
-        cardID: cardId,
-        slabContext: slabContext ?? null,
-        variantName: null,
-        condition: slabContext ? null : 'near_mint',
-        quantity: 1,
-        unitPrice: inboundUnitPrice,
-        currencyCode: 'USD',
-        paymentMethod: 'trade',
-        boughtAt: nowIso,
-        sourceScanID: null,
+          marketValueCents:
+            typeof entry.marketPrice === 'number' && entry.marketPrice > 0
+              ? Math.round(entry.marketPrice * 100)
+              : null,
+        })),
+        cashDeltaCents,
       });
 
       refreshData();
@@ -162,7 +166,16 @@ export function TradeSheet({ cardId, slabContext, onClose, onComplete }: TradeSh
     } finally {
       setSubmitState('idle');
     }
-  }, [cardId, cashDelta, onComplete, refreshData, selectedEntries, slabContext, spotlightRepository]);
+  }, [
+    cardId,
+    cashDelta,
+    inboundMarketPrice,
+    onComplete,
+    refreshData,
+    selectedEntries,
+    slabContext,
+    spotlightRepository,
+  ]);
 
   if (isLoading) {
     return (

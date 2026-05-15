@@ -34,6 +34,7 @@ TEST_MODULES=(
   backend.tests.test_scrydex_tool_scripts
   backend.tests.test_request_auth
   backend.tests.test_stripe_payments
+  backend.tests.test_trades
   backend.tests.test_vm_sync_schedule
   backend.tests.test_vm_runtime_config
 )

@@ -635,3 +635,38 @@ CREATE TABLE IF NOT EXISTS stripe_events (
 );
 CREATE INDEX IF NOT EXISTS idx_stripe_events_type
     ON stripe_events(event_type, received_at);
+
+CREATE TABLE IF NOT EXISTS trades (
+    trade_id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    inbound_card_id TEXT NOT NULL,
+    inbound_condition TEXT,
+    inbound_grader TEXT,
+    inbound_grade TEXT,
+    inbound_cert_number TEXT,
+    inbound_market_value_cents INTEGER,
+    inbound_deck_entry_id TEXT,
+    cash_delta_cents INTEGER NOT NULL DEFAULT 0,
+    outbound_total_market_value_cents INTEGER,
+    show_session_id TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_trades_owner
+    ON trades(owner_user_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS trade_outbound_entries (
+    trade_id TEXT NOT NULL REFERENCES trades(trade_id) ON DELETE CASCADE,
+    outbound_index INTEGER NOT NULL,
+    deck_entry_id TEXT NOT NULL,
+    card_id TEXT NOT NULL,
+    condition TEXT,
+    grader TEXT,
+    grade TEXT,
+    cert_number TEXT,
+    quantity INTEGER NOT NULL DEFAULT 1,
+    market_value_cents INTEGER,
+    PRIMARY KEY (trade_id, outbound_index)
+);
+CREATE INDEX IF NOT EXISTS idx_trade_outbound_deck_entry
+    ON trade_outbound_entries(deck_entry_id);

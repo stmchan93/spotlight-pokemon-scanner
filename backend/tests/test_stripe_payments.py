@@ -414,6 +414,113 @@ class StripePaymentsServiceTests(unittest.TestCase):
         self.assertAlmostEqual(float(deck_rows[0]["cost_basis_total"]), 40.0)
 
     # ------------------------------------------------------------------
+    # Claim page (HTML) + OAuth flow
+    # ------------------------------------------------------------------
+
+    def _render_claim_page(self, order_id: str) -> str:
+        SpotlightRequestHandler.service = self.service
+        SpotlightRequestHandler.payments_service = self.payments
+        handler = _MockHandler(path=f"/claim/{order_id}")
+        handler.do_GET()
+        # The /claim route writes HTML, not JSON.
+        self.assertTrue(handler._html_writes, "Expected /claim/<id> to render HTML")
+        status, body = handler._html_writes[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        return body
+
+    def test_claim_page_renders_oauth_buttons_when_supabase_configured(self) -> None:
+        self._insert_card()
+        order_id, _ = self._create_pending_order("seller-1")
+        os.environ["SUPABASE_URL"] = "https://example.supabase.co"
+        os.environ["SUPABASE_ANON_KEY"] = "anon-key-public-test-value"
+        try:
+            body = self._render_claim_page(order_id)
+        finally:
+            os.environ.pop("SUPABASE_URL", None)
+            os.environ.pop("SUPABASE_ANON_KEY", None)
+        # Supabase JS CDN is loaded.
+        self.assertIn("cdn.jsdelivr.net/npm/@supabase/supabase-js", body)
+        # Apple + Google OAuth buttons are present.
+        self.assertIn('data-oauth="apple"', body)
+        self.assertIn('data-oauth="google"', body)
+        self.assertIn("Continue with Apple", body)
+        self.assertIn("Continue with Google", body)
+        # The config block contains the supabase URL and anon key.
+        self.assertIn('"https://example.supabase.co"', body)
+        self.assertIn('"anon-key-public-test-value"', body)
+        # The claim API path is wired in for the post-redirect POST.
+        self.assertIn(f'/api/v1/payments/orders/{order_id}/claim', body)
+        # "Maybe later" fallback link exists.
+        self.assertIn('data-action="maybe-later"', body)
+
+    def test_claim_page_renders_fallback_when_supabase_unconfigured(self) -> None:
+        self._insert_card()
+        order_id, _ = self._create_pending_order("seller-1")
+        # Ensure both env vars are unset.
+        os.environ.pop("SUPABASE_URL", None)
+        os.environ.pop("SUPABASE_ANON_KEY", None)
+        os.environ.pop("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL", None)
+        os.environ.pop("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY", None)
+        body = self._render_claim_page(order_id)
+        # Page still renders.
+        self.assertIn("<title>Save to Spotlight</title>", body)
+        # No OAuth buttons or Supabase JS CDN.
+        self.assertNotIn("cdn.jsdelivr.net/npm/@supabase/supabase-js", body)
+        self.assertNotIn('data-oauth="apple"', body)
+        self.assertNotIn('data-oauth="google"', body)
+        # Falls back to "Open Spotlight" deep link + App Store link.
+        self.assertIn("looty://order/", body)
+        self.assertIn("apps.apple.com/app/looty", body)
+
+    def test_claim_endpoint_accepts_valid_supabase_jwt_via_oauth_flow(self) -> None:
+        """Simulate the post-OAuth POST from the claim page with a bearer token."""
+        self._insert_card()
+        order_id, _ = self._create_pending_order("seller-1")
+        event = {
+            "id": "evt_paid_for_oauth_claim",
+            "type": "checkout.session.completed",
+            "data": {"object": {"id": "cs_pending", "payment_intent": "pi_oauth_claim"}},
+        }
+        with patch("server.stripe_verify_webhook_signature", return_value=event):
+            self.payments.handle_webhook(b"{}", "sig")
+
+        SpotlightRequestHandler.service = self.service
+        SpotlightRequestHandler.payments_service = self.payments
+        body = json.dumps({"stripe_session_id": "cs_pending"}).encode()
+        handler = _MockHandler(
+            path=f"/api/v1/payments/orders/{order_id}/claim",
+            body=body,
+            headers={
+                "Content-Length": str(len(body)),
+                "Authorization": "Bearer eyJhbGciOiJSUzI1NiJ9.fake.sig",
+                "Content-Type": "application/json",
+            },
+        )
+
+        # Mock the authenticator to accept the bearer token and return a
+        # RequestIdentity for the buyer. The OAuth round-trip is verified at
+        # the Supabase layer in production; here we only assert that the
+        # handler honours the Bearer header.
+        with patch.object(
+            self.service.authenticator,
+            "resolve_identity",
+            return_value=RequestIdentity(user_id="buyer-oauth-1", auth_source="supabase_jwt"),
+        ) as resolve_mock:
+            handler.do_POST()
+
+        resolve_mock.assert_called_once()
+        bearer_arg = resolve_mock.call_args[0][0]
+        self.assertTrue(bearer_arg.startswith("Bearer "))
+        self.assertEqual(handler._json_writes[-1][0], HTTPStatus.OK)
+        payload = handler._json_writes[-1][1]
+        self.assertEqual(payload["buyerUserID"], "buyer-oauth-1")
+        # The buyer's deck now contains the claimed card.
+        deck_rows = self.service.connection.execute(
+            "SELECT card_id FROM deck_entries WHERE owner_user_id = ?", ("buyer-oauth-1",)
+        ).fetchall()
+        self.assertEqual([str(r["card_id"]) for r in deck_rows], ["base-charizard-4"])
+
+    # ------------------------------------------------------------------
     # 503 / auth tests on the request handler
     # ------------------------------------------------------------------
 
