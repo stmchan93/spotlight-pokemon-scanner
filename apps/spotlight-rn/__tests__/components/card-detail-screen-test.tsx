@@ -183,7 +183,7 @@ describe('CardDetailScreen', () => {
     expect(lpOption).toBeTruthy();
   });
 
-  it('shows the Sell icon for owned cards and triggers onOpenSell', async () => {
+  it('shows the Sell and Edit icons for owned cards and routes Add vs Edit to the right entryId', async () => {
     const onOpenSell = jest.fn();
     const onOpenAddToCollection = jest.fn();
 
@@ -199,17 +199,20 @@ describe('CardDetailScreen', () => {
 
     expect(await screen.findByText('Celebi')).toBeTruthy();
     expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
-    expect(screen.queryByTestId('detail-collection-card')).toBeNull();
+    expect(screen.getByTestId('detail-edit-collection-entry')).toBeTruthy();
     expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('detail-sell-card'));
     expect(onOpenSell).toHaveBeenCalledWith('entry-3');
 
     fireEvent.press(screen.getByTestId('detail-add-to-collection'));
-    expect(onOpenAddToCollection).toHaveBeenCalledWith('xyp-111', 'entry-3');
+    expect(onOpenAddToCollection).toHaveBeenLastCalledWith('xyp-111', undefined);
+
+    fireEvent.press(screen.getByTestId('detail-edit-collection-entry'));
+    expect(onOpenAddToCollection).toHaveBeenLastCalledWith('xyp-111', 'entry-3');
   });
 
-  it('omits the Sell icon when the card is not owned', async () => {
+  it('omits the Sell and Edit icons when the card is not owned', async () => {
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
@@ -221,6 +224,177 @@ describe('CardDetailScreen', () => {
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
     expect(screen.queryByTestId('detail-sell-card')).toBeNull();
+    expect(screen.queryByTestId('detail-edit-collection-entry')).toBeNull();
+    expect(screen.queryByTestId('detail-hero-raw-inventory')).toBeNull();
+    expect(screen.queryByTestId('detail-hero-slab-cert-quantity')).toBeNull();
+  });
+
+  it('shows the raw inventory line (condition · variant · qty) in the hero when an owned raw entry is selected', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const rawEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: 'lightly_played',
+      conditionLabel: 'Lightly Played',
+      conditionShortLabel: 'LP',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'raw-treecko-lp',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 1.5,
+      name: 'Treecko',
+      quantity: 3,
+      setName: 'Sky Stream',
+      variantName: 'Holofoil',
+    };
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="raw-treecko-lp"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [rawEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    const line = await screen.findByTestId('detail-hero-raw-inventory');
+    expect(String(line.props.children)).toBe('Lightly Played  ·  Holofoil  ·  Qty 3');
+  });
+
+  it('shows the slab cert + quantity line in the hero when an owned graded entry is selected', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-treecko-psa10',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: {
+        certNumber: '00012345',
+        grade: '10',
+        grader: 'PSA',
+        variantName: 'PSA 10',
+      },
+      variantName: 'PSA 10',
+    };
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="graded-treecko-psa10"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [gradedEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect((await screen.findByTestId('detail-hero-slab-meta')).props.children).toBe('PSA • 10');
+    const certQty = await screen.findByTestId('detail-hero-slab-cert-quantity');
+    expect(String(certQty.props.children)).toBe('Cert #00012345  ·  Qty 1');
+  });
+
+  it('lets a slab user toggle between PSA grades and refetches pricing with the override', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'graded-treecko-psa10-toggle',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 52,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: {
+        certNumber: '00012345',
+        grade: '10',
+        grader: 'PSA',
+        variantName: 'PSA 10',
+      },
+      variantName: 'PSA 10',
+    };
+    const getCardMarketHistory = jest.fn(async () => null);
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="graded-treecko-psa10-toggle"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [gradedEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+          getCardMarketHistory,
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(String(screen.getByTestId('detail-condition-dropdown-label').props.children)).toBe('PSA 10');
+
+    fireEvent.press(screen.getByTestId('detail-condition-dropdown'));
+    fireEvent.press(await screen.findByTestId('detail-condition-dropdown-option-9'));
+
+    await waitFor(() => {
+      expect(String(screen.getByTestId('detail-condition-dropdown-label').props.children)).toBe('PSA 9');
+      expect(getCardMarketHistory).toHaveBeenLastCalledWith(expect.objectContaining({
+        slabContext: expect.objectContaining({ grader: 'PSA', grade: '9' }),
+      }));
+    });
+
+    // Hero still shows the user's actual slab grade — only the pricing lens changed.
+    expect((await screen.findByTestId('detail-hero-slab-meta')).props.children).toBe('PSA • 10');
   });
 
   it('omits the Sell icon when isOwned but onOpenSell is undefined', async () => {

@@ -5,6 +5,7 @@ import {
   IconChevronDown,
   IconHeart,
   IconHeartFilled,
+  IconPencil,
   IconPlus,
   IconTrendingDown,
   IconTrendingUp,
@@ -109,6 +110,16 @@ const timeframeOptions: readonly TimeframeOption[] = [
 
 const defaultTimeframeId: TimeframeId = '30d';
 
+const psaSlabGradeOptions: readonly { id: string; label: string }[] = [
+  { id: '10', label: 'PSA 10' },
+  { id: '9.5', label: 'PSA 9.5' },
+  { id: '9', label: 'PSA 9' },
+  { id: '8.5', label: 'PSA 8.5' },
+  { id: '8', label: 'PSA 8' },
+  { id: '7.5', label: 'PSA 7.5' },
+  { id: '7', label: 'PSA 7' },
+] as const;
+
 type CardDetailScreenProps = {
   cardId: string;
   entryId?: string;
@@ -137,6 +148,14 @@ function buildAreaPath(points: { x: number; y: number }[], baseline: number) {
 }
 
 function compactCurrency(value: number, currencyCode: string) {
+  if (Math.abs(value) >= 1000) {
+    return new Intl.NumberFormat('en-US', {
+      style: 'currency',
+      currency: currencyCode,
+      notation: 'compact',
+      maximumFractionDigits: 1,
+    }).format(value);
+  }
   return new Intl.NumberFormat('en-US', {
     style: 'currency',
     currency: currencyCode,
@@ -403,7 +422,7 @@ function HistoryChart({
   const theme = useSpotlightTheme();
   const width = 320;
   const height = 210;
-  const paddingLeft = showGridLabels ? 56 : 8;
+  const paddingLeft = 8;
   const paddingRight = 16;
   const paddingTop = 16;
   const paddingBottom = 24;
@@ -450,61 +469,70 @@ function HistoryChart({
   return (
     <View style={styles.chartContainer}>
       <View style={styles.chartFrame}>
-        {gridValues.map((value, index) => (
-          <View key={`${value}-${index}`} style={styles.chartGridRow}>
-            {showGridLabels ? (
-              <Text
-                style={[theme.typography.micro, styles.chartGridLabel]}
-                testID={`detail-market-grid-label-${index}`}
-              >
-                {compactCurrency(value, currencyCode)}
-              </Text>
-            ) : null}
-            <View style={styles.chartGridLine} />
+        {showGridLabels ? (
+          <View pointerEvents="none" style={styles.chartLabelColumn}>
+            {gridValues.map((value, index) => (
+              <View key={`${value}-${index}`} style={styles.chartLabelCell}>
+                <Text
+                  style={[theme.typography.caption, styles.chartGridLabel]}
+                  testID={`detail-market-grid-label-${index}`}
+                >
+                  {compactCurrency(value, currencyCode)}
+                </Text>
+              </View>
+            ))}
           </View>
-        ))}
+        ) : null}
 
-        <View
-          pointerEvents="none"
-          style={[styles.chartAxisLineVertical, {
-            bottom: paddingBottom,
-            left: paddingLeft - 1,
-            top: paddingTop,
-          }]}
-        />
-        <View
-          pointerEvents="none"
-          style={[styles.chartAxisLineHorizontal, {
-            bottom: paddingBottom - 1,
-            left: paddingLeft,
-            right: paddingRight,
-          }]}
-        />
+        <View style={styles.chartPlotArea}>
+          {gridValues.map((_, index) => (
+            <View key={`gridline-${index}`} style={styles.chartGridLineCell}>
+              <View style={styles.chartGridLineBar} />
+            </View>
+          ))}
 
-        <Svg height="100%" style={styles.chartSvg} viewBox={`0 0 ${width} ${height}`} width="100%">
-          <Defs>
-            <LinearGradient id="detailChartFill" x1="0" x2="0" y1="0" y2="1">
-              <Stop offset="0" stopColor={tintColor} stopOpacity="0.34" />
-              <Stop offset="1" stopColor={tintColor} stopOpacity="0.02" />
-            </LinearGradient>
-          </Defs>
-          <Path d={areaPath} fill="url(#detailChartFill)" />
-          <Path
-            d={linePath}
-            fill="none"
-            stroke={tintColor}
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            strokeWidth={2.8}
+          <View
+            pointerEvents="none"
+            style={[styles.chartAxisLineVertical, {
+              bottom: paddingBottom,
+              left: 0,
+              top: paddingTop,
+            }]}
           />
-          {lastPoint ? <Circle cx={lastPoint.x} cy={lastPoint.y} fill={tintColor} r={4.5} /> : null}
-        </Svg>
+          <View
+            pointerEvents="none"
+            style={[styles.chartAxisLineHorizontal, {
+              bottom: paddingBottom - 1,
+              left: 0,
+              right: paddingRight,
+            }]}
+          />
+
+          <Svg height="100%" style={styles.chartSvg} viewBox={`0 0 ${width} ${height}`} width="100%">
+            <Defs>
+              <LinearGradient id="detailChartFill" x1="0" x2="0" y1="0" y2="1">
+                <Stop offset="0" stopColor={tintColor} stopOpacity="0.34" />
+                <Stop offset="1" stopColor={tintColor} stopOpacity="0.02" />
+              </LinearGradient>
+            </Defs>
+            <Path d={areaPath} fill="url(#detailChartFill)" />
+            <Path
+              d={linePath}
+              fill="none"
+              stroke={tintColor}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2.8}
+            />
+            {lastPoint ? <Circle cx={lastPoint.x} cy={lastPoint.y} fill={tintColor} r={4.5} /> : null}
+          </Svg>
+        </View>
       </View>
 
       {showAxisLabels ? (
-        <View style={styles.chartAxisRow}>
-          <Text style={[theme.typography.micro, styles.chartAxisText]}>{points[0]?.shortLabel}</Text>
-          <Text style={[theme.typography.micro, styles.chartAxisText]}>{points[points.length - 1]?.shortLabel}</Text>
+        <View style={[styles.chartAxisRow, showGridLabels ? styles.chartAxisRowWithLabels : null]}>
+          <Text style={[theme.typography.caption, styles.chartAxisText]}>{points[0]?.shortLabel}</Text>
+          <Text style={[theme.typography.caption, styles.chartAxisText]}>{points[points.length - 1]?.shortLabel}</Text>
         </View>
       ) : null}
     </View>
@@ -670,6 +698,8 @@ export function CardDetailScreen({
   });
   const [selectedTimeframeId, setSelectedTimeframeId] = useState<TimeframeId>(defaultTimeframeId);
   const [showAllSales, setShowAllSales] = useState(false);
+  const [pricesFetchedAt, setPricesFetchedAt] = useState<string | null>(null);
+  const [slabGradeOverride, setSlabGradeOverride] = useState<string | null>(null);
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
     [scanReviewId],
@@ -740,6 +770,8 @@ export function CardDetailScreen({
     setSelectedTimeframeId(defaultTimeframeId);
     setShowAllSales(false);
     setFavoriteState({ favoritedAt: null, isFavorite: false });
+    setPricesFetchedAt(null);
+    setSlabGradeOverride(null);
   }, [cardId]);
 
   useEffect(() => {
@@ -750,7 +782,7 @@ export function CardDetailScreen({
       favoritedAt: detail.favoritedAt ?? null,
       isFavorite: detail.isFavorite ?? false,
     });
-  }, [detail?.cardId, detail?.favoritedAt, detail?.isFavorite]);
+  }, [detail]);
 
   const selectedEntry = useMemo(() => {
     if (!detail) {
@@ -766,6 +798,15 @@ export function CardDetailScreen({
   }, [detail, detailPreview?.ownedEntry, entryId]);
 
   const selectedSlabContext = selectedEntry?.slabContext ?? scanReviewSession?.slabContext ?? null;
+  const selectedSlabContextForPricing = useMemo(() => {
+    if (!selectedSlabContext) {
+      return null;
+    }
+    if (!slabGradeOverride || slabGradeOverride === selectedSlabContext.grade) {
+      return selectedSlabContext;
+    }
+    return { ...selectedSlabContext, certNumber: null, grade: slabGradeOverride };
+  }, [selectedSlabContext, slabGradeOverride]);
   const shouldShowRecentSales = selectedEntry?.kind === 'graded' || selectedSlabContext != null;
   const trackedRecentSalesSectionKeyRef = useRef<string | null>(null);
 
@@ -794,12 +835,13 @@ export function CardDetailScreen({
       cardId,
       days: 90,
       condition: requestedCondition,
-      slabContext: selectedSlabContext,
-      variant: selectedSlabContext?.variantName ?? undefined,
+      slabContext: selectedSlabContextForPricing,
+      variant: selectedSlabContextForPricing?.variantName ?? undefined,
     })
       .then((nextHistory) => {
         if (!cancelled) {
           setMarketHistory(nextHistory);
+          setPricesFetchedAt(new Date().toISOString());
         }
       })
       .catch(() => {
@@ -811,14 +853,14 @@ export function CardDetailScreen({
     return () => {
       cancelled = true;
     };
-  }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, selectedSlabContext, spotlightRepository]);
+  }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, selectedSlabContextForPricing, spotlightRepository]);
 
   useEffect(() => {
     let cancelled = false;
     setRecentSalesState(null);
     setHasResolvedRecentSalesState(false);
 
-    if (!shouldShowRecentSales || !selectedSlabContext) {
+    if (!shouldShowRecentSales || !selectedSlabContextForPricing) {
       return () => {
         cancelled = true;
       };
@@ -827,7 +869,7 @@ export function CardDetailScreen({
     void spotlightRepository.getCardRecentSales({
       cardId,
       limit: recentSalesPageSize,
-      slabContext: selectedSlabContext,
+      slabContext: selectedSlabContextForPricing,
       source: 'ebay',
     })
       .then((nextRecentSales) => {
@@ -848,7 +890,7 @@ export function CardDetailScreen({
   }, [
     cardId,
     dataVersion,
-    selectedSlabContext,
+    selectedSlabContextForPricing,
     shouldShowRecentSales,
     spotlightRepository,
   ]);
@@ -912,19 +954,21 @@ export function CardDetailScreen({
       return [];
     }
 
-    return deckConditionOptions.map((option) => {
-      const matchingCondition = effectiveMarketHistory.availableConditions.find((condition) => (
-        normalizeMarketConditionId(condition.id) === option.code
-        || normalizeMarketConditionId(condition.label) === option.code
-      ));
-      return {
-        currentPrice: matchingCondition?.currentPrice ?? null,
-        id: option.code,
-        isAvailable: matchingCondition?.currentPrice != null,
-        label: option.label,
-        shortLabel: option.shortLabel,
-      };
-    });
+    return deckConditionOptions
+      .map((option) => {
+        const matchingCondition = effectiveMarketHistory.availableConditions.find((condition) => (
+          normalizeMarketConditionId(condition.id) === option.code
+          || normalizeMarketConditionId(condition.label) === option.code
+        ));
+        return {
+          currentPrice: matchingCondition?.currentPrice ?? null,
+          id: option.code,
+          isAvailable: matchingCondition?.currentPrice != null,
+          label: option.label,
+          shortLabel: option.shortLabel,
+        };
+      })
+      .filter((option) => option.isAvailable);
   }, [effectiveMarketHistory]);
 
   const selectedCondition = useMemo(() => {
@@ -1027,6 +1071,27 @@ export function CardDetailScreen({
     timeframeOptions.find((option) => option.id === selectedTimeframeId)?.label ?? defaultTimeframeId
   ), [selectedTimeframeId]);
 
+  const effectiveSlabGrade = (slabGradeOverride ?? selectedSlabContext?.grade ?? '').trim();
+  const slabGradeDropdownOptions = useMemo(() => {
+    const grader = selectedSlabContext?.grader?.toUpperCase() ?? 'PSA';
+    const baseOptions = grader === 'PSA'
+      ? psaSlabGradeOptions
+      : [{ id: effectiveSlabGrade || '10', label: `${grader} ${effectiveSlabGrade || '10'}` }];
+    const includesActive = baseOptions.some((option) => option.id === effectiveSlabGrade);
+    const withActive = !effectiveSlabGrade || includesActive
+      ? baseOptions
+      : [...baseOptions, { id: effectiveSlabGrade, label: `${grader} ${effectiveSlabGrade}` }];
+    return withActive.map((option) => ({
+      currentPrice: null,
+      id: option.id,
+      isAvailable: true,
+      label: option.label,
+      shortLabel: option.id,
+    }));
+  }, [effectiveSlabGrade, selectedSlabContext?.grader]);
+  const slabDropdownLabel = slabGradeDropdownOptions.find((option) => option.id === effectiveSlabGrade)?.label
+    ?? slabGradeSummary(selectedSlabContext);
+
   const hasDisplayContent = detail != null || detailPreview != null;
 
   if (!hasDisplayContent && !errorMessage) {
@@ -1081,12 +1146,51 @@ export function CardDetailScreen({
   const sellEntryId = selectedEntry?.id ?? entryId;
 
   const conditionDropdownLabel = isSlabDetail
-    ? (slabHeroSubtitle ?? 'Slab')
+    ? (slabDropdownLabel ?? 'Slab')
     : (selectedCondition?.label ?? 'Condition');
 
-  const pricesFreshnessLabel = formatPricesFreshnessLabel(recentSales?.fetchedAt ?? null);
+  const pricesFreshnessLabel = formatPricesFreshnessLabel(pricesFetchedAt ?? recentSales?.fetchedAt ?? null);
 
-  const trendValue = detail?.trendsPct?.days30 ?? null;
+  const apiTrendValue = selectedTimeframeId === '7d'
+    ? detail?.trendsPct?.days7
+    : detail?.trendsPct?.days30;
+  const trendValue = (() => {
+    if (typeof apiTrendValue === 'number' && Number.isFinite(apiTrendValue)) {
+      return apiTrendValue;
+    }
+    if (timeframeFilteredPoints.length < 2) {
+      return null;
+    }
+    const first = timeframeFilteredPoints[0];
+    const last = timeframeFilteredPoints[timeframeFilteredPoints.length - 1];
+    if (!first || !last || first.value <= 0) {
+      return null;
+    }
+    return ((last.value - first.value) / first.value) * 100;
+  })();
+
+  const inventoryQuantityLabel = selectedEntry ? `Qty ${selectedEntry.quantity}` : null;
+  const slabCertNumber = (selectedSlabContext?.certNumber ?? selectedEntry?.slabContext?.certNumber ?? '').trim();
+  const slabCertAndQuantityLine = isSlabDetail && slabCertNumber
+    ? [`Cert #${slabCertNumber}`, inventoryQuantityLabel].filter(Boolean).join('  ·  ')
+    : '';
+  const slabHeroSubtitleDisplay = (() => {
+    if (!slabHeroSubtitle) {
+      return null;
+    }
+    if (isSlabDetail && !slabCertNumber && inventoryQuantityLabel) {
+      return `${slabHeroSubtitle}  ·  ${inventoryQuantityLabel}`;
+    }
+    return slabHeroSubtitle;
+  })();
+  const hasMultipleVariants = (detail?.variantOptions?.length ?? 0) > 1;
+  const rawInventoryLine = !isSlabDetail && selectedEntry?.kind === 'raw'
+    ? [
+      selectedEntry.conditionLabel?.trim() || null,
+      hasMultipleVariants ? (selectedEntry.variantName?.trim() || null) : null,
+      inventoryQuantityLabel,
+    ].filter(Boolean).join('  ·  ')
+    : '';
 
   const hasMarketHistoryPoints = timeframeFilteredPoints.length > 0;
 
@@ -1150,20 +1254,38 @@ export function CardDetailScreen({
                   {displayNumber(displayCardNumber)} • {displaySetName}
                 </Text>
 
-                {slabHeroSubtitle ? (
+                {slabHeroSubtitleDisplay ? (
                   <Text
                     style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
                     testID="detail-hero-slab-meta"
                   >
-                    {slabHeroSubtitle}
+                    {slabHeroSubtitleDisplay}
+                  </Text>
+                ) : null}
+
+                {slabCertAndQuantityLine ? (
+                  <Text
+                    style={[theme.typography.caption, styles.heroInventoryLine]}
+                    testID="detail-hero-slab-cert-quantity"
+                  >
+                    {slabCertAndQuantityLine}
+                  </Text>
+                ) : null}
+
+                {rawInventoryLine ? (
+                  <Text
+                    style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
+                    testID="detail-hero-raw-inventory"
+                  >
+                    {rawInventoryLine}
                   </Text>
                 ) : null}
 
                 <View style={styles.actionRow} testID="detail-action-stack">
                   <View style={styles.actionCell}>
                     <IconButton
-                      accessibilityLabel={isOwned ? 'Add another copy to collection' : 'Add to collection'}
-                      onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, isOwned ? sellEntryId : undefined)}
+                      accessibilityLabel="Add to collection"
+                      onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
                       testID="detail-add-to-collection"
                       variant="elevated"
                     >
@@ -1171,6 +1293,20 @@ export function CardDetailScreen({
                     </IconButton>
                     <Text style={[theme.typography.micro, styles.actionCellLabel]}>Add</Text>
                   </View>
+
+                  {isOwned && sellEntryId ? (
+                    <View style={styles.actionCell}>
+                      <IconButton
+                        accessibilityLabel="Edit collection entry"
+                        onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, sellEntryId)}
+                        testID="detail-edit-collection-entry"
+                        variant="elevated"
+                      >
+                        <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                      </IconButton>
+                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Edit</Text>
+                    </View>
+                  ) : null}
 
                   <View style={styles.actionCell}>
                     <IconButton
@@ -1215,14 +1351,25 @@ export function CardDetailScreen({
         <View testID="detail-market-card">
           <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
             <View style={styles.pricingTopRow}>
-              <ConditionDropdown
-                disabled={isSlabDetail || marketConditionOptions.length === 0}
-                onSelect={(id) => setSelectedConditionId(id)}
-                options={marketConditionOptions}
-                selectedId={selectedCondition?.id ?? null}
-                selectedLabel={conditionDropdownLabel}
-                testID="detail-condition-dropdown"
-              />
+              {isSlabDetail ? (
+                <ConditionDropdown
+                  hideOptionPrice
+                  onSelect={(id) => setSlabGradeOverride(id)}
+                  options={slabGradeDropdownOptions}
+                  selectedId={effectiveSlabGrade || null}
+                  selectedLabel={conditionDropdownLabel}
+                  testID="detail-condition-dropdown"
+                />
+              ) : (
+                <ConditionDropdown
+                  disabled={marketConditionOptions.length === 0}
+                  onSelect={(id) => setSelectedConditionId(id)}
+                  options={marketConditionOptions}
+                  selectedId={selectedCondition?.id ?? null}
+                  selectedLabel={conditionDropdownLabel}
+                  testID="detail-condition-dropdown"
+                />
+              )}
               {pricesFreshnessLabel ? (
                 <Text
                   style={[theme.typography.caption, styles.priceFreshnessLabel]}
@@ -1233,8 +1380,8 @@ export function CardDetailScreen({
               ) : null}
             </View>
 
-            <View style={styles.pricingBodyRow}>
-              <View style={styles.pricingLeftColumn}>
+            <View style={styles.pricingPriceBlock}>
+              <View style={styles.pricingPriceRow}>
                 <Text
                   adjustsFontSizeToFit
                   minimumFontScale={0.7}
@@ -1244,8 +1391,6 @@ export function CardDetailScreen({
                 >
                   {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
                 </Text>
-                <Text style={[theme.typography.caption, styles.priceColumnLabel]}>Market price</Text>
-
                 <View style={styles.trendAndPickerRow}>
                   <TrendLabel testID="detail-market-trend" value={trendValue} />
                   <ConditionDropdown
@@ -1259,24 +1404,28 @@ export function CardDetailScreen({
                 </View>
               </View>
 
-              <View style={styles.pricingRightColumn}>
-                {hasMarketHistoryPoints ? (
-                  <HistoryChart
-                    currencyCode={displayCurrencyCode}
-                    currentPrice={safeNumericDisplayedPrice}
-                    points={timeframeFilteredPoints}
-                    showAxisLabels={false}
-                    showGridLabels={false}
-                    tintColor={marketTint}
-                  />
-                ) : (
-                  <View style={styles.lazyMarketBlock} testID="detail-history-empty">
-                    <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
-                      Price history is still populating.
-                    </Text>
-                  </View>
-                )}
-              </View>
+              <Text style={[theme.typography.caption, styles.priceColumnLabel]}>
+                Market avg.
+              </Text>
+            </View>
+
+            <View style={styles.pricingChartWrap}>
+              {hasMarketHistoryPoints ? (
+                <HistoryChart
+                  currencyCode={displayCurrencyCode}
+                  currentPrice={safeNumericDisplayedPrice}
+                  points={timeframeFilteredPoints}
+                  showAxisLabels
+                  showGridLabels
+                  tintColor={marketTint}
+                />
+              ) : (
+                <View style={styles.lazyMarketBlock} testID="detail-history-empty">
+                  <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
+                    Price history is still populating.
+                  </Text>
+                </View>
+              )}
             </View>
 
             {isSlabDetail ? (
@@ -1414,7 +1563,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     marginTop: 10,
-    paddingLeft: 56,
+  },
+  chartAxisRowWithLabels: {
+    paddingLeft: 72,
   },
   chartAxisText: {
     color: 'rgba(15, 15, 18, 0.42)',
@@ -1425,25 +1576,35 @@ const styles = StyleSheet.create({
   chartFrame: {
     backgroundColor: '#F7F8FA',
     borderRadius: 18,
-    height: 160,
+    flexDirection: 'row',
+    height: 200,
     overflow: 'hidden',
     paddingVertical: 14,
   },
   chartGridLabel: {
     color: 'rgba(15, 15, 18, 0.38)',
-    width: 48,
   },
-  chartGridLine: {
-    borderTopColor: 'rgba(15, 15, 18, 0.08)',
-    borderTopWidth: 1,
-    flex: 1,
-    marginLeft: 8,
+  chartGridLineBar: {
+    backgroundColor: 'rgba(15, 15, 18, 0.08)',
+    height: 1,
+    width: '100%',
   },
-  chartGridRow: {
-    alignItems: 'center',
+  chartGridLineCell: {
     flex: 1,
-    flexDirection: 'row',
-    paddingHorizontal: 10,
+    justifyContent: 'center',
+  },
+  chartLabelCell: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  chartLabelColumn: {
+    paddingLeft: 12,
+    paddingRight: 6,
+    width: 72,
+  },
+  chartPlotArea: {
+    flex: 1,
+    position: 'relative',
   },
   chartSvg: {
     ...StyleSheet.absoluteFillObject,
@@ -1552,6 +1713,10 @@ const styles = StyleSheet.create({
     gap: 16,
     width: '100%',
   },
+  heroInventoryLine: {
+    color: 'rgba(15, 15, 18, 0.62)',
+    width: '100%',
+  },
   heroSubtitle: {
     width: '100%',
   },
@@ -1630,25 +1795,18 @@ const styles = StyleSheet.create({
   priceFreshnessLabel: {
     color: 'rgba(15, 15, 18, 0.52)',
   },
-  pricingBodyRow: {
+  pricingChartWrap: {
+    width: '100%',
+  },
+  pricingPriceBlock: {
+    gap: 2,
+  },
+  pricingPriceRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 12,
-  },
-  pricingLeftColumn: {
-    alignItems: 'flex-start',
-    flexBasis: 'auto',
-    flexGrow: 0,
-    flexShrink: 0,
-    gap: 4,
-    justifyContent: 'center',
-    maxWidth: '55%',
-    minWidth: '42%',
-  },
-  pricingRightColumn: {
-    flexGrow: 1,
-    flexShrink: 1,
-    minWidth: 0,
+    justifyContent: 'space-between',
+    width: '100%',
   },
   pricingTopRow: {
     alignItems: 'center',
