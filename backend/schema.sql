@@ -586,3 +586,52 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_import_rows_job_committed
 
 CREATE INDEX IF NOT EXISTS idx_card_external_refs_card_id
     ON card_external_refs(card_id);
+
+CREATE TABLE IF NOT EXISTS stripe_accounts (
+    owner_user_id TEXT PRIMARY KEY,
+    stripe_account_id TEXT NOT NULL UNIQUE,
+    charges_enabled INTEGER NOT NULL DEFAULT 0,
+    payouts_enabled INTEGER NOT NULL DEFAULT 0,
+    requirements_due_json TEXT NOT NULL DEFAULT '[]',
+    country TEXT NOT NULL DEFAULT 'US',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS orders (
+    order_id TEXT PRIMARY KEY,
+    seller_user_id TEXT NOT NULL,
+    buyer_user_id TEXT,
+    deck_entry_id TEXT,
+    card_id TEXT NOT NULL,
+    amount_cents INTEGER NOT NULL,
+    application_fee_cents INTEGER NOT NULL,
+    currency_code TEXT NOT NULL DEFAULT 'USD',
+    status TEXT NOT NULL,
+    condition TEXT,
+    description TEXT,
+    stripe_checkout_session_id TEXT UNIQUE,
+    stripe_payment_intent_id TEXT UNIQUE,
+    qr_token TEXT NOT NULL UNIQUE,
+    checkout_url TEXT,
+    created_at TEXT NOT NULL,
+    paid_at TEXT,
+    cancelled_at TEXT,
+    refunded_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_orders_seller
+    ON orders(seller_user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_status
+    ON orders(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_orders_qr_token
+    ON orders(qr_token);
+
+CREATE TABLE IF NOT EXISTS stripe_events (
+    event_id TEXT PRIMARY KEY,
+    event_type TEXT NOT NULL,
+    payload TEXT NOT NULL,
+    received_at TEXT NOT NULL,
+    processed_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_stripe_events_type
+    ON stripe_events(event_type, received_at);

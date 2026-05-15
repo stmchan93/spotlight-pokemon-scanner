@@ -134,6 +134,20 @@ from scan_artifact_store import (
     build_scan_artifact_store,
 )
 from request_auth import RequestAuthError, RequestIdentity, SupabaseRequestAuthenticator
+from stripe_payments import (
+    StripeNotConfiguredError,
+    StripeSignatureError,
+    compute_application_fee_cents,
+    create_account_link as stripe_create_account_link,
+    create_checkout_session as stripe_create_checkout_session,
+    create_express_account as stripe_create_express_account,
+    expire_checkout_session as stripe_expire_checkout_session,
+    fetch_account_status as stripe_fetch_account_status,
+    is_stripe_configured,
+    platform_fee_bps,
+    public_base_url,
+    verify_webhook_signature as stripe_verify_webhook_signature,
+)
 
 _OMIT_STRUCTURED_LOG_VALUE = object()
 
@@ -373,6 +387,83 @@ def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
     )
 
 
+def _apply_stripe_payments_schema_patch(connection: sqlite3.Connection) -> None:
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stripe_accounts (
+            owner_user_id TEXT PRIMARY KEY,
+            stripe_account_id TEXT NOT NULL UNIQUE,
+            charges_enabled INTEGER NOT NULL DEFAULT 0,
+            payouts_enabled INTEGER NOT NULL DEFAULT 0,
+            requirements_due_json TEXT NOT NULL DEFAULT '[]',
+            country TEXT NOT NULL DEFAULT 'US',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS orders (
+            order_id TEXT PRIMARY KEY,
+            seller_user_id TEXT NOT NULL,
+            buyer_user_id TEXT,
+            deck_entry_id TEXT,
+            card_id TEXT NOT NULL,
+            amount_cents INTEGER NOT NULL,
+            application_fee_cents INTEGER NOT NULL,
+            currency_code TEXT NOT NULL DEFAULT 'USD',
+            status TEXT NOT NULL,
+            condition TEXT,
+            description TEXT,
+            stripe_checkout_session_id TEXT UNIQUE,
+            stripe_payment_intent_id TEXT UNIQUE,
+            qr_token TEXT NOT NULL UNIQUE,
+            checkout_url TEXT,
+            created_at TEXT NOT NULL,
+            paid_at TEXT,
+            cancelled_at TEXT,
+            refunded_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_orders_seller
+        ON orders(seller_user_id, created_at DESC)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_orders_status
+        ON orders(status, created_at)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_orders_qr_token
+        ON orders(qr_token)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS stripe_events (
+            event_id TEXT PRIMARY KEY,
+            event_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            received_at TEXT NOT NULL,
+            processed_at TEXT
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_stripe_events_type
+        ON stripe_events(event_type, received_at)
+        """
+    )
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw_value = os.environ.get(name)
     if raw_value is None:
@@ -546,6 +637,7 @@ class SpotlightScanService:
         try:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
             _apply_card_favorites_schema_patch(bootstrap_connection)
+            _apply_stripe_payments_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -9080,8 +9172,783 @@ class SpotlightScanService:
         self.connection.commit()
 
 
+ORDER_STATUS_PENDING = "pending"
+ORDER_STATUS_PAID = "paid"
+ORDER_STATUS_CANCELLED = "cancelled"
+ORDER_STATUS_REFUNDED = "refunded"
+ORDER_STATUS_FAILED = "failed"
+
+
+def _order_row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    return {
+        "orderID": str(row["order_id"]),
+        "sellerUserID": str(row["seller_user_id"]),
+        "buyerUserID": str(row["buyer_user_id"]) if row["buyer_user_id"] else None,
+        "deckEntryID": str(row["deck_entry_id"]) if row["deck_entry_id"] else None,
+        "cardID": str(row["card_id"]),
+        "amountCents": int(row["amount_cents"] or 0),
+        "applicationFeeCents": int(row["application_fee_cents"] or 0),
+        "currencyCode": str(row["currency_code"] or "USD"),
+        "status": str(row["status"]),
+        "condition": str(row["condition"]) if row["condition"] else None,
+        "description": str(row["description"]) if row["description"] else None,
+        "stripeCheckoutSessionID": str(row["stripe_checkout_session_id"]) if row["stripe_checkout_session_id"] else None,
+        "stripePaymentIntentID": str(row["stripe_payment_intent_id"]) if row["stripe_payment_intent_id"] else None,
+        "qrToken": str(row["qr_token"]),
+        "checkoutURL": str(row["checkout_url"]) if row["checkout_url"] else None,
+        "createdAt": str(row["created_at"]),
+        "paidAt": str(row["paid_at"]) if row["paid_at"] else None,
+        "cancelledAt": str(row["cancelled_at"]) if row["cancelled_at"] else None,
+        "refundedAt": str(row["refunded_at"]) if row["refunded_at"] else None,
+    }
+
+
+class StripePaymentsService:
+    """Orchestrates the payments MVP endpoints.
+
+    Kept intentionally thin: each method maps directly to one HTTP route.
+    All Stripe-side calls flow through `stripe_payments.py`.
+    """
+
+    def __init__(self, scan_service: SpotlightScanService) -> None:
+        self._scan_service = scan_service
+
+    # ------------------------------------------------------------------
+    # Connection / auth helpers
+    # ------------------------------------------------------------------
+
+    @property
+    def connection(self) -> sqlite3.Connection:
+        return self._scan_service.connection
+
+    def _current_owner_user_id(self) -> str:
+        return self._scan_service._current_owner_user_id()
+
+    # ------------------------------------------------------------------
+    # Stripe Connect onboarding
+    # ------------------------------------------------------------------
+
+    def _stripe_account_row(self, owner_user_id: str) -> sqlite3.Row | None:
+        return self.connection.execute(
+            "SELECT * FROM stripe_accounts WHERE owner_user_id = ? LIMIT 1",
+            (owner_user_id,),
+        ).fetchone()
+
+    def _persist_stripe_account_status(
+        self,
+        *,
+        owner_user_id: str,
+        stripe_account_id: str,
+        charges_enabled: bool,
+        payouts_enabled: bool,
+        requirements_due: list[str],
+        country: str,
+    ) -> None:
+        now = utc_now()
+        existing = self._stripe_account_row(owner_user_id)
+        requirements_json = json.dumps(requirements_due, separators=(",", ":"))
+        if existing is None:
+            self.connection.execute(
+                """
+                INSERT INTO stripe_accounts (
+                    owner_user_id, stripe_account_id,
+                    charges_enabled, payouts_enabled,
+                    requirements_due_json, country,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    owner_user_id,
+                    stripe_account_id,
+                    1 if charges_enabled else 0,
+                    1 if payouts_enabled else 0,
+                    requirements_json,
+                    country,
+                    now,
+                    now,
+                ),
+            )
+        else:
+            self.connection.execute(
+                """
+                UPDATE stripe_accounts
+                SET stripe_account_id = ?,
+                    charges_enabled = ?,
+                    payouts_enabled = ?,
+                    requirements_due_json = ?,
+                    country = ?,
+                    updated_at = ?
+                WHERE owner_user_id = ?
+                """,
+                (
+                    stripe_account_id,
+                    1 if charges_enabled else 0,
+                    1 if payouts_enabled else 0,
+                    requirements_json,
+                    country,
+                    now,
+                    owner_user_id,
+                ),
+            )
+        self.connection.commit()
+
+    def onboard_stripe_connect(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        refresh_url = str(payload.get("refresh_url") or payload.get("refreshURL") or "").strip()
+        return_url = str(payload.get("return_url") or payload.get("returnURL") or "").strip()
+        if not refresh_url or not return_url:
+            raise ValueError("refresh_url and return_url are required")
+        email_value = str(payload.get("email") or "").strip() or None
+
+        existing = self._stripe_account_row(owner_user_id)
+        if existing is None:
+            account = stripe_create_express_account(email_value)
+            stripe_account_id = str(account.get("id") or "").strip()
+            if not stripe_account_id:
+                raise RuntimeError("Stripe did not return an account id")
+            country = str(account.get("country") or "US")
+            self._persist_stripe_account_status(
+                owner_user_id=owner_user_id,
+                stripe_account_id=stripe_account_id,
+                charges_enabled=bool(account.get("charges_enabled")),
+                payouts_enabled=bool(account.get("payouts_enabled")),
+                requirements_due=[],
+                country=country,
+            )
+        else:
+            stripe_account_id = str(existing["stripe_account_id"])
+
+        link = stripe_create_account_link(
+            stripe_account_id,
+            refresh_url=refresh_url,
+            return_url=return_url,
+        )
+        onboarding_url = str(link.get("url") or "").strip()
+        if not onboarding_url:
+            raise RuntimeError("Stripe did not return an account link url")
+        return {
+            "onboarding_url": onboarding_url,
+            "stripe_account_id": stripe_account_id,
+        }
+
+    def stripe_connect_status(self) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        existing = self._stripe_account_row(owner_user_id)
+        if existing is None:
+            return {
+                "onboarded": False,
+                "charges_enabled": False,
+                "payouts_enabled": False,
+                "requirements_due": [],
+                "stripe_account_id": None,
+            }
+        stripe_account_id = str(existing["stripe_account_id"])
+        status = stripe_fetch_account_status(stripe_account_id)
+        self._persist_stripe_account_status(
+            owner_user_id=owner_user_id,
+            stripe_account_id=stripe_account_id,
+            charges_enabled=bool(status["charges_enabled"]),
+            payouts_enabled=bool(status["payouts_enabled"]),
+            requirements_due=list(status["requirements_due"]),
+            country=str(status["country"]),
+        )
+        return {
+            "onboarded": bool(status["payouts_enabled"]) and bool(status["charges_enabled"]),
+            "charges_enabled": bool(status["charges_enabled"]),
+            "payouts_enabled": bool(status["payouts_enabled"]),
+            "requirements_due": list(status["requirements_due"]),
+            "stripe_account_id": stripe_account_id,
+        }
+
+    # ------------------------------------------------------------------
+    # Orders
+    # ------------------------------------------------------------------
+
+    def _order_row_by_id(self, order_id: str) -> sqlite3.Row | None:
+        return self.connection.execute(
+            "SELECT * FROM orders WHERE order_id = ? LIMIT 1",
+            (order_id,),
+        ).fetchone()
+
+    def _order_row_by_qr_token(self, qr_token: str) -> sqlite3.Row | None:
+        return self.connection.execute(
+            "SELECT * FROM orders WHERE qr_token = ? LIMIT 1",
+            (qr_token,),
+        ).fetchone()
+
+    def _order_row_by_session_id(self, session_id: str) -> sqlite3.Row | None:
+        return self.connection.execute(
+            "SELECT * FROM orders WHERE stripe_checkout_session_id = ? LIMIT 1",
+            (session_id,),
+        ).fetchone()
+
+    def _deck_entry_row(self, deck_entry_id: str, owner_user_id: str) -> sqlite3.Row | None:
+        return self.connection.execute(
+            "SELECT * FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            (deck_entry_id, owner_user_id),
+        ).fetchone()
+
+    def create_order(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        deck_entry_id = str(payload.get("deck_entry_id") or payload.get("deckEntryID") or "").strip()
+        if not deck_entry_id:
+            raise ValueError("deck_entry_id is required")
+
+        try:
+            amount_cents = int(payload.get("amount_cents") or payload.get("amountCents") or 0)
+        except (TypeError, ValueError):
+            raise ValueError("amount_cents must be an integer") from None
+        if amount_cents < 50:
+            raise ValueError("amount_cents must be at least 50")
+
+        condition = str(payload.get("condition") or "").strip() or None
+        description = str(payload.get("description") or "").strip() or None
+        currency_code = str(payload.get("currency_code") or payload.get("currencyCode") or "USD").strip() or "USD"
+
+        deck_row = self._deck_entry_row(deck_entry_id, owner_user_id)
+        if deck_row is None:
+            raise FileNotFoundError("deck entry not found")
+        card_id = str(deck_row["card_id"])
+        card = card_by_id(self.connection, card_id)
+        if card is None:
+            raise FileNotFoundError("card not found")
+
+        stripe_account_row = self._stripe_account_row(owner_user_id)
+        if stripe_account_row is None or not int(stripe_account_row["payouts_enabled"] or 0):
+            raise ValueError("seller is not onboarded to receive payouts")
+        seller_stripe_account_id = str(stripe_account_row["stripe_account_id"])
+
+        fee_cents = compute_application_fee_cents(amount_cents)
+        order_id = f"order:{uuid.uuid4().hex}"
+        qr_token = uuid.uuid4().hex[:16]
+        now = utc_now()
+        base_url = public_base_url()
+        success_url = f"{base_url}/claim/{order_id}?session_id={{CHECKOUT_SESSION_ID}}"
+        cancel_url = f"{base_url}/o/{qr_token}"
+
+        card_name = str(card.get("name") or "Pokemon card")
+        image_url = card.get("imageSmallURL") or card.get("imageURL")
+
+        self.connection.execute(
+            """
+            INSERT INTO orders (
+                order_id, seller_user_id, buyer_user_id, deck_entry_id, card_id,
+                amount_cents, application_fee_cents, currency_code, status,
+                condition, description,
+                stripe_checkout_session_id, stripe_payment_intent_id,
+                qr_token, checkout_url, created_at
+            )
+            VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, NULL, ?)
+            """,
+            (
+                order_id,
+                owner_user_id,
+                deck_entry_id,
+                card_id,
+                amount_cents,
+                fee_cents,
+                currency_code,
+                ORDER_STATUS_PENDING,
+                condition,
+                description,
+                qr_token,
+                now,
+            ),
+        )
+        self.connection.commit()
+
+        session = stripe_create_checkout_session(
+            seller_stripe_account_id=seller_stripe_account_id,
+            amount_cents=amount_cents,
+            fee_cents=fee_cents,
+            success_url=success_url,
+            cancel_url=cancel_url,
+            card_name=card_name,
+            image_url=image_url,
+            metadata={
+                "order_id": order_id,
+                "seller_user_id": owner_user_id,
+                "card_id": card_id,
+            },
+            currency_code=currency_code,
+        )
+        session_id = str(session.get("id") or "").strip()
+        checkout_url = str(session.get("url") or "").strip()
+        payment_intent_id = str(session.get("payment_intent") or "").strip() or None
+        if not session_id or not checkout_url:
+            # Roll back the order to keep state consistent.
+            self.connection.execute("DELETE FROM orders WHERE order_id = ?", (order_id,))
+            self.connection.commit()
+            raise RuntimeError("Stripe did not return a checkout session id or url")
+
+        self.connection.execute(
+            """
+            UPDATE orders
+            SET stripe_checkout_session_id = ?,
+                stripe_payment_intent_id = ?,
+                checkout_url = ?
+            WHERE order_id = ?
+            """,
+            (session_id, payment_intent_id, checkout_url, order_id),
+        )
+        self.connection.commit()
+
+        return {
+            "order_id": order_id,
+            "qr_url": f"{base_url}/o/{qr_token}",
+            "qr_token": qr_token,
+            "checkout_url": checkout_url,
+            "status": ORDER_STATUS_PENDING,
+        }
+
+    def get_order(self, order_id: str) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        row = self._order_row_by_id(order_id)
+        if row is None:
+            raise FileNotFoundError("order not found")
+        seller_user_id = str(row["seller_user_id"])
+        buyer_user_id = str(row["buyer_user_id"]) if row["buyer_user_id"] else None
+        if owner_user_id not in {seller_user_id, buyer_user_id or ""}:
+            raise PermissionError("not authorized to view this order")
+        return _order_row_to_dict(row) or {}
+
+    def cancel_order(self, order_id: str) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        row = self._order_row_by_id(order_id)
+        if row is None:
+            raise FileNotFoundError("order not found")
+        if str(row["seller_user_id"]) != owner_user_id:
+            raise PermissionError("not authorized to cancel this order")
+        if str(row["status"]) != ORDER_STATUS_PENDING:
+            raise ValueError("order is not pending")
+
+        session_id = str(row["stripe_checkout_session_id"]) if row["stripe_checkout_session_id"] else None
+        if session_id:
+            try:
+                stripe_expire_checkout_session(session_id)
+            except Exception as error:  # noqa: BLE001
+                # If the session is already expired/used we still mark the
+                # order cancelled — surface the error in logs only.
+                print(f"[stripe] failed to expire session {session_id}: {error}")
+
+        now = utc_now()
+        self.connection.execute(
+            """
+            UPDATE orders
+            SET status = ?, cancelled_at = ?
+            WHERE order_id = ?
+            """,
+            (ORDER_STATUS_CANCELLED, now, order_id),
+        )
+        self.connection.commit()
+        return _order_row_to_dict(self._order_row_by_id(order_id)) or {}
+
+    def claim_order(self, order_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        session_id = str(payload.get("stripe_session_id") or payload.get("stripeSessionID") or "").strip()
+        if not session_id:
+            raise ValueError("stripe_session_id is required")
+
+        row = self._order_row_by_id(order_id)
+        if row is None:
+            raise FileNotFoundError("order not found")
+        if str(row["stripe_checkout_session_id"] or "") != session_id:
+            raise PermissionError("stripe_session_id does not match this order")
+        if str(row["status"]) != ORDER_STATUS_PAID:
+            raise ValueError("order has not been paid yet")
+
+        existing_buyer = str(row["buyer_user_id"] or "")
+        if existing_buyer and existing_buyer != owner_user_id:
+            raise PermissionError("order has already been claimed by another user")
+
+        amount_cents = int(row["amount_cents"] or 0)
+        card_id = str(row["card_id"])
+        condition = str(row["condition"]) if row["condition"] else None
+        now = utc_now()
+        unit_price = round(amount_cents / 100.0, 2) if amount_cents else 0.0
+
+        # Idempotent: if the same buyer already claimed this order, return the
+        # current state without creating a duplicate deck entry.
+        if existing_buyer == owner_user_id:
+            return _order_row_to_dict(row) or {}
+
+        deck_entry_id = upsert_deck_entry(
+            self.connection,
+            owner_user_id=owner_user_id,
+            card_id=card_id,
+            condition=condition,
+            quantity=1,
+            unit_price=unit_price,
+            currency_code=str(row["currency_code"] or "USD"),
+            payment_method="stripe",
+            added_at=now,
+            updated_at=now,
+            event_kind="buy",
+        )
+        self.connection.execute(
+            """
+            UPDATE orders
+            SET buyer_user_id = ?
+            WHERE order_id = ?
+            """,
+            (owner_user_id, order_id),
+        )
+        self.connection.commit()
+        result = _order_row_to_dict(self._order_row_by_id(order_id)) or {}
+        result["claimedDeckEntryID"] = deck_entry_id
+        return result
+
+    # ------------------------------------------------------------------
+    # Webhook
+    # ------------------------------------------------------------------
+
+    def _record_stripe_event(self, event: dict[str, Any]) -> bool:
+        """Return True if this is a new event, False if already processed."""
+        event_id = str(event.get("id") or "").strip()
+        event_type = str(event.get("type") or "").strip()
+        if not event_id or not event_type:
+            raise ValueError("stripe event is missing id or type")
+        existing = self.connection.execute(
+            "SELECT processed_at FROM stripe_events WHERE event_id = ? LIMIT 1",
+            (event_id,),
+        ).fetchone()
+        if existing is not None:
+            return False
+        now = utc_now()
+        self.connection.execute(
+            """
+            INSERT INTO stripe_events (event_id, event_type, payload, received_at, processed_at)
+            VALUES (?, ?, ?, ?, NULL)
+            """,
+            (event_id, event_type, json.dumps(event, separators=(",", ":"), default=str), now),
+        )
+        return True
+
+    def _mark_event_processed(self, event_id: str) -> None:
+        self.connection.execute(
+            "UPDATE stripe_events SET processed_at = ? WHERE event_id = ?",
+            (utc_now(), event_id),
+        )
+
+    def handle_webhook(self, payload_bytes: bytes, sig_header: str | None) -> dict[str, Any]:
+        event = stripe_verify_webhook_signature(payload_bytes, sig_header)
+        try:
+            is_new = self._record_stripe_event(event)
+        except ValueError:
+            self.connection.rollback()
+            raise
+        if not is_new:
+            self.connection.commit()
+            return {"received": True, "duplicate": True}
+
+        event_type = str(event.get("type") or "")
+        try:
+            if event_type == "account.updated":
+                self._handle_account_updated(event)
+            elif event_type == "checkout.session.completed":
+                self._handle_checkout_completed(event)
+            elif event_type == "checkout.session.expired":
+                self._handle_checkout_expired(event)
+            elif event_type == "payment_intent.payment_failed":
+                self._handle_payment_intent_failed(event)
+            self._mark_event_processed(str(event.get("id") or ""))
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return {"received": True, "duplicate": False, "type": event_type}
+
+    def _event_object(self, event: dict[str, Any]) -> dict[str, Any]:
+        data = event.get("data") or {}
+        if isinstance(data, dict):
+            obj = data.get("object") or {}
+        else:
+            obj = getattr(data, "object", {}) or {}
+        if not isinstance(obj, dict):
+            try:
+                obj = dict(obj)
+            except Exception:  # noqa: BLE001
+                obj = {}
+        return obj
+
+    def _handle_account_updated(self, event: dict[str, Any]) -> None:
+        account = self._event_object(event)
+        stripe_account_id = str(account.get("id") or "").strip()
+        if not stripe_account_id:
+            return
+        row = self.connection.execute(
+            "SELECT owner_user_id FROM stripe_accounts WHERE stripe_account_id = ? LIMIT 1",
+            (stripe_account_id,),
+        ).fetchone()
+        if row is None:
+            return
+        owner_user_id = str(row["owner_user_id"])
+        requirements = account.get("requirements") or {}
+        if not isinstance(requirements, dict):
+            requirements = {}
+        currently_due = requirements.get("currently_due") or []
+        if not isinstance(currently_due, list):
+            currently_due = list(currently_due or [])
+        self._persist_stripe_account_status(
+            owner_user_id=owner_user_id,
+            stripe_account_id=stripe_account_id,
+            charges_enabled=bool(account.get("charges_enabled")),
+            payouts_enabled=bool(account.get("payouts_enabled")),
+            requirements_due=[str(item) for item in currently_due],
+            country=str(account.get("country") or "US"),
+        )
+
+    def _handle_checkout_completed(self, event: dict[str, Any]) -> None:
+        session = self._event_object(event)
+        session_id = str(session.get("id") or "").strip()
+        if not session_id:
+            return
+        row = self._order_row_by_session_id(session_id)
+        if row is None:
+            return
+        if str(row["status"]) == ORDER_STATUS_PAID:
+            return  # already processed
+        order_id = str(row["order_id"])
+        seller_user_id = str(row["seller_user_id"])
+        deck_entry_id = str(row["deck_entry_id"]) if row["deck_entry_id"] else None
+        card_id = str(row["card_id"])
+        amount_cents = int(row["amount_cents"] or 0)
+        currency_code = str(row["currency_code"] or "USD")
+        unit_price = round(amount_cents / 100.0, 2) if amount_cents else 0.0
+        now = utc_now()
+        payment_intent_id = str(session.get("payment_intent") or "").strip() or None
+
+        self.connection.execute(
+            """
+            UPDATE orders
+            SET status = ?, paid_at = ?, stripe_payment_intent_id = COALESCE(?, stripe_payment_intent_id)
+            WHERE order_id = ?
+            """,
+            (ORDER_STATUS_PAID, now, payment_intent_id, order_id),
+        )
+
+        if deck_entry_id:
+            # record_sale_event atomically validates quantity > 0, writes the
+            # sale_events row, and decrements deck_entries.quantity in the
+            # same transaction. If the seller has already exhausted the
+            # deck entry the call raises ValueError; we treat that as a
+            # no-op so the order is still marked paid.
+            try:
+                record_sale_event(
+                    self.connection,
+                    owner_user_id=seller_user_id,
+                    deck_entry_id=deck_entry_id,
+                    card_id=card_id,
+                    quantity=1,
+                    unit_price=unit_price,
+                    currency_code=currency_code,
+                    payment_method="stripe",
+                    sale_source="stripe",
+                    sold_at=now,
+                )
+            except ValueError:
+                # Quantity already exhausted — still mark the order paid but
+                # do not move inventory. The seller can reconcile manually.
+                self.connection.execute(
+                    """
+                    UPDATE deck_entries
+                    SET updated_at = ?
+                    WHERE id = ?
+                      AND owner_user_id = ?
+                      AND quantity > 0
+                    """,
+                    (now, deck_entry_id, seller_user_id),
+                )
+
+    def _handle_checkout_expired(self, event: dict[str, Any]) -> None:
+        session = self._event_object(event)
+        session_id = str(session.get("id") or "").strip()
+        if not session_id:
+            return
+        row = self._order_row_by_session_id(session_id)
+        if row is None:
+            return
+        if str(row["status"]) not in {ORDER_STATUS_PENDING}:
+            return
+        self.connection.execute(
+            """
+            UPDATE orders
+            SET status = ?, cancelled_at = ?
+            WHERE order_id = ?
+            """,
+            (ORDER_STATUS_CANCELLED, utc_now(), str(row["order_id"])),
+        )
+
+    def _handle_payment_intent_failed(self, event: dict[str, Any]) -> None:
+        intent = self._event_object(event)
+        payment_intent_id = str(intent.get("id") or "").strip()
+        if not payment_intent_id:
+            return
+        row = self.connection.execute(
+            "SELECT * FROM orders WHERE stripe_payment_intent_id = ? LIMIT 1",
+            (payment_intent_id,),
+        ).fetchone()
+        if row is None:
+            return
+        if str(row["status"]) in {ORDER_STATUS_PAID, ORDER_STATUS_REFUNDED}:
+            return
+        self.connection.execute(
+            """
+            UPDATE orders
+            SET status = ?
+            WHERE order_id = ?
+            """,
+            (ORDER_STATUS_FAILED, str(row["order_id"])),
+        )
+
+    # ------------------------------------------------------------------
+    # Public pages (QR + claim landing)
+    # ------------------------------------------------------------------
+
+    def checkout_url_for_qr_token(self, qr_token: str) -> str | None:
+        row = self._order_row_by_qr_token(qr_token)
+        if row is None:
+            return None
+        return str(row["checkout_url"]) if row["checkout_url"] else None
+
+    def claim_page_context(self, order_id: str) -> dict[str, Any] | None:
+        row = self._order_row_by_id(order_id)
+        if row is None:
+            return None
+        card = card_by_id(self.connection, str(row["card_id"]))
+        amount_cents = int(row["amount_cents"] or 0)
+        return {
+            "orderID": str(row["order_id"]),
+            "status": str(row["status"]),
+            "amountDollars": round(amount_cents / 100.0, 2),
+            "currencyCode": str(row["currency_code"] or "USD"),
+            "cardName": str(card.get("name")) if card else None,
+            "cardSetName": str(card.get("setName")) if card else None,
+            "cardImageURL": (card.get("imageSmallURL") or card.get("imageURL")) if card else None,
+            "condition": str(row["condition"]) if row["condition"] else None,
+            "stripeCheckoutSessionID": str(row["stripe_checkout_session_id"]) if row["stripe_checkout_session_id"] else None,
+        }
+
+
+def _render_claim_html(context: dict[str, Any]) -> str:
+    """Render the post-purchase claim landing HTML page."""
+    if not context:
+        return _render_claim_error_html("This order could not be found.")
+    name = context.get("cardName") or "your card"
+    set_name = context.get("cardSetName")
+    image_url = context.get("cardImageURL")
+    amount = context.get("amountDollars") or 0.0
+    currency = context.get("currencyCode") or "USD"
+    condition = context.get("condition")
+    status = context.get("status") or "pending"
+    order_id = context.get("orderID") or ""
+    session_id = context.get("stripeCheckoutSessionID") or ""
+
+    paid_banner = (
+        '<div class="banner banner-paid">Payment received</div>'
+        if status == "paid"
+        else '<div class="banner banner-pending">Payment is still processing</div>'
+    )
+
+    image_html = (
+        f'<img src="{_html_escape(image_url)}" alt="{_html_escape(name)}" class="card-image" />'
+        if image_url
+        else ""
+    )
+
+    set_html = f'<div class="set-name">{_html_escape(set_name)}</div>' if set_name else ""
+    condition_html = f'<div class="condition">Condition: {_html_escape(condition)}</div>' if condition else ""
+
+    # TODO(payments-mvp): the Save CTA below stubs the buyer flow with a plain
+    # link to the claim endpoint. Full Supabase web sign-in (Apple/Google)
+    # lands post-MVP.
+    claim_href = f"/api/v1/payments/orders/{_html_escape(order_id)}/claim?stripe_session_id={_html_escape(session_id)}"
+
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Save to Spotlight</title>
+<style>
+  :root {{ color-scheme: light dark; }}
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+         margin: 0; padding: 0; background: #fafafa; color: #111; }}
+  .page {{ max-width: 480px; margin: 0 auto; padding: 24px 16px 48px; }}
+  .banner {{ padding: 12px 16px; border-radius: 12px; margin-bottom: 16px; font-weight: 600; text-align: center; }}
+  .banner-paid {{ background: #d4f7dc; color: #08652f; }}
+  .banner-pending {{ background: #fff1cc; color: #75510a; }}
+  .card-image {{ display: block; max-width: 240px; margin: 0 auto 16px; border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,0.18); }}
+  h1 {{ font-size: 22px; margin: 8px 0 4px; text-align: center; }}
+  .set-name {{ text-align: center; color: #555; margin-bottom: 4px; }}
+  .price {{ text-align: center; font-size: 28px; font-weight: 700; margin: 8px 0; }}
+  .condition {{ text-align: center; color: #555; margin-bottom: 16px; }}
+  .cta-row {{ display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }}
+  a.cta {{ display: block; text-align: center; padding: 14px 16px; border-radius: 12px; text-decoration: none; font-weight: 600; }}
+  a.cta-primary {{ background: #1a73e8; color: white; }}
+  a.cta-secondary {{ background: #eef0f4; color: #111; }}
+  @media (prefers-color-scheme: dark) {{
+    body {{ background: #111; color: #f4f4f4; }}
+    .banner-pending {{ background: #2c2010; color: #f5d68a; }}
+    .banner-paid {{ background: #0d2a17; color: #a4ebbb; }}
+    .set-name, .condition {{ color: #bbb; }}
+    a.cta-secondary {{ background: #1d1d20; color: #f4f4f4; }}
+  }}
+</style>
+</head>
+<body>
+  <main class="page">
+    {paid_banner}
+    {image_html}
+    <h1>{_html_escape(name)}</h1>
+    {set_html}
+    <div class="price">${amount:,.2f} {_html_escape(currency)}</div>
+    {condition_html}
+    <div class="cta-row">
+      <a class="cta cta-primary" href="{claim_href}">Save to my Spotlight collection</a>
+      <a class="cta cta-secondary" href="https://apps.apple.com/app/looty">Open Spotlight</a>
+    </div>
+  </main>
+</body>
+</html>"""
+
+
+def _render_claim_error_html(message: str) -> str:
+    return f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Order not found</title>
+<style>
+  body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+         margin: 0; padding: 24px; text-align: center; }}
+</style>
+</head>
+<body>
+  <h1>Order not found</h1>
+  <p>{_html_escape(message)}</p>
+</body>
+</html>"""
+
+
+def _html_escape(value: Any) -> str:
+    text = str(value or "")
+    return (
+        text.replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+        .replace("'", "&#39;")
+    )
+
+
 class SpotlightRequestHandler(BaseHTTPRequestHandler):
     service: SpotlightScanService
+    payments_service: "StripePaymentsService | None" = None
 
     def _require_request_identity(self) -> RequestIdentity | None:
         try:
@@ -9479,10 +10346,115 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path == "/api/v1/payments/stripe/connect/status":
+            if not is_stripe_configured():
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    status_payload = self._payments_service().stripe_connect_status()
+            except StripeNotConfiguredError:
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Stripe status failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, status_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/payments/orders/"):
+            order_id = unquote(parsed.path.removeprefix("/api/v1/payments/orders/").rstrip("/"))
+            if not order_id or "/" in order_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            if not is_stripe_configured():
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    order_payload = self._payments_service().get_order(order_id)
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except PermissionError as error:
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Get order failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, order_payload)
+            return
+
+        if parsed.path.startswith("/o/"):
+            qr_token = unquote(parsed.path.removeprefix("/o/").rstrip("/"))
+            if not qr_token or "/" in qr_token:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            checkout_url = self._payments_service().checkout_url_for_qr_token(qr_token)
+            if not checkout_url:
+                self._write_html(HTTPStatus.NOT_FOUND, _render_claim_error_html("This QR code is no longer valid."))
+                return
+            self.send_response(HTTPStatus.FOUND.value)
+            self.send_header("Location", checkout_url)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
+
+        if parsed.path.startswith("/claim/"):
+            order_id = unquote(parsed.path.removeprefix("/claim/").rstrip("/"))
+            if not order_id or "/" in order_id:
+                self._write_html(HTTPStatus.NOT_FOUND, _render_claim_error_html("This order could not be found."))
+                return
+            context = self._payments_service().claim_page_context(order_id)
+            if context is None:
+                self._write_html(HTTPStatus.NOT_FOUND, _render_claim_error_html("This order could not be found."))
+                return
+            self._write_html(HTTPStatus.OK, _render_claim_html(context))
+            return
+
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def _payments_service(self) -> "StripePaymentsService":
+        existing = type(self).payments_service
+        if existing is None:
+            existing = StripePaymentsService(self.service)
+            type(self).payments_service = existing
+        return existing
+
+    def _write_html(self, status: HTTPStatus, body: str) -> None:
+        encoded = body.encode("utf-8")
+        self.send_response(status.value)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        try:
+            self.wfile.write(encoded)
+        except (BrokenPipeError, ConnectionResetError):
+            pass
 
     def do_POST(self) -> None:
         parsed = urlparse(self.path)
+
+        if parsed.path == "/api/v1/payments/stripe/webhook":
+            self._handle_stripe_webhook()
+            return
 
         if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/refresh-pricing"):
             card_id = parsed.path.removeprefix("/api/v1/cards/").removesuffix("/refresh-pricing").rstrip("/")
@@ -10160,7 +11132,172 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, update_payload)
             return
 
+        if parsed.path == "/api/v1/payments/stripe/connect/onboard":
+            if not is_stripe_configured():
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    onboard_payload = self._payments_service().onboard_stripe_connect(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except StripeNotConfiguredError:
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Stripe onboard failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, onboard_payload)
+            return
+
+        if parsed.path == "/api/v1/payments/orders":
+            if not is_stripe_configured():
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    order_payload = self._payments_service().create_order(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except StripeNotConfiguredError:
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Order creation failed: {error}"})
+                return
+            self._write_json(HTTPStatus.CREATED, order_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/payments/orders/") and parsed.path.endswith("/cancel"):
+            order_id = unquote(
+                parsed.path.removeprefix("/api/v1/payments/orders/").removesuffix("/cancel").strip("/")
+            )
+            if not order_id or "/" in order_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            if not is_stripe_configured():
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    cancel_payload = self._payments_service().cancel_order(order_id)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except PermissionError as error:
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Order cancel failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, cancel_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/payments/orders/") and parsed.path.endswith("/claim"):
+            order_id = unquote(
+                parsed.path.removeprefix("/api/v1/payments/orders/").removesuffix("/claim").strip("/")
+            )
+            if not order_id or "/" in order_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            if not is_stripe_configured():
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    claim_payload = self._payments_service().claim_order(order_id, payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except PermissionError as error:
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Order claim failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, claim_payload)
+            return
+
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def _handle_stripe_webhook(self) -> None:
+        if not is_stripe_configured():
+            self._write_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "Stripe not configured on this backend"},
+            )
+            return
+        try:
+            content_length = int(self.headers.get("Content-Length", "0"))
+        except (TypeError, ValueError):
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Content-Length must be an integer"})
+            return
+        if content_length < 0 or content_length > DEFAULT_JSON_BODY_LIMIT_BYTES:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": "Invalid webhook body"})
+            return
+        body_bytes = self.rfile.read(content_length) if content_length else b""
+        sig_header = self.headers.get("Stripe-Signature")
+        try:
+            result = self._payments_service().handle_webhook(body_bytes, sig_header)
+        except StripeSignatureError as error:
+            self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+            return
+        except StripeNotConfiguredError:
+            self._write_json(
+                HTTPStatus.SERVICE_UNAVAILABLE,
+                {"error": "Stripe not configured on this backend"},
+            )
+            return
+        except Exception as error:  # noqa: BLE001
+            traceback.print_exc()
+            self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Stripe webhook failed: {error}"})
+            return
+        self._write_json(HTTPStatus.OK, result)
 
     def log_message(self, format: str, *args: Any) -> None:
         return
@@ -10276,6 +11413,7 @@ def main() -> None:
     )
 
     SpotlightRequestHandler.service = SpotlightScanService(database_path, repo_root)
+    SpotlightRequestHandler.payments_service = StripePaymentsService(SpotlightRequestHandler.service)
     startup_visual_runtime = SpotlightRequestHandler.service._prewarm_raw_visual_runtime(run_inference=False)
     SpotlightRequestHandler.service._emit_structured_log(
         {

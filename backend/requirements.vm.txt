@@ -4,4 +4,5 @@ google-cloud-storage==2.19.0
 PyJWT[crypto]>=2.10,<3
 python-dotenv==1.2.2
 safetensors==0.7.0
+stripe>=11.0
 transformers==5.5.4
