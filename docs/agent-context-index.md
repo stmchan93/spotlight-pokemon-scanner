@@ -85,6 +85,18 @@ Use these docs for:
 - storage direction
 - auth rollout/setup details
 
+## Payments And Marketplace
+
+- Payments MVP plan (source of truth for Stripe Connect P2P): [payments-mvp-plan-2026-05-15.md](/Users/stephenchan/Code/spotlight/docs/payments-mvp-plan-2026-05-15.md)
+- Payments deployment runbook: [payments-deployment-runbook-2026-05-15.md](/Users/stephenchan/Code/spotlight/docs/payments-deployment-runbook-2026-05-15.md)
+- Looty marketplace terms of service draft: [looty-marketplace-terms-2026-05-15.md](/Users/stephenchan/Code/spotlight/docs/looty-marketplace-terms-2026-05-15.md)
+
+Use these docs for:
+
+- payments MVP scope, Stripe Connect Express flow, webhook events, order state machine
+- env wiring, Stripe/Supabase one-time setup, going from test to live
+- legal/ToS posture for buyer/seller P2P transactions
+
 ## Rule Of Thumb
 
 If the information answers "what is true right now?" rather than "what must always be true?", keep it in `docs/` and link to it from `AGENTS.md` instead of duplicating it there.

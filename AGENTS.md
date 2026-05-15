@@ -61,6 +61,8 @@ Repo-specific workflow notes for future coding agents.
 - Labeling pipeline: [docs/scan-data-labeling-pipeline-spec-2026-04-23.md](/Users/stephenchan/Code/spotlight/docs/scan-data-labeling-pipeline-spec-2026-04-23.md)
 - RN normalized target plan: [docs/react-native-scanner-normalized-target-mvp-plan-2026-04-28.md](/Users/stephenchan/Code/spotlight/docs/react-native-scanner-normalized-target-mvp-plan-2026-04-28.md)
 - RN ML Kit slab plan: [docs/react-native-ml-kit-psa-slab-plan-2026-04-29.md](/Users/stephenchan/Code/spotlight/docs/react-native-ml-kit-psa-slab-plan-2026-04-29.md)
+- Payments MVP plan: [docs/payments-mvp-plan-2026-05-15.md](/Users/stephenchan/Code/spotlight/docs/payments-mvp-plan-2026-05-15.md)
+- Looty marketplace terms of service draft: [docs/looty-marketplace-terms-2026-05-15.md](/Users/stephenchan/Code/spotlight/docs/looty-marketplace-terms-2026-05-15.md)
 
 ## Validation
 
