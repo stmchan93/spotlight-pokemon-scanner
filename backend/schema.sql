@@ -614,6 +614,8 @@ CREATE TABLE IF NOT EXISTS orders (
     stripe_payment_intent_id TEXT UNIQUE,
     qr_token TEXT NOT NULL UNIQUE,
     checkout_url TEXT,
+    refunded_amount_cents INTEGER NOT NULL DEFAULT 0,
+    dispute_status TEXT,
     created_at TEXT NOT NULL,
     paid_at TEXT,
     cancelled_at TEXT,
@@ -625,6 +627,33 @@ CREATE INDEX IF NOT EXISTS idx_orders_status
     ON orders(status, created_at);
 CREATE INDEX IF NOT EXISTS idx_orders_qr_token
     ON orders(qr_token);
+
+CREATE TABLE IF NOT EXISTS disputes (
+    dispute_id TEXT PRIMARY KEY,
+    order_id TEXT NOT NULL,
+    stripe_dispute_id TEXT NOT NULL UNIQUE,
+    stripe_charge_id TEXT,
+    reason TEXT,
+    status TEXT NOT NULL,
+    amount_cents INTEGER,
+    evidence_due_by TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_disputes_order
+    ON disputes(order_id);
+
+CREATE TABLE IF NOT EXISTS device_push_tokens (
+    owner_user_id TEXT NOT NULL,
+    push_token TEXT NOT NULL,
+    platform TEXT,
+    device_id TEXT,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    PRIMARY KEY (owner_user_id, push_token)
+);
+CREATE INDEX IF NOT EXISTS idx_device_push_tokens_owner
+    ON device_push_tokens(owner_user_id);
 
 CREATE TABLE IF NOT EXISTS stripe_events (
     event_id TEXT PRIMARY KEY,

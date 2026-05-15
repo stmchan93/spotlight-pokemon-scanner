@@ -10,8 +10,11 @@ Stripe API call will raise a clear error if the SDK is missing.
 """
 from __future__ import annotations
 
+import json
 import os
-from typing import Any
+import urllib.error
+import urllib.request
+from typing import Any, Iterable
 
 try:
     import stripe as _stripe_sdk  # type: ignore[import-not-found]
@@ -238,6 +241,111 @@ def expire_checkout_session(session_id: str) -> dict[str, Any]:
     stripe = _stripe_module()
     result = stripe.checkout.Session.expire(session_id)
     return _ensure_dict(result)
+
+
+def retrieve_checkout_session(session_id: str) -> dict[str, Any]:
+    """Fetch a Checkout Session by id (used by the reconciliation job)."""
+    stripe = _stripe_module()
+    result = stripe.checkout.Session.retrieve(session_id)
+    return _ensure_dict(result)
+
+
+def create_refund(
+    *,
+    payment_intent_id: str,
+    amount_cents: int | None = None,
+    reason: str | None = None,
+) -> dict[str, Any]:
+    """Refund all (or part) of a payment captured against a PaymentIntent."""
+    stripe = _stripe_module()
+    kwargs: dict[str, Any] = {"payment_intent": payment_intent_id}
+    if amount_cents is not None:
+        kwargs["amount"] = int(amount_cents)
+    if reason:
+        kwargs["reason"] = str(reason)
+    result = stripe.Refund.create(**kwargs)
+    return _ensure_dict(result)
+
+
+def freeze_payouts(account_id: str) -> dict[str, Any]:
+    """Set the connected account's payout schedule to manual (no auto payouts)."""
+    stripe = _stripe_module()
+    result = stripe.Account.modify(
+        account_id,
+        settings={"payouts": {"schedule": {"interval": "manual"}}},
+    )
+    return _ensure_dict(result)
+
+
+def unfreeze_payouts(account_id: str) -> dict[str, Any]:
+    """Restore the connected account's payout schedule to daily (V1 default)."""
+    stripe = _stripe_module()
+    result = stripe.Account.modify(
+        account_id,
+        settings={"payouts": {"schedule": {"interval": "daily"}}},
+    )
+    return _ensure_dict(result)
+
+
+EXPO_PUSH_ENDPOINT = "https://exp.host/--/api/v2/push/send"
+_EXPO_PUSH_CHUNK_SIZE = 100
+
+
+def _chunk_push_tokens(tokens: Iterable[str], *, size: int = _EXPO_PUSH_CHUNK_SIZE) -> list[list[str]]:
+    cleaned = [str(token).strip() for token in tokens if str(token or "").strip()]
+    if not cleaned:
+        return []
+    return [cleaned[i : i + size] for i in range(0, len(cleaned), size)]
+
+
+def send_expo_push(
+    *,
+    push_tokens: list[str],
+    title: str,
+    body: str,
+    data: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """POST a notification to Expo's push service.
+
+    Failures are non-fatal — we log and continue. Callers MUST treat the return
+    dict as advisory.
+    """
+    chunks = _chunk_push_tokens(push_tokens)
+    if not chunks:
+        return {"sent": 0, "chunks": 0, "errors": []}
+    sent = 0
+    errors: list[str] = []
+    for chunk in chunks:
+        payload = [
+            {
+                "to": token,
+                "title": str(title),
+                "body": str(body),
+                "data": dict(data or {}),
+                "sound": "default",
+            }
+            for token in chunk
+        ]
+        try:
+            encoded = json.dumps(payload).encode("utf-8")
+            request = urllib.request.Request(
+                EXPO_PUSH_ENDPOINT,
+                data=encoded,
+                method="POST",
+                headers={
+                    "Accept": "application/json",
+                    "Accept-encoding": "gzip, deflate",
+                    "Content-Type": "application/json",
+                },
+            )
+            with urllib.request.urlopen(request, timeout=10) as response:
+                response.read()
+            sent += len(chunk)
+        except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError) as error:
+            errors.append(f"{type(error).__name__}: {error}")
+        except Exception as error:  # noqa: BLE001 - best-effort path
+            errors.append(f"{type(error).__name__}: {error}")
+    return {"sent": sent, "chunks": len(chunks), "errors": errors}
 
 
 def _ensure_dict(value: Any) -> dict[str, Any]:

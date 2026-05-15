@@ -141,11 +141,16 @@ from stripe_payments import (
     create_account_link as stripe_create_account_link,
     create_checkout_session as stripe_create_checkout_session,
     create_express_account as stripe_create_express_account,
+    create_refund as stripe_create_refund,
     expire_checkout_session as stripe_expire_checkout_session,
     fetch_account_status as stripe_fetch_account_status,
+    freeze_payouts as stripe_freeze_payouts,
     is_stripe_configured,
     platform_fee_bps,
     public_base_url,
+    retrieve_checkout_session as stripe_retrieve_checkout_session,
+    send_expo_push as stripe_send_expo_push,
+    unfreeze_payouts as stripe_unfreeze_payouts,
     verify_webhook_signature as stripe_verify_webhook_signature,
 )
 
@@ -465,6 +470,68 @@ def _apply_stripe_payments_schema_patch(connection: sqlite3.Connection) -> None:
     )
 
 
+def _apply_payments_phase5_schema_patch(connection: sqlite3.Connection) -> None:
+    """Add disputes, device_push_tokens, and orders refund/dispute columns.
+
+    Mirrors `_apply_stripe_payments_schema_patch`. `ALTER TABLE ADD COLUMN` is
+    used for the new `orders` columns; we probe `PRAGMA table_info(orders)`
+    first because re-running the patch on an already-migrated DB must be a
+    no-op.
+    """
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS disputes (
+            dispute_id TEXT PRIMARY KEY,
+            order_id TEXT NOT NULL,
+            stripe_dispute_id TEXT NOT NULL UNIQUE,
+            stripe_charge_id TEXT,
+            reason TEXT,
+            status TEXT NOT NULL,
+            amount_cents INTEGER,
+            evidence_due_by TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_disputes_order
+        ON disputes(order_id)
+        """
+    )
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS device_push_tokens (
+            owner_user_id TEXT NOT NULL,
+            push_token TEXT NOT NULL,
+            platform TEXT,
+            device_id TEXT,
+            created_at TEXT NOT NULL,
+            last_seen_at TEXT NOT NULL,
+            PRIMARY KEY (owner_user_id, push_token)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_device_push_tokens_owner
+        ON device_push_tokens(owner_user_id)
+        """
+    )
+
+    existing_columns = {
+        str(row["name"])
+        for row in connection.execute("PRAGMA table_info(orders)").fetchall()
+    }
+    if "refunded_amount_cents" not in existing_columns:
+        connection.execute(
+            "ALTER TABLE orders ADD COLUMN refunded_amount_cents INTEGER NOT NULL DEFAULT 0"
+        )
+    if "dispute_status" not in existing_columns:
+        connection.execute("ALTER TABLE orders ADD COLUMN dispute_status TEXT")
+
+
 def _apply_trades_schema_patch(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -691,6 +758,7 @@ class SpotlightScanService:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
             _apply_card_favorites_schema_patch(bootstrap_connection)
             _apply_stripe_payments_schema_patch(bootstrap_connection)
+            _apply_payments_phase5_schema_patch(bootstrap_connection)
             _apply_trades_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
@@ -9232,6 +9300,36 @@ ORDER_STATUS_CANCELLED = "cancelled"
 ORDER_STATUS_REFUNDED = "refunded"
 ORDER_STATUS_FAILED = "failed"
 
+ADMIN_USER_IDS_ENV = "SPOTLIGHT_ADMIN_USER_IDS"
+DISPUTE_ALERT_EMAILS_ENV = "SPOTLIGHT_DISPUTE_ALERT_EMAILS"
+
+
+def _admin_user_ids() -> set[str]:
+    raw = os.environ.get(ADMIN_USER_IDS_ENV) or ""
+    return {part.strip() for part in str(raw).split(",") if part.strip()}
+
+
+def _dispute_alert_emails() -> list[str]:
+    raw = os.environ.get(DISPUTE_ALERT_EMAILS_ENV) or ""
+    return [part.strip() for part in str(raw).split(",") if part.strip()]
+
+
+def _row_get(row: sqlite3.Row | None, key: str, default: Any = None) -> Any:
+    """Read a sqlite3.Row column without exploding if the column is missing.
+
+    Used while the runtime DB may still be one migration behind the schema.
+    """
+    if row is None:
+        return default
+    try:
+        return row[key]
+    except (KeyError, IndexError):
+        try:
+            return row.keys()  # type: ignore[unused-coroutine,unused-result]
+        except Exception:  # noqa: BLE001
+            return default
+        return default
+
 
 def _order_row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
     if row is None:
@@ -9252,10 +9350,30 @@ def _order_row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
         "stripePaymentIntentID": str(row["stripe_payment_intent_id"]) if row["stripe_payment_intent_id"] else None,
         "qrToken": str(row["qr_token"]),
         "checkoutURL": str(row["checkout_url"]) if row["checkout_url"] else None,
+        "refundedAmountCents": int(_row_get(row, "refunded_amount_cents", 0) or 0),
+        "disputeStatus": str(row["dispute_status"]) if _row_get(row, "dispute_status") else None,
         "createdAt": str(row["created_at"]),
         "paidAt": str(row["paid_at"]) if row["paid_at"] else None,
         "cancelledAt": str(row["cancelled_at"]) if row["cancelled_at"] else None,
         "refundedAt": str(row["refunded_at"]) if row["refunded_at"] else None,
+    }
+
+
+def _dispute_row_to_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    if row is None:
+        return None
+    amount = row["amount_cents"]
+    return {
+        "disputeID": str(row["dispute_id"]),
+        "orderID": str(row["order_id"]),
+        "stripeDisputeID": str(row["stripe_dispute_id"]),
+        "stripeChargeID": str(row["stripe_charge_id"]) if row["stripe_charge_id"] else None,
+        "reason": str(row["reason"]) if row["reason"] else None,
+        "status": str(row["status"]),
+        "amountCents": int(amount) if amount is not None else None,
+        "evidenceDueBy": str(row["evidence_due_by"]) if row["evidence_due_by"] else None,
+        "createdAt": str(row["created_at"]),
+        "updatedAt": str(row["updated_at"]),
     }
 
 
@@ -9708,6 +9826,14 @@ class StripePaymentsService:
                 self._handle_checkout_expired(event)
             elif event_type == "payment_intent.payment_failed":
                 self._handle_payment_intent_failed(event)
+            elif event_type == "charge.refunded":
+                self._handle_charge_refunded(event)
+            elif event_type == "charge.dispute.created":
+                self._handle_charge_dispute_created(event)
+            elif event_type == "charge.dispute.closed":
+                self._handle_charge_dispute_closed(event)
+            elif event_type == "payout.paid":
+                self._handle_payout_paid(event)
             self._mark_event_processed(str(event.get("id") or ""))
             self.connection.commit()
         except Exception:
@@ -9817,6 +9943,15 @@ class StripePaymentsService:
                     (now, deck_entry_id, seller_user_id),
                 )
 
+        card_name = self._card_display_name(card_id)
+        amount_dollars = round(amount_cents / 100.0, 2)
+        self._best_effort_push(
+            seller_user_id,
+            title="Card sold",
+            body=f"You sold {card_name} for ${amount_dollars:.2f}",
+            data={"orderID": order_id, "kind": "checkout_completed"},
+        )
+
     def _handle_checkout_expired(self, event: dict[str, Any]) -> None:
         session = self._event_object(event)
         session_id = str(session.get("id") or "").strip()
@@ -9857,6 +9992,572 @@ class StripePaymentsService:
             """,
             (ORDER_STATUS_FAILED, str(row["order_id"])),
         )
+
+    def _handle_charge_refunded(self, event: dict[str, Any]) -> None:
+        charge = self._event_object(event)
+        payment_intent_id = str(charge.get("payment_intent") or "").strip()
+        if not payment_intent_id:
+            return
+        row = self.connection.execute(
+            "SELECT * FROM orders WHERE stripe_payment_intent_id = ? LIMIT 1",
+            (payment_intent_id,),
+        ).fetchone()
+        if row is None:
+            return
+        amount_refunded = int(charge.get("amount_refunded") or 0)
+        if amount_refunded <= 0:
+            return
+        order_id = str(row["order_id"])
+        amount_cents = int(row["amount_cents"] or 0)
+        current_refunded = int(_row_get(row, "refunded_amount_cents", 0) or 0)
+        # Stripe sends the running total — clamp to the order amount.
+        new_refunded = min(amount_cents, max(current_refunded, amount_refunded))
+        now = utc_now()
+        new_status = (
+            ORDER_STATUS_REFUNDED if new_refunded >= amount_cents and amount_cents > 0
+            else str(row["status"])
+        )
+        self.connection.execute(
+            """
+            UPDATE orders
+            SET refunded_amount_cents = ?, status = ?, refunded_at = COALESCE(refunded_at, ?)
+            WHERE order_id = ?
+            """,
+            (new_refunded, new_status, now if new_status == ORDER_STATUS_REFUNDED else _row_get(row, "refunded_at"), order_id),
+        )
+
+        # Notify the claimed buyer (if any).
+        buyer_user_id = str(row["buyer_user_id"]) if row["buyer_user_id"] else None
+        if buyer_user_id:
+            card_id = str(row["card_id"])
+            card_name = self._card_display_name(card_id)
+            refund_dollars = round(amount_refunded / 100.0, 2)
+            self._best_effort_push(
+                buyer_user_id,
+                title="Refund processed",
+                body=f"${refund_dollars:.2f} refunded for {card_name}",
+                data={"orderID": order_id, "kind": "refund"},
+            )
+
+    def _handle_charge_dispute_created(self, event: dict[str, Any]) -> None:
+        dispute = self._event_object(event)
+        stripe_dispute_id = str(dispute.get("id") or "").strip()
+        if not stripe_dispute_id:
+            return
+        payment_intent_id = str(dispute.get("payment_intent") or "").strip()
+        stripe_charge_id = str(dispute.get("charge") or "").strip() or None
+        order_row = None
+        if payment_intent_id:
+            order_row = self.connection.execute(
+                "SELECT * FROM orders WHERE stripe_payment_intent_id = ? LIMIT 1",
+                (payment_intent_id,),
+            ).fetchone()
+        if order_row is None:
+            return
+        order_id = str(order_row["order_id"])
+        reason = str(dispute.get("reason") or "").strip() or None
+        status = str(dispute.get("status") or "needs_response").strip() or "needs_response"
+        amount = dispute.get("amount")
+        amount_cents = int(amount) if amount is not None else None
+        evidence_due_by_raw = (dispute.get("evidence_details") or {})
+        if isinstance(evidence_due_by_raw, dict):
+            evidence_due_by = evidence_due_by_raw.get("due_by")
+        else:
+            evidence_due_by = None
+        evidence_due_by_str = str(evidence_due_by) if evidence_due_by else None
+        now = utc_now()
+        existing = self.connection.execute(
+            "SELECT dispute_id FROM disputes WHERE stripe_dispute_id = ? LIMIT 1",
+            (stripe_dispute_id,),
+        ).fetchone()
+        if existing is None:
+            dispute_id = f"dispute:{uuid.uuid4().hex}"
+            self.connection.execute(
+                """
+                INSERT INTO disputes (
+                    dispute_id, order_id, stripe_dispute_id, stripe_charge_id,
+                    reason, status, amount_cents, evidence_due_by,
+                    created_at, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    dispute_id,
+                    order_id,
+                    stripe_dispute_id,
+                    stripe_charge_id,
+                    reason,
+                    status,
+                    amount_cents,
+                    evidence_due_by_str,
+                    now,
+                    now,
+                ),
+            )
+        else:
+            self.connection.execute(
+                """
+                UPDATE disputes
+                SET status = ?, reason = COALESCE(?, reason),
+                    stripe_charge_id = COALESCE(?, stripe_charge_id),
+                    amount_cents = COALESCE(?, amount_cents),
+                    evidence_due_by = COALESCE(?, evidence_due_by),
+                    updated_at = ?
+                WHERE stripe_dispute_id = ?
+                """,
+                (
+                    status,
+                    reason,
+                    stripe_charge_id,
+                    amount_cents,
+                    evidence_due_by_str,
+                    now,
+                    stripe_dispute_id,
+                ),
+            )
+        self.connection.execute(
+            "UPDATE orders SET dispute_status = ? WHERE order_id = ?",
+            ("open", order_id),
+        )
+
+        # Freeze the seller's payouts. Best-effort; do not break the webhook.
+        seller_user_id = str(order_row["seller_user_id"])
+        seller_account_row = self._stripe_account_row(seller_user_id)
+        if seller_account_row is not None:
+            try:
+                stripe_freeze_payouts(str(seller_account_row["stripe_account_id"]))
+            except Exception as error:  # noqa: BLE001
+                print(f"[stripe] freeze_payouts failed for order={order_id}: {error}")
+
+        # Send a push to the seller.
+        card_id = str(order_row["card_id"])
+        card_name = self._card_display_name(card_id)
+        amount_dollars = round((amount_cents or int(order_row["amount_cents"] or 0)) / 100.0, 2)
+        self._best_effort_push(
+            seller_user_id,
+            title="Dispute filed - action needed",
+            body=f"A buyer disputed a ${amount_dollars:.2f} charge for {card_name}. Open the app to respond.",
+            data={"orderID": order_id, "disputeID": stripe_dispute_id, "kind": "dispute_created"},
+        )
+
+        # Email alert hook: structured log only. Real mailer is left to ops.
+        # TODO: wire DISPUTE_ALERT_EMAILS to a real mailer service.
+        alert_emails = _dispute_alert_emails()
+        if alert_emails:
+            print(
+                json.dumps(
+                    {
+                        "severity": "INFO",
+                        "event": "dispute_alert_email",
+                        "to": alert_emails,
+                        "order_id": order_id,
+                        "stripe_dispute_id": stripe_dispute_id,
+                        "amount_cents": amount_cents,
+                        "reason": reason,
+                    },
+                    separators=(",", ":"),
+                )
+            )
+
+    def _handle_charge_dispute_closed(self, event: dict[str, Any]) -> None:
+        dispute = self._event_object(event)
+        stripe_dispute_id = str(dispute.get("id") or "").strip()
+        if not stripe_dispute_id:
+            return
+        existing = self.connection.execute(
+            "SELECT * FROM disputes WHERE stripe_dispute_id = ? LIMIT 1",
+            (stripe_dispute_id,),
+        ).fetchone()
+        if existing is None:
+            return
+        status = str(dispute.get("status") or "").strip() or str(existing["status"])
+        now = utc_now()
+        self.connection.execute(
+            "UPDATE disputes SET status = ?, updated_at = ? WHERE stripe_dispute_id = ?",
+            (status, now, stripe_dispute_id),
+        )
+        order_id = str(existing["order_id"])
+        order_row = self._order_row_by_id(order_id)
+        if order_row is None:
+            return
+        new_dispute_status = "closed" if status in {"won", "lost", "warning_closed"} else status
+        self.connection.execute(
+            "UPDATE orders SET dispute_status = ? WHERE order_id = ?",
+            (new_dispute_status, order_id),
+        )
+        if status == "won":
+            # Unfreeze the seller's payouts on a winning outcome.
+            seller_user_id = str(order_row["seller_user_id"])
+            seller_account_row = self._stripe_account_row(seller_user_id)
+            if seller_account_row is not None:
+                try:
+                    stripe_unfreeze_payouts(str(seller_account_row["stripe_account_id"]))
+                except Exception as error:  # noqa: BLE001
+                    print(f"[stripe] unfreeze_payouts failed for order={order_id}: {error}")
+
+    def _handle_payout_paid(self, event: dict[str, Any]) -> None:
+        payout = self._event_object(event)
+        amount_cents = int(payout.get("amount") or 0)
+        # Stripe puts the connected account id on event.account for Connect events.
+        stripe_account_id = str(event.get("account") or "").strip()
+        if not stripe_account_id:
+            return
+        row = self.connection.execute(
+            "SELECT owner_user_id FROM stripe_accounts WHERE stripe_account_id = ? LIMIT 1",
+            (stripe_account_id,),
+        ).fetchone()
+        if row is None:
+            return
+        owner_user_id = str(row["owner_user_id"])
+        amount_dollars = round(amount_cents / 100.0, 2)
+        self._best_effort_push(
+            owner_user_id,
+            title="Payout received",
+            body=f"${amount_dollars:.2f} landed in your bank",
+            data={"kind": "payout_paid", "amountCents": amount_cents},
+        )
+
+    # ------------------------------------------------------------------
+    # Refunds
+    # ------------------------------------------------------------------
+
+    def refund_order(self, order_id: str, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        row = self._order_row_by_id(order_id)
+        if row is None:
+            raise FileNotFoundError("order not found")
+        if str(row["seller_user_id"]) != owner_user_id:
+            raise PermissionError("not authorized to refund this order")
+        if str(row["status"]) not in {ORDER_STATUS_PAID, ORDER_STATUS_REFUNDED}:
+            raise ValueError("order is not in a refundable state")
+
+        amount_cents_total = int(row["amount_cents"] or 0)
+        already_refunded = int(_row_get(row, "refunded_amount_cents", 0) or 0)
+        remaining = max(0, amount_cents_total - already_refunded)
+
+        raw_amount = payload.get("amount_cents") if isinstance(payload, dict) else None
+        if raw_amount is None and isinstance(payload, dict):
+            raw_amount = payload.get("amountCents")
+        if raw_amount is None:
+            requested_amount = remaining
+        else:
+            try:
+                requested_amount = int(raw_amount)
+            except (TypeError, ValueError):
+                raise ValueError("amount_cents must be an integer") from None
+            if requested_amount <= 0:
+                raise ValueError("amount_cents must be positive")
+            if requested_amount > remaining:
+                raise ValueError("amount_cents exceeds the remaining refundable amount")
+
+        # Idempotent: if there is nothing left to refund just return the
+        # current state without calling Stripe again.
+        if remaining == 0 or requested_amount == 0:
+            return _order_row_to_dict(row) or {}
+
+        payment_intent_id = str(row["stripe_payment_intent_id"] or "").strip()
+        if not payment_intent_id:
+            raise ValueError("order has no payment intent to refund")
+        reason = str(payload.get("reason") or "").strip() or None
+        stripe_create_refund(
+            payment_intent_id=payment_intent_id,
+            amount_cents=requested_amount,
+            reason=reason,
+        )
+
+        new_refunded = already_refunded + requested_amount
+        new_status = ORDER_STATUS_REFUNDED if new_refunded >= amount_cents_total else str(row["status"])
+        now = utc_now()
+        self.connection.execute(
+            """
+            UPDATE orders
+            SET refunded_amount_cents = ?,
+                status = ?,
+                refunded_at = COALESCE(refunded_at, ?)
+            WHERE order_id = ?
+            """,
+            (new_refunded, new_status, now if new_status == ORDER_STATUS_REFUNDED else _row_get(row, "refunded_at"), order_id),
+        )
+        self.connection.commit()
+        return _order_row_to_dict(self._order_row_by_id(order_id)) or {}
+
+    # ------------------------------------------------------------------
+    # Device push tokens
+    # ------------------------------------------------------------------
+
+    def register_push_token(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        push_token = str(payload.get("push_token") or payload.get("pushToken") or "").strip()
+        if not push_token:
+            raise ValueError("push_token is required")
+        platform = str(payload.get("platform") or "").strip() or None
+        device_id = str(payload.get("device_id") or payload.get("deviceID") or "").strip() or None
+        now = utc_now()
+        existing = self.connection.execute(
+            """
+            SELECT push_token FROM device_push_tokens
+            WHERE owner_user_id = ? AND push_token = ?
+            LIMIT 1
+            """,
+            (owner_user_id, push_token),
+        ).fetchone()
+        if existing is None:
+            self.connection.execute(
+                """
+                INSERT INTO device_push_tokens (
+                    owner_user_id, push_token, platform, device_id,
+                    created_at, last_seen_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (owner_user_id, push_token, platform, device_id, now, now),
+            )
+        else:
+            self.connection.execute(
+                """
+                UPDATE device_push_tokens
+                SET platform = COALESCE(?, platform),
+                    device_id = COALESCE(?, device_id),
+                    last_seen_at = ?
+                WHERE owner_user_id = ? AND push_token = ?
+                """,
+                (platform, device_id, now, owner_user_id, push_token),
+            )
+        self.connection.commit()
+        return {
+            "ownerUserID": owner_user_id,
+            "pushToken": push_token,
+            "platform": platform,
+            "deviceID": device_id,
+        }
+
+    def remove_push_token(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        push_token = str(payload.get("push_token") or payload.get("pushToken") or "").strip()
+        if not push_token:
+            raise ValueError("push_token is required")
+        cursor = self.connection.execute(
+            "DELETE FROM device_push_tokens WHERE owner_user_id = ? AND push_token = ?",
+            (owner_user_id, push_token),
+        )
+        self.connection.commit()
+        return {"removed": cursor.rowcount > 0, "pushToken": push_token}
+
+    def list_push_tokens(self) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        rows = self.connection.execute(
+            """
+            SELECT push_token, platform, device_id, created_at, last_seen_at
+            FROM device_push_tokens
+            WHERE owner_user_id = ?
+            ORDER BY last_seen_at DESC
+            """,
+            (owner_user_id,),
+        ).fetchall()
+        return {
+            "ownerUserID": owner_user_id,
+            "tokens": [
+                {
+                    "pushToken": str(row["push_token"]),
+                    "platform": str(row["platform"]) if row["platform"] else None,
+                    "deviceID": str(row["device_id"]) if row["device_id"] else None,
+                    "createdAt": str(row["created_at"]),
+                    "lastSeenAt": str(row["last_seen_at"]),
+                }
+                for row in rows
+            ],
+        }
+
+    def _active_push_tokens_for_user(self, user_id: str) -> list[str]:
+        cleaned = str(user_id or "").strip()
+        if not cleaned:
+            return []
+        rows = self.connection.execute(
+            "SELECT push_token FROM device_push_tokens WHERE owner_user_id = ?",
+            (cleaned,),
+        ).fetchall()
+        return [str(row["push_token"]) for row in rows if str(row["push_token"]).strip()]
+
+    def _best_effort_push(
+        self,
+        user_id: str,
+        *,
+        title: str,
+        body: str,
+        data: dict[str, Any] | None = None,
+    ) -> None:
+        try:
+            tokens = self._active_push_tokens_for_user(user_id)
+            if not tokens:
+                return
+            result = stripe_send_expo_push(
+                push_tokens=tokens,
+                title=title,
+                body=body,
+                data=data,
+            )
+            if result.get("errors"):
+                print(
+                    f"[push] partial send: user={user_id} sent={result.get('sent')} "
+                    f"errors={result.get('errors')}"
+                )
+        except Exception as error:  # noqa: BLE001 - best-effort only
+            print(f"[push] failed for user={user_id}: {error}")
+
+    def _card_display_name(self, card_id: str) -> str:
+        card = card_by_id(self.connection, card_id)
+        if not card:
+            return "your card"
+        name = str(card.get("name") or "").strip()
+        return name or "your card"
+
+    # ------------------------------------------------------------------
+    # Admin lookup
+    # ------------------------------------------------------------------
+
+    def admin_get_order(self, order_id: str) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        if owner_user_id not in _admin_user_ids():
+            raise PermissionError("admin access required")
+        row = self._order_row_by_id(order_id)
+        if row is None:
+            raise FileNotFoundError("order not found")
+        order_dict = _order_row_to_dict(row) or {}
+        dispute_rows = self.connection.execute(
+            "SELECT * FROM disputes WHERE order_id = ? ORDER BY created_at ASC",
+            (order_id,),
+        ).fetchall()
+        order_dict["disputes"] = [
+            d for d in (_dispute_row_to_dict(r) for r in dispute_rows) if d is not None
+        ]
+        # Pull related Stripe events for context.
+        event_rows = self.connection.execute(
+            """
+            SELECT event_id, event_type, received_at, processed_at
+            FROM stripe_events
+            ORDER BY received_at DESC
+            LIMIT 200
+            """
+        ).fetchall()
+        order_dict["recentStripeEvents"] = [
+            {
+                "eventID": str(r["event_id"]),
+                "eventType": str(r["event_type"]),
+                "receivedAt": str(r["received_at"]),
+                "processedAt": str(r["processed_at"]) if r["processed_at"] else None,
+            }
+            for r in event_rows
+        ]
+        return order_dict
+
+    def admin_list_user_orders(self, user_id: str) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        if owner_user_id not in _admin_user_ids():
+            raise PermissionError("admin access required")
+        target_user_id = str(user_id or "").strip()
+        if not target_user_id:
+            raise ValueError("user_id is required")
+        rows = self.connection.execute(
+            """
+            SELECT * FROM orders
+            WHERE seller_user_id = ? OR buyer_user_id = ?
+            ORDER BY created_at DESC
+            LIMIT 500
+            """,
+            (target_user_id, target_user_id),
+        ).fetchall()
+        return {
+            "userID": target_user_id,
+            "orders": [d for d in (_order_row_to_dict(r) for r in rows) if d is not None],
+        }
+
+    # ------------------------------------------------------------------
+    # Reconciliation hook (callable by tools/reconcile_orders.py)
+    # ------------------------------------------------------------------
+
+    def list_stale_pending_orders(self, *, older_than_iso: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            SELECT order_id, stripe_checkout_session_id, created_at
+            FROM orders
+            WHERE status = ?
+              AND stripe_checkout_session_id IS NOT NULL
+              AND created_at <= ?
+            ORDER BY created_at ASC
+            """,
+            (ORDER_STATUS_PENDING, older_than_iso),
+        ).fetchall()
+        return [
+            {
+                "orderID": str(row["order_id"]),
+                "stripeCheckoutSessionID": str(row["stripe_checkout_session_id"]),
+                "createdAt": str(row["created_at"]),
+            }
+            for row in rows
+        ]
+
+    def reconcile_pending_order(
+        self,
+        order_id: str,
+        *,
+        dry_run: bool = False,
+    ) -> dict[str, Any]:
+        """Look up the Stripe session for a pending order and resync state.
+
+        Returns a dict describing the action taken. Mocks `_handle_*` paths to
+        keep behavior consistent with the webhook flow.
+        """
+        row = self._order_row_by_id(order_id)
+        if row is None:
+            return {"orderID": order_id, "action": "missing"}
+        if str(row["status"]) != ORDER_STATUS_PENDING:
+            return {"orderID": order_id, "action": "not_pending", "status": str(row["status"])}
+        session_id = str(row["stripe_checkout_session_id"] or "").strip()
+        if not session_id:
+            return {"orderID": order_id, "action": "no_session"}
+
+        session = stripe_retrieve_checkout_session(session_id)
+        payment_status = str(session.get("payment_status") or "").strip().lower()
+        session_status = str(session.get("status") or "").strip().lower()
+
+        if payment_status == "paid":
+            if dry_run:
+                return {"orderID": order_id, "action": "would_mark_paid", "sessionStatus": session_status}
+            synthetic_event = {
+                "id": f"reconcile:{order_id}:paid",
+                "type": "checkout.session.completed",
+                "data": {"object": session},
+            }
+            try:
+                self._handle_checkout_completed(synthetic_event)
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
+            return {"orderID": order_id, "action": "marked_paid"}
+
+        if session_status in {"expired"}:
+            if dry_run:
+                return {"orderID": order_id, "action": "would_mark_cancelled"}
+            synthetic_event = {
+                "id": f"reconcile:{order_id}:expired",
+                "type": "checkout.session.expired",
+                "data": {"object": session},
+            }
+            try:
+                self._handle_checkout_expired(synthetic_event)
+                self.connection.commit()
+            except Exception:
+                self.connection.rollback()
+                raise
+            return {"orderID": order_id, "action": "marked_cancelled"}
+
+        return {
+            "orderID": order_id,
+            "action": "no_change",
+            "paymentStatus": payment_status,
+            "sessionStatus": session_status,
+        }
 
     # ------------------------------------------------------------------
     # Public pages (QR + claim landing)
@@ -11020,6 +11721,73 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path == "/api/v1/devices/push-tokens":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    list_payload = self._payments_service().list_push_tokens()
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"List push tokens failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, list_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/admin/orders/"):
+            order_id = unquote(parsed.path.removeprefix("/api/v1/admin/orders/").rstrip("/"))
+            if not order_id or "/" in order_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    admin_payload = self._payments_service().admin_get_order(order_id)
+            except PermissionError as error:
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Admin lookup failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, admin_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/admin/users/") and parsed.path.endswith("/orders"):
+            user_id = unquote(
+                parsed.path.removeprefix("/api/v1/admin/users/").removesuffix("/orders").strip("/")
+            )
+            if not user_id or "/" in user_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    admin_payload = self._payments_service().admin_list_user_orders(user_id)
+            except PermissionError as error:
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+                return
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Admin lookup failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, admin_payload)
+            return
+
         if parsed.path == "/api/v1/payments/stripe/connect/status":
             if not is_stripe_configured():
                 self._write_json(
@@ -11931,6 +12699,67 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.CREATED, order_payload)
             return
 
+        if parsed.path.startswith("/api/v1/payments/orders/") and parsed.path.endswith("/refund"):
+            order_id = unquote(
+                parsed.path.removeprefix("/api/v1/payments/orders/").removesuffix("/refund").strip("/")
+            )
+            if not order_id or "/" in order_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            if not is_stripe_configured():
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    refund_payload = self._payments_service().refund_order(order_id, payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except PermissionError as error:
+                self._write_json(HTTPStatus.FORBIDDEN, {"error": str(error)})
+                return
+            except StripeNotConfiguredError:
+                self._write_json(
+                    HTTPStatus.SERVICE_UNAVAILABLE,
+                    {"error": "Stripe not configured on this backend"},
+                )
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Order refund failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, refund_payload)
+            return
+
+        if parsed.path == "/api/v1/devices/push-token":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    register_payload = self._payments_service().register_push_token(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Register push token failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, register_payload)
+            return
+
         if parsed.path.startswith("/api/v1/payments/orders/") and parsed.path.endswith("/cancel"):
             order_id = unquote(
                 parsed.path.removeprefix("/api/v1/payments/orders/").removesuffix("/cancel").strip("/")
@@ -12025,6 +12854,52 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 )
                 return
             self._write_json(HTTPStatus.CREATED, trade_payload)
+            return
+
+        self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+
+        if parsed.path == "/api/v1/devices/push-token":
+            content_length_raw = self.headers.get("Content-Length") or "0"
+            try:
+                content_length = int(content_length_raw)
+            except ValueError:
+                content_length = 0
+            payload: dict[str, Any] = {}
+            if content_length > 0:
+                parsed_payload = self._read_json_body()
+                if parsed_payload is None:
+                    self._write_json(
+                        getattr(self, "_json_body_error_status", HTTPStatus.BAD_REQUEST),
+                        {"error": getattr(self, "_json_body_error_message", "Invalid JSON body")},
+                    )
+                    return
+                payload = parsed_payload
+            # Allow ?push_token=... as a fallback.
+            if not payload:
+                query = parse_qs(parsed.query)
+                token_value = query.get("push_token", [""])[0]
+                if token_value:
+                    payload = {"push_token": token_value}
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    delete_payload = self._payments_service().remove_push_token(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:  # noqa: BLE001
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Remove push token failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, delete_payload)
             return
 
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})

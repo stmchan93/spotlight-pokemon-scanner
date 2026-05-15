@@ -25,6 +25,7 @@ from server import (  # noqa: E402
     ORDER_STATUS_FAILED,
     ORDER_STATUS_PAID,
     ORDER_STATUS_PENDING,
+    ORDER_STATUS_REFUNDED,
     SpotlightRequestHandler,
     SpotlightScanService,
     StripePaymentsService,
@@ -582,6 +583,510 @@ class StripePaymentsServiceTests(unittest.TestCase):
                 self.service.authenticator.auth_required = original_auth_required
         self.assertEqual(handler._json_writes[-1][0], HTTPStatus.OK)
         self.assertTrue(handler._json_writes[-1][1].get("received"))
+
+
+class StripePaymentsPhase5Tests(unittest.TestCase):
+    """Refunds, disputes, push tokens, push send, admin, reconciliation."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.tempdir.name) / "stripe-phase5.sqlite"
+        connection = connect(self.database_path)
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+        connection.close()
+        self.service = SpotlightScanService(self.database_path, REPO_ROOT)
+        self.payments = StripePaymentsService(self.service)
+        os.environ["STRIPE_SECRET_KEY"] = "sk_test_dummy"
+        os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test_dummy"
+
+    def tearDown(self) -> None:
+        self.service.connection.close()
+        self.tempdir.cleanup()
+        for key in (
+            "STRIPE_SECRET_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "SPOTLIGHT_ADMIN_USER_IDS",
+            "SPOTLIGHT_DISPUTE_ALERT_EMAILS",
+        ):
+            os.environ.pop(key, None)
+
+    # ------------------------------------------------------------------
+    # Helpers
+    # ------------------------------------------------------------------
+
+    def _insert_card(self, card_id: str = "base-charizard-4") -> None:
+        upsert_card(
+            self.service.connection,
+            card_id=card_id,
+            name="Charizard",
+            set_name="Base Set",
+            number="4/102",
+            rarity="Holo Rare",
+            variant="Raw",
+            language="English",
+            source_provider="scrydex",
+            source_record_id=card_id,
+            set_id="bs",
+            set_ptcgo_code="BS",
+            set_release_date="1999-01-09",
+            source_payload={"id": card_id},
+        )
+        self.service.connection.commit()
+
+    def _seed_deck_entry(self, *, owner_user_id: str, card_id: str) -> str:
+        deck_entry_id = upsert_deck_entry(
+            self.service.connection,
+            owner_user_id=owner_user_id,
+            card_id=card_id,
+            quantity=1,
+            unit_price=10.0,
+            currency_code="USD",
+            added_at="2026-05-15T00:00:00Z",
+            updated_at="2026-05-15T00:00:00Z",
+            event_kind="buy",
+        )
+        self.service.connection.commit()
+        return deck_entry_id
+
+    def _seed_stripe_account(
+        self, owner_user_id: str, *, payouts_enabled: bool = True
+    ) -> None:
+        with self.service.request_identity_context(_identity(owner_user_id)):
+            self.payments._persist_stripe_account_status(
+                owner_user_id=owner_user_id,
+                stripe_account_id=f"acct_{owner_user_id}",
+                charges_enabled=True,
+                payouts_enabled=payouts_enabled,
+                requirements_due=[],
+                country="US",
+            )
+
+    def _create_paid_order(self, seller_user_id: str = "seller-1") -> tuple[str, str]:
+        self._insert_card()
+        self._seed_stripe_account(seller_user_id, payouts_enabled=True)
+        deck_entry_id = self._seed_deck_entry(
+            owner_user_id=seller_user_id, card_id="base-charizard-4"
+        )
+        with patch(
+            "server.stripe_create_checkout_session",
+            return_value={
+                "id": "cs_paid",
+                "url": "https://checkout.stripe.test/cs_paid",
+                "payment_intent": "pi_paid_1",
+            },
+        ):
+            with self.service.request_identity_context(_identity(seller_user_id)):
+                payload = self.payments.create_order(
+                    {"deck_entry_id": deck_entry_id, "amount_cents": 4000}
+                )
+        order_id = payload["order_id"]
+        event = {
+            "id": "evt_paid_phase5",
+            "type": "checkout.session.completed",
+            "data": {"object": {"id": "cs_paid", "payment_intent": "pi_paid_1"}},
+        }
+        with patch("server.stripe_verify_webhook_signature", return_value=event):
+            with patch("server.stripe_send_expo_push", return_value={"sent": 0, "errors": []}):
+                self.payments.handle_webhook(b"{}", "sig")
+        return order_id, deck_entry_id
+
+    # ------------------------------------------------------------------
+    # Refunds
+    # ------------------------------------------------------------------
+
+    def test_refund_happy_path_full_amount(self) -> None:
+        order_id, _ = self._create_paid_order()
+        with patch("server.stripe_create_refund", return_value={"id": "re_1"}) as refund_mock:
+            with self.service.request_identity_context(_identity("seller-1")):
+                result = self.payments.refund_order(order_id, {})
+        refund_mock.assert_called_once()
+        called_kwargs = refund_mock.call_args.kwargs
+        self.assertEqual(called_kwargs["payment_intent_id"], "pi_paid_1")
+        self.assertEqual(called_kwargs["amount_cents"], 4000)
+        self.assertEqual(result["status"], ORDER_STATUS_REFUNDED)
+        self.assertEqual(int(result["refundedAmountCents"]), 4000)
+
+    def test_refund_partial_amount(self) -> None:
+        order_id, _ = self._create_paid_order()
+        with patch("server.stripe_create_refund", return_value={"id": "re_partial"}):
+            with self.service.request_identity_context(_identity("seller-1")):
+                result = self.payments.refund_order(order_id, {"amount_cents": 1500})
+        self.assertEqual(result["status"], ORDER_STATUS_PAID)
+        self.assertEqual(int(result["refundedAmountCents"]), 1500)
+
+    def test_refund_over_amount_rejected(self) -> None:
+        order_id, _ = self._create_paid_order()
+        with patch("server.stripe_create_refund", return_value={"id": "re_over"}):
+            with self.service.request_identity_context(_identity("seller-1")):
+                with self.assertRaises(ValueError):
+                    self.payments.refund_order(order_id, {"amount_cents": 9999})
+
+    def test_refund_requires_seller(self) -> None:
+        order_id, _ = self._create_paid_order()
+        with self.service.request_identity_context(_identity("intruder")):
+            with self.assertRaises(PermissionError):
+                self.payments.refund_order(order_id, {})
+
+    def test_refund_idempotent_when_already_fully_refunded(self) -> None:
+        order_id, _ = self._create_paid_order()
+        with patch("server.stripe_create_refund", return_value={"id": "re_1"}):
+            with self.service.request_identity_context(_identity("seller-1")):
+                self.payments.refund_order(order_id, {})
+        # Second call: state is already refunded so we should not call Stripe.
+        with patch("server.stripe_create_refund") as refund_mock:
+            with self.service.request_identity_context(_identity("seller-1")):
+                result = self.payments.refund_order(order_id, {})
+        refund_mock.assert_not_called()
+        self.assertEqual(result["status"], ORDER_STATUS_REFUNDED)
+
+    def test_charge_refunded_webhook_updates_state(self) -> None:
+        order_id, _ = self._create_paid_order()
+        event = {
+            "id": "evt_charge_refunded",
+            "type": "charge.refunded",
+            "data": {
+                "object": {
+                    "id": "ch_test",
+                    "payment_intent": "pi_paid_1",
+                    "amount_refunded": 4000,
+                }
+            },
+        }
+        with patch("server.stripe_verify_webhook_signature", return_value=event):
+            with patch("server.stripe_send_expo_push", return_value={"sent": 0, "errors": []}):
+                self.payments.handle_webhook(b"{}", "sig")
+        row = self.service.connection.execute(
+            "SELECT status, refunded_amount_cents FROM orders WHERE order_id = ?",
+            (order_id,),
+        ).fetchone()
+        self.assertEqual(str(row["status"]), ORDER_STATUS_REFUNDED)
+        self.assertEqual(int(row["refunded_amount_cents"]), 4000)
+
+    # ------------------------------------------------------------------
+    # Disputes
+    # ------------------------------------------------------------------
+
+    def test_dispute_created_inserts_row_freezes_and_pushes(self) -> None:
+        order_id, _ = self._create_paid_order()
+        # Register a push token so push fan-out is exercised.
+        with self.service.request_identity_context(_identity("seller-1")):
+            self.payments.register_push_token({"push_token": "ExponentPushToken[abc]"})
+        event = {
+            "id": "evt_dispute_created",
+            "type": "charge.dispute.created",
+            "data": {
+                "object": {
+                    "id": "dp_1",
+                    "payment_intent": "pi_paid_1",
+                    "charge": "ch_1",
+                    "reason": "fraudulent",
+                    "status": "needs_response",
+                    "amount": 4000,
+                    "evidence_details": {"due_by": "2026-06-01T00:00:00Z"},
+                }
+            },
+        }
+        with patch("server.stripe_verify_webhook_signature", return_value=event):
+            with patch("server.stripe_freeze_payouts", return_value={"id": "acct_seller-1"}) as freeze_mock:
+                with patch("server.stripe_send_expo_push", return_value={"sent": 1, "errors": []}) as push_mock:
+                    self.payments.handle_webhook(b"{}", "sig")
+        freeze_mock.assert_called_once_with("acct_seller-1")
+        push_mock.assert_called()
+        push_kwargs = push_mock.call_args.kwargs
+        self.assertEqual(push_kwargs["push_tokens"], ["ExponentPushToken[abc]"])
+        self.assertIn("Dispute filed", push_kwargs["title"])
+        # Dispute row should exist.
+        dispute_row = self.service.connection.execute(
+            "SELECT * FROM disputes WHERE stripe_dispute_id = ?", ("dp_1",)
+        ).fetchone()
+        self.assertIsNotNone(dispute_row)
+        self.assertEqual(str(dispute_row["order_id"]), order_id)
+        self.assertEqual(str(dispute_row["status"]), "needs_response")
+        # Order should be marked as having an open dispute.
+        order_row = self.service.connection.execute(
+            "SELECT dispute_status FROM orders WHERE order_id = ?", (order_id,)
+        ).fetchone()
+        self.assertEqual(str(order_row["dispute_status"]), "open")
+
+    def test_dispute_closed_won_unfreezes_and_updates_status(self) -> None:
+        order_id, _ = self._create_paid_order()
+        # Open dispute first.
+        open_event = {
+            "id": "evt_disp_open",
+            "type": "charge.dispute.created",
+            "data": {
+                "object": {
+                    "id": "dp_won",
+                    "payment_intent": "pi_paid_1",
+                    "status": "needs_response",
+                    "amount": 4000,
+                }
+            },
+        }
+        with patch("server.stripe_verify_webhook_signature", return_value=open_event):
+            with patch("server.stripe_freeze_payouts", return_value={}):
+                with patch("server.stripe_send_expo_push", return_value={"sent": 0, "errors": []}):
+                    self.payments.handle_webhook(b"{}", "sig")
+
+        close_event = {
+            "id": "evt_disp_won",
+            "type": "charge.dispute.closed",
+            "data": {"object": {"id": "dp_won", "status": "won"}},
+        }
+        with patch("server.stripe_verify_webhook_signature", return_value=close_event):
+            with patch("server.stripe_unfreeze_payouts", return_value={}) as unfreeze_mock:
+                self.payments.handle_webhook(b"{}", "sig")
+        unfreeze_mock.assert_called_once_with("acct_seller-1")
+        dispute_row = self.service.connection.execute(
+            "SELECT status FROM disputes WHERE stripe_dispute_id = ?", ("dp_won",)
+        ).fetchone()
+        self.assertEqual(str(dispute_row["status"]), "won")
+        order_row = self.service.connection.execute(
+            "SELECT dispute_status FROM orders WHERE order_id = ?", (order_id,)
+        ).fetchone()
+        self.assertEqual(str(order_row["dispute_status"]), "closed")
+
+    # ------------------------------------------------------------------
+    # Push tokens
+    # ------------------------------------------------------------------
+
+    def test_register_list_remove_push_token_roundtrip(self) -> None:
+        with self.service.request_identity_context(_identity("user-a")):
+            register = self.payments.register_push_token(
+                {"push_token": "ExponentPushToken[A]", "platform": "ios"}
+            )
+            self.assertEqual(register["pushToken"], "ExponentPushToken[A]")
+            listed = self.payments.list_push_tokens()
+            self.assertEqual([t["pushToken"] for t in listed["tokens"]], ["ExponentPushToken[A]"])
+            # Re-registering should be idempotent (no second row).
+            self.payments.register_push_token(
+                {"push_token": "ExponentPushToken[A]", "platform": "ios"}
+            )
+            listed2 = self.payments.list_push_tokens()
+            self.assertEqual(len(listed2["tokens"]), 1)
+            removed = self.payments.remove_push_token({"push_token": "ExponentPushToken[A]"})
+            self.assertTrue(removed["removed"])
+            self.assertEqual(self.payments.list_push_tokens()["tokens"], [])
+
+    def test_register_push_token_requires_token(self) -> None:
+        with self.service.request_identity_context(_identity("user-a")):
+            with self.assertRaises(ValueError):
+                self.payments.register_push_token({})
+
+    def test_active_push_tokens_scoped_per_user(self) -> None:
+        with self.service.request_identity_context(_identity("user-a")):
+            self.payments.register_push_token({"push_token": "TOKEN_A"})
+        with self.service.request_identity_context(_identity("user-b")):
+            self.payments.register_push_token({"push_token": "TOKEN_B"})
+        self.assertEqual(self.payments._active_push_tokens_for_user("user-a"), ["TOKEN_A"])
+        self.assertEqual(self.payments._active_push_tokens_for_user("user-b"), ["TOKEN_B"])
+
+    # ------------------------------------------------------------------
+    # Push send (mocked HTTP)
+    # ------------------------------------------------------------------
+
+    def test_send_expo_push_posts_to_endpoint(self) -> None:
+        mock_response = MagicMock()
+        mock_response.read.return_value = b""
+        cm = MagicMock()
+        cm.__enter__ = Mock(return_value=mock_response)
+        cm.__exit__ = Mock(return_value=False)
+        with patch("stripe_payments.urllib.request.urlopen", return_value=cm) as urlopen_mock:
+            result = stripe_payments_module.send_expo_push(
+                push_tokens=["TOKEN_X"],
+                title="hi",
+                body="there",
+                data=None,
+            )
+        urlopen_mock.assert_called_once()
+        self.assertEqual(result["sent"], 1)
+        self.assertEqual(result["errors"], [])
+
+    def test_send_expo_push_chunks_large_token_lists(self) -> None:
+        tokens = [f"T{i}" for i in range(250)]
+        mock_response = MagicMock()
+        mock_response.read.return_value = b""
+        cm = MagicMock()
+        cm.__enter__ = Mock(return_value=mock_response)
+        cm.__exit__ = Mock(return_value=False)
+        with patch("stripe_payments.urllib.request.urlopen", return_value=cm) as urlopen_mock:
+            result = stripe_payments_module.send_expo_push(
+                push_tokens=tokens, title="x", body="y", data={"a": 1}
+            )
+        # 250 tokens / 100 chunk size -> 3 chunks.
+        self.assertEqual(urlopen_mock.call_count, 3)
+        self.assertEqual(result["sent"], 250)
+        self.assertEqual(result["chunks"], 3)
+
+    def test_send_expo_push_swallows_errors(self) -> None:
+        with patch(
+            "stripe_payments.urllib.request.urlopen",
+            side_effect=OSError("network down"),
+        ):
+            result = stripe_payments_module.send_expo_push(
+                push_tokens=["TOKEN_X"], title="x", body="y", data=None
+            )
+        self.assertEqual(result["sent"], 0)
+        self.assertTrue(result["errors"])
+
+    # ------------------------------------------------------------------
+    # Admin lookup
+    # ------------------------------------------------------------------
+
+    def test_admin_get_order_requires_allowlisted_user(self) -> None:
+        order_id, _ = self._create_paid_order()
+        os.environ["SPOTLIGHT_ADMIN_USER_IDS"] = "admin-1,admin-2"
+        with self.service.request_identity_context(_identity("not-admin")):
+            with self.assertRaises(PermissionError):
+                self.payments.admin_get_order(order_id)
+        with self.service.request_identity_context(_identity("admin-1")):
+            result = self.payments.admin_get_order(order_id)
+        self.assertEqual(result["orderID"], order_id)
+        self.assertIn("disputes", result)
+
+    def test_admin_list_user_orders_returns_for_other_user(self) -> None:
+        order_id, _ = self._create_paid_order()
+        os.environ["SPOTLIGHT_ADMIN_USER_IDS"] = "admin-7"
+        with self.service.request_identity_context(_identity("admin-7")):
+            payload = self.payments.admin_list_user_orders("seller-1")
+        self.assertEqual(payload["userID"], "seller-1")
+        order_ids = [o["orderID"] for o in payload["orders"]]
+        self.assertIn(order_id, order_ids)
+
+    # ------------------------------------------------------------------
+    # Reconciliation
+    # ------------------------------------------------------------------
+
+    def test_reconcile_pending_order_marks_paid_when_session_paid(self) -> None:
+        self._insert_card()
+        self._seed_stripe_account("seller-1", payouts_enabled=True)
+        deck_entry_id = self._seed_deck_entry(
+            owner_user_id="seller-1", card_id="base-charizard-4"
+        )
+        with patch(
+            "server.stripe_create_checkout_session",
+            return_value={"id": "cs_recon", "url": "https://checkout.stripe.test/cs_recon"},
+        ):
+            with self.service.request_identity_context(_identity("seller-1")):
+                payload = self.payments.create_order(
+                    {"deck_entry_id": deck_entry_id, "amount_cents": 4000}
+                )
+        order_id = payload["order_id"]
+
+        with patch(
+            "server.stripe_retrieve_checkout_session",
+            return_value={
+                "id": "cs_recon",
+                "payment_status": "paid",
+                "status": "complete",
+                "payment_intent": "pi_recon",
+            },
+        ) as fetch_mock:
+            with patch("server.stripe_send_expo_push", return_value={"sent": 0, "errors": []}):
+                with self.service.request_identity_context(_identity("seller-1")):
+                    result = self.payments.reconcile_pending_order(order_id)
+        fetch_mock.assert_called_once()
+        self.assertEqual(result["action"], "marked_paid")
+        row = self.service.connection.execute(
+            "SELECT status FROM orders WHERE order_id = ?", (order_id,)
+        ).fetchone()
+        self.assertEqual(str(row["status"]), ORDER_STATUS_PAID)
+
+    def test_reconcile_pending_order_marks_cancelled_when_session_expired(self) -> None:
+        self._insert_card()
+        self._seed_stripe_account("seller-1", payouts_enabled=True)
+        deck_entry_id = self._seed_deck_entry(
+            owner_user_id="seller-1", card_id="base-charizard-4"
+        )
+        with patch(
+            "server.stripe_create_checkout_session",
+            return_value={"id": "cs_exp", "url": "https://checkout.stripe.test/cs_exp"},
+        ):
+            with self.service.request_identity_context(_identity("seller-1")):
+                payload = self.payments.create_order(
+                    {"deck_entry_id": deck_entry_id, "amount_cents": 4000}
+                )
+        order_id = payload["order_id"]
+
+        with patch(
+            "server.stripe_retrieve_checkout_session",
+            return_value={
+                "id": "cs_exp",
+                "payment_status": "unpaid",
+                "status": "expired",
+            },
+        ):
+            with self.service.request_identity_context(_identity("seller-1")):
+                result = self.payments.reconcile_pending_order(order_id)
+        self.assertEqual(result["action"], "marked_cancelled")
+        row = self.service.connection.execute(
+            "SELECT status FROM orders WHERE order_id = ?", (order_id,)
+        ).fetchone()
+        self.assertEqual(str(row["status"]), ORDER_STATUS_CANCELLED)
+
+    def test_reconcile_dry_run_does_not_mutate(self) -> None:
+        self._insert_card()
+        self._seed_stripe_account("seller-1", payouts_enabled=True)
+        deck_entry_id = self._seed_deck_entry(
+            owner_user_id="seller-1", card_id="base-charizard-4"
+        )
+        with patch(
+            "server.stripe_create_checkout_session",
+            return_value={"id": "cs_dry", "url": "https://checkout.stripe.test/cs_dry"},
+        ):
+            with self.service.request_identity_context(_identity("seller-1")):
+                payload = self.payments.create_order(
+                    {"deck_entry_id": deck_entry_id, "amount_cents": 4000}
+                )
+        order_id = payload["order_id"]
+
+        with patch(
+            "server.stripe_retrieve_checkout_session",
+            return_value={
+                "id": "cs_dry",
+                "payment_status": "paid",
+                "status": "complete",
+            },
+        ):
+            with self.service.request_identity_context(_identity("seller-1")):
+                result = self.payments.reconcile_pending_order(order_id, dry_run=True)
+        self.assertEqual(result["action"], "would_mark_paid")
+        row = self.service.connection.execute(
+            "SELECT status FROM orders WHERE order_id = ?", (order_id,)
+        ).fetchone()
+        self.assertEqual(str(row["status"]), ORDER_STATUS_PENDING)
+
+    def test_list_stale_pending_orders_filters_by_cutoff(self) -> None:
+        self._insert_card()
+        self._seed_stripe_account("seller-1", payouts_enabled=True)
+        deck_entry_id = self._seed_deck_entry(
+            owner_user_id="seller-1", card_id="base-charizard-4"
+        )
+        with patch(
+            "server.stripe_create_checkout_session",
+            return_value={"id": "cs_old", "url": "https://checkout.stripe.test/cs_old"},
+        ):
+            with self.service.request_identity_context(_identity("seller-1")):
+                payload = self.payments.create_order(
+                    {"deck_entry_id": deck_entry_id, "amount_cents": 4000}
+                )
+        order_id = payload["order_id"]
+        # Backdate the order.
+        self.service.connection.execute(
+            "UPDATE orders SET created_at = ? WHERE order_id = ?",
+            ("2020-01-01T00:00:00Z", order_id),
+        )
+        self.service.connection.commit()
+        results = self.payments.list_stale_pending_orders(
+            older_than_iso="2026-01-01T00:00:00Z"
+        )
+        order_ids = [r["orderID"] for r in results]
+        self.assertIn(order_id, order_ids)
+        # No matches when the cutoff is older than the order.
+        empty = self.payments.list_stale_pending_orders(
+            older_than_iso="2019-01-01T00:00:00Z"
+        )
+        self.assertNotIn(order_id, [r["orderID"] for r in empty])
 
 
 if __name__ == "__main__":
