@@ -6,6 +6,7 @@ import * as mockApiClient from '../mock-api-client';
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
+import { __resetPortfolioSummaryVisibilityForTests } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { AppProviders } from '@/providers/app-providers';
 
 jest.mock('@spotlight/api-client', () => mockApiClient);
@@ -15,6 +16,10 @@ describe('PortfolioScreen', () => {
     frame: { height: 852, width: 393, x: 0, y: 0 },
     insets: { top: 59, right: 0, bottom: 34, left: 0 },
   };
+
+  beforeEach(() => {
+    __resetPortfolioSummaryVisibilityForTests();
+  });
 
   function renderPortfolioScreen({
     repository,
@@ -68,6 +73,35 @@ describe('PortfolioScreen', () => {
     const rangeAllStyle = StyleSheet.flatten(screen.getByText('All').props.style);
     expect(rangeAllStyle).toMatchObject({
       fontFamily: 'SpotlightBodyMedium',
+    });
+  });
+
+  it('masks the summary value and delta when the visibility toggle is pressed', async () => {
+    renderPortfolioScreen();
+
+    await screen.findByTestId('portfolio-summary-value');
+    const summaryDelta = screen.getByTestId('portfolio-summary-delta');
+    const toggle = screen.getByTestId('portfolio-summary-visibility-toggle');
+
+    expect(String(summaryDelta.props.children)).not.toBe('*****');
+    expect(screen.queryAllByText('*****').length).toBe(0);
+
+    await act(async () => {
+      fireEvent.press(toggle);
+    });
+
+    await waitFor(() => {
+      expect(String(summaryDelta.props.children)).toBe('*****');
+      expect(screen.getAllByText('*****').length).toBeGreaterThan(0);
+    });
+
+    await act(async () => {
+      fireEvent.press(toggle);
+    });
+
+    await waitFor(() => {
+      expect(String(summaryDelta.props.children)).not.toBe('*****');
+      expect(screen.queryAllByText('*****').length).toBe(0);
     });
   });
 

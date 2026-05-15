@@ -32,6 +32,8 @@ jest.mock('iconoir-react-native', () => {
     ArrowUp: make('arrow-up'),
     ArrowDown: make('arrow-down'),
     EditPencil: make('edit-pencil'),
+    Eye: make('eye'),
+    EyeClosed: make('eye-closed'),
     Filter: make('filter'),
     FilterList: make('filter-list'),
     MoreHoriz: make('more-horiz'),
