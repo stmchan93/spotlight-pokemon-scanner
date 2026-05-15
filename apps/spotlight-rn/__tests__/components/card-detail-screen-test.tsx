@@ -553,6 +553,7 @@ describe('CardDetailScreen', () => {
       expect(getCardRecentSales).toHaveBeenCalledWith({
         cardId: 'sm7-1',
         limit: 25,
+        refresh: true,
         slabContext: gradedEntry.slabContext,
         source: 'ebay',
       });
@@ -914,6 +915,7 @@ describe('CardDetailScreen', () => {
       expect(getCardRecentSales).toHaveBeenCalledWith({
         cardId: 'base1-4',
         limit: 25,
+        refresh: true,
         slabContext: {
           grader: 'PSA',
           grade: '9',
