@@ -255,10 +255,23 @@ def create_refund(
     payment_intent_id: str,
     amount_cents: int | None = None,
     reason: str | None = None,
+    refund_application_fee: bool = True,
+    reverse_transfer: bool = True,
 ) -> dict[str, Any]:
-    """Refund all (or part) of a payment captured against a PaymentIntent."""
+    """Refund all (or part) of a payment captured against a PaymentIntent.
+
+    For destination charges (this platform's pattern), defaults reverse both
+    the transfer to the connected account AND the platform application fee
+    so the money flow is fully unwound — seller doesn't owe a fee on a
+    refunded transaction, and the refund comes from the seller's balance
+    rather than the platform's.
+    """
     stripe = _stripe_module()
-    kwargs: dict[str, Any] = {"payment_intent": payment_intent_id}
+    kwargs: dict[str, Any] = {
+        "payment_intent": payment_intent_id,
+        "refund_application_fee": bool(refund_application_fee),
+        "reverse_transfer": bool(reverse_transfer),
+    }
     if amount_cents is not None:
         kwargs["amount"] = int(amount_cents)
     if reason:

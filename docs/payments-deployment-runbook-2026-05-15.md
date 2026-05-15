@@ -91,6 +91,11 @@ pnpm backend:deploy:staging
 Verify the Stripe wiring is loaded:
 
 ```bash
+# Unauthenticated diagnostic — confirms every env var is wired up without
+# needing a Supabase JWT. After full setup, all `*_set` and `*_configured`
+# flags should be true:
+curl -s https://looty.34.59.188.129.sslip.io/api/v1/payments/health | jq
+
 # Should return 401 (auth required) — NOT 503 (not configured):
 curl -i https://looty.34.59.188.129.sslip.io/api/v1/payments/stripe/connect/status
 

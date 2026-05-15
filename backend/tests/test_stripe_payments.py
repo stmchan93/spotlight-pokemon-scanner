@@ -561,6 +561,70 @@ class StripePaymentsServiceTests(unittest.TestCase):
             self.service.authenticator.auth_required = original_auth_required
         self.assertEqual(handler._json_writes[-1][0], HTTPStatus.UNAUTHORIZED)
 
+    def test_health_endpoint_reports_unconfigured_when_env_missing(self) -> None:
+        """Health endpoint must be reachable without auth and reflect env state."""
+        SpotlightRequestHandler.service = self.service
+        SpotlightRequestHandler.payments_service = self.payments
+        # Strip env so we get the unconfigured shape.
+        for key in (
+            "STRIPE_SECRET_KEY",
+            "STRIPE_WEBHOOK_SECRET",
+            "SUPABASE_URL",
+            "SUPABASE_ANON_KEY",
+            "SPOTLIGHT_PUBLIC_BASE_URL",
+            "SPOTLIGHT_ADMIN_USER_IDS",
+            "SPOTLIGHT_DISPUTE_ALERT_EMAILS",
+        ):
+            os.environ.pop(key, None)
+        handler = _MockHandler(path="/api/v1/payments/health")
+        handler.do_GET()
+        status, body = handler._json_writes[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertFalse(body["stripe_secret_set"])
+        self.assertFalse(body["stripe_webhook_secret_set"])
+        self.assertFalse(body["stripe_configured"])
+        self.assertFalse(body["supabase_configured"])
+        self.assertFalse(body["public_base_url_set"])
+        self.assertEqual(body["admin_user_ids_count"], 0)
+        self.assertEqual(body["dispute_alert_emails_count"], 0)
+        # Platform fee defaults to 400 bps (4%).
+        self.assertEqual(body["platform_fee_bps"], 400)
+
+    def test_health_endpoint_reflects_configured_env(self) -> None:
+        SpotlightRequestHandler.service = self.service
+        SpotlightRequestHandler.payments_service = self.payments
+        os.environ["STRIPE_SECRET_KEY"] = "sk_test_dummy"
+        os.environ["STRIPE_WEBHOOK_SECRET"] = "whsec_test_dummy"
+        os.environ["SUPABASE_URL"] = "https://abc.supabase.co"
+        os.environ["SUPABASE_ANON_KEY"] = "anon_test"
+        os.environ["SPOTLIGHT_PUBLIC_BASE_URL"] = "https://looty.example/"
+        os.environ["SPOTLIGHT_ADMIN_USER_IDS"] = "user-a,user-b"
+        os.environ["SPOTLIGHT_DISPUTE_ALERT_EMAILS"] = "ops@looty.app"
+        os.environ["STRIPE_PLATFORM_FEE_BPS"] = "350"
+        try:
+            handler = _MockHandler(path="/api/v1/payments/health")
+            handler.do_GET()
+        finally:
+            for key in (
+                "STRIPE_SECRET_KEY",
+                "STRIPE_WEBHOOK_SECRET",
+                "SUPABASE_URL",
+                "SUPABASE_ANON_KEY",
+                "SPOTLIGHT_PUBLIC_BASE_URL",
+                "SPOTLIGHT_ADMIN_USER_IDS",
+                "SPOTLIGHT_DISPUTE_ALERT_EMAILS",
+                "STRIPE_PLATFORM_FEE_BPS",
+            ):
+                os.environ.pop(key, None)
+        status, body = handler._json_writes[-1]
+        self.assertEqual(status, HTTPStatus.OK)
+        self.assertTrue(body["stripe_configured"])
+        self.assertTrue(body["supabase_configured"])
+        self.assertTrue(body["public_base_url_set"])
+        self.assertEqual(body["admin_user_ids_count"], 2)
+        self.assertEqual(body["dispute_alert_emails_count"], 1)
+        self.assertEqual(body["platform_fee_bps"], 350)
+
     def test_webhook_route_does_not_require_jwt(self) -> None:
         SpotlightRequestHandler.service = self.service
         SpotlightRequestHandler.payments_service = self.payments
@@ -726,6 +790,24 @@ class StripePaymentsPhase5Tests(unittest.TestCase):
         with self.service.request_identity_context(_identity("intruder")):
             with self.assertRaises(PermissionError):
                 self.payments.refund_order(order_id, {})
+
+    def test_create_refund_wrapper_passes_destination_charge_defaults(self) -> None:
+        """create_refund must default refund_application_fee + reverse_transfer to True.
+
+        Without these, refunds come out of the platform balance (not the seller's)
+        and the 4% platform fee is kept on a refunded transaction. Both are wrong
+        for the destination-charge pattern this platform uses.
+        """
+        fake_stripe = MagicMock()
+        fake_stripe.Refund.create.return_value = {"id": "re_under_test"}
+        with patch.object(stripe_payments_module, "_stripe_module", return_value=fake_stripe):
+            stripe_payments_module.create_refund(payment_intent_id="pi_x", amount_cents=4000)
+        fake_stripe.Refund.create.assert_called_once()
+        kwargs = fake_stripe.Refund.create.call_args.kwargs
+        self.assertEqual(kwargs["payment_intent"], "pi_x")
+        self.assertEqual(kwargs["amount"], 4000)
+        self.assertTrue(kwargs["refund_application_fee"])
+        self.assertTrue(kwargs["reverse_transfer"])
 
     def test_refund_idempotent_when_already_fully_refunded(self) -> None:
         order_id, _ = self._create_paid_order()

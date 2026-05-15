@@ -150,9 +150,12 @@ from stripe_payments import (
     public_base_url,
     retrieve_checkout_session as stripe_retrieve_checkout_session,
     send_expo_push as stripe_send_expo_push,
+    stripe_secret_key,
+    stripe_webhook_secret,
     unfreeze_payouts as stripe_unfreeze_payouts,
     verify_webhook_signature as stripe_verify_webhook_signature,
 )
+from stripe_payments import DEFAULT_PUBLIC_BASE_URL  # noqa: E402
 
 _OMIT_STRUCTURED_LOG_VALUE = object()
 
@@ -11786,6 +11789,28 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Admin lookup failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, admin_payload)
+            return
+
+        if parsed.path == "/api/v1/payments/health":
+            # Unauthenticated diagnostic — confirms operator setup without
+            # leaking secrets. Each flag answers "is the env wired up?",
+            # nothing more.
+            supabase_url, supabase_anon = _claim_page_supabase_config()
+            self._write_json(
+                HTTPStatus.OK,
+                {
+                    "stripe_secret_set": stripe_secret_key() is not None,
+                    "stripe_webhook_secret_set": stripe_webhook_secret() is not None,
+                    "stripe_configured": is_stripe_configured(),
+                    "supabase_url_set": bool(supabase_url),
+                    "supabase_anon_key_set": bool(supabase_anon),
+                    "supabase_configured": bool(supabase_url and supabase_anon),
+                    "public_base_url_set": public_base_url() != DEFAULT_PUBLIC_BASE_URL,
+                    "platform_fee_bps": platform_fee_bps(),
+                    "admin_user_ids_count": len(_admin_user_ids()),
+                    "dispute_alert_emails_count": len(_dispute_alert_emails()),
+                },
+            )
             return
 
         if parsed.path == "/api/v1/payments/stripe/connect/status":
