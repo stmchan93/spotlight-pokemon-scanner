@@ -61,18 +61,13 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByTestId('detail-collection-card')).toBeNull();
     expect(getCardRecentSales).not.toHaveBeenCalled();
 
-    const stackIds = Children.toArray(screen.getByTestId('detail-action-stack').props.children)
-      .filter((child): child is ReactElement<{ children?: ReactNode }> => isValidElement(child))
-      .flatMap((cell) => (
-        Children.toArray(cell.props.children)
-          .filter((c): c is ReactElement<{ testID?: string }> => isValidElement(c))
-          .map((c) => c.props.testID)
-      ))
-      .filter(Boolean);
-    expect(stackIds).toEqual([
-      'detail-add-to-collection',
-      'detail-favorite-card',
-    ]);
+    // For not-owned cards the hero shows an Add-to-collection button and a top-right favorite,
+    // not the quantity stepper or Sell.
+    expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
+    expect(screen.getByTestId('detail-favorite-card')).toBeTruthy();
+    expect(screen.queryByTestId('detail-quantity-stepper')).toBeNull();
+    expect(screen.queryByTestId('detail-sell-card')).toBeNull();
+    expect(screen.queryByTestId('detail-edit-collection-entry')).toBeNull();
 
     fireEvent.press(screen.getByTestId('detail-back'));
     expect(onBack).toHaveBeenCalled();
@@ -183,7 +178,7 @@ describe('CardDetailScreen', () => {
     expect(lpOption).toBeTruthy();
   });
 
-  it('shows the Sell and Edit icons for owned cards and routes Add vs Edit to the right entryId', async () => {
+  it('shows quantity stepper + Sell button for owned cards and routes increment/edit/sell correctly', async () => {
     const onOpenSell = jest.fn();
     const onOpenAddToCollection = jest.fn();
 
@@ -198,21 +193,213 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Celebi')).toBeTruthy();
-    expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
+    expect(screen.getByTestId('detail-quantity-stepper')).toBeTruthy();
+    expect(screen.getByTestId('detail-quantity-increment')).toBeTruthy();
     expect(screen.getByTestId('detail-edit-collection-entry')).toBeTruthy();
-    expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
+    expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
+    // The standalone Add icon is hidden when owned — stepper handles add-another via `+`.
+    expect(screen.queryByTestId('detail-add-to-collection')).toBeNull();
 
     fireEvent.press(screen.getByTestId('detail-sell-card'));
     expect(onOpenSell).toHaveBeenCalledWith('entry-3');
 
-    fireEvent.press(screen.getByTestId('detail-add-to-collection'));
+    fireEvent.press(screen.getByTestId('detail-quantity-increment'));
     expect(onOpenAddToCollection).toHaveBeenLastCalledWith('xyp-111', undefined);
 
     fireEvent.press(screen.getByTestId('detail-edit-collection-entry'));
     expect(onOpenAddToCollection).toHaveBeenLastCalledWith('xyp-111', 'entry-3');
   });
 
-  it('omits the Sell and Edit icons when the card is not owned', async () => {
+  it('toggles favorite on and off via the top-right heart, persisting via setCardFavorite', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    let nextIsFavorite = false;
+    const setCardFavorite = jest.fn(async (_cardId: string, isFavorite?: boolean | null) => {
+      nextIsFavorite = isFavorite ?? !nextIsFavorite;
+      return {
+        cardId: 'sm7-1',
+        favoritedAt: nextIsFavorite ? '2026-05-15T00:00:00.000Z' : null,
+        isFavorite: nextIsFavorite,
+      };
+    });
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: baseRepository.getCardDetail.bind(baseRepository),
+          setCardFavorite,
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    const heart = screen.getByTestId('detail-favorite-card');
+    expect(heart.props.accessibilityLabel).toBe('Favorite card');
+
+    fireEvent.press(heart);
+    await waitFor(() => {
+      expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', true);
+      expect(screen.getByTestId('detail-favorite-card').props.accessibilityLabel).toBe('Remove from favorites');
+    });
+
+    fireEvent.press(screen.getByTestId('detail-favorite-card'));
+    await waitFor(() => {
+      expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false);
+      expect(screen.getByTestId('detail-favorite-card').props.accessibilityLabel).toBe('Favorite card');
+    });
+  });
+
+  it('decrements quantity via replacePortfolioEntry when qty > 1', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const gradedEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: 25,
+      costBasisTotal: 75,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'entry-qty-3',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
+      kind: 'graded',
+      marketPrice: 30,
+      name: 'Treecko',
+      quantity: 3,
+      setName: 'Sky Stream',
+      slabContext: {
+        certNumber: '00012345',
+        grade: '10',
+        grader: 'PSA',
+        variantName: 'PSA 10',
+      },
+      variantName: 'PSA 10',
+    };
+    const replacePortfolioEntry = jest.fn(async () => ({
+      cardID: 'sm7-1',
+      deckEntryID: 'entry-qty-3',
+      previousDeckEntryID: 'entry-qty-3',
+      quantity: 2,
+      unitPrice: 25,
+      updatedAt: '2026-05-15T00:00:00.000Z',
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="entry-qty-3"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [gradedEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+          replacePortfolioEntry,
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.queryByTestId('detail-quantity-delete')).toBeNull();
+    expect(screen.getByTestId('detail-quantity-decrement')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('detail-quantity-decrement'));
+
+    await waitFor(() => {
+      expect(replacePortfolioEntry).toHaveBeenCalledWith(expect.objectContaining({
+        cardID: 'sm7-1',
+        deckEntryID: 'entry-qty-3',
+        quantity: 2,
+        unitPrice: 25,
+      }));
+    });
+  });
+
+  it('shows the trash icon when qty === 1 and confirms before deleting', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const rawEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: 'near_mint',
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'entry-solo-raw',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 2,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      variantName: null,
+    };
+    const deletePortfolioEntry = jest.fn(async () => ({
+      cardID: 'sm7-1',
+      deckEntryID: 'entry-solo-raw',
+    }));
+    const onBack = jest.fn();
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="entry-solo-raw"
+        onBack={onBack}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardDetail: async (query) => {
+            const detail = await baseRepository.getCardDetail(query);
+            return detail
+              ? ({ ...detail, ownedEntries: [rawEntry] } satisfies CardDetailRecord)
+              : null;
+          },
+          deletePortfolioEntry,
+        }),
+      },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.getByTestId('detail-quantity-delete')).toBeTruthy();
+    expect(screen.queryByTestId('detail-quantity-decrement')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('detail-quantity-delete'));
+    expect(await screen.findByTestId('detail-delete-confirm-confirm')).toBeTruthy();
+    expect(deletePortfolioEntry).not.toHaveBeenCalled();
+
+    // Cancel keeps the entry.
+    fireEvent.press(screen.getByTestId('detail-delete-confirm-cancel'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('detail-delete-confirm-confirm')).toBeNull();
+    });
+    expect(deletePortfolioEntry).not.toHaveBeenCalled();
+
+    // Re-open and confirm: triggers delete + navigates back.
+    fireEvent.press(screen.getByTestId('detail-quantity-delete'));
+    fireEvent.press(await screen.findByTestId('detail-delete-confirm-confirm'));
+
+    await waitFor(() => {
+      expect(deletePortfolioEntry).toHaveBeenCalledWith({ deckEntryID: 'entry-solo-raw' });
+      expect(onBack).toHaveBeenCalled();
+    });
+  });
+
+  it('shows the Add to collection button (no stepper) when the card is not owned', async () => {
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
@@ -223,6 +410,8 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
+    expect(screen.queryByTestId('detail-quantity-stepper')).toBeNull();
     expect(screen.queryByTestId('detail-sell-card')).toBeNull();
     expect(screen.queryByTestId('detail-edit-collection-entry')).toBeNull();
     expect(screen.queryByTestId('detail-hero-raw-inventory')).toBeNull();
@@ -453,7 +642,7 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('renders the slab last-sold rows (capped at 2) for slab entries with recent eBay sales', async () => {
+  it('renders all available sales (capped at 5) once the user presses Load eBay sales for a slab entry', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -544,23 +733,28 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByText('Treecko')).toBeTruthy();
     expect(await screen.findByTestId('detail-slab-last-sold')).toBeTruthy();
     expect(screen.getByText('Latest sales from eBay')).toBeTruthy();
-    expect(screen.queryByText('Last sold · eBay')).toBeNull();
-    expect(screen.getByTestId('detail-slab-last-sold-row-0')).toBeTruthy();
-    expect(screen.getByTestId('detail-slab-last-sold-row-1')).toBeTruthy();
-    expect(screen.queryByTestId('detail-slab-last-sold-row-2')).toBeNull();
+    expect(screen.getByTestId('detail-slab-load-ebay-sales')).toBeTruthy();
+    // Sales should not be fetched until the user explicitly opts in.
+    expect(getCardRecentSales).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('detail-slab-last-sold-row-0')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('detail-slab-load-ebay-sales'));
 
     await waitFor(() => {
-      expect(getCardRecentSales).toHaveBeenCalledWith({
-        cardId: 'sm7-1',
-        limit: 25,
-        refresh: true,
-        slabContext: gradedEntry.slabContext,
-        source: 'ebay',
-      });
+      expect(screen.getByTestId('detail-slab-last-sold-row-0')).toBeTruthy();
+      expect(screen.getByTestId('detail-slab-last-sold-row-1')).toBeTruthy();
+      expect(screen.getByTestId('detail-slab-last-sold-row-2')).toBeTruthy();
+    });
+    expect(getCardRecentSales).toHaveBeenCalledWith({
+      cardId: 'sm7-1',
+      limit: 25,
+      refresh: true,
+      slabContext: gradedEntry.slabContext,
+      source: 'ebay',
     });
   });
 
-  it('expands beyond two rows when Load more sales is pressed', async () => {
+  it('expands beyond five rows when Load more sales is pressed', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -588,6 +782,14 @@ describe('CardDetailScreen', () => {
       },
       variantName: 'PSA 10',
     };
+    const buildSale = (id: string, daysAgo: number, priceAmount: number) => ({
+      id,
+      title: `Sale ${id.toUpperCase()}`,
+      soldAt: new Date(Date.parse('2026-05-03T10:00:00.000Z') - daysAgo * 86400000).toISOString(),
+      priceAmount,
+      currencyCode: 'USD',
+      saleUrl: `https://www.ebay.com/itm/${id}`,
+    });
     const getCardRecentSales = jest.fn(async () => ({
       source: 'ebay' as const,
       status: 'available' as const,
@@ -595,40 +797,15 @@ describe('CardDetailScreen', () => {
       unavailableReason: null,
       fetchedAt: '2026-05-03T12:00:00.000Z',
       canRefresh: false,
-      saleCount: 4,
+      saleCount: 7,
       sales: [
-        {
-          id: 'sale-a',
-          title: 'Sale A',
-          soldAt: '2026-05-02T10:00:00.000Z',
-          priceAmount: 52,
-          currencyCode: 'USD',
-          saleUrl: 'https://www.ebay.com/itm/a',
-        },
-        {
-          id: 'sale-b',
-          title: 'Sale B',
-          soldAt: '2026-05-01T10:00:00.000Z',
-          priceAmount: 51,
-          currencyCode: 'USD',
-          saleUrl: 'https://www.ebay.com/itm/b',
-        },
-        {
-          id: 'sale-c',
-          title: 'Sale C',
-          soldAt: '2026-04-28T10:00:00.000Z',
-          priceAmount: 49,
-          currencyCode: 'USD',
-          saleUrl: 'https://www.ebay.com/itm/c',
-        },
-        {
-          id: 'sale-d',
-          title: 'Sale D',
-          soldAt: '2026-04-25T10:00:00.000Z',
-          priceAmount: 47,
-          currencyCode: 'USD',
-          saleUrl: 'https://www.ebay.com/itm/d',
-        },
+        buildSale('a', 1, 52),
+        buildSale('b', 2, 51),
+        buildSale('c', 5, 50),
+        buildSale('d', 8, 49),
+        buildSale('e', 12, 48),
+        buildSale('f', 15, 47),
+        buildSale('g', 20, 46),
       ],
     }));
 
@@ -654,19 +831,19 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    expect(await screen.findByTestId('detail-slab-last-sold-row-0')).toBeTruthy();
-    expect(screen.getByTestId('detail-slab-last-sold-row-1')).toBeTruthy();
-    expect(screen.queryByTestId('detail-slab-last-sold-row-2')).toBeNull();
-    expect(screen.queryByTestId('detail-slab-last-sold-row-3')).toBeNull();
-
-    const loadMoreButton = screen.getByTestId('detail-slab-load-more-sales');
-    expect(loadMoreButton).toBeTruthy();
-
-    fireEvent.press(loadMoreButton);
+    fireEvent.press(await screen.findByTestId('detail-slab-load-ebay-sales'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('detail-slab-last-sold-row-2')).toBeTruthy();
-      expect(screen.getByTestId('detail-slab-last-sold-row-3')).toBeTruthy();
+      expect(screen.getByTestId('detail-slab-last-sold-row-4')).toBeTruthy();
+    });
+    expect(screen.queryByTestId('detail-slab-last-sold-row-5')).toBeNull();
+    expect(screen.queryByTestId('detail-slab-last-sold-row-6')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('detail-slab-load-more-sales'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-slab-last-sold-row-5')).toBeTruthy();
+      expect(screen.getByTestId('detail-slab-last-sold-row-6')).toBeTruthy();
     });
     expect(screen.queryByTestId('detail-slab-load-more-sales')).toBeNull();
   });
@@ -733,6 +910,11 @@ describe('CardDetailScreen', () => {
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
     expect(await screen.findByText('Latest sales from eBay')).toBeTruthy();
+    // Empty state only renders after the user opts to load.
+    expect(screen.queryByTestId('detail-slab-last-sold-empty')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('detail-slab-load-ebay-sales'));
+
     const emptyBlock = await screen.findByTestId('detail-slab-last-sold-empty');
     expect(emptyBlock).toBeTruthy();
     expect(screen.queryByTestId('detail-slab-last-sold-row-0')).toBeNull();
@@ -832,6 +1014,7 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
+    fireEvent.press(await screen.findByTestId('detail-slab-load-ebay-sales'));
     expect(await screen.findByTestId('detail-slab-last-sold-row-0')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('detail-slab-last-sold-row-0'));
@@ -910,6 +1093,9 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-hero-slab-meta').props.children).toBe('PSA • 9');
     expect(screen.getByTestId('detail-market-price').props.children).toBe('$2,271.15');
     expect(await screen.findByTestId('detail-slab-last-sold')).toBeTruthy();
+    expect(getCardRecentSales).not.toHaveBeenCalled();
+
+    fireEvent.press(await screen.findByTestId('detail-slab-load-ebay-sales'));
     expect(await screen.findByText('PSA 9 Charizard recent sale')).toBeTruthy();
     await waitFor(() => {
       expect(getCardRecentSales).toHaveBeenCalledWith({

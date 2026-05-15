@@ -510,6 +510,15 @@ export type PortfolioEntryReplaceResponsePayload = {
   updatedAt: string;
 };
 
+export type PortfolioEntryDeleteRequestPayload = {
+  deckEntryID: string;
+};
+
+export type PortfolioEntryDeleteResponsePayload = {
+  deckEntryID: string;
+  cardID: string;
+};
+
 export type PortfolioSaleRequestPayload = {
   deckEntryID?: string | null;
   cardID: string;
