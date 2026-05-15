@@ -5,8 +5,10 @@ import {
   IconChevronDown,
   IconHeart,
   IconHeartFilled,
+  IconMinus,
   IconPencil,
   IconPlus,
+  IconTrash,
   IconTrendingDown,
   IconTrendingUp,
 } from '@tabler/icons-react-native';
@@ -93,7 +95,7 @@ function buildTcgPlayerSearchUrl(params: {
 
 const favoriteHeartColor = '#E83E8C';
 const recentSalesPageSize = 25;
-const slabLastSoldRowLimit = 2;
+const slabLastSoldRowLimit = 5;
 
 type TimeframeId = '7d' | '30d';
 
@@ -691,6 +693,7 @@ export function CardDetailScreen({
   const {
     spotlightRepository,
     dataVersion,
+    refreshData,
     inventoryEntriesCache,
     portfolioDashboardCache,
   } = useAppServices();
@@ -709,6 +712,10 @@ export function CardDetailScreen({
   const [showAllSales, setShowAllSales] = useState(false);
   const [pricesFetchedAt, setPricesFetchedAt] = useState<string | null>(null);
   const [slabGradeOverride, setSlabGradeOverride] = useState<string | null>(null);
+  const [isQuantityMutationPending, setIsQuantityMutationPending] = useState(false);
+  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
+  const [hasUserRequestedSales, setHasUserRequestedSales] = useState(false);
+  const [isLoadingRecentSales, setIsLoadingRecentSales] = useState(false);
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
     [scanReviewId],
@@ -781,6 +788,8 @@ export function CardDetailScreen({
     setFavoriteState({ favoritedAt: null, isFavorite: false });
     setPricesFetchedAt(null);
     setSlabGradeOverride(null);
+    setHasUserRequestedSales(false);
+    setIsLoadingRecentSales(false);
   }, [cardId]);
 
   useEffect(() => {
@@ -865,16 +874,18 @@ export function CardDetailScreen({
   }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, selectedSlabContextForPricing, spotlightRepository]);
 
   useEffect(() => {
-    let cancelled = false;
     setRecentSalesState(null);
     setHasResolvedRecentSalesState(false);
+    setHasUserRequestedSales(false);
+    setIsLoadingRecentSales(false);
+  }, [cardId, dataVersion, selectedSlabContextForPricing]);
 
-    if (!shouldShowRecentSales || !selectedSlabContextForPricing) {
-      return () => {
-        cancelled = true;
-      };
+  const handleLoadRecentSales = useCallback(() => {
+    if (!shouldShowRecentSales || !selectedSlabContextForPricing || isLoadingRecentSales) {
+      return;
     }
-
+    setHasUserRequestedSales(true);
+    setIsLoadingRecentSales(true);
     void spotlightRepository.getCardRecentSales({
       cardId,
       limit: recentSalesPageSize,
@@ -883,23 +894,18 @@ export function CardDetailScreen({
       source: 'ebay',
     })
       .then((nextRecentSales) => {
-        if (!cancelled) {
-          setRecentSalesState(nextRecentSales);
-          setHasResolvedRecentSalesState(true);
-        }
+        setRecentSalesState(nextRecentSales);
+        setHasResolvedRecentSalesState(true);
       })
       .catch(() => {
-        if (!cancelled) {
-          setHasResolvedRecentSalesState(true);
-        }
+        setHasResolvedRecentSalesState(true);
+      })
+      .finally(() => {
+        setIsLoadingRecentSales(false);
       });
-
-    return () => {
-      cancelled = true;
-    };
   }, [
     cardId,
-    dataVersion,
+    isLoadingRecentSales,
     selectedSlabContextForPricing,
     shouldShowRecentSales,
     spotlightRepository,
@@ -1036,15 +1042,61 @@ export function CardDetailScreen({
           favoritedAt: result.favoritedAt ?? null,
           isFavorite: result.isFavorite,
         });
+        setIsFavoritePending(false);
       })
       .catch(() => {
         setFavoriteState(previousFavoriteState);
         setErrorMessage('Could not update favorite right now.');
-      })
-      .finally(() => {
         setIsFavoritePending(false);
       });
   }, [cardId, favoriteState, isFavoritePending, spotlightRepository]);
+
+  const handleDecrementQuantity = useCallback(() => {
+    if (isQuantityMutationPending || !selectedEntry || selectedEntry.quantity <= 1) {
+      return;
+    }
+    setIsQuantityMutationPending(true);
+    void spotlightRepository.replacePortfolioEntry({
+      cardID: selectedEntry.cardId,
+      condition: selectedEntry.conditionCode ?? null,
+      currencyCode: selectedEntry.currencyCode,
+      deckEntryID: selectedEntry.id,
+      quantity: selectedEntry.quantity - 1,
+      slabContext: selectedEntry.slabContext ?? null,
+      unitPrice: selectedEntry.costBasisPerUnit ?? 0,
+      updatedAt: new Date().toISOString(),
+      variantName: selectedEntry.variantName ?? null,
+    })
+      .then(() => {
+        refreshData();
+      })
+      .catch(() => {
+        setErrorMessage('Could not update quantity right now.');
+      })
+      .finally(() => {
+        setIsQuantityMutationPending(false);
+      });
+  }, [isQuantityMutationPending, refreshData, selectedEntry, spotlightRepository]);
+
+  const handleConfirmDelete = useCallback(() => {
+    if (isQuantityMutationPending || !selectedEntry) {
+      return;
+    }
+    setIsQuantityMutationPending(true);
+    void spotlightRepository.deletePortfolioEntry({ deckEntryID: selectedEntry.id })
+      .then(() => {
+        refreshData();
+        setIsDeleteConfirmOpen(false);
+        onBack();
+      })
+      .catch(() => {
+        setErrorMessage('Could not delete this card right now.');
+        setIsDeleteConfirmOpen(false);
+      })
+      .finally(() => {
+        setIsQuantityMutationPending(false);
+      });
+  }, [isQuantityMutationPending, onBack, refreshData, selectedEntry, spotlightRepository]);
 
   const timeframeFilteredPoints = useMemo<ChartPoint[]>(() => {
     const allPoints = (effectiveMarketHistory?.points ?? []) as ChartPoint[];
@@ -1238,6 +1290,24 @@ export function CardDetailScreen({
 
         <View testID="detail-hero-card">
           <SurfaceCard padding={20} radius={28} style={styles.heroCard}>
+            <Pressable
+              accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Favorite card'}
+              accessibilityRole="button"
+              hitSlop={8}
+              onPress={handleToggleFavorite}
+              style={({ pressed }) => [
+                styles.heroFavoriteButton,
+                { opacity: isFavoritePending ? 0.6 : pressed ? 0.84 : 1 },
+              ]}
+              testID="detail-favorite-card"
+            >
+              {isFavorite ? (
+                <IconHeartFilled color={favoriteHeartColor} size={22} />
+              ) : (
+                <IconHeart color={favoriteHeartColor} size={22} strokeWidth={2} />
+              )}
+            </Pressable>
+
             <View style={styles.heroRow}>
               <View style={styles.heroArtStage}>
                 {displayImageUrl ? (
@@ -1294,74 +1364,44 @@ export function CardDetailScreen({
                   </Text>
                 ) : null}
 
-                <View style={styles.actionRow} testID="detail-action-stack">
-                  {/*
-                    Primary action group (payments MVP): Sell (Stripe) is the
-                    promoted Sell, then Buy, then Trade. The legacy manual
-                    sell is demoted to a deprioritized "Cash sale" cell at
-                    the end so its existing wiring stays intact. See
-                    /docs/payments-mvp-plan-2026-05-15.md.
-                  */}
-                  {canShowStripeSellAction ? (
-                    <View style={styles.actionCell}>
+                {isOwned && selectedEntry ? (
+                  <View style={styles.quantityStepperRow} testID="detail-quantity-stepper">
+                    {selectedEntry.quantity <= 1 ? (
                       <IconButton
-                        accessibilityLabel="Sell with Stripe"
-                        onPress={() => {
-                          if (sellEntryId && onOpenStripeSell) {
-                            onOpenStripeSell(sellEntryId);
-                          }
-                        }}
-                        testID="detail-stripe-sell-card"
+                        accessibilityLabel="Delete this card from your collection"
+                        disabled={isQuantityMutationPending}
+                        onPress={() => setIsDeleteConfirmOpen(true)}
+                        testID="detail-quantity-delete"
                         variant="elevated"
                       >
-                        <IconBolt color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                        <IconTrash color={theme.colors.danger} size={18} strokeWidth={2.1} />
                       </IconButton>
-                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Sell</Text>
-                    </View>
-                  ) : null}
-
-                  {canShowBuyAction ? (
-                    <View style={styles.actionCell}>
+                    ) : (
                       <IconButton
-                        accessibilityLabel="Log a buy"
-                        onPress={() => onOpenBuy?.(detail?.cardId ?? cardId)}
-                        testID="detail-buy-card"
+                        accessibilityLabel="Decrease quantity"
+                        disabled={isQuantityMutationPending}
+                        onPress={handleDecrementQuantity}
+                        testID="detail-quantity-decrement"
                         variant="elevated"
                       >
-                        <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                        <IconMinus color={theme.colors.textPrimary} size={18} strokeWidth={2.2} />
                       </IconButton>
-                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Buy</Text>
-                    </View>
-                  ) : null}
-
-                  {canShowTradeAction ? (
-                    <View style={styles.actionCell}>
-                      <IconButton
-                        accessibilityLabel="Log a trade"
-                        onPress={() => onOpenTrade?.(detail?.cardId ?? cardId)}
-                        testID="detail-trade-card"
-                        variant="elevated"
-                      >
-                        <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                      </IconButton>
-                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Trade</Text>
-                    </View>
-                  ) : null}
-
-                  <View style={styles.actionCell}>
+                    )}
+                    <Text
+                      style={[theme.typography.bodyStrong, styles.quantityValue]}
+                      testID="detail-quantity-value"
+                    >
+                      {`Qty ${selectedEntry.quantity}`}
+                    </Text>
                     <IconButton
-                      accessibilityLabel="Add to collection"
+                      accessibilityLabel="Add another copy"
                       onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
-                      testID="detail-add-to-collection"
+                      testID="detail-quantity-increment"
                       variant="elevated"
                     >
                       <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
                     </IconButton>
-                    <Text style={[theme.typography.micro, styles.actionCellLabel]}>Add</Text>
-                  </View>
-
-                  {isOwned && sellEntryId ? (
-                    <View style={styles.actionCell}>
+                    {sellEntryId ? (
                       <IconButton
                         accessibilityLabel="Edit collection entry"
                         onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, sellEntryId)}
@@ -1370,51 +1410,81 @@ export function CardDetailScreen({
                       >
                         <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
                       </IconButton>
-                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Edit</Text>
-                    </View>
-                  ) : null}
-
-                  <View style={styles.actionCell}>
+                    ) : null}
+                  </View>
+                ) : (
+                  <View style={styles.heroAddRow}>
                     <IconButton
-                      accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Favorite card'}
-                      disabled={isFavoritePending}
-                      onPress={handleToggleFavorite}
-                      testID="detail-favorite-card"
+                      accessibilityLabel="Add to collection"
+                      onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
+                      testID="detail-add-to-collection"
                       variant="elevated"
                     >
-                      {isFavorite ? (
-                        <IconHeartFilled color={favoriteHeartColor} size={18} />
-                      ) : (
-                        <IconHeart color={favoriteHeartColor} size={18} strokeWidth={2} />
-                      )}
+                      <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
                     </IconButton>
-                    <Text style={[theme.typography.micro, styles.actionCellLabel]}>Favorite</Text>
+                    <Text style={[theme.typography.bodyStrong, styles.heroAddRowLabel]}>Add to collection</Text>
                   </View>
-
-                  {canShowSellAction ? (
-                    <View style={styles.actionCell}>
-                      <IconButton
-                        accessibilityLabel="Record a cash sale"
-                        onPress={() => {
-                          if (sellEntryId && onOpenSell) {
-                            onOpenSell(sellEntryId);
-                          }
-                        }}
-                        testID="detail-sell-card"
-                        variant="ghost"
-                      >
-                        <IconCash color={theme.colors.textSecondary} size={16} strokeWidth={1.8} />
-                      </IconButton>
-                      <Text
-                        style={[theme.typography.micro, styles.actionCellLabelMuted]}
-                      >
-                        Cash sale
-                      </Text>
-                    </View>
-                  ) : null}
-                </View>
+                )}
               </View>
             </View>
+
+            {canShowStripeSellAction || canShowSellAction ? (
+              <Button
+                contentStyle={styles.sellButtonContent}
+                label="SELL CARD"
+                labelStyle={styles.sellButtonLabel}
+                leadingAccessory={
+                  canShowStripeSellAction
+                    ? <IconBolt color="#1A1A1A" size={20} strokeWidth={2.2} />
+                    : <IconCash color="#1A1A1A" size={20} strokeWidth={2.2} />
+                }
+                onPress={() => {
+                  if (sellEntryId && canShowStripeSellAction && onOpenStripeSell) {
+                    onOpenStripeSell(sellEntryId);
+                    return;
+                  }
+                  if (sellEntryId && onOpenSell) {
+                    onOpenSell(sellEntryId);
+                  }
+                }}
+                size="lg"
+                style={styles.sellButton}
+                testID="detail-sell-card"
+                variant="primary"
+              />
+            ) : null}
+
+            {canShowBuyAction || canShowTradeAction ? (
+              <View style={styles.actionRow} testID="detail-action-stack">
+                {canShowBuyAction ? (
+                  <View style={styles.actionCell}>
+                    <IconButton
+                      accessibilityLabel="Log a buy"
+                      onPress={() => onOpenBuy?.(detail?.cardId ?? cardId)}
+                      testID="detail-buy-card"
+                      variant="elevated"
+                    >
+                      <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                    </IconButton>
+                    <Text style={[theme.typography.micro, styles.actionCellLabel]}>Buy</Text>
+                  </View>
+                ) : null}
+
+                {canShowTradeAction ? (
+                  <View style={styles.actionCell}>
+                    <IconButton
+                      accessibilityLabel="Log a trade"
+                      onPress={() => onOpenTrade?.(detail?.cardId ?? cardId)}
+                      testID="detail-trade-card"
+                      variant="elevated"
+                    >
+                      <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                    </IconButton>
+                    <Text style={[theme.typography.micro, styles.actionCellLabel]}>Trade</Text>
+                  </View>
+                ) : null}
+              </View>
+            ) : null}
           </SurfaceCard>
         </View>
 
@@ -1503,14 +1573,25 @@ export function CardDetailScreen({
                 <Text style={[theme.typography.caption, styles.latestSalesHeader]}>
                   Latest sales from eBay
                 </Text>
-                {visibleSales.length === 0 ? (
+                {!hasUserRequestedSales ? (
+                  <Button
+                    disabled={isLoadingRecentSales}
+                    label={isLoadingRecentSales ? 'Loading…' : 'Load eBay sales'}
+                    onPress={handleLoadRecentSales}
+                    size="lg"
+                    style={styles.loadEbaySalesButton}
+                    testID="detail-slab-load-ebay-sales"
+                    variant="secondary"
+                  />
+                ) : null}
+                {hasUserRequestedSales && hasResolvedRecentSalesState && visibleSales.length === 0 ? (
                   <View style={styles.latestSalesEmpty} testID="detail-slab-last-sold-empty">
                     <Text style={[theme.typography.body, styles.latestSalesEmptyText]}>
                       {salesEmptyCopy}
                     </Text>
                   </View>
                 ) : null}
-                {visibleSales.length > 0 ? (
+                {hasUserRequestedSales && visibleSales.length > 0 ? (
                   <>
                     {visibleSales.map((sale, index) => {
                       const soldDateLabel = formatListingDateLabel(sale.soldAt);
@@ -1602,6 +1683,49 @@ export function CardDetailScreen({
           </SurfaceCard>
         </View>
       </ScrollView>
+
+      <Modal
+        animationType="fade"
+        onRequestClose={() => setIsDeleteConfirmOpen(false)}
+        transparent
+        visible={isDeleteConfirmOpen}
+      >
+        <Pressable
+          accessibilityLabel="Cancel delete"
+          onPress={() => setIsDeleteConfirmOpen(false)}
+          style={styles.dropdownBackdrop}
+          testID="detail-delete-confirm-backdrop"
+        >
+          <Pressable onPress={() => undefined} style={styles.deleteConfirmSheet}>
+            <Text style={[theme.typography.titleCompact, styles.deleteConfirmTitle]}>
+              Delete this card?
+            </Text>
+            <Text style={[theme.typography.body, styles.deleteConfirmBody]}>
+              {`This removes ${displayName || 'this card'} from your collection. You can’t undo this.`}
+            </Text>
+            <View style={styles.deleteConfirmActions}>
+              <Button
+                label="Cancel"
+                onPress={() => setIsDeleteConfirmOpen(false)}
+                size="lg"
+                style={styles.deleteConfirmCancel}
+                testID="detail-delete-confirm-cancel"
+                variant="secondary"
+              />
+              <Button
+                disabled={isQuantityMutationPending}
+                label="Delete"
+                labelStyle={styles.deleteConfirmDeleteLabel}
+                onPress={handleConfirmDelete}
+                size="lg"
+                style={styles.deleteConfirmDelete}
+                testID="detail-delete-confirm-confirm"
+                variant="primary"
+              />
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1614,13 +1738,11 @@ const styles = StyleSheet.create({
   actionCellLabel: {
     color: 'rgba(15, 15, 18, 0.62)',
   },
-  actionCellLabelMuted: {
-    color: 'rgba(15, 15, 18, 0.42)',
-  },
   actionRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 14,
+    justifyContent: 'center',
     marginTop: 6,
   },
   chartAxisLineHorizontal: {
@@ -1766,17 +1888,37 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  heroAddRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  heroAddRowLabel: {
+    color: '#0F0F12',
+  },
   heroCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.92)',
     borderColor: 'rgba(255, 255, 255, 0.62)',
     borderWidth: 1,
-    gap: 10,
+    gap: 14,
+    position: 'relative',
   },
   heroCopy: {
     alignItems: 'flex-start',
     flex: 1,
     gap: 6,
     minWidth: 0,
+  },
+  heroFavoriteButton: {
+    alignItems: 'center',
+    height: 36,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 12,
+    top: 12,
+    width: 36,
+    zIndex: 2,
   },
   heroName: {
     width: '100%',
@@ -1836,6 +1978,9 @@ const styles = StyleSheet.create({
   lazyMarketBlock: {
     gap: 8,
   },
+  loadEbaySalesButton: {
+    marginTop: 4,
+  },
   loadMoreButton: {
     marginTop: 4,
   },
@@ -1881,6 +2026,56 @@ const styles = StyleSheet.create({
     gap: 12,
     justifyContent: 'space-between',
     width: '100%',
+  },
+  quantityStepperRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 8,
+  },
+  quantityValue: {
+    color: '#0F0F12',
+    minWidth: 48,
+    textAlign: 'center',
+  },
+  sellButton: {
+    width: '100%',
+  },
+  sellButtonContent: {
+    justifyContent: 'center',
+  },
+  sellButtonLabel: {
+    color: '#1A1A1A',
+    letterSpacing: 0.6,
+  },
+  deleteConfirmActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 8,
+  },
+  deleteConfirmBody: {
+    color: 'rgba(15, 15, 18, 0.72)',
+  },
+  deleteConfirmCancel: {
+    flex: 1,
+  },
+  deleteConfirmDelete: {
+    backgroundColor: '#E5484D',
+    borderColor: '#E5484D',
+    flex: 1,
+  },
+  deleteConfirmDeleteLabel: {
+    color: '#FFFFFF',
+  },
+  deleteConfirmSheet: {
+    backgroundColor: '#FFFFFF',
+    borderRadius: 20,
+    gap: 12,
+    padding: 20,
+    width: '100%',
+  },
+  deleteConfirmTitle: {
+    color: '#0F0F12',
   },
   pricingTopRow: {
     alignItems: 'center',

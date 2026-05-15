@@ -8,7 +8,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { FilterList, MoreHorizCircle } from 'iconoir-react-native';
+import { Eye, EyeClosed, FilterList, MoreHorizCircle } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { ChartMode, InventoryCardEntry, TopMoverEntry } from '@spotlight/api-client';
@@ -37,6 +37,7 @@ import {
   formatSignedCurrency,
 } from '@/features/portfolio/components/portfolio-formatting';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
+import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { getCardImageUrl } from '@/lib/card-images';
 
 type PortfolioScreenProps = {
@@ -56,6 +57,7 @@ type InventoryTypeFilter = 'all' | 'raw' | 'graded';
 type CollectionTab = 'portfolio' | 'recent-sales' | 'favorites';
 
 const inventoryHighlightLimit = 6;
+const hiddenValueMask = '*****';
 
 function applyTypeFilter(items: InventoryCardEntry[], filter: InventoryTypeFilter) {
   if (filter === 'all') {
@@ -154,6 +156,7 @@ export function PortfolioScreen({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const model = usePortfolioScreenModel();
+  const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
   const [chartModeMenuOpen, setChartModeMenuOpen] = useState(false);
@@ -172,16 +175,18 @@ export function PortfolioScreen({
     && model.loadError !== null;
 
   const summary = model.dashboard.summary;
-  const summaryValueLabel = activeChartPoint?.valueLabel
+  const rawSummaryValueLabel = activeChartPoint?.valueLabel
     ?? formatCurrency(summary.currentValue);
+  const summaryValueLabel = isSummaryHidden ? hiddenValueMask : rawSummaryValueLabel;
   const summaryDateLabel = activeChartPoint?.dateLabel ?? 'Today';
   // Sales mode emits an empty changePercentLabel (no percent applies to
   // a sale count). Skip the trailing "()" when there's no percent value.
-  const summaryDeltaAmountLabel = activeChartPoint
+  const rawSummaryDeltaAmountLabel = activeChartPoint
     ? activeChartPoint.changePercentLabel
       ? `${activeChartPoint.changeAmountLabel} (${activeChartPoint.changePercentLabel})`
       : activeChartPoint.changeAmountLabel
     : `${formatSignedCurrency(summary.changeAmount)} (${formatPercent(summary.changePercent)})`;
+  const summaryDeltaAmountLabel = isSummaryHidden ? hiddenValueMask : rawSummaryDeltaAmountLabel;
   const summaryDeltaIsPositive = activeChartPoint
     ? activeChartPoint.changeAmount >= 0
     : summary.changeAmount >= 0;
@@ -367,7 +372,20 @@ export function PortfolioScreen({
           >
             Collection
           </Text>
-          <View style={styles.headerSpacer} />
+          <Pressable
+            accessibilityLabel={isSummaryHidden ? 'Show portfolio value' : 'Hide portfolio value'}
+            accessibilityRole="button"
+            hitSlop={8}
+            onPress={toggleSummaryHidden}
+            style={styles.headerVisibilityButton}
+            testID="portfolio-summary-visibility-toggle"
+          >
+            {isSummaryHidden ? (
+              <EyeClosed color={theme.colors.textSecondary} height={20} width={20} />
+            ) : (
+              <Eye color={theme.colors.textSecondary} height={20} width={20} />
+            )}
+          </Pressable>
         </View>
 
         {carouselItems.length > 0 || (model.isLoadingTopMovers && !model.hasLoadedTopMovers) ? (
@@ -595,8 +613,10 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'space-between',
   },
-  headerSpacer: {
+  headerVisibilityButton: {
+    alignItems: 'center',
     height: 36,
+    justifyContent: 'center',
     width: 36,
   },
   headerTitle: {

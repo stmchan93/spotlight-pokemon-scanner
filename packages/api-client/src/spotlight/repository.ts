@@ -38,9 +38,8 @@ import type {
   LabelingSessionRecord,
   PaymentOrder,
   PaymentOrderStatus,
-  PushTokenRegistration,
-  RefundRequest,
-  RefundedOrder,
+  PortfolioEntryDeleteRequestPayload,
+  PortfolioEntryDeleteResponsePayload,
   PortfolioEntryReplaceRequestPayload,
   PortfolioEntryReplaceResponsePayload,
   PortfolioImportCommitResponsePayload,
@@ -58,7 +57,10 @@ import type {
   PortfolioDashboard,
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
+  PushTokenRegistration,
   RecentSaleRecord,
+  RefundedOrder,
+  RefundRequest,
   ScannerCapturePayload,
   ScanFeedbackPayload,
   ScannerMatchResult,
@@ -109,6 +111,7 @@ export interface SpotlightRepository {
   createInventoryEntry(payload: InventoryEntryCreateRequestPayload): Promise<InventoryEntryCreateResponsePayload>;
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
   replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload): Promise<PortfolioEntryReplaceResponsePayload>;
+  deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
   createPortfolioSalesBatch(payloads: PortfolioSaleRequestPayload[]): Promise<PortfolioSaleResponsePayload[]>;
   previewPortfolioImport(payload: PortfolioImportPreviewRequestPayload): Promise<PortfolioImportJobRecord>;
@@ -2436,6 +2439,18 @@ export class MockSpotlightRepository implements SpotlightRepository {
     };
   }
 
+  async deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload) {
+    const existingEntry = this.inventoryEntries.find((entry) => entry.id === payload.deckEntryID);
+    if (!existingEntry) {
+      throw new SpotlightRepositoryRequestError('Deck entry not found.', 'not_found', 404);
+    }
+    this.inventoryEntries = this.inventoryEntries.filter((entry) => entry.id !== payload.deckEntryID);
+    return {
+      deckEntryID: existingEntry.id,
+      cardID: existingEntry.cardId,
+    };
+  }
+
   async createPortfolioSale(payload: PortfolioSaleRequestPayload) {
     const { updatedEntries, saleResponse, recentSale } = updateInventoryForSale(
       this.inventoryEntries,
@@ -3584,6 +3599,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
   async replacePortfolioEntry(payload: PortfolioEntryReplaceRequestPayload) {
     return this.requestJsonOrThrow<PortfolioEntryReplaceResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/replace`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload) {
+    return this.requestJsonOrThrow<PortfolioEntryDeleteResponsePayload>(`${this.baseUrl}/api/v1/deck/entries/delete`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

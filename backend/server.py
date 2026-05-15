@@ -3805,6 +3805,29 @@ class SpotlightScanService:
             "updatedAt": updated_at,
         }
 
+    def delete_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        deck_entry_id = str(payload.get("deckEntryID") or "").strip()
+        if not deck_entry_id:
+            raise ValueError("deckEntryID is required")
+
+        existing_row = self._owned_deck_entry_row_by_reference(deck_entry_id)
+        if existing_row is None:
+            raise FileNotFoundError("deck entry not found")
+        resolved_deck_entry_id = str(existing_row["id"] or "").strip()
+        resolved_card_id = str(existing_row["card_id"] or "").strip()
+
+        self.connection.execute(
+            "DELETE FROM deck_entries WHERE id = ? AND owner_user_id = ?",
+            (resolved_deck_entry_id, owner_user_id),
+        )
+        self.connection.commit()
+
+        return {
+            "deckEntryID": resolved_deck_entry_id,
+            "cardID": resolved_card_id,
+        }
+
     def preview_portfolio_import(self, payload: dict[str, Any]) -> dict[str, Any]:
         return preview_portfolio_import(self.connection, payload, owner_user_id=self._current_owner_user_id())
 
@@ -12641,6 +12664,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry replace failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, update_payload)
+            return
+
+        if parsed.path == "/api/v1/deck/entries/delete":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    delete_payload = self.service.delete_deck_entry(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck entry delete failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, delete_payload)
             return
 
         if parsed.path == "/api/v1/deck/entries/purchase-price":
