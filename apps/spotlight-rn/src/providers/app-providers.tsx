@@ -20,6 +20,11 @@ import {
 } from '@spotlight/api-client';
 
 import { prefetchCardImages } from '@/lib/card-images';
+import {
+  registerForPushNotifications,
+  resolvePushPlatform,
+  setupAndroidChannel,
+} from '@/lib/push-notifications';
 import { resolveRuntimeValue } from '@/lib/runtime-config';
 
 export const DEFAULT_LOCAL_API_BASE_URL = 'http://127.0.0.1:8788';
@@ -234,6 +239,53 @@ export function AppProviders({
       cancelled = true;
     };
   }, [dataVersion, spotlightRepository]);
+
+  // Expo push notifications: register a token when the user is signed in
+  // (post-sign-in, not on first launch — that keeps the permission prompt
+  // out of the cold-start path). Unregister on sign-out best-effort.
+  //
+  // Skipped in jest unless explicitly opted in via
+  // `EXPO_PUBLIC_TEST_PUSH_REGISTRATION` so tests don't trigger
+  // permission/token network mocks they didn't ask for.
+  useEffect(() => {
+    if (
+      process.env.NODE_ENV === 'test'
+      && process.env.EXPO_PUBLIC_TEST_PUSH_REGISTRATION !== '1'
+    ) {
+      return undefined;
+    }
+
+    let cancelled = false;
+    let lastRegisteredToken: string | null = null;
+
+    if (sessionOwnerKey && activeSessionOwnerKey !== 'anonymous') {
+      void (async () => {
+        try {
+          await setupAndroidChannel();
+          const { token } = await registerForPushNotifications();
+          if (cancelled || !token) {
+            return;
+          }
+          lastRegisteredToken = token;
+          await spotlightRepository.registerPushToken({
+            pushToken: token,
+            platform: resolvePushPlatform(),
+          });
+        } catch {
+          // Push registration is best-effort; never block the app.
+        }
+      })();
+    }
+
+    return () => {
+      cancelled = true;
+      if (lastRegisteredToken && activeSessionOwnerKey !== 'anonymous') {
+        void spotlightRepository.unregisterPushToken(lastRegisteredToken).catch(() => {
+          // Best-effort cleanup; ignore failures.
+        });
+      }
+    };
+  }, [activeSessionOwnerKey, sessionOwnerKey, spotlightRepository]);
 
   const services = useMemo<AppServices>(() => {
     return {

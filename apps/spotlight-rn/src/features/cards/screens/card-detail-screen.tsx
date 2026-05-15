@@ -1295,6 +1295,59 @@ export function CardDetailScreen({
                 ) : null}
 
                 <View style={styles.actionRow} testID="detail-action-stack">
+                  {/*
+                    Primary action group (payments MVP): Sell (Stripe) is the
+                    promoted Sell, then Buy, then Trade. The legacy manual
+                    sell is demoted to a deprioritized "Cash sale" cell at
+                    the end so its existing wiring stays intact. See
+                    /docs/payments-mvp-plan-2026-05-15.md.
+                  */}
+                  {canShowStripeSellAction ? (
+                    <View style={styles.actionCell}>
+                      <IconButton
+                        accessibilityLabel="Sell with Stripe"
+                        onPress={() => {
+                          if (sellEntryId && onOpenStripeSell) {
+                            onOpenStripeSell(sellEntryId);
+                          }
+                        }}
+                        testID="detail-stripe-sell-card"
+                        variant="elevated"
+                      >
+                        <IconBolt color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                      </IconButton>
+                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Sell</Text>
+                    </View>
+                  ) : null}
+
+                  {canShowBuyAction ? (
+                    <View style={styles.actionCell}>
+                      <IconButton
+                        accessibilityLabel="Log a buy"
+                        onPress={() => onOpenBuy?.(detail?.cardId ?? cardId)}
+                        testID="detail-buy-card"
+                        variant="elevated"
+                      >
+                        <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                      </IconButton>
+                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Buy</Text>
+                    </View>
+                  ) : null}
+
+                  {canShowTradeAction ? (
+                    <View style={styles.actionCell}>
+                      <IconButton
+                        accessibilityLabel="Log a trade"
+                        onPress={() => onOpenTrade?.(detail?.cardId ?? cardId)}
+                        testID="detail-trade-card"
+                        variant="elevated"
+                      >
+                        <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                      </IconButton>
+                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Trade</Text>
+                    </View>
+                  ) : null}
+
                   <View style={styles.actionCell}>
                     <IconButton
                       accessibilityLabel="Add to collection"
@@ -1341,64 +1394,22 @@ export function CardDetailScreen({
                   {canShowSellAction ? (
                     <View style={styles.actionCell}>
                       <IconButton
-                        accessibilityLabel="Sell card"
+                        accessibilityLabel="Record a cash sale"
                         onPress={() => {
                           if (sellEntryId && onOpenSell) {
                             onOpenSell(sellEntryId);
                           }
                         }}
                         testID="detail-sell-card"
-                        variant="elevated"
+                        variant="ghost"
                       >
-                        <IconCash color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                        <IconCash color={theme.colors.textSecondary} size={16} strokeWidth={1.8} />
                       </IconButton>
-                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Sell</Text>
-                    </View>
-                  ) : null}
-
-                  {canShowBuyAction ? (
-                    <View style={styles.actionCell}>
-                      <IconButton
-                        accessibilityLabel="Log a buy"
-                        onPress={() => onOpenBuy?.(detail?.cardId ?? cardId)}
-                        testID="detail-buy-card"
-                        variant="elevated"
+                      <Text
+                        style={[theme.typography.micro, styles.actionCellLabelMuted]}
                       >
-                        <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                      </IconButton>
-                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Buy</Text>
-                    </View>
-                  ) : null}
-
-                  {canShowStripeSellAction ? (
-                    <View style={styles.actionCell}>
-                      <IconButton
-                        accessibilityLabel="Sell with Stripe"
-                        onPress={() => {
-                          if (sellEntryId && onOpenStripeSell) {
-                            onOpenStripeSell(sellEntryId);
-                          }
-                        }}
-                        testID="detail-stripe-sell-card"
-                        variant="elevated"
-                      >
-                        <IconBolt color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                      </IconButton>
-                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Sell (Stripe)</Text>
-                    </View>
-                  ) : null}
-
-                  {canShowTradeAction ? (
-                    <View style={styles.actionCell}>
-                      <IconButton
-                        accessibilityLabel="Log a trade"
-                        onPress={() => onOpenTrade?.(detail?.cardId ?? cardId)}
-                        testID="detail-trade-card"
-                        variant="elevated"
-                      >
-                        <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                      </IconButton>
-                      <Text style={[theme.typography.micro, styles.actionCellLabel]}>Trade</Text>
+                        Cash sale
+                      </Text>
                     </View>
                   ) : null}
                 </View>
@@ -1603,8 +1614,12 @@ const styles = StyleSheet.create({
   actionCellLabel: {
     color: 'rgba(15, 15, 18, 0.62)',
   },
+  actionCellLabelMuted: {
+    color: 'rgba(15, 15, 18, 0.42)',
+  },
   actionRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 14,
     marginTop: 6,
   },

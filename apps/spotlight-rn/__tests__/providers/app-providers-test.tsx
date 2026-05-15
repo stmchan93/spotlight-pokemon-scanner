@@ -236,6 +236,59 @@ describe('AppProviders', () => {
     expect(screen.getByText('override')).toBeTruthy();
   });
 
+  it('registers an Expo push token with the resolved repository after sign-in', async () => {
+    setNodeEnv('test');
+    process.env.EXPO_PUBLIC_TEST_PUSH_REGISTRATION = '1';
+
+    const registerPushToken = jest.fn(async () => ({ ok: true as const }));
+    const unregisterPushToken = jest.fn(async () => ({ ok: true as const }));
+    const repository = new MockSpotlightRepository();
+    repository.registerPushToken = registerPushToken;
+    repository.unregisterPushToken = unregisterPushToken;
+
+    render(
+      <AppProviders sessionOwnerKey="collector-1" spotlightRepository={repository}>
+        <Text>child</Text>
+      </AppProviders>,
+    );
+
+    await waitFor(() => {
+      expect(registerPushToken).toHaveBeenCalledTimes(1);
+    });
+
+    expect(registerPushToken).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pushToken: 'ExponentPushToken[mock-token]',
+      }),
+    );
+
+    delete process.env.EXPO_PUBLIC_TEST_PUSH_REGISTRATION;
+  });
+
+  it('skips push registration for anonymous sessions', async () => {
+    setNodeEnv('test');
+    process.env.EXPO_PUBLIC_TEST_PUSH_REGISTRATION = '1';
+
+    const registerPushToken = jest.fn(async () => ({ ok: true as const }));
+    const repository = new MockSpotlightRepository();
+    repository.registerPushToken = registerPushToken;
+
+    render(
+      <AppProviders spotlightRepository={repository}>
+        <Text>child</Text>
+      </AppProviders>,
+    );
+
+    // Give microtasks a turn to drain.
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(registerPushToken).not.toHaveBeenCalled();
+
+    delete process.env.EXPO_PUBLIC_TEST_PUSH_REGISTRATION;
+  });
+
   it('clears user-scoped caches immediately when the session owner changes', async () => {
     setNodeEnv('test');
     const repository = new MockSpotlightRepository();

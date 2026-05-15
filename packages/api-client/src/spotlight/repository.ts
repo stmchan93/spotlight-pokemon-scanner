@@ -38,6 +38,9 @@ import type {
   LabelingSessionRecord,
   PaymentOrder,
   PaymentOrderStatus,
+  PushTokenRegistration,
+  RefundRequest,
+  RefundedOrder,
   PortfolioEntryReplaceRequestPayload,
   PortfolioEntryReplaceResponsePayload,
   PortfolioImportCommitResponsePayload,
@@ -126,6 +129,17 @@ export interface SpotlightRepository {
   createPaymentOrder(request: CreateOrderRequest): Promise<CreateOrderResponse>;
   getPaymentOrder(orderId: string): Promise<PaymentOrder>;
   cancelPaymentOrder(orderId: string): Promise<PaymentOrder>;
+  /**
+   * Seller-initiated refund of a paid order. Omit `amountCents` for a full
+   * refund; pass an integer in cents for a partial refund. Throws
+   * `PaymentsNotEnabledError` if Stripe is not configured for the env.
+   */
+  refundPaymentOrder(orderId: string, request?: RefundRequest): Promise<RefundedOrder>;
+
+  // Devices — Expo push token lifecycle. NOT payments-gated; uses the
+  // regular request helper so 503 propagates as a normal error.
+  registerPushToken(request: PushTokenRegistration): Promise<{ ok: true }>;
+  unregisterPushToken(pushToken: string): Promise<{ ok: true }>;
 
   // Trades — atomic inventory trade log (no payment movement).
   createTrade(request: CreateTradeRequest): Promise<CreateTradeResponse>;
@@ -2718,6 +2732,57 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return next;
   }
 
+  async refundPaymentOrder(orderId: string, request?: RefundRequest): Promise<RefundedOrder> {
+    const order = this.mockPaymentOrders.get(orderId);
+    if (!order) {
+      throw new SpotlightRepositoryRequestError(
+        'Order not found in mock repository.',
+        'not_found',
+        404,
+      );
+    }
+    if (order.status === 'refunded') {
+      throw new SpotlightRepositoryRequestError(
+        'Order already refunded.',
+        'request_failed',
+        409,
+      );
+    }
+    const requestedCents = request?.amountCents;
+    const captured = order.amountCents;
+    const amount = typeof requestedCents === 'number' ? Math.max(0, Math.trunc(requestedCents)) : captured;
+    if (amount <= 0 || amount > captured) {
+      throw new SpotlightRepositoryRequestError(
+        'Refund amount is invalid for this order.',
+        'request_failed',
+        400,
+      );
+    }
+    const refundedAt = new Date().toISOString();
+    const next: PaymentOrder = {
+      ...order,
+      status: 'refunded',
+    };
+    this.mockPaymentOrders.set(orderId, next);
+    return {
+      orderId,
+      status: 'refunded',
+      refundedAmountCents: amount,
+      amountCents: captured,
+      currencyCode: order.currencyCode,
+      paidAt: order.paidAt,
+      refundedAt,
+    };
+  }
+
+  async registerPushToken(_request: PushTokenRegistration): Promise<{ ok: true }> {
+    return { ok: true };
+  }
+
+  async unregisterPushToken(_pushToken: string): Promise<{ ok: true }> {
+    return { ok: true };
+  }
+
   async createTrade(request: CreateTradeRequest): Promise<CreateTradeResponse> {
     if (!request.inbound?.cardId) {
       throw new SpotlightRepositoryRequestError(
@@ -4095,6 +4160,59 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return normalizePaymentOrderRecord(response, orderId);
   }
 
+  async refundPaymentOrder(orderId: string, request?: RefundRequest): Promise<RefundedOrder> {
+    const encoded = encodeURIComponent(orderId);
+    const body: Record<string, unknown> = {};
+    if (typeof request?.amountCents === 'number' && Number.isFinite(request.amountCents)) {
+      body.amount_cents = Math.max(0, Math.trunc(request.amountCents));
+    }
+    if (typeof request?.reason === 'string' && request.reason.trim().length > 0) {
+      body.reason = request.reason.trim();
+    }
+    const response = await this.paymentsRequest<Record<string, unknown>>(
+      `${this.baseUrl}/api/v1/payments/orders/${encoded}/refund`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      },
+    );
+    return normalizeRefundedOrderRecord(response, orderId);
+  }
+
+  async registerPushToken(request: PushTokenRegistration): Promise<{ ok: true }> {
+    const payload: Record<string, unknown> = {
+      push_token: request.pushToken,
+    };
+    if (request.platform) {
+      payload.platform = request.platform;
+    }
+    if (request.deviceId) {
+      payload.device_id = request.deviceId;
+    }
+    await this.requestJsonOrThrow<{ ok?: boolean }>(`${this.baseUrl}/api/v1/devices/push-token`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+    return { ok: true };
+  }
+
+  async unregisterPushToken(pushToken: string): Promise<{ ok: true }> {
+    await this.requestJsonOrThrow<{ ok?: boolean }>(`${this.baseUrl}/api/v1/devices/push-token`, {
+      method: 'DELETE',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ push_token: pushToken }),
+    });
+    return { ok: true };
+  }
+
   async createTrade(request: CreateTradeRequest): Promise<CreateTradeResponse> {
     const inbound = request.inbound ?? ({} as CreateTradeRequest['inbound']);
     const body = {
@@ -4135,6 +4253,28 @@ function normalizePaymentOrderStatus(value: unknown): PaymentOrderStatus | null 
   }
   const normalized = value.trim().toLowerCase() as PaymentOrderStatus;
   return paymentOrderStatuses.includes(normalized) ? normalized : null;
+}
+
+function normalizeRefundedOrderRecord(
+  raw: Record<string, unknown>,
+  fallbackOrderId: string,
+): RefundedOrder {
+  const orderId = normalizeString(raw.order_id) ?? normalizeString(raw.orderId) ?? fallbackOrderId;
+  const amountRaw = raw.amount_cents ?? raw.amountCents;
+  const refundedRaw = raw.refunded_amount_cents ?? raw.refundedAmountCents;
+  return {
+    orderId,
+    status: normalizePaymentOrderStatus(raw.status) ?? 'refunded',
+    refundedAmountCents: typeof refundedRaw === 'number'
+      ? Math.max(0, Math.trunc(refundedRaw))
+      : Math.max(0, Math.trunc(Number(refundedRaw) || 0)),
+    amountCents: typeof amountRaw === 'number'
+      ? Math.trunc(amountRaw)
+      : Math.trunc(Number(amountRaw) || 0),
+    currencyCode: normalizeString(raw.currency_code) ?? normalizeString(raw.currencyCode) ?? 'USD',
+    paidAt: normalizeString(raw.paid_at ?? raw.paidAt),
+    refundedAt: normalizeString(raw.refunded_at ?? raw.refundedAt),
+  };
 }
 
 function normalizePaymentOrderRecord(

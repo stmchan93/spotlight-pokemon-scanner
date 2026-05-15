@@ -47,6 +47,13 @@ export function AccountScreen() {
     router.push('/labeling/session');
   }, [router]);
 
+  const openTradeSheet = useCallback(() => {
+    // Open the trade sheet with no inbound card pre-filled — the sheet itself
+    // renders a "Scan inbound card" CTA that pushes the scanner with
+    // `return_mode=trade`.
+    router.push('/trade');
+  }, [router]);
+
   const handleDiscountChange = useCallback(
     (rawValue: string) => {
       // Allow only digits, max 3 characters; clamp to 0–100 and persist.
@@ -162,6 +169,31 @@ export function AccountScreen() {
             />
           </SurfaceCard>
         </View>
+
+        <SurfaceCard padding={20} radius={28} testID="account-trade-section">
+          <Pressable
+            accessibilityLabel="Log a trade"
+            accessibilityRole="button"
+            onPress={openTradeSheet}
+            style={({ pressed }) => [
+              styles.labelSessionButton,
+              {
+                backgroundColor: theme.colors.brand,
+                opacity: pressed ? 0.9 : 1,
+              },
+            ]}
+            testID="account-log-trade"
+          >
+            <View style={styles.labelSessionCopy}>
+              <Text style={[theme.typography.control, { color: theme.colors.textInverse }]}>
+                Log a trade
+              </Text>
+              <Text style={[theme.typography.caption, { color: theme.colors.textInverse }]}>
+                Scan an inbound card and pick what you traded for it.
+              </Text>
+            </View>
+          </Pressable>
+        </SurfaceCard>
 
         {canStartLabelingSession ? (
           <SurfaceCard padding={20} radius={28}>

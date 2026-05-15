@@ -204,6 +204,25 @@ jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn(async () => {}),
 }));
 
+// `expo-notifications` is referenced by the parallel refunds + push-notification
+// work (task #12) but isn't yet installed as a dependency in this worktree.
+// Mock it virtually so tests don't fail to resolve the module.
+jest.mock('expo-notifications', () => ({
+  getPermissionsAsync: jest.fn(async () => ({ status: 'granted', granted: true })),
+  requestPermissionsAsync: jest.fn(async () => ({ status: 'granted', granted: true })),
+  getExpoPushTokenAsync: jest.fn(async () => ({ data: 'ExponentPushToken[mock-token]' })),
+  setNotificationChannelAsync: jest.fn(async () => {}),
+  AndroidImportance: {
+    DEFAULT: 3,
+    HIGH: 4,
+    MAX: 5,
+    MIN: 1,
+    LOW: 2,
+    NONE: 0,
+    UNSPECIFIED: -1000,
+  },
+}), { virtual: true });
+
 jest.mock('expo-camera', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');

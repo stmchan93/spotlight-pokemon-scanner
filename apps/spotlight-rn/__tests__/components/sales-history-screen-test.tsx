@@ -1,6 +1,10 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 
-import { SalesHistoryScreen } from '@/features/portfolio/screens/sales-history-screen';
+import {
+  saleCanBeRefunded,
+  saleIsRefunded,
+  SalesHistoryScreen,
+} from '@/features/portfolio/screens/sales-history-screen';
 
 import { renderWithProviders } from '../test-utils';
 
@@ -65,5 +69,52 @@ describe('SalesHistoryScreen', () => {
     fireEvent.press(screen.getByTestId('sales-card-sale-8'));
 
     expect(screen.queryByText('Edit Sale Price')).toBeNull();
+  });
+
+  describe('refund eligibility helpers', () => {
+    const baseSale = {
+      cardNumber: '#1/25',
+      currencyCode: 'USD',
+      id: 'sale-x',
+      imageUrl: 'x',
+      kind: 'sold' as const,
+      name: 'Pikachu',
+      setName: 'Demo Set',
+      soldAtLabel: 'Sold on May 14, 2026',
+      soldPrice: 40,
+    };
+
+    it('marks stripe-paid sales as refundable when not already refunded', () => {
+      expect(
+        saleCanBeRefunded({
+          ...baseSale,
+          paymentMethod: 'stripe',
+          orderId: 'order_1',
+          refundedAt: null,
+        }),
+      ).toBe(true);
+    });
+
+    it('does not surface refund for non-stripe sales', () => {
+      expect(
+        saleCanBeRefunded({
+          ...baseSale,
+          paymentMethod: 'cash',
+          orderId: null,
+          refundedAt: null,
+        }),
+      ).toBe(false);
+    });
+
+    it('treats refundedAt as the canonical refunded state', () => {
+      const sale = {
+        ...baseSale,
+        paymentMethod: 'stripe',
+        orderId: 'order_1',
+        refundedAt: '2026-05-15T01:00:00.000Z',
+      };
+      expect(saleIsRefunded(sale)).toBe(true);
+      expect(saleCanBeRefunded(sale)).toBe(false);
+    });
   });
 });

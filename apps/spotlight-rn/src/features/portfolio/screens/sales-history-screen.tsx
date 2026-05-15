@@ -6,9 +6,12 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import type { RecentSaleRecord } from '@spotlight/api-client';
 import {
+  Button,
   PillButton,
   SearchField,
   StateCard,
@@ -82,25 +85,48 @@ function ControlGroup({
   );
 }
 
+type SaleCardData = Pick<
+  RecentSaleRecord,
+  | 'cardNumber'
+  | 'currencyCode'
+  | 'id'
+  | 'imageUrl'
+  | 'kind'
+  | 'name'
+  | 'orderId'
+  | 'paymentMethod'
+  | 'refundedAt'
+  | 'setName'
+  | 'soldAtLabel'
+  | 'soldPrice'
+>;
+
+export function saleCanBeRefunded(sale: SaleCardData) {
+  return (
+    sale.kind === 'sold'
+    && sale.paymentMethod === 'stripe'
+    && !!sale.orderId
+    && !sale.refundedAt
+  );
+}
+
+export function saleIsRefunded(sale: SaleCardData) {
+  return Boolean(sale.refundedAt);
+}
+
 function SaleCard({
   onPress,
+  onRefundPress,
   sale,
 }: {
   onPress: () => void;
-  sale: {
-    cardNumber: string;
-    currencyCode: string;
-    id: string;
-    imageUrl: string;
-    kind: 'sold' | 'traded';
-    name: string;
-    setName: string;
-    soldAtLabel: string;
-    soldPrice: number;
-  };
+  onRefundPress?: (sale: SaleCardData) => void;
+  sale: SaleCardData;
 }) {
   const theme = useSpotlightTheme();
   const canEdit = sale.kind === 'sold';
+  const showRefundCTA = saleCanBeRefunded(sale);
+  const showRefundedPill = saleIsRefunded(sale);
 
   return (
     <Pressable
@@ -143,12 +169,30 @@ function SaleCard({
             <Text style={[theme.typography.caption, styles.saleDate, { color: theme.colors.textSecondary }]}>
               {sale.soldAtLabel}
             </Text>
-            {canEdit ? (
+            {canEdit && !showRefundCTA && !showRefundedPill ? (
               <Text style={[theme.typography.caption, styles.saleIcon, { color: theme.colors.textSecondary }]}>
                 ✎
               </Text>
             ) : null}
           </View>
+
+          {showRefundedPill ? (
+            <View style={styles.refundedPill} testID={`sales-card-${sale.id}-refunded`}>
+              <Text style={[theme.typography.micro, { color: theme.colors.textSecondary }]}>
+                Refunded
+              </Text>
+            </View>
+          ) : showRefundCTA && onRefundPress ? (
+            <View style={styles.refundButtonRow}>
+              <Button
+                label="Refund"
+                onPress={() => onRefundPress(sale)}
+                size="sm"
+                testID={`sales-card-${sale.id}-refund`}
+                variant="secondary"
+              />
+            </View>
+          ) : null}
         </View>
       </SurfaceCard>
     </Pressable>
@@ -177,10 +221,26 @@ function SalesHistorySkeleton() {
 export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const model = usePortfolioScreenModel();
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOption, setSortOption] = useState<SalesSortOption>('recent');
   const [filterOption, setFilterOption] = useState<SalesFilterOption>('all');
+
+  const handleRefundPress = (sale: SaleCardData) => {
+    if (!sale.orderId) {
+      return;
+    }
+    router.push({
+      pathname: '/refund',
+      params: {
+        orderId: sale.orderId,
+        cardName: sale.name,
+        soldAmount: sale.soldPrice.toFixed(2),
+        currencyCode: sale.currencyCode,
+      },
+    });
+  };
   const shouldShowInitialError = !model.hasLoadedDashboard && !model.isLoading && model.loadError !== null;
 
   const sales = model.dashboard.recentSales;
@@ -303,7 +363,12 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
           ) : (
             <View style={styles.saleList}>
               {displayedSales.map((sale) => (
-                <SaleCard key={sale.id} onPress={() => model.openSaleEditor(sale)} sale={sale} />
+                <SaleCard
+                  key={sale.id}
+                  onPress={() => model.openSaleEditor(sale)}
+                  onRefundPress={handleRefundPress}
+                  sale={sale}
+                />
               ))}
             </View>
           )}
@@ -387,6 +452,14 @@ const styles = StyleSheet.create({
   },
   saleList: {
     gap: 10,
+  },
+  refundButtonRow: {
+    flexDirection: 'row',
+    marginTop: 8,
+  },
+  refundedPill: {
+    alignSelf: 'flex-start',
+    marginTop: 8,
   },
   salePriceText: {
     flexShrink: 0,

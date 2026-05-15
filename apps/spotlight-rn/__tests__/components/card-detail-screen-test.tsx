@@ -212,6 +212,69 @@ describe('CardDetailScreen', () => {
     expect(onOpenAddToCollection).toHaveBeenLastCalledWith('xyp-111', 'entry-3');
   });
 
+  it('promotes Stripe Sell as the primary Sell action while keeping the manual cash sale accessible', async () => {
+    const onOpenSell = jest.fn();
+    const onOpenStripeSell = jest.fn();
+    const onOpenBuy = jest.fn();
+    const onOpenTrade = jest.fn();
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="xyp-111"
+        entryId="entry-3"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        onOpenBuy={onOpenBuy}
+        onOpenSell={onOpenSell}
+        onOpenStripeSell={onOpenStripeSell}
+        onOpenTrade={onOpenTrade}
+      />,
+    );
+
+    expect(await screen.findByText('Celebi')).toBeTruthy();
+
+    // Primary action group present:
+    expect(screen.getByTestId('detail-stripe-sell-card')).toBeTruthy();
+    expect(screen.getByTestId('detail-buy-card')).toBeTruthy();
+    expect(screen.getByTestId('detail-trade-card')).toBeTruthy();
+
+    // Manual cash-sale wiring is still reachable for legacy flows.
+    expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
+
+    // The promoted Sell action is labeled "Sell" (formerly "Sell (Stripe)").
+    expect(screen.getByText('Sell')).toBeTruthy();
+    expect(screen.queryByText('Sell (Stripe)')).toBeNull();
+    // Manual sell now renders as "Cash sale".
+    expect(screen.getByText('Cash sale')).toBeTruthy();
+
+    // Pressing the primary Sell button routes to the Stripe flow.
+    fireEvent.press(screen.getByTestId('detail-stripe-sell-card'));
+    expect(onOpenStripeSell).toHaveBeenCalledWith('entry-3');
+
+    // The manual cash sale still routes to the legacy onOpenSell handler.
+    fireEvent.press(screen.getByTestId('detail-sell-card'));
+    expect(onOpenSell).toHaveBeenCalledWith('entry-3');
+
+    // The primary group appears before the Add/Edit/Favorite/Cash-sale row.
+    const stackIds = Children.toArray(screen.getByTestId('detail-action-stack').props.children)
+      .filter((child): child is ReactElement<{ children?: ReactNode }> => isValidElement(child))
+      .flatMap((cell) => (
+        Children.toArray(cell.props.children)
+          .filter((c): c is ReactElement<{ testID?: string }> => isValidElement(c))
+          .map((c) => c.props.testID)
+      ))
+      .filter(Boolean);
+    expect(stackIds).toEqual([
+      'detail-stripe-sell-card',
+      'detail-buy-card',
+      'detail-trade-card',
+      'detail-add-to-collection',
+      'detail-edit-collection-entry',
+      'detail-favorite-card',
+      'detail-sell-card',
+    ]);
+  });
+
   it('omits the Sell and Edit icons when the card is not owned', async () => {
     renderWithProviders(
       <CardDetailScreen

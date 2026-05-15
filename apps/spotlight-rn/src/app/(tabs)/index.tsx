@@ -11,10 +11,15 @@ export default function TabsRoot() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     page?: 'portfolio' | 'scanner' | string | string[];
+    return_mode?: 'trade' | string | string[];
   }>();
   const { currentUser } = useAuth();
   const requestedPage = Array.isArray(params.page) ? params.page[0] : params.page;
   const initialPage = requestedPage === 'portfolio' ? 'portfolio' : 'scanner';
+  const requestedReturnMode = Array.isArray(params.return_mode)
+    ? params.return_mode[0]
+    : params.return_mode;
+  const returnMode = requestedReturnMode === 'trade' ? 'trade' : undefined;
 
   return (
     <TopTabsPager
@@ -45,6 +50,7 @@ export default function TabsRoot() {
         <ScannerScreen
           onExitToPortfolio={onExitToPortfolio}
           onTopLevelSwipeEnabledChange={onTopLevelSwipeEnabledChange}
+          returnMode={returnMode}
         />
       )}
     />

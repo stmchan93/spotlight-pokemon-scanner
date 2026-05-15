@@ -289,6 +289,24 @@ export type RecentSaleRecord = {
   qualityLabel?: string | null;
   /** Quantity sold or traded in this transaction. Null when not surfaced. */
   quantity?: number | null;
+  /**
+   * Backend-supplied payment method on the underlying sale event. When this
+   * is `'stripe'`, the row can be refunded via the payments refund flow.
+   */
+  paymentMethod?: string | null;
+  /**
+   * Stripe payment order id linked to this sale (when paymentMethod is
+   * `'stripe'`). The refund UI uses this to call refundPaymentOrder.
+   */
+  orderId?: string | null;
+  /**
+   * ISO timestamp when this sale was refunded. Non-null means the row is
+   * already refunded and the refund CTA should render a non-actionable
+   * "Refunded" pill instead.
+   */
+  refundedAt?: string | null;
+  /** Total refunded amount in cents (partial or full). */
+  refundedAmountCents?: number | null;
 };
 
 export type PortfolioDashboard = {
@@ -754,6 +772,55 @@ export class PaymentsNotEnabledError extends Error {
     this.name = 'PaymentsNotEnabledError';
   }
 }
+
+// ---------------------------------------------------------------------------
+// Refunds — seller-initiated refund of a paid order. Backend contract:
+//   POST /api/v1/payments/orders/:order_id/refund
+//     Body: { amount_cents?: number, reason?: string }
+//     → { order_id, status, refunded_amount_cents, amount_cents,
+//         currency_code, paid_at, refunded_at }
+//     Errors: 400 amount_invalid, 404, 409 already_refunded,
+//             503 not_configured (PaymentsNotEnabledError)
+// ---------------------------------------------------------------------------
+
+export type RefundRequest = {
+  /**
+   * Optional partial refund amount in cents. When omitted, the backend
+   * refunds the full remaining captured amount.
+   */
+  amountCents?: number | null;
+  /** Optional human-readable reason persisted on the refund record. */
+  reason?: string | null;
+};
+
+export type RefundedOrder = {
+  orderId: string;
+  status: PaymentOrderStatus;
+  /** Total amount refunded so far in the order's currency (cents). */
+  refundedAmountCents: number;
+  /** Original captured amount in cents. */
+  amountCents: number;
+  currencyCode: string;
+  paidAt: string | null;
+  refundedAt: string | null;
+};
+
+// ---------------------------------------------------------------------------
+// Expo Push notifications — register/unregister push tokens for the
+// signed-in user. These endpoints are NOT payments-gated (regular request).
+// Backend contract:
+//   POST   /api/v1/devices/push-token  { push_token, platform?, device_id? }
+//   DELETE /api/v1/devices/push-token  { push_token }
+//     → { ok: true }
+// ---------------------------------------------------------------------------
+
+export type PushPlatform = 'ios' | 'android' | 'web';
+
+export type PushTokenRegistration = {
+  pushToken: string;
+  platform?: PushPlatform | null;
+  deviceId?: string | null;
+};
 
 // ---------------------------------------------------------------------------
 // Trades — atomic inventory trade log (single inbound + N outbound + cash).

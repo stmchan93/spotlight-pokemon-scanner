@@ -102,4 +102,36 @@ describe('TradeSheet', () => {
     );
     expect(onComplete).toHaveBeenCalledTimes(1);
   });
+
+  it('renders the Scan inbound CTA when opened without a cardId and routes through onScanInbound', async () => {
+    const onScanInbound = jest.fn();
+    const createTrade = jest.fn();
+    const repository = createTestSpotlightRepository({
+      getInventoryEntries: async () => mockInventoryEntries,
+      createTrade,
+    });
+
+    renderWithProviders(
+      <TradeSheet
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+        onScanInbound={onScanInbound}
+      />,
+      { spotlightRepository: repository },
+    );
+
+    await waitFor(() => {
+      expect(screen.getByTestId('trade-sheet-no-inbound')).toBeTruthy();
+    });
+
+    const scanInboundButton = screen.getByTestId('trade-sheet-scan-inbound');
+    expect(scanInboundButton).toBeTruthy();
+
+    fireEvent.press(scanInboundButton);
+    expect(onScanInbound).toHaveBeenCalledTimes(1);
+
+    // Submit is still disabled without an inbound card, even if an outbound
+    // is selected and a cash delta is set — the trade can't be saved yet.
+    expect(createTrade).not.toHaveBeenCalled();
+  });
 });

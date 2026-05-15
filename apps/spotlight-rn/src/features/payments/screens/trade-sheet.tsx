@@ -20,11 +20,21 @@ import { useAppServices } from '@/providers/app-providers';
 const TEST_PREFIX = 'trade-sheet';
 
 type TradeSheetProps = {
-  /** Inbound card the user just scanned / received in the trade. */
-  cardId: string;
+  /**
+   * Inbound card the user just scanned / received in the trade. Optional —
+   * when absent, the sheet renders a "Scan inbound card" CTA so the user can
+   * launch the scanner first and come back with a cardId attached.
+   */
+  cardId?: string;
   slabContext?: SlabContext | null;
   onClose: () => void;
   onComplete: () => void;
+  /**
+   * Called when the user taps the "Scan inbound card" CTA. The host route is
+   * expected to push the scanner with a return-mode that routes back to this
+   * sheet with `inbound_card_id` attached on confirm.
+   */
+  onScanInbound?: () => void;
 };
 
 function parseCashDelta(text: string): number | null {
@@ -65,7 +75,9 @@ export function TradeSheet({
   inboundMarketPrice,
   onClose,
   onComplete,
+  onScanInbound,
 }: TradeSheetProps & TradeSheetExtraProps) {
+  const hasInbound = Boolean(cardId && cardId.trim().length > 0);
   const theme = useSpotlightTheme();
   const { refreshData, spotlightRepository } = useAppServices();
 
@@ -120,6 +132,10 @@ export function TradeSheet({
   }, []);
 
   const handleSubmit = useCallback(async () => {
+    if (!cardId) {
+      setErrorMessage('Scan the inbound card before saving the trade.');
+      return;
+    }
     if (cashDelta == null) {
       setErrorMessage('Enter a valid cash delta (or leave blank for an even trade).');
       return;
@@ -211,6 +227,22 @@ export function TradeSheet({
         <ChromeBackButton onPress={onClose} testID={`${TEST_PREFIX}-close`} />
         <SheetHeader showHandle subtitle="Pick what you're giving up." title="Log a trade" />
 
+        {!hasInbound ? (
+          <SurfaceCard padding={20} radius={24} testID={`${TEST_PREFIX}-no-inbound`}>
+            <SectionHeader
+              subtitle="Open the scanner to capture the card you're receiving."
+              title="Inbound card"
+            />
+            <Button
+              label="Scan inbound card"
+              onPress={() => onScanInbound?.()}
+              size="lg"
+              testID={`${TEST_PREFIX}-scan-inbound`}
+              variant="primary"
+            />
+          </SurfaceCard>
+        ) : null}
+
         <SurfaceCard padding={16} radius={24}>
           <SectionHeader subtitle="Tap to add or remove from this trade." title="Outbound cards" />
           {inventory.length === 0 ? (
@@ -260,7 +292,9 @@ export function TradeSheet({
         ) : null}
 
         <Button
-          disabled={submitState === 'submitting' || selectedEntries.length === 0}
+          disabled={
+            submitState === 'submitting' || selectedEntries.length === 0 || !hasInbound
+          }
           label={submitState === 'submitting' ? 'Saving…' : 'Save trade'}
           onPress={handleSubmit}
           size="lg"

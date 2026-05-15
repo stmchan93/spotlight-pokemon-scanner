@@ -161,6 +161,12 @@ function RefreshIcon({ color, size = 18 }: { color: string; size?: number }) {
 type ScannerScreenProps = {
   onExitToPortfolio?: () => void;
   onTopLevelSwipeEnabledChange?: (enabled: boolean) => void;
+  /**
+   * When provided, alters where a confirmed capture hands off to. Today only
+   * `'trade'` is recognized — the scanner navigates back to the trade sheet
+   * with the confirmed inbound cardId attached instead of opening card detail.
+   */
+  returnMode?: 'trade';
 };
 
 function ScannerKeepAwake() {
@@ -171,6 +177,7 @@ function ScannerKeepAwake() {
 export function ScannerScreen({
   onExitToPortfolio,
   onTopLevelSwipeEnabledChange,
+  returnMode,
 }: ScannerScreenProps = {}) {
   const isTestEnv = process.env.NODE_ENV === 'test';
   const { activePage } = useTabsPage();
@@ -1210,6 +1217,19 @@ export function ScannerScreen({
       sourceImageUri: capture.uri || null,
     });
     trackCandidateSelectionIfNeeded(capture);
+
+    if (returnMode === 'trade') {
+      // Trade scan-inbound flow: instead of opening card detail, hand the
+      // confirmed cardId back to the trade sheet. `router.replace` so the
+      // scanner doesn't linger in the back-stack between the trade sheet and
+      // the user's prior screen.
+      router.replace({
+        pathname: '/trade',
+        params: { inbound_card_id: candidate.cardId },
+      });
+      return;
+    }
+
     router.push({
       pathname: '/cards/[cardId]',
       params: {
@@ -1218,7 +1238,7 @@ export function ScannerScreen({
         scanReviewId,
       },
     });
-  }, [inventoryByCardId, recentCaptures, router, trackCandidateSelectionIfNeeded]);
+  }, [inventoryByCardId, recentCaptures, returnMode, router, trackCandidateSelectionIfNeeded]);
 
   const toggleTrayExpanded = useCallback(() => {
     if (!canToggleTray) {

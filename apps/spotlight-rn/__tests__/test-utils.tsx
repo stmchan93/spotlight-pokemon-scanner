@@ -193,6 +193,18 @@ export function createTestSpotlightRepository(
       return overrides.cancelPaymentOrder?.(...args)
         ?? baseRepository.cancelPaymentOrder(...args);
     },
+    refundPaymentOrder: (...args) => {
+      return overrides.refundPaymentOrder?.(...args)
+        ?? baseRepository.refundPaymentOrder(...args);
+    },
+    registerPushToken: (...args) => {
+      return overrides.registerPushToken?.(...args)
+        ?? baseRepository.registerPushToken(...args);
+    },
+    unregisterPushToken: (...args) => {
+      return overrides.unregisterPushToken?.(...args)
+        ?? baseRepository.unregisterPushToken(...args);
+    },
     createTrade: (...args) => {
       return overrides.createTrade?.(...args)
         ?? baseRepository.createTrade(...args);
