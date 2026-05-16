@@ -6,7 +6,7 @@ import os
 import sys
 import tempfile
 import unittest
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from time import perf_counter
 from unittest.mock import patch
@@ -1154,13 +1154,20 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         )
 
     def test_portfolio_ledger_excludes_inventory_adjustment_sales(self) -> None:
+        today = datetime.now(timezone.utc).date()
+        added_at = (today - timedelta(days=3)).isoformat() + "T20:00:00Z"
+        adjustment_date = today - timedelta(days=2)
+        manual_date = today - timedelta(days=1)
+        adjustment_at = adjustment_date.isoformat() + "T20:00:00Z"
+        manual_at = manual_date.isoformat() + "T20:00:00Z"
+
         self._insert_card("neo1-1", name="Ampharos")
         upsert_deck_entry(
             self.service.connection,
             card_id="neo1-1",
             quantity=2,
-            added_at="2026-04-14T20:00:00Z",
-            updated_at="2026-04-14T20:00:00Z",
+            added_at=added_at,
+            updated_at=added_at,
         )
         self.service.connection.commit()
 
@@ -1168,7 +1175,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             {
                 "cardID": "neo1-1",
                 "quantity": 1,
-                "soldAt": "2026-04-15T20:00:00Z",
+                "soldAt": adjustment_at,
                 "unitPrice": 0.0,
                 "currencyCode": "USD",
                 "saleSource": "inventory_adjustment",
@@ -1179,7 +1186,7 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             {
                 "cardID": "neo1-1",
                 "quantity": 1,
-                "soldAt": "2026-04-16T20:00:00Z",
+                "soldAt": manual_at,
                 "unitPrice": 12.5,
                 "currencyCode": "USD",
                 "saleSource": "manual",
@@ -1193,10 +1200,10 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(ledger["transactions"][0]["totalPrice"], 12.5)
 
         daily_by_date = {point["date"]: point for point in ledger["dailySeries"]}
-        self.assertAlmostEqual(daily_by_date["2026-04-15"]["revenue"], 0.0, places=2)
-        self.assertEqual(daily_by_date["2026-04-15"]["sellCount"], 0)
-        self.assertAlmostEqual(daily_by_date["2026-04-16"]["revenue"], 12.5, places=2)
-        self.assertEqual(daily_by_date["2026-04-16"]["sellCount"], 1)
+        self.assertAlmostEqual(daily_by_date[adjustment_date.isoformat()]["revenue"], 0.0, places=2)
+        self.assertEqual(daily_by_date[adjustment_date.isoformat()]["sellCount"], 0)
+        self.assertAlmostEqual(daily_by_date[manual_date.isoformat()]["revenue"], 12.5, places=2)
+        self.assertEqual(daily_by_date[manual_date.isoformat()]["sellCount"], 1)
 
     def test_apply_schema_keeps_sold_entries_inactive(self) -> None:
         self._insert_card("gym1-60", name="Sabrina's Slowbro")

@@ -89,3 +89,6 @@ staging-smoke-*.png
 # Xcode user state
 *.xcuserstate
 *.xcodeproj/xcuserdata/
+
+# generated audit/output artifacts from tools/ scripts
+tools/output/

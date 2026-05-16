@@ -344,6 +344,7 @@ export type CardMarketHistoryRecord = {
   selectedVariant?: string | null;
   selectedCondition?: string | null;
   insights: CardMarketInsight[];
+  volumeLevel?: 'low' | 'normal' | 'unknown';
 };
 
 export type CardEbayListingRecord = {
