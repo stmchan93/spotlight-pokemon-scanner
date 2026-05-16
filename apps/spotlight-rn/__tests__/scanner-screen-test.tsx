@@ -389,6 +389,55 @@ describe('ScannerScreen', () => {
     });
   });
 
+  it('attaches source and normalized images to the raw match payload so the backend can persist scan artifacts', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+
+        return {
+          scanID: 'scan-raw-artifacts',
+          candidates: [{
+            id: 'mcdonalds25-21',
+            cardId: 'mcdonalds25-21',
+            name: 'Oshawott',
+            cardNumber: '#21/25',
+            setName: "McDonald's Collection 2021",
+            imageUrl: 'https://images.pokemontcg.io/mcdonalds25/21.png',
+            marketPrice: 0.56,
+            currencyCode: 'USD',
+          }],
+        };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+
+    expect(payloads[0]).toMatchObject({
+      mode: 'raw',
+      captureSource: 'camera',
+      sourceImage: {
+        jpegBase64: 'bW9jay1zY2FuLWJhc2U2NA==',
+      },
+    });
+    expect(payloads[0].sourceImage.width).toBeGreaterThan(0);
+    expect(payloads[0].sourceImage.height).toBeGreaterThan(0);
+    expect(payloads[0].normalizedImage).toEqual(expect.objectContaining({
+      jpegBase64: payloads[0].jpegBase64,
+      width: payloads[0].width,
+      height: payloads[0].height,
+    }));
+    expect(typeof payloads[0].submittedAt).toBe('string');
+    expect(payloads[0].slabAnalysis).toBeUndefined();
+  });
+
   it('shows the scanner smoke fixture trigger when staging smoke is enabled', () => {
     if (!mockedConstants.expoConfig) {
       mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };

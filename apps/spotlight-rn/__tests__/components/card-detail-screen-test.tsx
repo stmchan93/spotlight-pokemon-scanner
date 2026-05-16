@@ -1483,4 +1483,138 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByText('Card unavailable')).toBeTruthy();
     expect(screen.getByText('We could not find this card in the local catalog.')).toBeTruthy();
   });
+
+  it('hides the condition picker and shows the limited-data caption when volumeLevel is "low"', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const repository = createTestSpotlightRepository({
+      getCardDetail: async (query) => {
+        const detail = await baseRepository.getCardDetail(query);
+        if (!detail) {
+          return null;
+        }
+        return {
+          ...detail,
+          marketHistory: {
+            ...detail.marketHistory,
+            availableConditions: detail.marketHistory.availableConditions.slice(0, 1),
+            volumeLevel: 'low',
+          },
+        } satisfies CardDetailRecord;
+      },
+      getCardMarketHistory: async (query) => {
+        const history = await baseRepository.getCardMarketHistory(query);
+        if (!history) {
+          return null;
+        }
+        return {
+          ...history,
+          availableConditions: history.availableConditions.slice(0, 1),
+          volumeLevel: 'low',
+        };
+      },
+    });
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      { spotlightRepository: repository },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-volume-level-label').props.children).toBe('Limited pricing data');
+    });
+    expect(screen.queryByTestId('detail-condition-dropdown')).toBeNull();
+  });
+
+  it('keeps the condition picker visible and renders no volume caption when volumeLevel is "normal"', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const repository = createTestSpotlightRepository({
+      getCardDetail: async (query) => {
+        const detail = await baseRepository.getCardDetail(query);
+        if (!detail) {
+          return null;
+        }
+        return {
+          ...detail,
+          marketHistory: {
+            ...detail.marketHistory,
+            volumeLevel: 'normal',
+          },
+        } satisfies CardDetailRecord;
+      },
+      getCardMarketHistory: async (query) => {
+        const history = await baseRepository.getCardMarketHistory(query);
+        if (!history) {
+          return null;
+        }
+        return {
+          ...history,
+          volumeLevel: 'normal',
+        };
+      },
+    });
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      { spotlightRepository: repository },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    expect(screen.getByTestId('detail-condition-dropdown')).toBeTruthy();
+    expect(screen.queryByTestId('detail-volume-level-label')).toBeNull();
+  });
+
+  it('hides the condition picker and shows the unavailable caption when volumeLevel is "unknown"', async () => {
+    const baseRepository = createTestSpotlightRepository();
+    const repository = createTestSpotlightRepository({
+      getCardDetail: async (query) => {
+        const detail = await baseRepository.getCardDetail(query);
+        if (!detail) {
+          return null;
+        }
+        return {
+          ...detail,
+          marketHistory: {
+            ...detail.marketHistory,
+            availableConditions: detail.marketHistory.availableConditions.slice(0, 1),
+            volumeLevel: 'unknown',
+          },
+        } satisfies CardDetailRecord;
+      },
+      getCardMarketHistory: async (query) => {
+        const history = await baseRepository.getCardMarketHistory(query);
+        if (!history) {
+          return null;
+        }
+        return {
+          ...history,
+          availableConditions: history.availableConditions.slice(0, 1),
+          volumeLevel: 'unknown',
+        };
+      },
+    });
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+      />,
+      { spotlightRepository: repository },
+    );
+
+    expect(await screen.findByText('Treecko')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('detail-volume-level-label').props.children).toBe('Pricing data unavailable');
+    });
+    expect(screen.queryByTestId('detail-condition-dropdown')).toBeNull();
+  });
 });

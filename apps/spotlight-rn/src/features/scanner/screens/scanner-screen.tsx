@@ -855,6 +855,20 @@ export function ScannerScreen({
         jpegBase64: normalizedTarget.normalizedImageBase64,
         mode: scannerMode,
         width: normalizedTarget.normalizedImageDimensions.width,
+        captureSource: 'camera',
+        normalizedImage: {
+          jpegBase64: normalizedTarget.normalizedImageBase64,
+          width: normalizedTarget.normalizedImageDimensions.width,
+          height: normalizedTarget.normalizedImageDimensions.height,
+        },
+        sourceImage: photo.base64
+          ? {
+            jpegBase64: photo.base64,
+            width: normalizedTarget.nativeSourceImageDimensions.width,
+            height: normalizedTarget.nativeSourceImageDimensions.height,
+          }
+          : null,
+        submittedAt: new Date(scanStartedAt).toISOString(),
       };
 
       let slabContext: SlabContext | null = null;
@@ -878,21 +892,7 @@ export function ScannerScreen({
         });
         matchPayload = {
           ...matchPayload,
-          captureSource: 'camera',
-          normalizedImage: {
-            jpegBase64: normalizedTarget.normalizedImageBase64,
-            width: normalizedTarget.normalizedImageDimensions.width,
-            height: normalizedTarget.normalizedImageDimensions.height,
-          },
           slabAnalysis,
-          sourceImage: photo.base64
-            ? {
-              jpegBase64: photo.base64,
-              width: normalizedTarget.nativeSourceImageDimensions.width,
-              height: normalizedTarget.nativeSourceImageDimensions.height,
-            }
-            : null,
-          submittedAt: new Date(scanStartedAt).toISOString(),
         };
       }
 

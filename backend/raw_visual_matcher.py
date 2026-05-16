@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import base64
 import io
+import json
 import os
+import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path
@@ -14,6 +16,28 @@ import numpy as np
 from raw_visual_index import RawVisualIndex, RawVisualSearchMatch
 from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy
 from raw_visual_user_photo_rerank import RawVisualUserPhotoRerankPool
+
+
+# Mini-index routing thresholds:
+# - 0.55 is the floor for "this query looks like a basic energy" — below it
+#   we trust the main lookup. The main index covers basic energies too, so we
+#   only override when the mini-index is BOTH above the floor AND ahead of the
+#   main top-1.
+_MINI_ENERGY_INDEX_MIN_SIMILARITY = 0.55
+# Language probe min confidence to apply the soft signal as a fallback
+# preferred_language. Below this we don't trust the visual probe and let
+# the main matcher behave as if no language hint were available.
+_LANGUAGE_PROBE_MIN_CONFIDENCE = 0.80
+
+
+def _emit_matcher_log(severity: str, event: str, **fields: Any) -> None:
+    payload: dict[str, Any] = {"severity": severity, "event": event}
+    payload.update(fields)
+    try:
+        print(json.dumps(payload, separators=(",", ":")), file=sys.stderr, flush=True)
+    except Exception:
+        # Logging must never break inference.
+        pass
 
 
 def _is_japanese_character(value: str) -> bool:
@@ -35,6 +59,21 @@ def _normalize_language(value: Any) -> str | None:
     if normalized == "japanese":
         return "Japanese"
     return None
+
+
+def _language_from_client_locale(value: Any) -> str | None:
+    """Map a BCP-47-ish locale identifier (e.g. 'en-US', 'ja_JP') to one of
+    {"English", "Japanese"}. Defaults to English for anything non-Japanese.
+    Returns None when the input is empty so callers can distinguish 'no
+    locale provided' from 'locale is non-Japanese'.
+    """
+    normalized = str(value or "").strip()
+    if not normalized:
+        return None
+    primary = normalized.replace("_", "-").split("-", 1)[0].lower()
+    if primary == "ja":
+        return "Japanese"
+    return "English"
 
 
 def _language_character_counts(value: str) -> tuple[int, int, int]:
@@ -182,6 +221,28 @@ class RawVisualMatcher:
         self.user_photo_rerank_shortlist_k = _env_int("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_SHORTLIST_K", 50)
         self._user_photo_rerank_pool: RawVisualUserPhotoRerankPool | None = None
 
+        # Basic-energy mini-index: a small parallel CLIP embedding index that
+        # routes obvious basic-energy queries away from the main lookup. Built
+        # by tools/build_basic_energy_mini_index.py.
+        mini_index_env = os.environ.get("SPOTLIGHT_VISUAL_BASIC_ENERGY_MINI_INDEX_PATH")
+        default_mini_index_path = default_root / "basic_energy_mini_index.npz"
+        self.basic_energy_mini_index_path = resolve_repo_relative_path(
+            repo_root, mini_index_env, default_mini_index_path,
+        )
+        self._basic_energy_mini_index: dict[str, Any] | None = None
+        self._load_basic_energy_mini_index()
+
+        # Language probe: a small logistic regression over CLIP embeddings
+        # that estimates EN vs JP. Used as a fallback preferred_language when
+        # OCR-derived hints are missing.
+        language_probe_env = os.environ.get("SPOTLIGHT_VISUAL_LANGUAGE_PROBE_PATH")
+        default_language_probe_path = default_model_root / "language_probe_v1.npz"
+        self.language_probe_path = resolve_repo_relative_path(
+            repo_root, language_probe_env, default_language_probe_path,
+        )
+        self._language_probe: dict[str, Any] | None = None
+        self._load_language_probe()
+
         self._encoder: RawVisualFrozenEncoder | None = None
         self._adapter = None
         self._runtime_lock = threading.Lock()
@@ -189,6 +250,107 @@ class RawVisualMatcher:
         self._runtime_ready = False
         self._inference_count = 0
         self._last_inference_finished_at: float | None = None
+
+    def _load_basic_energy_mini_index(self) -> None:
+        path = getattr(self, "basic_energy_mini_index_path", None)
+        if path is None or not Path(path).exists():
+            _emit_matcher_log(
+                "WARNING",
+                "basic_energy_mini_index_unavailable",
+                path=str(path) if path is not None else None,
+                reason="missing_file",
+            )
+            self._basic_energy_mini_index = None
+            return
+        try:
+            archive = np.load(str(path), allow_pickle=True)
+            embeddings = np.asarray(archive["embeddings"], dtype=np.float32)
+            card_ids = np.asarray(archive["card_ids"])
+            names = np.asarray(archive["names"])
+            languages = np.asarray(archive["languages"])
+            set_names = np.asarray(archive["set_names"])
+        except Exception as exc:
+            _emit_matcher_log(
+                "WARNING",
+                "basic_energy_mini_index_load_failed",
+                path=str(path),
+                error=str(exc),
+            )
+            self._basic_energy_mini_index = None
+            return
+        if embeddings.ndim != 2 or embeddings.shape[0] == 0:
+            _emit_matcher_log(
+                "WARNING",
+                "basic_energy_mini_index_invalid_shape",
+                path=str(path),
+                shape=list(embeddings.shape),
+            )
+            self._basic_energy_mini_index = None
+            return
+        self._basic_energy_mini_index = {
+            "embeddings": embeddings,
+            "card_ids": card_ids,
+            "names": names,
+            "languages": languages,
+            "set_names": set_names,
+            "path": str(path),
+        }
+        _emit_matcher_log(
+            "INFO",
+            "basic_energy_mini_index_loaded",
+            path=str(path),
+            rowCount=int(embeddings.shape[0]),
+            embeddingDim=int(embeddings.shape[1]),
+        )
+
+    def _load_language_probe(self) -> None:
+        path = getattr(self, "language_probe_path", None)
+        if path is None or not Path(path).exists():
+            _emit_matcher_log(
+                "WARNING",
+                "visual_language_probe_unavailable",
+                path=str(path) if path is not None else None,
+                reason="missing_file",
+            )
+            self._language_probe = None
+            return
+        try:
+            archive = np.load(str(path), allow_pickle=True)
+            coef = np.asarray(archive["coef"], dtype=np.float32)
+            intercept = np.asarray(archive["intercept"], dtype=np.float32)
+            classes = np.asarray(archive["classes"])
+        except Exception as exc:
+            _emit_matcher_log(
+                "WARNING",
+                "visual_language_probe_load_failed",
+                path=str(path),
+                error=str(exc),
+            )
+            self._language_probe = None
+            return
+        if coef.ndim != 2 or intercept.ndim != 1 or coef.shape[0] != intercept.shape[0]:
+            _emit_matcher_log(
+                "WARNING",
+                "visual_language_probe_invalid_shape",
+                path=str(path),
+                coefShape=list(coef.shape),
+                interceptShape=list(intercept.shape),
+            )
+            self._language_probe = None
+            return
+        self._language_probe = {
+            "coef": coef,
+            "intercept": intercept,
+            "classes": classes,
+            "path": str(path),
+        }
+        _emit_matcher_log(
+            "INFO",
+            "visual_language_probe_loaded",
+            path=str(path),
+            classes=[str(value) for value in classes.tolist()],
+            featureDim=int(coef.shape[1]),
+        )
 
     def is_available(self) -> bool:
         return self.index.is_available()
@@ -514,6 +676,214 @@ class RawVisualMatcher:
         adjusted_matches.sort(key=lambda item: item.similarity, reverse=True)
         return adjusted_matches
 
+    def _query_mini_energy_index(
+        self, query_embedding: np.ndarray
+    ) -> tuple[float, int] | None:
+        """Return (top_similarity, top_row_index) over the basic-energy
+        mini-index, or None if the index isn't loaded.
+
+        Embeddings in the mini-index are L2-normalized so cosine similarity
+        reduces to a dot product. The query embedding is expected to be
+        L2-normalized as well (the main lookup already normalizes it).
+        """
+        mini = getattr(self, "_basic_energy_mini_index", None)
+        if mini is None:
+            return None
+        embeddings: np.ndarray = mini["embeddings"]
+        if embeddings.shape[0] == 0:
+            return None
+        if query_embedding.shape[-1] != embeddings.shape[1]:
+            return None
+        scores = embeddings @ query_embedding.astype(np.float32, copy=False)
+        top_index = int(np.argmax(scores))
+        return float(scores[top_index]), top_index
+
+    def _mini_energy_rank_with_language_preference(
+        self,
+        query_embedding: np.ndarray,
+        *,
+        target_language: str | None,
+    ) -> dict[str, Any] | None:
+        """Return the top mini-index hit, preferring rows that match
+        `target_language` when one of the top-3 matches it. Falls back to
+        rank-1 otherwise.
+        """
+        mini = getattr(self, "_basic_energy_mini_index", None)
+        if mini is None:
+            return None
+        embeddings: np.ndarray = mini["embeddings"]
+        if embeddings.shape[0] == 0:
+            return None
+        if query_embedding.shape[-1] != embeddings.shape[1]:
+            return None
+        scores = embeddings @ query_embedding.astype(np.float32, copy=False)
+        order = np.argsort(scores)[::-1]
+        top_indexes = order[: min(3, order.shape[0])].tolist()
+        top1_index = int(top_indexes[0])
+        selected_index = top1_index
+        if target_language:
+            normalized_target = _normalize_language(target_language) or str(target_language).strip()
+            for candidate_index in top_indexes:
+                candidate_language = str(mini["languages"][int(candidate_index)] or "").strip()
+                if candidate_language == normalized_target:
+                    selected_index = int(candidate_index)
+                    break
+        return {
+            "rowIndex": selected_index,
+            "top1Index": top1_index,
+            "top1Similarity": float(scores[top1_index]),
+            "selectedSimilarity": float(scores[selected_index]),
+            "cardId": str(mini["card_ids"][selected_index]),
+            "name": str(mini["names"][selected_index]),
+            "language": str(mini["languages"][selected_index]),
+            "setName": str(mini["set_names"][selected_index]),
+        }
+
+    def _predict_language(
+        self, query_embedding: np.ndarray
+    ) -> tuple[str | None, float]:
+        """Run the logistic-regression language probe over the embedding.
+
+        Returns (predicted_language, confidence). If the probe artifact is
+        unavailable or the prediction confidence is below the threshold,
+        returns (None, confidence).
+        """
+        probe = getattr(self, "_language_probe", None)
+        if probe is None:
+            return None, 0.0
+        coef: np.ndarray = probe["coef"]
+        intercept: np.ndarray = probe["intercept"]
+        classes: np.ndarray = probe["classes"]
+        if coef.shape[1] != query_embedding.shape[-1]:
+            return None, 0.0
+        logits = coef @ query_embedding.astype(np.float32, copy=False) + intercept
+        # Stable softmax.
+        shifted = logits - float(np.max(logits))
+        exp = np.exp(shifted)
+        probabilities = exp / np.sum(exp)
+        top = int(np.argmax(probabilities))
+        confidence = float(probabilities[top])
+        predicted_raw = str(classes[top])
+        predicted = _normalize_language(predicted_raw) or predicted_raw
+        if confidence < _LANGUAGE_PROBE_MIN_CONFIDENCE:
+            return None, confidence
+        return predicted, confidence
+
+    def _maybe_route_basic_energy_mini_index(
+        self,
+        *,
+        matches: list[RawVisualSearchMatch],
+        base_variant_embedding: np.ndarray | None,
+        payload: dict[str, Any],
+        preferred_language: str | None,
+    ) -> dict[str, Any] | None:
+        """Run the mini-index against the base query embedding and, when its
+        top hit is both above the floor AND ahead of the main top-1, return a
+        debug dict containing a `_replacementMatch` to be substituted into
+        position 0 of the main result list.
+
+        Returns None when the mini-index is unavailable (no debug fields are
+        added in that case). Returns `{enabled: true, used: false, ...}` when
+        the mini-index ran but did not route.
+        """
+        mini = getattr(self, "_basic_energy_mini_index", None)
+        if mini is None or base_variant_embedding is None:
+            return None
+        mini_top = self._query_mini_energy_index(base_variant_embedding)
+        main_top_similarity: float | None = None
+        if matches:
+            # Prefer the unadjusted base similarity for the comparison so
+            # language penalties on the main side don't artificially help
+            # routing. Fall back to the adjusted similarity if not present.
+            top_entry = matches[0].entry
+            base_similarity = top_entry.get("_visualBaseSimilarity")
+            main_top_similarity = (
+                float(base_similarity)
+                if isinstance(base_similarity, (int, float))
+                else float(matches[0].similarity)
+            )
+
+        if mini_top is None:
+            return {
+                "enabled": True,
+                "used": False,
+                "miniTop1Similarity": None,
+                "mainTop1Similarity": main_top_similarity,
+                "reason": "mini_index_empty",
+            }
+
+        mini_top_similarity, _ = mini_top
+        used = (
+            mini_top_similarity > _MINI_ENERGY_INDEX_MIN_SIMILARITY
+            and (main_top_similarity is None or mini_top_similarity > main_top_similarity)
+        )
+        if not used:
+            return {
+                "enabled": True,
+                "used": False,
+                "miniTop1Similarity": round(mini_top_similarity, 6),
+                "mainTop1Similarity": (
+                    round(main_top_similarity, 6) if main_top_similarity is not None else None
+                ),
+            }
+
+        # Determine target language: preferredLanguage (from OCR/probe) wins,
+        # else fall back to client locale.
+        client_context = payload.get("clientContext") or {}
+        locale_identifier = (
+            client_context.get("localeIdentifier") if isinstance(client_context, dict) else None
+        )
+        target_language = preferred_language or _language_from_client_locale(locale_identifier)
+        if target_language is None:
+            target_language = "English"
+
+        selection = self._mini_energy_rank_with_language_preference(
+            base_variant_embedding, target_language=target_language,
+        )
+        if selection is None:
+            return {
+                "enabled": True,
+                "used": False,
+                "miniTop1Similarity": round(mini_top_similarity, 6),
+                "mainTop1Similarity": (
+                    round(main_top_similarity, 6) if main_top_similarity is not None else None
+                ),
+                "reason": "selection_unavailable",
+            }
+
+        replacement_entry: dict[str, Any] = {
+            "providerCardId": selection["cardId"],
+            "name": selection["name"],
+            "language": selection["language"],
+            "setName": selection["setName"],
+            "_visualBaseSimilarity": round(float(selection["selectedSimilarity"]), 6),
+            "_visualAdjustedSimilarity": round(float(selection["selectedSimilarity"]), 6),
+            "_visualLanguagePreference": preferred_language,
+            "_visualLanguageConfidence": 0.0,
+            "_visualLanguageAdjustmentReasons": ["mini_index_energy_routed"],
+            "_visualQueryVariant": "base",
+            "_visualQueryInsetRatio": 0.0,
+            "_visualQueryVariants": ["base"],
+            "_miniIndexEnergyRouted": True,
+        }
+        replacement_match = RawVisualSearchMatch(
+            row_index=-1,
+            similarity=float(selection["selectedSimilarity"]),
+            entry=replacement_entry,
+        )
+        return {
+            "enabled": True,
+            "used": True,
+            "miniTop1Similarity": round(mini_top_similarity, 6),
+            "mainTop1Similarity": (
+                round(main_top_similarity, 6) if main_top_similarity is not None else None
+            ),
+            "selectedLanguage": selection["language"],
+            "selectedCardId": selection["cardId"],
+            "targetLanguage": target_language,
+            "_replacementMatch": replacement_match,
+        }
+
     def _apply_user_photo_rerank(
         self,
         matches: list[RawVisualSearchMatch],
@@ -635,7 +1005,7 @@ class RawVisualMatcher:
 
             internal_top_k = max(top_k * 8, 64)
             preferred_language, preferred_language_confidence, language_fragments = self._query_language_preference(payload)
-            apply_language_bias = preferred_language is not None and preferred_language_confidence >= 0.65
+            ocr_language_signal_present = preferred_language is not None
 
             embedding_ms = 0.0
             index_search_ms = 0.0
@@ -647,17 +1017,36 @@ class RawVisualMatcher:
             variant_debug: list[dict[str, Any]] = []
             variant_matches: list[list[RawVisualSearchMatch]] = []
             base_variant_embedding: np.ndarray | None = None
+            language_probe_debug: dict[str, Any] = {
+                "enabled": getattr(self, "_language_probe", None) is not None,
+                "predictedLanguage": None,
+                "predictedLanguageConfidence": 0.0,
+                "applied": False,
+            }
             query_variants = self._query_variants(payload, decoded_query.image)
             for query_variant in query_variants:
                 embedding, embedding_timing = self._image_embedding_with_timing(query_variant.image)
                 if query_variant.name == "base":
                     base_variant_embedding = embedding
+                    # Language probe fallback: only invoke when OCR-derived
+                    # signal is absent. We need the base embedding before we
+                    # can rerank, hence the inline placement.
+                    if not ocr_language_signal_present and language_probe_debug["enabled"]:
+                        probe_language, probe_confidence = self._predict_language(embedding)
+                        language_probe_debug["predictedLanguageConfidence"] = round(float(probe_confidence), 6)
+                        if probe_language is not None:
+                            preferred_language = probe_language
+                            preferred_language_confidence = round(float(probe_confidence), 6)
+                            language_probe_debug["predictedLanguage"] = probe_language
+                            language_probe_debug["applied"] = True
                 embedding_ms += float(embedding_timing.get("embeddingMs") or 0.0)
                 encoder_preprocess_ms += float(embedding_timing.get("encoderPreprocessMs") or 0.0)
                 encoder_forward_ms += float(embedding_timing.get("encoderForwardMs") or 0.0)
                 encoder_postprocess_ms += float(embedding_timing.get("encoderPostprocessMs") or 0.0)
                 adapter_project_ms += float(embedding_timing.get("adapterProjectMs") or 0.0)
                 embedding_normalize_ms += float(embedding_timing.get("embeddingNormalizeMs") or 0.0)
+
+                apply_language_bias = preferred_language is not None and preferred_language_confidence >= 0.65
 
                 index_started_at = perf_counter()
                 raw_matches = self.index.search(embedding, top_k=internal_top_k)
@@ -723,6 +1112,26 @@ class RawVisualMatcher:
                 }
             user_photo_rerank_ms = (perf_counter() - rerank_started_at) * 1000.0
 
+            # Final language-bias decision uses the latest signals (probe
+            # may have promoted `preferred_language` mid-loop).
+            language_bias_applied = (
+                preferred_language is not None and preferred_language_confidence >= 0.65
+            )
+
+            # Mini-index basic-energy routing: run AFTER the main lookup so we
+            # can compare similarities and override only when the mini-index is
+            # both confident and beating the main top-1.
+            mini_routed_debug = self._maybe_route_basic_energy_mini_index(
+                matches=matches,
+                base_variant_embedding=base_variant_embedding,
+                payload=payload,
+                preferred_language=preferred_language,
+            )
+            if mini_routed_debug is not None and mini_routed_debug.get("used"):
+                replacement_match = mini_routed_debug.pop("_replacementMatch", None)
+                if replacement_match is not None and matches:
+                    matches = [replacement_match] + matches[1:]
+
             debug = {
                 "modelId": self.model_id,
                 "indexNpzPath": str(self.index.npz_path),
@@ -734,7 +1143,8 @@ class RawVisualMatcher:
                 "preferredLanguage": preferred_language,
                 "preferredLanguageConfidence": preferred_language_confidence,
                 "languageFragments": language_fragments[:8],
-                "languageBiasApplied": apply_language_bias,
+                "languageBiasApplied": language_bias_applied,
+                "languageProbe": language_probe_debug,
                 "queryVariants": variant_debug,
                 "queryVariantCount": len(query_variants),
                 "queryVariantStrategy": "best_similarity_dedupe",
@@ -749,6 +1159,7 @@ class RawVisualMatcher:
                     "decodedHeight": decoded_query.decodedHeight,
                 },
                 "userPhotoRerank": rerank_debug,
+                "miniIndexEnergyRouted": mini_routed_debug,
                 "timings": {
                     "imageDecodeMs": round(image_decode_ms, 3),
                     "ensureRuntimeMs": round(ensure_runtime_ms, 3),

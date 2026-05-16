@@ -353,6 +353,7 @@ type CardMarketHistoryDTO = {
     days14?: { priceChange?: number | null; percentChange?: number | null };
     days30?: { priceChange?: number | null; percentChange?: number | null };
   };
+  volumeLevel?: 'low' | 'normal' | 'unknown';
 };
 
 type EbayCompsPriceDTO = {
@@ -1803,6 +1804,7 @@ function buildMarketHistoryRecord(
     selectedVariant: normalizeString(history?.selectedVariant),
     selectedCondition: normalizeString(history?.selectedCondition),
     insights: buildHistoryInsights(history?.deltas),
+    ...(history?.volumeLevel ? { volumeLevel: history.volumeLevel } : {}),
   };
 }
 

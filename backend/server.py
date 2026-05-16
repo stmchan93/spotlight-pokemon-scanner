@@ -17,7 +17,7 @@ from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from time import perf_counter
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import parse_qs, unquote, urlparse
 from zoneinfo import ZoneInfo
 
@@ -2188,6 +2188,40 @@ class SpotlightScanService:
         )
         persist_scrydex_price_history_payload(self.connection, card_id=card_id, payload=payload)
 
+    def _card_volume_level(self, card_id: str) -> Literal["low", "normal", "unknown"]:
+        """Classify a card's recent pricing volume from card_price_history_daily.
+
+        Looks at the trailing 30 days of rows for the card and returns:
+        - "unknown" when there are fewer than 7 days of recorded history
+        - "low" when there are >= 7 days but only one distinct
+          `default_raw_market_price` value (flat/illiquid)
+        - "normal" otherwise
+        """
+        row = self.connection.execute(
+            """
+            SELECT COUNT(*) AS days,
+                   COUNT(DISTINCT default_raw_market_price) AS distinct_prices
+            FROM card_price_history_daily
+            WHERE card_id = ? AND price_date >= date('now','-30 days')
+            """,
+            (card_id,),
+        ).fetchone()
+        if row is None:
+            return "unknown"
+        try:
+            days = int(row["days"] or 0)
+        except (KeyError, TypeError, ValueError):
+            days = 0
+        try:
+            distinct_prices = int(row["distinct_prices"] or 0)
+        except (KeyError, TypeError, ValueError):
+            distinct_prices = 0
+        if days < 7:
+            return "unknown"
+        if distinct_prices <= 1:
+            return "low"
+        return "normal"
+
     def card_market_history(
         self,
         card_id: str,
@@ -2300,6 +2334,9 @@ class SpotlightScanService:
                 "isFresh": self._history_is_fresh(refreshed_at),
                 "refreshedAt": refreshed_at,
                 "livePricingEnabled": self._live_pricing_enabled(),
+                # Graded pricing is condition-irrelevant; surface "normal" for
+                # response-shape consistency so clients can rely on the field.
+                "volumeLevel": "normal",
             }
 
         selected_variant = self._selected_raw_history_variant(
@@ -2347,6 +2384,13 @@ class SpotlightScanService:
             for variant_name in self._raw_history_variants(card_id)
         ]
         available_conditions = self._raw_history_condition_options(card_id, selected_variant)
+        # Low-volume (illiquid/flat) and unknown-volume cards should not expose
+        # non-NM condition pickers. Only NM has trustworthy pricing for those.
+        volume_level = self._card_volume_level(card_id)
+        if volume_level != "normal":
+            available_conditions = [
+                option for option in available_conditions if str(option.get("id") or "").upper() == "NM"
+            ]
         points = self._history_points_payload(rows)
         latest_point = points[-1] if points else None
         current_price = self._history_primary_price_value(latest_point) or self._primary_price_value(pricing_summary)
@@ -2379,6 +2423,7 @@ class SpotlightScanService:
             "isFresh": self._history_is_fresh(refreshed_at),
             "refreshedAt": refreshed_at,
             "livePricingEnabled": self._live_pricing_enabled(),
+            "volumeLevel": volume_level,
         }
 
     def top_movers(

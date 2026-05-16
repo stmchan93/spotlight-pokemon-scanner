@@ -996,6 +996,17 @@ export function CardDetailScreen({
     const monthInsight = effectiveMarketHistory.insights.find((insight) => insight.id === 'month');
     return (monthInsight?.deltaAmount ?? 0) >= 0 ? theme.colors.success : theme.colors.danger;
   }, [effectiveMarketHistory, theme.colors.brand, theme.colors.danger, theme.colors.success]);
+  const volumeLevel = effectiveMarketHistory?.volumeLevel ?? null;
+  const shouldShowConditionPicker = (effectiveMarketHistory?.availableConditions.length ?? 0) > 1;
+  const volumeLevelLabel = (() => {
+    if (volumeLevel === 'low') {
+      return 'Limited pricing data';
+    }
+    if (volumeLevel === 'unknown') {
+      return 'Pricing data unavailable';
+    }
+    return null;
+  })();
   const recentSales = shouldShowRecentSales ? recentSalesState : null;
   const sortedRecentSales = useMemo(
     () => recentSales?.sales.slice().sort(compareRecentSalesBySoldDateDesc) ?? [],
@@ -1448,7 +1459,7 @@ export function CardDetailScreen({
                   selectedLabel={conditionDropdownLabel}
                   testID="detail-condition-dropdown"
                 />
-              ) : (
+              ) : shouldShowConditionPicker ? (
                 <ConditionDropdown
                   disabled={marketConditionOptions.length === 0}
                   onSelect={(id) => setSelectedConditionId(id)}
@@ -1457,7 +1468,7 @@ export function CardDetailScreen({
                   selectedLabel={conditionDropdownLabel}
                   testID="detail-condition-dropdown"
                 />
-              )}
+              ) : null}
               {pricesFreshnessLabel ? (
                 <Text
                   style={[theme.typography.caption, styles.priceFreshnessLabel]}
@@ -1495,6 +1506,14 @@ export function CardDetailScreen({
               <Text style={[theme.typography.caption, styles.priceColumnLabel]}>
                 Market avg.
               </Text>
+              {!isSlabDetail && volumeLevelLabel ? (
+                <Text
+                  style={[theme.typography.caption, styles.priceColumnLabel]}
+                  testID="detail-volume-level-label"
+                >
+                  {volumeLevelLabel}
+                </Text>
+              ) : null}
             </View>
 
             <View style={styles.pricingChartWrap}>
