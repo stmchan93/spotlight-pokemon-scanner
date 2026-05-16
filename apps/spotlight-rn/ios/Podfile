@@ -22,7 +22,7 @@ platform :ios, podfile_properties['ios.deploymentTarget'] || '15.1'
 
 prepare_react_native_project!
 
-target 'Spotlight' do
+target 'Looty' do
   use_expo_modules!
 
   if ENV['EXPO_USE_COMMUNITY_AUTOLINKING'] == '1'
@@ -61,22 +61,5 @@ target 'Spotlight' do
       :mac_catalyst_enabled => false,
       :ccache_enabled => ccache_enabled?(podfile_properties),
     )
-
-    # RN source builds on Expo SDK 55 + Xcode 26 can compile duplicate EXImageLoader
-    # implementations from ExpoModulesCore and the legacy EXImageLoader pod. Keep
-    # ExpoModulesCore's implementation, which AppContext.imageLoader now expects,
-    # and strip the legacy pod's EXImageLoader.m source to avoid duplicate symbols.
-    legacy_ex_image_loader_target = installer.pods_project.targets.find { |target| target.name == 'EXImageLoader' }
-    if legacy_ex_image_loader_target
-      duplicate_loader_sources = legacy_ex_image_loader_target.source_build_phase.files.select do |build_file|
-        file_name = build_file.file_ref&.path
-        display_name = build_file.display_name
-        file_name == 'EXImageLoader.m' || display_name == 'EXImageLoader.m'
-      end
-
-      duplicate_loader_sources.each do |build_file|
-        legacy_ex_image_loader_target.source_build_phase.remove_build_file(build_file)
-      end
-    end
   end
 end
