@@ -3366,6 +3366,105 @@ class SpotlightScanService:
             "refreshedAt": utc_now(),
         }
 
+    def vendor_show_summary(
+        self,
+        *,
+        since: str | None = None,
+        until: str | None = None,
+    ) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        now = datetime.now(timezone.utc)
+        parsed_until = self._coerce_utc_datetime(str(until or "").strip()) or now
+        parsed_since = (
+            self._coerce_utc_datetime(str(since or "").strip())
+            or parsed_until - timedelta(hours=24)
+        )
+        if parsed_since > parsed_until:
+            parsed_since, parsed_until = parsed_until, parsed_since
+        since_iso = parsed_since.astimezone(timezone.utc).isoformat()
+        until_iso = parsed_until.astimezone(timezone.utc).isoformat()
+
+        sale_rows = self.connection.execute(
+            """
+            SELECT id, card_id, quantity, unit_price, total_price, currency_code, payment_method, sold_at
+            FROM sale_events
+            WHERE owner_user_id = ?
+              AND sold_at >= ?
+              AND sold_at < ?
+              AND COALESCE(sale_source, 'manual') != 'inventory_adjustment'
+            """,
+            (owner_user_id, since_iso, until_iso),
+        ).fetchall()
+
+        total_sales = len(sale_rows)
+        total_revenue = round(sum(float(row["total_price"] or 0.0) for row in sale_rows), 2)
+
+        currency_counter: dict[str, int] = {}
+        for row in sale_rows:
+            code = str(row["currency_code"] or "").strip()
+            if code:
+                currency_counter[code] = currency_counter.get(code, 0) + 1
+        currency_code = (
+            max(currency_counter.items(), key=lambda item: item[1])[0]
+            if currency_counter
+            else None
+        )
+
+        by_method: dict[str | None, dict[str, float]] = {}
+        for row in sale_rows:
+            method = str(row["payment_method"] or "").strip() or None
+            bucket = by_method.setdefault(method, {"count": 0, "revenue": 0.0})
+            bucket["count"] = int(bucket["count"]) + 1
+            bucket["revenue"] = float(bucket["revenue"]) + float(row["total_price"] or 0.0)
+        by_payment_method = [
+            {
+                "paymentMethod": method,
+                "count": int(bucket["count"]),
+                "revenue": round(float(bucket["revenue"]), 2),
+            }
+            for method, bucket in sorted(by_method.items(), key=lambda item: -float(item[1]["revenue"]))
+        ]
+
+        card_totals: dict[str, dict[str, float]] = {}
+        for row in sale_rows:
+            cid = str(row["card_id"] or "").strip()
+            if not cid:
+                continue
+            bucket = card_totals.setdefault(cid, {"quantity": 0, "totalPrice": 0.0})
+            bucket["quantity"] = int(bucket["quantity"]) + max(1, int(row["quantity"] or 0))
+            bucket["totalPrice"] = float(bucket["totalPrice"]) + float(row["total_price"] or 0.0)
+        top_card_ids = sorted(
+            card_totals.keys(),
+            key=lambda cid: -float(card_totals[cid]["totalPrice"]),
+        )[:3]
+        card_map = cards_by_ids(self.connection, top_card_ids) if top_card_ids else {}
+        top_cards: list[dict[str, Any]] = []
+        for cid in top_card_ids:
+            card = card_map.get(cid)
+            if card is None:
+                continue
+            base = SpotlightScanService._candidate_base_payload(card, card)
+            top_cards.append(
+                {
+                    "cardID": cid,
+                    "name": base.get("name") or "",
+                    "setName": base.get("setName") or None,
+                    "imageUrl": base.get("imageLargeURL") or base.get("imageSmallURL") or None,
+                    "quantity": int(card_totals[cid]["quantity"]),
+                    "totalPrice": round(float(card_totals[cid]["totalPrice"]), 2),
+                }
+            )
+
+        return {
+            "since": since_iso,
+            "until": until_iso,
+            "totalSales": total_sales,
+            "totalRevenue": total_revenue,
+            "currencyCode": currency_code,
+            "byPaymentMethod": by_payment_method,
+            "topCards": top_cards,
+        }
+
     def record_buy(self, payload: dict[str, Any]) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         card_id = str(payload.get("cardID") or "").strip()
@@ -3811,6 +3910,98 @@ class SpotlightScanService:
             raise
 
         return {"results": results}
+
+    def record_quick_sale(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        card_id = str(payload.get("cardID") or "").strip()
+        if not card_id:
+            raise ValueError("cardID is required")
+
+        card_row = self.connection.execute(
+            "SELECT id FROM cards WHERE id = ? LIMIT 1",
+            (card_id,),
+        ).fetchone()
+        if card_row is None:
+            raise FileNotFoundError("card not found")
+
+        slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
+        grader = str(slab_context.get("grader") or "").strip() or None
+        grade = str(slab_context.get("grade") or "").strip() or None
+        cert_number = str(slab_context.get("certNumber") or "").strip() or None
+        variant_name = str(slab_context.get("variantName") or "").strip() or None
+        condition = str(payload.get("condition") or "").strip() or None
+
+        existing_id = self._resolve_owned_deck_entry_id(
+            card_id=card_id,
+            grader=grader,
+            grade=grade,
+            cert_number=cert_number,
+            variant_name=variant_name,
+            condition=condition,
+        )
+        if existing_id:
+            raise ValueError(
+                "deck entry already exists for this card; use /api/v1/sales instead"
+            )
+
+        try:
+            quantity = int(payload.get("quantity", 1))
+        except (TypeError, ValueError):
+            raise ValueError("quantity must be an integer") from None
+        if quantity < 1:
+            raise ValueError("quantity must be at least 1")
+
+        unit_price_raw = payload.get("unitPrice")
+        if unit_price_raw is None or unit_price_raw == "":
+            raise ValueError("unitPrice is required")
+        try:
+            unit_price = float(unit_price_raw)
+        except (TypeError, ValueError):
+            raise ValueError("unitPrice must be a number") from None
+        if unit_price < 0:
+            raise ValueError("unitPrice must be a non-negative number")
+
+        currency_code = str(payload.get("currencyCode") or "").strip() or None
+        payment_method = str(payload.get("paymentMethod") or "").strip() or None
+        note = str(payload.get("note") or "").strip() or None
+        sold_at = str(payload.get("soldAt") or utc_now()).strip() or utc_now()
+
+        try:
+            deck_entry_id = upsert_deck_entry(
+                self.connection,
+                owner_user_id=owner_user_id,
+                card_id=card_id,
+                grader=grader,
+                grade=grade,
+                cert_number=cert_number,
+                variant_name=variant_name,
+                condition=condition,
+                quantity=quantity,
+                unit_price=None,
+                currency_code=currency_code,
+                added_at=sold_at,
+                updated_at=sold_at,
+                event_kind="add",
+            )
+            sale_payload = self._record_sale_without_commit(
+                {
+                    "deckEntryID": deck_entry_id,
+                    "quantity": quantity,
+                    "unitPrice": unit_price,
+                    "currencyCode": currency_code,
+                    "paymentMethod": payment_method,
+                    "note": note,
+                    "soldAt": sold_at,
+                    "saleSource": "quick",
+                }
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        sale_payload["quickSale"] = True
+        return sale_payload
 
     @staticmethod
     def _should_use_scrydex_japanese_raw(evidence: RawEvidence) -> bool:
@@ -9254,6 +9445,29 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path == "/api/v1/vendor/show-summary":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            query = parse_qs(parsed.query)
+            since_value = query.get("since", [""])[0].strip() or None
+            until_value = query.get("until", [""])[0].strip() or None
+            try:
+                with self.service.request_identity_context(identity):
+                    summary_payload = self.service.vendor_show_summary(
+                        since=since_value,
+                        until=until_value,
+                    )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Show summary failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, summary_payload)
+            return
+
         if parsed.path in {"/api/v1/ledger", "/api/v1/portfolio/ledger", "/api/v1/deals"}:
             identity = self._require_request_identity()
             if identity is None:
@@ -9942,6 +10156,26 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except Exception as error:
                 traceback.print_exc()
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Sale recording failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, sale_payload)
+            return
+
+        if parsed.path == "/api/v1/sales/quick":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    sale_payload = self.service.record_quick_sale(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Quick sale recording failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, sale_payload)
             return

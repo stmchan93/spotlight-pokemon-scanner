@@ -1374,4 +1374,85 @@ describe('ScannerScreen', () => {
 
     expect(mockReplace).toHaveBeenCalledWith('/portfolio');
   });
+
+  it('routes the tray Sell button to /sell/[entryId] when the card is in inventory', async () => {
+    const inventoryEntries = [{
+      id: 'entry-froakie',
+      cardId: 'mcdonalds25-22',
+      name: 'Froakie',
+      cardNumber: '#22/25',
+      setName: "McDonald's Collection 2021",
+      imageUrl: 'https://cdn.spotlight.test/froakie.png',
+      marketPrice: 55,
+      hasMarketPrice: true,
+      currencyCode: 'USD',
+      quantity: 1,
+      addedAt: '2026-04-30T00:00:00.000Z',
+      kind: 'raw' as const,
+      conditionCode: 'near_mint' as const,
+      conditionLabel: 'Near Mint',
+      conditionShortLabel: 'NM',
+      costBasisPerUnit: null,
+      costBasisTotal: 0,
+    }];
+    const spotlightRepository = createTestSpotlightRepository({
+      getInventoryEntries: async () => inventoryEntries,
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 55,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('scanner-tray-sell-0'));
+
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/sell/[entryId]',
+      params: { entryId: 'entry-froakie' },
+    });
+  });
+
+  it('routes the tray Sell button to /quick-sell when the card is not in inventory', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      getInventoryEntries: async () => [],
+      matchScannerCapture: async () => ({
+        scanID: 'scan-froakie',
+        candidates: [{
+          id: 'froakie-candidate',
+          cardId: 'mcdonalds25-22',
+          name: 'Froakie',
+          cardNumber: '#22/25',
+          setName: "McDonald's Collection 2021",
+          imageUrl: 'https://cdn.spotlight.test/froakie.png',
+          marketPrice: 55,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    expect(await screen.findByText('Froakie')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('scanner-tray-sell-0'));
+
+    expect(mockPush).toHaveBeenCalledWith({
+      pathname: '/quick-sell',
+      params: { cardId: 'mcdonalds25-22' },
+    });
+  });
 });

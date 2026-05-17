@@ -1052,4 +1052,88 @@ describe('HttpSpotlightRepository', () => {
       expect(params.get('condition')).toBe('NM');
     });
   });
+
+  describe('createQuickSale', () => {
+    it('POSTs to /api/v1/sales/quick with the payload and returns the parsed response', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(
+        jsonResponse(200, {
+          saleID: 'sale-1',
+          deckEntryID: 'deck-1',
+          remainingQuantity: 0,
+          grossTotal: 250,
+          soldAt: '2026-05-17T12:00:00Z',
+          quickSale: true,
+        }),
+      ) as typeof fetch;
+      global.fetch = fetchMock;
+      const repository = new HttpSpotlightRepository('http://example.test');
+
+      const result = await repository.createQuickSale({
+        cardID: 'base-charizard-4',
+        unitPrice: 250,
+        currencyCode: 'USD',
+        paymentMethod: 'cash',
+      });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      const [url, init] = (fetchMock as jest.Mock).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('http://example.test/api/v1/sales/quick');
+      expect(init.method).toBe('POST');
+      const headers = new Headers(init.headers);
+      expect(headers.get('Content-Type')).toBe('application/json');
+      expect(JSON.parse(init.body as string)).toEqual({
+        cardID: 'base-charizard-4',
+        unitPrice: 250,
+        currencyCode: 'USD',
+        paymentMethod: 'cash',
+      });
+      expect(result.quickSale).toBe(true);
+      expect(result.grossTotal).toBe(250);
+    });
+  });
+
+  describe('getVendorShowSummary', () => {
+    const summaryFixture = {
+      since: '2026-05-16T12:00:00Z',
+      until: '2026-05-17T12:00:00Z',
+      totalSales: 2,
+      totalRevenue: 175,
+      currencyCode: 'USD',
+      byPaymentMethod: [
+        { paymentMethod: 'venmo', count: 1, revenue: 100 },
+        { paymentMethod: 'cash', count: 1, revenue: 75 },
+      ],
+      topCards: [],
+    };
+
+    it('GETs /api/v1/vendor/show-summary without query params when no range is supplied', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, summaryFixture)) as typeof fetch;
+      global.fetch = fetchMock;
+      const repository = new HttpSpotlightRepository('http://example.test');
+
+      const result = await repository.getVendorShowSummary();
+
+      const [url] = (fetchMock as jest.Mock).mock.calls[0] as [string, RequestInit | undefined];
+      expect(url).toBe('http://example.test/api/v1/vendor/show-summary');
+      expect(result.totalRevenue).toBe(175);
+      expect(result.byPaymentMethod).toHaveLength(2);
+    });
+
+    it('serializes since/until into the query string when supplied', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, summaryFixture)) as typeof fetch;
+      global.fetch = fetchMock;
+      const repository = new HttpSpotlightRepository('http://example.test');
+
+      await repository.getVendorShowSummary({
+        since: '2026-05-16T00:00:00Z',
+        until: '2026-05-17T00:00:00Z',
+      });
+
+      const [url] = (fetchMock as jest.Mock).mock.calls[0] as [string, RequestInit | undefined];
+      const parsed = new URL(url);
+      expect(parsed.pathname).toBe('/api/v1/vendor/show-summary');
+      expect(parsed.searchParams.get('since')).toBe('2026-05-16T00:00:00Z');
+      expect(parsed.searchParams.get('until')).toBe('2026-05-17T00:00:00Z');
+    });
+  });
 });

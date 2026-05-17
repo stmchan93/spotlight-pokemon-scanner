@@ -197,6 +197,7 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-quantity-increment')).toBeTruthy();
     expect(screen.getByTestId('detail-edit-collection-entry')).toBeTruthy();
     expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
+    expect(screen.getByTestId('detail-sticky-sell-footer')).toBeTruthy();
     // The standalone Add icon is hidden when owned — stepper handles add-another via `+`.
     expect(screen.queryByTestId('detail-add-to-collection')).toBeNull();
 

@@ -51,7 +51,11 @@ import type {
   PortfolioDashboard,
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
+  QuickSaleRequestPayload,
+  QuickSaleResponsePayload,
   RecentSaleRecord,
+  VendorShowSummary,
+  VendorShowSummaryRange,
   ScannerCapturePayload,
   ScanFeedbackPayload,
   ScannerMatchResult,
@@ -101,6 +105,8 @@ export interface SpotlightRepository {
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
   createPortfolioSalesBatch(payloads: PortfolioSaleRequestPayload[]): Promise<PortfolioSaleResponsePayload[]>;
+  createQuickSale(payload: QuickSaleRequestPayload): Promise<QuickSaleResponsePayload>;
+  getVendorShowSummary(range?: VendorShowSummaryRange): Promise<VendorShowSummary>;
   previewPortfolioImport(payload: PortfolioImportPreviewRequestPayload): Promise<PortfolioImportJobRecord>;
   fetchPortfolioImportJob(jobID: string): Promise<PortfolioImportJobRecord>;
   resolvePortfolioImportRow(
@@ -2437,6 +2443,31 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return responses;
   }
 
+  async createQuickSale(payload: QuickSaleRequestPayload): Promise<QuickSaleResponsePayload> {
+    const quantity = payload.quantity ?? 1;
+    return {
+      saleID: `mock-sale-${Date.now()}`,
+      deckEntryID: `mock-deck-${Date.now()}`,
+      remainingQuantity: 0,
+      grossTotal: Math.round(payload.unitPrice * quantity * 100) / 100,
+      soldAt: payload.soldAt ?? new Date().toISOString(),
+      quickSale: true,
+    };
+  }
+
+  async getVendorShowSummary(_range?: VendorShowSummaryRange): Promise<VendorShowSummary> {
+    const now = new Date().toISOString();
+    return {
+      since: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
+      until: now,
+      totalSales: 0,
+      totalRevenue: 0,
+      currencyCode: null,
+      byPaymentMethod: [],
+      topCards: [],
+    };
+  }
+
   async previewPortfolioImport(payload: PortfolioImportPreviewRequestPayload) {
     const primaryCandidate = this.catalogResults[0];
     const secondaryCandidate = this.catalogResults[1];
@@ -3375,6 +3406,31 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       },
     );
     return Array.isArray(payload.results) ? payload.results : [];
+  }
+
+  async createQuickSale(payload: QuickSaleRequestPayload) {
+    return this.requestJsonOrThrow<QuickSaleResponsePayload>(`${this.baseUrl}/api/v1/sales/quick`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getVendorShowSummary(range?: VendorShowSummaryRange) {
+    const params = new URLSearchParams();
+    if (range?.since) {
+      params.set('since', range.since);
+    }
+    if (range?.until) {
+      params.set('until', range.until);
+    }
+    const query = params.toString();
+    const url = query.length > 0
+      ? `${this.baseUrl}/api/v1/vendor/show-summary?${query}`
+      : `${this.baseUrl}/api/v1/vendor/show-summary`;
+    return this.requestJsonOrThrow<VendorShowSummary>(url);
   }
 
   async previewPortfolioImport(payload: PortfolioImportPreviewRequestPayload) {

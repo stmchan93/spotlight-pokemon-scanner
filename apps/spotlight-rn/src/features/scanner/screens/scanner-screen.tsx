@@ -6,14 +6,18 @@ import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronLeft,
+  IconDots,
   IconPlus,
 } from '@tabler/icons-react-native';
 import {
+  ActionSheetIOS,
   ActivityIndicator,
+  Alert,
   Animated,
   Image,
   Keyboard,
   LayoutAnimation,
+  Linking,
   PanResponder,
   Platform,
   Pressable,
@@ -42,6 +46,7 @@ import {
 } from '@spotlight/design-system';
 
 import { useTabsPage } from '@/contexts/tabs-page-context';
+import { buildEbaySearchUrl, buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import {
   shouldSetRecentCaptureTrayShellResponder,
   shouldSetRecentCaptureTrayVerticalResponder,
@@ -1220,6 +1225,97 @@ export function ScannerScreen({
     });
   }, [inventoryByCardId, recentCaptures, router, trackCandidateSelectionIfNeeded]);
 
+  const handleSellFromCapture = useCallback((captureId: string) => {
+    const capture = recentCaptures.find((entry) => entry.id === captureId);
+    const candidate = capture ? activeCandidateForCapture(capture) : null;
+    if (!capture || !candidate) {
+      return;
+    }
+    const entryId = inventoryByCardId.get(candidate.cardId)?.entryIds?.[0];
+    if (entryId) {
+      router.push({ pathname: '/sell/[entryId]', params: { entryId } });
+      return;
+    }
+    router.push({ pathname: '/quick-sell', params: { cardId: candidate.cardId } });
+  }, [inventoryByCardId, recentCaptures, router]);
+
+  const handleCaptureOverflow = useCallback((captureId: string) => {
+    const capture = recentCaptures.find((entry) => entry.id === captureId);
+    const candidate = capture ? activeCandidateForCapture(capture) : null;
+    if (!capture || !candidate) {
+      return;
+    }
+    const tcgUrl = buildTcgPlayerSearchUrl({
+      cardNumber: candidate.cardNumber,
+      name: candidate.name,
+      setName: candidate.setName,
+    });
+    const ebayUrl = buildEbaySearchUrl({
+      cardNumber: candidate.cardNumber,
+      name: candidate.name,
+      setName: candidate.setName,
+    });
+
+    const optionLabels = [
+      'View card details',
+      tcgUrl ? 'View on TCGplayer' : null,
+      ebayUrl ? 'View on eBay' : null,
+      'Remove',
+      'Cancel',
+    ].filter((label): label is string => label !== null);
+
+    const handleSelection = (label: string) => {
+      switch (label) {
+        case 'View card details':
+          void handleOpenCard(captureId);
+          return;
+        case 'View on TCGplayer':
+          if (tcgUrl) {
+            void Linking.openURL(tcgUrl);
+          }
+          return;
+        case 'View on eBay':
+          if (ebayUrl) {
+            void Linking.openURL(ebayUrl);
+          }
+          return;
+        case 'Remove':
+          deleteRecentCapture(captureId);
+          return;
+        default:
+          return;
+      }
+    };
+
+    if (Platform.OS === 'ios') {
+      ActionSheetIOS.showActionSheetWithOptions(
+        {
+          options: optionLabels,
+          cancelButtonIndex: optionLabels.indexOf('Cancel'),
+          destructiveButtonIndex: optionLabels.indexOf('Remove'),
+        },
+        (selectedIndex) => {
+          const label = optionLabels[selectedIndex];
+          if (!label || label === 'Cancel') {
+            return;
+          }
+          handleSelection(label);
+        },
+      );
+      return;
+    }
+
+    const alertButtons = optionLabels
+      .filter((label) => label !== 'Cancel')
+      .map<{ text: string; style: 'destructive' | 'default'; onPress: () => void }>((label) => ({
+        text: label,
+        style: label === 'Remove' ? 'destructive' : 'default',
+        onPress: () => handleSelection(label),
+      }));
+    alertButtons.push({ text: 'Cancel', style: 'default', onPress: () => {} });
+    Alert.alert(candidate.name, undefined, alertButtons, { cancelable: true });
+  }, [deleteRecentCapture, handleOpenCard, recentCaptures]);
+
   const toggleTrayExpanded = useCallback(() => {
     if (!canToggleTray) {
       return;
@@ -1542,26 +1638,59 @@ export function ScannerScreen({
           </Pressable>
 
         {candidate ? (
-          <Pressable
-            accessibilityLabel={`Add ${candidate.name} to inventory`}
-            accessibilityRole="button"
-            disabled={capture.isAddingToInventory}
-            onPress={() => {
-              void handleAddToInventory(capture.id);
-            }}
-            style={({ pressed }) => [
-              styles.captureAddButton,
-              pressed ? styles.captureAddButtonPressed : null,
-              capture.isAddingToInventory ? styles.captureAddButtonDisabled : null,
-            ]}
-            testID={`scanner-tray-add-${index}`}
-          >
-            {capture.isAddingToInventory ? (
-              <ActivityIndicator color={colors.brand} size="small" />
-            ) : (
-              <IconPlus color={colors.brand} size={20} strokeWidth={2} />
-            )}
-          </Pressable>
+          <View style={styles.captureActionsColumn}>
+            <Pressable
+              accessibilityLabel={`Sell ${candidate.name}`}
+              accessibilityRole="button"
+              onPress={() => {
+                handleSellFromCapture(capture.id);
+              }}
+              style={({ pressed }) => [
+                styles.captureSellButton,
+                pressed ? styles.captureSellButtonPressed : null,
+              ]}
+              testID={`scanner-tray-sell-${index}`}
+            >
+              <Text style={styles.captureSellButtonLabel}>Sell</Text>
+            </Pressable>
+            <View style={styles.captureSecondaryRow}>
+              <Pressable
+                accessibilityLabel={`Add ${candidate.name} to inventory`}
+                accessibilityRole="button"
+                disabled={capture.isAddingToInventory}
+                onPress={() => {
+                  void handleAddToInventory(capture.id);
+                }}
+                style={({ pressed }) => [
+                  styles.captureAddButton,
+                  pressed ? styles.captureAddButtonPressed : null,
+                  capture.isAddingToInventory ? styles.captureAddButtonDisabled : null,
+                ]}
+                testID={`scanner-tray-add-${index}`}
+              >
+                {capture.isAddingToInventory ? (
+                  <ActivityIndicator color={colors.brand} size="small" />
+                ) : (
+                  <IconPlus color={colors.brand} size={16} strokeWidth={2} />
+                )}
+              </Pressable>
+              <Pressable
+                accessibilityLabel={`More actions for ${candidate.name}`}
+                accessibilityRole="button"
+                hitSlop={8}
+                onPress={() => {
+                  handleCaptureOverflow(capture.id);
+                }}
+                style={({ pressed }) => [
+                  styles.captureOverflowButton,
+                  pressed ? styles.captureOverflowButtonPressed : null,
+                ]}
+                testID={`scanner-tray-overflow-${index}`}
+              >
+                <IconDots color={colors.brand} size={16} strokeWidth={2} />
+              </Pressable>
+            </View>
+          </View>
         ) : null}
         </View>
       </RecentCaptureSwipeRow>
@@ -1821,19 +1950,58 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 5,
   },
+  captureActionsColumn: {
+    alignItems: 'stretch',
+    gap: 6,
+    justifyContent: 'center',
+    minWidth: 80,
+  },
+  captureSecondaryRow: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  captureSellButton: {
+    alignItems: 'center',
+    backgroundColor: colors.brand,
+    borderRadius: 8,
+    justifyContent: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  captureSellButtonPressed: {
+    opacity: 0.86,
+  },
+  captureSellButtonLabel: {
+    ...textStyles.control,
+    color: '#000000',
+  },
   captureAddButton: {
     alignItems: 'center',
     backgroundColor: 'transparent',
     borderColor: colors.brand,
     borderRadius: 8,
     borderWidth: 0.651,
+    flex: 1,
     justifyContent: 'center',
-    padding: 10,
+    paddingVertical: 6,
   },
   captureAddButtonDisabled: {
     opacity: 0.52,
   },
   captureAddButtonPressed: {
+    opacity: 0.86,
+  },
+  captureOverflowButton: {
+    alignItems: 'center',
+    backgroundColor: 'transparent',
+    borderColor: colors.brand,
+    borderRadius: 8,
+    borderWidth: 0.651,
+    flex: 1,
+    justifyContent: 'center',
+    paddingVertical: 6,
+  },
+  captureOverflowButtonPressed: {
     opacity: 0.86,
   },
   captureCopy: {

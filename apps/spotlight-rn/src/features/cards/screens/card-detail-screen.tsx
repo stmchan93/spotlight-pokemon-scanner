@@ -1427,23 +1427,6 @@ export function CardDetailScreen({
               </View>
             </View>
 
-            {canShowSellAction ? (
-              <Button
-                contentStyle={styles.sellButtonContent}
-                label="SELL CARD"
-                labelStyle={styles.sellButtonLabel}
-                leadingAccessory={<IconCash color="#1A1A1A" size={20} strokeWidth={2.2} />}
-                onPress={() => {
-                  if (sellEntryId && onOpenSell) {
-                    onOpenSell(sellEntryId);
-                  }
-                }}
-                size="lg"
-                style={styles.sellButton}
-                testID="detail-sell-card"
-                variant="primary"
-              />
-            ) : null}
           </SurfaceCard>
         </View>
 
@@ -1514,25 +1497,6 @@ export function CardDetailScreen({
                   {volumeLevelLabel}
                 </Text>
               ) : null}
-            </View>
-
-            <View style={styles.pricingChartWrap}>
-              {hasMarketHistoryPoints ? (
-                <HistoryChart
-                  currencyCode={displayCurrencyCode}
-                  currentPrice={safeNumericDisplayedPrice}
-                  points={timeframeFilteredPoints}
-                  showAxisLabels
-                  showGridLabels
-                  tintColor={marketTint}
-                />
-              ) : (
-                <View style={styles.lazyMarketBlock} testID="detail-history-empty">
-                  <Text style={[theme.typography.caption, styles.lazyDetailCopy]}>
-                    Price history is still populating.
-                  </Text>
-                </View>
-              )}
             </View>
 
             {isSlabDetail ? (
@@ -1651,6 +1615,26 @@ export function CardDetailScreen({
         </View>
       </ScrollView>
 
+      {canShowSellAction ? (
+        <View style={styles.stickySellFooter} testID="detail-sticky-sell-footer">
+          <Button
+            contentStyle={styles.sellButtonContent}
+            label="SELL CARD"
+            labelStyle={styles.sellButtonLabel}
+            leadingAccessory={<IconCash color="#1A1A1A" size={20} strokeWidth={2.2} />}
+            onPress={() => {
+              if (sellEntryId && onOpenSell) {
+                onOpenSell(sellEntryId);
+              }
+            }}
+            size="lg"
+            style={styles.sellButton}
+            testID="detail-sell-card"
+            variant="primary"
+          />
+        </View>
+      ) : null}
+
       <Modal
         animationType="fade"
         onRequestClose={() => setIsDeleteConfirmOpen(false)}
@@ -1760,7 +1744,7 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 16,
-    paddingBottom: 40,
+    paddingBottom: 120,
     paddingHorizontal: 16,
     paddingTop: 12,
   },
@@ -1993,6 +1977,18 @@ const styles = StyleSheet.create({
   },
   sellButton: {
     width: '100%',
+  },
+  stickySellFooter: {
+    backgroundColor: 'rgba(255, 255, 255, 0.94)',
+    borderTopColor: colors.outlineSubtle,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    bottom: 0,
+    left: 0,
+    paddingBottom: 24,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    position: 'absolute',
+    right: 0,
   },
   sellButtonContent: {
     justifyContent: 'center',

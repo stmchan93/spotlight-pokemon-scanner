@@ -544,6 +544,57 @@ export type PortfolioSaleResponsePayload = {
   showSessionID: string | null;
 };
 
+export type QuickSaleRequestPayload = {
+  cardID: string;
+  quantity?: number;
+  unitPrice: number;
+  currencyCode?: string | null;
+  condition?: string | null;
+  slabContext?: SlabContext | null;
+  paymentMethod?: string | null;
+  note?: string | null;
+  soldAt?: string | null;
+};
+
+export type QuickSaleResponsePayload = {
+  saleID: string;
+  deckEntryID: string;
+  remainingQuantity: number;
+  grossTotal: number;
+  soldAt: string;
+  quickSale: boolean;
+};
+
+export type VendorShowSummaryRange = {
+  since?: string | null;
+  until?: string | null;
+};
+
+export type VendorShowSummaryPaymentMethodBucket = {
+  paymentMethod: string | null;
+  count: number;
+  revenue: number;
+};
+
+export type VendorShowSummaryTopCard = {
+  cardID: string;
+  name: string;
+  setName: string | null;
+  imageUrl: string | null;
+  quantity: number;
+  totalPrice: number;
+};
+
+export type VendorShowSummary = {
+  since: string;
+  until: string;
+  totalSales: number;
+  totalRevenue: number;
+  currencyCode: string | null;
+  byPaymentMethod: VendorShowSummaryPaymentMethodBucket[];
+  topCards: VendorShowSummaryTopCard[];
+};
+
 export const portfolioImportSourceTypes = ['collectr_csv_v1', 'tcgplayer_csv_v1'] as const;
 
 export type PortfolioImportSourceType = (typeof portfolioImportSourceTypes)[number];

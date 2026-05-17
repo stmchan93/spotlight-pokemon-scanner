@@ -129,6 +129,14 @@ export function createTestSpotlightRepository(
       return overrides.createPortfolioSalesBatch?.(...args)
         ?? baseRepository.createPortfolioSalesBatch(...args);
     },
+    createQuickSale: (...args) => {
+      return overrides.createQuickSale?.(...args)
+        ?? baseRepository.createQuickSale(...args);
+    },
+    getVendorShowSummary: (...args) => {
+      return overrides.getVendorShowSummary?.(...args)
+        ?? baseRepository.getVendorShowSummary(...args);
+    },
     previewPortfolioImport: (...args) => {
       return overrides.previewPortfolioImport?.(...args)
         ?? baseRepository.previewPortfolioImport(...args);
