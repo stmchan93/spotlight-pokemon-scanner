@@ -561,7 +561,29 @@ export function ScannerScreen({
           + `quality=${captureSource === 'camera' ? rawVisualCaptureQuality : 'fixture'}`,
         );
       }
-      const matchResult = await spotlightRepository.matchScannerCapture(matchPayload);
+      const matchResult = await spotlightRepository.matchScannerCapture(matchPayload, {
+        onArtifactUploadComplete: (artifactUpload) => {
+          if (!artifactUpload) {
+            return;
+          }
+          if (artifactUpload.status === 'uploaded') {
+            capturePostHogEvent('scan_artifact_upload_succeeded', {
+              mode,
+              ...(typeof artifactUpload.roundTripMs === 'number'
+                ? { upload_ms: artifactUpload.roundTripMs }
+                : {}),
+            });
+          } else if (artifactUpload.status === 'failed') {
+            capturePostHogEvent('scan_artifact_upload_failed', {
+              error_kind: artifactUpload.errorKind ?? 'request_failed',
+              mode,
+              ...(typeof artifactUpload.roundTripMs === 'number'
+                ? { upload_ms: artifactUpload.roundTripMs }
+                : {}),
+            });
+          }
+        },
+      });
       const endToEndMs = Date.now() - scanStartedAt;
       if (mode === 'raw' && process.env.NODE_ENV !== 'test') {
         const clientMatchMs = Date.now() - matchStartedAt;
@@ -588,25 +610,6 @@ export function ScannerScreen({
         );
       }
 
-      if (mode === 'slabs' && matchResult.artifactUpload) {
-        if (matchResult.artifactUpload.status === 'uploaded') {
-          capturePostHogEvent('scan_artifact_upload_succeeded', {
-            mode,
-            ...(typeof matchResult.artifactUpload.roundTripMs === 'number'
-              ? { upload_ms: matchResult.artifactUpload.roundTripMs }
-              : {}),
-          });
-        } else if (matchResult.artifactUpload.status === 'failed') {
-          capturePostHogEvent('scan_artifact_upload_failed', {
-            error_kind: matchResult.artifactUpload.errorKind ?? 'request_failed',
-            mode,
-            ...(typeof matchResult.artifactUpload.roundTripMs === 'number'
-              ? { upload_ms: matchResult.artifactUpload.roundTripMs }
-              : {}),
-          });
-        }
-      }
-
       updateRecentCapture(captureId, (capture) => ({
         ...capture,
         activeCandidateIndex: 0,
@@ -624,7 +627,6 @@ export function ScannerScreen({
         uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
       }));
       capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
-        artifactUploadMs: matchResult.artifactUpload?.roundTripMs ?? null,
         candidateCount: matchResult.candidates.length,
         captureMs,
         endToEndMs,
@@ -734,7 +736,7 @@ export function ScannerScreen({
     try {
       const captureStartedAt = Date.now();
       const photo = await cameraRef.current.takePictureAsync({
-        base64: scannerMode === 'slabs',
+        base64: true,
         exif: false,
         quality: scannerMode === 'raw' ? rawVisualCaptureQuality : 0.7,
         skipProcessing: false,

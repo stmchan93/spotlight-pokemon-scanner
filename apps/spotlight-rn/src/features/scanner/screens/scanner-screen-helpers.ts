@@ -115,7 +115,6 @@ export function buildScanSelectionProperties(capture: RecentCapture) {
 }
 
 export function buildScanMatchSuccessProperties(params: {
-  artifactUploadMs?: number | null;
   candidateCount: number;
   captureMs?: number | null;
   endToEndMs?: number | null;
@@ -162,10 +161,6 @@ export function buildScanMatchSuccessProperties(params: {
 
   if (typeof params.serverProcessingMs === 'number') {
     properties.server_processing_ms = params.serverProcessingMs;
-  }
-
-  if (typeof params.artifactUploadMs === 'number') {
-    properties.artifact_upload_ms = params.artifactUploadMs;
   }
 
   return properties;

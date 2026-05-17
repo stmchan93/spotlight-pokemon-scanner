@@ -56,8 +56,10 @@ import type {
   RecentSaleRecord,
   VendorShowSummary,
   VendorShowSummaryRange,
+  ScannerArtifactUploadResult,
   ScannerCapturePayload,
   ScanFeedbackPayload,
+  ScannerMatchOptions,
   ScannerMatchResult,
   ScannerMode,
   SlabContext,
@@ -73,7 +75,10 @@ export interface SpotlightRepository {
   getInventoryEntries(query?: InventoryEntriesQuery): Promise<InventoryCardEntry[]>;
   loadCatalogCards(query: string, limit?: number): Promise<SpotlightRepositoryLoadResult<CatalogSearchResult[]>>;
   searchCatalogCards(query: string, limit?: number): Promise<CatalogSearchResult[]>;
-  matchScannerCapture(payload: ScannerCapturePayload): Promise<ScannerMatchResult>;
+  matchScannerCapture(
+    payload: ScannerCapturePayload,
+    options?: ScannerMatchOptions,
+  ): Promise<ScannerMatchResult>;
   getScannerCandidates(mode: ScannerMode, limit?: number): Promise<CatalogSearchResult[]>;
   submitScanFeedback(payload: ScanFeedbackPayload): Promise<void>;
   createLabelingSession(payload: LabelingSessionCreatePayload): Promise<LabelingSessionRecord>;
@@ -2113,7 +2118,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async matchScannerCapture(payload: ScannerCapturePayload) {
+  async matchScannerCapture(payload: ScannerCapturePayload, _options?: ScannerMatchOptions) {
     return {
       scanID: createPseudoUUID(),
       candidates: buildScannerCandidates(payload.mode, 10),
@@ -3033,7 +3038,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async matchScannerCapture(payload: ScannerCapturePayload) {
+  async matchScannerCapture(payload: ScannerCapturePayload, options?: ScannerMatchOptions) {
     const endpointPath = scannerMatchEndpointPath(payload);
     const startedAt = Date.now();
     const response = await this.requestJson<ScanMatchResponseDTO>(
@@ -3060,10 +3065,22 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     const roundTripMs = Date.now() - startedAt;
     const serverProcessingMs = normalizeNumber(response.data?.performance?.serverProcessingMs);
     const scanID = normalizeString(response.data?.scanID);
-    const artifactUpload = await this.uploadScanArtifactsForMatch(payload, scanID);
+
+    // Background the artifact upload so the candidate UI can paint as soon as match returns.
+    // The optional callback fires once the upload settles so callers can emit telemetry.
+    void this.uploadScanArtifactsForMatch(payload, scanID)
+      .then((result) => {
+        options?.onArtifactUploadComplete?.(result);
+      })
+      .catch((error: unknown) => {
+        options?.onArtifactUploadComplete?.({
+          status: 'failed',
+          errorKind: 'request_failed',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        });
+      });
 
     return {
-      artifactUpload,
       scanID,
       candidates: mapScannerMatchCandidates(response.data, this.baseUrl),
       endpointPath,
@@ -3779,7 +3796,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   private async uploadScanArtifactsForMatch(
     payload: ScannerCapturePayload,
     scanID: string | null,
-  ) {
+  ): Promise<ScannerArtifactUploadResult | null> {
     const uploadPayload = scanID ? createScanArtifactUploadPayload(payload, scanID) : null;
     if (!uploadPayload) {
       return null;
@@ -3811,7 +3828,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         requestAttemptCount: response.meta?.attemptCount ?? null,
         requestUrl: response.meta?.requestUrl ?? null,
         roundTripMs,
-      } satisfies ScannerMatchResult['artifactUpload'];
+      };
     }
 
     if (response.data?.enabled === false || response.data?.skipped === true) {
@@ -3822,7 +3839,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         requestUrl: response.meta.requestUrl,
         roundTripMs,
         storage: normalizeString(response.data?.storage),
-      } satisfies ScannerMatchResult['artifactUpload'];
+      };
     }
 
     return {
@@ -3834,6 +3851,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       sourceObjectPath: normalizeString(response.data?.sourceObjectPath),
       storage: normalizeString(response.data?.storage),
       uploadedAt: normalizeString(response.data?.uploadedAt),
-    } satisfies ScannerMatchResult['artifactUpload'];
+    };
   }
 }

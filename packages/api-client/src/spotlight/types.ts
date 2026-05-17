@@ -71,7 +71,6 @@ export type ScanFeedbackPayload = {
 export type ScannerMatchResult = {
   scanID: string | null;
   candidates: CatalogSearchResult[];
-  artifactUpload?: ScannerArtifactUploadResult | null;
   endpointPath?: string;
   resolverMode?: string | null;
   reviewDisposition?: string | null;
@@ -81,6 +80,10 @@ export type ScannerMatchResult = {
   requestUrl?: string | null;
   requestAttemptCount?: number | null;
   slabContext?: SlabContext | null;
+};
+
+export type ScannerMatchOptions = {
+  onArtifactUploadComplete?: (result: ScannerArtifactUploadResult | null) => void;
 };
 
 export const spotlightRepositoryLoadStates = ['success', 'empty', 'not_found', 'error'] as const;

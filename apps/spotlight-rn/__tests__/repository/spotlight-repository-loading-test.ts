@@ -1,4 +1,5 @@
 import { HttpSpotlightRepository } from '../../../../packages/api-client/src/spotlight/repository';
+import type { ScannerArtifactUploadResult } from '../../../../packages/api-client/src/spotlight/types';
 
 function jsonResponse(status: number, body?: unknown) {
   return {
@@ -681,6 +682,11 @@ describe('HttpSpotlightRepository', () => {
         buildNumber: '11',
       },
     });
+    let resolveUpload: (value: ScannerArtifactUploadResult | null) => void = () => {};
+    const uploadComplete = new Promise<ScannerArtifactUploadResult | null>((resolve) => {
+      resolveUpload = resolve;
+    });
+
     const result = await repository.matchScannerCapture({
       mode: 'slabs',
       jpegBase64: 'bGFiZWwtY3JvcA==',
@@ -722,6 +728,8 @@ describe('HttpSpotlightRepository', () => {
           },
         },
       },
+    }, {
+      onArtifactUploadComplete: resolveUpload,
     });
 
     expect(matchRequestBody).toMatchObject({
@@ -746,6 +754,16 @@ describe('HttpSpotlightRepository', () => {
         },
       },
     });
+    expect(result.scanID).toBe('scan-slab-dragonite');
+    expect(result.resolverMode).toBe('psa_slab');
+    expect(result.slabContext).toEqual({
+      grader: 'PSA',
+      grade: '9',
+      certNumber: '12345678',
+      variantName: 'PSA 9',
+    });
+
+    const artifactUpload = await uploadComplete;
     expect(artifactRequestBody).toEqual({
       scanID: 'scan-slab-dragonite',
       submittedAt: '2026-05-03T12:00:00Z',
@@ -761,15 +779,7 @@ describe('HttpSpotlightRepository', () => {
         height: 280,
       },
     });
-    expect(result.scanID).toBe('scan-slab-dragonite');
-    expect(result.resolverMode).toBe('psa_slab');
-    expect(result.slabContext).toEqual({
-      grader: 'PSA',
-      grade: '9',
-      certNumber: '12345678',
-      variantName: 'PSA 9',
-    });
-    expect(result.artifactUpload).toMatchObject({
+    expect(artifactUpload).toMatchObject({
       status: 'uploaded',
       storage: 'filesystem',
       sourceObjectPath: 'scans/2026/05/03/scan-slab-dragonite/source_capture.jpg',
