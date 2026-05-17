@@ -54,7 +54,7 @@ describe('SingleSellScreen', () => {
     expect(await screen.findByText('Oshawott')).toBeTruthy();
     expect(screen.getByTestId('single-sell-summary-card')).toBeTruthy();
     expect(StyleSheet.flatten(screen.getByTestId('single-sell-summary-card').props.style)).toMatchObject({
-      marginTop: -24,
+      marginTop: 16,
     });
     expect(screen.getByText('Swipe up to confirm sale')).toBeTruthy();
     expect(screen.queryByText('Condition')).toBeNull();

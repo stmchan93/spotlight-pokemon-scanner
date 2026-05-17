@@ -515,8 +515,9 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByText('Treecko')).toBeTruthy();
     expect(await screen.findByText('PSA • 10')).toBeTruthy();
     expect(await screen.findByText(/Cert #00012345/)).toBeTruthy();
-    const quantityValue = await screen.findByTestId('detail-quantity-value');
-    expect(String(quantityValue.props.children)).toBe('Qty 1');
+    expect(await screen.findByTestId('detail-quantity-stepper')).toBeTruthy();
+    // qty 1 is hidden — the trash + + edit icons communicate state
+    expect(screen.queryByTestId('detail-quantity-value')).toBeNull();
   });
 
   it('lets a slab user toggle between PSA grades and refetches pricing with the override', async () => {

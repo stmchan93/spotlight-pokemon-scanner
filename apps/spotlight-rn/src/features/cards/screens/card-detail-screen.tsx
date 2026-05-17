@@ -1260,6 +1260,13 @@ export function CardDetailScreen({
     ].filter(Boolean).join('  ·  ')
     : '';
 
+  const rawHeroVariantConditionLine = !isSlabDetail && selectedEntry?.kind === 'raw'
+    ? [
+      selectedEntry.variantName?.trim() || null,
+      selectedEntry.conditionLabel?.trim() || null,
+    ].filter(Boolean).join(' · ')
+    : '';
+
   const hasMarketHistoryPoints = timeframeFilteredPoints.length > 0;
 
   const safeNumericDisplayedPrice = typeof displayedPrice === 'number' && Number.isFinite(displayedPrice)
@@ -1299,6 +1306,7 @@ export function CardDetailScreen({
             `${displayNumber(displayCardNumber)} • ${displaySetName}`,
             slabHeroSubtitleDisplay ?? '',
             slabCertAndQuantityLine,
+            rawHeroVariantConditionLine,
           ]}
           favorite={{
             isFavorite,
@@ -1331,12 +1339,14 @@ export function CardDetailScreen({
                     <IconMinus color={theme.colors.textPrimary} size={18} strokeWidth={2.2} />
                   </IconButton>
                 )}
-                <Text
-                  style={[theme.typography.bodyStrong, styles.heroStepperValue]}
-                  testID="detail-quantity-value"
-                >
-                  {`Qty ${selectedEntry.quantity}`}
-                </Text>
+                {selectedEntry.quantity > 1 ? (
+                  <Text
+                    style={[theme.typography.bodyStrong, styles.heroStepperValue]}
+                    testID="detail-quantity-value"
+                  >
+                    {`Qty ${selectedEntry.quantity}`}
+                  </Text>
+                ) : null}
                 <IconButton
                   accessibilityLabel="Add another copy"
                   onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}

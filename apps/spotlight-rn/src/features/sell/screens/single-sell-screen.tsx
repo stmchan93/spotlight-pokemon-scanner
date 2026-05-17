@@ -970,7 +970,7 @@ export function SingleSellScreen({
                       How is buyer paying?
                     </Text>
                     <View style={styles.paymentMethodRow}>
-                      {(['cash', 'venmo', 'cashapp', 'paypal', 'zelle'] as const).map((method) => {
+                      {(['cash', 'venmo', 'zelle', 'paypal', 'cashapp'] as const).map((method) => {
                         const isSelected = paymentMethod === method;
                         return (
                           <Pressable
@@ -1068,7 +1068,7 @@ const styles = StyleSheet.create({
     shadowRadius: 24,
   },
   detailsCardWrap: {
-    marginTop: -24,
+    marginTop: 16,
   },
   centeredHeroBody: {
     alignItems: 'center',
@@ -1100,8 +1100,8 @@ const styles = StyleSheet.create({
     borderColor: colors.outlineSubtle,
     borderRadius: 10,
     borderWidth: 1,
-    flex: 1,
-    minWidth: 64,
+    flexBasis: '31%',
+    flexGrow: 1,
     paddingHorizontal: 8,
     paddingVertical: 10,
   },
