@@ -929,12 +929,17 @@ function saleResponseFromPayload(
   deckEntryID: string,
   remainingQuantity: number,
 ): PortfolioSaleResponsePayload {
+  const method = (payload.paymentMethod ?? 'cash').toLowerCase();
+  const pendingMethods = new Set(['venmo', 'cashapp', 'paypal', 'zelle']);
+  const isPending = pendingMethods.has(method);
   return {
     saleID: `sale-${Math.random().toString(36).slice(2, 10)}`,
     deckEntryID,
     remainingQuantity,
     grossTotal: Number((payload.quantity * payload.unitPrice).toFixed(2)),
     soldAt: payload.soldAt,
+    paidAt: isPending ? null : payload.soldAt,
+    status: isPending ? 'pending' : 'paid',
     showSessionID: payload.showSessionID,
   };
 }

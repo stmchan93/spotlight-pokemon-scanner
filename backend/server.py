@@ -3786,18 +3786,51 @@ class SpotlightScanService:
         deck_entry_id = str(payload.get("deckEntryID") or "").strip()
         card_id = str(payload.get("cardID") or "").strip()
         slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
+        slab_grader = str(slab_context.get("grader") or "").strip() or None
+        slab_grade = str(slab_context.get("grade") or "").strip() or None
+        slab_cert_number = str(slab_context.get("certNumber") or "").strip() or None
+        slab_variant_name = str(slab_context.get("variantName") or "").strip() or None
+        condition = str(payload.get("condition") or "").strip() or None
+        sold_at = str(payload.get("soldAt") or utc_now()).strip() or utc_now()
+
         if not deck_entry_id:
             if not card_id:
                 raise ValueError("deckEntryID or cardID is required")
             deck_entry_id = self._resolve_owned_deck_entry_id(
                 card_id=card_id,
-                grader=str(slab_context.get("grader") or "").strip() or None,
-                grade=str(slab_context.get("grade") or "").strip() or None,
-                cert_number=str(slab_context.get("certNumber") or "").strip() or None,
-                variant_name=str(slab_context.get("variantName") or "").strip() or None,
+                grader=slab_grader,
+                grade=slab_grade,
+                cert_number=slab_cert_number,
+                variant_name=slab_variant_name,
+                condition=condition,
             )
             if not deck_entry_id:
-                raise FileNotFoundError("deck entry not found")
+                card_row = self.connection.execute(
+                    "SELECT id FROM cards WHERE id = ? LIMIT 1",
+                    (card_id,),
+                ).fetchone()
+                if card_row is None:
+                    raise FileNotFoundError("card not found")
+                try:
+                    stub_quantity = max(1, int(payload.get("quantity", 1)))
+                except (TypeError, ValueError):
+                    stub_quantity = 1
+                deck_entry_id = upsert_deck_entry(
+                    self.connection,
+                    owner_user_id=owner_user_id,
+                    card_id=card_id,
+                    grader=slab_grader,
+                    grade=slab_grade,
+                    cert_number=slab_cert_number,
+                    variant_name=slab_variant_name,
+                    condition=condition,
+                    quantity=stub_quantity,
+                    unit_price=None,
+                    currency_code=str(payload.get("currencyCode") or "").strip() or None,
+                    added_at=sold_at,
+                    updated_at=sold_at,
+                    event_kind="add",
+                )
 
         row = self._owned_deck_entry_row_by_reference(deck_entry_id)
         if row is None:
@@ -3820,7 +3853,6 @@ class SpotlightScanService:
         if quantity > current_quantity:
             raise ValueError("sale quantity exceeds deck quantity")
 
-        sold_at = str(payload.get("soldAt") or utc_now()).strip() or utc_now()
         note = str(payload.get("note") or "").strip() or None
         payment_method = str(payload.get("paymentMethod") or "").strip() or None
         sale_source = str(payload.get("saleSource") or "manual").strip() or "manual"
@@ -3836,6 +3868,13 @@ class SpotlightScanService:
                 raise ValueError("unitPrice must be a number") from None
         if unit_price is None or unit_price < 0:
             raise ValueError("unitPrice must be a non-negative number")
+
+        deferred_payment_methods = {"venmo", "cashapp", "paypal", "zelle"}
+        normalized_payment_method = (payment_method or "").lower()
+        if normalized_payment_method in deferred_payment_methods:
+            paid_at: str | None = None
+        else:
+            paid_at = sold_at
 
         source_scan_id = str(payload.get("sourceScanID") or "").strip() or None
         source_confirmation_id = str(payload.get("sourceConfirmationID") or "").strip() or None
@@ -3866,6 +3905,7 @@ class SpotlightScanService:
             show_session_id=show_session_id,
             note=note,
             sold_at=sold_at,
+            paid_at=paid_at,
             source_scan_id=source_scan_id,
             source_confirmation_id=source_confirmation_id,
         )
@@ -3875,12 +3915,20 @@ class SpotlightScanService:
             "SELECT quantity FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
             (deck_entry_id, owner_user_id),
         ).fetchone()
+        if remaining_row is not None:
+            remaining_quantity = max(0, int(remaining_row["quantity"] or 0))
+        elif paid_at is not None:
+            remaining_quantity = max(0, current_quantity - quantity)
+        else:
+            remaining_quantity = current_quantity
         return {
             "saleID": sale_id,
             "deckEntryID": deck_entry_id,
-            "remainingQuantity": max(0, int(remaining_row["quantity"] if remaining_row is not None else current_quantity - quantity)),
+            "remainingQuantity": remaining_quantity,
             "grossTotal": round(unit_price * quantity, 2),
             "soldAt": sold_at,
+            "paidAt": paid_at,
+            "status": "paid" if paid_at else "pending",
             "showSessionID": show_session_id,
         }
 
@@ -3911,97 +3959,234 @@ class SpotlightScanService:
 
         return {"results": results}
 
-    def record_quick_sale(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def mark_sale_paid(self, sale_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        normalized_sale_id = str(sale_id or "").strip()
+        if not normalized_sale_id:
+            raise ValueError("saleID is required")
         owner_user_id = self._current_owner_user_id()
-        card_id = str(payload.get("cardID") or "").strip()
-        if not card_id:
-            raise ValueError("cardID is required")
-
-        card_row = self.connection.execute(
-            "SELECT id FROM cards WHERE id = ? LIMIT 1",
-            (card_id,),
+        sale_row = self.connection.execute(
+            """
+            SELECT id, owner_user_id, deck_entry_id, card_id, quantity, sold_at,
+                   unit_price, total_price, currency_code, payment_method,
+                   paid_at, voided_at
+            FROM sale_events
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (normalized_sale_id,),
         ).fetchone()
-        if card_row is None:
-            raise FileNotFoundError("card not found")
-
-        slab_context = payload.get("slabContext") if isinstance(payload.get("slabContext"), dict) else {}
-        grader = str(slab_context.get("grader") or "").strip() or None
-        grade = str(slab_context.get("grade") or "").strip() or None
-        cert_number = str(slab_context.get("certNumber") or "").strip() or None
-        variant_name = str(slab_context.get("variantName") or "").strip() or None
-        condition = str(payload.get("condition") or "").strip() or None
-
-        existing_id = self._resolve_owned_deck_entry_id(
-            card_id=card_id,
-            grader=grader,
-            grade=grade,
-            cert_number=cert_number,
-            variant_name=variant_name,
-            condition=condition,
-        )
-        if existing_id:
-            raise ValueError(
-                "deck entry already exists for this card; use /api/v1/sales instead"
+        if sale_row is None:
+            raise FileNotFoundError("sale not found")
+        if str(sale_row["owner_user_id"] or "").strip() != owner_user_id:
+            raise FileNotFoundError("sale not found")
+        if sale_row["voided_at"]:
+            raise ValueError("sale was cancelled")
+        existing_paid_at = str(sale_row["paid_at"] or "").strip() or None
+        deck_entry_id = str(sale_row["deck_entry_id"] or "").strip()
+        sale_quantity = max(1, int(sale_row["quantity"] or 1))
+        card_id = str(sale_row["card_id"] or "").strip()
+        if existing_paid_at:
+            remaining_row = self.connection.execute(
+                "SELECT quantity FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
+                (deck_entry_id, owner_user_id),
+            ).fetchone()
+            remaining_quantity = (
+                max(0, int(remaining_row["quantity"] or 0)) if remaining_row is not None else 0
             )
+            return {
+                "saleID": normalized_sale_id,
+                "deckEntryID": deck_entry_id,
+                "paidAt": existing_paid_at,
+                "status": "paid",
+                "remainingQuantity": remaining_quantity,
+            }
 
+        deck_row = self.connection.execute(
+            "SELECT quantity, cost_basis_total FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            (deck_entry_id, owner_user_id),
+        ).fetchone()
+        if deck_row is None:
+            raise FileNotFoundError("deck entry not found")
+        current_quantity = max(0, int(deck_row["quantity"] or 0))
+        if sale_quantity > current_quantity:
+            raise ValueError("sale quantity exceeds deck quantity")
+        current_cost_basis_total = float(deck_row["cost_basis_total"] or 0.0)
+        cost_basis_total_for_sale = 0.0
+        if current_quantity > 0 and current_cost_basis_total > 0:
+            cost_basis_unit_price = current_cost_basis_total / float(current_quantity)
+            cost_basis_total_for_sale = round(cost_basis_unit_price * sale_quantity, 2)
+        remaining_cost_basis_total = round(
+            max(0.0, current_cost_basis_total - cost_basis_total_for_sale), 2
+        )
+
+        now = utc_now()
         try:
-            quantity = int(payload.get("quantity", 1))
-        except (TypeError, ValueError):
-            raise ValueError("quantity must be an integer") from None
-        if quantity < 1:
-            raise ValueError("quantity must be at least 1")
-
-        unit_price_raw = payload.get("unitPrice")
-        if unit_price_raw is None or unit_price_raw == "":
-            raise ValueError("unitPrice is required")
-        try:
-            unit_price = float(unit_price_raw)
-        except (TypeError, ValueError):
-            raise ValueError("unitPrice must be a number") from None
-        if unit_price < 0:
-            raise ValueError("unitPrice must be a non-negative number")
-
-        currency_code = str(payload.get("currencyCode") or "").strip() or None
-        payment_method = str(payload.get("paymentMethod") or "").strip() or None
-        note = str(payload.get("note") or "").strip() or None
-        sold_at = str(payload.get("soldAt") or utc_now()).strip() or utc_now()
-
-        try:
-            deck_entry_id = upsert_deck_entry(
+            self.connection.execute(
+                "UPDATE sale_events SET paid_at = ? WHERE id = ? AND owner_user_id = ?",
+                (now, normalized_sale_id, owner_user_id),
+            )
+            self.connection.execute(
+                """
+                UPDATE deck_entries
+                SET quantity = quantity - ?,
+                    cost_basis_total = ?,
+                    updated_at = ?
+                WHERE id = ?
+                  AND owner_user_id = ?
+                """,
+                (sale_quantity, remaining_cost_basis_total, now, deck_entry_id, owner_user_id),
+            )
+            append_deck_entry_event(
                 self.connection,
                 owner_user_id=owner_user_id,
+                deck_entry_id=deck_entry_id,
                 card_id=card_id,
-                grader=grader,
-                grade=grade,
-                cert_number=cert_number,
-                variant_name=variant_name,
-                condition=condition,
-                quantity=quantity,
-                unit_price=None,
-                currency_code=currency_code,
-                added_at=sold_at,
-                updated_at=sold_at,
-                event_kind="add",
-            )
-            sale_payload = self._record_sale_without_commit(
-                {
-                    "deckEntryID": deck_entry_id,
-                    "quantity": quantity,
-                    "unitPrice": unit_price,
-                    "currencyCode": currency_code,
-                    "paymentMethod": payment_method,
-                    "note": note,
-                    "soldAt": sold_at,
-                    "saleSource": "quick",
-                }
+                event_kind="sale",
+                quantity_delta=-sale_quantity,
+                total_price=None if sale_row["total_price"] is None else float(sale_row["total_price"]),
+                unit_price=None if sale_row["unit_price"] is None else float(sale_row["unit_price"]),
+                currency_code=str(sale_row["currency_code"] or "").strip() or None,
+                payment_method=str(sale_row["payment_method"] or "").strip() or None,
+                sale_id=normalized_sale_id,
+                created_at=now,
             )
             self.connection.commit()
         except Exception:
             self.connection.rollback()
             raise
 
-        sale_payload["quickSale"] = True
-        return sale_payload
+        remaining_row = self.connection.execute(
+            "SELECT quantity FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
+            (deck_entry_id, owner_user_id),
+        ).fetchone()
+        remaining_quantity = (
+            max(0, int(remaining_row["quantity"] or 0)) if remaining_row is not None else 0
+        )
+        return {
+            "saleID": normalized_sale_id,
+            "deckEntryID": deck_entry_id,
+            "paidAt": now,
+            "status": "paid",
+            "remainingQuantity": remaining_quantity,
+        }
+
+    def void_sale(self, sale_id: str) -> dict[str, Any]:
+        normalized_sale_id = str(sale_id or "").strip()
+        if not normalized_sale_id:
+            raise ValueError("saleID is required")
+        owner_user_id = self._current_owner_user_id()
+        sale_row = self.connection.execute(
+            """
+            SELECT id, owner_user_id, deck_entry_id, paid_at, voided_at
+            FROM sale_events
+            WHERE id = ?
+            LIMIT 1
+            """,
+            (normalized_sale_id,),
+        ).fetchone()
+        if sale_row is None:
+            raise FileNotFoundError("sale not found")
+        if str(sale_row["owner_user_id"] or "").strip() != owner_user_id:
+            raise FileNotFoundError("sale not found")
+        if sale_row["paid_at"]:
+            raise ValueError("paid sales cannot be voided")
+        deck_entry_id = str(sale_row["deck_entry_id"] or "").strip()
+        existing_voided_at = str(sale_row["voided_at"] or "").strip() or None
+        if existing_voided_at:
+            return {
+                "saleID": normalized_sale_id,
+                "deckEntryID": deck_entry_id,
+                "voidedAt": existing_voided_at,
+                "status": "voided",
+            }
+        now = utc_now()
+        try:
+            self.connection.execute(
+                "UPDATE sale_events SET voided_at = ? WHERE id = ? AND owner_user_id = ?",
+                (now, normalized_sale_id, owner_user_id),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return {
+            "saleID": normalized_sale_id,
+            "deckEntryID": deck_entry_id,
+            "voidedAt": now,
+            "status": "voided",
+        }
+
+    def vendor_wallet_handles(self) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        row = self.connection.execute(
+            """
+            SELECT venmo_handle, cashapp_handle, paypal_me_slug, zelle_email_or_phone, updated_at
+            FROM vendor_wallet_handles
+            WHERE owner_user_id = ?
+            LIMIT 1
+            """,
+            (owner_user_id,),
+        ).fetchone()
+        if row is None:
+            return {
+                "venmoHandle": None,
+                "cashappHandle": None,
+                "paypalMeSlug": None,
+                "zelleEmailOrPhone": None,
+                "updatedAt": None,
+            }
+        return {
+            "venmoHandle": str(row["venmo_handle"] or "").strip() or None,
+            "cashappHandle": str(row["cashapp_handle"] or "").strip() or None,
+            "paypalMeSlug": str(row["paypal_me_slug"] or "").strip() or None,
+            "zelleEmailOrPhone": str(row["zelle_email_or_phone"] or "").strip() or None,
+            "updatedAt": str(row["updated_at"] or "").strip() or None,
+        }
+
+    def update_vendor_wallet_handles(self, payload: dict[str, Any]) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        if not isinstance(payload, dict):
+            raise ValueError("payload must be an object")
+        venmo_handle = str(payload.get("venmoHandle") or "").strip() or None
+        cashapp_handle = str(payload.get("cashappHandle") or "").strip() or None
+        paypal_me_slug = str(payload.get("paypalMeSlug") or "").strip() or None
+        zelle_email_or_phone = str(payload.get("zelleEmailOrPhone") or "").strip() or None
+        now = utc_now()
+        try:
+            self.connection.execute(
+                """
+                INSERT INTO vendor_wallet_handles (
+                    owner_user_id, venmo_handle, cashapp_handle, paypal_me_slug,
+                    zelle_email_or_phone, updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(owner_user_id) DO UPDATE SET
+                    venmo_handle = excluded.venmo_handle,
+                    cashapp_handle = excluded.cashapp_handle,
+                    paypal_me_slug = excluded.paypal_me_slug,
+                    zelle_email_or_phone = excluded.zelle_email_or_phone,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    owner_user_id,
+                    venmo_handle,
+                    cashapp_handle,
+                    paypal_me_slug,
+                    zelle_email_or_phone,
+                    now,
+                ),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        return {
+            "venmoHandle": venmo_handle,
+            "cashappHandle": cashapp_handle,
+            "paypalMeSlug": paypal_me_slug,
+            "zelleEmailOrPhone": zelle_email_or_phone,
+            "updatedAt": now,
+        }
 
     @staticmethod
     def _should_use_scrydex_japanese_raw(evidence: RawEvidence) -> bool:
@@ -9445,6 +9630,20 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
+        if parsed.path == "/api/v1/vendor/wallet-handles":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    wallet_payload = self.service.vendor_wallet_handles()
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Wallet handles fetch failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, wallet_payload)
+            return
+
         if parsed.path == "/api/v1/vendor/show-summary":
             identity = self._require_request_identity()
             if identity is None:
@@ -10160,13 +10359,19 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, sale_payload)
             return
 
-        if parsed.path == "/api/v1/sales/quick":
+        if parsed.path.startswith("/api/v1/sales/") and parsed.path.endswith("/mark-paid"):
             identity = self._require_request_identity()
             if identity is None:
                 return
+            sale_id = unquote(
+                parsed.path.removeprefix("/api/v1/sales/").removesuffix("/mark-paid").strip("/")
+            )
+            if not sale_id:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "saleID is required"})
+                return
             try:
                 with self.service.request_identity_context(identity):
-                    sale_payload = self.service.record_quick_sale(payload)
+                    sale_payload = self.service.mark_sale_paid(sale_id, payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
@@ -10175,9 +10380,52 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 return
             except Exception as error:
                 traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Quick sale recording failed: {error}"})
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Mark sale paid failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, sale_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/sales/") and parsed.path.endswith("/void"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            sale_id = unquote(
+                parsed.path.removeprefix("/api/v1/sales/").removesuffix("/void").strip("/")
+            )
+            if not sale_id:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "saleID is required"})
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    sale_payload = self.service.void_sale(sale_id)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Void sale failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, sale_payload)
+            return
+
+        if parsed.path == "/api/v1/vendor/wallet-handles":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    wallet_payload = self.service.update_vendor_wallet_handles(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Wallet handles update failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, wallet_payload)
             return
 
         if parsed.path.startswith("/api/v1/portfolio/sales/") and parsed.path.endswith("/price"):

@@ -538,65 +538,38 @@ export type PortfolioSaleRequestPayload = {
   sourceScanID: string | null;
 };
 
+export type SaleStatus = 'paid' | 'pending' | 'voided';
+
+export type PaymentMethod = 'cash' | 'venmo' | 'cashapp' | 'paypal' | 'zelle' | 'other';
+
 export type PortfolioSaleResponsePayload = {
   saleID: string;
   deckEntryID: string;
   remainingQuantity: number;
   grossTotal: number;
   soldAt: string;
+  paidAt: string | null;
+  status: SaleStatus;
   showSessionID: string | null;
 };
 
-export type QuickSaleRequestPayload = {
-  cardID: string;
-  quantity?: number;
-  unitPrice: number;
-  currencyCode?: string | null;
-  condition?: string | null;
-  slabContext?: SlabContext | null;
-  paymentMethod?: string | null;
-  note?: string | null;
-  soldAt?: string | null;
-};
-
-export type QuickSaleResponsePayload = {
+export type SaleLifecycleResponsePayload = {
   saleID: string;
-  deckEntryID: string;
-  remainingQuantity: number;
-  grossTotal: number;
-  soldAt: string;
-  quickSale: boolean;
+  paidAt: string | null;
+  voidedAt: string | null;
+  status: SaleStatus;
+  remainingQuantity?: number;
 };
 
-export type VendorShowSummaryRange = {
-  since?: string | null;
-  until?: string | null;
+export type VendorWalletHandles = {
+  venmoHandle: string | null;
+  cashappHandle: string | null;
+  paypalMeSlug: string | null;
+  zelleEmailOrPhone: string | null;
+  updatedAt: string | null;
 };
 
-export type VendorShowSummaryPaymentMethodBucket = {
-  paymentMethod: string | null;
-  count: number;
-  revenue: number;
-};
-
-export type VendorShowSummaryTopCard = {
-  cardID: string;
-  name: string;
-  setName: string | null;
-  imageUrl: string | null;
-  quantity: number;
-  totalPrice: number;
-};
-
-export type VendorShowSummary = {
-  since: string;
-  until: string;
-  totalSales: number;
-  totalRevenue: number;
-  currencyCode: string | null;
-  byPaymentMethod: VendorShowSummaryPaymentMethodBucket[];
-  topCards: VendorShowSummaryTopCard[];
-};
+export type VendorWalletHandlesUpdate = Partial<Omit<VendorWalletHandles, 'updatedAt'>>;
 
 export const portfolioImportSourceTypes = ['collectr_csv_v1', 'tcgplayer_csv_v1'] as const;
 

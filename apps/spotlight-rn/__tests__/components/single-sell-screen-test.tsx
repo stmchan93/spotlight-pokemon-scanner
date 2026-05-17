@@ -1,4 +1,4 @@
-import { act, fireEvent, screen } from '@testing-library/react-native';
+import { act, fireEvent, screen, waitFor } from '@testing-library/react-native';
 import { ScrollView, StyleSheet } from 'react-native';
 
 import { mockInventoryEntries, type InventoryCardEntry } from '@spotlight/api-client';
@@ -434,6 +434,8 @@ describe('SingleSellScreen', () => {
       remainingQuantity: 0,
       grossTotal: 12.5,
       soldAt: '2026-05-01T00:00:00.000Z',
+      paidAt: '2026-05-01T00:00:00.000Z',
+      status: 'paid' as const,
       showSessionID: null,
     }));
     const repository = createTestSpotlightRepository({
@@ -463,8 +465,80 @@ describe('SingleSellScreen', () => {
       deckEntryID: 'entry-1',
       unitPrice: 12.5,
       quantity: 1,
+      paymentMethod: 'cash',
     }));
     expect(screen.getByText('Processing sale')).toBeTruthy();
+  });
+
+  it('submits the sale with the selected payment method when the tap button is pressed', async () => {
+    const createPortfolioSale = jest.fn(async () => ({
+      saleID: 'sale-1',
+      deckEntryID: 'entry-1',
+      remainingQuantity: 0,
+      grossTotal: 12.5,
+      soldAt: '2026-05-01T00:00:00.000Z',
+      paidAt: '2026-05-01T00:00:00.000Z',
+      status: 'paid' as const,
+      showSessionID: null,
+    }));
+    const repository = createTestSpotlightRepository({
+      createPortfolioSale,
+    });
+
+    renderWithProviders(
+      <SingleSellScreen
+        entryId="entry-1"
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+      { spotlightRepository: repository },
+    );
+
+    expect(await screen.findByText('Scorbunny')).toBeTruthy();
+    await enterSingleSellPriceWithCalculator('12.5');
+
+    fireEvent.press(screen.getByTestId('single-sell-payment-method-cash'));
+    fireEvent.press(screen.getByTestId('single-sell-tap-confirm'));
+
+    await waitFor(() => {
+      expect(createPortfolioSale).toHaveBeenCalledWith(expect.objectContaining({
+        deckEntryID: 'entry-1',
+        unitPrice: 12.5,
+        paymentMethod: 'cash',
+      }));
+    });
+  });
+
+  it('opens the wallet handle setup modal when a non-cash chip is tapped without a saved handle', async () => {
+    const repository = createTestSpotlightRepository({
+      getVendorWalletHandles: async () => ({
+        venmoHandle: null,
+        cashappHandle: null,
+        paypalMeSlug: null,
+        zelleEmailOrPhone: null,
+        updatedAt: null,
+      }),
+    });
+
+    renderWithProviders(
+      <SingleSellScreen
+        entryId="entry-1"
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+      { spotlightRepository: repository },
+    );
+
+    expect(await screen.findByText('Scorbunny')).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.getByTestId('single-sell-payment-method-venmo')).toBeTruthy();
+    });
+
+    fireEvent.press(screen.getByTestId('single-sell-payment-method-venmo'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('wallet-handle-setup-title')).toBeTruthy();
+    });
   });
 
   it('calls onComplete after a successful single sell finishes', async () => {
@@ -476,6 +550,8 @@ describe('SingleSellScreen', () => {
       remainingQuantity: 0,
       grossTotal: 12.5,
       soldAt: '2026-05-01T00:00:00.000Z',
+      paidAt: '2026-05-01T00:00:00.000Z',
+      status: 'paid' as const,
       showSessionID: null,
     }));
     const repository = createTestSpotlightRepository({

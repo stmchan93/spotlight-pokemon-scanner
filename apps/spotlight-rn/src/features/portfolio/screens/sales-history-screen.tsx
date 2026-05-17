@@ -217,6 +217,24 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
   }, [filterOption, sales, sortOption, trimmedSearchQuery]);
   const shouldShowSalesSkeleton = model.isLoadingDashboard && !model.hasLoadedDashboard && displayedSales.length === 0;
 
+  const todaySummary = useMemo(() => {
+    const now = new Date();
+    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+    const todaySales = sales.filter((sale) => Date.parse(sale.soldAtISO) >= todayStart);
+    if (todaySales.length === 0) {
+      return null;
+    }
+    const grossTotal = todaySales.reduce((acc, sale) => acc + sale.soldPrice * (sale.quantity ?? 1), 0);
+    const topSale = todaySales.slice().sort((a, b) => b.soldPrice - a.soldPrice)[0];
+    return {
+      count: todaySales.length,
+      gross: grossTotal,
+      currencyCode: todaySales[0]?.currencyCode ?? 'USD',
+      topSaleName: topSale?.name ?? null,
+      topSalePrice: topSale?.soldPrice ?? null,
+    };
+  }, [sales]);
+
   const emptyState = useMemo(() => {
     if (sales.length === 0) {
       return {
@@ -259,6 +277,33 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
         />
 
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
+          {todaySummary ? (
+            <SurfaceCard padding={16} radius={20} style={styles.todayCard} testID="sales-history-today-card">
+              <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>Today</Text>
+              <View style={styles.todayCardStatsRow}>
+                <View style={styles.todayCardStatItem}>
+                  <Text style={theme.typography.display}>{todaySummary.count}</Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+                    {todaySummary.count === 1 ? 'sale' : 'sales'}
+                  </Text>
+                </View>
+                <View style={styles.todayCardStatItem}>
+                  <Text style={theme.typography.display}>
+                    {formatCurrency(todaySummary.gross, todaySummary.currencyCode)}
+                  </Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>gross</Text>
+                </View>
+              </View>
+              {todaySummary.topSaleName && todaySummary.topSalePrice != null ? (
+                <Text
+                  style={[theme.typography.body, { color: theme.colors.textPrimary, marginTop: 8 }]}
+                  testID="sales-history-today-top"
+                >
+                  Top: {todaySummary.topSaleName} · {formatCurrency(todaySummary.topSalePrice, todaySummary.currencyCode)}
+                </Text>
+              ) : null}
+            </SurfaceCard>
+          ) : null}
           <View style={styles.controlsCard}>
             <ControlGroup title="SORT">
               {sortOptions.map((option) => (
@@ -334,6 +379,17 @@ const styles = StyleSheet.create({
   controlsCard: {
     gap: 16,
     paddingHorizontal: 0,
+  },
+  todayCard: {
+    marginBottom: 16,
+  },
+  todayCardStatItem: {
+    gap: 2,
+  },
+  todayCardStatsRow: {
+    flexDirection: 'row',
+    gap: 32,
+    marginTop: 4,
   },
   headerCopy: {
     gap: 4,

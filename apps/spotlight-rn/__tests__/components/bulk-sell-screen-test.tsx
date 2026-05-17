@@ -344,6 +344,8 @@ describe('BulkSellScreen', () => {
         remainingQuantity: 0,
         grossTotal: 12.5,
         soldAt: '2026-05-01T00:00:00.000Z',
+        paidAt: '2026-05-01T00:00:00.000Z',
+        status: 'paid' as const,
         showSessionID: null,
       },
     ]));

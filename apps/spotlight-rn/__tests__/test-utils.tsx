@@ -129,13 +129,21 @@ export function createTestSpotlightRepository(
       return overrides.createPortfolioSalesBatch?.(...args)
         ?? baseRepository.createPortfolioSalesBatch(...args);
     },
-    createQuickSale: (...args) => {
-      return overrides.createQuickSale?.(...args)
-        ?? baseRepository.createQuickSale(...args);
+    markSalePaid: (...args) => {
+      return overrides.markSalePaid?.(...args)
+        ?? baseRepository.markSalePaid(...args);
     },
-    getVendorShowSummary: (...args) => {
-      return overrides.getVendorShowSummary?.(...args)
-        ?? baseRepository.getVendorShowSummary(...args);
+    voidSale: (...args) => {
+      return overrides.voidSale?.(...args)
+        ?? baseRepository.voidSale(...args);
+    },
+    getVendorWalletHandles: (...args) => {
+      return overrides.getVendorWalletHandles?.(...args)
+        ?? baseRepository.getVendorWalletHandles(...args);
+    },
+    updateVendorWalletHandles: (...args) => {
+      return overrides.updateVendorWalletHandles?.(...args)
+        ?? baseRepository.updateVendorWalletHandles(...args);
     },
     previewPortfolioImport: (...args) => {
       return overrides.previewPortfolioImport?.(...args)

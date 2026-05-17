@@ -158,31 +158,6 @@ export function AccountScreen() {
           </SurfaceCard>
         </View>
 
-        <SurfaceCard padding={20} radius={28}>
-          <Pressable
-            accessibilityLabel="Open show summary"
-            accessibilityRole="button"
-            onPress={() => router.push('/show-summary')}
-            style={({ pressed }) => [
-              styles.labelSessionButton,
-              {
-                backgroundColor: theme.colors.surfaceMuted,
-                opacity: pressed ? 0.9 : 1,
-              },
-            ]}
-            testID="account-show-summary"
-          >
-            <View style={styles.labelSessionCopy}>
-              <Text style={[theme.typography.control, { color: theme.colors.textPrimary }]}>
-                Show summary
-              </Text>
-              <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                Sales, revenue, and top cards for your current show.
-              </Text>
-            </View>
-          </Pressable>
-        </SurfaceCard>
-
         {canStartLabelingSession ? (
           <SurfaceCard padding={20} radius={28}>
             <Pressable

@@ -349,6 +349,8 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     _add_column_if_missing(connection, "sale_events", "owner_user_id", "TEXT")
     _add_column_if_missing(connection, "sale_events", "cost_basis_total", "REAL")
     _add_column_if_missing(connection, "sale_events", "cost_basis_unit_price", "REAL")
+    _add_column_if_missing(connection, "sale_events", "paid_at", "TEXT")
+    _add_column_if_missing(connection, "sale_events", "voided_at", "TEXT")
     _add_column_if_missing(connection, "deck_entry_events", "owner_user_id", "TEXT")
     _add_column_if_missing(connection, "deck_entry_events", "unit_price", "REAL")
     _add_column_if_missing(connection, "deck_entry_events", "total_price", "REAL")
@@ -4334,6 +4336,7 @@ def record_sale_event(
     show_session_id: str | None = None,
     note: str | None = None,
     sold_at: str | None = None,
+    paid_at: str | None = None,
     source_scan_id: str | None = None,
     source_confirmation_id: str | None = None,
 ) -> str | None:
@@ -4367,6 +4370,7 @@ def record_sale_event(
     remaining_cost_basis_total = round(max(0.0, current_cost_basis_total - cost_basis_total), 2)
     sale_id = f"sale:{uuid.uuid4().hex}"
     normalized_sold_at = sold_at or utc_now()
+    normalized_paid_at = str(paid_at or "").strip() or None
     normalized_unit_price = None if unit_price is None else float(unit_price)
     total_price = None if normalized_unit_price is None else normalized_unit_price * normalized_quantity
     connection.execute(
@@ -4374,10 +4378,10 @@ def record_sale_event(
         INSERT INTO sale_events (
             id, owner_user_id, deck_entry_id, card_id, quantity, unit_price, total_price,
             currency_code, payment_method, cost_basis_total, cost_basis_unit_price,
-            sale_source, show_session_id, note, sold_at,
+            sale_source, show_session_id, note, sold_at, paid_at,
             source_scan_id, source_confirmation_id, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             sale_id,
@@ -4395,44 +4399,46 @@ def record_sale_event(
             str(show_session_id or "").strip() or None,
             str(note or "").strip() or None,
             normalized_sold_at,
+            normalized_paid_at,
             str(source_scan_id or "").strip() or None,
             str(source_confirmation_id or "").strip() or None,
             utc_now(),
         ),
     )
-    connection.execute(
-        """
-        UPDATE deck_entries
-        SET quantity = quantity - ?,
-            cost_basis_total = ?,
-            updated_at = ?
-        WHERE id = ?
-          AND owner_user_id = ?
-        """,
-        (
-            normalized_quantity,
-            remaining_cost_basis_total,
-            normalized_sold_at,
-            deck_entry_id,
-            owner_user_id,
-        ),
-    )
-    append_deck_entry_event(
-        connection,
-        owner_user_id=owner_user_id,
-        deck_entry_id=deck_entry_id,
-        card_id=card_id,
-        event_kind="sale",
-        quantity_delta=-normalized_quantity,
-        total_price=total_price,
-        unit_price=normalized_unit_price,
-        currency_code=currency_code,
-        payment_method=payment_method,
-        sale_id=sale_id,
-        source_scan_id=source_scan_id,
-        source_confirmation_id=source_confirmation_id,
-        created_at=normalized_sold_at,
-    )
+    if normalized_paid_at is not None:
+        connection.execute(
+            """
+            UPDATE deck_entries
+            SET quantity = quantity - ?,
+                cost_basis_total = ?,
+                updated_at = ?
+            WHERE id = ?
+              AND owner_user_id = ?
+            """,
+            (
+                normalized_quantity,
+                remaining_cost_basis_total,
+                normalized_sold_at,
+                deck_entry_id,
+                owner_user_id,
+            ),
+        )
+        append_deck_entry_event(
+            connection,
+            owner_user_id=owner_user_id,
+            deck_entry_id=deck_entry_id,
+            card_id=card_id,
+            event_kind="sale",
+            quantity_delta=-normalized_quantity,
+            total_price=total_price,
+            unit_price=normalized_unit_price,
+            currency_code=currency_code,
+            payment_method=payment_method,
+            sale_id=sale_id,
+            source_scan_id=source_scan_id,
+            source_confirmation_id=source_confirmation_id,
+            created_at=normalized_sold_at,
+        )
     return sale_id
 
 

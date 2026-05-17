@@ -1451,8 +1451,8 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-tray-sell-0'));
 
     expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/quick-sell',
-      params: { cardId: 'mcdonalds25-22' },
+      pathname: '/sell/[entryId]',
+      params: { entryId: 'new', cardId: 'mcdonalds25-22' },
     });
   });
 });

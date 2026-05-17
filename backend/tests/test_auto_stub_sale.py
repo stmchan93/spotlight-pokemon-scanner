@@ -16,10 +16,10 @@ from request_auth import RequestIdentity  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
 
 
-class QuickSaleTests(unittest.TestCase):
+class AutoStubSaleTests(unittest.TestCase):
     def setUp(self) -> None:
         self.tempdir = tempfile.TemporaryDirectory()
-        self.database_path = Path(self.tempdir.name) / "quick-sale.sqlite"
+        self.database_path = Path(self.tempdir.name) / "auto-stub.sqlite"
         connection = connect(self.database_path)
         apply_schema(connection, BACKEND_ROOT / "schema.sql")
         connection.close()
@@ -51,10 +51,10 @@ class QuickSaleTests(unittest.TestCase):
         )
         self.service.connection.commit()
 
-    def test_record_quick_sale_raw_creates_sale_event_and_zero_quantity_entry(self) -> None:
+    def test_record_sale_with_only_card_id_auto_creates_stub_and_decrements_for_cash(self) -> None:
         self._insert_card()
         with self.service.request_identity_context(self._identity()):
-            result = self.service.record_quick_sale(
+            result = self.service.record_sale(
                 {
                     "cardID": "base-charizard-4",
                     "unitPrice": 250.0,
@@ -64,19 +64,20 @@ class QuickSaleTests(unittest.TestCase):
                 }
             )
 
-        self.assertTrue(result["quickSale"])
+        self.assertEqual(result["status"], "paid")
         self.assertEqual(result["remainingQuantity"], 0)
         self.assertEqual(result["grossTotal"], 250.0)
 
         sale_row = self.service.connection.execute(
-            "SELECT card_id, quantity, unit_price, total_price, payment_method, sale_source FROM sale_events"
+            "SELECT card_id, quantity, unit_price, total_price, payment_method, sale_source, paid_at FROM sale_events"
         ).fetchone()
         self.assertEqual(sale_row["card_id"], "base-charizard-4")
         self.assertEqual(sale_row["quantity"], 1)
         self.assertEqual(sale_row["unit_price"], 250.0)
         self.assertEqual(sale_row["total_price"], 250.0)
         self.assertEqual(sale_row["payment_method"], "cash")
-        self.assertEqual(sale_row["sale_source"], "quick")
+        self.assertEqual(sale_row["sale_source"], "manual")
+        self.assertIsNotNone(sale_row["paid_at"])
 
         deck_row = self.service.connection.execute(
             "SELECT quantity FROM deck_entries WHERE card_id = ?",
@@ -84,14 +85,15 @@ class QuickSaleTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(deck_row["quantity"], 0)
 
-    def test_record_quick_sale_slab_populates_slab_fields(self) -> None:
+    def test_record_sale_slab_context_populates_slab_fields_on_stub(self) -> None:
         self._insert_card()
         with self.service.request_identity_context(self._identity()):
-            result = self.service.record_quick_sale(
+            result = self.service.record_sale(
                 {
                     "cardID": "base-charizard-4",
                     "unitPrice": 1200.0,
                     "currencyCode": "USD",
+                    "paymentMethod": "cash",
                     "slabContext": {
                         "grader": "PSA",
                         "grade": "10",
@@ -101,7 +103,7 @@ class QuickSaleTests(unittest.TestCase):
                 }
             )
 
-        self.assertTrue(result["quickSale"])
+        self.assertEqual(result["status"], "paid")
         deck_row = self.service.connection.execute(
             "SELECT grader, grade, cert_number, item_kind, quantity FROM deck_entries WHERE card_id = ?",
             ("base-charizard-4",),
@@ -112,28 +114,22 @@ class QuickSaleTests(unittest.TestCase):
         self.assertEqual(deck_row["item_kind"], "slab")
         self.assertEqual(deck_row["quantity"], 0)
 
-    def test_record_quick_sale_card_not_found_raises(self) -> None:
+    def test_record_sale_card_not_found_raises(self) -> None:
         with self.service.request_identity_context(self._identity()):
             with self.assertRaises(FileNotFoundError):
-                self.service.record_quick_sale(
-                    {"cardID": "does-not-exist", "unitPrice": 10.0}
+                self.service.record_sale(
+                    {"cardID": "does-not-exist", "unitPrice": 10.0, "paymentMethod": "cash"}
                 )
 
-    def test_record_quick_sale_negative_unit_price_raises(self) -> None:
+    def test_record_sale_negative_unit_price_raises(self) -> None:
         self._insert_card()
         with self.service.request_identity_context(self._identity()):
             with self.assertRaises(ValueError):
-                self.service.record_quick_sale(
-                    {"cardID": "base-charizard-4", "unitPrice": -1.0}
+                self.service.record_sale(
+                    {"cardID": "base-charizard-4", "unitPrice": -1.0, "paymentMethod": "cash"}
                 )
 
-    def test_record_quick_sale_missing_unit_price_raises(self) -> None:
-        self._insert_card()
-        with self.service.request_identity_context(self._identity()):
-            with self.assertRaises(ValueError):
-                self.service.record_quick_sale({"cardID": "base-charizard-4"})
-
-    def test_record_quick_sale_blocks_when_deck_entry_already_exists(self) -> None:
+    def test_record_sale_reuses_existing_deck_entry_when_present(self) -> None:
         self._insert_card()
         with self.service.request_identity_context(self._identity()):
             upsert_deck_entry(
@@ -141,30 +137,36 @@ class QuickSaleTests(unittest.TestCase):
                 owner_user_id="vendor-a",
                 card_id="base-charizard-4",
                 condition="near_mint",
-                quantity=1,
+                quantity=2,
                 unit_price=50.0,
             )
             self.service.connection.commit()
-            with self.assertRaises(ValueError):
-                self.service.record_quick_sale(
-                    {
-                        "cardID": "base-charizard-4",
-                        "unitPrice": 100.0,
-                        "condition": "near_mint",
-                    }
-                )
+            result = self.service.record_sale(
+                {
+                    "cardID": "base-charizard-4",
+                    "unitPrice": 100.0,
+                    "condition": "near_mint",
+                    "paymentMethod": "cash",
+                }
+            )
+        self.assertEqual(result["remainingQuantity"], 1)
+        deck_row = self.service.connection.execute(
+            "SELECT quantity FROM deck_entries WHERE card_id = ?",
+            ("base-charizard-4",),
+        ).fetchone()
+        self.assertEqual(deck_row["quantity"], 1)
 
-    def test_record_quick_sale_scoped_per_user(self) -> None:
+    def test_record_sale_scoped_per_user(self) -> None:
         self._insert_card()
         with self.service.request_identity_context(self._identity("vendor-a")):
-            self.service.record_quick_sale(
-                {"cardID": "base-charizard-4", "unitPrice": 100.0}
+            self.service.record_sale(
+                {"cardID": "base-charizard-4", "unitPrice": 100.0, "paymentMethod": "cash"}
             )
         with self.service.request_identity_context(self._identity("vendor-b")):
-            result = self.service.record_quick_sale(
-                {"cardID": "base-charizard-4", "unitPrice": 200.0}
+            result = self.service.record_sale(
+                {"cardID": "base-charizard-4", "unitPrice": 200.0, "paymentMethod": "cash"}
             )
-        self.assertTrue(result["quickSale"])
+        self.assertEqual(result["status"], "paid")
         rows = self.service.connection.execute(
             "SELECT owner_user_id, total_price FROM sale_events ORDER BY total_price"
         ).fetchall()

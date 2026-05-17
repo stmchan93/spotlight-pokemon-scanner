@@ -1,3 +1,4 @@
+import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
@@ -18,8 +19,8 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { InventoryCardEntry } from '@spotlight/api-client';
-import { SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
+import type { InventoryCardEntry, PaymentMethod, VendorWalletHandles } from '@spotlight/api-client';
+import { Button, SurfaceCard, colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { formatCurrency, formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -47,6 +48,7 @@ import {
   SellSwipeConfirmationSheet,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
+import { WalletHandleSetupModal } from '@/features/sell/components/wallet-handle-setup-modal';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -57,6 +59,7 @@ const soldPriceValidationMessage = 'Enter a sell price before confirming sale.';
 
 type SingleSellScreenProps = {
   entryId: string;
+  cardId?: string;
   onClose: () => void;
   onComplete: () => void;
 };
@@ -100,9 +103,11 @@ function patchEntryCostBasis(
 
 export function SingleSellScreen({
   entryId,
+  cardId,
   onClose,
   onComplete,
 }: SingleSellScreenProps) {
+  const router = useRouter();
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
@@ -123,6 +128,67 @@ export function SingleSellScreen({
   const [boughtPriceDraftText, setBoughtPriceDraftText] = useState('');
   const [boughtPriceErrorMessage, setBoughtPriceErrorMessage] = useState<string | null>(null);
   const [isSavingBoughtPrice, setIsSavingBoughtPrice] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [walletHandles, setWalletHandles] = useState<VendorWalletHandles | null>(null);
+  const [walletSetupMethod, setWalletSetupMethod] = useState<PaymentMethod | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void spotlightRepository.getVendorWalletHandles()
+      .then((next) => {
+        if (cancelled) return;
+        setWalletHandles(next);
+      })
+      .catch(() => {
+        // best-effort; chip taps will re-prompt if a handle is missing
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [spotlightRepository]);
+
+  const handleHasMethod = useCallback((method: PaymentMethod, handles: VendorWalletHandles | null) => {
+    if (!handles) return false;
+    switch (method) {
+      case 'venmo': return Boolean(handles.venmoHandle);
+      case 'cashapp': return Boolean(handles.cashappHandle);
+      case 'paypal': return Boolean(handles.paypalMeSlug);
+      case 'zelle': return Boolean(handles.zelleEmailOrPhone);
+      default: return true;
+    }
+  }, []);
+
+  const handlePaymentChipPress = useCallback((next: PaymentMethod) => {
+    if (next === 'cash' || next === 'other') {
+      setPaymentMethod(next);
+      return;
+    }
+    if (handleHasMethod(next, walletHandles)) {
+      setPaymentMethod(next);
+      return;
+    }
+    setWalletSetupMethod(next);
+  }, [handleHasMethod, walletHandles]);
+
+  const initialWalletValue = useMemo(() => {
+    if (!walletSetupMethod || !walletHandles) return null;
+    switch (walletSetupMethod) {
+      case 'venmo': return walletHandles.venmoHandle;
+      case 'cashapp': return walletHandles.cashappHandle;
+      case 'paypal': return walletHandles.paypalMeSlug;
+      case 'zelle': return walletHandles.zelleEmailOrPhone;
+      default: return null;
+    }
+  }, [walletHandles, walletSetupMethod]);
+
+  const handleWalletSetupSave = useCallback(async (update: { [key: string]: string | null | undefined }) => {
+    const next = await spotlightRepository.updateVendorWalletHandles(update);
+    setWalletHandles(next);
+    if (walletSetupMethod) {
+      setPaymentMethod(walletSetupMethod);
+    }
+    setWalletSetupMethod(null);
+  }, [spotlightRepository, walletSetupMethod]);
 
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -151,12 +217,46 @@ export function SingleSellScreen({
     let cancelled = false;
     setIsLoading(true);
 
-    void spotlightRepository.getInventoryEntries()
-      .then((inventory) => {
+    const loadEntry = async (): Promise<InventoryCardEntry | null> => {
+      if (entryId !== 'new') {
+        const inventory = await spotlightRepository.getInventoryEntries();
+        return inventory.find((candidate) => candidate.id === entryId) ?? null;
+      }
+      if (!cardId) {
+        return null;
+      }
+      const matches = await spotlightRepository.searchCatalogCards(cardId, 1);
+      const match = matches.find((card) => card.cardId === cardId) ?? matches[0] ?? null;
+      if (!match) {
+        return null;
+      }
+      const stub: InventoryCardEntry = {
+        id: 'new',
+        cardId: match.cardId,
+        name: match.name,
+        cardNumber: match.cardNumber,
+        setName: match.setName,
+        imageUrl: match.imageUrl,
+        marketPrice: match.marketPrice ?? 0,
+        hasMarketPrice: typeof match.marketPrice === 'number',
+        currencyCode: match.currencyCode ?? 'USD',
+        quantity: 1,
+        addedAt: new Date().toISOString(),
+        kind: 'raw',
+        conditionCode: 'near_mint',
+        conditionLabel: 'Near Mint',
+        conditionShortLabel: 'NM',
+        costBasisPerUnit: null,
+        costBasisTotal: 0,
+      };
+      return stub;
+    };
+
+    void loadEntry()
+      .then((nextEntry) => {
         if (cancelled) {
           return;
         }
-        const nextEntry = inventory.find((candidate) => candidate.id === entryId) ?? null;
         setEntry(nextEntry);
         if (nextEntry) {
           setLastResolvedEntry(nextEntry);
@@ -175,6 +275,7 @@ export function SingleSellScreen({
         );
         setBoughtPriceErrorMessage(null);
         setIsSavingBoughtPrice(false);
+        setPaymentMethod('cash');
         setIsLoading(false);
       })
       .catch(() => {
@@ -195,7 +296,7 @@ export function SingleSellScreen({
         clearTimeout(processingTimerRef.current);
       }
     };
-  }, [entryId, spotlightRepository]);
+  }, [cardId, entryId, spotlightRepository]);
 
   const displayEntry = entry ?? lastResolvedEntry;
   const slabSubtitle = slabGradeSummary(displayEntry?.slabContext ?? null);
@@ -434,14 +535,15 @@ export function SingleSellScreen({
     setShowsSoldPriceValidation(false);
     const startedAt = Date.now();
 
+    const isStubEntry = displayEntry.id === 'new';
     const payload = {
-      deckEntryID: displayEntry.id,
+      deckEntryID: isStubEntry ? null : displayEntry.id,
       cardID: displayEntry.cardId,
       slabContext: displayEntry.slabContext ?? null,
       quantity,
       unitPrice: soldPrice,
       currencyCode: displayEntry.currencyCode,
-      paymentMethod: null,
+      paymentMethod,
       soldAt: new Date().toISOString(),
       showSessionID: null,
       note: null,
@@ -449,7 +551,7 @@ export function SingleSellScreen({
     } as const;
 
     void spotlightRepository.createPortfolioSale(payload)
-      .then(() => {
+      .then((response) => {
         if (!isMountedRef.current) {
           return;
         }
@@ -459,6 +561,22 @@ export function SingleSellScreen({
           quantity,
         });
         refreshData();
+
+        const isPendingMethod = paymentMethod !== 'cash' && paymentMethod !== 'other';
+        if (isPendingMethod) {
+          router.replace({
+            pathname: '/payments/[saleId]',
+            params: {
+              saleId: response.saleID,
+              method: paymentMethod,
+              amount: String(soldPrice * quantity),
+              currencyCode: displayEntry.currencyCode,
+              memo: `${displayEntry.name} ${displayEntry.cardNumber}`.trim(),
+            },
+          });
+          return;
+        }
+
         const elapsed = Date.now() - startedAt;
         const remaining = Math.max(0, sellOrderProcessingMinimumDurationMs - elapsed);
 
@@ -490,7 +608,7 @@ export function SingleSellScreen({
         animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
         setScreenErrorMessage(error instanceof Error ? error.message : 'Could not confirm this sale.');
       });
-  }, [animateSheetToOffset, displayEntry, onComplete, quantity, refreshData, soldPrice, spotlightRepository]);
+  }, [animateSheetToOffset, displayEntry, onComplete, paymentMethod, quantity, refreshData, router, soldPrice, spotlightRepository]);
 
   const panResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) => (
@@ -858,6 +976,60 @@ export function SingleSellScreen({
                     testIDPrefix="single-sell"
                     toggleBoughtPriceTestID="single-sell-toggle-bought-price"
                   />
+
+                  <View style={styles.paymentMethodSection}>
+                    <Text
+                      style={[theme.typography.caption, styles.paymentMethodHeading]}
+                      testID="single-sell-payment-method-heading"
+                    >
+                      How is buyer paying?
+                    </Text>
+                    <View style={styles.paymentMethodRow}>
+                      {(['cash', 'venmo', 'cashapp', 'paypal', 'zelle'] as const).map((method) => {
+                        const isSelected = paymentMethod === method;
+                        return (
+                          <Pressable
+                            accessibilityLabel={`Pay with ${method}`}
+                            accessibilityRole="button"
+                            disabled={!canInteract}
+                            key={method}
+                            onPress={() => handlePaymentChipPress(method)}
+                            style={({ pressed }) => [
+                              styles.paymentMethodChip,
+                              isSelected ? styles.paymentMethodChipSelected : null,
+                              pressed ? styles.paymentMethodChipPressed : null,
+                            ]}
+                            testID={`single-sell-payment-method-${method}`}
+                          >
+                            <Text
+                              style={[
+                                theme.typography.control,
+                                styles.paymentMethodChipLabel,
+                                isSelected ? styles.paymentMethodChipLabelSelected : null,
+                              ]}
+                            >
+                              {method}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  <Button
+                    contentStyle={styles.tapSellButtonContent}
+                    disabled={!canInteract || soldPrice == null}
+                    label={
+                      soldPrice != null
+                        ? `Sell · ${formatCurrency(soldTotal, displayEntry.currencyCode)}`
+                        : 'Sell'
+                    }
+                    onPress={submitSale}
+                    size="lg"
+                    style={styles.tapSellButton}
+                    testID="single-sell-tap-confirm"
+                    variant="primary"
+                  />
                 </SurfaceCard>
               </View>
             </Animated.View>
@@ -876,6 +1048,14 @@ export function SingleSellScreen({
           testIDPrefix="single-sell"
           translateY={sheetOffset}
           usesDisabledVisual={railUsesDisabledVisual}
+        />
+
+        <WalletHandleSetupModal
+          initialValue={initialWalletValue}
+          method={walletSetupMethod ?? 'cash'}
+          onCancel={() => setWalletSetupMethod(null)}
+          onSave={handleWalletSetupSave}
+          visible={walletSetupMethod != null}
         />
       </Animated.View>
     </SafeAreaView>
@@ -904,6 +1084,50 @@ const styles = StyleSheet.create({
   },
   detailsCardWrap: {
     marginTop: -24,
+  },
+  paymentMethodChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.outlineSubtle,
+    borderRadius: 10,
+    borderWidth: 1,
+    flex: 1,
+    minWidth: 64,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  paymentMethodChipLabel: {
+    color: colors.textPrimary,
+    textAlign: 'center',
+    textTransform: 'capitalize',
+  },
+  paymentMethodChipLabelSelected: {
+    color: '#000000',
+  },
+  paymentMethodChipPressed: {
+    opacity: 0.86,
+  },
+  paymentMethodChipSelected: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  paymentMethodHeading: {
+    color: colors.textSecondary,
+    marginBottom: 8,
+  },
+  paymentMethodRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  paymentMethodSection: {
+    marginTop: 16,
+  },
+  tapSellButton: {
+    marginTop: 16,
+    width: '100%',
+  },
+  tapSellButtonContent: {
+    justifyContent: 'center',
   },
   dismissLayer: {
     flex: 1,

@@ -118,8 +118,7 @@ describe('CardDetailScreen', () => {
       expect(screen.getByTestId('detail-market-price').props.children).toBe('$0.31');
     });
 
-    fireEvent.press(screen.getByTestId('detail-condition-dropdown'));
-    fireEvent.press(await screen.findByTestId('detail-condition-dropdown-option-lightly_played'));
+    fireEvent.press(await screen.findByTestId('detail-condition-chip-lightly_played'));
 
     await waitFor(() => {
       expect(screen.getByTestId('detail-market-price').props.children).toBe('$0.22');
@@ -170,12 +169,11 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('detail-condition-dropdown'));
 
-    const nearMintOption = await screen.findByTestId('detail-condition-dropdown-option-near_mint');
-    const lpOption = await screen.findByTestId('detail-condition-dropdown-option-lightly_played');
-    expect(nearMintOption).toBeTruthy();
-    expect(lpOption).toBeTruthy();
+    const nearMintChip = await screen.findByTestId('detail-condition-chip-near_mint');
+    const lpChip = await screen.findByTestId('detail-condition-chip-lightly_played');
+    expect(nearMintChip).toBeTruthy();
+    expect(lpChip).toBeTruthy();
   });
 
   it('shows quantity stepper + Sell button for owned cards and routes increment/edit/sell correctly', async () => {
@@ -1308,7 +1306,7 @@ describe('CardDetailScreen', () => {
       resolveDetail?.(resolvedDetail);
     });
 
-    expect(await screen.findByTestId('detail-condition-dropdown')).toBeTruthy();
+    expect(await screen.findByTestId('detail-condition-chips')).toBeTruthy();
   });
 
   it('renders an add-card catalog preview immediately while full card detail hydrates', () => {
@@ -1528,7 +1526,7 @@ describe('CardDetailScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('detail-volume-level-label').props.children).toBe('Limited pricing data');
     });
-    expect(screen.queryByTestId('detail-condition-dropdown')).toBeNull();
+    expect(screen.queryByTestId('detail-condition-chips')).toBeNull();
   });
 
   it('keeps the condition picker visible and renders no volume caption when volumeLevel is "normal"', async () => {
@@ -1569,7 +1567,7 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    expect(screen.getByTestId('detail-condition-dropdown')).toBeTruthy();
+    expect(screen.getByTestId('detail-condition-chips')).toBeTruthy();
     expect(screen.queryByTestId('detail-volume-level-label')).toBeNull();
   });
 
@@ -1616,6 +1614,6 @@ describe('CardDetailScreen', () => {
     await waitFor(() => {
       expect(screen.getByTestId('detail-volume-level-label').props.children).toBe('Pricing data unavailable');
     });
-    expect(screen.queryByTestId('detail-condition-dropdown')).toBeNull();
+    expect(screen.queryByTestId('detail-condition-chips')).toBeNull();
   });
 });

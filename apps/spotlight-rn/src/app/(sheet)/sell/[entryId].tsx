@@ -14,9 +14,11 @@ export default function SingleSellRoute() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     entryId?: string | string[];
+    cardId?: string | string[];
   }>();
 
   const entryId = firstParam(params.entryId);
+  const cardId = firstParam(params.cardId) || undefined;
 
   if (!entryId) {
     return null;
@@ -31,7 +33,8 @@ export default function SingleSellRoute() {
       />
 
       <SingleSellScreen
-        key={entryId}
+        key={`${entryId}:${cardId ?? ''}`}
+        cardId={cardId}
         entryId={entryId}
         onClose={() => router.back()}
         onComplete={() => router.replace('/portfolio')}

@@ -1063,87 +1063,88 @@ describe('HttpSpotlightRepository', () => {
     });
   });
 
-  describe('createQuickSale', () => {
-    it('POSTs to /api/v1/sales/quick with the payload and returns the parsed response', async () => {
+  describe('markSalePaid', () => {
+    it('POSTs to /api/v1/sales/{saleID}/mark-paid and returns the parsed lifecycle payload', async () => {
       const fetchMock = jest.fn().mockResolvedValue(
         jsonResponse(200, {
-          saleID: 'sale-1',
-          deckEntryID: 'deck-1',
+          saleID: 'sale:abc',
+          paidAt: '2026-05-17T12:00:00Z',
+          voidedAt: null,
+          status: 'paid',
           remainingQuantity: 0,
-          grossTotal: 250,
-          soldAt: '2026-05-17T12:00:00Z',
-          quickSale: true,
         }),
       ) as typeof fetch;
       global.fetch = fetchMock;
       const repository = new HttpSpotlightRepository('http://example.test');
 
-      const result = await repository.createQuickSale({
-        cardID: 'base-charizard-4',
-        unitPrice: 250,
-        currencyCode: 'USD',
-        paymentMethod: 'cash',
-      });
+      const result = await repository.markSalePaid('sale:abc');
 
-      expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = (fetchMock as jest.Mock).mock.calls[0] as [string, RequestInit];
-      expect(url).toBe('http://example.test/api/v1/sales/quick');
+      expect(url).toBe('http://example.test/api/v1/sales/sale%3Aabc/mark-paid');
       expect(init.method).toBe('POST');
-      const headers = new Headers(init.headers);
-      expect(headers.get('Content-Type')).toBe('application/json');
-      expect(JSON.parse(init.body as string)).toEqual({
-        cardID: 'base-charizard-4',
-        unitPrice: 250,
-        currencyCode: 'USD',
-        paymentMethod: 'cash',
-      });
-      expect(result.quickSale).toBe(true);
-      expect(result.grossTotal).toBe(250);
+      expect(result.status).toBe('paid');
+      expect(result.paidAt).toBe('2026-05-17T12:00:00Z');
     });
   });
 
-  describe('getVendorShowSummary', () => {
-    const summaryFixture = {
-      since: '2026-05-16T12:00:00Z',
-      until: '2026-05-17T12:00:00Z',
-      totalSales: 2,
-      totalRevenue: 175,
-      currencyCode: 'USD',
-      byPaymentMethod: [
-        { paymentMethod: 'venmo', count: 1, revenue: 100 },
-        { paymentMethod: 'cash', count: 1, revenue: 75 },
-      ],
-      topCards: [],
+  describe('voidSale', () => {
+    it('POSTs to /api/v1/sales/{saleID}/void and returns the parsed lifecycle payload', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(
+        jsonResponse(200, {
+          saleID: 'sale:abc',
+          paidAt: null,
+          voidedAt: '2026-05-17T12:00:00Z',
+          status: 'voided',
+        }),
+      ) as typeof fetch;
+      global.fetch = fetchMock;
+      const repository = new HttpSpotlightRepository('http://example.test');
+
+      const result = await repository.voidSale('sale:abc');
+
+      const [url, init] = (fetchMock as jest.Mock).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('http://example.test/api/v1/sales/sale%3Aabc/void');
+      expect(init.method).toBe('POST');
+      expect(result.status).toBe('voided');
+      expect(result.voidedAt).toBe('2026-05-17T12:00:00Z');
+    });
+  });
+
+  describe('vendor wallet handles', () => {
+    const handlesFixture = {
+      venmoHandle: 'stephen-chan',
+      cashappHandle: null,
+      paypalMeSlug: null,
+      zelleEmailOrPhone: null,
+      updatedAt: '2026-05-17T12:00:00Z',
     };
 
-    it('GETs /api/v1/vendor/show-summary without query params when no range is supplied', async () => {
-      const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, summaryFixture)) as typeof fetch;
+    it('GETs /api/v1/vendor/wallet-handles', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, handlesFixture)) as typeof fetch;
       global.fetch = fetchMock;
       const repository = new HttpSpotlightRepository('http://example.test');
 
-      const result = await repository.getVendorShowSummary();
+      const result = await repository.getVendorWalletHandles();
 
       const [url] = (fetchMock as jest.Mock).mock.calls[0] as [string, RequestInit | undefined];
-      expect(url).toBe('http://example.test/api/v1/vendor/show-summary');
-      expect(result.totalRevenue).toBe(175);
-      expect(result.byPaymentMethod).toHaveLength(2);
+      expect(url).toBe('http://example.test/api/v1/vendor/wallet-handles');
+      expect(result.venmoHandle).toBe('stephen-chan');
     });
 
-    it('serializes since/until into the query string when supplied', async () => {
-      const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, summaryFixture)) as typeof fetch;
+    it('POSTs partial updates to /api/v1/vendor/wallet-handles', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(jsonResponse(200, handlesFixture)) as typeof fetch;
       global.fetch = fetchMock;
       const repository = new HttpSpotlightRepository('http://example.test');
 
-      await repository.getVendorShowSummary({
-        since: '2026-05-16T00:00:00Z',
-        until: '2026-05-17T00:00:00Z',
+      const result = await repository.updateVendorWalletHandles({
+        venmoHandle: 'stephen-chan',
       });
 
-      const [url] = (fetchMock as jest.Mock).mock.calls[0] as [string, RequestInit | undefined];
-      const parsed = new URL(url);
-      expect(parsed.pathname).toBe('/api/v1/vendor/show-summary');
-      expect(parsed.searchParams.get('since')).toBe('2026-05-16T00:00:00Z');
-      expect(parsed.searchParams.get('until')).toBe('2026-05-17T00:00:00Z');
+      const [url, init] = (fetchMock as jest.Mock).mock.calls[0] as [string, RequestInit];
+      expect(url).toBe('http://example.test/api/v1/vendor/wallet-handles');
+      expect(init.method).toBe('POST');
+      expect(JSON.parse(init.body as string)).toEqual({ venmoHandle: 'stephen-chan' });
+      expect(result.venmoHandle).toBe('stephen-chan');
     });
   });
 });

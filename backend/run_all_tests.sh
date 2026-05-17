@@ -35,7 +35,9 @@ TEST_MODULES=(
   backend.tests.test_request_auth
   backend.tests.test_vm_sync_schedule
   backend.tests.test_vm_runtime_config
-  backend.tests.test_quick_sell
+  backend.tests.test_auto_stub_sale
+  backend.tests.test_sale_lifecycle
+  backend.tests.test_wallet_handles
   backend.tests.test_show_summary
 )
 

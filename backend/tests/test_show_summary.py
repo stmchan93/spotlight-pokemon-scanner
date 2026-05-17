@@ -61,7 +61,7 @@ class VendorShowSummaryTests(unittest.TestCase):
         sold_at: str | None = None,
     ) -> None:
         with self.service.request_identity_context(self._identity()):
-            self.service.record_quick_sale(
+            self.service.record_sale(
                 {
                     "cardID": card_id,
                     "unitPrice": unit_price,

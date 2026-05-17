@@ -1442,15 +1442,6 @@ export function CardDetailScreen({
                   selectedLabel={conditionDropdownLabel}
                   testID="detail-condition-dropdown"
                 />
-              ) : shouldShowConditionPicker ? (
-                <ConditionDropdown
-                  disabled={marketConditionOptions.length === 0}
-                  onSelect={(id) => setSelectedConditionId(id)}
-                  options={marketConditionOptions}
-                  selectedId={selectedCondition?.id ?? null}
-                  selectedLabel={conditionDropdownLabel}
-                  testID="detail-condition-dropdown"
-                />
               ) : null}
               {pricesFreshnessLabel ? (
                 <Text
@@ -1498,6 +1489,62 @@ export function CardDetailScreen({
                 </Text>
               ) : null}
             </View>
+
+            {!isSlabDetail && shouldShowConditionPicker && marketConditionOptions.length > 0 ? (
+              <View style={styles.conditionChipsRow} testID="detail-condition-chips">
+                {marketConditionOptions.map((option) => {
+                  const isSelected = option.id === (selectedCondition?.id ?? null);
+                  return (
+                    <Pressable
+                      accessibilityLabel={`Show ${option.label} price`}
+                      accessibilityRole="button"
+                      key={option.id}
+                      onPress={() => setSelectedConditionId(option.id)}
+                      style={({ pressed }) => [
+                        styles.conditionChip,
+                        isSelected ? styles.conditionChipSelected : null,
+                        pressed ? styles.conditionChipPressed : null,
+                      ]}
+                      testID={`detail-condition-chip-${option.id}`}
+                    >
+                      <Text
+                        style={[
+                          theme.typography.caption,
+                          styles.conditionChipShort,
+                          isSelected ? styles.conditionChipShortSelected : null,
+                        ]}
+                      >
+                        {option.shortLabel}
+                      </Text>
+                      <Text
+                        style={[
+                          theme.typography.bodyStrong,
+                          styles.conditionChipPrice,
+                          isSelected ? styles.conditionChipPriceSelected : null,
+                        ]}
+                      >
+                        {option.currentPrice != null
+                          ? formatCurrency(option.currentPrice, displayCurrencyCode)
+                          : '—'}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+
+            {!isSlabDetail && hasMarketHistoryPoints ? (
+              <View style={styles.pricingChartWrap} testID="detail-raw-history-chart">
+                <HistoryChart
+                  currencyCode={displayCurrencyCode}
+                  currentPrice={safeNumericDisplayedPrice}
+                  points={timeframeFilteredPoints}
+                  showAxisLabels
+                  showGridLabels
+                  tintColor={marketTint}
+                />
+              </View>
+            ) : null}
 
             {isSlabDetail ? (
               <View style={styles.latestSalesSection} testID="detail-slab-last-sold">
@@ -1619,7 +1666,11 @@ export function CardDetailScreen({
         <View style={styles.stickySellFooter} testID="detail-sticky-sell-footer">
           <Button
             contentStyle={styles.sellButtonContent}
-            label="SELL CARD"
+            label={
+              Number.isFinite(safeNumericDisplayedPrice) && safeNumericDisplayedPrice > 0
+                ? `Sell · ${formatCurrency(safeNumericDisplayedPrice, displayCurrencyCode)}`
+                : 'Sell card'
+            }
             labelStyle={styles.sellButtonLabel}
             leadingAccessory={<IconCash color="#1A1A1A" size={20} strokeWidth={2.2} />}
             onPress={() => {
@@ -1950,6 +2001,38 @@ const styles = StyleSheet.create({
   },
   priceFreshnessLabel: {
     color: 'rgba(15, 15, 18, 0.52)',
+  },
+  conditionChip: {
+    alignItems: 'center',
+    backgroundColor: colors.surface,
+    borderRadius: 10,
+    flex: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 8,
+  },
+  conditionChipPressed: {
+    opacity: 0.86,
+  },
+  conditionChipPrice: {
+    color: colors.textPrimary,
+  },
+  conditionChipPriceSelected: {
+    color: '#000000',
+  },
+  conditionChipSelected: {
+    backgroundColor: colors.brand,
+  },
+  conditionChipShort: {
+    color: colors.textSecondary,
+    marginBottom: 2,
+  },
+  conditionChipShortSelected: {
+    color: '#000000',
+  },
+  conditionChipsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 12,
   },
   pricingChartWrap: {
     width: '100%',

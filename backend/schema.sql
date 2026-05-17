@@ -282,9 +282,20 @@ CREATE TABLE IF NOT EXISTS sale_events (
     show_session_id TEXT,
     note TEXT,
     sold_at TEXT NOT NULL,
+    paid_at TEXT,
+    voided_at TEXT,
     source_scan_id TEXT REFERENCES scan_events(scan_id),
     source_confirmation_id TEXT REFERENCES scan_confirmations(id),
     created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS vendor_wallet_handles (
+    owner_user_id TEXT PRIMARY KEY,
+    venmo_handle TEXT,
+    cashapp_handle TEXT,
+    paypal_me_slug TEXT,
+    zelle_email_or_phone TEXT,
+    updated_at TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS deck_entry_events (

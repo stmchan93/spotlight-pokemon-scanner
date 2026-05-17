@@ -51,11 +51,10 @@ import type {
   PortfolioDashboard,
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
-  QuickSaleRequestPayload,
-  QuickSaleResponsePayload,
   RecentSaleRecord,
-  VendorShowSummary,
-  VendorShowSummaryRange,
+  SaleLifecycleResponsePayload,
+  VendorWalletHandles,
+  VendorWalletHandlesUpdate,
   ScannerArtifactUploadResult,
   ScannerCapturePayload,
   ScanFeedbackPayload,
@@ -110,8 +109,10 @@ export interface SpotlightRepository {
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
   createPortfolioSalesBatch(payloads: PortfolioSaleRequestPayload[]): Promise<PortfolioSaleResponsePayload[]>;
-  createQuickSale(payload: QuickSaleRequestPayload): Promise<QuickSaleResponsePayload>;
-  getVendorShowSummary(range?: VendorShowSummaryRange): Promise<VendorShowSummary>;
+  markSalePaid(saleID: string): Promise<SaleLifecycleResponsePayload>;
+  voidSale(saleID: string): Promise<SaleLifecycleResponsePayload>;
+  getVendorWalletHandles(): Promise<VendorWalletHandles>;
+  updateVendorWalletHandles(payload: VendorWalletHandlesUpdate): Promise<VendorWalletHandles>;
   previewPortfolioImport(payload: PortfolioImportPreviewRequestPayload): Promise<PortfolioImportJobRecord>;
   fetchPortfolioImportJob(jobID: string): Promise<PortfolioImportJobRecord>;
   resolvePortfolioImportRow(
@@ -2448,28 +2449,42 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return responses;
   }
 
-  async createQuickSale(payload: QuickSaleRequestPayload): Promise<QuickSaleResponsePayload> {
-    const quantity = payload.quantity ?? 1;
+  async markSalePaid(saleID: string): Promise<SaleLifecycleResponsePayload> {
     return {
-      saleID: `mock-sale-${Date.now()}`,
-      deckEntryID: `mock-deck-${Date.now()}`,
+      saleID,
+      paidAt: new Date().toISOString(),
+      voidedAt: null,
+      status: 'paid',
       remainingQuantity: 0,
-      grossTotal: Math.round(payload.unitPrice * quantity * 100) / 100,
-      soldAt: payload.soldAt ?? new Date().toISOString(),
-      quickSale: true,
     };
   }
 
-  async getVendorShowSummary(_range?: VendorShowSummaryRange): Promise<VendorShowSummary> {
-    const now = new Date().toISOString();
+  async voidSale(saleID: string): Promise<SaleLifecycleResponsePayload> {
     return {
-      since: new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString(),
-      until: now,
-      totalSales: 0,
-      totalRevenue: 0,
-      currencyCode: null,
-      byPaymentMethod: [],
-      topCards: [],
+      saleID,
+      paidAt: null,
+      voidedAt: new Date().toISOString(),
+      status: 'voided',
+    };
+  }
+
+  async getVendorWalletHandles(): Promise<VendorWalletHandles> {
+    return {
+      venmoHandle: null,
+      cashappHandle: null,
+      paypalMeSlug: null,
+      zelleEmailOrPhone: null,
+      updatedAt: null,
+    };
+  }
+
+  async updateVendorWalletHandles(payload: VendorWalletHandlesUpdate): Promise<VendorWalletHandles> {
+    return {
+      venmoHandle: payload.venmoHandle ?? null,
+      cashappHandle: payload.cashappHandle ?? null,
+      paypalMeSlug: payload.paypalMeSlug ?? null,
+      zelleEmailOrPhone: payload.zelleEmailOrPhone ?? null,
+      updatedAt: new Date().toISOString(),
     };
   }
 
@@ -3425,29 +3440,49 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return Array.isArray(payload.results) ? payload.results : [];
   }
 
-  async createQuickSale(payload: QuickSaleRequestPayload) {
-    return this.requestJsonOrThrow<QuickSaleResponsePayload>(`${this.baseUrl}/api/v1/sales/quick`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+  async markSalePaid(saleID: string) {
+    return this.requestJsonOrThrow<SaleLifecycleResponsePayload>(
+      `${this.baseUrl}/api/v1/sales/${encodeURIComponent(saleID)}/mark-paid`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
       },
-      body: JSON.stringify(payload),
-    });
+    );
   }
 
-  async getVendorShowSummary(range?: VendorShowSummaryRange) {
-    const params = new URLSearchParams();
-    if (range?.since) {
-      params.set('since', range.since);
-    }
-    if (range?.until) {
-      params.set('until', range.until);
-    }
-    const query = params.toString();
-    const url = query.length > 0
-      ? `${this.baseUrl}/api/v1/vendor/show-summary?${query}`
-      : `${this.baseUrl}/api/v1/vendor/show-summary`;
-    return this.requestJsonOrThrow<VendorShowSummary>(url);
+  async voidSale(saleID: string) {
+    return this.requestJsonOrThrow<SaleLifecycleResponsePayload>(
+      `${this.baseUrl}/api/v1/sales/${encodeURIComponent(saleID)}/void`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({}),
+      },
+    );
+  }
+
+  async getVendorWalletHandles() {
+    return this.requestJsonOrThrow<VendorWalletHandles>(
+      `${this.baseUrl}/api/v1/vendor/wallet-handles`,
+    );
+  }
+
+  async updateVendorWalletHandles(payload: VendorWalletHandlesUpdate) {
+    return this.requestJsonOrThrow<VendorWalletHandles>(
+      `${this.baseUrl}/api/v1/vendor/wallet-handles`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
   }
 
   async previewPortfolioImport(payload: PortfolioImportPreviewRequestPayload) {
