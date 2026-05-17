@@ -1230,10 +1230,16 @@ export function ScannerScreen({
     }
     const entryId = inventoryByCardId.get(candidate.cardId)?.entryIds?.[0];
     if (entryId) {
-      router.push({ pathname: '/sell/[entryId]', params: { entryId } });
+      router.push({
+        pathname: '/sell/[entryId]',
+        params: { entryId, cardId: candidate.cardId, fromScan: '1' },
+      });
       return;
     }
-    router.push({ pathname: '/sell/[entryId]', params: { entryId: 'new', cardId: candidate.cardId } });
+    router.push({
+      pathname: '/sell/[entryId]',
+      params: { entryId: 'new', cardId: candidate.cardId, fromScan: '1' },
+    });
   }, [inventoryByCardId, recentCaptures, router]);
 
   const toggleTrayExpanded = useCallback(() => {

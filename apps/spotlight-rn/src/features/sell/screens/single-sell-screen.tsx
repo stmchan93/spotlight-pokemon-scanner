@@ -62,6 +62,7 @@ const soldPriceValidationMessage = 'Enter a sell price before confirming sale.';
 type SingleSellScreenProps = {
   entryId: string;
   cardId?: string;
+  fromScan?: boolean;
   onClose: () => void;
   onComplete: () => void;
 };
@@ -106,6 +107,7 @@ function patchEntryCostBasis(
 export function SingleSellScreen({
   entryId,
   cardId,
+  fromScan = false,
   onClose,
   onComplete,
 }: SingleSellScreenProps) {
@@ -808,7 +810,7 @@ export function SingleSellScreen({
                 />
               </View>
 
-              {entryId === 'new' ? (
+              {entryId === 'new' || fromScan ? (
                 <MarketInfoSection entry={displayEntry} />
               ) : null}
 

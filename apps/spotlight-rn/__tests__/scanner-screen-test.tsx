@@ -1421,7 +1421,7 @@ describe('ScannerScreen', () => {
 
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/sell/[entryId]',
-      params: { entryId: 'entry-froakie' },
+      params: { entryId: 'entry-froakie', cardId: 'mcdonalds25-22', fromScan: '1' },
     });
   });
 
@@ -1452,7 +1452,7 @@ describe('ScannerScreen', () => {
 
     expect(mockPush).toHaveBeenCalledWith({
       pathname: '/sell/[entryId]',
-      params: { entryId: 'new', cardId: 'mcdonalds25-22' },
+      params: { entryId: 'new', cardId: 'mcdonalds25-22', fromScan: '1' },
     });
   });
 });
