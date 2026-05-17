@@ -1621,11 +1621,6 @@ export function ScannerScreen({
         onCapture={() => {
           void handleCapture();
         }}
-        onRequestPermission={() => {
-          void requestPermission();
-        }}
-        permissionCanAskAgain={permission?.canAskAgain}
-        permissionResolved={!!permission}
         pictureSize={scannerMode === 'raw' ? rawVisualPictureSize : undefined}
         prompt={promptCopy}
         selectedLens={preferredScannerLens}

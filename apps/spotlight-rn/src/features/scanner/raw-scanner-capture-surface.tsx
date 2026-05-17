@@ -1,7 +1,6 @@
 import { CameraView } from 'expo-camera';
 import type { ReactNode, RefObject } from 'react';
 import {
-  ActivityIndicator,
   Platform,
   Pressable,
   StyleSheet,
@@ -10,7 +9,6 @@ import {
 } from 'react-native';
 
 import {
-  Button,
   colors,
   textStyles,
 } from '@spotlight/design-system';
@@ -59,9 +57,6 @@ type RawScannerCaptureSurfaceProps = {
   layout: RawScannerCaptureLayout;
   onCameraReady: () => void;
   onCapture: () => void;
-  onRequestPermission: () => void;
-  permissionCanAskAgain?: boolean;
-  permissionResolved: boolean;
   pictureSize?: string;
   prompt: string;
   selectedLens?: string;
@@ -181,9 +176,6 @@ export function RawScannerCaptureSurface({
   layout,
   onCameraReady,
   onCapture,
-  onRequestPermission,
-  permissionCanAskAgain,
-  permissionResolved,
   pictureSize,
   prompt,
   selectedLens,
@@ -232,26 +224,6 @@ export function RawScannerCaptureSurface({
         />
       ) : null}
 
-      {!hasCameraPermission ? (
-        <View style={styles.permissionOverlay}>
-          <View style={styles.permissionCard} testID={`${testIDPrefix}-permission-card`}>
-            {!permissionResolved ? (
-              <ActivityIndicator color={colors.scannerTextPrimary} />
-            ) : null}
-            <Text style={styles.permissionHeadline}>Camera access needed</Text>
-            <Text style={styles.permissionBody}>
-              Spotlight needs a real camera preview here so tap-to-scan can capture a photo.
-            </Text>
-            <Button
-              label={permissionCanAskAgain === false ? 'Open Settings and enable camera' : 'Enable camera'}
-              onPress={onRequestPermission}
-              style={styles.permissionButton}
-              testID={`${testIDPrefix}-enable-camera`}
-              variant="primary"
-            />
-          </View>
-        </View>
-      ) : null}
 
       <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
         <Text style={[styles.scanPrompt, { top: layout.promptTop }]} testID={`${testIDPrefix}-prompt`}>
@@ -309,38 +281,6 @@ export function RawScannerCaptureSurface({
 const styles = StyleSheet.create({
   cameraFallback: {
     backgroundColor: colors.scannerCanvas,
-  },
-  permissionBody: {
-    ...textStyles.body,
-    color: colors.scannerTextSecondary,
-    textAlign: 'center',
-  },
-  permissionButton: {
-    marginTop: 6,
-    minWidth: 220,
-    width: '100%',
-  },
-  permissionCard: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(8, 8, 10, 0.9)',
-    borderColor: colors.scannerOutline,
-    borderRadius: 28,
-    borderWidth: 1,
-    gap: 10,
-    maxWidth: 300,
-    paddingHorizontal: 24,
-    paddingVertical: 24,
-  },
-  permissionHeadline: {
-    ...textStyles.titleCompact,
-    color: colors.scannerTextPrimary,
-    textAlign: 'center',
-  },
-  permissionOverlay: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 28,
   },
   previewCanvas: {
     flex: 1,

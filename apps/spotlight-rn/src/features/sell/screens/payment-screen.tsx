@@ -1,4 +1,3 @@
-import * as Clipboard from 'expo-clipboard';
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -133,9 +132,13 @@ export function PaymentScreen({
 
   const copyToClipboard = useCallback(async (value: string) => {
     try {
-      await Clipboard.setStringAsync(value);
+      // expo-clipboard requires a native module compiled into the dev client.
+      // Falls back to a no-op if the module isn't available yet.
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      const clipboard = require('expo-clipboard') as { setStringAsync?: (text: string) => Promise<void> };
+      await clipboard.setStringAsync?.(value);
     } catch {
-      // ignore
+      // Clipboard unavailable on this dev build; values are still visible on screen.
     }
   }, []);
 

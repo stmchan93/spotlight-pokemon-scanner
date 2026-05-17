@@ -641,11 +641,6 @@ export function LabelingSessionScreen() {
           onCapture={() => {
             void handleCapture();
           }}
-          onRequestPermission={() => {
-            void requestPermission();
-          }}
-          permissionCanAskAgain={permission?.canAskAgain}
-          permissionResolved={!!permission}
           pictureSize={rawVisualPictureSize}
           prompt={`Tap inside frame to capture ${currentAngle.title}`}
           shouldMountCamera={permission?.granted ?? false}
