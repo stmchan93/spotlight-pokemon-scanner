@@ -348,6 +348,11 @@ def _apply_labeling_pipeline_schema_patch(connection: sqlite3.Connection) -> Non
     )
 
 
+def _apply_sale_payment_schema_patch(connection: sqlite3.Connection) -> None:
+    _sqlite_add_column_if_missing(connection, "sale_events", "paid_at", "TEXT")
+    _sqlite_add_column_if_missing(connection, "sale_events", "voided_at", "TEXT")
+
+
 def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -546,6 +551,7 @@ class SpotlightScanService:
         try:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
             _apply_card_favorites_schema_patch(bootstrap_connection)
+            _apply_sale_payment_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
