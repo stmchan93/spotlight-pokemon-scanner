@@ -937,7 +937,10 @@ export function CardDetailScreen({
 
   const effectiveMarketHistory = marketHistory ?? detail?.marketHistory ?? null;
   const isSlabDetail = selectedSlabContext != null;
-  const slabDisplayedPrice = isSlabDetail
+  const isGradeOverridden = Boolean(
+    slabGradeOverride && slabGradeOverride !== selectedSlabContext?.grade,
+  );
+  const slabDisplayedPrice = isSlabDetail && !isGradeOverridden
     ? (
       selectedEntry?.kind === 'graded'
         ? (selectedEntry.hasMarketPrice ? selectedEntry.marketPrice : null)
@@ -1376,36 +1379,33 @@ export function CardDetailScreen({
               ) : null}
             </View>
 
-            <View style={styles.pricingPriceBlock}>
-              <View style={styles.pricingPriceRow}>
-                <Text
-                  adjustsFontSizeToFit
-                  minimumFontScale={0.7}
-                  numberOfLines={1}
-                  style={[theme.typography.display, styles.marketValueTitle]}
-                  testID="detail-market-price"
-                >
-                  {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
-                </Text>
-                <View style={styles.trendAndPickerRow}>
-                  <TrendLabel testID="detail-market-trend" value={trendValue} />
-                  <ConditionDropdown
-                    hideOptionPrice
-                    onSelect={(id) => setSelectedTimeframeId(id as TimeframeId)}
-                    options={timeframeDropdownOptions}
-                    selectedId={selectedTimeframeId}
-                    selectedLabel={selectedTimeframeLabel}
-                    testID="detail-timeframe-dropdown"
-                  />
-                </View>
-              </View>
-
-              <Text style={[theme.typography.caption, styles.priceColumnLabel]}>
+            <View style={styles.pricingPriceBlockCentered}>
+              <Text
+                adjustsFontSizeToFit
+                minimumFontScale={0.7}
+                numberOfLines={1}
+                style={[theme.typography.display, styles.marketValueCentered]}
+                testID="detail-market-price"
+              >
+                {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
+              </Text>
+              <Text style={[theme.typography.caption, styles.priceColumnLabelCentered]}>
                 Market avg.
               </Text>
+              <View style={styles.trendCenteredRow}>
+                <TrendLabel testID="detail-market-trend" value={trendValue} />
+                <ConditionDropdown
+                  hideOptionPrice
+                  onSelect={(id) => setSelectedTimeframeId(id as TimeframeId)}
+                  options={timeframeDropdownOptions}
+                  selectedId={selectedTimeframeId}
+                  selectedLabel={selectedTimeframeLabel}
+                  testID="detail-timeframe-dropdown"
+                />
+              </View>
               {!isSlabDetail && volumeLevelLabel ? (
                 <Text
-                  style={[theme.typography.caption, styles.priceColumnLabel]}
+                  style={[theme.typography.caption, styles.priceColumnLabelCentered]}
                   testID="detail-volume-level-label"
                 >
                   {volumeLevelLabel}
@@ -1456,8 +1456,8 @@ export function CardDetailScreen({
               </View>
             ) : null}
 
-            {!isSlabDetail && hasMarketHistoryPoints ? (
-              <View style={styles.pricingChartWrap} testID="detail-raw-history-chart">
+            {hasMarketHistoryPoints ? (
+              <View style={styles.pricingChartWrap} testID="detail-history-chart">
                 <HistoryChart
                   currencyCode={displayCurrencyCode}
                   currentPrice={safeNumericDisplayedPrice}
@@ -2101,6 +2101,25 @@ const styles = StyleSheet.create({
   },
   pricingChartWrap: {
     width: '100%',
+  },
+  pricingPriceBlockCentered: {
+    alignItems: 'center',
+    gap: 4,
+    width: '100%',
+  },
+  marketValueCentered: {
+    textAlign: 'center',
+  },
+  priceColumnLabelCentered: {
+    color: 'rgba(15, 15, 18, 0.62)',
+    textAlign: 'center',
+  },
+  trendCenteredRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    marginTop: 2,
   },
   pricingPriceBlock: {
     gap: 2,

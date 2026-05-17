@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Linking,
@@ -14,9 +14,9 @@ import type {
   InventoryCardEntry,
 } from '@spotlight/api-client';
 import {
+  Button,
   SurfaceCard,
   colors,
-  textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -53,6 +53,8 @@ export function MarketInfoSection({ entry }: MarketInfoSectionProps) {
   const [detail, setDetail] = useState<CardDetailRecord | null>(null);
   const [recentSales, setRecentSales] = useState<CardRecentSalesRecord | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(true);
+  const [isLoadingSales, setIsLoadingSales] = useState(false);
+  const [hasRequestedSales, setHasRequestedSales] = useState(false);
   const isSlab = entry.kind === 'graded';
 
   useEffect(() => {
@@ -79,9 +81,10 @@ export function MarketInfoSection({ entry }: MarketInfoSectionProps) {
     };
   }, [entry.cardId, entry.slabContext, spotlightRepository]);
 
-  useEffect(() => {
-    if (!isSlab) return;
-    let cancelled = false;
+  const handleLoadEbaySales = useCallback(() => {
+    if (isLoadingSales) return;
+    setIsLoadingSales(true);
+    setHasRequestedSales(true);
     void spotlightRepository
       .getCardRecentSales({
         cardId: entry.cardId,
@@ -89,17 +92,15 @@ export function MarketInfoSection({ entry }: MarketInfoSectionProps) {
         limit: 5,
       })
       .then((next) => {
-        if (cancelled) return;
         setRecentSales(next);
       })
       .catch(() => {
-        if (cancelled) return;
         setRecentSales(null);
+      })
+      .finally(() => {
+        setIsLoadingSales(false);
       });
-    return () => {
-      cancelled = true;
-    };
-  }, [entry.cardId, entry.slabContext, isSlab, spotlightRepository]);
+  }, [entry.cardId, entry.slabContext, isLoadingSales, spotlightRepository]);
 
   const marketPrice = detail?.marketHistory?.currentPrice ?? entry.marketPrice ?? null;
   const currencyCode = detail?.marketHistory?.currencyCode ?? entry.currencyCode ?? 'USD';
@@ -124,7 +125,7 @@ export function MarketInfoSection({ entry }: MarketInfoSectionProps) {
             {formatCurrency(marketPrice, currencyCode)}
           </Text>
           <Text style={[theme.typography.caption, styles.priceCaption]}>
-            market price
+            Market avg.
           </Text>
         </>
       ) : null}
@@ -146,23 +147,39 @@ export function MarketInfoSection({ entry }: MarketInfoSectionProps) {
         </View>
       ) : null}
 
-      {isSlab && recentSales?.sales && recentSales.sales.length > 0 ? (
+      {isSlab ? (
         <View style={styles.salesBlock} testID="single-sell-ebay-sales">
           <Text style={[theme.typography.caption, styles.salesHeader]}>
             Recent sales (eBay)
           </Text>
-          {recentSales.sales.slice(0, 3).map((sale) => (
-            <View key={sale.id} style={styles.salesRow}>
-              <Text style={[theme.typography.caption, styles.salesRowTitle]} numberOfLines={1}>
-                {sale.title}
-              </Text>
-              <Text style={[theme.typography.bodyStrong, styles.salesRowPrice]}>
-                {sale.priceAmount != null
-                  ? formatCurrency(sale.priceAmount, sale.currencyCode)
-                  : '—'}
-              </Text>
-            </View>
-          ))}
+          {!hasRequestedSales ? (
+            <Button
+              disabled={isLoadingSales}
+              label={isLoadingSales ? 'Loading…' : 'Load eBay sales'}
+              onPress={handleLoadEbaySales}
+              size="lg"
+              style={styles.loadSalesButton}
+              testID="single-sell-load-ebay-sales"
+              variant="secondary"
+            />
+          ) : recentSales?.sales && recentSales.sales.length > 0 ? (
+            recentSales.sales.slice(0, 3).map((sale) => (
+              <View key={sale.id} style={styles.salesRow}>
+                <Text style={[theme.typography.caption, styles.salesRowTitle]} numberOfLines={1}>
+                  {sale.title}
+                </Text>
+                <Text style={[theme.typography.bodyStrong, styles.salesRowPrice]}>
+                  {sale.priceAmount != null
+                    ? formatCurrency(sale.priceAmount, sale.currencyCode)
+                    : '—'}
+                </Text>
+              </View>
+            ))
+          ) : (
+            <Text style={[theme.typography.caption, styles.salesHeader]}>
+              No recent eBay sales found.
+            </Text>
+          )}
         </View>
       ) : null}
 
@@ -215,6 +232,10 @@ const styles = StyleSheet.create({
   },
   priceValue: {
     color: colors.textPrimary,
+  },
+  loadSalesButton: {
+    alignSelf: 'stretch',
+    marginTop: 4,
   },
   salesBlock: {
     gap: 6,

@@ -798,13 +798,13 @@ export function SingleSellScreen({
                   </View>
                   <Text
                     numberOfLines={2}
-                    style={[theme.typography.display, styles.centeredHeroName]}
+                    style={[theme.typography.title, styles.centeredHeroName]}
                   >
                     {displayEntry.name}
                   </Text>
                   <Text
                     numberOfLines={2}
-                    style={[theme.typography.caption, styles.centeredHeroMeta]}
+                    style={[theme.typography.bodyStrong, styles.centeredHeroMeta]}
                   >
                     {[
                       displayEntry.cardNumber,
@@ -815,7 +815,9 @@ export function SingleSellScreen({
                 </View>
               </View>
 
-              <MarketInfoSection entry={displayEntry} />
+              {entryId === 'new' ? (
+                <MarketInfoSection entry={displayEntry} />
+              ) : null}
 
               {screenErrorMessage ? (
                 <View
