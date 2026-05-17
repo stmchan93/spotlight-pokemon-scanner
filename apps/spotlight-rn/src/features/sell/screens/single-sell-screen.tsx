@@ -48,6 +48,7 @@ import {
   SellSwipeConfirmationSheet,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
+import { MarketInfoSection } from '@/features/sell/components/market-info-section';
 import { WalletHandleSetupModal } from '@/features/sell/components/wallet-handle-setup-modal';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
@@ -791,41 +792,30 @@ export function SingleSellScreen({
                   testID="single-sell-close"
                 />
 
-                <View style={styles.heroBody}>
-                  <View style={styles.heroTitleWrap}>
-                    <Text style={[theme.typography.display, styles.heroName]}>{displayEntry.name}</Text>
-                    {slabSubtitle ? (
-                      <Text
-                        numberOfLines={1}
-                        style={[theme.typography.caption, styles.heroMetaText]}
-                        testID="single-sell-slab-meta"
-                      >
-                        {slabSubtitle}
-                      </Text>
-                    ) : null}
-                    <Text
-                      numberOfLines={1}
-                      style={[theme.typography.caption, styles.heroMetaText]}
-                    >
-                      {displayEntry.cardNumber}
-                      {' • '}
-                      {displayEntry.setName}
-                    </Text>
-                    <View style={styles.heroChipsWrap}>
-                      <SellIdentityChips
-                        centered
-                        entry={displayEntry}
-                        includeSlabGrade={false}
-                        rowTestID="single-sell-meta-row"
-                        testIDPrefix="single-sell"
-                      />
-                    </View>
+                <View style={styles.centeredHeroBody}>
+                  <View style={styles.centeredHeroImageWrap}>
+                    <Image source={{ uri: displayEntry.imageUrl }} style={styles.centeredHeroImage} />
                   </View>
-                  <View style={styles.heroArtShadow}>
-                    <Image source={{ uri: displayEntry.imageUrl }} style={styles.heroArt} />
-                  </View>
+                  <Text
+                    numberOfLines={2}
+                    style={[theme.typography.display, styles.centeredHeroName]}
+                  >
+                    {displayEntry.name}
+                  </Text>
+                  <Text
+                    numberOfLines={2}
+                    style={[theme.typography.caption, styles.centeredHeroMeta]}
+                  >
+                    {[
+                      displayEntry.cardNumber,
+                      slabSubtitle?.trim() || (!slabSubtitle && displayEntry.conditionShortLabel) || null,
+                      displayEntry.setName,
+                    ].filter(Boolean).join(' • ')}
+                  </Text>
                 </View>
               </View>
+
+              <MarketInfoSection entry={displayEntry} />
 
               {screenErrorMessage ? (
                 <View
@@ -1084,6 +1074,31 @@ const styles = StyleSheet.create({
   },
   detailsCardWrap: {
     marginTop: -24,
+  },
+  centeredHeroBody: {
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  centeredHeroImage: {
+    borderRadius: 18,
+    height: 280,
+    resizeMode: 'contain',
+    width: 196,
+  },
+  centeredHeroImageWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  centeredHeroMeta: {
+    color: colors.textSecondary,
+    paddingHorizontal: 16,
+    textAlign: 'center',
+  },
+  centeredHeroName: {
+    color: colors.textPrimary,
+    paddingHorizontal: 16,
+    textAlign: 'center',
   },
   paymentMethodChip: {
     backgroundColor: colors.surface,

@@ -1287,147 +1287,70 @@ export function CardDetailScreen({
           ) : null}
         </View>
 
-        <View testID="detail-hero-card">
-          <SurfaceCard padding={20} radius={28} style={styles.heroCard}>
+        <View style={styles.heroBlock} testID="detail-hero-card">
+          <View style={styles.heroImageStage}>
+            {displayImageUrl ? (
+              <Image
+                source={{ uri: displayImageUrl }}
+                style={styles.heroImageLarge}
+              />
+            ) : (
+              <View style={styles.heroImageFallback}>
+                <Text style={[theme.typography.titleCompact, styles.heroArtFallbackText]}>{displayName}</Text>
+              </View>
+            )}
+          </View>
+
+          <View style={styles.heroTitleRow}>
+            <Text
+              numberOfLines={2}
+              style={[theme.typography.title, styles.heroTitleCentered]}
+            >
+              {displayName}
+            </Text>
             <Pressable
               accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Favorite card'}
               accessibilityRole="button"
               hitSlop={8}
               onPress={handleToggleFavorite}
               style={({ pressed }) => [
-                styles.heroFavoriteButton,
+                styles.heroFavoriteInline,
                 { opacity: isFavoritePending ? 0.6 : pressed ? 0.84 : 1 },
               ]}
               testID="detail-favorite-card"
             >
               {isFavorite ? (
-                <IconHeartFilled color={favoriteHeartColor} size={22} />
+                <IconHeartFilled color={favoriteHeartColor} size={20} />
               ) : (
-                <IconHeart color={favoriteHeartColor} size={22} strokeWidth={2} />
+                <IconHeart color={favoriteHeartColor} size={20} strokeWidth={2} />
               )}
             </Pressable>
+          </View>
 
-            <View style={styles.heroRow}>
-              <View style={styles.heroArtStage}>
-                {displayImageUrl ? (
-                  <Image
-                    source={{ uri: displayImageUrl }}
-                    style={styles.heroArt}
-                  />
-                ) : (
-                  <View style={styles.heroArtFallback}>
-                    <Text style={[theme.typography.titleCompact, styles.heroArtFallbackText]}>{displayName}</Text>
-                  </View>
-                )}
-              </View>
+          <Text
+            style={[theme.typography.bodyStrong, styles.heroMetaCentered, { color: theme.colors.textSecondary }]}
+            testID="detail-hero-meta"
+          >
+            {displayNumber(displayCardNumber)} • {displaySetName}
+          </Text>
 
-              <View style={styles.heroCopy}>
-                <Text
-                  numberOfLines={2}
-                  style={[theme.typography.title, styles.heroName]}
-                >
-                  {displayName}
-                </Text>
+          {slabHeroSubtitleDisplay ? (
+            <Text
+              style={[theme.typography.bodyStrong, styles.heroMetaCentered, { color: theme.colors.textSecondary }]}
+              testID="detail-hero-slab-meta"
+            >
+              {slabHeroSubtitleDisplay}
+            </Text>
+          ) : null}
 
-                <Text
-                  style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
-                  testID="detail-hero-meta"
-                >
-                  {displayNumber(displayCardNumber)} • {displaySetName}
-                </Text>
-
-                {slabHeroSubtitleDisplay ? (
-                  <Text
-                    style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
-                    testID="detail-hero-slab-meta"
-                  >
-                    {slabHeroSubtitleDisplay}
-                  </Text>
-                ) : null}
-
-                {slabCertAndQuantityLine ? (
-                  <Text
-                    style={[theme.typography.caption, styles.heroInventoryLine]}
-                    testID="detail-hero-slab-cert-quantity"
-                  >
-                    {slabCertAndQuantityLine}
-                  </Text>
-                ) : null}
-
-                {rawInventoryLine ? (
-                  <Text
-                    style={[theme.typography.bodyStrong, styles.heroSubtitle, { color: theme.colors.textSecondary }]}
-                    testID="detail-hero-raw-inventory"
-                  >
-                    {rawInventoryLine}
-                  </Text>
-                ) : null}
-
-                {isOwned && selectedEntry ? (
-                  <View style={styles.quantityStepperRow} testID="detail-quantity-stepper">
-                    {selectedEntry.quantity <= 1 ? (
-                      <IconButton
-                        accessibilityLabel="Delete this card from your collection"
-                        disabled={isQuantityMutationPending}
-                        onPress={() => setIsDeleteConfirmOpen(true)}
-                        testID="detail-quantity-delete"
-                        variant="elevated"
-                      >
-                        <IconTrash color={theme.colors.danger} size={18} strokeWidth={2.1} />
-                      </IconButton>
-                    ) : (
-                      <IconButton
-                        accessibilityLabel="Decrease quantity"
-                        disabled={isQuantityMutationPending}
-                        onPress={handleDecrementQuantity}
-                        testID="detail-quantity-decrement"
-                        variant="elevated"
-                      >
-                        <IconMinus color={theme.colors.textPrimary} size={18} strokeWidth={2.2} />
-                      </IconButton>
-                    )}
-                    <Text
-                      style={[theme.typography.bodyStrong, styles.quantityValue]}
-                      testID="detail-quantity-value"
-                    >
-                      {`Qty ${selectedEntry.quantity}`}
-                    </Text>
-                    <IconButton
-                      accessibilityLabel="Add another copy"
-                      onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
-                      testID="detail-quantity-increment"
-                      variant="elevated"
-                    >
-                      <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                    </IconButton>
-                    {sellEntryId ? (
-                      <IconButton
-                        accessibilityLabel="Edit collection entry"
-                        onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, sellEntryId)}
-                        testID="detail-edit-collection-entry"
-                        variant="elevated"
-                      >
-                        <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                      </IconButton>
-                    ) : null}
-                  </View>
-                ) : (
-                  <View style={styles.heroAddRow}>
-                    <IconButton
-                      accessibilityLabel="Add to collection"
-                      onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
-                      testID="detail-add-to-collection"
-                      variant="elevated"
-                    >
-                      <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                    </IconButton>
-                    <Text style={[theme.typography.bodyStrong, styles.heroAddRowLabel]}>Add to collection</Text>
-                  </View>
-                )}
-              </View>
-            </View>
-
-          </SurfaceCard>
+          {slabCertAndQuantityLine ? (
+            <Text
+              style={[theme.typography.caption, styles.heroMetaCentered]}
+              testID="detail-hero-slab-cert-quantity"
+            >
+              {slabCertAndQuantityLine}
+            </Text>
+          ) : null}
         </View>
 
         <View testID="detail-market-card">
@@ -1660,6 +1583,86 @@ export function CardDetailScreen({
             )}
           </SurfaceCard>
         </View>
+
+        {isOwned && selectedEntry ? (
+          <View style={styles.inventorySection} testID="detail-inventory-section">
+            <Text style={[theme.typography.headline, styles.inventoryHeading]}>
+              Your inventory
+            </Text>
+            <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]} testID="detail-inventory-line">
+              {[
+                `${selectedEntry.quantity} owned`,
+                isSlabDetail
+                  ? slabHeroSubtitle?.trim() || null
+                  : selectedEntry.conditionLabel?.trim() || null,
+                selectedEntry.costBasisPerUnit != null
+                  ? `bought ${formatCurrency(selectedEntry.costBasisPerUnit, selectedEntry.currencyCode)}`
+                  : null,
+              ].filter(Boolean).join(' · ')}
+            </Text>
+            <View style={styles.inventoryActionsRow} testID="detail-quantity-stepper">
+              {selectedEntry.quantity <= 1 ? (
+                <IconButton
+                  accessibilityLabel="Delete this card from your collection"
+                  disabled={isQuantityMutationPending}
+                  onPress={() => setIsDeleteConfirmOpen(true)}
+                  testID="detail-quantity-delete"
+                  variant="elevated"
+                >
+                  <IconTrash color={theme.colors.danger} size={18} strokeWidth={2.1} />
+                </IconButton>
+              ) : (
+                <IconButton
+                  accessibilityLabel="Decrease quantity"
+                  disabled={isQuantityMutationPending}
+                  onPress={handleDecrementQuantity}
+                  testID="detail-quantity-decrement"
+                  variant="elevated"
+                >
+                  <IconMinus color={theme.colors.textPrimary} size={18} strokeWidth={2.2} />
+                </IconButton>
+              )}
+              <Text
+                style={[theme.typography.bodyStrong, styles.quantityValue]}
+                testID="detail-quantity-value"
+              >
+                {`Qty ${selectedEntry.quantity}`}
+              </Text>
+              <IconButton
+                accessibilityLabel="Add another copy"
+                onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
+                testID="detail-quantity-increment"
+                variant="elevated"
+              >
+                <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+              </IconButton>
+              {sellEntryId ? (
+                <IconButton
+                  accessibilityLabel="Edit collection entry"
+                  onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, sellEntryId)}
+                  testID="detail-edit-collection-entry"
+                  variant="elevated"
+                >
+                  <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                </IconButton>
+              ) : null}
+            </View>
+          </View>
+        ) : (
+          <View style={styles.inventorySection}>
+            <View style={styles.heroAddRow}>
+              <IconButton
+                accessibilityLabel="Add to collection"
+                onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
+                testID="detail-add-to-collection"
+                variant="elevated"
+              >
+                <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+              </IconButton>
+              <Text style={[theme.typography.bodyStrong, styles.heroAddRowLabel]}>Add to collection</Text>
+            </View>
+          </View>
+        )}
       </ScrollView>
 
       {canShowSellAction ? (
@@ -1923,6 +1926,68 @@ const styles = StyleSheet.create({
   },
   heroSubtitle: {
     width: '100%',
+  },
+  heroBlock: {
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+  },
+  heroImageStage: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroImageLarge: {
+    height: 320,
+    resizeMode: 'contain',
+    width: 224,
+  },
+  heroImageFallback: {
+    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 18,
+    height: 320,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    width: 224,
+  },
+  heroTitleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    marginTop: 4,
+    paddingHorizontal: 16,
+  },
+  heroTitleCentered: {
+    flexShrink: 1,
+    textAlign: 'center',
+  },
+  heroFavoriteInline: {
+    alignItems: 'center',
+    height: 32,
+    justifyContent: 'center',
+    width: 32,
+  },
+  heroMetaCentered: {
+    paddingHorizontal: 16,
+    textAlign: 'center',
+  },
+  inventorySection: {
+    backgroundColor: 'rgba(255, 255, 255, 0.92)',
+    borderColor: 'rgba(15, 15, 18, 0.08)',
+    borderRadius: 24,
+    borderWidth: 1,
+    gap: 10,
+    padding: 18,
+  },
+  inventoryHeading: {
+    color: '#0F0F12',
+  },
+  inventoryActionsRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
   },
   inlineMarketplaceContent: {
     alignItems: 'center',

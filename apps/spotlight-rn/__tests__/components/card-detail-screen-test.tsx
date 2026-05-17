@@ -460,8 +460,9 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    const line = await screen.findByTestId('detail-hero-raw-inventory');
-    expect(String(line.props.children)).toBe('Lightly Played  ·  Holofoil  ·  Qty 3');
+    const line = await screen.findByTestId('detail-inventory-line');
+    expect(String(line.props.children)).toContain('3 owned');
+    expect(String(line.props.children)).toContain('Lightly Played');
   });
 
   it('shows the slab cert + quantity line in the hero when an owned graded entry is selected', async () => {

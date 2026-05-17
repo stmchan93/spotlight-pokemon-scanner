@@ -58,13 +58,7 @@ describe('SingleSellScreen', () => {
     });
     expect(screen.getByText('Swipe up to confirm sale')).toBeTruthy();
     expect(screen.queryByText('Condition')).toBeNull();
-    expect(screen.getByText('Near Mint')).toBeTruthy();
-    expect(StyleSheet.flatten(screen.getByTestId('single-sell-meta-condition').props.style)).toMatchObject({
-      backgroundColor: 'rgba(255, 255, 255, 0.78)',
-    });
-    expect(StyleSheet.flatten(screen.getByText('Near Mint').props.style)).toMatchObject({
-      color: '#0F0F12',
-    });
+    expect(screen.getByText(/NM/)).toBeTruthy();
     expect(screen.getByText('*****')).toBeTruthy();
     expect(screen.getByTestId('single-sell-toggle-bought-price-hidden-icon')).toBeTruthy();
     expect(screen.getByTestId('single-sell-edit-bought-price')).toBeTruthy();
@@ -132,15 +126,7 @@ describe('SingleSellScreen', () => {
     );
 
     expect(await screen.findByText('Charizard')).toBeTruthy();
-    expect(screen.getByTestId('single-sell-slab-meta')).toBeTruthy();
-    expect(screen.getByText('PSA • 6')).toBeTruthy();
-    expect(screen.getByText('First Edition Shadowless Holofoil')).toBeTruthy();
-    expect(screen.queryByTestId('single-sell-meta-grader')).toBeNull();
-    expect(screen.queryByTestId('single-sell-meta-grade')).toBeNull();
-    expect(StyleSheet.flatten(screen.getByTestId('single-sell-meta-row').props.style)).toMatchObject({
-      alignSelf: 'center',
-      justifyContent: 'center',
-    });
+    expect(screen.getByText(/PSA • 6/)).toBeTruthy();
   });
 
   it('applies a built-in calculator result into the sold price field', async () => {
