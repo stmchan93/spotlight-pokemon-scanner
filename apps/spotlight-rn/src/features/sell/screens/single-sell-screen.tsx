@@ -23,6 +23,7 @@ import type { InventoryCardEntry, PaymentMethod, VendorWalletHandles } from '@sp
 import { Button, SurfaceCard, colors, textStyles, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { CardHero } from '@/features/cards/components/card-hero';
 import { formatCurrency, formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import {
   buildSingleSellStatusCopy,
@@ -792,27 +793,19 @@ export function SingleSellScreen({
                   testID="single-sell-close"
                 />
 
-                <View style={styles.centeredHeroBody}>
-                  <View style={styles.centeredHeroImageWrap}>
-                    <Image source={{ uri: displayEntry.imageUrl }} style={styles.centeredHeroImage} />
-                  </View>
-                  <Text
-                    numberOfLines={2}
-                    style={[theme.typography.title, styles.centeredHeroName]}
-                  >
-                    {displayEntry.name}
-                  </Text>
-                  <Text
-                    numberOfLines={2}
-                    style={[theme.typography.bodyStrong, styles.centeredHeroMeta]}
-                  >
-                    {[
+                <CardHero
+                  imageUrl={displayEntry.imageUrl}
+                  imageFallbackText={displayEntry.name}
+                  name={displayEntry.name}
+                  metaLines={[
+                    [
                       displayEntry.cardNumber,
                       slabSubtitle?.trim() || (!slabSubtitle && displayEntry.conditionShortLabel) || null,
                       displayEntry.setName,
-                    ].filter(Boolean).join(' • ')}
-                  </Text>
-                </View>
+                    ].filter(Boolean).join(' • '),
+                  ]}
+                  testID="single-sell-hero"
+                />
               </View>
 
               {entryId === 'new' ? (

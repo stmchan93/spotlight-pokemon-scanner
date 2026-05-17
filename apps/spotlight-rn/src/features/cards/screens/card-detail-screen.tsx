@@ -33,6 +33,7 @@ import {
 import { Button, IconButton, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
+import { CardHero } from '@/features/cards/components/card-hero';
 import {
   resolveActiveScanReviewCandidate,
   resolveSimilarScanCandidates,
@@ -1290,71 +1291,87 @@ export function CardDetailScreen({
           ) : null}
         </View>
 
-        <View style={styles.heroBlock} testID="detail-hero-card">
-          <View style={styles.heroImageStage}>
-            {displayImageUrl ? (
-              <Image
-                source={{ uri: displayImageUrl }}
-                style={styles.heroImageLarge}
-              />
-            ) : (
-              <View style={styles.heroImageFallback}>
-                <Text style={[theme.typography.titleCompact, styles.heroArtFallbackText]}>{displayName}</Text>
+        <CardHero
+          imageUrl={displayImageUrl}
+          imageFallbackText={displayName}
+          name={displayName}
+          metaLines={[
+            `${displayNumber(displayCardNumber)} • ${displaySetName}`,
+            slabHeroSubtitleDisplay ?? '',
+            slabCertAndQuantityLine,
+          ]}
+          favorite={{
+            isFavorite,
+            isPending: isFavoritePending,
+            onToggle: handleToggleFavorite,
+            color: favoriteHeartColor,
+            testID: 'detail-favorite-card',
+          }}
+          belowMeta={
+            isOwned && selectedEntry ? (
+              <View style={styles.heroStepperRow} testID="detail-quantity-stepper">
+                {selectedEntry.quantity <= 1 ? (
+                  <IconButton
+                    accessibilityLabel="Delete this card from your collection"
+                    disabled={isQuantityMutationPending}
+                    onPress={() => setIsDeleteConfirmOpen(true)}
+                    testID="detail-quantity-delete"
+                    variant="elevated"
+                  >
+                    <IconTrash color={theme.colors.danger} size={18} strokeWidth={2.1} />
+                  </IconButton>
+                ) : (
+                  <IconButton
+                    accessibilityLabel="Decrease quantity"
+                    disabled={isQuantityMutationPending}
+                    onPress={handleDecrementQuantity}
+                    testID="detail-quantity-decrement"
+                    variant="elevated"
+                  >
+                    <IconMinus color={theme.colors.textPrimary} size={18} strokeWidth={2.2} />
+                  </IconButton>
+                )}
+                <Text
+                  style={[theme.typography.bodyStrong, styles.heroStepperValue]}
+                  testID="detail-quantity-value"
+                >
+                  {`Qty ${selectedEntry.quantity}`}
+                </Text>
+                <IconButton
+                  accessibilityLabel="Add another copy"
+                  onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
+                  testID="detail-quantity-increment"
+                  variant="elevated"
+                >
+                  <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                </IconButton>
+                {sellEntryId ? (
+                  <IconButton
+                    accessibilityLabel="Edit collection entry"
+                    onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, sellEntryId)}
+                    testID="detail-edit-collection-entry"
+                    variant="elevated"
+                  >
+                    <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                  </IconButton>
+                ) : null}
               </View>
-            )}
-          </View>
-
-          <View style={styles.heroTitleRow}>
-            <Text
-              numberOfLines={2}
-              style={[theme.typography.title, styles.heroTitleCentered]}
-            >
-              {displayName}
-            </Text>
-            <Pressable
-              accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Favorite card'}
-              accessibilityRole="button"
-              hitSlop={8}
-              onPress={handleToggleFavorite}
-              style={({ pressed }) => [
-                styles.heroFavoriteInline,
-                { opacity: isFavoritePending ? 0.6 : pressed ? 0.84 : 1 },
-              ]}
-              testID="detail-favorite-card"
-            >
-              {isFavorite ? (
-                <IconHeartFilled color={favoriteHeartColor} size={20} />
-              ) : (
-                <IconHeart color={favoriteHeartColor} size={20} strokeWidth={2} />
-              )}
-            </Pressable>
-          </View>
-
-          <Text
-            style={[theme.typography.bodyStrong, styles.heroMetaCentered, { color: theme.colors.textSecondary }]}
-            testID="detail-hero-meta"
-          >
-            {displayNumber(displayCardNumber)} • {displaySetName}
-          </Text>
-
-          {slabHeroSubtitleDisplay ? (
-            <Text
-              style={[theme.typography.bodyStrong, styles.heroMetaCentered, { color: theme.colors.textSecondary }]}
-              testID="detail-hero-slab-meta"
-            >
-              {slabHeroSubtitleDisplay}
-            </Text>
-          ) : null}
-
-          {slabCertAndQuantityLine ? (
-            <Text
-              style={[theme.typography.caption, styles.heroMetaCentered]}
-              testID="detail-hero-slab-cert-quantity"
-            >
-              {slabCertAndQuantityLine}
-            </Text>
-          ) : null}
-        </View>
+            ) : (
+              <View style={styles.heroAddRow}>
+                <IconButton
+                  accessibilityLabel="Add to collection"
+                  onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
+                  testID="detail-add-to-collection"
+                  variant="elevated"
+                >
+                  <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                </IconButton>
+                <Text style={[theme.typography.bodyStrong, styles.heroAddRowLabel]}>Add to collection</Text>
+              </View>
+            )
+          }
+          testID="detail-hero-card"
+        />
 
         <View testID="detail-market-card">
           <SurfaceCard padding={18} radius={24} style={styles.marketCard}>
@@ -1393,7 +1410,9 @@ export function CardDetailScreen({
                 Market avg.
               </Text>
               <View style={styles.trendCenteredRow}>
-                <TrendLabel testID="detail-market-trend" value={trendValue} />
+                {Number.isFinite(displayedPrice) && (displayedPrice ?? 0) > 0 ? (
+                  <TrendLabel testID="detail-market-trend" value={trendValue} />
+                ) : null}
                 <ConditionDropdown
                   hideOptionPrice
                   onSelect={(id) => setSelectedTimeframeId(id as TimeframeId)}
@@ -1584,85 +1603,6 @@ export function CardDetailScreen({
           </SurfaceCard>
         </View>
 
-        {isOwned && selectedEntry ? (
-          <View style={styles.inventorySection} testID="detail-inventory-section">
-            <Text style={[theme.typography.headline, styles.inventoryHeading]}>
-              Your inventory
-            </Text>
-            <Text style={[theme.typography.body, { color: theme.colors.textSecondary }]} testID="detail-inventory-line">
-              {[
-                `${selectedEntry.quantity} owned`,
-                isSlabDetail
-                  ? slabHeroSubtitle?.trim() || null
-                  : selectedEntry.conditionLabel?.trim() || null,
-                selectedEntry.costBasisPerUnit != null
-                  ? `bought ${formatCurrency(selectedEntry.costBasisPerUnit, selectedEntry.currencyCode)}`
-                  : null,
-              ].filter(Boolean).join(' · ')}
-            </Text>
-            <View style={styles.inventoryActionsRow} testID="detail-quantity-stepper">
-              {selectedEntry.quantity <= 1 ? (
-                <IconButton
-                  accessibilityLabel="Delete this card from your collection"
-                  disabled={isQuantityMutationPending}
-                  onPress={() => setIsDeleteConfirmOpen(true)}
-                  testID="detail-quantity-delete"
-                  variant="elevated"
-                >
-                  <IconTrash color={theme.colors.danger} size={18} strokeWidth={2.1} />
-                </IconButton>
-              ) : (
-                <IconButton
-                  accessibilityLabel="Decrease quantity"
-                  disabled={isQuantityMutationPending}
-                  onPress={handleDecrementQuantity}
-                  testID="detail-quantity-decrement"
-                  variant="elevated"
-                >
-                  <IconMinus color={theme.colors.textPrimary} size={18} strokeWidth={2.2} />
-                </IconButton>
-              )}
-              <Text
-                style={[theme.typography.bodyStrong, styles.quantityValue]}
-                testID="detail-quantity-value"
-              >
-                {`Qty ${selectedEntry.quantity}`}
-              </Text>
-              <IconButton
-                accessibilityLabel="Add another copy"
-                onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
-                testID="detail-quantity-increment"
-                variant="elevated"
-              >
-                <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-              </IconButton>
-              {sellEntryId ? (
-                <IconButton
-                  accessibilityLabel="Edit collection entry"
-                  onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, sellEntryId)}
-                  testID="detail-edit-collection-entry"
-                  variant="elevated"
-                >
-                  <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-                </IconButton>
-              ) : null}
-            </View>
-          </View>
-        ) : (
-          <View style={styles.inventorySection}>
-            <View style={styles.heroAddRow}>
-              <IconButton
-                accessibilityLabel="Add to collection"
-                onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
-                testID="detail-add-to-collection"
-                variant="elevated"
-              >
-                <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
-              </IconButton>
-              <Text style={[theme.typography.bodyStrong, styles.heroAddRowLabel]}>Add to collection</Text>
-            </View>
-          </View>
-        )}
       </ScrollView>
 
       {canShowSellAction ? (
@@ -1931,6 +1871,15 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     paddingVertical: 8,
+  },
+  heroStepperRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+    justifyContent: 'center',
+  },
+  heroStepperValue: {
+    color: '#0F0F12',
   },
   heroImageStage: {
     alignItems: 'center',

@@ -460,9 +460,8 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    const line = await screen.findByTestId('detail-inventory-line');
-    expect(String(line.props.children)).toContain('3 owned');
-    expect(String(line.props.children)).toContain('Lightly Played');
+    const quantityValue = await screen.findByTestId('detail-quantity-value');
+    expect(String(quantityValue.props.children)).toContain('Qty 3');
   });
 
   it('shows the slab cert + quantity line in the hero when an owned graded entry is selected', async () => {
@@ -514,9 +513,10 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    expect((await screen.findByTestId('detail-hero-slab-meta')).props.children).toBe('PSA • 10');
-    const certQty = await screen.findByTestId('detail-hero-slab-cert-quantity');
-    expect(String(certQty.props.children)).toBe('Cert #00012345  ·  Qty 1');
+    expect(await screen.findByText('PSA • 10')).toBeTruthy();
+    expect(await screen.findByText(/Cert #00012345/)).toBeTruthy();
+    const quantityValue = await screen.findByTestId('detail-quantity-value');
+    expect(String(quantityValue.props.children)).toBe('Qty 1');
   });
 
   it('lets a slab user toggle between PSA grades and refetches pricing with the override', async () => {
@@ -583,7 +583,7 @@ describe('CardDetailScreen', () => {
     });
 
     // Hero still shows the user's actual slab grade — only the pricing lens changed.
-    expect((await screen.findByTestId('detail-hero-slab-meta')).props.children).toBe('PSA • 10');
+    expect(await screen.findByText('PSA • 10')).toBeTruthy();
   });
 
   it('omits the Sell icon when isOwned but onOpenSell is undefined', async () => {
@@ -1090,7 +1090,7 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Charizard')).toBeTruthy();
-    expect(screen.getByTestId('detail-hero-slab-meta').props.children).toBe('PSA • 9');
+    expect(screen.getByText('PSA • 9')).toBeTruthy();
     expect(screen.getByTestId('detail-market-price').props.children).toBe('$2,271.15');
     expect(await screen.findByTestId('detail-slab-last-sold')).toBeTruthy();
     expect(getCardRecentSales).not.toHaveBeenCalled();
