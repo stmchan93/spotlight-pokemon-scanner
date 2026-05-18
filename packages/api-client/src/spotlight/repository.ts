@@ -53,6 +53,7 @@ import type {
   PortfolioSaleResponsePayload,
   RecentSaleRecord,
   SaleLifecycleResponsePayload,
+  SaleStatus,
   VendorWalletHandles,
   VendorWalletHandlesUpdate,
   ScannerArtifactUploadResult,
@@ -262,6 +263,9 @@ type PortfolioLedgerDTO = {
       grader?: string | null;
       grade?: string | null;
     } | null;
+    paymentMethod?: string | null;
+    paidAt?: string | null;
+    status?: string | null;
   }>;
   dailySeries?: Array<{
     date: string;
@@ -366,6 +370,7 @@ type CardMarketHistoryDTO = {
     days30?: { priceChange?: number | null; percentChange?: number | null };
   };
   volumeLevel?: 'low' | 'normal' | 'unknown';
+  refreshedAt?: string | null;
 };
 
 type EbayCompsPriceDTO = {
@@ -930,9 +935,17 @@ function formatTradedAtLabel(isoDate: string) {
   })}`;
 }
 
-function cleanedMarketplaceToken(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
+function cleanedTcgPlayerToken(value?: string | null) {
+  // Decompose accented chars (é→e), lowercase, keep apostrophes and slashes
+  const normalized = (value ?? '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  // Strip a redundant "pokemon" prefix so set names like "Pokémon Card 151" don't double up
+  return (
+    normalized
+      .replace(/[^a-z0-9/' ]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .replace(/^pokemon\s+/, '') || null
+  );
 }
 
 function buildTcgPlayerSearchUrl(params: {
@@ -941,23 +954,24 @@ function buildTcgPlayerSearchUrl(params: {
   setName: string;
 }) {
   const query = [
-    cleanedMarketplaceToken(params.name),
-    cleanedMarketplaceToken(params.cardNumber.replace(/^#/, '')),
-    cleanedMarketplaceToken(params.setName),
+    'pokemon',
+    cleanedTcgPlayerToken(params.setName),
+    cleanedTcgPlayerToken(params.name),
+    cleanedTcgPlayerToken(params.cardNumber.replace(/^#/, '')),
   ]
     .filter(Boolean)
     .join(' ');
 
-  if (!query) {
+  if (!query || query === 'pokemon') {
     return null;
   }
 
-  const searchParams = new URLSearchParams({
-    q: query,
-    view: 'grid',
-  });
-
-  return `https://www.tcgplayer.com/search/pokemon/product?${searchParams.toString()}`;
+  // Encode manually: spaces as "+", slashes and apostrophes unencoded (matches TCGPlayer's own format)
+  const encodedQ = encodeURIComponent(query)
+    .replace(/%20/g, '+')
+    .replace(/%2F/g, '/')
+    .replace(/%27/g, "'");
+  return `https://www.tcgplayer.com/search/all/product?q=${encodedQ}&view=grid`;
 }
 
 function buildDetailQueryParams(query: CardDetailQuery) {
@@ -1207,6 +1221,9 @@ function createScanArtifactUploadPayload(
   if (!payload.sourceImage || !payload.normalizedImage) {
     return null;
   }
+  if (payload.captureSource === 'smoke_fixture') {
+    return null;
+  }
 
   return {
     scanID,
@@ -1349,6 +1366,14 @@ function buildRecentSales(transactions: PortfolioLedgerDTO['transactions'], base
         || conditionCopy.label
         || '';
       const quantity = normalizeNumber(transaction.quantity);
+      const paymentMethod = normalizeString(transaction.paymentMethod) ?? null;
+      const paidAt = normalizeString(transaction.paidAt) ?? null;
+      const rawStatus = normalizeString(transaction.status);
+      const status: SaleStatus | null = (
+        rawStatus === 'paid' || rawStatus === 'pending' || rawStatus === 'voided'
+          ? rawStatus
+          : null
+      );
 
       return [{
         id,
@@ -1366,6 +1391,9 @@ function buildRecentSales(transactions: PortfolioLedgerDTO['transactions'], base
         largeImageUrl: pickImageUrl([card.imageLargeURL], baseUrl) || null,
         qualityLabel: derivedQualityLabel || null,
         quantity: quantity ?? null,
+        paymentMethod,
+        paidAt,
+        status,
       } satisfies RecentSaleRecord];
     });
 }
@@ -1738,6 +1766,9 @@ function normalizePortfolioLedger(value: PortfolioLedgerDTO | null | undefined) 
         occurredAt,
         condition: normalizeString(transaction?.condition),
         slabContext,
+        paymentMethod: normalizeString(transaction?.paymentMethod) ?? null,
+        paidAt: normalizeString(transaction?.paidAt) ?? null,
+        status: normalizeString(transaction?.status) ?? null,
       }];
     }),
     dailySeries: dailySeries.flatMap((point) => {
@@ -1817,6 +1848,7 @@ function buildMarketHistoryRecord(
     selectedCondition: normalizeString(history?.selectedCondition),
     insights: buildHistoryInsights(history?.deltas),
     ...(history?.volumeLevel ? { volumeLevel: history.volumeLevel } : {}),
+    refreshedAt: normalizeString(history?.refreshedAt),
   };
 }
 

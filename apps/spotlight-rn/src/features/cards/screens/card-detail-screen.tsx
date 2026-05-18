@@ -8,11 +8,13 @@ import {
   IconMinus,
   IconPencil,
   IconPlus,
+  IconRefresh,
   IconTrash,
   IconTrendingDown,
   IconTrendingUp,
 } from '@tabler/icons-react-native';
 import {
+  ActivityIndicator,
   Image,
   Linking,
   Modal,
@@ -95,8 +97,8 @@ function buildTcgPlayerSearchUrl(params: {
 }
 
 const favoriteHeartColor = '#E83E8C';
-const recentSalesPageSize = 25;
-const slabLastSoldRowLimit = 5;
+const recentSalesPageSize = 10;
+const slabLastSoldRowLimit = 10;
 
 type TimeframeId = '7d' | '30d';
 
@@ -341,6 +343,21 @@ function formatPricesFreshnessLabel(value?: string | null): string | null {
   }
   const days = Math.floor(diffMs / 86_400_000);
   return `Refreshed ${days}d ago`;
+}
+
+function formatRecentSalesUpdatedLabel(value?: string | null): string | null {
+  const trimmed = value?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  const parsed = new Date(trimmed);
+  const timestamp = parsed.getTime();
+  if (!Number.isFinite(timestamp)) {
+    return null;
+  }
+  const diffMs = Math.max(0, Date.now() - timestamp);
+  const hours = Math.max(1, Math.round(diffMs / 3_600_000));
+  return `Updated ${hours}h ago`;
 }
 
 function recentSalesCountBucket(value?: number | null) {
@@ -693,6 +710,7 @@ export function CardDetailScreen({
   const [marketHistory, setMarketHistory] = useState<CardDetailRecord['marketHistory'] | null>(null);
   const [recentSalesState, setRecentSalesState] = useState<CardRecentSalesRecord | null>(null);
   const [hasResolvedRecentSalesState, setHasResolvedRecentSalesState] = useState(false);
+  const [isEbayIconLoading, setIsEbayIconLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
   const [isFavoritePending, setIsFavoritePending] = useState(false);
@@ -702,11 +720,9 @@ export function CardDetailScreen({
   });
   const [selectedTimeframeId, setSelectedTimeframeId] = useState<TimeframeId>(defaultTimeframeId);
   const [showAllSales, setShowAllSales] = useState(false);
-  const [pricesFetchedAt, setPricesFetchedAt] = useState<string | null>(null);
   const [slabGradeOverride, setSlabGradeOverride] = useState<string | null>(null);
   const [isQuantityMutationPending, setIsQuantityMutationPending] = useState(false);
   const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-  const [hasUserRequestedSales, setHasUserRequestedSales] = useState(false);
   const [isLoadingRecentSales, setIsLoadingRecentSales] = useState(false);
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
@@ -778,9 +794,7 @@ export function CardDetailScreen({
     setSelectedTimeframeId(defaultTimeframeId);
     setShowAllSales(false);
     setFavoriteState({ favoritedAt: null, isFavorite: false });
-    setPricesFetchedAt(null);
     setSlabGradeOverride(null);
-    setHasUserRequestedSales(false);
     setIsLoadingRecentSales(false);
   }, [cardId]);
 
@@ -851,7 +865,6 @@ export function CardDetailScreen({
       .then((nextHistory) => {
         if (!cancelled) {
           setMarketHistory(nextHistory);
-          setPricesFetchedAt(new Date().toISOString());
         }
       })
       .catch(() => {
@@ -868,15 +881,50 @@ export function CardDetailScreen({
   useEffect(() => {
     setRecentSalesState(null);
     setHasResolvedRecentSalesState(false);
-    setHasUserRequestedSales(false);
     setIsLoadingRecentSales(false);
   }, [cardId, dataVersion, selectedSlabContextForPricing]);
 
-  const handleLoadRecentSales = useCallback(() => {
+  useEffect(() => {
+    if (!shouldShowRecentSales || !selectedSlabContextForPricing) {
+      return;
+    }
+    if (hasResolvedRecentSalesState) {
+      return;
+    }
+    let cancelled = false;
+    void spotlightRepository.getCardRecentSales({
+      cardId,
+      limit: recentSalesPageSize,
+      refresh: false,
+      slabContext: selectedSlabContextForPricing,
+      source: 'ebay',
+    })
+      .then((nextRecentSales) => {
+        if (!cancelled) {
+          setRecentSalesState(nextRecentSales);
+          setHasResolvedRecentSalesState(true);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setHasResolvedRecentSalesState(true);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    cardId,
+    hasResolvedRecentSalesState,
+    selectedSlabContextForPricing,
+    shouldShowRecentSales,
+    spotlightRepository,
+  ]);
+
+  const handleRefreshRecentSales = useCallback(() => {
     if (!shouldShowRecentSales || !selectedSlabContextForPricing || isLoadingRecentSales) {
       return;
     }
-    setHasUserRequestedSales(true);
     setIsLoadingRecentSales(true);
     void spotlightRepository.getCardRecentSales({
       cardId,
@@ -900,6 +948,46 @@ export function CardDetailScreen({
     isLoadingRecentSales,
     selectedSlabContextForPricing,
     shouldShowRecentSales,
+    spotlightRepository,
+  ]);
+
+  const handleEbayIconTap = useCallback(() => {
+    const existingUrl = recentSalesState?.sales[0]?.saleUrl;
+    if (existingUrl) {
+      void Linking.openURL(existingUrl);
+      return;
+    }
+    if (!selectedSlabContextForPricing || isLoadingRecentSales || isEbayIconLoading) {
+      return;
+    }
+    setIsEbayIconLoading(true);
+    void spotlightRepository.getCardRecentSales({
+      cardId,
+      limit: 10,
+      refresh: true,
+      slabContext: selectedSlabContextForPricing,
+      source: 'ebay',
+    })
+      .then((result) => {
+        setRecentSalesState(result);
+        setHasResolvedRecentSalesState(true);
+        const url = result?.sales[0]?.saleUrl;
+        if (url) {
+          void Linking.openURL(url);
+        }
+      })
+      .catch(() => {
+        setHasResolvedRecentSalesState(true);
+      })
+      .finally(() => {
+        setIsEbayIconLoading(false);
+      });
+  }, [
+    cardId,
+    isEbayIconLoading,
+    isLoadingRecentSales,
+    recentSalesState,
+    selectedSlabContextForPricing,
     spotlightRepository,
   ]);
 
@@ -1000,17 +1088,7 @@ export function CardDetailScreen({
     const monthInsight = effectiveMarketHistory.insights.find((insight) => insight.id === 'month');
     return (monthInsight?.deltaAmount ?? 0) >= 0 ? theme.colors.success : theme.colors.danger;
   }, [effectiveMarketHistory, theme.colors.brand, theme.colors.danger, theme.colors.success]);
-  const volumeLevel = effectiveMarketHistory?.volumeLevel ?? null;
   const shouldShowConditionPicker = (effectiveMarketHistory?.availableConditions.length ?? 0) > 1;
-  const volumeLevelLabel = (() => {
-    if (volumeLevel === 'low') {
-      return 'Limited pricing data';
-    }
-    if (volumeLevel === 'unknown') {
-      return 'Pricing data unavailable';
-    }
-    return null;
-  })();
   const recentSales = shouldShowRecentSales ? recentSalesState : null;
   const sortedRecentSales = useMemo(
     () => recentSales?.sales.slice().sort(compareRecentSalesBySoldDateDesc) ?? [],
@@ -1029,7 +1107,7 @@ export function CardDetailScreen({
     if (state === 'unavailable') {
       return 'eBay sales are unavailable for this slab right now.';
     }
-    return 'No recent eBay sales found for this slab yet.';
+    return 'No recent sold sales were returned for this slab.';
   }, [hasResolvedRecentSalesState, recentSales]);
 
   const handleToggleFavorite = useCallback(() => {
@@ -1196,7 +1274,7 @@ export function CardDetailScreen({
       ?? effectiveMarketHistory?.currentPrice
       ?? detail?.marketPrice
       ?? detailPreview?.marketPrice
-      ?? 0
+      ?? null
     );
   const displayCurrencyCode = isSlabDetail
     ? (effectiveMarketHistory?.currencyCode ?? selectedEntry?.currencyCode ?? detailPreview?.currencyCode ?? detail?.currencyCode ?? 'USD')
@@ -1217,15 +1295,17 @@ export function CardDetailScreen({
     ? (slabDropdownLabel ?? 'Slab')
     : (selectedCondition?.label ?? 'Condition');
 
-  const pricesFreshnessLabel = formatPricesFreshnessLabel(pricesFetchedAt ?? recentSales?.fetchedAt ?? null);
+  const recentSalesUpdatedLabel = formatRecentSalesUpdatedLabel(recentSales?.fetchedAt);
+  const recentSalesSection = recentSalesSectionState(recentSales);
+  const showRecentSalesLoadCta = hasResolvedRecentSalesState
+    && recentSalesSection === 'not_loaded';
+  const showRecentSalesEmpty = hasResolvedRecentSalesState
+    && (recentSalesSection === 'no_results' || recentSalesSection === 'unavailable');
+  const showRecentSalesRefreshButton = Boolean(recentSales?.canRefresh);
 
-  const apiTrendValue = selectedTimeframeId === '7d'
-    ? detail?.trendsPct?.days7
-    : detail?.trendsPct?.days30;
+  const pricesFreshnessLabel = formatPricesFreshnessLabel(effectiveMarketHistory?.refreshedAt ?? null);
+
   const trendValue = (() => {
-    if (typeof apiTrendValue === 'number' && Number.isFinite(apiTrendValue)) {
-      return apiTrendValue;
-    }
     if (timeframeFilteredPoints.length < 2) {
       return null;
     }
@@ -1273,7 +1353,7 @@ export function CardDetailScreen({
     ? displayedPrice
     : 0;
 
-  const canShowSellAction = isOwned && Boolean(sellEntryId) && Boolean(onOpenSell);
+  const canShowSellAction = Boolean(onOpenSell) && (detail !== null || detailPreview !== null);
 
   return (
     <SafeAreaView
@@ -1395,6 +1475,14 @@ export function CardDetailScreen({
                   selectedLabel={conditionDropdownLabel}
                   testID="detail-condition-dropdown"
                 />
+              ) : shouldShowConditionPicker && marketConditionOptions.length > 0 ? (
+                <ConditionDropdown
+                  onSelect={(id) => setSelectedConditionId(id)}
+                  options={marketConditionOptions}
+                  selectedId={selectedCondition?.id ?? null}
+                  selectedLabel={conditionDropdownLabel}
+                  testID="detail-condition-dropdown"
+                />
               ) : null}
               {pricesFreshnessLabel ? (
                 <Text
@@ -1417,7 +1505,7 @@ export function CardDetailScreen({
                 {formatOptionalCurrency(displayedPrice, displayCurrencyCode)}
               </Text>
               <Text style={[theme.typography.caption, styles.priceColumnLabelCentered]}>
-                Market avg.
+                {displayedPrice === null ? 'No market data available' : 'Market avg.'}
               </Text>
               <View style={styles.trendCenteredRow}>
                 {Number.isFinite(displayedPrice) && (displayedPrice ?? 0) > 0 ? (
@@ -1432,58 +1520,8 @@ export function CardDetailScreen({
                   testID="detail-timeframe-dropdown"
                 />
               </View>
-              {!isSlabDetail && volumeLevelLabel ? (
-                <Text
-                  style={[theme.typography.caption, styles.priceColumnLabelCentered]}
-                  testID="detail-volume-level-label"
-                >
-                  {volumeLevelLabel}
-                </Text>
-              ) : null}
             </View>
 
-            {!isSlabDetail && shouldShowConditionPicker && marketConditionOptions.length > 0 ? (
-              <View style={styles.conditionChipsRow} testID="detail-condition-chips">
-                {marketConditionOptions.map((option) => {
-                  const isSelected = option.id === (selectedCondition?.id ?? null);
-                  return (
-                    <Pressable
-                      accessibilityLabel={`Show ${option.label} price`}
-                      accessibilityRole="button"
-                      key={option.id}
-                      onPress={() => setSelectedConditionId(option.id)}
-                      style={({ pressed }) => [
-                        styles.conditionChip,
-                        isSelected ? styles.conditionChipSelected : null,
-                        pressed ? styles.conditionChipPressed : null,
-                      ]}
-                      testID={`detail-condition-chip-${option.id}`}
-                    >
-                      <Text
-                        style={[
-                          theme.typography.caption,
-                          styles.conditionChipShort,
-                          isSelected ? styles.conditionChipShortSelected : null,
-                        ]}
-                      >
-                        {option.shortLabel}
-                      </Text>
-                      <Text
-                        style={[
-                          theme.typography.bodyStrong,
-                          styles.conditionChipPrice,
-                          isSelected ? styles.conditionChipPriceSelected : null,
-                        ]}
-                      >
-                        {option.currentPrice != null
-                          ? formatCurrency(option.currentPrice, displayCurrencyCode)
-                          : '—'}
-                      </Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-            ) : null}
 
             {hasMarketHistoryPoints ? (
               <View style={styles.pricingChartWrap} testID="detail-history-chart">
@@ -1498,30 +1536,55 @@ export function CardDetailScreen({
               </View>
             ) : null}
 
+
             {isSlabDetail ? (
               <View style={styles.latestSalesSection} testID="detail-slab-last-sold">
-                <Text style={[theme.typography.caption, styles.latestSalesHeader]}>
-                  Latest sales from eBay
-                </Text>
-                {!hasUserRequestedSales ? (
+                <View style={styles.recentSalesHeaderRow}>
+                  <Text style={[theme.typography.caption, styles.latestSalesHeader]}>
+                    Recent Sales
+                  </Text>
+                  {recentSalesUpdatedLabel ? (
+                    <View style={styles.recentSalesFreshnessRow}>
+                      <Text
+                        style={[theme.typography.caption, styles.latestSalesHeader]}
+                        testID="detail-recent-sales-freshness"
+                      >
+                        {recentSalesUpdatedLabel}
+                      </Text>
+                      {showRecentSalesRefreshButton ? (
+                        <IconButton
+                          accessibilityLabel="Refresh recent sales"
+                          disabled={isLoadingRecentSales}
+                          onPress={handleRefreshRecentSales}
+                          size={28}
+                          testID="detail-recent-sales-refresh"
+                          variant="elevated"
+                        >
+                          <IconRefresh color={theme.colors.textPrimary} size={16} strokeWidth={2.1} />
+                        </IconButton>
+                      ) : null}
+                    </View>
+                  ) : null}
+                </View>
+                {showRecentSalesLoadCta ? (
                   <Button
                     disabled={isLoadingRecentSales}
-                    label={isLoadingRecentSales ? 'Loading…' : 'Load eBay sales'}
-                    onPress={handleLoadRecentSales}
+                    label={isLoadingRecentSales ? 'Loading…' : 'Load recent eBay sales'}
+                    onPress={handleRefreshRecentSales}
                     size="lg"
                     style={styles.loadEbaySalesButton}
                     testID="detail-slab-load-ebay-sales"
                     variant="secondary"
                   />
                 ) : null}
-                {hasUserRequestedSales && hasResolvedRecentSalesState && visibleSales.length === 0 ? (
+                {showRecentSalesEmpty && visibleSales.length === 0 ? (
                   <View style={styles.latestSalesEmpty} testID="detail-slab-last-sold-empty">
                     <Text style={[theme.typography.body, styles.latestSalesEmptyText]}>
                       {salesEmptyCopy}
                     </Text>
                   </View>
                 ) : null}
-                {hasUserRequestedSales && visibleSales.length > 0 ? (
+                {visibleSales.length > 0 ? (
                   <>
                     {visibleSales.map((sale, index) => {
                       const soldDateLabel = formatListingDateLabel(sale.soldAt);
@@ -1582,34 +1645,27 @@ export function CardDetailScreen({
                   </>
                 ) : null}
               </View>
-            ) : (
-              <Pressable
-                accessibilityRole="button"
-                disabled={!marketplaceUrl}
-                onPress={marketplaceUrl
-                  ? () => {
-                      void Linking.openURL(marketplaceUrl);
-                    }
-                  : undefined}
-                style={({ pressed }) => [
-                  styles.inlineMarketplaceRow,
-                  { opacity: marketplaceUrl ? (pressed ? 0.72 : 1) : 0.5 },
-                ]}
-                testID="detail-marketplace-cta"
-              >
-                <View style={styles.inlineMarketplaceDivider} />
-                <View style={styles.inlineMarketplaceContent}>
-                  <Text style={[theme.typography.bodyStrong, styles.inlineMarketplaceLabel]}>
-                    View on TCGplayer
-                  </Text>
+            ) : null}
+
+            {marketplaceUrl && !isSlabDetail ? (
+              <View>
+                <View style={styles.marketplaceSeparator} />
+                <Pressable
+                  accessibilityLabel="View on TCGplayer"
+                  accessibilityRole="button"
+                  onPress={() => void Linking.openURL(marketplaceUrl)}
+                  style={({ pressed }) => [styles.marketplaceRow, { opacity: pressed ? 0.7 : 1 }]}
+                  testID="detail-tcg-link"
+                >
                   <Image
                     source={require('../../../../assets/images/tcgplayer-icon.png')}
-                    style={styles.marketplaceIcon}
-                    testID="detail-marketplace-icon"
+                    style={styles.marketplaceRowIcon}
+                    testID="detail-tcg-icon"
                   />
-                </View>
-              </Pressable>
-            )}
+                  <Text style={theme.typography.bodyStrong}>View on TCGplayer</Text>
+                </Pressable>
+              </View>
+            ) : null}
           </SurfaceCard>
         </View>
 
@@ -1627,8 +1683,8 @@ export function CardDetailScreen({
             labelStyle={styles.sellButtonLabel}
             leadingAccessory={<IconCash color="#1A1A1A" size={20} strokeWidth={2.2} />}
             onPress={() => {
-              if (sellEntryId && onOpenSell) {
-                onOpenSell(sellEntryId);
+              if (onOpenSell) {
+                onOpenSell(sellEntryId ?? 'new');
               }
             }}
             size="lg"
@@ -1948,24 +2004,20 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 4,
   },
-  inlineMarketplaceContent: {
+  marketplaceSeparator: {
+    backgroundColor: 'rgba(15, 15, 18, 0.1)',
+    height: StyleSheet.hairlineWidth,
+  },
+  marketplaceRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingTop: 12,
+    gap: 8,
+    paddingTop: 14,
   },
-  inlineMarketplaceDivider: {
-    backgroundColor: 'rgba(15, 15, 18, 0.08)',
-    height: 1,
-    width: '100%',
-  },
-  inlineMarketplaceLabel: {
-    color: '#0F0F12',
-    flex: 1,
-    textAlign: 'left',
-  },
-  inlineMarketplaceRow: {
-    gap: 0,
+  marketplaceRowIcon: {
+    height: 28,
+    resizeMode: 'contain',
+    width: 28,
   },
   latestSalesEmpty: {
     backgroundColor: '#F7F8FA',
@@ -1982,6 +2034,16 @@ const styles = StyleSheet.create({
     color: 'rgba(15, 15, 18, 0.52)',
   },
   latestSalesSection: {
+    gap: 8,
+  },
+  recentSalesHeaderRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  recentSalesFreshnessRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
     gap: 8,
   },
   lazyDetailCopy: {
@@ -2009,11 +2071,6 @@ const styles = StyleSheet.create({
   marketValueTitle: {
     color: '#0F0F12',
   },
-  marketplaceIcon: {
-    borderRadius: 8,
-    height: 26,
-    width: 26,
-  },
   previewMarketValue: {
     color: '#0F0F12',
     fontSize: 48,
@@ -2025,38 +2082,7 @@ const styles = StyleSheet.create({
   },
   priceFreshnessLabel: {
     color: 'rgba(15, 15, 18, 0.52)',
-  },
-  conditionChip: {
-    alignItems: 'center',
-    backgroundColor: colors.surface,
-    borderRadius: 10,
-    flex: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 8,
-  },
-  conditionChipPressed: {
-    opacity: 0.86,
-  },
-  conditionChipPrice: {
-    color: colors.textPrimary,
-  },
-  conditionChipPriceSelected: {
-    color: '#000000',
-  },
-  conditionChipSelected: {
-    backgroundColor: colors.brand,
-  },
-  conditionChipShort: {
-    color: colors.textSecondary,
-    marginBottom: 2,
-  },
-  conditionChipShortSelected: {
-    color: '#000000',
-  },
-  conditionChipsRow: {
-    flexDirection: 'row',
-    gap: 6,
-    marginTop: 12,
+    marginLeft: 'auto',
   },
   pricingChartWrap: {
     width: '100%',

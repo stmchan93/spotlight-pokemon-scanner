@@ -292,6 +292,12 @@ export type RecentSaleRecord = {
   qualityLabel?: string | null;
   /** Quantity sold or traded in this transaction. Null when not surfaced. */
   quantity?: number | null;
+  /** Payment method used for this sale (e.g. "cash", "venmo"). Null when not surfaced. */
+  paymentMethod?: string | null;
+  /** ISO timestamp when the sale was marked paid. Null when pending or not surfaced. */
+  paidAt?: string | null;
+  /** Payment status: paid, pending, or voided. Null when not surfaced. */
+  status?: SaleStatus | null;
 };
 
 export type PortfolioDashboard = {
@@ -348,6 +354,7 @@ export type CardMarketHistoryRecord = {
   selectedCondition?: string | null;
   insights: CardMarketInsight[];
   volumeLevel?: 'low' | 'normal' | 'unknown';
+  refreshedAt?: string | null;
 };
 
 export type CardEbayListingRecord = {

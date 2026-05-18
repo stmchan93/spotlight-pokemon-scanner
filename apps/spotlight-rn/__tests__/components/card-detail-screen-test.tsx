@@ -52,9 +52,7 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('sell-backdrop')).toBeTruthy();
     expect(screen.getByTestId('detail-hero-card')).toBeTruthy();
     expect(screen.getByTestId('detail-market-card')).toBeTruthy();
-    expect(screen.getByTestId('detail-marketplace-cta')).toBeTruthy();
-    expect(screen.getByTestId('detail-marketplace-icon')).toBeTruthy();
-    expect(screen.getByText('View on TCGplayer')).toBeTruthy();
+    expect(screen.getByTestId('detail-tcg-icon')).toBeTruthy();
     expect(screen.getByText('#001/096 • 裂空のカリスマ')).toBeTruthy();
     expect(screen.queryByText('Recent Sales')).toBeNull();
     expect(screen.queryByTestId('detail-recent-sales-card')).toBeNull();
@@ -118,7 +116,8 @@ describe('CardDetailScreen', () => {
       expect(screen.getByTestId('detail-market-price').props.children).toBe('$0.31');
     });
 
-    fireEvent.press(await screen.findByTestId('detail-condition-chip-lightly_played'));
+    fireEvent.press(await screen.findByTestId('detail-condition-dropdown'));
+    fireEvent.press(await screen.findByTestId('detail-condition-dropdown-option-lightly_played'));
 
     await waitFor(() => {
       expect(screen.getByTestId('detail-market-price').props.children).toBe('$0.22');
@@ -170,10 +169,9 @@ describe('CardDetailScreen', () => {
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
 
-    const nearMintChip = await screen.findByTestId('detail-condition-chip-near_mint');
-    const lpChip = await screen.findByTestId('detail-condition-chip-lightly_played');
-    expect(nearMintChip).toBeTruthy();
-    expect(lpChip).toBeTruthy();
+    fireEvent.press(await screen.findByTestId('detail-condition-dropdown'));
+    expect(await screen.findByTestId('detail-condition-dropdown-option-near_mint')).toBeTruthy();
+    expect(await screen.findByTestId('detail-condition-dropdown-option-lightly_played')).toBeTruthy();
   });
 
   it('shows quantity stepper + Sell button for owned cards and routes increment/edit/sell correctly', async () => {
@@ -398,7 +396,7 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('shows the Add to collection button (no stepper) when the card is not owned', async () => {
+  it('shows the Add to collection button (no stepper) and Sell button when the card is not owned', async () => {
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
@@ -411,7 +409,7 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByText('Treecko')).toBeTruthy();
     expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
     expect(screen.queryByTestId('detail-quantity-stepper')).toBeNull();
-    expect(screen.queryByTestId('detail-sell-card')).toBeNull();
+    expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
     expect(screen.queryByTestId('detail-edit-collection-entry')).toBeNull();
     expect(screen.queryByTestId('detail-hero-raw-inventory')).toBeNull();
     expect(screen.queryByTestId('detail-hero-slab-cert-quantity')).toBeNull();
@@ -643,7 +641,7 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('renders all available sales (capped at 5) once the user presses Load eBay sales for a slab entry', async () => {
+  it('auto-loads cached recent sales for a slab entry and renders them on open', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -733,29 +731,24 @@ describe('CardDetailScreen', () => {
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
     expect(await screen.findByTestId('detail-slab-last-sold')).toBeTruthy();
-    expect(screen.getByText('Latest sales from eBay')).toBeTruthy();
-    expect(screen.getByTestId('detail-slab-load-ebay-sales')).toBeTruthy();
-    // Sales should not be fetched until the user explicitly opts in.
-    expect(getCardRecentSales).not.toHaveBeenCalled();
-    expect(screen.queryByTestId('detail-slab-last-sold-row-0')).toBeNull();
-
-    fireEvent.press(screen.getByTestId('detail-slab-load-ebay-sales'));
-
+    expect(screen.getByText('Recent Sales')).toBeTruthy();
+    // Auto-fetches the cache (refresh: false) — no Load button when cached rows exist.
     await waitFor(() => {
       expect(screen.getByTestId('detail-slab-last-sold-row-0')).toBeTruthy();
       expect(screen.getByTestId('detail-slab-last-sold-row-1')).toBeTruthy();
       expect(screen.getByTestId('detail-slab-last-sold-row-2')).toBeTruthy();
     });
+    expect(screen.queryByTestId('detail-slab-load-ebay-sales')).toBeNull();
     expect(getCardRecentSales).toHaveBeenCalledWith({
       cardId: 'sm7-1',
-      limit: 25,
-      refresh: true,
+      limit: 10,
+      refresh: false,
       slabContext: gradedEntry.slabContext,
       source: 'ebay',
     });
   });
 
-  it('expands beyond five rows when Load more sales is pressed', async () => {
+  it('expands beyond the first ten rows when Load more sales is pressed', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -798,15 +791,20 @@ describe('CardDetailScreen', () => {
       unavailableReason: null,
       fetchedAt: '2026-05-03T12:00:00.000Z',
       canRefresh: false,
-      saleCount: 7,
+      saleCount: 12,
       sales: [
         buildSale('a', 1, 52),
         buildSale('b', 2, 51),
-        buildSale('c', 5, 50),
-        buildSale('d', 8, 49),
-        buildSale('e', 12, 48),
-        buildSale('f', 15, 47),
-        buildSale('g', 20, 46),
+        buildSale('c', 3, 50),
+        buildSale('d', 4, 49),
+        buildSale('e', 5, 48),
+        buildSale('f', 6, 47),
+        buildSale('g', 7, 46),
+        buildSale('h', 8, 45),
+        buildSale('i', 9, 44),
+        buildSale('j', 10, 43),
+        buildSale('k', 11, 42),
+        buildSale('l', 12, 41),
       ],
     }));
 
@@ -832,19 +830,18 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    fireEvent.press(await screen.findByTestId('detail-slab-load-ebay-sales'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('detail-slab-last-sold-row-4')).toBeTruthy();
+      expect(screen.getByTestId('detail-slab-last-sold-row-9')).toBeTruthy();
     });
-    expect(screen.queryByTestId('detail-slab-last-sold-row-5')).toBeNull();
-    expect(screen.queryByTestId('detail-slab-last-sold-row-6')).toBeNull();
+    expect(screen.queryByTestId('detail-slab-last-sold-row-10')).toBeNull();
+    expect(screen.queryByTestId('detail-slab-last-sold-row-11')).toBeNull();
 
     fireEvent.press(screen.getByTestId('detail-slab-load-more-sales'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('detail-slab-last-sold-row-5')).toBeTruthy();
-      expect(screen.getByTestId('detail-slab-last-sold-row-6')).toBeTruthy();
+      expect(screen.getByTestId('detail-slab-last-sold-row-10')).toBeTruthy();
+      expect(screen.getByTestId('detail-slab-last-sold-row-11')).toBeTruthy();
     });
     expect(screen.queryByTestId('detail-slab-load-more-sales')).toBeNull();
   });
@@ -910,12 +907,9 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    expect(await screen.findByText('Latest sales from eBay')).toBeTruthy();
-    // Empty state only renders after the user opts to load.
-    expect(screen.queryByTestId('detail-slab-last-sold-empty')).toBeNull();
+    expect(await screen.findByText('Recent Sales')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('detail-slab-load-ebay-sales'));
-
+    // Empty cached result renders the empty state automatically (no press required).
     const emptyBlock = await screen.findByTestId('detail-slab-last-sold-empty');
     expect(emptyBlock).toBeTruthy();
     expect(screen.queryByTestId('detail-slab-last-sold-row-0')).toBeNull();
@@ -1015,7 +1009,6 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    fireEvent.press(await screen.findByTestId('detail-slab-load-ebay-sales'));
     expect(await screen.findByTestId('detail-slab-last-sold-row-0')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('detail-slab-last-sold-row-0'));
@@ -1094,15 +1087,12 @@ describe('CardDetailScreen', () => {
     expect(screen.getByText('PSA • 9')).toBeTruthy();
     expect(screen.getByTestId('detail-market-price').props.children).toBe('$2,271.15');
     expect(await screen.findByTestId('detail-slab-last-sold')).toBeTruthy();
-    expect(getCardRecentSales).not.toHaveBeenCalled();
-
-    fireEvent.press(await screen.findByTestId('detail-slab-load-ebay-sales'));
     expect(await screen.findByText('PSA 9 Charizard recent sale')).toBeTruthy();
     await waitFor(() => {
       expect(getCardRecentSales).toHaveBeenCalledWith({
         cardId: 'base1-4',
-        limit: 25,
-        refresh: true,
+        limit: 10,
+        refresh: false,
         slabContext: {
           grader: 'PSA',
           grade: '9',
@@ -1114,72 +1104,22 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('renders "Refreshed Xh ago" instead of legacy "Prices · " prefix when a recent fetchedAt is present', async () => {
+  it('renders "Refreshed Xh ago" from the market history refreshedAt (cron job timestamp)', async () => {
     const baseRepository = createTestSpotlightRepository();
-    const gradedEntry: InventoryCardEntry = {
-      addedAt: '2026-04-27T12:00:00.000Z',
-      cardId: 'sm7-1',
-      cardNumber: '#001/096',
-      conditionCode: null,
-      conditionLabel: null,
-      conditionShortLabel: null,
-      costBasisPerUnit: null,
-      costBasisTotal: null,
-      currencyCode: 'USD',
-      hasMarketPrice: true,
-      id: 'graded-freshness-entry',
-      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
-      kind: 'graded',
-      marketPrice: 52,
-      name: 'Treecko',
-      quantity: 1,
-      setName: '裂空のカリスマ',
-      slabContext: {
-        certNumber: '99999999',
-        grade: '10',
-        grader: 'PSA',
-        variantName: 'PSA 10',
-      },
-      variantName: 'PSA 10',
-    };
-    const fetchedAt = new Date(Date.now() - 2 * 3_600_000).toISOString();
-    const getCardRecentSales = jest.fn(async () => ({
-      source: 'ebay' as const,
-      status: 'available' as const,
-      statusReason: null,
-      unavailableReason: null,
-      fetchedAt,
-      canRefresh: false,
-      saleCount: 1,
-      sales: [
-        {
-          id: 'sale-freshness',
-          title: 'PSA 10 freshness sale',
-          soldAt: '2026-05-02T10:00:00.000Z',
-          priceAmount: 52,
-          currencyCode: 'USD',
-          saleUrl: 'https://www.ebay.com/itm/freshness',
-        },
-      ],
-    }));
+    const refreshedAt = new Date(Date.now() - 2 * 3_600_000).toISOString();
 
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
-        entryId="graded-freshness-entry"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({
-          getCardDetail: async (query) => {
-            const detail = await baseRepository.getCardDetail(query);
-            return detail
-              ? ({ ...detail, ownedEntries: [gradedEntry] } satisfies CardDetailRecord)
-              : null;
+          getCardMarketHistory: async (query) => {
+            const history = await baseRepository.getCardMarketHistory(query);
+            return history ? { ...history, refreshedAt } : null;
           },
-          getCardRecentSales,
         }),
       },
     );
@@ -1308,7 +1248,7 @@ describe('CardDetailScreen', () => {
       resolveDetail?.(resolvedDetail);
     });
 
-    expect(await screen.findByTestId('detail-condition-chips')).toBeTruthy();
+    expect(await screen.findByTestId('detail-condition-dropdown')).toBeTruthy();
   });
 
   it('renders an add-card catalog preview immediately while full card detail hydrates', () => {
@@ -1412,13 +1352,10 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    const marketCard = screen.getByTestId('detail-market-card');
-    const marketplaceCta = screen.getByTestId('detail-marketplace-cta');
-    expect(marketplaceCta).toBeTruthy();
-    expect(marketCard.findByProps({ testID: 'detail-marketplace-cta' })).toBeTruthy();
+    expect(screen.getByTestId('detail-tcg-icon')).toBeTruthy();
   });
 
-  it('does not render the inline TCGplayer row for slab cards', async () => {
+  it('does not render the TCGplayer icon for slab cards', async () => {
     const baseRepository = createTestSpotlightRepository();
     const gradedEntry: InventoryCardEntry = {
       addedAt: '2026-04-27T12:00:00.000Z',
@@ -1468,8 +1405,8 @@ describe('CardDetailScreen', () => {
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
-    expect(screen.queryByTestId('detail-marketplace-cta')).toBeNull();
-    expect(screen.queryByText('View on TCGplayer')).toBeNull();
+    expect(screen.queryByTestId('detail-tcg-icon')).toBeNull();
+    // TODO: expect(screen.getByTestId('detail-ebay-icon')).toBeTruthy(); // eBay slab link not yet implemented
   });
 
   it('renders an unavailable state when the repository returns no local card detail', async () => {
@@ -1485,137 +1422,4 @@ describe('CardDetailScreen', () => {
     expect(screen.getByText('We could not find this card in the local catalog.')).toBeTruthy();
   });
 
-  it('hides the condition picker and shows the limited-data caption when volumeLevel is "low"', async () => {
-    const baseRepository = createTestSpotlightRepository();
-    const repository = createTestSpotlightRepository({
-      getCardDetail: async (query) => {
-        const detail = await baseRepository.getCardDetail(query);
-        if (!detail) {
-          return null;
-        }
-        return {
-          ...detail,
-          marketHistory: {
-            ...detail.marketHistory,
-            availableConditions: detail.marketHistory.availableConditions.slice(0, 1),
-            volumeLevel: 'low',
-          },
-        } satisfies CardDetailRecord;
-      },
-      getCardMarketHistory: async (query) => {
-        const history = await baseRepository.getCardMarketHistory(query);
-        if (!history) {
-          return null;
-        }
-        return {
-          ...history,
-          availableConditions: history.availableConditions.slice(0, 1),
-          volumeLevel: 'low',
-        };
-      },
-    });
-
-    renderWithProviders(
-      <CardDetailScreen
-        cardId="sm7-1"
-        onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
-      />,
-      { spotlightRepository: repository },
-    );
-
-    expect(await screen.findByText('Treecko')).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-volume-level-label').props.children).toBe('Limited pricing data');
-    });
-    expect(screen.queryByTestId('detail-condition-chips')).toBeNull();
-  });
-
-  it('keeps the condition picker visible and renders no volume caption when volumeLevel is "normal"', async () => {
-    const baseRepository = createTestSpotlightRepository();
-    const repository = createTestSpotlightRepository({
-      getCardDetail: async (query) => {
-        const detail = await baseRepository.getCardDetail(query);
-        if (!detail) {
-          return null;
-        }
-        return {
-          ...detail,
-          marketHistory: {
-            ...detail.marketHistory,
-            volumeLevel: 'normal',
-          },
-        } satisfies CardDetailRecord;
-      },
-      getCardMarketHistory: async (query) => {
-        const history = await baseRepository.getCardMarketHistory(query);
-        if (!history) {
-          return null;
-        }
-        return {
-          ...history,
-          volumeLevel: 'normal',
-        };
-      },
-    });
-
-    renderWithProviders(
-      <CardDetailScreen
-        cardId="sm7-1"
-        onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
-      />,
-      { spotlightRepository: repository },
-    );
-
-    expect(await screen.findByText('Treecko')).toBeTruthy();
-    expect(screen.getByTestId('detail-condition-chips')).toBeTruthy();
-    expect(screen.queryByTestId('detail-volume-level-label')).toBeNull();
-  });
-
-  it('hides the condition picker and shows the unavailable caption when volumeLevel is "unknown"', async () => {
-    const baseRepository = createTestSpotlightRepository();
-    const repository = createTestSpotlightRepository({
-      getCardDetail: async (query) => {
-        const detail = await baseRepository.getCardDetail(query);
-        if (!detail) {
-          return null;
-        }
-        return {
-          ...detail,
-          marketHistory: {
-            ...detail.marketHistory,
-            availableConditions: detail.marketHistory.availableConditions.slice(0, 1),
-            volumeLevel: 'unknown',
-          },
-        } satisfies CardDetailRecord;
-      },
-      getCardMarketHistory: async (query) => {
-        const history = await baseRepository.getCardMarketHistory(query);
-        if (!history) {
-          return null;
-        }
-        return {
-          ...history,
-          availableConditions: history.availableConditions.slice(0, 1),
-          volumeLevel: 'unknown',
-        };
-      },
-    });
-
-    renderWithProviders(
-      <CardDetailScreen
-        cardId="sm7-1"
-        onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
-      />,
-      { spotlightRepository: repository },
-    );
-
-    expect(await screen.findByText('Treecko')).toBeTruthy();
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-volume-level-label').props.children).toBe('Pricing data unavailable');
-    });
-    expect(screen.queryByTestId('detail-condition-chips')).toBeNull();
-  });
 });
