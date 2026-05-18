@@ -24,6 +24,15 @@ const mockLoadRawScannerSmokeFixture = jest.fn(async () => ({
   normalizedImageUri: 'file:///scanner-smoke-fixture.jpg',
   sourceImageCrop: { height: 880, width: 630, x: 0, y: 0 },
 }));
+const mockQuickClassifyCapture = jest.fn(async (_imageUri: string) => ({
+  isSlabLikely: false,
+  confidence: 0.2,
+  redBandScore: 0.1,
+  barcodeRegionScore: 0.15,
+  decodeMs: 5,
+  classifyMs: 3,
+}));
+
 const mockAnalyzeSlabCapture = jest.fn(async (_imageUri: string): Promise<any> => ({
   parsed: {
     unsupportedReason: null,
@@ -60,6 +69,11 @@ jest.mock('@/features/scanner/scanner-smoke-fixtures', () => ({
 
 jest.mock('@/features/scanner/slab-native-analysis', () => ({
   analyzePSASlabCapture: (imageUri: string) => mockAnalyzeSlabCapture(imageUri),
+}));
+
+jest.mock('@/features/scanner/slab-scanner-native', () => ({
+  quickClassifyCapture: (imageUri: any) => mockQuickClassifyCapture(imageUri),
+  isSlabScannerNativeAvailable: () => true,
 }));
 
 const mockPush = jest.fn();
@@ -130,6 +144,7 @@ describe('ScannerScreen', () => {
     keyboardDismissSpy.mockClear();
     mockLoadRawScannerSmokeFixture.mockClear();
     mockAnalyzeSlabCapture.mockClear();
+    mockQuickClassifyCapture.mockClear();
     if (!mockedConstants.expoConfig) {
       mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };
     }
@@ -147,7 +162,7 @@ describe('ScannerScreen', () => {
     keyboardDismissSpy.mockRestore();
   });
 
-  it('switches between raw and slabs guidance', () => {
+  it('renders the scanner camera UI', () => {
     renderScannerScreen();
 
     expect(useKeepAwake).toHaveBeenCalledWith('scanner-screen');
@@ -155,10 +170,7 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-camera')).toBeTruthy();
     expect(screen.getByTestId('scanner-preview')).toBeTruthy();
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
-    expect(screen.getByTestId('scanner-mode-toggle')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
-    expect(screen.getByText('Ungraded')).toBeTruthy();
-    expect(screen.getByText('Graded')).toBeTruthy();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
     expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
     const previewStyle = StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style);
@@ -172,10 +184,6 @@ describe('ScannerScreen', () => {
     });
     expect(previewStyle.bottom).toBeUndefined();
     expect(previewStyle.right).toBeUndefined();
-
-    fireEvent.press(screen.getByText('Graded'));
-
-    expect(screen.getByTestId('scanner-slab-guide')).toBeTruthy();
   });
 
   it('does not show the camera permission card when the scanner is mounted offscreen with granted permission', () => {
@@ -277,12 +285,11 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
   });
 
-  it('keeps reticle and mode toggle geometry stable after the first scan', async () => {
+  it('keeps reticle geometry stable after the first scan', async () => {
     renderScannerScreen();
 
     const initialReticleStyle = StyleSheet.flatten(screen.getByTestId('scanner-reticle').props.style);
     const initialPreviewStyle = StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style);
-    const initialModeToggleWrapStyle = StyleSheet.flatten(screen.getByTestId('scanner-mode-toggle-wrap').props.style);
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -302,9 +309,6 @@ describe('ScannerScreen', () => {
       left: initialPreviewStyle.left,
       top: initialPreviewStyle.top,
       width: initialPreviewStyle.width,
-    });
-    expect(StyleSheet.flatten(screen.getByTestId('scanner-mode-toggle-wrap').props.style)).toMatchObject({
-      top: initialModeToggleWrapStyle.top,
     });
   });
 
@@ -713,7 +717,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('Graded'));
+    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -757,7 +761,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('Graded'));
+    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -785,7 +789,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('Graded'));
+    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -827,7 +831,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('Graded'));
+    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -925,7 +929,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('Graded'));
+    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -1286,7 +1290,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    fireEvent.press(screen.getByText('Graded'));
+    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 

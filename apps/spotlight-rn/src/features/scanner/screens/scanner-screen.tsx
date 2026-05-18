@@ -36,7 +36,6 @@ import {
 import {
   Button,
   colors,
-  SegmentedControl,
   textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -64,6 +63,7 @@ import {
   rawScannerTrayEmptyPeekHeight,
   rawVisualCaptureQuality,
 } from '@/features/scanner/raw-scanner-capture-surface';
+import { quickClassifyCapture } from '@/features/scanner/slab-scanner-native';
 import { buildSlabScannerTarget } from '@/features/scanner/scanner-slab-target';
 import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fixtures';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -104,13 +104,7 @@ import {
 import type {
   CaptureMatchParams,
   RecentCapture,
-  ScannerMode,
 } from './scanner-screen-types';
-
-const scannerModes: readonly { label: string; value: ScannerMode }[] = [
-  { label: 'Ungraded', value: 'raw' },
-  { label: 'Graded', value: 'slabs' },
-];
 
 const maxStoredCaptures = 12;
 const collapsedVisibleCaptures = 1;
@@ -180,7 +174,6 @@ export function ScannerScreen({
   const { dataVersion, refreshData, spotlightRepository } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const [scannerMode, setScannerMode] = useState<ScannerMode>('raw');
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraReady, setIsCameraReady] = useState(isTestEnv);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -242,7 +235,7 @@ export function ScannerScreen({
   const canCapture = shouldMountCamera
     && isCameraReady
     && !isCapturing
-    && (scannerMode !== 'raw' || isRawPictureConfigReady);
+    && isRawPictureConfigReady;
   const canToggleTray = recentCaptures.length > 0;
   const isTopLevelSwipeEnabled = Object.keys(openActionRailKeys).length === 0;
   const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures);
@@ -450,15 +443,14 @@ export function ScannerScreen({
 
   useEffect(() => {
     if (
-      scannerMode !== 'raw'
-      || !isCameraReady
+      !isCameraReady
       || rawVisualPictureSize != null
     ) {
       return;
     }
 
     resolveRawVisualPictureSize();
-  }, [isCameraReady, rawVisualPictureSize, resolveRawVisualPictureSize, scannerMode]);
+  }, [isCameraReady, rawVisualPictureSize, resolveRawVisualPictureSize]);
 
   const inventoryByCardId = useMemo(() => {
     const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
@@ -691,9 +683,6 @@ export function ScannerScreen({
     }
 
     void triggerScannerHaptic();
-    capturePostHogEvent('scan_capture_started', {
-      mode: scannerMode,
-    });
     const scanStartedAt = Date.now();
     setIsCapturing(true);
 
@@ -708,7 +697,7 @@ export function ScannerScreen({
         isLoadingCandidates: true,
         matchReviewDisposition: null,
         matchReviewReason: null,
-        mode: scannerMode,
+        mode: 'raw' as const,
         normalizedImageDimensions: null,
         normalizedImageUri: null,
         scanID: null,
@@ -727,17 +716,48 @@ export function ScannerScreen({
     let captureMsForAnalytics: number | null = null;
     let normalizeMsForAnalytics: number | null = null;
     let slabAnalysisMsForAnalytics: number | null = null;
+    let isSlab = false;
 
     try {
       const captureStartedAt = Date.now();
       const photo = await cameraRef.current.takePictureAsync({
         base64: true,
         exif: false,
-        quality: scannerMode === 'raw' ? rawVisualCaptureQuality : 0.7,
+        quality: rawVisualCaptureQuality,
         skipProcessing: false,
       });
       const captureMs = Date.now() - captureStartedAt;
       captureMsForAnalytics = captureMs;
+      try {
+        const hint = await quickClassifyCapture(photo?.uri ?? '');
+        isSlab = hint.isSlabLikely;
+        capturePostHogEvent('scan_classifier_decided', {
+          is_slab_likely: hint.isSlabLikely,
+          confidence: hint.confidence,
+          red_band_score: hint.redBandScore,
+          barcode_region_score: hint.barcodeRegionScore,
+          decode_ms: hint.decodeMs,
+          classify_ms: hint.classifyMs,
+        });
+      } catch (classifierError) {
+        console.warn('[SCANNER] quickClassifyCapture failed, defaulting to raw', classifierError);
+        isSlab = false;
+      }
+
+      capturePostHogEvent('scan_capture_started', {
+        mode: isSlab ? 'slabs' : 'raw',
+      });
+
+      setRecentCaptures((current) => current.map((capture) => {
+        if (capture.id !== captureId) {
+          return capture;
+        }
+
+        return {
+          ...capture,
+          mode: isSlab ? 'slabs' : 'raw',
+        };
+      }));
 
       setIsCapturing(false);
 
@@ -746,7 +766,7 @@ export function ScannerScreen({
           captureMs,
           endToEndMs: Date.now() - scanStartedAt,
           errorKind: 'source_capture_unavailable',
-          mode: scannerMode,
+          mode: isSlab ? 'slabs' : 'raw',
         }));
         setRecentCaptures((current) => current.map((capture) => {
           if (capture.id !== captureId) {
@@ -814,7 +834,7 @@ export function ScannerScreen({
       }));
 
       const normalizeStartedAt = Date.now();
-      if (scannerMode === 'raw' && process.env.NODE_ENV !== 'test') {
+      if (!isSlab && process.env.NODE_ENV !== 'test') {
         console.info(
           `[SCANNER VISUAL TEST] normalizeStart `
           + `reportedSource=${sourceImageDimensions.width}x${sourceImageDimensions.height} `
@@ -833,7 +853,7 @@ export function ScannerScreen({
         x: reticleSnapshotRef.current.x,
         y: reticleSnapshotRef.current.y,
       };
-      const normalizedTarget = scannerMode === 'raw'
+      const normalizedTarget = !isSlab
         ? await buildNormalizedScannerTarget({
           previewLayout,
           reticle: reticleLayout,
@@ -855,7 +875,7 @@ export function ScannerScreen({
       let matchPayload: ScannerCapturePayload = {
         height: normalizedTarget.normalizedImageDimensions.height,
         jpegBase64: normalizedTarget.normalizedImageBase64,
-        mode: scannerMode,
+        mode: isSlab ? 'slabs' : 'raw',
         width: normalizedTarget.normalizedImageDimensions.width,
         captureSource: 'camera',
         normalizedImage: {
@@ -874,7 +894,7 @@ export function ScannerScreen({
       };
 
       let slabContext: SlabContext | null = null;
-      if (scannerMode === 'slabs') {
+      if (isSlab) {
         capturePostHogEvent('scan_slab_analysis_requested', {
           mode: 'slabs',
         });
@@ -921,7 +941,7 @@ export function ScannerScreen({
         captureSource: 'camera',
         matchPayload,
         matchTarget: normalizedTarget,
-        mode: scannerMode,
+        mode: isSlab ? 'slabs' : 'raw',
         normalizeMs,
         rawSourceImageDimensions,
         scanStartedAt,
@@ -929,7 +949,7 @@ export function ScannerScreen({
         sourceImageDimensions,
       });
     } catch (error) {
-      if (scannerMode === 'raw') {
+      if (!isSlab) {
         logScannerDiagnostic(
           `[SCANNER VISUAL TEST] capturePrepError `
           + `message=${scannerErrorMessage(error)} `
@@ -939,7 +959,7 @@ export function ScannerScreen({
           error,
         );
       }
-      if (scannerMode === 'slabs') {
+      if (isSlab) {
         capturePostHogEvent('scan_slab_analysis_failed', {
           error_kind: scannerErrorKind(error),
           mode: 'slabs',
@@ -952,7 +972,7 @@ export function ScannerScreen({
         captureMs: captureMsForAnalytics,
         endToEndMs: Date.now() - scanStartedAt,
         errorKind: scannerErrorKind(error),
-        mode: scannerMode,
+        mode: isSlab ? 'slabs' : 'raw',
         normalizeMs: normalizeMsForAnalytics,
         slabAnalysisMs: slabAnalysisMsForAnalytics,
       }));
@@ -965,8 +985,8 @@ export function ScannerScreen({
         return {
           ...capture,
           isLoadingCandidates: false,
-          matchReviewDisposition: scannerMode === 'slabs' ? 'unsupported' : null,
-          matchReviewReason: scannerPreparationReviewReason(scannerMode, error),
+          matchReviewDisposition: isSlab ? 'unsupported' : null,
+          matchReviewReason: scannerPreparationReviewReason(isSlab ? 'slabs' : 'raw', error),
           normalizedImageDimensions: null,
           normalizedImageUri: null,
           slabContext: null,
@@ -983,12 +1003,11 @@ export function ScannerScreen({
     isCapturing,
     permission,
     requestPermission,
-    scannerMode,
     runMatchForCapture,
   ]);
 
   const handleTriggerSmokeFixture = useCallback(async () => {
-    if (!scannerSmokeEnabled || scannerMode !== 'raw' || isCapturing) {
+    if (!scannerSmokeEnabled || isCapturing) {
       return;
     }
 
@@ -1076,7 +1095,7 @@ export function ScannerScreen({
         normalizeMs: 0,
       }));
     }
-  }, [isCapturing, scannerMode, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
+  }, [isCapturing, scannerSmokeEnabled, runMatchForCapture, updateRecentCapture]);
 
   const cycleCandidate = useCallback((captureId: string) => {
     setRecentCaptures((current) => current.map((capture) => {
@@ -1627,11 +1646,11 @@ export function ScannerScreen({
         onCapture={() => {
           void handleCapture();
         }}
-        pictureSize={scannerMode === 'raw' ? rawVisualPictureSize : undefined}
+        pictureSize={rawVisualPictureSize}
         prompt={promptCopy}
         selectedLens={preferredScannerLens}
         shouldMountCamera={shouldMountCamera}
-        showSlabGuide={scannerMode === 'slabs'}
+        showSlabGuide={false}
         testIDPrefix="scanner"
       >
         {isTrayExpanded ? (
@@ -1685,7 +1704,7 @@ export function ScannerScreen({
           />
         </View>
 
-        {scannerSmokeEnabled && scannerMode === 'raw' ? (
+        {scannerSmokeEnabled ? (
           <View
             style={[
               styles.topActionStack,
@@ -1695,41 +1714,18 @@ export function ScannerScreen({
               },
             ]}
           >
-            {scannerSmokeEnabled && scannerMode === 'raw' ? (
-              <Button
-                label="Smoke fixture"
-                labelStyleVariant="caption"
-                onPress={() => {
-                  void handleTriggerSmokeFixture();
-                }}
-                size="sm"
-                testID="scanner-smoke-fixture-trigger"
-                variant="secondary"
-              />
-            ) : null}
-          </View>
-        ) : null}
-
-        <View
-          style={[
-            styles.modeToggleWrap,
-            {
-              top: captureSurfaceLayout.controlsTop,
-            },
-          ]}
-          testID="scanner-mode-toggle-wrap"
-        >
-          <View style={{ width: captureSurfaceLayout.modeToggleWidth }}>
-            <SegmentedControl
-              items={scannerModes}
-              onChange={setScannerMode}
-              size="scanner"
-              testID="scanner-mode-toggle"
-              tone="inverted"
-              value={scannerMode}
+            <Button
+              label="Smoke fixture"
+              labelStyleVariant="caption"
+              onPress={() => {
+                void handleTriggerSmokeFixture();
+              }}
+              size="sm"
+              testID="scanner-smoke-fixture-trigger"
+              variant="secondary"
             />
           </View>
-        </View>
+        ) : null}
 
         <View style={styles.trayShell} testID="scanner-tray" {...trayShellPanResponder.panHandlers}>
           <Pressable
@@ -2044,12 +2040,6 @@ const styles = StyleSheet.create({
     color: colors.scannerTextMeta,
     fontSize: 12,
     lineHeight: 14,
-  },
-  modeToggleWrap: {
-    alignItems: 'center',
-    left: 0,
-    position: 'absolute',
-    right: 0,
   },
   recentScansActions: {
     alignItems: 'center',

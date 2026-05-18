@@ -44,6 +44,10 @@ class SpotlightSlabScannerModule : Module() {
     AsyncFunction("scanPSALabel") Coroutine { imageUri: String ->
       scanPSALabelInternal(imageUri)
     }
+
+    AsyncFunction("quickClassifyCapture") Coroutine { imageUri: String ->
+      quickClassifyCaptureInternal(imageUri)
+    }
   }
 
   private suspend fun scanPSALabelInternal(imageUri: String): Map<String, Any?> {
@@ -268,5 +272,141 @@ class SpotlightSlabScannerModule : Module() {
       "width" to rect.width(),
       "height" to rect.height(),
     )
+  }
+
+  // MARK: - Quick classify capture
+
+  private suspend fun quickClassifyCaptureInternal(imageUri: String): Map<String, Any?> {
+    val decodeStart = System.currentTimeMillis()
+
+    // Load with inSampleSize=4 for fast decode (plenty of resolution for hue/edge sampling)
+    val bitmap = withContext(Dispatchers.IO) {
+      val opts = BitmapFactory.Options().apply { inSampleSize = 4 }
+      loadBitmapWithOptions(imageUri, opts)
+    }
+
+    // Downsample to ~400px long-side
+    val smallBitmap = downsample(bitmap, targetLongSide = 400)
+
+    val classifyStart = System.currentTimeMillis()
+    val decodeMs = (classifyStart - decodeStart).toDouble()
+
+    val width = smallBitmap.width
+    val height = smallBitmap.height
+
+    // Red band: top 18% strip
+    val redBandScore = computeRedBandScore(smallBitmap, width, height)
+
+    // Barcode region: bottom 12% strip — edge density
+    val barcodeRegionScore = computeBarcodeRegionScore(smallBitmap, width, height)
+
+    val isSlabLikely = redBandScore > 0.45 && barcodeRegionScore > 0.40
+    val confidence = redBandScore * 0.6 + barcodeRegionScore * 0.4
+    val classifyMs = (System.currentTimeMillis() - classifyStart).toDouble()
+
+    return mapOf(
+      "isSlabLikely" to isSlabLikely,
+      "confidence" to confidence,
+      "redBandScore" to redBandScore,
+      "barcodeRegionScore" to barcodeRegionScore,
+      "decodeMs" to decodeMs,
+      "classifyMs" to classifyMs,
+    )
+  }
+
+  private fun loadBitmapWithOptions(imageUri: String, opts: BitmapFactory.Options): Bitmap {
+    val trimmed = imageUri.trim()
+    if (trimmed.isEmpty()) throw InvalidImageUriException("Expected a non-empty local image URI.")
+    val context = appContext.reactContext ?: throw ImageLoadFailedException("React context unavailable.")
+    val bitmap: Bitmap? = when {
+      trimmed.startsWith("file://") -> {
+        val path = uriToFilePath(trimmed) ?: throw InvalidImageUriException("Could not parse file path: $trimmed")
+        BitmapFactory.decodeFile(path, opts)
+      }
+      trimmed.startsWith("content://") -> {
+        context.contentResolver.openInputStream(Uri.parse(trimmed)).use { stream ->
+          stream?.let { BitmapFactory.decodeStream(it, null, opts) }
+            ?: throw ImageLoadFailedException("Could not open content URI: $trimmed")
+        }
+      }
+      trimmed.startsWith("/") -> BitmapFactory.decodeFile(trimmed, opts)
+      else -> {
+        val decoded = try { URLDecoder.decode(trimmed, "UTF-8") } catch (_: Throwable) { null }
+        if (decoded != null && decoded.startsWith("/")) BitmapFactory.decodeFile(decoded, opts)
+        else throw InvalidImageUriException("Only local file://, content://, or absolute path URIs supported.")
+      }
+    }
+    return bitmap ?: throw ImageLoadFailedException("BitmapFactory returned null for $trimmed.")
+  }
+
+  private fun downsample(src: Bitmap, targetLongSide: Int): Bitmap {
+    val longSide = maxOf(src.width, src.height)
+    if (longSide <= targetLongSide) return src
+    val scale = targetLongSide.toFloat() / longSide
+    val w = (src.width * scale).toInt().coerceAtLeast(1)
+    val h = (src.height * scale).toInt().coerceAtLeast(1)
+    return Bitmap.createScaledBitmap(src, w, h, true)
+  }
+
+  private fun computeRedBandScore(bmp: Bitmap, width: Int, height: Int): Double {
+    val stripHeight = (height * 0.18).toInt().coerceAtLeast(1)
+    var redCount = 0
+    var total = 0
+    for (y in 0 until stripHeight) {
+      for (x in 0 until width) {
+        val pixel = bmp.getPixel(x, y)
+        val r = android.graphics.Color.red(pixel) / 255.0
+        val g = android.graphics.Color.green(pixel) / 255.0
+        val b = android.graphics.Color.blue(pixel) / 255.0
+        val (h, s, v) = rgbToHSV(r, g, b)
+        if ((h >= 350.0 || h <= 10.0) && s >= 0.6 && v >= 0.4) redCount++
+        total++
+      }
+    }
+    return if (total == 0) 0.0 else redCount.toDouble() / total
+  }
+
+  private fun computeBarcodeRegionScore(bmp: Bitmap, width: Int, height: Int): Double {
+    val stripStart = (height * 0.88).toInt()
+    val stripEnd = height
+    var magnitudeSum = 0.0
+    var count = 0
+    for (y in stripStart until (stripEnd - 1)) {
+      for (x in 0 until (width - 1)) {
+        val gray00 = toGray(bmp.getPixel(x, y))
+        val gray10 = toGray(bmp.getPixel(x + 1, y))
+        val gray01 = toGray(bmp.getPixel(x, y + 1))
+        val gx = kotlin.math.abs(gray10 - gray00)
+        val gy = kotlin.math.abs(gray01 - gray00)
+        magnitudeSum += (gx + gy) / 2.0 / 255.0
+        count++
+      }
+    }
+    return if (count == 0) 0.0 else magnitudeSum / count
+  }
+
+  private fun toGray(pixel: Int): Double {
+    val r = android.graphics.Color.red(pixel).toDouble()
+    val g = android.graphics.Color.green(pixel).toDouble()
+    val b = android.graphics.Color.blue(pixel).toDouble()
+    return 0.299 * r + 0.587 * g + 0.114 * b
+  }
+
+  private fun rgbToHSV(r: Double, g: Double, b: Double): Triple<Double, Double, Double> {
+    val maxC = maxOf(r, g, b)
+    val minC = minOf(r, g, b)
+    val delta = maxC - minC
+    val v = maxC
+    val s = if (maxC == 0.0) 0.0 else delta / maxC
+    var h = 0.0
+    if (delta > 0.0) {
+      h = when (maxC) {
+        r -> 60.0 * (((g - b) / delta) % 6.0)
+        g -> 60.0 * ((b - r) / delta + 2.0)
+        else -> 60.0 * ((r - g) / delta + 4.0)
+      }
+    }
+    if (h < 0) h += 360.0
+    return Triple(h, s, v)
   }
 }

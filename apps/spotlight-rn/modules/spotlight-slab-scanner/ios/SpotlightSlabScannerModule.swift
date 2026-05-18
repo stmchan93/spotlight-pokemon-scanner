@@ -31,6 +31,94 @@ public final class SpotlightSlabScannerModule: Module {
         "barcodes": barcodes,
       ]
     }
+
+    AsyncFunction("quickClassifyCapture") { (imageUri: String) -> [String: Any] in
+      // 1. Record decode start time
+      let decodeStart = Date()
+
+      // 2. Load image using existing helpers
+      let fileURL = try Self.resolveFileURL(from: imageUri)
+      let image = try Self.loadImage(from: fileURL)
+
+      // 3. Downsample to ~400px long-side
+      let small = Self.downsample(image, toLongSide: 400.0)
+
+      // 4. Record classify start and decode duration
+      let classifyStart = Date()
+      let decodeMs = classifyStart.timeIntervalSince(decodeStart) * 1000
+
+      // Get raw pixel data once for both passes
+      guard let (pixelData, width, height) = Self.getPixelData(from: small) else {
+        throw Exception(
+          name: "ImageLoadFailed",
+          description: "Could not extract pixel data from image."
+        )
+      }
+
+      // 5. Red band score — top 18% of image height
+      let redStripHeight = max(1, Int(Double(height) * 0.18))
+      var redPixelCount = 0
+      let totalPixelsInStrip = width * redStripHeight
+
+      for y in 0..<redStripHeight {
+        for x in 0..<width {
+          let idx = (y * width + x) * 4
+          let r = Double(pixelData[idx])     / 255.0
+          let g = Double(pixelData[idx + 1]) / 255.0
+          let b = Double(pixelData[idx + 2]) / 255.0
+          let (h, s, v) = Self.rgbToHSV(r: r, g: g, b: b)
+          if (h >= 350.0 || h <= 10.0) && s >= 0.6 && v >= 0.4 {
+            redPixelCount += 1
+          }
+        }
+      }
+
+      let redBandScore = Double(redPixelCount) / Double(totalPixelsInStrip)
+
+      // 6. Barcode region score — bottom 12% of image height, Sobel-style edges
+      let barcodeStripHeight = max(1, Int(Double(height) * 0.12))
+      let barcodeStripStartY = height - barcodeStripHeight
+      var magnitudeSum = 0.0
+      var magnitudeCount = 0
+
+      // Helper: grayscale luminance from pixel index
+      func gray(_ px: Int, _ py: Int) -> Double {
+        let i = (py * width + px) * 4
+        let r = Double(pixelData[i])     / 255.0
+        let g = Double(pixelData[i + 1]) / 255.0
+        let b = Double(pixelData[i + 2]) / 255.0
+        return 0.299 * r + 0.587 * g + 0.114 * b
+      }
+
+      for y in barcodeStripStartY..<height {
+        for x in 0..<width {
+          // Only compute where right and below neighbors exist
+          guard x + 1 < width, y + 1 < height else { continue }
+          let gx = abs(gray(x + 1, y) - gray(x, y))
+          let gy = abs(gray(x, y + 1) - gray(x, y))
+          let mag = (gx + gy) / 2.0
+          magnitudeSum += mag
+          magnitudeCount += 1
+        }
+      }
+
+      let barcodeRegionScore = magnitudeCount > 0 ? magnitudeSum / Double(magnitudeCount) : 0.0
+
+      // 7. Compute final metrics
+      let isSlabLikely = redBandScore > 0.45 && barcodeRegionScore > 0.40
+      let confidence = redBandScore * 0.6 + barcodeRegionScore * 0.4
+      let classifyMs = Date().timeIntervalSince(classifyStart) * 1000
+
+      // 8. Return dictionary
+      return [
+        "isSlabLikely": isSlabLikely,
+        "confidence": confidence,
+        "redBandScore": redBandScore,
+        "barcodeRegionScore": barcodeRegionScore,
+        "decodeMs": decodeMs,
+        "classifyMs": classifyMs,
+      ]
+    }
   }
 
   private static func loadPixelSize(from fileURL: URL) throws -> CGSize {
@@ -218,6 +306,53 @@ public final class SpotlightSlabScannerModule: Module {
     case .aztec: return "aztec"
     case .all: return "all"
     default: return "unknown"
+    }
+  }
+
+  // MARK: - Quick classify helpers
+
+  private static func rgbToHSV(r: Double, g: Double, b: Double) -> (h: Double, s: Double, v: Double) {
+    let maxC = max(r, g, b)
+    let minC = min(r, g, b)
+    let delta = maxC - minC
+    let v = maxC
+    let s = maxC == 0 ? 0.0 : delta / maxC
+    var h = 0.0
+    if delta > 0 {
+      if maxC == r { h = 60.0 * (((g - b) / delta).truncatingRemainder(dividingBy: 6.0)) }
+      else if maxC == g { h = 60.0 * ((b - r) / delta + 2.0) }
+      else { h = 60.0 * ((r - g) / delta + 4.0) }
+    }
+    if h < 0 { h += 360.0 }
+    return (h, s, v)
+  }
+
+  private static func getPixelData(from image: UIImage) -> (data: [UInt8], width: Int, height: Int)? {
+    guard let cgImage = image.cgImage else { return nil }
+    let width = cgImage.width
+    let height = cgImage.height
+    var data = [UInt8](repeating: 0, count: width * height * 4)
+    guard let context = CGContext(
+      data: &data,
+      width: width,
+      height: height,
+      bitsPerComponent: 8,
+      bytesPerRow: width * 4,
+      space: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+    context.draw(cgImage, in: CGRect(x: 0, y: 0, width: width, height: height))
+    return (data, width, height)
+  }
+
+  private static func downsample(_ image: UIImage, toLongSide targetLongSide: CGFloat) -> UIImage {
+    let longSide = max(image.size.width, image.size.height)
+    guard longSide > targetLongSide else { return image }
+    let scale = targetLongSide / longSide
+    let newSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+    let renderer = UIGraphicsImageRenderer(size: newSize)
+    return renderer.image { _ in
+      image.draw(in: CGRect(origin: .zero, size: newSize))
     }
   }
 

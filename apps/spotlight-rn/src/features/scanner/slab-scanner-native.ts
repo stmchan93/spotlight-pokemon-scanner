@@ -25,10 +25,20 @@ export type SlabScannerNativeAnalysis = {
   barcodes: SlabScannerBarcode[];
 };
 
+export type SlabHint = {
+  isSlabLikely: boolean;
+  confidence: number;
+  redBandScore: number;
+  barcodeRegionScore: number;
+  decodeMs: number;
+  classifyMs: number;
+};
+
 export const SLAB_SCANNER_NATIVE_MODULE_NAME = 'SpotlightSlabScanner';
 
 type NativeBindings = {
   scanPSALabel(imageUri: string): Promise<SlabScannerNativeAnalysis>;
+  quickClassifyCapture(imageUri: string): Promise<SlabHint>;
 };
 
 const nativeModule = requireOptionalNativeModule<NativeBindings>(SLAB_SCANNER_NATIVE_MODULE_NAME);
@@ -55,4 +65,24 @@ export async function scanPSALabel(imageUri: string): Promise<SlabScannerNativeA
   }
 
   return await nativeModule.scanPSALabel(trimmed);
+}
+
+export async function quickClassifyCapture(imageUri: string): Promise<SlabHint> {
+  if (!nativeModule) {
+    throw new Error(
+      `Native module ${SLAB_SCANNER_NATIVE_MODULE_NAME} is not registered in this build. `
+        + 'Build a custom dev client (Expo Go is not supported).',
+    );
+  }
+
+  if (typeof imageUri !== 'string') {
+    throw new Error('quickClassifyCapture requires a string imageUri.');
+  }
+
+  const trimmed = imageUri.trim();
+  if (trimmed.length === 0) {
+    throw new Error('quickClassifyCapture requires a non-empty imageUri.');
+  }
+
+  return await nativeModule.quickClassifyCapture(trimmed);
 }
