@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useRouter } from 'expo-router';
 import {
   Animated,
   findNodeHandle,
   Image,
   Keyboard,
   // SWIPE-CONFIRM DISABLED: PanResponder,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { InventoryCardEntry } from '@spotlight/api-client';
+import type { InventoryCardEntry, PaymentMethod, VendorWalletHandles } from '@spotlight/api-client';
 import { Button, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { ChromeBackButton, chromeBackButtonSize } from '@/components/chrome-back-button';
@@ -52,6 +54,8 @@ import {
   // SWIPE-CONFIRM DISABLED: SellSwipeConfirmationSheet,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
+import { WalletHandleSetupModal } from '@/features/sell/components/wallet-handle-setup-modal';
+import { setPendingBatchSalePayloads } from '@/features/sell/pending-sale-session';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -353,6 +357,7 @@ export function BulkSellScreen({
   const insets = useSafeAreaInsets();
   const { height: windowHeight } = useWindowDimensions();
   const { refreshData, spotlightRepository } = useAppServices();
+  const router = useRouter();
 
   const [entries, setEntries] = useState<InventoryCardEntry[]>([]);
   const [lines, setLines] = useState<Record<string, BulkSellLineState>>({});
@@ -362,6 +367,67 @@ export function BulkSellScreen({
   // SWIPE-CONFIRM DISABLED: const [releaseToConfirmArmed, setReleaseToConfirmArmed] = useState(false);
   const [stage, setStage] = useState<'draft' | 'review'>('draft');
   const [showsValidation, setShowsValidation] = useState(false);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('cash');
+  const [walletHandles, setWalletHandles] = useState<VendorWalletHandles | null>(null);
+  const [walletSetupMethod, setWalletSetupMethod] = useState<PaymentMethod | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void spotlightRepository.getVendorWalletHandles()
+      .then((next) => {
+        if (cancelled) return;
+        setWalletHandles(next);
+      })
+      .catch(() => {
+        // best-effort; chip taps will re-prompt if a handle is missing
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [spotlightRepository]);
+
+  const handleHasMethod = useCallback((method: PaymentMethod, handles: VendorWalletHandles | null) => {
+    if (!handles) return false;
+    switch (method) {
+      case 'venmo': return Boolean(handles.venmoHandle);
+      case 'cashapp': return Boolean(handles.cashappHandle);
+      case 'paypal': return Boolean(handles.paypalMeSlug);
+      case 'zelle': return Boolean(handles.zelleEmailOrPhone);
+      default: return true;
+    }
+  }, []);
+
+  const handlePaymentChipPress = useCallback((next: PaymentMethod) => {
+    if (next === 'cash' || next === 'other') {
+      setPaymentMethod(next);
+      return;
+    }
+    if (handleHasMethod(next, walletHandles)) {
+      setPaymentMethod(next);
+      return;
+    }
+    setWalletSetupMethod(next);
+  }, [handleHasMethod, walletHandles]);
+
+  const initialWalletValue = useMemo(() => {
+    if (!walletSetupMethod || !walletHandles) return null;
+    switch (walletSetupMethod) {
+      case 'venmo': return walletHandles.venmoHandle;
+      case 'cashapp': return walletHandles.cashappHandle;
+      case 'paypal': return walletHandles.paypalMeSlug;
+      case 'zelle': return walletHandles.zelleEmailOrPhone;
+      default: return null;
+    }
+  }, [walletHandles, walletSetupMethod]);
+
+  const handleWalletSetupSave = useCallback(async (update: { [key: string]: string | null | undefined }) => {
+    const next = await spotlightRepository.updateVendorWalletHandles(update);
+    setWalletHandles(next);
+    if (walletSetupMethod) {
+      setPaymentMethod(walletSetupMethod);
+    }
+    setWalletSetupMethod(null);
+  }, [spotlightRepository, walletSetupMethod]);
 
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -561,9 +627,30 @@ export function BulkSellScreen({
       return;
     }
 
+    const payloads = buildBulkSellPayloads(entries, lines, paymentMethod);
+
+    const isPendingMethod = paymentMethod !== 'cash' && paymentMethod !== 'other';
+    if (isPendingMethod) {
+      setPendingBatchSalePayloads(payloads);
+      const totalAmount = payloads.reduce((sum, payload) => sum + payload.unitPrice * payload.quantity, 0);
+      const currencyCode = payloads[0]?.currencyCode ?? 'USD';
+      const itemCount = payloads.reduce((sum, payload) => sum + payload.quantity, 0);
+      const memo = `${itemCount} card${itemCount === 1 ? '' : 's'}`;
+      router.push({
+        pathname: '/payments/[saleId]',
+        params: {
+          saleId: 'new',
+          method: paymentMethod,
+          amount: String(totalAmount),
+          currencyCode,
+          memo,
+        },
+      });
+      return;
+    }
+
     setSubmitState('processing');
     setScreenErrorMessage(null);
-    const payloads = buildBulkSellPayloads(entries, lines);
     const startedAt = Date.now();
 
     void spotlightRepository.createPortfolioSalesBatch(payloads)
@@ -607,7 +694,7 @@ export function BulkSellScreen({
         // SWIPE-CONFIRM DISABLED: animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
         setScreenErrorMessage(error instanceof Error ? error.message : 'Could not confirm this batch sale.');
       });
-  }, [entries, lines, onComplete, refreshData, spotlightRepository]); // SWIPE-CONFIRM DISABLED: removed animateSheetToOffset
+  }, [entries, lines, onComplete, paymentMethod, refreshData, router, spotlightRepository]); // SWIPE-CONFIRM DISABLED: removed animateSheetToOffset
 
   const openReviewStep = useCallback(() => {
     if (!canReview) {
@@ -820,6 +907,52 @@ export function BulkSellScreen({
                   <SurfaceCard
                     padding={20}
                     radius={28}
+                    style={styles.paymentMethodCard}
+                    testID="bulk-sell-payment-method-card"
+                  >
+                    <Text
+                      style={[theme.typography.caption, styles.paymentMethodHeading]}
+                      testID="bulk-sell-payment-method-heading"
+                    >
+                      How is buyer paying?
+                    </Text>
+                    <View style={styles.paymentMethodRow}>
+                      {(['cash', 'venmo', 'zelle', 'paypal', 'cashapp'] as const).map((method) => {
+                        const isSelected = paymentMethod === method;
+                        return (
+                          <Pressable
+                            accessibilityLabel={`Pay with ${method}`}
+                            accessibilityRole="button"
+                            disabled={!canInteract}
+                            key={method}
+                            onPress={() => handlePaymentChipPress(method)}
+                            style={({ pressed }) => [
+                              styles.paymentMethodChip,
+                              isSelected ? styles.paymentMethodChipSelected : null,
+                              pressed ? styles.paymentMethodChipPressed : null,
+                            ]}
+                            testID={`bulk-sell-payment-method-${method}`}
+                          >
+                            <Text
+                              style={[
+                                theme.typography.control,
+                                styles.paymentMethodChipLabel,
+                                isSelected ? styles.paymentMethodChipLabelSelected : null,
+                              ]}
+                            >
+                              {method}
+                            </Text>
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </SurfaceCard>
+                ) : null}
+
+                {stage === 'review' && reviewEntries.length > 0 ? (
+                  <SurfaceCard
+                    padding={20}
+                    radius={28}
                     style={styles.reviewTotalCard}
                     testID="bulk-sell-review-total-card"
                   >
@@ -879,6 +1012,14 @@ export function BulkSellScreen({
           />
         )}
         */}
+
+        <WalletHandleSetupModal
+          initialValue={initialWalletValue}
+          method={walletSetupMethod ?? 'cash'}
+          onCancel={() => setWalletSetupMethod(null)}
+          onSave={handleWalletSetupSave}
+          visible={walletSetupMethod != null}
+        />
       </View>
     </SafeAreaView>
   );
@@ -1081,6 +1222,44 @@ const styles = StyleSheet.create({
   },
   reviewMetricValue: {
     color: '#0F0F12',
+  },
+  paymentMethodCard: {
+    backgroundColor: 'rgba(255, 255, 255, 0.98)',
+    gap: 8,
+  },
+  paymentMethodChip: {
+    backgroundColor: colors.surface,
+    borderColor: colors.outlineSubtle,
+    borderRadius: 10,
+    borderWidth: 1,
+    flexBasis: '31%',
+    flexGrow: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 10,
+  },
+  paymentMethodChipLabel: {
+    color: colors.textPrimary,
+    textAlign: 'center',
+    textTransform: 'capitalize',
+  },
+  paymentMethodChipLabelSelected: {
+    color: '#000000',
+  },
+  paymentMethodChipPressed: {
+    opacity: 0.86,
+  },
+  paymentMethodChipSelected: {
+    backgroundColor: colors.brand,
+    borderColor: colors.brand,
+  },
+  paymentMethodHeading: {
+    color: colors.textSecondary,
+    marginBottom: 4,
+  },
+  paymentMethodRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
   },
   reviewTotalCard: {
     backgroundColor: 'rgba(255, 255, 255, 0.98)',

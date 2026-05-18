@@ -20,7 +20,10 @@ import {
 
 import { useAppServices } from '@/providers/app-providers';
 import { ChromeBackButton } from '@/components/chrome-back-button';
-import { consumePendingSalePayload } from '@/features/sell/pending-sale-session';
+import {
+  consumePendingBatchSalePayloads,
+  consumePendingSalePayload,
+} from '@/features/sell/pending-sale-session';
 import { SellStatusOverlay } from '@/features/sell/components/sell-ui';
 
 type PaymentScreenProps = {
@@ -82,20 +85,34 @@ export function PaymentScreen({
   const [error, setError] = useState<string | null>(null);
 
   const saleIdRef = useRef<string | null>(null);
-  const saleCreationPromise = useRef<Promise<string> | null>(null);
+  const saleIdsRef = useRef<string[] | null>(null);
+  const saleCreationPromise = useRef<Promise<string[]> | null>(null);
   const [showReceipt, setShowReceipt] = useState(false);
 
   useEffect(() => {
     let cancelledHandles = false;
 
-    // Kick off background sale creation from pending payload
+    // Kick off background sale creation from the pending payload(s).
+    // Single-sale payload takes precedence; otherwise fall back to a batch.
     const payload = consumePendingSalePayload();
     if (payload) {
       const promise = spotlightRepository.createPortfolioSale(payload).then((response) => {
         saleIdRef.current = response.saleID;
-        return response.saleID;
+        saleIdsRef.current = [response.saleID];
+        return [response.saleID];
       });
       saleCreationPromise.current = promise;
+    } else {
+      const batchPayloads = consumePendingBatchSalePayloads();
+      if (batchPayloads && batchPayloads.length > 0) {
+        const promise = spotlightRepository.createPortfolioSalesBatch(batchPayloads).then((responses) => {
+          const ids = responses.map((r) => r.saleID);
+          saleIdsRef.current = ids;
+          saleIdRef.current = ids[0] ?? null;
+          return ids;
+        });
+        saleCreationPromise.current = promise;
+      }
     }
 
     // Fetch wallet handles in parallel
@@ -126,15 +143,15 @@ export function PaymentScreen({
     setIsConfirming(true);
     setError(null);
     try {
-      let saleId = saleIdRef.current;
-      if (!saleId) {
+      let saleIds = saleIdsRef.current;
+      if (!saleIds || saleIds.length === 0) {
         if (saleCreationPromise.current) {
-          saleId = await saleCreationPromise.current;
+          saleIds = await saleCreationPromise.current;
         } else {
           throw new Error('Sale could not be created.');
         }
       }
-      await spotlightRepository.markSalePaid(saleId);
+      await Promise.all(saleIds.map((id) => spotlightRepository.markSalePaid(id)));
       setShowReceipt(true);
       setTimeout(() => onConfirmed(method), 1500);
     } catch (failure) {
@@ -149,11 +166,11 @@ export function PaymentScreen({
     setIsVoiding(true);
     setError(null);
     try {
-      const saleId = saleIdRef.current;
-      if (saleId) {
-        await spotlightRepository.voidSale(saleId);
+      const saleIds = saleIdsRef.current;
+      if (saleIds && saleIds.length > 0) {
+        await Promise.all(saleIds.map((id) => spotlightRepository.voidSale(id)));
       }
-      // If sale not created yet, just cancel — no void needed
+      // If sales not created yet, just cancel — no void needed
     } catch {
       // Best-effort void; back out either way.
     } finally {

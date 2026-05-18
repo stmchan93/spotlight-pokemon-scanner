@@ -139,6 +139,7 @@ export function validateBulkSellSubmission(
 export function buildBulkSellPayloads(
   entries: InventoryCardEntry[],
   lines: Record<string, BulkSellLineState>,
+  paymentMethod: PortfolioSaleRequestPayload['paymentMethod'] = null,
 ) {
   return activeBulkSellEntries(entries, lines).flatMap<PortfolioSaleRequestPayload>((entry) => {
     const metrics = getBulkSellLineMetrics(entry, lines[entry.id]);
@@ -153,7 +154,7 @@ export function buildBulkSellPayloads(
       quantity: metrics.quantity,
       unitPrice: metrics.soldPrice,
       currencyCode: entry.currencyCode,
-      paymentMethod: null,
+      paymentMethod,
       soldAt: new Date().toISOString(),
       showSessionID: null,
       note: null,
