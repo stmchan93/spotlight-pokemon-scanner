@@ -728,21 +728,6 @@ export function ScannerScreen({
       });
       const captureMs = Date.now() - captureStartedAt;
       captureMsForAnalytics = captureMs;
-      try {
-        const hint = await quickClassifyCapture(photo?.uri ?? '');
-        isSlab = hint.isSlabLikely;
-        capturePostHogEvent('scan_classifier_decided', {
-          is_slab_likely: hint.isSlabLikely,
-          confidence: hint.confidence,
-          red_band_score: hint.redBandScore,
-          barcode_region_score: hint.barcodeRegionScore,
-          decode_ms: hint.decodeMs,
-          classify_ms: hint.classifyMs,
-        });
-      } catch (classifierError) {
-        console.warn('[SCANNER] quickClassifyCapture failed, defaulting to raw', classifierError);
-        isSlab = false;
-      }
 
       capturePostHogEvent('scan_capture_started', {
         mode: isSlab ? 'slabs' : 'raw',
@@ -834,15 +819,6 @@ export function ScannerScreen({
       }));
 
       const normalizeStartedAt = Date.now();
-      if (!isSlab && process.env.NODE_ENV !== 'test') {
-        console.info(
-          `[SCANNER VISUAL TEST] normalizeStart `
-          + `reportedSource=${sourceImageDimensions.width}x${sourceImageDimensions.height} `
-          + `preview=${reticleSnapshotRef.current.previewWidth}x${reticleSnapshotRef.current.previewHeight} `
-          + `reticle=${reticleSnapshotRef.current.width}x${reticleSnapshotRef.current.height}@${reticleSnapshotRef.current.x},${reticleSnapshotRef.current.y} `
-          + `crop=${sourceImageCrop ? `${sourceImageCrop.width}x${sourceImageCrop.height}@${sourceImageCrop.x},${sourceImageCrop.y}` : 'n/a'}`,
-        );
-      }
       const previewLayout = {
         height: reticleSnapshotRef.current.previewHeight,
         width: reticleSnapshotRef.current.previewWidth,
@@ -853,25 +829,60 @@ export function ScannerScreen({
         x: reticleSnapshotRef.current.x,
         y: reticleSnapshotRef.current.y,
       };
-      const normalizedTarget = !isSlab
-        ? await buildNormalizedScannerTarget({
+
+      // Always crop to the reticle first so the classifier sees the card/slab
+      // content rather than the full camera frame (where the reticle sits in the
+      // center, making top/bottom strip analysis unreliable on the full photo).
+      const rawNormalizedTarget = await buildNormalizedScannerTarget({
+        previewLayout,
+        reticle: reticleLayout,
+        sourceImageDimensions,
+        sourceImageUri: photo.uri,
+      });
+      if (!rawNormalizedTarget) {
+        throw new Error('normalized_target_unavailable');
+      }
+
+      try {
+        const hint = await quickClassifyCapture(rawNormalizedTarget.normalizedImageUri);
+        isSlab = hint.isSlabLikely;
+        capturePostHogEvent('scan_classifier_decided', {
+          is_slab_likely: hint.isSlabLikely,
+          confidence: hint.confidence,
+          red_band_score: hint.redBandScore,
+          barcode_region_score: hint.barcodeRegionScore,
+          decode_ms: hint.decodeMs,
+          classify_ms: hint.classifyMs,
+        });
+      } catch (classifierError) {
+        console.warn('[SCANNER] quickClassifyCapture failed, defaulting to raw', classifierError);
+        isSlab = false;
+      }
+
+      if (process.env.NODE_ENV !== 'test') {
+        console.info(
+          `[SCANNER VISUAL TEST] normalizeStart `
+          + `reportedSource=${sourceImageDimensions.width}x${sourceImageDimensions.height} `
+          + `preview=${reticleSnapshotRef.current.previewWidth}x${reticleSnapshotRef.current.previewHeight} `
+          + `reticle=${reticleSnapshotRef.current.width}x${reticleSnapshotRef.current.height}@${reticleSnapshotRef.current.x},${reticleSnapshotRef.current.y} `
+          + `crop=${sourceImageCrop ? `${sourceImageCrop.width}x${sourceImageCrop.height}@${sourceImageCrop.x},${sourceImageCrop.y}` : 'n/a'}`,
+        );
+      }
+
+      const normalizedTargetOrNull = isSlab
+        ? await buildSlabScannerTarget({
           previewLayout,
           reticle: reticleLayout,
           sourceImageDimensions,
           sourceImageUri: photo.uri,
         })
-        : await buildSlabScannerTarget({
-          previewLayout,
-          reticle: reticleLayout,
-          sourceImageDimensions,
-          sourceImageUri: photo.uri,
-        });
+        : rawNormalizedTarget;
       const normalizeMs = Date.now() - normalizeStartedAt;
       normalizeMsForAnalytics = normalizeMs;
-      if (!normalizedTarget) {
+      if (!normalizedTargetOrNull) {
         throw new Error('normalized_target_unavailable');
       }
-
+      const normalizedTarget = normalizedTargetOrNull;
       let matchPayload: ScannerCapturePayload = {
         height: normalizedTarget.normalizedImageDimensions.height,
         jpegBase64: normalizedTarget.normalizedImageBase64,
