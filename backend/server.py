@@ -1020,6 +1020,7 @@ class SpotlightScanService:
             encodedCandidateCount=encode_debug.get("encodedCandidateCount"),
             candidateTimings=encode_debug.get("candidateTimings"),
             responseBuildMs=(perf_counter() - response_build_started_at) * 1000.0,
+            **self._visual_matcher_timing_fields(debug),
         )
         if finalize_response:
             self._finalize_scan_response(payload, response, scored_candidates)
@@ -3220,6 +3221,8 @@ class SpotlightScanService:
                 sale_events.sale_source,
                 sale_events.note,
                 sale_events.sold_at,
+                sale_events.paid_at,
+                sale_events.voided_at,
                 deck_entries.condition,
                 deck_entries.grader,
                 deck_entries.grade,
@@ -3344,6 +3347,8 @@ class SpotlightScanService:
                     "totalPrice": total_price,
                     "currencyCode": str(row["currency_code"] or "").strip() or "USD",
                     "paymentMethod": str(row["payment_method"] or "").strip() or None,
+                    "paidAt": str(row["paid_at"] or "").strip() or None,
+                    "status": "voided" if str(row["voided_at"] or "").strip() else ("paid" if str(row["paid_at"] or "").strip() else "pending"),
                     "costBasisTotal": cost_basis_total,
                     "grossProfit": gross,
                     "occurredAt": str(row["sold_at"] or "").strip(),
@@ -5353,6 +5358,41 @@ class SpotlightScanService:
             else:
                 payload[key] = value
 
+    @staticmethod
+    def _visual_matcher_timing_fields(debug: dict[str, Any] | None) -> dict[str, Any]:
+        """Extract visual-matcher sub-phase timings for `backendTimingDebug` so the
+        scan_match structured log can attribute the visualMatchMs tail.
+
+        Source: `RawVisualMatcher.match_payload` returns a debug dict whose
+        `timings` sub-dict carries per-phase ms values. We surface a curated
+        subset here. `queryVariantCount` is also pulled because variant fanout
+        is a primary tail driver (each variant runs the encoder).
+        """
+        if not isinstance(debug, dict):
+            return {}
+        timings = debug.get("timings")
+        result: dict[str, Any] = {}
+        if isinstance(timings, dict):
+            for key in (
+                "imageDecodeMs",
+                "ensureRuntimeMs",
+                "encoderPreprocessMs",
+                "encoderForwardMs",
+                "encoderPostprocessMs",
+                "adapterProjectMs",
+                "embeddingNormalizeMs",
+                "indexSearchMs",
+                "userPhotoRerankMs",
+                "embeddingMs",
+            ):
+                value = timings.get(key)
+                if isinstance(value, (int, float)):
+                    result[key] = round(float(value), 3)
+        variant_count = debug.get("queryVariantCount")
+        if isinstance(variant_count, int):
+            result["queryVariantCount"] = variant_count
+        return result
+
     def _finalize_scan_response(
         self,
         request_payload: dict[str, Any],
@@ -6939,6 +6979,11 @@ class SpotlightScanService:
             debug_payload=debug_payload,
         )
         response, top_candidates = self._build_raw_match_response(payload, decision, api_key=api_key)
+        self._record_backend_timing(
+            response,
+            visualMatchMs=round(float(visual_match_ms), 3) if visual_match_ms is not None else None,
+            **self._visual_matcher_timing_fields(debug),
+        )
         self._finalize_scan_response(payload, response, top_candidates)
         return response
 

@@ -342,6 +342,46 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertIn("backendTimings", response_payload["performance"])
         self.assertEqual(response_payload["performance"]["scrydexRequestCount"], 0)
 
+    def test_visual_matcher_timing_fields_extracts_sub_phases(self) -> None:
+        debug = {
+            "queryVariantCount": 3,
+            "timings": {
+                "imageDecodeMs": 12.345,
+                "ensureRuntimeMs": 0.5,
+                "encoderPreprocessMs": 8.1,
+                "encoderForwardMs": 187.2,
+                "encoderPostprocessMs": 3.4,
+                "adapterProjectMs": 1.1,
+                "embeddingNormalizeMs": 0.2,
+                "indexSearchMs": 14.0,
+                "userPhotoRerankMs": 6.7,
+                "embeddingMs": 200.0,
+                "matchPayloadMs": 220.0,  # not in the surfaced subset
+            },
+        }
+        fields = SpotlightScanService._visual_matcher_timing_fields(debug)  # noqa: SLF001
+        # Sub-phase timings should be present.
+        self.assertEqual(fields["imageDecodeMs"], 12.345)
+        self.assertEqual(fields["encoderForwardMs"], 187.2)
+        self.assertEqual(fields["indexSearchMs"], 14.0)
+        self.assertEqual(fields["queryVariantCount"], 3)
+        # `matchPayloadMs` is intentionally not surfaced; it's the matcher's outer
+        # timer and duplicates `visualMatchMs` already at the top level.
+        self.assertNotIn("matchPayloadMs", fields)
+
+    def test_visual_matcher_timing_fields_handles_missing_or_invalid_input(self) -> None:
+        self.assertEqual(SpotlightScanService._visual_matcher_timing_fields(None), {})  # noqa: SLF001
+        self.assertEqual(SpotlightScanService._visual_matcher_timing_fields({}), {})  # noqa: SLF001
+        self.assertEqual(
+            SpotlightScanService._visual_matcher_timing_fields({"timings": "not-a-dict"}),  # noqa: SLF001
+            {},
+        )
+        # Non-numeric values get dropped silently.
+        fields = SpotlightScanService._visual_matcher_timing_fields({  # noqa: SLF001
+            "timings": {"imageDecodeMs": "bad", "encoderForwardMs": 5.0},
+        })
+        self.assertEqual(fields, {"encoderForwardMs": 5.0})
+
     def test_emit_structured_log_omits_sqlite_connection_repr(self) -> None:
         with patch("builtins.print") as print_mock:
             self.service._emit_structured_log(  # noqa: SLF001
