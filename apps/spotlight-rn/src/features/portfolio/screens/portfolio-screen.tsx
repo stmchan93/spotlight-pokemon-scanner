@@ -372,20 +372,7 @@ export function PortfolioScreen({
           >
             Collection
           </Text>
-          <Pressable
-            accessibilityLabel={isSummaryHidden ? 'Show portfolio value' : 'Hide portfolio value'}
-            accessibilityRole="button"
-            hitSlop={8}
-            onPress={toggleSummaryHidden}
-            style={styles.headerVisibilityButton}
-            testID="portfolio-summary-visibility-toggle"
-          >
-            {isSummaryHidden ? (
-              <EyeClosed color={theme.colors.textSecondary} height={20} width={20} />
-            ) : (
-              <Eye color={theme.colors.textSecondary} height={20} width={20} />
-            )}
-          </Pressable>
+          <View style={styles.headerSpacer} />
         </View>
 
         {carouselItems.length > 0 || (model.isLoadingTopMovers && !model.hasLoadedTopMovers) ? (
@@ -409,11 +396,27 @@ export function PortfolioScreen({
           <>
             <View style={styles.summaryBlock}>
               <View style={styles.summaryValueRow}>
-                <RollingNumberText
-                  style={[theme.typography.display, styles.summaryValue, { color: theme.colors.textPrimary }]}
-                  testID="portfolio-summary-value"
-                  value={summaryValueLabel}
-                />
+                <View style={styles.summaryValueGroup}>
+                  <RollingNumberText
+                    style={[theme.typography.display, styles.summaryValue, { color: theme.colors.textPrimary }]}
+                    testID="portfolio-summary-value"
+                    value={summaryValueLabel}
+                  />
+                  <Pressable
+                    accessibilityLabel={isSummaryHidden ? 'Show portfolio value' : 'Hide portfolio value'}
+                    accessibilityRole="button"
+                    hitSlop={8}
+                    onPress={toggleSummaryHidden}
+                    style={styles.summaryVisibilityButton}
+                    testID="portfolio-summary-visibility-toggle"
+                  >
+                    {isSummaryHidden ? (
+                      <EyeClosed color={theme.colors.textSecondary} height={20} width={20} />
+                    ) : (
+                      <Eye color={theme.colors.textSecondary} height={20} width={20} />
+                    )}
+                  </Pressable>
+                </View>
                 <Pressable
                   accessibilityRole="button"
                   hitSlop={8}
@@ -613,11 +616,13 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'space-between',
   },
-  headerVisibilityButton: {
-    alignItems: 'center',
-    height: 36,
-    justifyContent: 'center',
+  headerSpacer: {
     width: 36,
+  },
+  summaryVisibilityButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 4,
   },
   headerTitle: {
     flex: 1,
@@ -675,8 +680,12 @@ const styles = StyleSheet.create({
   summaryValueRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 12,
     justifyContent: 'space-between',
+  },
+  summaryValueGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
   },
   tabContent: {
     gap: 12,

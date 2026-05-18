@@ -226,12 +226,30 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
     }
     const grossTotal = todaySales.reduce((acc, sale) => acc + sale.soldPrice * (sale.quantity ?? 1), 0);
     const topSale = todaySales.slice().sort((a, b) => b.soldPrice - a.soldPrice)[0];
+    const loggedPaidCount = todaySales.filter(
+      (sale) => sale.paidAt != null || sale.status === 'paid',
+    ).length;
+    const methodCounts = new Map<string, number>();
+    for (const sale of todaySales) {
+      if (sale.paymentMethod) {
+        const key = sale.paymentMethod.toLowerCase();
+        methodCounts.set(key, (methodCounts.get(key) ?? 0) + 1);
+      }
+    }
+    const methodBreakdown = Array.from(methodCounts.entries())
+      .sort((a, b) => b[1] - a[1])
+      .map(([method, count]) => ({
+        method: method.charAt(0).toUpperCase() + method.slice(1),
+        count,
+      }));
     return {
       count: todaySales.length,
       gross: grossTotal,
       currencyCode: todaySales[0]?.currencyCode ?? 'USD',
       topSaleName: topSale?.name ?? null,
       topSalePrice: topSale?.soldPrice ?? null,
+      loggedPaidCount,
+      methodBreakdown,
     };
   }, [sales]);
 
@@ -279,13 +297,11 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
         <ScrollView contentContainerStyle={styles.scrollContent} showsVerticalScrollIndicator={false}>
           {todaySummary ? (
             <SurfaceCard padding={16} radius={20} style={styles.todayCard} testID="sales-history-today-card">
-              <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>Today</Text>
+              <Text style={[theme.typography.caption, styles.sectionLabel, { color: theme.colors.textSecondary }]}>Today</Text>
               <View style={styles.todayCardStatsRow}>
                 <View style={styles.todayCardStatItem}>
                   <Text style={theme.typography.display}>{todaySummary.count}</Text>
-                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
-                    {todaySummary.count === 1 ? 'sale' : 'sales'}
-                  </Text>
+                  <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>sold</Text>
                 </View>
                 <View style={styles.todayCardStatItem}>
                   <Text style={theme.typography.display}>
@@ -294,12 +310,28 @@ export function SalesHistoryScreen({ onBack }: SalesHistoryScreenProps) {
                   <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>gross</Text>
                 </View>
               </View>
+              {todaySummary.loggedPaidCount > 0 ? (
+                <Text
+                  style={[theme.typography.caption, { color: theme.colors.textSecondary, marginTop: 8 }]}
+                  testID="sales-history-today-paid"
+                >
+                  {todaySummary.loggedPaidCount} logged paid
+                </Text>
+              ) : null}
               {todaySummary.topSaleName && todaySummary.topSalePrice != null ? (
                 <Text
-                  style={[theme.typography.body, { color: theme.colors.textPrimary, marginTop: 8 }]}
+                  style={[theme.typography.body, { color: theme.colors.textPrimary, marginTop: 6 }]}
                   testID="sales-history-today-top"
                 >
                   Top: {todaySummary.topSaleName} · {formatCurrency(todaySummary.topSalePrice, todaySummary.currencyCode)}
+                </Text>
+              ) : null}
+              {todaySummary.methodBreakdown.length > 0 ? (
+                <Text
+                  style={[theme.typography.caption, { color: theme.colors.textSecondary, marginTop: 6 }]}
+                  testID="sales-history-today-methods"
+                >
+                  {todaySummary.methodBreakdown.map(({ method, count }) => `${method} ${count}`).join(' · ')}
                 </Text>
               ) : null}
             </SurfaceCard>
