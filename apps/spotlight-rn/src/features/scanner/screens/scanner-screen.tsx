@@ -36,6 +36,7 @@ import {
 import {
   Button,
   colors,
+  SegmentedControl,
   textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -106,6 +107,11 @@ import type {
   ScannerMode,
 } from './scanner-screen-types';
 
+const scannerModes: readonly { label: string; value: ScannerMode }[] = [
+  { label: 'Ungraded', value: 'raw' },
+  { label: 'Graded', value: 'slabs' },
+];
+
 const maxStoredCaptures = 12;
 const collapsedVisibleCaptures = 1;
 const captureRowHeight = 88;
@@ -174,8 +180,7 @@ export function ScannerScreen({
   const { dataVersion, refreshData, spotlightRepository } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  // Slab mode is not yet functional; scanner is raw-only.
-  const scannerMode = 'raw' as ScannerMode;
+  const [scannerMode, setScannerMode] = useState<ScannerMode>('raw');
   const [permission, requestPermission] = useCameraPermissions();
   const [isCameraReady, setIsCameraReady] = useState(isTestEnv);
   const [isCapturing, setIsCapturing] = useState(false);
@@ -1705,6 +1710,27 @@ export function ScannerScreen({
           </View>
         ) : null}
 
+        <View
+          style={[
+            styles.modeToggleWrap,
+            {
+              top: captureSurfaceLayout.controlsTop,
+            },
+          ]}
+          testID="scanner-mode-toggle-wrap"
+        >
+          <View style={{ width: captureSurfaceLayout.modeToggleWidth }}>
+            <SegmentedControl
+              items={scannerModes}
+              onChange={setScannerMode}
+              size="scanner"
+              testID="scanner-mode-toggle"
+              tone="inverted"
+              value={scannerMode}
+            />
+          </View>
+        </View>
+
         <View style={styles.trayShell} testID="scanner-tray" {...trayShellPanResponder.panHandlers}>
           <Pressable
             accessibilityLabel={isTrayExpanded ? 'Collapse recent scans' : 'Expand recent scans'}
@@ -2018,6 +2044,12 @@ const styles = StyleSheet.create({
     color: colors.scannerTextMeta,
     fontSize: 12,
     lineHeight: 14,
+  },
+  modeToggleWrap: {
+    alignItems: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
   },
   recentScansActions: {
     alignItems: 'center',

@@ -147,7 +147,7 @@ describe('ScannerScreen', () => {
     keyboardDismissSpy.mockRestore();
   });
 
-  it('renders the scanner camera UI', () => {
+  it('switches between raw and slabs guidance', () => {
     renderScannerScreen();
 
     expect(useKeepAwake).toHaveBeenCalledWith('scanner-screen');
@@ -155,8 +155,12 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-camera')).toBeTruthy();
     expect(screen.getByTestId('scanner-preview')).toBeTruthy();
     expect(screen.getByTestId('scanner-reticle')).toBeTruthy();
+    expect(screen.getByTestId('scanner-mode-toggle')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
+    expect(screen.getByText('Ungraded')).toBeTruthy();
+    expect(screen.getByText('Graded')).toBeTruthy();
     expect(screen.queryByTestId('scanner-account-button')).toBeNull();
+    expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
     const previewStyle = StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style);
     const reticleStyle = StyleSheet.flatten(screen.getByTestId('scanner-reticle').props.style);
     expect(previewStyle).toMatchObject({
@@ -168,6 +172,10 @@ describe('ScannerScreen', () => {
     });
     expect(previewStyle.bottom).toBeUndefined();
     expect(previewStyle.right).toBeUndefined();
+
+    fireEvent.press(screen.getByText('Graded'));
+
+    expect(screen.getByTestId('scanner-slab-guide')).toBeTruthy();
   });
 
   it('does not show the camera permission card when the scanner is mounted offscreen with granted permission', () => {
@@ -269,11 +277,12 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
   });
 
-  it('keeps reticle geometry stable after the first scan', async () => {
+  it('keeps reticle and mode toggle geometry stable after the first scan', async () => {
     renderScannerScreen();
 
     const initialReticleStyle = StyleSheet.flatten(screen.getByTestId('scanner-reticle').props.style);
     const initialPreviewStyle = StyleSheet.flatten(screen.getByTestId('scanner-preview').props.style);
+    const initialModeToggleWrapStyle = StyleSheet.flatten(screen.getByTestId('scanner-mode-toggle-wrap').props.style);
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -293,6 +302,9 @@ describe('ScannerScreen', () => {
       left: initialPreviewStyle.left,
       top: initialPreviewStyle.top,
       width: initialPreviewStyle.width,
+    });
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-mode-toggle-wrap').props.style)).toMatchObject({
+      top: initialModeToggleWrapStyle.top,
     });
   });
 
@@ -689,6 +701,246 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Oshawott')).toBeTruthy();
   });
 
+  it('shows the backend slab review reason instead of a generic load failure', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-slab-unsupported',
+        candidates: [],
+        reviewDisposition: 'unsupported',
+        reviewReason: 'Could not extract a confident slab grader and grade.',
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByText('Graded'));
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    expect(screen.getByText('SLAB scan')).toBeTruthy();
+    expect(screen.getByText('Could not extract a confident slab grader and grade.')).toBeTruthy();
+    expect(screen.queryByText('Photo captured, but matches could not load')).toBeNull();
+  });
+
+  it('surfaces the PSA-only message locally for non-PSA slabs without sending a match request', async () => {
+    mockAnalyzeSlabCapture.mockResolvedValueOnce({
+      parsed: {
+        unsupportedReason: 'non_psa_slab_not_supported_yet',
+      },
+      scannerMatchFields: {
+        ocrAnalysis: null,
+        slabBarcodePayloads: [],
+        slabCardNumberRaw: null,
+        slabCertConfidence: null,
+        slabCertNumber: null,
+        slabClassifierReasons: ['unsupported_reason:non_psa_slab_not_supported_yet'],
+        slabGrade: null,
+        slabGradeConfidence: null,
+        slabGrader: null,
+        slabGraderConfidence: null,
+        slabParsedLabelText: [],
+        slabRecommendedLookupPath: 'needs_review',
+      },
+    } as any);
+
+    const matchScannerCapture = jest.fn(async () => ({
+      scanID: 'scan-should-not-run',
+      candidates: [],
+    }));
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture,
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByText('Graded'));
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Slab type is currently not supported')).toBeTruthy();
+    });
+
+    expect(screen.getByText('We currently only support PSA slabs for now.')).toBeTruthy();
+    expect(matchScannerCapture).not.toHaveBeenCalled();
+  });
+
+  it('shows a slab-analysis-unavailable review reason when the native slab bridge is missing', async () => {
+    mockAnalyzeSlabCapture.mockRejectedValueOnce({
+      code: 'native_module_unavailable',
+      message: 'Native module SpotlightSlabScanner is not registered in this build.',
+    });
+
+    const matchScannerCapture = jest.fn(async () => ({
+      scanID: 'scan-should-not-run',
+      candidates: [],
+    }));
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture,
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByText('Graded'));
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Slab analysis is unavailable on this build.')).toBeTruthy();
+    });
+
+    expect(screen.getByText('SLAB scan')).toBeTruthy();
+    expect(matchScannerCapture).not.toHaveBeenCalled();
+  });
+
+  it('sends slab analysis evidence and artifact images through scanner matching', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+
+        return {
+          scanID: 'scan-slab-dragonite',
+          slabContext: {
+            grader: 'PSA',
+            grade: '9',
+            certNumber: '12345678',
+            variantName: 'PSA 9',
+          },
+          candidates: [{
+            id: 'm2a-232',
+            cardId: 'm2a-232',
+            name: 'Mega Dragonite ex',
+            cardNumber: '#232/193',
+            setName: 'Mega 2A',
+            imageUrl: 'https://cdn.spotlight.test/m2a-232.png',
+            marketPrice: 30.83,
+            currencyCode: 'USD',
+          }],
+        };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByText('Graded'));
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+
+    expect(mockAnalyzeSlabCapture).toHaveBeenCalledTimes(1);
+    expect(await screen.findByText('Mega Dragonite ex')).toBeTruthy();
+    expect(screen.getByText('PSA • 9')).toBeTruthy();
+    expect(screen.getByText('#232/193')).toBeTruthy();
+    expect(screen.getByText('Mega 2A')).toBeTruthy();
+    expect(screen.getByText('Market avg')).toBeTruthy();
+    expect(screen.getAllByText('$30.83').length).toBeGreaterThan(0);
+    expect(screen.getByTestId('scanner-tray-image-0').props.source).toEqual({
+      uri: 'https://cdn.spotlight.test/m2a-232.png',
+    });
+    expect(payloads[0]).toMatchObject({
+      mode: 'slabs',
+      captureSource: 'camera',
+      sourceImage: {
+        jpegBase64: 'bW9jay1zY2FuLWJhc2U2NA==',
+        width: 1920,
+        height: 888,
+      },
+      slabAnalysis: {
+        slabGrader: 'PSA',
+        slabGrade: '9',
+        slabCertNumber: '12345678',
+        slabBarcodePayloads: ['12345678'],
+        slabParsedLabelText: ['PSA 9 Mega Dragonite ex 232/193 M2a'],
+        slabRecommendedLookupPath: 'psa_cert',
+        ocrAnalysis: {
+          slabEvidence: {
+            grader: 'PSA',
+            grade: '9',
+            cert: '12345678',
+          },
+        },
+      },
+    });
+    expect(payloads[0].normalizedImage).toEqual(expect.objectContaining({
+      jpegBase64: payloads[0].jpegBase64,
+      width: payloads[0].width,
+      height: payloads[0].height,
+    }));
+    expect(payloads[0].width).toBeGreaterThan(0);
+    expect(payloads[0].height).toBeGreaterThan(0);
+
+    fireEvent.press(screen.getByTestId('scanner-tray-open-card-0'));
+
+    await waitFor(() => {
+      expect(mockPush).toHaveBeenCalledWith({
+        pathname: '/cards/[cardId]',
+        params: {
+          cardId: 'm2a-232',
+          entryId: undefined,
+          scanReviewId: expect.any(String),
+        },
+      });
+    });
+
+    const pushedRoute = mockPush.mock.calls.at(-1)?.[0] as { params?: { scanReviewId?: string } };
+    const scanReviewSession = getScanCandidateReviewSession(pushedRoute.params?.scanReviewId);
+    expect(scanReviewSession?.slabContext).toEqual({
+      grader: 'PSA',
+      grade: '9',
+      certNumber: '12345678',
+      variantName: 'PSA 9',
+    });
+  });
+
+  it('shows an unavailable price marker for slab matches without graded pricing', async () => {
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async () => ({
+        scanID: 'scan-slab-unpriced',
+        slabContext: {
+          grader: 'PSA',
+          grade: '9',
+          certNumber: '76243431',
+          variantName: 'PSA 9',
+        },
+        candidates: [{
+          id: 'base1-4',
+          cardId: 'base1-4',
+          name: 'Charizard',
+          cardNumber: '#4/102',
+          setName: 'Base',
+          imageUrl: 'https://cdn.spotlight.test/base1-4.png',
+          marketPrice: null,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByText('Graded'));
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    expect(screen.getByText('Charizard')).toBeTruthy();
+    expect(screen.getByText('PSA • 9')).toBeTruthy();
+    expect(screen.getByText('#4/102')).toBeTruthy();
+    expect(screen.getByText('Base')).toBeTruthy();
+    expect(screen.getAllByText('$0.00').length).toBeGreaterThanOrEqual(2);
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.00');
+  });
+
   it('allows another scan while earlier scans are still processing', async () => {
     const pendingResolvers: ((value: any) => void)[] = [];
     const spotlightRepository = createTestSpotlightRepository({
@@ -968,6 +1220,94 @@ describe('ScannerScreen', () => {
       expect(addPayloads).toHaveLength(1);
     });
     expect(addPayloads[0]?.sourceScanID).toBeNull();
+  });
+
+  it('adds slab scans to inventory without forcing raw condition or null slab context', async () => {
+    let inventoryEntries: any[] = [];
+    const addPayloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      createInventoryEntry: async (payload) => {
+        addPayloads.push(payload);
+        inventoryEntries = [
+          {
+            id: 'entry-dragonite-slab',
+            cardId: payload.cardID,
+            name: 'Mega Dragonite ex',
+            cardNumber: '#232/193',
+            setName: 'Mega 2A',
+            imageUrl: 'https://cdn.spotlight.test/m2a-232.png',
+            marketPrice: 30.83,
+            hasMarketPrice: true,
+            currencyCode: 'USD',
+            quantity: 1,
+            addedAt: payload.addedAt,
+            kind: 'graded',
+            slabContext: payload.slabContext,
+            variantName: payload.variantName,
+            conditionCode: null,
+            conditionLabel: null,
+            conditionShortLabel: null,
+            costBasisPerUnit: null,
+            costBasisTotal: 0,
+          },
+        ];
+
+        return {
+          deckEntryID: 'entry-dragonite-slab',
+          cardID: payload.cardID,
+          variantName: payload.variantName,
+          condition: payload.condition,
+          confirmationID: 'confirmation-dragonite-slab',
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
+        };
+      },
+      getInventoryEntries: async () => inventoryEntries,
+      matchScannerCapture: async () => ({
+        scanID: 'scan-dragonite-slab',
+        slabContext: {
+          grader: 'PSA',
+          grade: '9',
+          certNumber: '12345678',
+          variantName: 'First Edition Shadowless Holofoil',
+        },
+        candidates: [{
+          id: 'm2a-232',
+          cardId: 'm2a-232',
+          name: 'Mega Dragonite ex',
+          cardNumber: '#232/193',
+          setName: 'Mega 2A',
+          imageUrl: 'https://cdn.spotlight.test/m2a-232.png',
+          marketPrice: 30.83,
+          currencyCode: 'USD',
+        }],
+      }),
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByText('Graded'));
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    expect(await screen.findByText('Mega Dragonite ex')).toBeTruthy();
+    expect(screen.getByText('PSA • 9')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
+
+    await waitFor(() => {
+      expect(addPayloads).toHaveLength(1);
+    });
+    expect(addPayloads[0]).toEqual(expect.objectContaining({
+      condition: null,
+      slabContext: {
+        grader: 'PSA',
+        grade: '9',
+        certNumber: '12345678',
+        variantName: 'First Edition Shadowless Holofoil',
+      },
+      sourceScanID: 'scan-dragonite-slab',
+      variantName: 'First Edition Shadowless Holofoil',
+    }));
   });
 
   it('cycles candidates and then opens card detail for the active result', async () => {
