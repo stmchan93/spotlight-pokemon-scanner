@@ -12,7 +12,7 @@ import {
   SellIdentityChips,
   SellPriceField,
   SellStatusOverlay,
-  SellSwipeConfirmationSheet,
+  // SWIPE-CONFIRM DISABLED: SellSwipeConfirmationSheet,
   SellTransactionPhotoCapture,
 } from '@/features/sell/components/sell-ui';
 
@@ -127,28 +127,27 @@ describe('SellStatusOverlay', () => {
     expect(onChangeText).toHaveBeenCalledWith('12.34');
   });
 
-  it('fires accessibility confirmation from the swipe rail', () => {
-    const onAccessibilityConfirm = jest.fn();
-    renderSellUI(
-      <SellSwipeConfirmationSheet
-        bottomInset={12}
-        disabled={false}
-        onAccessibilityConfirm={onAccessibilityConfirm}
-        prompt="Slide to sell"
-        promptOpacity={new Animated.Value(1)}
-        promptScale={new Animated.Value(1)}
-        swipeSheetHeight={96}
-        testIDPrefix="single-sell"
-        translateY={new Animated.Value(0)}
-      />,
-    );
-
-    fireEvent(screen.getByTestId('single-sell-swipe-rail'), 'accessibilityAction', {
-      nativeEvent: { actionName: 'activate' },
-    });
-
-    expect(onAccessibilityConfirm).toHaveBeenCalledTimes(1);
-  });
+  // SWIPE-CONFIRM DISABLED:
+  // it('fires accessibility confirmation from the swipe rail', () => {
+  //   const onAccessibilityConfirm = jest.fn();
+  //   renderSellUI(
+  //     <SellSwipeConfirmationSheet
+  //       bottomInset={12}
+  //       disabled={false}
+  //       onAccessibilityConfirm={onAccessibilityConfirm}
+  //       prompt="Slide to sell"
+  //       promptOpacity={new Animated.Value(1)}
+  //       promptScale={new Animated.Value(1)}
+  //       swipeSheetHeight={96}
+  //       testIDPrefix="single-sell"
+  //       translateY={new Animated.Value(0)}
+  //     />,
+  //   );
+  //   fireEvent(screen.getByTestId('single-sell-swipe-rail'), 'accessibilityAction', {
+  //     nativeEvent: { actionName: 'activate' },
+  //   });
+  //   expect(onAccessibilityConfirm).toHaveBeenCalledTimes(1);
+  // });
 
   it('filters slab chips when grade details are hidden', () => {
     const { rerender } = renderSellUI(

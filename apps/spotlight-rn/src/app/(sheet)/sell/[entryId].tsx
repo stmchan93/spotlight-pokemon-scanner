@@ -15,12 +15,10 @@ export default function SingleSellRoute() {
   const params = useLocalSearchParams<{
     entryId?: string | string[];
     cardId?: string | string[];
-    fromScan?: string | string[];
   }>();
 
   const entryId = firstParam(params.entryId);
   const cardId = firstParam(params.cardId) || undefined;
-  const fromScan = firstParam(params.fromScan) === '1';
 
   if (!entryId) {
     return null;
@@ -35,12 +33,11 @@ export default function SingleSellRoute() {
       />
 
       <SingleSellScreen
-        key={`${entryId}:${cardId ?? ''}:${fromScan ? '1' : '0'}`}
+        key={`${entryId}:${cardId ?? ''}`}
         cardId={cardId}
         entryId={entryId}
-        fromScan={fromScan}
         onClose={() => router.back()}
-        onComplete={() => router.replace('/portfolio')}
+        onComplete={() => router.dismissTo({ pathname: '/', params: { page: 'portfolio' } })}
       />
     </>
   );

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
+  Image,
   Linking,
   Pressable,
   StyleSheet,
@@ -190,9 +191,10 @@ export function MarketInfoSection({ entry }: MarketInfoSectionProps) {
           style={({ pressed }) => [styles.tcgRow, pressed ? styles.tcgRowPressed : null]}
           testID="single-sell-tcgplayer-link"
         >
-          <Text style={[theme.typography.bodyStrong, styles.tcgRowLabel]}>
-            See on TCGplayer ↗
-          </Text>
+          <Image
+            source={require('../../../../assets/images/tcgplayer-icon.png')}
+            style={styles.tcgIcon}
+          />
         </Pressable>
       ) : null}
     </SurfaceCard>
@@ -270,8 +272,10 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     width: '100%',
   },
-  tcgRowLabel: {
-    color: colors.textPrimary,
+  tcgIcon: {
+    height: 24,
+    resizeMode: 'contain',
+    width: 120,
   },
   tcgRowPressed: {
     opacity: 0.72,

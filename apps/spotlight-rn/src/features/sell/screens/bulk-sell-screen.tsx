@@ -4,7 +4,7 @@ import {
   findNodeHandle,
   Image,
   Keyboard,
-  PanResponder,
+  // SWIPE-CONFIRM DISABLED: PanResponder,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,25 +31,25 @@ import {
   type BulkSellLineState,
 } from '@/features/sell/sell-batch-helpers';
 import {
-  canStartSellSwipeGesture,
+  // SWIPE-CONFIRM DISABLED: canStartSellSwipeGesture,
   formatEditableSellPrice,
   formatSellOrderBoughtPriceLabel,
-  getSellSwipeArmThresholdRatio,
-  getResistedSellSwipeTranslation,
-  getSellSwipeConfirmThreshold,
-  isSellSwipeReleaseArmed,
+  // SWIPE-CONFIRM DISABLED: getSellSwipeArmThresholdRatio,
+  // SWIPE-CONFIRM DISABLED: getResistedSellSwipeTranslation,
+  // SWIPE-CONFIRM DISABLED: getSellSwipeConfirmThreshold,
+  // SWIPE-CONFIRM DISABLED: isSellSwipeReleaseArmed,
   parseSellPrice,
   scheduleSellStatusCompletion,
   slabGradeSummary,
   sellOrderProcessingMinimumDurationMs,
-  sellOrderSwipeRailHeight,
+  // SWIPE-CONFIRM DISABLED: sellOrderSwipeRailHeight,
 } from '@/features/sell/sell-order-helpers';
 import {
   SellBackdrop,
   SellFormFields,
   SellIdentityChips,
   SellStatusOverlay,
-  SellSwipeConfirmationSheet,
+  // SWIPE-CONFIRM DISABLED: SellSwipeConfirmationSheet,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
@@ -359,18 +359,18 @@ export function BulkSellScreen({
   const [screenErrorMessage, setScreenErrorMessage] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [submitState, setSubmitState] = useState<'idle' | 'processing' | 'success'>('idle');
-  const [releaseToConfirmArmed, setReleaseToConfirmArmed] = useState(false);
+  // SWIPE-CONFIRM DISABLED: const [releaseToConfirmArmed, setReleaseToConfirmArmed] = useState(false);
   const [stage, setStage] = useState<'draft' | 'review'>('draft');
   const [showsValidation, setShowsValidation] = useState(false);
 
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
-  const hasInitializedSheetRef = useRef(false);
-  const closedSheetOffsetRef = useRef(0);
-  const releaseToConfirmArmedRef = useRef(false);
+  // SWIPE-CONFIRM DISABLED: const hasInitializedSheetRef = useRef(false);
+  // SWIPE-CONFIRM DISABLED: const closedSheetOffsetRef = useRef(0);
+  // SWIPE-CONFIRM DISABLED: const releaseToConfirmArmedRef = useRef(false);
   const scrollViewRef = useRef<ScrollView | null>(null);
-  const sheetOffset = useRef(new Animated.Value(0)).current;
+  // SWIPE-CONFIRM DISABLED: const sheetOffset = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     return () => {
@@ -399,7 +399,7 @@ export function BulkSellScreen({
         setLines(buildInitialBulkSellLines(selectedEntries));
         setScreenErrorMessage(selectedEntries.length === 0 ? 'No inventory cards were selected for this sale.' : null);
         setSubmitState('idle');
-        setReleaseToConfirmArmed(false);
+        // SWIPE-CONFIRM DISABLED: setReleaseToConfirmArmed(false);
         setStage('draft');
         setShowsValidation(false);
         setIsLoading(false);
@@ -430,10 +430,10 @@ export function BulkSellScreen({
   ), [submitState, summary]);
 
   const containerHeight = Math.max(0, windowHeight - insets.top - insets.bottom);
-  const closedSheetOffset = Math.max(0, containerHeight - sellOrderSwipeRailHeight);
-  const swipeSheetHeight = containerHeight + insets.bottom;
-  const submitThreshold = getSellSwipeConfirmThreshold(containerHeight);
-  const releaseArmThresholdRatio = getSellSwipeArmThresholdRatio(containerHeight, closedSheetOffset);
+  // SWIPE-CONFIRM DISABLED: const closedSheetOffset = Math.max(0, containerHeight - sellOrderSwipeRailHeight);
+  // SWIPE-CONFIRM DISABLED: const swipeSheetHeight = containerHeight + insets.bottom;
+  // SWIPE-CONFIRM DISABLED: const submitThreshold = getSellSwipeConfirmThreshold(containerHeight);
+  // SWIPE-CONFIRM DISABLED: const releaseArmThresholdRatio = getSellSwipeArmThresholdRatio(containerHeight, closedSheetOffset);
   const canInteract = submitState === 'idle';
 
   const selectedCountLabel =
@@ -442,73 +442,59 @@ export function BulkSellScreen({
   const canReview = canInteract && summary.totalSelectedQuantity > 0 && !summary.hasMissingActiveSoldPrice;
   const visibleMessage = screenErrorMessage ?? (showsValidation ? validationMessage : null);
   const reviewEntries = stage === 'review' ? summary.activeEntries : entries;
-  const confirmationProgress = useMemo(() => sheetOffset.interpolate({
-    inputRange: [0, Math.max(1, closedSheetOffset)],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  }), [closedSheetOffset, sheetOffset]);
 
-  const confirmationPromptOpacity = useMemo(() => confirmationProgress.interpolate({
-    inputRange: [0, 0.73, 1],
-    outputRange: [1, 0.16, 0.16],
-    extrapolate: 'clamp',
-  }), [confirmationProgress]);
+  // SWIPE-CONFIRM DISABLED:
+  // const confirmationProgress = useMemo(() => sheetOffset.interpolate({
+  //   inputRange: [0, Math.max(1, closedSheetOffset)],
+  //   outputRange: [1, 0],
+  //   extrapolate: 'clamp',
+  // }), [closedSheetOffset, sheetOffset]);
+  //
+  // const confirmationPromptOpacity = useMemo(() => confirmationProgress.interpolate({
+  //   inputRange: [0, 0.73, 1],
+  //   outputRange: [1, 0.16, 0.16],
+  //   extrapolate: 'clamp',
+  // }), [confirmationProgress]);
+  //
+  // const confirmationPromptScale = useMemo(() => confirmationProgress.interpolate({
+  //   inputRange: [0, 1],
+  //   outputRange: [1, 0.9],
+  //   extrapolate: 'clamp',
+  // }), [confirmationProgress]);
+  //
+  // const prompt = releaseToConfirmArmed ? 'Release to confirm sale' : 'Swipe up to confirm sale';
+  // const railIsDisabled = !canInteract;
+  // const railUsesDisabledVisual = false;
 
-  const confirmationPromptScale = useMemo(() => confirmationProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0.9],
-    extrapolate: 'clamp',
-  }), [confirmationProgress]);
-
-  const prompt = releaseToConfirmArmed
-    ? 'Release to confirm sale'
-    : 'Swipe up to confirm sale';
-  const railIsDisabled = !canInteract;
-  const railUsesDisabledVisual = false;
-
-  const syncReleaseToConfirmState = useCallback((nextOffset: number) => {
-    const nextState = isSellSwipeReleaseArmed(
-      nextOffset,
-      closedSheetOffsetRef.current,
-      releaseArmThresholdRatio,
-    );
-    if (nextState === releaseToConfirmArmedRef.current) {
-      return;
-    }
-
-    if (nextState) {
-      void triggerSellHaptic('armed');
-    }
-
-    releaseToConfirmArmedRef.current = nextState;
-    setReleaseToConfirmArmed(nextState);
-  }, [releaseArmThresholdRatio]);
-
-  const setSheetOffsetValue = useCallback((nextOffset: number) => {
-    const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
-    sheetOffset.setValue(clampedOffset);
-    syncReleaseToConfirmState(clampedOffset);
-  }, [sheetOffset, syncReleaseToConfirmState]);
-
-  const animateSheetToOffset = useCallback((
-    nextOffset: number,
-    motion: 'open' | 'closed',
-  ) => {
-    const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
-    syncReleaseToConfirmState(clampedOffset);
-    Animated.spring(sheetOffset, {
-      toValue: clampedOffset,
-      stiffness: motion === 'open' ? 220 : 260,
-      damping: motion === 'open' ? 24 : 30,
-      mass: 1,
-      overshootClamping: false,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) {
-        syncReleaseToConfirmState(clampedOffset);
-      }
-    });
-  }, [sheetOffset, syncReleaseToConfirmState]);
+  // SWIPE-CONFIRM DISABLED:
+  // const syncReleaseToConfirmState = useCallback((nextOffset: number) => {
+  //   const nextState = isSellSwipeReleaseArmed(nextOffset, closedSheetOffsetRef.current, releaseArmThresholdRatio);
+  //   if (nextState === releaseToConfirmArmedRef.current) { return; }
+  //   if (nextState) { void triggerSellHaptic('armed'); }
+  //   releaseToConfirmArmedRef.current = nextState;
+  //   setReleaseToConfirmArmed(nextState);
+  // }, [releaseArmThresholdRatio]);
+  //
+  // const setSheetOffsetValue = useCallback((nextOffset: number) => {
+  //   const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
+  //   sheetOffset.setValue(clampedOffset);
+  //   syncReleaseToConfirmState(clampedOffset);
+  // }, [sheetOffset, syncReleaseToConfirmState]);
+  //
+  // const animateSheetToOffset = useCallback((nextOffset: number, motion: 'open' | 'closed') => {
+  //   const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
+  //   syncReleaseToConfirmState(clampedOffset);
+  //   Animated.spring(sheetOffset, {
+  //     toValue: clampedOffset,
+  //     stiffness: motion === 'open' ? 220 : 260,
+  //     damping: motion === 'open' ? 24 : 30,
+  //     mass: 1,
+  //     overshootClamping: false,
+  //     useNativeDriver: true,
+  //   }).start(({ finished }) => {
+  //     if (finished) { syncReleaseToConfirmState(clampedOffset); }
+  //   });
+  // }, [sheetOffset, syncReleaseToConfirmState]);
 
   const beginGestureInteraction = useCallback(() => {
     Keyboard.dismiss();
@@ -542,18 +528,16 @@ export function BulkSellScreen({
     }, 80);
   }, []);
 
-  useEffect(() => {
-    closedSheetOffsetRef.current = closedSheetOffset;
-    if (!hasInitializedSheetRef.current) {
-      hasInitializedSheetRef.current = true;
-      setSheetOffsetValue(closedSheetOffset);
-      return;
-    }
-
-    if (submitState === 'idle') {
-      setSheetOffsetValue(closedSheetOffset);
-    }
-  }, [closedSheetOffset, setSheetOffsetValue, submitState]);
+  // SWIPE-CONFIRM DISABLED:
+  // useEffect(() => {
+  //   closedSheetOffsetRef.current = closedSheetOffset;
+  //   if (!hasInitializedSheetRef.current) {
+  //     hasInitializedSheetRef.current = true;
+  //     setSheetOffsetValue(closedSheetOffset);
+  //     return;
+  //   }
+  //   if (submitState === 'idle') { setSheetOffsetValue(closedSheetOffset); }
+  // }, [closedSheetOffset, setSheetOffsetValue, submitState]);
 
   const updateLine = useCallback((entryId: string, nextLine: BulkSellLineState) => {
     setLines((current) => ({
@@ -620,10 +604,10 @@ export function BulkSellScreen({
         }
 
         setSubmitState('idle');
-        animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+        // SWIPE-CONFIRM DISABLED: animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
         setScreenErrorMessage(error instanceof Error ? error.message : 'Could not confirm this batch sale.');
       });
-  }, [animateSheetToOffset, entries, lines, onComplete, refreshData, spotlightRepository]);
+  }, [entries, lines, onComplete, refreshData, spotlightRepository]); // SWIPE-CONFIRM DISABLED: removed animateSheetToOffset
 
   const openReviewStep = useCallback(() => {
     if (!canReview) {
@@ -631,64 +615,44 @@ export function BulkSellScreen({
       return;
     }
 
-    syncReleaseToConfirmState(closedSheetOffsetRef.current);
-    animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+    // SWIPE-CONFIRM DISABLED: syncReleaseToConfirmState(closedSheetOffsetRef.current);
+    // SWIPE-CONFIRM DISABLED: animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
     setShowsValidation(false);
     setScreenErrorMessage(null);
     setStage('review');
-  }, [animateSheetToOffset, canReview, syncReleaseToConfirmState]);
+  }, [canReview]);
 
-  const handleAccessibilityConfirm = useCallback(() => {
-    if (!canInteract || stage !== 'review') {
-      return;
-    }
-
-    animateSheetToOffset(0, 'open');
-    submitSale();
-  }, [animateSheetToOffset, canInteract, stage, submitSale]);
-
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gestureState) => (
-      canInteract && stage === 'review' && canStartSellSwipeGesture(gestureState.dx, gestureState.dy)
-    ),
-    onPanResponderGrant: beginGestureInteraction,
-    onPanResponderMove: (_, gestureState) => {
-      if (!canInteract || stage !== 'review') {
-        return;
-      }
-
-      setSheetOffsetValue(closedSheetOffsetRef.current + getResistedSellSwipeTranslation(gestureState.dy));
-    },
-    onPanResponderRelease: (_, gestureState) => {
-      if (!canInteract || stage !== 'review') {
-        return;
-      }
-
-      const upwardTravel = Math.max(0, -gestureState.dy);
-      if (upwardTravel >= submitThreshold) {
-        animateSheetToOffset(0, 'open');
-        submitSale();
-        return;
-      }
-
-      animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
-    },
-    onPanResponderTerminate: () => {
-      if (!canInteract) {
-        return;
-      }
-
-      animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
-    },
-  }), [
-    animateSheetToOffset,
-    beginGestureInteraction,
-    canInteract,
-    setSheetOffsetValue,
-    stage,
-    submitSale,
-    submitThreshold,
-  ]);
+  // SWIPE-CONFIRM DISABLED:
+  // const handleAccessibilityConfirm = useCallback(() => {
+  //   if (!canInteract || stage !== 'review') { return; }
+  //   animateSheetToOffset(0, 'open');
+  //   submitSale();
+  // }, [animateSheetToOffset, canInteract, stage, submitSale]);
+  //
+  // const panResponder = useMemo(() => PanResponder.create({
+  //   onMoveShouldSetPanResponder: (_, gestureState) => (
+  //     canInteract && stage === 'review' && canStartSellSwipeGesture(gestureState.dx, gestureState.dy)
+  //   ),
+  //   onPanResponderGrant: beginGestureInteraction,
+  //   onPanResponderMove: (_, gestureState) => {
+  //     if (!canInteract || stage !== 'review') { return; }
+  //     setSheetOffsetValue(closedSheetOffsetRef.current + getResistedSellSwipeTranslation(gestureState.dy));
+  //   },
+  //   onPanResponderRelease: (_, gestureState) => {
+  //     if (!canInteract || stage !== 'review') { return; }
+  //     const upwardTravel = Math.max(0, -gestureState.dy);
+  //     if (upwardTravel >= submitThreshold) {
+  //       animateSheetToOffset(0, 'open');
+  //       submitSale();
+  //       return;
+  //     }
+  //     animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+  //   },
+  //   onPanResponderTerminate: () => {
+  //     if (!canInteract) { return; }
+  //     animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+  //   },
+  // }), [animateSheetToOffset, beginGestureInteraction, canInteract, setSheetOffsetValue, stage, submitSale, submitThreshold]);
 
   if (isLoading) {
     return (
@@ -729,7 +693,7 @@ export function BulkSellScreen({
           ref={scrollViewRef}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: insets.bottom + sellOrderSwipeRailHeight + 48 },
+            { paddingBottom: insets.bottom + 48 }, // SWIPE-CONFIRM DISABLED: was insets.bottom + sellOrderSwipeRailHeight + 48
           ]}
           keyboardDismissMode="interactive"
           keyboardShouldPersistTaps="always"
@@ -873,6 +837,19 @@ export function BulkSellScreen({
           </TouchableWithoutFeedback>
         </ScrollView>
 
+        <View pointerEvents="box-none" style={styles.reviewButtonDock}>
+          <View style={styles.reviewButtonDockBody}>
+            <Button
+              disabled={!canReview}
+              label={stage === 'draft' ? 'Review sale' : 'Confirm sale'}
+              onPress={stage === 'draft' ? openReviewStep : submitSale}
+              size="lg"
+              style={styles.reviewButton}
+              testID={stage === 'draft' ? 'bulk-sell-review-sale' : 'bulk-sell-confirm-sale'}
+            />
+          </View>
+        </View>
+        {/* SWIPE-CONFIRM DISABLED:
         {stage === 'draft' ? (
           <View pointerEvents="box-none" style={styles.reviewButtonDock}>
             <View style={styles.reviewButtonDockBody}>
@@ -901,6 +878,7 @@ export function BulkSellScreen({
             usesDisabledVisual={railUsesDisabledVisual}
           />
         )}
+        */}
       </View>
     </SafeAreaView>
   );

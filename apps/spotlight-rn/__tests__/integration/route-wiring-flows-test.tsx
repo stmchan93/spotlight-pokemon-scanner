@@ -370,9 +370,9 @@ describe('route wiring flows', () => {
     await enterSingleSellPriceWithCalculator();
     expect(screen.getByText('$12.5')).toBeTruthy();
 
-    const rail = screen.getByTestId('single-sell-swipe-rail');
+    // SWIPE-CONFIRM DISABLED: was triggered via rail accessibility action; using tap button instead
     await act(async () => {
-      rail.props.onAccessibilityAction?.({ nativeEvent: { actionName: 'activate' } });
+      fireEvent.press(screen.getByTestId('single-sell-tap-confirm'));
     });
 
     expect(screen.getByText('Processing sale')).toBeTruthy();
@@ -410,9 +410,9 @@ describe('route wiring flows', () => {
     fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
     expect(await screen.findByText('Review before confirm')).toBeTruthy();
 
-    const rail = screen.getByTestId('bulk-sell-swipe-rail');
+    // SWIPE-CONFIRM DISABLED: was triggered via rail accessibility action; using confirm button instead
     await act(async () => {
-      rail.props.onAccessibilityAction?.({ nativeEvent: { actionName: 'activate' } });
+      fireEvent.press(screen.getByTestId('bulk-sell-confirm-sale'));
     });
 
     expect(screen.getByText('Processing sale')).toBeTruthy();

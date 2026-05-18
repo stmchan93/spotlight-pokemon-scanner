@@ -26,14 +26,14 @@ import {
 
 import Svg, { Defs, LinearGradient, Path, Rect, Stop } from 'react-native-svg';
 
-import type { InventoryCardEntry } from '@spotlight/api-client';
+import type { InventoryCardEntry, PaymentMethod } from '@spotlight/api-client';
 import { Button, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   buildSellMetadataTokens,
   evaluateSellCalculatorExpression,
   formatEditableSellPrice,
-  getSellSwipeConfirmThreshold,
+  // SWIPE-CONFIRM DISABLED: getSellSwipeConfirmThreshold,
   sanitizeSellPriceText,
   type SellMetadataToken,
 } from '@/features/sell/sell-order-helpers';
@@ -122,6 +122,7 @@ type SellFormFieldsProps = {
 type SellStatusOverlayProps = {
   detail: string;
   headline: string;
+  method?: PaymentMethod | null;
   state: 'processing' | 'success';
   testIDPrefix: string;
   title: string;
@@ -135,21 +136,22 @@ type SellIdentityChipsProps = {
   testIDPrefix: string;
 };
 
-type AnimatedNumericValue = Animated.Value | Animated.AnimatedInterpolation<number>;
-
-type SellSwipeConfirmationSheetProps = {
-  bottomInset: number;
-  disabled: boolean;
-  onAccessibilityConfirm: () => void;
-  panHandlers?: GestureResponderHandlers;
-  prompt: string;
-  promptOpacity: AnimatedNumericValue;
-  promptScale: AnimatedNumericValue;
-  swipeSheetHeight: number;
-  testIDPrefix: string;
-  translateY: AnimatedNumericValue;
-  usesDisabledVisual?: boolean;
-};
+// SWIPE-CONFIRM DISABLED:
+// type AnimatedNumericValue = Animated.Value | Animated.AnimatedInterpolation<number>;
+//
+// type SellSwipeConfirmationSheetProps = {
+//   bottomInset: number;
+//   disabled: boolean;
+//   onAccessibilityConfirm: () => void;
+//   panHandlers?: GestureResponderHandlers;
+//   prompt: string;
+//   promptOpacity: AnimatedNumericValue;
+//   promptScale: AnimatedNumericValue;
+//   swipeSheetHeight: number;
+//   testIDPrefix: string;
+//   translateY: AnimatedNumericValue;
+//   usesDisabledVisual?: boolean;
+// };
 
 function TransactionPhotoCameraKeepAwake({
   testIDPrefix,
@@ -288,14 +290,25 @@ export function SellBackdrop({
   );
 }
 
+const PAYMENT_METHOD_LABELS: Partial<Record<PaymentMethod, string>> = {
+  venmo: 'Venmo',
+  cashapp: 'Cash App',
+  paypal: 'PayPal',
+  zelle: 'Zelle',
+  cash: 'Cash',
+};
+
 export function SellStatusOverlay({
   detail,
   headline,
+  method,
   state,
   testIDPrefix,
   title,
 }: SellStatusOverlayProps) {
   const theme = useSpotlightTheme();
+
+  const methodLabel = state === 'success' && method ? PAYMENT_METHOD_LABELS[method] ?? null : null;
 
   return (
     <View
@@ -310,83 +323,88 @@ export function SellStatusOverlay({
             <ActivityIndicator color="rgba(0, 0, 0, 0.78)" size="large" />
           )}
         </View>
-        <Text style={[theme.typography.caption, styles.statusOverlayTitle]}>{title}</Text>
-        <Text style={[theme.typography.bodyStrong, styles.statusOverlayHeadline]}>{headline}</Text>
-        <Text style={[theme.typography.body, styles.statusOverlayDetail]}>{detail}</Text>
+        <Text style={[theme.typography.bodyStrong, styles.statusOverlayTitle]}>{title}</Text>
+        <Text style={[theme.typography.title, styles.statusOverlayHeadline]}>{headline}</Text>
+        {detail ? <Text style={[theme.typography.bodyStrong, styles.statusOverlayDetail]}>{detail}</Text> : null}
+        {methodLabel ? (
+          <Text style={[theme.typography.body, styles.statusOverlayMethod]}>
+            {`Logged via ${methodLabel}`}
+          </Text>
+        ) : null}
       </View>
     </View>
   );
 }
 
-export function SellSwipeConfirmationSheet({
-  bottomInset,
-  disabled,
-  onAccessibilityConfirm,
-  panHandlers,
-  prompt,
-  promptOpacity,
-  promptScale,
-  swipeSheetHeight,
-  testIDPrefix,
-  translateY,
-  usesDisabledVisual = false,
-}: SellSwipeConfirmationSheetProps) {
-  const theme = useSpotlightTheme();
-
-  return (
-    <View pointerEvents="box-none" style={styles.swipeSheetWrap}>
-      <Animated.View
-        accessibilityActions={[{ name: 'activate', label: 'Confirm sale' }]}
-        accessibilityRole="button"
-        accessibilityState={{ disabled }}
-        onAccessibilityAction={(event) => {
-          if (event.nativeEvent.actionName === 'activate') {
-            onAccessibilityConfirm();
-          }
-        }}
-        style={[
-          styles.swipeSheet,
-          {
-            backgroundColor: usesDisabledVisual ? theme.colors.field : theme.colors.brand,
-            height: swipeSheetHeight,
-            paddingBottom: bottomInset + 16,
-            transform: [{ translateY }],
-          },
-        ]}
-        testID={`${testIDPrefix}-swipe-rail`}
-      >
-        <Animated.View
-          pointerEvents="box-none"
-          style={[
-            styles.confirmationPrompt,
-            {
-              opacity: promptOpacity,
-              transform: [{ scale: promptScale }],
-            },
-          ]}
-          testID={`${testIDPrefix}-confirmation-prompt`}
-        >
-          <View
-            {...panHandlers}
-            style={styles.swipeGestureZone}
-            testID={`${testIDPrefix}-swipe-handle`}
-          >
-            <Text style={[styles.swipeChevron, usesDisabledVisual ? styles.swipeChevronDisabled : null]}>⌃</Text>
-          </View>
-          <Text
-            style={[
-              theme.typography.body,
-              styles.swipeRailTitle,
-              usesDisabledVisual ? styles.swipeRailTitleDisabled : null,
-            ]}
-          >
-            {prompt}
-          </Text>
-        </Animated.View>
-      </Animated.View>
-    </View>
-  );
-}
+// SWIPE-CONFIRM DISABLED:
+// export function SellSwipeConfirmationSheet({
+//   bottomInset,
+//   disabled,
+//   onAccessibilityConfirm,
+//   panHandlers,
+//   prompt,
+//   promptOpacity,
+//   promptScale,
+//   swipeSheetHeight,
+//   testIDPrefix,
+//   translateY,
+//   usesDisabledVisual = false,
+// }: SellSwipeConfirmationSheetProps) {
+//   const theme = useSpotlightTheme();
+//   return (
+//     <View pointerEvents="box-none" style={styles.swipeSheetWrap}>
+//       <Animated.View
+//         accessibilityActions={[{ name: 'activate', label: 'Confirm sale' }]}
+//         accessibilityRole="button"
+//         accessibilityState={{ disabled }}
+//         onAccessibilityAction={(event) => {
+//           if (event.nativeEvent.actionName === 'activate') {
+//             onAccessibilityConfirm();
+//           }
+//         }}
+//         style={[
+//           styles.swipeSheet,
+//           {
+//             backgroundColor: usesDisabledVisual ? theme.colors.field : theme.colors.brand,
+//             height: swipeSheetHeight,
+//             paddingBottom: bottomInset + 16,
+//             transform: [{ translateY }],
+//           },
+//         ]}
+//         testID={`${testIDPrefix}-swipe-rail`}
+//       >
+//         <Animated.View
+//           pointerEvents="box-none"
+//           style={[
+//             styles.confirmationPrompt,
+//             {
+//               opacity: promptOpacity,
+//               transform: [{ scale: promptScale }],
+//             },
+//           ]}
+//           testID={`${testIDPrefix}-confirmation-prompt`}
+//         >
+//           <View
+//             {...panHandlers}
+//             style={styles.swipeGestureZone}
+//             testID={`${testIDPrefix}-swipe-handle`}
+//           >
+//             <Text style={[styles.swipeChevron, usesDisabledVisual ? styles.swipeChevronDisabled : null]}>⌃</Text>
+//           </View>
+//           <Text
+//             style={[
+//               theme.typography.body,
+//               styles.swipeRailTitle,
+//               usesDisabledVisual ? styles.swipeRailTitleDisabled : null,
+//             ]}
+//           >
+//             {prompt}
+//           </Text>
+//         </Animated.View>
+//       </Animated.View>
+//     </View>
+//   );
+// }
 
 export function SellStepperButton({
   disabled,
@@ -1176,7 +1194,7 @@ export function SellTransactionPhotoCapture({
     >
       <View style={styles.photoRow}>
         <View style={styles.photoCopy}>
-          <Text style={[theme.typography.headline, styles.photoTitle]}>Photo (optional)</Text>
+          <Text style={[theme.typography.headline, styles.photoTitle]}>Photo</Text>
         </View>
 
         {photoUri ? (
@@ -1761,33 +1779,33 @@ const styles = StyleSheet.create({
   },
   statusOverlayCheckmark: {
     color: 'rgba(0, 0, 0, 0.84)',
-    fontSize: 32,
+    fontSize: 52,
     fontWeight: '800',
-    lineHeight: 36,
+    lineHeight: 60,
   },
   statusOverlayDetail: {
     color: 'rgba(0, 0, 0, 0.66)',
-    fontSize: 16,
-    lineHeight: 22,
+    textAlign: 'center',
+  },
+  statusOverlayMethod: {
+    color: 'rgba(0, 0, 0, 0.48)',
+    marginTop: 6,
     textAlign: 'center',
   },
   statusOverlayHeadline: {
     color: 'rgba(0, 0, 0, 0.9)',
-    fontSize: 18,
-    lineHeight: 22,
     textAlign: 'center',
   },
   statusOverlayIconWrap: {
     alignItems: 'center',
-    height: 44,
+    height: 64,
     justifyContent: 'center',
     marginBottom: 20,
   },
   statusOverlayTitle: {
     color: 'rgba(0, 0, 0, 0.58)',
-    fontSize: 14,
-    lineHeight: 18,
     marginBottom: 10,
+    textAlign: 'center',
   },
   swipeChevron: {
     color: 'rgba(15, 15, 18, 0.7)',

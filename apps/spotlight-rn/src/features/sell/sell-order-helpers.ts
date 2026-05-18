@@ -4,9 +4,10 @@ import { resolveConditionDisplayLabel } from '@/lib/condition-display';
 
 export const sellOrderProcessingMinimumDurationMs = 1600;
 export const sellOrderSuccessDisplayDurationMs = 1100;
-export const sellOrderSwipeThreshold = 92;
-export const sellOrderSwipeRailHeight = 48;
-export const sellSwipeCollapsedHeight = sellOrderSwipeRailHeight;
+// SWIPE-CONFIRM DISABLED:
+// export const sellOrderSwipeThreshold = 92;
+// export const sellOrderSwipeRailHeight = 48;
+// export const sellSwipeCollapsedHeight = sellOrderSwipeRailHeight;
 
 export type SingleSellStatusCopy = {
   title: string;
@@ -212,42 +213,42 @@ export function evaluateSellCalculatorExpression(expression: string) {
   return Math.round(result * 100) / 100;
 }
 
-export function getSellSwipeConfirmThreshold(containerHeight: number) {
-  return Math.max(sellOrderSwipeThreshold, containerHeight * 0.5);
-}
+// SWIPE-CONFIRM DISABLED:
+// export function getSellSwipeConfirmThreshold(containerHeight: number) {
+//   return Math.max(sellOrderSwipeThreshold, containerHeight * 0.5);
+// }
 
 export function canStartSellSheetDismissGesture(dx: number, dy: number) {
   return dy > 8 && Math.abs(dy) > Math.abs(dx);
 }
 
-export function canStartSellSwipeGesture(dx: number, dy: number) {
-  return dy < -6 && Math.abs(dy) > Math.abs(dx);
-}
-
-export function getSellSwipeArmThresholdRatio(containerHeight: number, closedSheetOffset: number) {
-  if (closedSheetOffset <= 0) {
-    return 1;
-  }
-
-  return Math.min(1, getSellSwipeConfirmThreshold(containerHeight) / closedSheetOffset);
-}
-
-export function isSellSwipeReleaseArmed(
-  nextOffset: number,
-  closedSheetOffset: number,
-  armThresholdRatio: number,
-) {
-  return closedSheetOffset > 0
-    && (1 - (nextOffset / closedSheetOffset)) >= armThresholdRatio;
-}
-
-export function getResistedSellSwipeTranslation(translation: number) {
-  if (translation < 0) {
-    return translation * 0.88;
-  }
-
-  return translation * 0.35;
-}
+// SWIPE-CONFIRM DISABLED:
+// export function canStartSellSwipeGesture(dx: number, dy: number) {
+//   return dy < -6 && Math.abs(dy) > Math.abs(dx);
+// }
+//
+// export function getSellSwipeArmThresholdRatio(containerHeight: number, closedSheetOffset: number) {
+//   if (closedSheetOffset <= 0) {
+//     return 1;
+//   }
+//   return Math.min(1, getSellSwipeConfirmThreshold(containerHeight) / closedSheetOffset);
+// }
+//
+// export function isSellSwipeReleaseArmed(
+//   nextOffset: number,
+//   closedSheetOffset: number,
+//   armThresholdRatio: number,
+// ) {
+//   return closedSheetOffset > 0
+//     && (1 - (nextOffset / closedSheetOffset)) >= armThresholdRatio;
+// }
+//
+// export function getResistedSellSwipeTranslation(translation: number) {
+//   if (translation < 0) {
+//     return translation * 0.88;
+//   }
+//   return translation * 0.35;
+// }
 
 export function formatSellOrderBoughtPriceLabel(
   value: number | null | undefined,
@@ -343,7 +344,7 @@ export function buildSingleSellStatusCopy({
   return {
     title: 'Processing sale',
     headline: `Selling ${totalLabel}`,
-    detail: quantity === 1 ? 'Locking in the sale.' : `Locking in ${quantity} cards.`,
+    detail: '',
   };
 }
 

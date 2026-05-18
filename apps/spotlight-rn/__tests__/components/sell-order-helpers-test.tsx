@@ -9,9 +9,9 @@ import {
   evaluateSellCalculatorExpression,
   formatEditableSellPrice,
   formatSellOrderBoughtPriceLabel,
-  getSellSwipeArmThresholdRatio,
-  getSellSwipeConfirmThreshold,
-  isSellSwipeReleaseArmed,
+  // SWIPE-CONFIRM DISABLED: getSellSwipeArmThresholdRatio,
+  // SWIPE-CONFIRM DISABLED: getSellSwipeConfirmThreshold,
+  // SWIPE-CONFIRM DISABLED: isSellSwipeReleaseArmed,
   parseSellPrice,
   scheduleSellStatusCompletion,
   sanitizeSellPriceText,
@@ -30,22 +30,22 @@ describe('sell order helpers', () => {
     expect(formatEditableSellPrice(10)).toBe('10');
     expect(formatEditableSellPrice(10.5)).toBe('10.5');
     expect(buildOfferToYourPricePercentText(0.45, 0.51)).toBe('88.23% YP');
-    expect(getSellSwipeConfirmThreshold(844)).toBe(422);
-    expect(getSellSwipeConfirmThreshold(160)).toBe(92);
+    // SWIPE-CONFIRM DISABLED: expect(getSellSwipeConfirmThreshold(844)).toBe(422);
+    // SWIPE-CONFIRM DISABLED: expect(getSellSwipeConfirmThreshold(160)).toBe(92);
     expect(formatSellOrderBoughtPriceLabel(8.25, '$8.25', false)).toBe('*****');
     expect(formatSellOrderBoughtPriceLabel(8.25, '$8.25', true)).toBe('$8.25');
     expect(formatSellOrderBoughtPriceLabel(null, '$0.00', false)).toBe('--');
   });
 
-  it('arms sell release only after the 50%-of-screen threshold is crossed', () => {
-    const containerHeight = 844;
-    const closedSheetOffset = containerHeight - 48;
-    const armThresholdRatio = getSellSwipeArmThresholdRatio(containerHeight, closedSheetOffset);
-
-    expect(armThresholdRatio).toBeCloseTo(422 / 796, 4);
-    expect(isSellSwipeReleaseArmed(460, closedSheetOffset, armThresholdRatio)).toBe(false);
-    expect(isSellSwipeReleaseArmed(360, closedSheetOffset, armThresholdRatio)).toBe(true);
-  });
+  // SWIPE-CONFIRM DISABLED:
+  // it('arms sell release only after the 50%-of-screen threshold is crossed', () => {
+  //   const containerHeight = 844;
+  //   const closedSheetOffset = containerHeight - 48;
+  //   const armThresholdRatio = getSellSwipeArmThresholdRatio(containerHeight, closedSheetOffset);
+  //   expect(armThresholdRatio).toBeCloseTo(422 / 796, 4);
+  //   expect(isSellSwipeReleaseArmed(460, closedSheetOffset, armThresholdRatio)).toBe(false);
+  //   expect(isSellSwipeReleaseArmed(360, closedSheetOffset, armThresholdRatio)).toBe(true);
+  // });
 
   it('evaluates calculator expressions safely', () => {
     expect(evaluateSellCalculatorExpression('2+3*4')).toBe(14);

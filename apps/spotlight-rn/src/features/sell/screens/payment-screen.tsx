@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Pressable,
@@ -19,15 +19,17 @@ import {
 } from '@spotlight/design-system';
 
 import { useAppServices } from '@/providers/app-providers';
+import { ChromeBackButton } from '@/components/chrome-back-button';
+import { consumePendingSalePayload } from '@/features/sell/pending-sale-session';
+import { SellStatusOverlay } from '@/features/sell/components/sell-ui';
 
 type PaymentScreenProps = {
-  saleId: string;
   method: PaymentMethod;
   amount: number;
   currencyCode: string;
   memo: string;
   onCancel: () => void;
-  onConfirmed: () => void;
+  onConfirmed: (method: PaymentMethod) => void;
 };
 
 function buildPaymentUrl(method: PaymentMethod, handles: VendorWalletHandles, amount: number, memo: string): string | null {
@@ -65,7 +67,6 @@ function formatCurrency(amount: number, currencyCode: string) {
 }
 
 export function PaymentScreen({
-  saleId,
   method,
   amount,
   currencyCode,
@@ -80,55 +81,86 @@ export function PaymentScreen({
   const [isVoiding, setIsVoiding] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const saleIdRef = useRef<string | null>(null);
+  const saleCreationPromise = useRef<Promise<string> | null>(null);
+  const [showReceipt, setShowReceipt] = useState(false);
+
   useEffect(() => {
-    let cancelled = false;
+    let cancelledHandles = false;
+
+    // Kick off background sale creation from pending payload
+    const payload = consumePendingSalePayload();
+    if (payload) {
+      const promise = spotlightRepository.createPortfolioSale(payload).then((response) => {
+        saleIdRef.current = response.saleID;
+        return response.saleID;
+      });
+      saleCreationPromise.current = promise;
+    }
+
+    // Fetch wallet handles in parallel
     setIsLoading(true);
     void spotlightRepository.getVendorWalletHandles()
       .then((next) => {
-        if (cancelled) return;
+        if (cancelledHandles) return;
         setHandles(next);
       })
       .catch((failure) => {
-        if (cancelled) return;
+        if (cancelledHandles) return;
         setError(failure instanceof Error ? failure.message : 'Could not load wallet handles.');
       })
       .finally(() => {
-        if (!cancelled) {
+        if (!cancelledHandles) {
           setIsLoading(false);
         }
       });
+
     return () => {
-      cancelled = true;
+      cancelledHandles = true;
     };
-  }, [spotlightRepository]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleMarkPaid = useCallback(async () => {
     if (isConfirming) return;
     setIsConfirming(true);
     setError(null);
     try {
+      let saleId = saleIdRef.current;
+      if (!saleId) {
+        if (saleCreationPromise.current) {
+          saleId = await saleCreationPromise.current;
+        } else {
+          throw new Error('Sale could not be created.');
+        }
+      }
       await spotlightRepository.markSalePaid(saleId);
-      onConfirmed();
+      setShowReceipt(true);
+      setTimeout(() => onConfirmed(method), 1500);
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : 'Could not mark sale paid.');
     } finally {
       setIsConfirming(false);
     }
-  }, [isConfirming, onConfirmed, saleId, spotlightRepository]);
+  }, [isConfirming, method, onConfirmed, spotlightRepository]);
 
   const handleCancel = useCallback(async () => {
     if (isVoiding) return;
     setIsVoiding(true);
     setError(null);
     try {
-      await spotlightRepository.voidSale(saleId);
+      const saleId = saleIdRef.current;
+      if (saleId) {
+        await spotlightRepository.voidSale(saleId);
+      }
+      // If sale not created yet, just cancel — no void needed
     } catch {
       // Best-effort void; back out either way.
     } finally {
       setIsVoiding(false);
       onCancel();
     }
-  }, [isVoiding, onCancel, saleId, spotlightRepository]);
+  }, [isVoiding, onCancel, spotlightRepository]);
 
   const copyToClipboard = useCallback(async (value: string) => {
     try {
@@ -157,22 +189,21 @@ export function PaymentScreen({
       : null
     : null;
 
+  const titleText = recipientLabel
+    ? `Pay ${amountLabel} to ${recipientLabel}`
+    : `Pay ${amountLabel} with ${methodDisplayName(method)}`;
+
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.headerRow}>
-        <Pressable
-          accessibilityLabel="Cancel payment"
-          disabled={isVoiding}
+        <ChromeBackButton
           onPress={() => void handleCancel()}
-          style={styles.cancelButton}
-          testID="payment-cancel"
-        >
-          <Text style={styles.cancelLabel}>Cancel</Text>
-        </Pressable>
+          testID="payment-back"
+        />
       </View>
       <ScrollView contentContainerStyle={styles.scrollContent}>
         <Text style={styles.title} testID="payment-title">
-          Pay {amountLabel} with {methodDisplayName(method)}
+          {titleText}
         </Text>
 
         {isLoading ? (
@@ -212,14 +243,11 @@ export function PaymentScreen({
             {recipientLabel ? (
               <Text style={styles.recipientHandle}>{recipientLabel}</Text>
             ) : null}
-            <Text style={styles.helpText}>
-              Buyer: point your camera at the QR code.
-            </Text>
           </SurfaceCard>
         ) : (
           <SurfaceCard padding={20} radius={24} style={styles.card}>
             <Text style={styles.errorText}>
-              No {methodDisplayName(method)} handle saved. Set one up in Account → Sell setup.
+              No {methodDisplayName(method)} handle saved. Set one up in Account → Payment handles.
             </Text>
           </SurfaceCard>
         )}
@@ -232,7 +260,7 @@ export function PaymentScreen({
 
         <Button
           contentStyle={styles.confirmContent}
-          disabled={isConfirming || isVoiding}
+          disabled={isConfirming}
           label={isConfirming ? 'Confirming…' : 'Buyer paid ✓'}
           onPress={() => void handleMarkPaid()}
           size="lg"
@@ -240,7 +268,36 @@ export function PaymentScreen({
           testID="payment-confirm"
           variant="primary"
         />
+
+        <Button
+          disabled={isVoiding}
+          label={isVoiding ? 'Cancelling…' : 'Cancel'}
+          labelStyle={styles.cancelLabel}
+          onPress={() => void handleCancel()}
+          size="lg"
+          style={styles.cancelButton}
+          testID="payment-cancel"
+          variant="secondary"
+        />
       </ScrollView>
+
+      {showReceipt ? (
+        <Pressable
+          accessibilityLabel="Dismiss confirmation"
+          onPress={() => onConfirmed(method)}
+          style={styles.receiptOverlay}
+          testID="payment-receipt-dismiss"
+        >
+          <SellStatusOverlay
+            detail={`${amountLabel} · ${methodDisplayName(method)}`}
+            headline={memo}
+            method={method}
+            state="success"
+            testIDPrefix="payment"
+            title="SOLD"
+          />
+        </Pressable>
+      ) : null}
     </SafeAreaView>
   );
 }
@@ -275,12 +332,20 @@ function CopyRow({ label, value, onCopy, testID }: CopyRowProps) {
 
 const styles = StyleSheet.create({
   cancelButton: {
-    paddingHorizontal: 8,
-    paddingVertical: 8,
+    backgroundColor: colors.danger,
+    borderColor: colors.danger,
+    marginTop: 12,
+    width: '100%',
   },
   cancelLabel: {
-    ...textStyles.control,
-    color: colors.textSecondary,
+    color: colors.textPrimary,
+  },
+  headerRow: {
+    paddingHorizontal: 12,
+    paddingTop: 8,
+  },
+  receiptOverlay: {
+    ...StyleSheet.absoluteFillObject,
   },
   card: {
     alignItems: 'center',
@@ -328,13 +393,6 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginTop: 12,
     textAlign: 'center',
-  },
-  headerRow: {
-    alignItems: 'flex-end',
-    flexDirection: 'row',
-    justifyContent: 'flex-end',
-    paddingHorizontal: 12,
-    paddingVertical: 8,
   },
   helpText: {
     ...textStyles.caption,

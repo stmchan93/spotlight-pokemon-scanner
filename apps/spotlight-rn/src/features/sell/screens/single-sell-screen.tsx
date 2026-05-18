@@ -28,29 +28,29 @@ import { formatCurrency, formatOptionalCurrency } from '@/features/portfolio/com
 import {
   buildSingleSellStatusCopy,
   canStartSellSheetDismissGesture,
-  canStartSellSwipeGesture,
+  // SWIPE-CONFIRM DISABLED: canStartSellSwipeGesture,
   formatEditableSellPrice,
   formatSellOrderBoughtPriceLabel,
-  getSellSwipeArmThresholdRatio,
-  getResistedSellSwipeTranslation,
-  getSellSwipeConfirmThreshold,
-  isSellSwipeReleaseArmed,
+  // SWIPE-CONFIRM DISABLED: getSellSwipeArmThresholdRatio,
+  // SWIPE-CONFIRM DISABLED: getResistedSellSwipeTranslation,
+  // SWIPE-CONFIRM DISABLED: getSellSwipeConfirmThreshold,
+  // SWIPE-CONFIRM DISABLED: isSellSwipeReleaseArmed,
   parseSellPrice,
   scheduleSellStatusCompletion,
   slabGradeSummary,
   sellOrderProcessingMinimumDurationMs,
-  sellOrderSwipeRailHeight,
+  // SWIPE-CONFIRM DISABLED: sellOrderSwipeRailHeight,
 } from '@/features/sell/sell-order-helpers';
 import {
   SellBackdrop,
   SellFormFields,
   SellIdentityChips,
   SellStatusOverlay,
-  SellSwipeConfirmationSheet,
+  // SWIPE-CONFIRM DISABLED: SellSwipeConfirmationSheet,
   triggerSellHaptic,
 } from '@/features/sell/components/sell-ui';
-import { MarketInfoSection } from '@/features/sell/components/market-info-section';
 import { WalletHandleSetupModal } from '@/features/sell/components/wallet-handle-setup-modal';
+import { setPendingSalePayload } from '@/features/sell/pending-sale-session';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { useAppServices } from '@/providers/app-providers';
 
@@ -62,7 +62,6 @@ const soldPriceValidationMessage = 'Enter a sell price before confirming sale.';
 type SingleSellScreenProps = {
   entryId: string;
   cardId?: string;
-  fromScan?: boolean;
   onClose: () => void;
   onComplete: () => void;
 };
@@ -107,7 +106,6 @@ function patchEntryCostBasis(
 export function SingleSellScreen({
   entryId,
   cardId,
-  fromScan = false,
   onClose,
   onComplete,
 }: SingleSellScreenProps) {
@@ -127,7 +125,7 @@ export function SingleSellScreen({
   const [showsSoldPriceValidation, setShowsSoldPriceValidation] = useState(false);
   const [submitState, setSubmitState] = useState<'idle' | 'processing' | 'success'>('idle');
   const [isEditingField, setIsEditingField] = useState(false);
-  const [releaseToConfirmArmed, setReleaseToConfirmArmed] = useState(false);
+  // SWIPE-CONFIRM DISABLED: const [releaseToConfirmArmed, setReleaseToConfirmArmed] = useState(false);
   const [isBoughtPriceEditorVisible, setIsBoughtPriceEditorVisible] = useState(false);
   const [boughtPriceDraftText, setBoughtPriceDraftText] = useState('');
   const [boughtPriceErrorMessage, setBoughtPriceErrorMessage] = useState<string | null>(null);
@@ -197,13 +195,13 @@ export function SingleSellScreen({
   const processingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const focusScrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const isMountedRef = useRef(true);
-  const hasInitializedSheetRef = useRef(false);
-  const closedSheetOffsetRef = useRef(0);
-  const releaseToConfirmArmedRef = useRef(false);
+  // SWIPE-CONFIRM DISABLED: const hasInitializedSheetRef = useRef(false);
+  // SWIPE-CONFIRM DISABLED: const closedSheetOffsetRef = useRef(0);
+  // SWIPE-CONFIRM DISABLED: const releaseToConfirmArmedRef = useRef(false);
   const scrollViewRef = useRef<ScrollView | null>(null);
   const boughtPriceInputRef = useRef<TextInput | null>(null);
   const dismissOffset = useRef(new Animated.Value(0)).current;
-  const sheetOffset = useRef(new Animated.Value(0)).current;
+  // SWIPE-CONFIRM DISABLED: const sheetOffset = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     return () => {
@@ -229,8 +227,7 @@ export function SingleSellScreen({
       if (!cardId) {
         return null;
       }
-      const matches = await spotlightRepository.searchCatalogCards(cardId, 1);
-      const match = matches.find((card) => card.cardId === cardId) ?? matches[0] ?? null;
+      const match = await spotlightRepository.getCardDetail({ cardId });
       if (!match) {
         return null;
       }
@@ -241,9 +238,9 @@ export function SingleSellScreen({
         cardNumber: match.cardNumber,
         setName: match.setName,
         imageUrl: match.imageUrl,
-        marketPrice: match.marketPrice ?? 0,
-        hasMarketPrice: typeof match.marketPrice === 'number',
-        currencyCode: match.currencyCode ?? 'USD',
+        marketPrice: match.marketPrice,
+        hasMarketPrice: true,
+        currencyCode: match.currencyCode,
         quantity: 1,
         addedAt: new Date().toISOString(),
         kind: 'raw',
@@ -271,7 +268,7 @@ export function SingleSellScreen({
         setScreenErrorMessage(null);
         setShowsSoldPriceValidation(false);
         setSubmitState('idle');
-        setReleaseToConfirmArmed(false);
+        // SWIPE-CONFIRM DISABLED: setReleaseToConfirmArmed(false);
         setIsEditingField(false);
         setIsBoughtPriceEditorVisible(false);
         setBoughtPriceDraftText(
@@ -311,37 +308,38 @@ export function SingleSellScreen({
   }, [quantity, soldPrice]);
 
   const containerHeight = Math.max(0, windowHeight - insets.top - insets.bottom);
-  const submitThreshold = getSellSwipeConfirmThreshold(containerHeight);
-  const closedSheetOffset = Math.max(0, containerHeight - sellOrderSwipeRailHeight);
-  const releaseArmThresholdRatio = getSellSwipeArmThresholdRatio(containerHeight, closedSheetOffset);
-  const contentLiftDistance = Math.max(0, Math.min(containerHeight, closedSheetOffset + sellOrderSwipeRailHeight));
-  const swipeSheetHeight = containerHeight + insets.bottom;
+  // SWIPE-CONFIRM DISABLED: const submitThreshold = getSellSwipeConfirmThreshold(containerHeight);
+  // SWIPE-CONFIRM DISABLED: const closedSheetOffset = Math.max(0, containerHeight - sellOrderSwipeRailHeight);
+  // SWIPE-CONFIRM DISABLED: const releaseArmThresholdRatio = getSellSwipeArmThresholdRatio(containerHeight, closedSheetOffset);
+  // SWIPE-CONFIRM DISABLED: const contentLiftDistance = Math.max(0, Math.min(containerHeight, closedSheetOffset + sellOrderSwipeRailHeight));
+  // SWIPE-CONFIRM DISABLED: const swipeSheetHeight = containerHeight + insets.bottom;
   const canInteract = submitState === 'idle';
   const soldPriceErrorMessage = showsSoldPriceValidation ? soldPriceValidationMessage : null;
 
-  const confirmationProgress = useMemo(() => sheetOffset.interpolate({
-    inputRange: [0, Math.max(1, closedSheetOffset)],
-    outputRange: [1, 0],
-    extrapolate: 'clamp',
-  }), [closedSheetOffset, sheetOffset]);
-
-  const confirmationContentLift = useMemo(() => confirmationProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [0, -contentLiftDistance],
-    extrapolate: 'clamp',
-  }), [confirmationProgress, contentLiftDistance]);
-
-  const confirmationPromptOpacity = useMemo(() => confirmationProgress.interpolate({
-    inputRange: [0, 0.73, 1],
-    outputRange: [1, 0.16, 0.16],
-    extrapolate: 'clamp',
-  }), [confirmationProgress]);
-
-  const confirmationPromptScale = useMemo(() => confirmationProgress.interpolate({
-    inputRange: [0, 1],
-    outputRange: [1, 0.9],
-    extrapolate: 'clamp',
-  }), [confirmationProgress]);
+  // SWIPE-CONFIRM DISABLED:
+  // const confirmationProgress = useMemo(() => sheetOffset.interpolate({
+  //   inputRange: [0, Math.max(1, closedSheetOffset)],
+  //   outputRange: [1, 0],
+  //   extrapolate: 'clamp',
+  // }), [closedSheetOffset, sheetOffset]);
+  //
+  // const confirmationContentLift = useMemo(() => confirmationProgress.interpolate({
+  //   inputRange: [0, 1],
+  //   outputRange: [0, -contentLiftDistance],
+  //   extrapolate: 'clamp',
+  // }), [confirmationProgress, contentLiftDistance]);
+  //
+  // const confirmationPromptOpacity = useMemo(() => confirmationProgress.interpolate({
+  //   inputRange: [0, 0.73, 1],
+  //   outputRange: [1, 0.16, 0.16],
+  //   extrapolate: 'clamp',
+  // }), [confirmationProgress]);
+  //
+  // const confirmationPromptScale = useMemo(() => confirmationProgress.interpolate({
+  //   inputRange: [0, 1],
+  //   outputRange: [1, 0.9],
+  //   extrapolate: 'clamp',
+  // }), [confirmationProgress]);
 
   const statusCopy = useMemo(() => {
     if (!displayEntry) {
@@ -361,49 +359,39 @@ export function SingleSellScreen({
     });
   }, [displayEntry, quantity, soldTotal, submitState]);
 
-  const syncReleaseToConfirmState = useCallback((nextOffset: number) => {
-    const nextState = isSellSwipeReleaseArmed(
-      nextOffset,
-      closedSheetOffsetRef.current,
-      releaseArmThresholdRatio,
-    );
-    if (nextState === releaseToConfirmArmedRef.current) {
-      return;
-    }
-
-    if (nextState) {
-      void triggerSellHaptic('armed');
-    }
-
-    releaseToConfirmArmedRef.current = nextState;
-    setReleaseToConfirmArmed(nextState);
-  }, [releaseArmThresholdRatio]);
-
-  const setSheetOffsetValue = useCallback((nextOffset: number) => {
-    const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
-    sheetOffset.setValue(clampedOffset);
-    syncReleaseToConfirmState(clampedOffset);
-  }, [sheetOffset, syncReleaseToConfirmState]);
-
-  const animateSheetToOffset = useCallback((
-    nextOffset: number,
-    motion: 'open' | 'closed',
-  ) => {
-    const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
-    syncReleaseToConfirmState(clampedOffset);
-    Animated.spring(sheetOffset, {
-      toValue: clampedOffset,
-      stiffness: motion === 'open' ? 220 : 260,
-      damping: motion === 'open' ? 24 : 30,
-      mass: 1,
-      overshootClamping: false,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (finished) {
-        syncReleaseToConfirmState(clampedOffset);
-      }
-    });
-  }, [sheetOffset, syncReleaseToConfirmState]);
+  // SWIPE-CONFIRM DISABLED:
+  // const syncReleaseToConfirmState = useCallback((nextOffset: number) => {
+  //   const nextState = isSellSwipeReleaseArmed(
+  //     nextOffset,
+  //     closedSheetOffsetRef.current,
+  //     releaseArmThresholdRatio,
+  //   );
+  //   if (nextState === releaseToConfirmArmedRef.current) { return; }
+  //   if (nextState) { void triggerSellHaptic('armed'); }
+  //   releaseToConfirmArmedRef.current = nextState;
+  //   setReleaseToConfirmArmed(nextState);
+  // }, [releaseArmThresholdRatio]);
+  //
+  // const setSheetOffsetValue = useCallback((nextOffset: number) => {
+  //   const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
+  //   sheetOffset.setValue(clampedOffset);
+  //   syncReleaseToConfirmState(clampedOffset);
+  // }, [sheetOffset, syncReleaseToConfirmState]);
+  //
+  // const animateSheetToOffset = useCallback((nextOffset: number, motion: 'open' | 'closed') => {
+  //   const clampedOffset = Math.min(Math.max(0, nextOffset), closedSheetOffsetRef.current);
+  //   syncReleaseToConfirmState(clampedOffset);
+  //   Animated.spring(sheetOffset, {
+  //     toValue: clampedOffset,
+  //     stiffness: motion === 'open' ? 220 : 260,
+  //     damping: motion === 'open' ? 24 : 30,
+  //     mass: 1,
+  //     overshootClamping: false,
+  //     useNativeDriver: true,
+  //   }).start(({ finished }) => {
+  //     if (finished) { syncReleaseToConfirmState(clampedOffset); }
+  //   });
+  // }, [sheetOffset, syncReleaseToConfirmState]);
 
   const resetDismissOffset = useCallback(() => {
     Animated.spring(dismissOffset, {
@@ -469,26 +457,21 @@ export function SingleSellScreen({
     });
   }, [containerHeight, dismissOffset, insets.bottom, onClose]);
 
-  useEffect(() => {
-    closedSheetOffsetRef.current = closedSheetOffset;
-    if (!hasInitializedSheetRef.current) {
-      hasInitializedSheetRef.current = true;
-      setSheetOffsetValue(closedSheetOffset);
-      return;
-    }
-
-    if (submitState === 'idle') {
-      setSheetOffsetValue(closedSheetOffset);
-    }
-  }, [closedSheetOffset, setSheetOffsetValue, submitState]);
-
-  useEffect(() => {
-    if (!isEditingField || submitState !== 'idle') {
-      return;
-    }
-
-    animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
-  }, [animateSheetToOffset, isEditingField, submitState]);
+  // SWIPE-CONFIRM DISABLED:
+  // useEffect(() => {
+  //   closedSheetOffsetRef.current = closedSheetOffset;
+  //   if (!hasInitializedSheetRef.current) {
+  //     hasInitializedSheetRef.current = true;
+  //     setSheetOffsetValue(closedSheetOffset);
+  //     return;
+  //   }
+  //   if (submitState === 'idle') { setSheetOffsetValue(closedSheetOffset); }
+  // }, [closedSheetOffset, setSheetOffsetValue, submitState]);
+  //
+  // useEffect(() => {
+  //   if (!isEditingField || submitState !== 'idle') { return; }
+  //   animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+  // }, [animateSheetToOffset, isEditingField, submitState]);
 
   const dismissPanResponder = useMemo(() => PanResponder.create({
     onMoveShouldSetPanResponder: (_, gestureState) => (
@@ -530,14 +513,9 @@ export function SingleSellScreen({
     }
     if (soldPrice == null) {
       setShowsSoldPriceValidation(true);
-      animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+      // SWIPE-CONFIRM DISABLED: animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
       return;
     }
-
-    setSubmitState('processing');
-    setScreenErrorMessage(null);
-    setShowsSoldPriceValidation(false);
-    const startedAt = Date.now();
 
     const isStubEntry = displayEntry.id === 'new';
     const payload = {
@@ -554,8 +532,29 @@ export function SingleSellScreen({
       sourceScanID: null,
     } as const;
 
+    const isPendingMethod = paymentMethod !== 'cash' && paymentMethod !== 'other';
+    if (isPendingMethod) {
+      setPendingSalePayload(payload);
+      router.push({
+        pathname: '/payments/[saleId]',
+        params: {
+          saleId: 'new',
+          method: paymentMethod,
+          amount: String(soldPrice * quantity),
+          currencyCode: displayEntry.currencyCode,
+          memo: `${displayEntry.name} ${displayEntry.cardNumber}`.trim(),
+        },
+      });
+      return;
+    }
+
+    setSubmitState('processing');
+    setScreenErrorMessage(null);
+    setShowsSoldPriceValidation(false);
+    const startedAt = Date.now();
+
     void spotlightRepository.createPortfolioSale(payload)
-      .then((response) => {
+      .then(() => {
         if (!isMountedRef.current) {
           return;
         }
@@ -565,21 +564,6 @@ export function SingleSellScreen({
           quantity,
         });
         refreshData();
-
-        const isPendingMethod = paymentMethod !== 'cash' && paymentMethod !== 'other';
-        if (isPendingMethod) {
-          router.replace({
-            pathname: '/payments/[saleId]',
-            params: {
-              saleId: response.saleID,
-              method: paymentMethod,
-              amount: String(soldPrice * quantity),
-              currencyCode: displayEntry.currencyCode,
-              memo: `${displayEntry.name} ${displayEntry.cardNumber}`.trim(),
-            },
-          });
-          return;
-        }
 
         const elapsed = Date.now() - startedAt;
         const remaining = Math.max(0, sellOrderProcessingMinimumDurationMs - elapsed);
@@ -609,83 +593,58 @@ export function SingleSellScreen({
         }
 
         setSubmitState('idle');
-        animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+        // SWIPE-CONFIRM DISABLED: animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
         setScreenErrorMessage(error instanceof Error ? error.message : 'Could not confirm this sale.');
       });
-  }, [animateSheetToOffset, displayEntry, onComplete, paymentMethod, quantity, refreshData, router, soldPrice, spotlightRepository]);
+  }, [displayEntry, onComplete, paymentMethod, quantity, refreshData, router, soldPrice, spotlightRepository]); // SWIPE-CONFIRM DISABLED: removed animateSheetToOffset
 
-  const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gestureState) => (
-      canInteract && canStartSellSwipeGesture(gestureState.dx, gestureState.dy)
-    ),
-    onPanResponderGrant: beginGestureInteraction,
-    onPanResponderMove: (_, gestureState) => {
-      if (!canInteract) {
-        return;
-      }
-
-      const upwardTravel = Math.max(0, -gestureState.dy);
-      if (soldPrice == null) {
-        if (upwardTravel > 6) {
-          setShowsSoldPriceValidation(true);
-        }
-        setSheetOffsetValue(closedSheetOffsetRef.current);
-        return;
-      }
-
-      setSheetOffsetValue(closedSheetOffsetRef.current + getResistedSellSwipeTranslation(gestureState.dy));
-    },
-    onPanResponderRelease: (_, gestureState) => {
-      if (!canInteract) {
-        return;
-      }
-
-      const upwardTravel = Math.max(0, -gestureState.dy);
-      if (soldPrice == null) {
-        setShowsSoldPriceValidation(true);
-        animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
-        return;
-      }
-
-      if (upwardTravel >= submitThreshold) {
-        animateSheetToOffset(0, 'open');
-        submitSale();
-        return;
-      }
-
-      animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
-    },
-    onPanResponderTerminate: () => {
-      if (!canInteract) {
-        return;
-      }
-
-      animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
-    },
-  }), [
-    animateSheetToOffset,
-    beginGestureInteraction,
-    canInteract,
-    setSheetOffsetValue,
-    soldPrice,
-    submitSale,
-    submitThreshold,
-  ]);
-
-  const handleAccessibilityConfirm = useCallback(() => {
-    if (!canInteract) {
-      return;
-    }
-
-    if (soldPrice == null) {
-      setShowsSoldPriceValidation(true);
-      animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
-      return;
-    }
-
-    animateSheetToOffset(0, 'open');
-    submitSale();
-  }, [animateSheetToOffset, canInteract, soldPrice, submitSale]);
+  // SWIPE-CONFIRM DISABLED:
+  // const panResponder = useMemo(() => PanResponder.create({
+  //   onMoveShouldSetPanResponder: (_, gestureState) => (
+  //     canInteract && canStartSellSwipeGesture(gestureState.dx, gestureState.dy)
+  //   ),
+  //   onPanResponderGrant: beginGestureInteraction,
+  //   onPanResponderMove: (_, gestureState) => {
+  //     if (!canInteract) { return; }
+  //     const upwardTravel = Math.max(0, -gestureState.dy);
+  //     if (soldPrice == null) {
+  //       if (upwardTravel > 6) { setShowsSoldPriceValidation(true); }
+  //       setSheetOffsetValue(closedSheetOffsetRef.current);
+  //       return;
+  //     }
+  //     setSheetOffsetValue(closedSheetOffsetRef.current + getResistedSellSwipeTranslation(gestureState.dy));
+  //   },
+  //   onPanResponderRelease: (_, gestureState) => {
+  //     if (!canInteract) { return; }
+  //     const upwardTravel = Math.max(0, -gestureState.dy);
+  //     if (soldPrice == null) {
+  //       setShowsSoldPriceValidation(true);
+  //       animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+  //       return;
+  //     }
+  //     if (upwardTravel >= submitThreshold) {
+  //       animateSheetToOffset(0, 'open');
+  //       submitSale();
+  //       return;
+  //     }
+  //     animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+  //   },
+  //   onPanResponderTerminate: () => {
+  //     if (!canInteract) { return; }
+  //     animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+  //   },
+  // }), [animateSheetToOffset, beginGestureInteraction, canInteract, setSheetOffsetValue, soldPrice, submitSale, submitThreshold]);
+  //
+  // const handleAccessibilityConfirm = useCallback(() => {
+  //   if (!canInteract) { return; }
+  //   if (soldPrice == null) {
+  //     setShowsSoldPriceValidation(true);
+  //     animateSheetToOffset(closedSheetOffsetRef.current, 'closed');
+  //     return;
+  //   }
+  //   animateSheetToOffset(0, 'open');
+  //   submitSale();
+  // }, [animateSheetToOffset, canInteract, soldPrice, submitSale]);
 
   if (isLoading) {
     return (
@@ -726,6 +685,7 @@ export function SingleSellScreen({
         <SellStatusOverlay
           detail={statusCopy.detail}
           headline={statusCopy.headline}
+          method={paymentMethod}
           state={submitState}
           testIDPrefix="single-sell"
           title={statusCopy.title}
@@ -739,10 +699,11 @@ export function SingleSellScreen({
     formatCurrency(displayEntry.costBasisPerUnit ?? 0, displayEntry.currencyCode),
     revealsBoughtPrice,
   );
-  const confirmationPrompt = releaseToConfirmArmed ? 'Release to confirm sale' : 'Swipe up to confirm sale';
-  const isSoldPriceMissing = soldPrice == null;
-  const railIsDisabled = !canInteract || isSoldPriceMissing;
-  const railUsesDisabledVisual = isSoldPriceMissing;
+  // SWIPE-CONFIRM DISABLED:
+  // const confirmationPrompt = releaseToConfirmArmed ? 'Release to confirm sale' : 'Swipe up to confirm sale';
+  // const isSoldPriceMissing = soldPrice == null;
+  // const railIsDisabled = !canInteract || isSoldPriceMissing;
+  // const railUsesDisabledVisual = isSoldPriceMissing;
 
   return (
     <SafeAreaView
@@ -764,7 +725,7 @@ export function SingleSellScreen({
           contentContainerStyle={[
             styles.content,
             {
-              paddingBottom: insets.bottom + sellOrderSwipeRailHeight + 48,
+              paddingBottom: insets.bottom + 48, // SWIPE-CONFIRM DISABLED: was insets.bottom + sellOrderSwipeRailHeight + 48
             },
           ]}
           keyboardDismissMode="interactive"
@@ -784,7 +745,7 @@ export function SingleSellScreen({
                 styles.contentBody,
                 {
                   minHeight: containerHeight,
-                  transform: [{ translateY: confirmationContentLift }],
+                  // SWIPE-CONFIRM DISABLED: transform: [{ translateY: confirmationContentLift }],
                 },
               ]}
             >
@@ -810,9 +771,6 @@ export function SingleSellScreen({
                 />
               </View>
 
-              {entryId === 'new' || fromScan ? (
-                <MarketInfoSection entry={displayEntry} />
-              ) : null}
 
               {screenErrorMessage ? (
                 <View
@@ -1023,6 +981,7 @@ export function SingleSellScreen({
           </TouchableWithoutFeedback>
         </ScrollView>
 
+        {/* SWIPE-CONFIRM DISABLED:
         <SellSwipeConfirmationSheet
           bottomInset={insets.bottom}
           disabled={railIsDisabled}
@@ -1036,6 +995,7 @@ export function SingleSellScreen({
           translateY={sheetOffset}
           usesDisabledVisual={railUsesDisabledVisual}
         />
+        */}
 
         <WalletHandleSetupModal
           initialValue={initialWalletValue}

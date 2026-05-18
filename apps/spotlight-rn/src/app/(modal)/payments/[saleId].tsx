@@ -23,13 +23,12 @@ export default function PaymentRoute() {
     memo?: string | string[];
   }>();
 
-  const saleId = firstParam(params.saleId);
   const methodParam = firstParam(params.method);
   const amountParam = Number.parseFloat(firstParam(params.amount));
   const currencyCode = firstParam(params.currencyCode) || 'USD';
   const memo = firstParam(params.memo) || '';
 
-  if (!saleId || !NON_CASH_METHODS.has(methodParam as PaymentMethod) || !Number.isFinite(amountParam)) {
+  if (!NON_CASH_METHODS.has(methodParam as PaymentMethod) || !Number.isFinite(amountParam)) {
     return null;
   }
 
@@ -41,9 +40,10 @@ export default function PaymentRoute() {
         currencyCode={currencyCode}
         memo={memo}
         method={methodParam as PaymentMethod}
-        onCancel={() => router.replace('/portfolio')}
-        onConfirmed={() => router.replace('/portfolio')}
-        saleId={saleId}
+        onCancel={() => router.dismissTo({ pathname: '/', params: { page: 'portfolio' } })}
+        onConfirmed={(_method) => {
+          router.dismissTo({ pathname: '/', params: { page: 'portfolio' } });
+        }}
       />
     </>
   );
