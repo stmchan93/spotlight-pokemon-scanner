@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  IconCheck,
   IconChevronLeft,
   IconPlus,
 } from '@tabler/icons-react-native';
@@ -14,6 +15,7 @@ import {
   Image,
   Keyboard,
   LayoutAnimation,
+  Linking,
   PanResponder,
   Platform,
   Pressable,
@@ -191,6 +193,7 @@ export function ScannerScreen({
   );
   const [cameraSessionKey, setCameraSessionKey] = useState(0);
   const [availableBackLenses, setAvailableBackLenses] = useState<string[]>([]);
+  const [ebayTrayState, setEbayTrayState] = useState<Map<string, { loading: boolean; url: string | null }>>(new Map());
   const hasFocusedScannerRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const cameraRef = useRef<CameraView | null>(null);
@@ -1272,6 +1275,40 @@ export function ScannerScreen({
     });
   }, [inventoryByCardId, recentCaptures, router]);
 
+  const handleEbayTrayTap = useCallback((captureId: string, slabContext: { grader?: string | null; grade?: string | null; certNumber?: string | null; variantName?: string | null } | null) => {
+    const existing = ebayTrayState.get(captureId);
+    if (existing?.url) {
+      void Linking.openURL(existing.url);
+      return;
+    }
+    if (existing?.loading) return;
+    setEbayTrayState((prev) => new Map(prev).set(captureId, { loading: true, url: null }));
+    void spotlightRepository.getCardRecentSales({
+      cardId: recentCaptures.find((c) => c.id === captureId)
+        ? (activeCandidateForCapture(recentCaptures.find((c) => c.id === captureId)!)?.cardId ?? '')
+        : '',
+      limit: 10,
+      refresh: true,
+      slabContext: slabContext && slabContext.grader
+        ? {
+          grader: slabContext.grader,
+          grade: slabContext.grade,
+          certNumber: slabContext.certNumber,
+          variantName: slabContext.variantName,
+        }
+        : null,
+      source: 'ebay',
+    })
+      .then((result) => {
+        const url = result?.sales[0]?.saleUrl ?? null;
+        setEbayTrayState((prev) => new Map(prev).set(captureId, { loading: false, url }));
+        if (url) void Linking.openURL(url);
+      })
+      .catch(() => {
+        setEbayTrayState((prev) => new Map(prev).set(captureId, { loading: false, url: null }));
+      });
+  }, [ebayTrayState, recentCaptures, spotlightRepository]);
+
   const toggleTrayExpanded = useCallback(() => {
     if (!canToggleTray) {
       return;
@@ -1314,7 +1351,7 @@ export function ScannerScreen({
       return;
     }
 
-    router.replace('/portfolio');
+    router.dismissTo({ pathname: '/', params: { page: 'portfolio' } });
   }, [onExitToPortfolio, router]);
 
   const handleSubmitCatalogSearch = useCallback(() => {
@@ -1586,49 +1623,97 @@ export function ScannerScreen({
                   {formatCurrency(isFinitePrice(marketPrice) ? marketPrice : 0, currencyCode)}
                 </Text>
                 <Text style={styles.capturePriceLabel}>Market avg</Text>
-                {quantity > 0 ? (
-                  <Text style={styles.captureQuantityText} testID={`scanner-tray-qty-${index}`}>QTY {quantity}</Text>
-                ) : null}
+                {capture.mode === 'slabs' ? (() => {
+                  const ebayState = ebayTrayState.get(capture.id);
+                  const isLoading = ebayState?.loading ?? false;
+                  return (
+                    <Pressable
+                      accessibilityLabel="View on eBay"
+                      accessibilityRole="button"
+                      disabled={isLoading}
+                      hitSlop={6}
+                      onPress={() => void handleEbayTrayTap(capture.id, capture.slabContext ?? null)}
+                      style={{ opacity: ebayState?.url ? 1 : 0.4 }}
+                      testID={`scanner-tray-ebay-${index}`}
+                    >
+                      {isLoading ? (
+                        <ActivityIndicator color={colors.brand} size="small" />
+                      ) : (
+                        <View style={styles.captureMpRow}>
+                          <Image
+                            source={require('../../../../assets/images/ebay-icon.png')}
+                            style={styles.captureMpIcon}
+                          />
+                          <Text style={styles.captureMpLabel}>View on eBay</Text>
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })() : (
+                  <Pressable
+                    accessibilityLabel="View on TCGplayer"
+                    accessibilityRole="button"
+                    hitSlop={6}
+                    onPress={() => {
+                      const url = [
+                        candidate.name,
+                        candidate.cardNumber?.replace(/^#/, ''),
+                        candidate.setName,
+                      ].filter(Boolean).join(' ');
+                      if (url) {
+                        void Linking.openURL(
+                          `https://www.tcgplayer.com/search/pokemon/product?${new URLSearchParams({ q: url, view: 'grid' }).toString()}`,
+                        );
+                      }
+                    }}
+                    testID={`scanner-tray-tcg-${index}`}
+                  >
+                    <View style={styles.captureMpRow}>
+                      <Image
+                        source={require('../../../../assets/images/tcgplayer-icon.png')}
+                        style={styles.captureMpIcon}
+                      />
+                      <Text style={styles.captureMpLabel}>View on TCGPlayer</Text>
+                    </View>
+                  </Pressable>
+                )}
               </View>
             ) : null}
           </Pressable>
 
         {candidate ? (
           <View style={styles.captureActionsColumn}>
-            <Pressable
-              accessibilityLabel={`Sell ${candidate.name}`}
-              accessibilityRole="button"
-              onPress={() => {
-                handleSellFromCapture(capture.id);
-              }}
-              style={({ pressed }) => [
-                styles.captureSellButton,
-                pressed ? styles.captureSellButtonPressed : null,
-              ]}
-              testID={`scanner-tray-sell-${index}`}
-            >
-              <Text style={styles.captureSellButtonLabel}>Sell</Text>
-            </Pressable>
-            <Pressable
-              accessibilityLabel={`Add ${candidate.name} to inventory`}
-              accessibilityRole="button"
-              disabled={capture.isAddingToInventory}
-              onPress={() => {
-                void handleAddToInventory(capture.id);
-              }}
-              style={({ pressed }) => [
-                styles.captureAddButton,
-                pressed ? styles.captureAddButtonPressed : null,
-                capture.isAddingToInventory ? styles.captureAddButtonDisabled : null,
-              ]}
-              testID={`scanner-tray-add-${index}`}
-            >
-              {capture.isAddingToInventory ? (
-                <ActivityIndicator color={colors.brand} size="small" />
-              ) : (
-                <IconPlus color={colors.brand} size={16} strokeWidth={2} />
-              )}
-            </Pressable>
+            {quantity > 0 ? (
+              <Pressable
+                accessibilityLabel={`${candidate.name} added to collection`}
+                accessibilityRole="button"
+                onPress={() => undefined}
+                style={styles.captureAddedButton}
+                testID={`scanner-tray-added-${index}`}
+              >
+                <IconCheck color="#1A1A1A" size={20} strokeWidth={2.5} />
+              </Pressable>
+            ) : (
+              <Pressable
+                accessibilityLabel={`Add ${candidate.name} to inventory`}
+                accessibilityRole="button"
+                disabled={capture.isAddingToInventory}
+                onPress={() => {
+                  void handleAddToInventory(capture.id);
+                }}
+                style={({ pressed }) => [
+                  styles.captureAddButton,
+                  pressed ? styles.captureAddButtonPressed : null,
+                ]}
+                testID={`scanner-tray-add-${index}`}
+              >
+                {capture.isAddingToInventory ? (
+                  <ActivityIndicator color={colors.brand} size="small" />
+                ) : (
+                  <IconPlus color={colors.brand} size={20} strokeWidth={2} />
+                )}
+              </Pressable>
+            )}
           </View>
         ) : null}
         </View>
@@ -1886,10 +1971,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: 'transparent',
     borderColor: colors.brand,
-    borderRadius: 8,
-    borderWidth: 0.651,
+    borderRadius: 10,
+    borderWidth: 1,
+    height: 44,
     justifyContent: 'center',
-    paddingVertical: 6,
+    width: 44,
+  },
+  captureAddedButton: {
+    alignItems: 'center',
+    backgroundColor: colors.brand,
+    borderRadius: 10,
+    height: 44,
+    justifyContent: 'center',
+    width: 44,
   },
   captureAddButtonDisabled: {
     opacity: 0.52,
@@ -1934,12 +2028,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     minWidth: 96,
   },
-  captureQuantityText: {
-    ...textStyles.control,
-    color: colors.scannerTextPrimary,
-    fontSize: 12,
-    lineHeight: 14,
-    textAlign: 'right',
+  captureMpRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+  },
+  captureMpIcon: {
+    height: 16,
+    resizeMode: 'contain',
+    width: 28,
+  },
+  captureMpLabel: {
+    ...textStyles.caption,
+    color: colors.scannerTextMeta,
   },
   captureRow: {
     alignItems: 'center',

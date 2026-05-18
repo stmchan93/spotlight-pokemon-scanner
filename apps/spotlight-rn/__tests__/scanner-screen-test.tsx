@@ -80,6 +80,7 @@ const mockPush = jest.fn();
 const mockBack = jest.fn();
 const mockCanGoBack = jest.fn(() => false);
 const mockReplace = jest.fn();
+const mockDismissTo = jest.fn();
 const mockConfigureNext = jest.spyOn(LayoutAnimation, 'configureNext').mockImplementation(jest.fn());
 const keyboardDismissSpy = jest.spyOn(Keyboard, 'dismiss').mockImplementation(() => undefined);
 const mockedConstants = Constants as any;
@@ -96,6 +97,7 @@ jest.mock('expo-router', () => {
       canGoBack: mockCanGoBack,
       push: mockPush,
       replace: mockReplace,
+      dismissTo: mockDismissTo,
     }),
   };
 });
@@ -140,6 +142,7 @@ describe('ScannerScreen', () => {
     mockCanGoBack.mockReturnValue(false);
     mockPush.mockReset();
     mockReplace.mockReset();
+    mockDismissTo.mockReset();
     mockConfigureNext.mockClear();
     keyboardDismissSpy.mockClear();
     mockLoadRawScannerSmokeFixture.mockClear();
@@ -1376,7 +1379,10 @@ describe('ScannerScreen', () => {
 
     fireEvent.press(screen.getByTestId('scanner-back-button'));
 
-    expect(mockReplace).toHaveBeenCalledWith('/portfolio');
+    expect(mockDismissTo).toHaveBeenCalledWith({
+      pathname: '/',
+      params: { page: 'portfolio' },
+    });
   });
 
   it('routes the tray Sell button to /sell/[entryId] when the card is in inventory', async () => {
