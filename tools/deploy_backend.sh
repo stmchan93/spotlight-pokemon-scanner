@@ -244,20 +244,20 @@ BUNDLE_ARCHIVE="$TMP_DIR/backend-bundle.tgz"
 COPYFILE_DISABLE=1 tar --exclude='./._*' -C "$BUNDLE_ROOT" -czf "$BUNDLE_ARCHIVE" .
 
 echo "Syncing backend bundle to $INSTANCE ($ZONE)..."
-gcloud_cmd compute scp "$BUNDLE_ARCHIVE" "$INSTANCE:$REMOTE_BUNDLE_PATH" --zone "$ZONE"
-gcloud_cmd compute scp "$SECRETS_FILE" "$INSTANCE:$REMOTE_SECRET_PATH" --zone "$ZONE"
+gcloud_cmd compute scp "$BUNDLE_ARCHIVE" "$INSTANCE:$REMOTE_BUNDLE_PATH" --zone "$ZONE" --tunnel-through-iap
+gcloud_cmd compute scp "$SECRETS_FILE" "$INSTANCE:$REMOTE_SECRET_PATH" --zone "$ZONE" --tunnel-through-iap
 
 REMOTE_SETUP_COMMAND="mkdir -p $REMOTE_DIR && tar -C $REMOTE_DIR -xzf $REMOTE_BUNDLE_PATH && find $REMOTE_DIR -maxdepth 1 -name '._*' -delete"
 echo "Extracting bundle on the VM..."
-gcloud_cmd compute ssh "$INSTANCE" --zone "$ZONE" --command "$REMOTE_SETUP_COMMAND"
+gcloud_cmd compute ssh "$INSTANCE" --zone "$ZONE" --tunnel-through-iap --command "$REMOTE_SETUP_COMMAND"
 
 REMOTE_DEPLOY_COMMAND="cd $REMOTE_DIR && bash deploy.sh $ENVIRONMENT $REMOTE_SECRET_PATH"
 echo "Running VM-local deploy..."
-gcloud_cmd compute ssh "$INSTANCE" --zone "$ZONE" --command "$REMOTE_DEPLOY_COMMAND"
+gcloud_cmd compute ssh "$INSTANCE" --zone "$ZONE" --tunnel-through-iap --command "$REMOTE_DEPLOY_COMMAND"
 
 REMOTE_HEALTH_COMMAND="cd $REMOTE_DIR && bash run_vm_health_check.sh"
 echo "Running post-deploy VM health check..."
-gcloud_cmd compute ssh "$INSTANCE" --zone "$ZONE" --command "$REMOTE_HEALTH_COMMAND"
+gcloud_cmd compute ssh "$INSTANCE" --zone "$ZONE" --tunnel-through-iap --command "$REMOTE_HEALTH_COMMAND"
 
 PUBLIC_BASE_URL="$(read_dotenv_value "$MOBILE_ENV_DIR/.env.$ENVIRONMENT" "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL")"
 if [ -n "$PUBLIC_BASE_URL" ]; then
