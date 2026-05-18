@@ -37,7 +37,7 @@ export default function BulkSellRoute() {
         key={entryIds.join(',') || 'empty'}
         entryIds={entryIds}
         onClose={() => router.back()}
-        onComplete={() => router.replace('/portfolio')}
+        onComplete={() => router.dismissTo({ pathname: '/', params: { page: 'portfolio' } })}
       />
     </>
   );

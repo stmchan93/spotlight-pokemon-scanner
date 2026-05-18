@@ -412,7 +412,7 @@ export function LabelingSessionScreen() {
       return;
     }
 
-    router.replace('/');
+    router.dismissTo('/');
   }, [completedSessionID, openSessionID, router, spotlightRepository]);
 
   const handleSelectResult = useCallback((result: CatalogSearchResult) => {

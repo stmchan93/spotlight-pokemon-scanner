@@ -22,7 +22,7 @@ export default function LoginCallbackScreen() {
     }
 
     hasNavigatedAwayRef.current = true;
-    router.replace('/(tabs)/portfolio');
+    router.dismissTo({ pathname: '/', params: { page: 'portfolio' } });
   }, [router]);
 
   useEffect(() => {
