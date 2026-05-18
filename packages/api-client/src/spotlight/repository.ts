@@ -3266,7 +3266,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           detailResponse.data.imageLargeURL,
           detailResponse.data.card.imageLargeURL,
         ], this.baseUrl) || null,
-      marketPrice: card.pricing.market ?? marketHistory.currentPrice ?? 0,
+      marketPrice: card.pricing.market ?? marketHistory.currentPrice ?? null,
       currencyCode: card.pricing.currencyCode,
       marketplaceLabel: 'TCGPLAYER BUYING OPTIONS',
       marketplaceUrl: buildTcgPlayerSearchUrl({

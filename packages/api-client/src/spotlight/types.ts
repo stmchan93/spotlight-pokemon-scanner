@@ -411,7 +411,7 @@ export type CardDetailRecord = {
   setName: string;
   imageUrl: string;
   largeImageUrl?: string | null;
-  marketPrice: number;
+  marketPrice: number | null;
   currencyCode: string;
   marketplaceLabel: string;
   marketplaceUrl?: string | null;
