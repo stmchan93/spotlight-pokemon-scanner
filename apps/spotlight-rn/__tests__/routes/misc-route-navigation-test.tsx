@@ -478,6 +478,7 @@ describe('misc route wrappers', () => {
       pathname: '/sell/[entryId]',
       params: {
         entryId: 'entry-7',
+        cardId: 'base1-4',
       },
     });
   });

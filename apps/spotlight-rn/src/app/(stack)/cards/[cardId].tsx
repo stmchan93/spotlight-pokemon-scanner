@@ -56,6 +56,7 @@ export default function CardDetailRoute() {
           pathname: '/sell/[entryId]',
           params: {
             entryId: selectedEntryId,
+            cardId,
           },
         });
       }}
