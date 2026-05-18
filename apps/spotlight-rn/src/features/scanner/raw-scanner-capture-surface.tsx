@@ -35,7 +35,6 @@ export const slabGuideHorizontalInset = 8;
 export type RawScannerCaptureLayout = {
   backButtonTop: number;
   controlsTop: number;
-  modeToggleWidth: number;
   previewHeight: number;
   previewWidth: number;
   promptTop: number;
@@ -137,7 +136,6 @@ export function makeRawScannerCaptureLayout({
   return {
     backButtonTop: safeAreaTop + 10,
     controlsTop: y + height + controlsTopSpacing,
-    modeToggleWidth: Math.min(containerWidth - 48, 264),
     previewHeight: containerHeight,
     previewWidth: containerWidth,
     promptTop: Math.max(topChromeBottom + 8, y + 12),

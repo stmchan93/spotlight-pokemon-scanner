@@ -18,7 +18,7 @@ describe('raw scanner capture layout', () => {
     })).toBe(121);
   });
 
-  it('reserves enough height for the first scan row without covering the mode toggle', () => {
+  it('reserves enough vertical gap between controls and tray', () => {
     const trayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
       bottomInset: 48,
     });
@@ -30,9 +30,9 @@ describe('raw scanner capture layout', () => {
     });
 
     const trayTop = 844 - trayReservedHeight;
-    const modeToggleBottom = layout.controlsTop + 56;
+    const controlsBottom = layout.controlsTop + 56;
 
     expect(trayReservedHeight).toBe(197);
-    expect(trayTop - modeToggleBottom).toBeGreaterThanOrEqual(rawScannerModeToggleGap);
+    expect(trayTop - controlsBottom).toBeGreaterThanOrEqual(rawScannerModeToggleGap);
   });
 });
