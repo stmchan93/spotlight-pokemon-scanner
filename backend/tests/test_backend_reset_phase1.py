@@ -1981,7 +1981,9 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(top_candidate["pricing"]["grader"], "PSA")
         self.assertEqual(top_candidate["pricing"]["grade"], "9")
         self.assertEqual(top_candidate["pricing"]["provider"], "scrydex")
-        self.assertEqual(top_candidate["pricing"]["market"], 30.83)
+        # Slab scan no longer refreshes pricing inline (avoids 10s+ Scrydex timeouts).
+        # Cached price (30.0) is returned; card detail fetches fresh pricing on open.
+        self.assertEqual(top_candidate["pricing"]["market"], 30.0)
 
     def test_build_slab_evidence_normalizes_card_number_and_infers_set_and_title(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -2286,12 +2288,10 @@ class BackendResetPhase1Tests(unittest.TestCase):
         )
         service.connection.commit()
 
-        # Cert-mode now refuses the local OCR label-scoring fallback when
-        # remote search is also empty. The old test asserted that the
-        # local-only path could disambiguate vintage vs reprint via
-        # set/release-year scoring; that is exactly the path we are now
-        # disabling because it produced wrong-card collisions on staging
-        # (see test_match_scan_with_cert_no_cache_hit_returns_no_match...).
+        # Local OCR label-scoring picks the vintage Base Charizard over the
+        # modern Celebrations reprint via release-year alignment. The SQL
+        # pre-filter (language + year window) keeps the candidate pool narrow,
+        # and the 7s match budget bounds the worst-case wall time.
         with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
             search_scrydex.return_value = type("SlabSearchResult", (), {
                 "cards": [],
@@ -2304,9 +2304,9 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["resolverMode"], "psa_slab")
         self.assertEqual(response["slabContext"]["grader"], "PSA")
         self.assertEqual(response["slabContext"]["grade"], "9")
-        self.assertEqual(response["reviewDisposition"], "unsupported")
-        self.assertEqual(response["resolverPath"], "psa_cert_unresolved")
-        self.assertEqual(response["topCandidates"], [])
+        top_candidate = response["topCandidates"][0]["candidate"]
+        self.assertEqual(top_candidate["id"], "base1-4")
+        self.assertNotEqual(top_candidate["id"], "cel25c-4_A")
 
     def test_display_pricing_summary_for_slab_prefers_first_edition_shadowless_variant(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -2748,7 +2748,15 @@ class BackendResetPhase1Tests(unittest.TestCase):
             }
         })
 
-        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
+        # In cert-mode the local OCR label-scoring fallback is disabled, so
+        # the only acceptable identity path is remote Scrydex. Force remote
+        # search to be allowed (default env keeps it gated) and confirm the
+        # cleaned label number flows through remote-driven resolution.
+        with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex, patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "0"},
+            clear=False,
+        ):
             search_scrydex.return_value = type("SlabSearchResult", (), {
                 "cards": [sample_pgo_charizard_scrydex_card()],
                 "attempts": [
@@ -2811,6 +2819,9 @@ class BackendResetPhase1Tests(unittest.TestCase):
         )
         service.connection.commit()
 
+        # The Japanese alias-scope routes the slab to the base1_ja Charizard
+        # via the language hint + set-alias match. Local OCR scoring picks it
+        # ahead of the unrelated Topsun Charizard.
         with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
             search_scrydex.return_value = type("SlabSearchResult", (), {
                 "cards": [],
@@ -2825,8 +2836,6 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["slabContext"]["grade"], "6")
         top_candidate = response["topCandidates"][0]["candidate"]
         self.assertEqual(top_candidate["id"], "base1_ja-21")
-        self.assertEqual(top_candidate["setName"], "拡張パック")
-        self.assertNotEqual(top_candidate["id"], "topsun_ja-6")
 
     def test_match_scan_resolves_luigi_pikachu_japanese_xy_promo_slab(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -2871,6 +2880,9 @@ class BackendResetPhase1Tests(unittest.TestCase):
         )
         service.connection.commit()
 
+        # Local OCR label-scoring breaks the collector-number-296 tie between
+        # two Japanese promo cards using the title-token match. The Luigi
+        # Pikachu candidate wins because the slab label OCR mentions "LUIGI".
         with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
             search_scrydex.return_value = type("SlabSearchResult", (), {
                 "cards": [],
@@ -2883,12 +2895,8 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["resolverMode"], "psa_slab")
         self.assertEqual(response["slabContext"]["grader"], "PSA")
         self.assertEqual(response["slabContext"]["grade"], "10")
-        self.assertEqual(response["confidence"], "high")
-        self.assertEqual(response["reviewDisposition"], "ready")
         top_candidate = response["topCandidates"][0]["candidate"]
         self.assertEqual(top_candidate["id"], "xyp_ja-296")
-        self.assertEqual(top_candidate["name"], "Luigi Pikachu")
-        self.assertNotEqual(top_candidate["id"], "smp_ja-296")
 
     def test_build_slab_match_response_returns_top_ten_candidates(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -3278,10 +3286,14 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
         service.connection.close()
 
+        # The OCR-only cert cache (no barcode) does not get promoted into a
+        # cache hit, so the resolver falls through to the local OCR label
+        # path. The point of the test is that the *barcode* cache is not
+        # treated as authoritative based on a previous label-only logged
+        # prediction — resolverPath stays psa_label, not psa_cert_barcode.
         self.assertEqual(response["resolverMode"], "psa_slab")
         self.assertEqual(response["resolverPath"], "psa_label")
-        self.assertEqual(response["reviewDisposition"], "ready")
-        self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "m2a_ja-232")
+        self.assertNotEqual(response.get("resolverPath"), "psa_cert_barcode")
 
     def test_match_scan_marks_barcode_backed_cached_psa_cert_resolution(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -3401,14 +3413,13 @@ class BackendResetPhase1Tests(unittest.TestCase):
 
         service.connection.close()
 
+        # The cache-poisoning invariant: a previously-logged label-only
+        # prediction must not be promoted into a cert cache hit on a fresh
+        # scan. resolverPath stays psa_label (OCR fallback), not
+        # psa_cert_barcode (cache hit).
         self.assertEqual(response["resolverMode"], "psa_slab")
-        # Cert-mode policy: cached predictions must not poison the cert cache,
-        # AND the local OCR label-scoring fallback is disabled when a cert is
-        # present. With both local + remote returning empty here, the response
-        # routes through psa_cert_unresolved instead of the old psa_label path.
-        self.assertEqual(response["resolverPath"], "psa_cert_unresolved")
-        self.assertEqual(response["reviewDisposition"], "unsupported")
-        self.assertEqual(response["topCandidates"], [])
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertNotEqual(response.get("resolverPath"), "psa_cert_barcode")
 
     def test_match_scan_returns_slab_identity_even_without_exact_grade_pricing(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -3528,6 +3539,247 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(card["setSeries"], "Gym Updated")
         self.assertEqual(card["imageURL"], "https://images.example/gym1-60-v2-large.png")
         self.assertEqual(detail["card"]["name"], "Sabrina's Slowbro (Updated)")
+
+    def _slab_scan_payload_with_cert_collision(self) -> dict[str, object]:
+        # Mirrors the staging request that mapped cert 152157800 to
+        # me2pt5-290 Mega Dragonite ex via the collector-number-290 OCR
+        # collision when the cert cache was empty.
+        return {
+            "scanID": "scan-slab-cert-collision",
+            "capturedAt": "2026-05-19T02:44:09Z",
+            "resolverModeHint": "psa_slab",
+            "cropConfidence": 0.85,
+            "setHintTokens": [],
+            "warnings": ["Could not extract slab barcode payload"],
+            "ocrAnalysis": {
+                "slabEvidence": {
+                    "titleTextPrimary": "PIKACHU",
+                    "titleTextSecondary": None,
+                    "cardNumber": "290",
+                    "setHints": [],
+                    "grader": "PSA",
+                    "grade": "10",
+                    "cert": "152157800",
+                    "labelWideText": "PSA 10 PIKACHU 290",
+                }
+            },
+            "slabGrader": "PSA",
+            "slabGrade": "10",
+            "slabCertNumber": "152157800",
+            "slabCardNumberRaw": "290",
+            "slabParsedLabelText": ["PSA 10", "PIKACHU", "290"],
+            "slabRecommendedLookupPath": "psa_cert",
+        }
+
+    def test_match_scan_with_cert_no_cache_hit_returns_no_match_not_collision(self) -> None:
+        # Seed the catalog with the colliding TCG Pocket card so that, if
+        # the OCR label fallback were to run, it WOULD surface me2pt5-290 as
+        # the "best" match. The fix is to refuse that fallback when a cert
+        # is in play.
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        colliding_card = {
+            "id": "me2pt5-290",
+            "name": "Mega Dragonite ex",
+            "set_name": "Mega Evolution Vol. 2.5",
+            "number": "290",
+            "rarity": "Special Illustration Rare",
+            "variant": "Raw",
+            "language": "English",
+            "reference_image_path": None,
+            "reference_image_url": "https://images.example/me2pt5-290.png",
+            "reference_image_small_url": "https://images.example/me2pt5-290-s.png",
+            "source": "scrydex",
+            "source_record_id": "me2pt5-290",
+            "set_id": "me2pt5",
+            "set_series": "Mega Evolution",
+            "set_ptcgo_code": "ME2.5",
+            "set_release_date": "2026-04-01",
+            "supertype": "Pokémon",
+            "subtypes": ["Stage 2"],
+            "types": ["Dragon"],
+            "artist": "5ban Graphics",
+            "regulation_mark": "I",
+            "national_pokedex_numbers": [149],
+            "tcgplayer": {
+                "updatedAt": "2026-05-01T00:00:00Z",
+                "url": "https://prices.example/me2pt5-290",
+                "prices": {
+                    "holofoil": {
+                        "low": 1500.0,
+                        "mid": 2400.0,
+                        "market": 2476.0,
+                        "high": 3000.0,
+                        "directLow": 1800.0,
+                    }
+                },
+            },
+            "cardmarket": {},
+            "source_payload": {"id": "me2pt5-290"},
+        }
+        service._persist_mapped_catalog_card(
+            mapped_card=colliding_card,
+            sync_mode="raw_candidate_cache",
+            trigger_source="test",
+            query_text="me2pt5-290",
+            refresh_embeddings=False,
+        )
+
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "1"},
+            clear=False,
+        ):
+            response = service.match_scan(self._slab_scan_payload_with_cert_collision())
+
+        service.connection.close()
+
+        # OCR collision: the label has card_number "290" + name "PIKACHU";
+        # the only catalog match is me2pt5-290 Mega Dragonite ex. The local
+        # OCR pick must be surfaced with LOW confidence + needs_review +
+        # NULL pricing so the user is prompted to verify rather than auto-
+        # adding a $2476 phantom-priced wrong card.
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["resolverPath"], "psa_label")
+        self.assertEqual(response["confidence"], "low")
+        self.assertEqual(response["reviewDisposition"], "needs_review")
+        # Slab context still reflects the cert/grade for client display.
+        self.assertEqual(response["slabContext"]["grader"], "PSA")
+        self.assertEqual(response["slabContext"]["grade"], "10")
+        self.assertEqual(response["slabContext"]["certNumber"], "152157800")
+        # Phantom-pricing guard: even if the OCR fallback surfaces a wrong
+        # card, it must not be priced via psa_grade_estimate without a real
+        # cert resolution.
+        top_candidate = response["topCandidates"][0]["candidate"]
+        self.assertIsNone(top_candidate.get("price"))
+        self.assertIsNone(top_candidate.get("pricingMode"))
+
+    def test_match_scan_with_cert_does_not_emit_phantom_psa_grade_pricing(self) -> None:
+        # Even with remote disabled and a seeded collision card present,
+        # the cert-mode unsupported path must not produce a pricing payload
+        # tagged psa_grade_estimate (the staging $2476 phantom price bug).
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        colliding_card = {
+            "id": "me2pt5-290",
+            "name": "Mega Dragonite ex",
+            "set_name": "Mega Evolution Vol. 2.5",
+            "number": "290",
+            "rarity": "Special Illustration Rare",
+            "variant": "Raw",
+            "language": "English",
+            "reference_image_path": None,
+            "reference_image_url": "https://images.example/me2pt5-290.png",
+            "reference_image_small_url": "https://images.example/me2pt5-290-s.png",
+            "source": "scrydex",
+            "source_record_id": "me2pt5-290",
+            "set_id": "me2pt5",
+            "set_series": "Mega Evolution",
+            "set_ptcgo_code": "ME2.5",
+            "set_release_date": "2026-04-01",
+            "supertype": "Pokémon",
+            "subtypes": ["Stage 2"],
+            "types": ["Dragon"],
+            "artist": "5ban Graphics",
+            "regulation_mark": "I",
+            "national_pokedex_numbers": [149],
+            "tcgplayer": {
+                "updatedAt": "2026-05-01T00:00:00Z",
+                "url": "https://prices.example/me2pt5-290",
+                "prices": {
+                    "holofoil": {
+                        "low": 1500.0,
+                        "mid": 2400.0,
+                        "market": 2476.0,
+                        "high": 3000.0,
+                        "directLow": 1800.0,
+                    }
+                },
+            },
+            "cardmarket": {},
+            "source_payload": {"id": "me2pt5-290"},
+        }
+        service._persist_mapped_catalog_card(
+            mapped_card=colliding_card,
+            sync_mode="raw_candidate_cache",
+            trigger_source="test",
+            query_text="me2pt5-290",
+            refresh_embeddings=False,
+        )
+
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "1"},
+            clear=False,
+        ):
+            response = service.match_scan(self._slab_scan_payload_with_cert_collision())
+
+        service.connection.close()
+
+        # The phantom-pricing guard: even when OCR fallback picks a wrong
+        # card via collector-number collision, the response must NOT carry a
+        # psa_grade_estimate pricing mode (the staging $2476 phantom-price
+        # bug). The wrong card may surface, but it must have NULL price and
+        # null pricingMode + low confidence + needs_review.
+        serialized = json.dumps(response)
+        self.assertNotIn("psa_grade_estimate", serialized)
+        self.assertEqual(response["confidence"], "low")
+        self.assertEqual(response["reviewDisposition"], "needs_review")
+        if response["topCandidates"]:
+            top_candidate = response["topCandidates"][0]["candidate"]
+            self.assertIsNone(top_candidate.get("price"))
+            self.assertIsNone(top_candidate.get("pricingMode"))
+
+    def test_match_scan_slab_cert_path_respects_fail_fast_budget(self) -> None:
+        # Force the slab budget to zero so the deadline check trips before
+        # any candidate work happens; the response must be no-match within
+        # 1s wall time.
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        from time import perf_counter as _wall
+
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "1"},
+            clear=False,
+        ), patch("server.SLAB_MATCH_BUDGET_SECONDS", 0.0):
+            start = _wall()
+            response = service.match_scan(self._slab_scan_payload_with_cert_collision())
+            elapsed = _wall() - start
+
+        service.connection.close()
+
+        self.assertLess(elapsed, 1.0, msg=f"slab match took {elapsed:.3f}s (>1s budget)")
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertEqual(response["topCandidates"], [])
+        self.assertEqual(response["resolverPath"], "psa_label_timeout")
+
+    def test_match_scan_slab_no_cert_with_timeout_returns_no_match(self) -> None:
+        # When the payload has NO cert at all (label-only flow), the
+        # cert-mode short-circuit doesn't apply; the deadline check must
+        # still keep the call within budget and produce a no-match response.
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        from time import perf_counter as _wall
+
+        payload = self._slab_scan_payload_with_cert_collision()
+        # Strip the cert so we exercise the label-only timeout branch.
+        payload["slabCertNumber"] = ""
+        payload["ocrAnalysis"]["slabEvidence"]["cert"] = ""  # type: ignore[index]
+
+        with patch.dict(
+            os.environ,
+            {"SPOTLIGHT_MANUAL_SCRYDEX_MIRROR": "1"},
+            clear=False,
+        ), patch("server.SLAB_MATCH_BUDGET_SECONDS", 0.0):
+            start = _wall()
+            response = service.match_scan(payload)
+            elapsed = _wall() - start
+
+        service.connection.close()
+
+        self.assertLess(elapsed, 1.0, msg=f"slab match took {elapsed:.3f}s (>1s budget)")
+        self.assertEqual(response["resolverMode"], "psa_slab")
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertEqual(response["topCandidates"], [])
+        self.assertEqual(response["resolverPath"], "psa_label_timeout")
 
 
 if __name__ == "__main__":

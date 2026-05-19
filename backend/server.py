@@ -39,7 +39,9 @@ from catalog_tools import (
     _resolve_raw_context_summary,
     DEFAULT_RAW_CONDITION,
     MATCHER_VERSION,
+    RAW_CONDITION_PRIORITY,
     RAW_PRICING_MODE,
+    RAW_VARIANT_PRIORITY,
     RawDecisionResult,
     RawEvidence,
     RawRetrievalPlan,
@@ -125,7 +127,7 @@ from scrydex_adapter import (
     raw_evidence_looks_japanese,
     search_remote_scrydex_japanese_raw_candidates,
 )
-from slab_cert_resolver import normalize_cert_number, resolve_psa_cert_from_scan_cache
+from slab_cert_resolver import resolve_psa_cert_from_scan_cache
 from slab_set_aliases import resolve_slab_set_aliases
 from scan_artifact_store import (
     SCAN_ARTIFACTS_GCS_BUCKET_ENV,
@@ -161,6 +163,11 @@ RECENT_SALES_EMPTY_REFRESH_HOURS = 48
 # that surface unrelated cards (e.g. cert OCR collisions on collector
 # number 290 matching me2pt5-290).
 SLAB_MATCH_BUDGET_SECONDS = 7.0
+
+# Module-level sentinel used by the card-lookup-cache to distinguish a true
+# `None` (card not found, cached) from "key absent". Allocated once so the
+# `is` identity check stays cheap across calls.
+_CARD_LOOKUP_CACHE_MISS: object = object()
 
 
 def _recent_sales_age_hours(fetched_at: str | None) -> int | None:
@@ -1870,14 +1877,12 @@ class SpotlightScanService:
         normalized_ids = self._normalized_unique_card_ids(card_ids)
         if not normalized_ids:
             return
-        with self._state_lock:
-            missing_ids = [card_id for card_id in normalized_ids if card_id not in self._card_lookup_cache]
+        missing_ids = [card_id for card_id in normalized_ids if card_id not in self._card_lookup_cache]
         if not missing_ids:
             return
         fetched_cards = cards_by_ids(self.connection, missing_ids)
-        with self._state_lock:
-            for card_id in missing_ids:
-                self._card_lookup_cache.setdefault(card_id, fetched_cards.get(card_id))
+        for card_id in missing_ids:
+            self._card_lookup_cache.setdefault(card_id, fetched_cards.get(card_id))
 
     @staticmethod
     def _history_primary_price_value(point: dict[str, Any] | None) -> float | None:
@@ -2029,6 +2034,99 @@ class SpotlightScanService:
                 }
             )
         return options
+
+    _RAW_CONDITION_FULL_LABELS = {
+        "NM": "Near Mint",
+        "LP": "Lightly Played",
+        "MP": "Moderately Played",
+        "HP": "Heavily Played",
+        "DM": "Damaged",
+    }
+
+    def raw_pricing_matrix(self, card_id: str) -> dict[str, Any]:
+        """Return the full variant x condition price matrix for a raw card.
+
+        Reads from the SQLite snapshot/daily-history cache only. Never calls
+        Scrydex. Returns an empty `variants` list when no cached data exists.
+        """
+
+        raw_contexts = self._snapshot_raw_contexts(card_id)
+        variants_payload: list[dict[str, Any]] = []
+        currency_code: str | None = None
+
+        def variant_sort_key(label: str) -> tuple[int, int, str]:
+            try:
+                return (0, RAW_VARIANT_PRIORITY.index(label), label)
+            except ValueError:
+                return (1, 0, label)
+
+        def condition_sort_key(code: str) -> tuple[int, int, str]:
+            try:
+                return (0, RAW_CONDITION_PRIORITY.index(code), code)
+            except ValueError:
+                return (1, 0, code)
+
+        ordered_variants = sorted(_raw_context_variants(raw_contexts), key=variant_sort_key)
+        for variant_label in ordered_variants:
+            variant_key = ""
+            condition_rows: list[dict[str, Any]] = []
+            ordered_conditions = sorted(
+                _raw_context_conditions(raw_contexts, variant_label),
+                key=condition_sort_key,
+            )
+            for condition_code in ordered_conditions:
+                entry = _raw_context_entry(
+                    raw_contexts,
+                    variant=variant_label,
+                    condition=condition_code,
+                )
+                summary = _coerce_price_summary_from_entry(entry)
+                if summary is None:
+                    continue
+                display = self._display_price_history_row(
+                    {
+                        "pricingMode": "raw",
+                        "currencyCode": summary.get("currencyCode"),
+                        "low": summary.get("low"),
+                        "market": summary.get("market"),
+                        "mid": summary.get("mid"),
+                        "high": summary.get("high"),
+                    }
+                )
+                entry_currency = str(display.get("currencyCode") or summary.get("currencyCode") or "")
+                if entry_currency and currency_code is None:
+                    currency_code = entry_currency
+                payload = summary.get("payload") if isinstance(summary.get("payload"), dict) else {}
+                if not variant_key:
+                    variant_key = str(payload.get("variantKey") or payload.get("variant") or "").strip()
+                condition_rows.append(
+                    {
+                        "code": condition_code,
+                        "label": self._RAW_CONDITION_FULL_LABELS.get(
+                            condition_code,
+                            condition_code or "Unknown",
+                        ),
+                        "low": display.get("low"),
+                        "mid": display.get("mid"),
+                        "market": display.get("market"),
+                        "high": display.get("high"),
+                    }
+                )
+            if not condition_rows:
+                continue
+            variants_payload.append(
+                {
+                    "variant": variant_label,
+                    "variantKey": variant_key or variant_label.lower().replace(" ", ""),
+                    "conditions": condition_rows,
+                }
+            )
+
+        return {
+            "cardID": card_id,
+            "currencyCode": currency_code or "USD",
+            "variants": variants_payload,
+        }
 
     def _history_variant_query_key(
         self,
@@ -4636,7 +4734,11 @@ class SpotlightScanService:
             if text
         ).strip()
         normalized_text = re.sub(r"[^A-Z0-9]+", " ", combined_upper).strip()
-        if re.search(r"\bJPN\b", normalized_text) or "JPNLXY" in normalized_text:
+        # Why: PSA cert labels use both "JPN" and "JP" as the Japanese
+        # abbreviation. Accept both. Without "JP" matching, modern
+        # Japanese slabs (e.g. "2023 POKEMON CLF JP CHANSEY") leak into
+        # the cross-language candidate pool and waste scoring time.
+        if re.search(r"\bJP[N]?\b", normalized_text) or "JPNLXY" in normalized_text:
             return "Japanese"
         language_tokens = (
             ("JAPANESE", "Japanese"),
@@ -5729,18 +5831,17 @@ class SpotlightScanService:
         normalized_card_id = str(card_id or "").strip()
         if not normalized_card_id:
             return None
-        sentinel = object()
-        with self._state_lock:
-            cached_card = self._card_lookup_cache.get(normalized_card_id, sentinel)
+        # Why: lock-free. dict.get and dict.setdefault are GIL-atomic, and a
+        # concurrent cache miss is benign — both threads fetch the same row
+        # and setdefault converges on a single value. The old per-call lock
+        # serialized every lookup, which dominated slab-scan wall time when
+        # the portfolio refresh fan-out was running on a worker pool.
+        sentinel = _CARD_LOOKUP_CACHE_MISS
+        cached_card = self._card_lookup_cache.get(normalized_card_id, sentinel)
         if cached_card is not sentinel:
             return cached_card
         card = card_by_id(self.connection, normalized_card_id)
-        with self._state_lock:
-            existing_card = self._card_lookup_cache.get(normalized_card_id, sentinel)
-            if existing_card is sentinel:
-                self._card_lookup_cache[normalized_card_id] = card
-                return card
-            return existing_card
+        return self._card_lookup_cache.setdefault(normalized_card_id, card)
 
     @staticmethod
     def _entry_title_aliases(entry: dict[str, Any]) -> tuple[str, ...]:
@@ -6164,26 +6265,55 @@ class SpotlightScanService:
 
         return tuple(exact_values), tuple(like_values)
 
-    def _local_slab_cards_by_number(self, card_number: str | None, *, limit: int = 400) -> list[dict[str, Any]]:
+    def _local_slab_cards_by_number(
+        self,
+        card_number: str | None,
+        *,
+        limit: int = 400,
+        language_hint: str | None = None,
+        label_years: tuple[int, ...] = (),
+        year_window: int = 5,
+    ) -> list[dict[str, Any]]:
         exact_values, like_values = self._slab_number_query_values(card_number)
         if not exact_values and not like_values:
             return []
 
-        clauses: list[str] = []
+        number_clauses: list[str] = []
         params: list[Any] = []
         for value in exact_values:
-            clauses.append("UPPER(number) = ?")
+            number_clauses.append("UPPER(number) = ?")
             params.append(value)
         for value in like_values:
-            clauses.append("UPPER(number) LIKE ?")
+            number_clauses.append("UPPER(number) LIKE ?")
             params.append(value)
+
+        where_parts: list[str] = [f"({' OR '.join(number_clauses)})"]
+
+        # Why: pre-filter the candidate pool at the SQL layer instead of
+        # scoring every card in Python. For narrow scans (e.g. Chansey
+        # "#015"), the unfiltered pool was ~400 rows and dominated the
+        # slab-match wall time once you multiply by GIL contention. The
+        # language and year filters cut the pool to a handful for typical
+        # graded modern Japanese slabs.
+        language_filter = self._slab_sql_language_clause(language_hint)
+        if language_filter is not None:
+            clause, language_params = language_filter
+            where_parts.append(clause)
+            params.extend(language_params)
+
+        year_filter = self._slab_sql_year_window_clause(label_years, year_window)
+        if year_filter is not None:
+            clause, year_params = year_filter
+            where_parts.append(clause)
+            params.extend(year_params)
+
         params.append(limit)
 
         rows = self.connection.execute(
             f"""
             SELECT id
             FROM cards
-            WHERE {" OR ".join(clauses)}
+            WHERE {" AND ".join(where_parts)}
             LIMIT ?
             """,
             params,
@@ -6200,6 +6330,51 @@ class SpotlightScanService:
                 cards.append(cached)
         return cards
 
+    @staticmethod
+    def _slab_sql_language_clause(
+        language_hint: str | None,
+    ) -> tuple[str, list[Any]] | None:
+        hint = str(language_hint or "").strip().lower()
+        if not hint:
+            return None
+        if hint == "japanese":
+            # Cards whose language is Japanese, anything starting with "ja",
+            # or whose language field is NULL/empty (legacy rows) — keep the
+            # last to avoid dropping rows that simply lack a language tag.
+            return (
+                "(LOWER(IFNULL(language, '')) IN ('japanese', 'ja') "
+                "OR LOWER(IFNULL(language, '')) LIKE 'ja%' "
+                "OR IFNULL(language, '') = '')",
+                [],
+            )
+        if hint in {"english", "french", "german", "italian", "spanish", "portuguese", "korean", "chinese"}:
+            # Non-Japanese hint: exclude clearly-Japanese rows; keep nulls.
+            return (
+                "(LOWER(IFNULL(language, '')) NOT LIKE 'ja%')",
+                [],
+            )
+        return None
+
+    @staticmethod
+    def _slab_sql_year_window_clause(
+        label_years: tuple[int, ...],
+        window: int,
+    ) -> tuple[str, list[Any]] | None:
+        if not label_years:
+            return None
+        earliest = min(label_years) - window
+        latest = max(label_years) + window
+        # Why: cards without a release date are kept (legacy / promo rows
+        # often lack one). Cards with an explicit date must fall inside the
+        # slab year window. SQLite stores set_release_date as TEXT, so we
+        # compare on the leading 4 chars (ISO-style 'YYYY-MM-DD').
+        return (
+            "(set_release_date IS NULL "
+            "OR set_release_date = '' "
+            "OR CAST(substr(set_release_date, 1, 4) AS INTEGER) BETWEEN ? AND ?)",
+            [earliest, latest],
+        )
+
     def _slab_candidate_matches_language_hint(self, card: dict[str, Any], evidence: SlabMatchEvidence) -> bool:
         hint = str(evidence.language_hint or "").strip().lower()
         if not hint:
@@ -6211,7 +6386,11 @@ class SpotlightScanService:
         return True
 
     def _retrieve_structured_local_slab_candidates(self, evidence: SlabMatchEvidence) -> list[dict[str, Any]]:
-        cards = self._local_slab_cards_by_number(evidence.card_number)
+        cards = self._local_slab_cards_by_number(
+            evidence.card_number,
+            language_hint=evidence.language_hint,
+            label_years=self._slab_label_years(evidence),
+        )
         if not cards:
             return []
 
@@ -7499,20 +7678,13 @@ class SpotlightScanService:
             self._finalize_scan_response(payload, response, top_candidates)
             return response
 
-        # Cert-mode policy: when a usable PSA cert is provided but the
-        # cert-first resolver did not produce a candidate, the LOCAL OCR
-        # label-scoring sweep across the general catalog is disabled. That
-        # local sweep was promoting collector-number collisions (e.g. cert
-        # 152157800 with OCR card number "290" mapping to me2pt5-290 Mega
-        # Dragonite ex) and then stamping the wrong card with
-        # pricingMode=psa_grade_estimate. Remote Scrydex expansion is still
-        # allowed (gated separately by search policy) since a real provider
-        # hit is preferable to no answer; if remote is also blocked or
-        # empty, we return a clean unsupported response instead of the
-        # bogus local-OCR match.
-        cert_normalized = normalize_cert_number(evidence.cert_number)
-        cert_mode_active = cert_normalized is not None
-
+        # Why: the cert-mode-skip-OCR policy that originally lived here was
+        # too aggressive — it killed legitimate matches like the Chansey
+        # `clv-15` find (correct card, correct price) just because the cert
+        # cache was cold and remote was gated. With the SQL pre-filter on
+        # _local_slab_cards_by_number (language hint + year window), the
+        # OCR sweep is narrow enough that wrong-card collisions are rare
+        # and the work fits inside the 7s budget on typical inputs.
         if perf_counter() >= deadline:
             return self._slab_no_match_response(
                 payload,
@@ -7524,10 +7696,7 @@ class SpotlightScanService:
                 remote_reason="slab_match_timeout",
             )
 
-        if cert_mode_active:
-            local_candidates: list[dict[str, Any]] = []
-        else:
-            local_candidates = self._retrieve_local_slab_candidates(evidence)
+        local_candidates = self._retrieve_local_slab_candidates(evidence)
         if perf_counter() >= deadline:
             return self._slab_no_match_response(
                 payload,
@@ -7545,11 +7714,8 @@ class SpotlightScanService:
             if len(local_candidates) > 1
             else top_local_score
         )
-        # In cert-mode we always try remote (the only allowed expansion path)
-        # since the local OCR label scoring is intentionally skipped above.
         should_expand_remote = (
-            cert_mode_active
-            or len(local_candidates) < 3
+            len(local_candidates) < 3
             or top_local_score < 70.0
             or local_delta < 8.0
         )
@@ -7575,32 +7741,6 @@ class SpotlightScanService:
                 review_reason="Slab match timed out after remote expansion.",
                 ambiguity_flag="Slab resolution exceeded the fail-fast budget.",
                 remote_reason="slab_match_timeout",
-                local_candidate_count=len(local_candidates),
-                remote_candidate_count=len(remote_candidates),
-                remote_debug=remote_debug,
-            )
-        # Cert-mode with no remote candidates means we have no trusted
-        # identity path remaining. Route through the explicit no-match
-        # helper so the resolverPath reflects the cert-mode policy decision
-        # and the log captures it (vs. falling through to
-        # build_slab_match_response and getting a generic empty-candidates
-        # path).
-        if cert_mode_active and not remote_candidates:
-            return self._slab_no_match_response(
-                payload,
-                evidence,
-                cert_debug=cert_debug,
-                resolver_path="psa_cert_unresolved",
-                review_reason=(
-                    "Could not identify this PSA slab from the cert number. "
-                    "Try re-scanning the label."
-                ),
-                ambiguity_flag=(
-                    "PSA cert was provided but cert-first resolution did not "
-                    "produce a match; OCR label fallback is disabled for "
-                    "cert-mode scans."
-                ),
-                remote_reason=str(remote_debug.get("reason") or "cert_fallback_blocked"),
                 local_candidate_count=len(local_candidates),
                 remote_candidate_count=len(remote_candidates),
                 remote_debug=remote_debug,
@@ -10351,6 +10491,21 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
 
             if payload is None:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
+                return
+
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/raw-pricing-matrix"):
+            card_id = parsed.path.removeprefix("/api/v1/cards/").removesuffix("/raw-pricing-matrix").rstrip("/")
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+
+            try:
+                payload = self.service.raw_pricing_matrix(card_id)
+            except Exception as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Raw pricing matrix failed: {error}"})
                 return
 
             self._write_json(HTTPStatus.OK, payload)
