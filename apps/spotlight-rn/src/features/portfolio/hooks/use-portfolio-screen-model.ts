@@ -14,6 +14,7 @@ import type {
   RecentSaleRecord,
 } from '@spotlight/api-client';
 
+import { useTabsPage } from '@/contexts/tabs-page-context';
 import { prefetchCardImages } from '@/lib/card-images';
 import {
   formatEditableSellPrice,
@@ -275,10 +276,22 @@ export function usePortfolioScreenModel() {
     }
   }, [loadDashboard, loadInventory]);
 
+  // Why: the dashboard refresh fans out 13 parallel requests (inventory +
+  // 6 history ranges + 6 ledger ranges). Firing those while the user is on
+  // the scanner tab puts a thundering herd on the backend's shared SQLite
+  // path right when a scan_match call needs the same connection — that's
+  // the contention storm that turned a slab Chansey scan into 118s on
+  // staging. Gate the auto-refresh on the portfolio tab being foreground.
+  // Pending dataVersion changes are picked up the next time the user
+  // switches back to the portfolio tab.
+  const { activePage } = useTabsPage();
+  const isPortfolioActive = activePage === 'portfolio';
+
   useEffect(() => {
+    if (!isPortfolioActive) return;
     void loadInventory();
     void loadDashboard();
-  }, [dataVersion, loadDashboard, loadInventory]);
+  }, [dataVersion, isPortfolioActive, loadDashboard, loadInventory]);
 
   useEffect(() => {
     if (dashboard.inventoryItems.length === 0 && dashboard.recentSales.length === 0) {

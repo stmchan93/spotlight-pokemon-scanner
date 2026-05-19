@@ -1,12 +1,29 @@
 import { fireEvent, screen } from '@testing-library/react-native';
 
+import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { SalesHistoryScreen } from '@/features/portfolio/screens/sales-history-screen';
 
 import { renderWithProviders } from '../test-utils';
 
+// SalesHistoryScreen uses usePortfolioScreenModel which is gated on
+// activePage='portfolio'. The default context value is 'scanner', so
+// isolated renders must override.
+const portfolioTabsContext = {
+  activePage: 'portfolio' as const,
+  chartScrubLockRef: { current: false },
+};
+
+function renderSalesHistoryScreen(props: Parameters<typeof SalesHistoryScreen>[0]) {
+  return renderWithProviders(
+    <TabsPageContext.Provider value={portfolioTabsContext}>
+      <SalesHistoryScreen {...props} />
+    </TabsPageContext.Provider>,
+  );
+}
+
 describe('SalesHistoryScreen', () => {
   it('uses the inventory-style all transactions shell without the old subtitle', async () => {
-    renderWithProviders(<SalesHistoryScreen onBack={jest.fn()} />);
+    renderSalesHistoryScreen({ onBack: jest.fn() });
 
     expect(await screen.findByText('All Transactions')).toBeTruthy();
     expect(screen.getByText('Transactions')).toBeTruthy();
@@ -19,7 +36,7 @@ describe('SalesHistoryScreen', () => {
   });
 
   it('filters and searches through transactions', async () => {
-    renderWithProviders(<SalesHistoryScreen onBack={jest.fn()} />);
+    renderSalesHistoryScreen({ onBack: jest.fn() });
 
     expect(await screen.findByText('All Transactions')).toBeTruthy();
 
@@ -34,7 +51,7 @@ describe('SalesHistoryScreen', () => {
   });
 
   it('opens a sold transaction for inspection/editing while traded rows stay read only', async () => {
-    renderWithProviders(<SalesHistoryScreen onBack={jest.fn()} />);
+    renderSalesHistoryScreen({ onBack: jest.fn() });
 
     expect(await screen.findByText('All Transactions')).toBeTruthy();
 

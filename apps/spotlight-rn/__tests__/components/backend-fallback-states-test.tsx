@@ -2,11 +2,19 @@ import { screen, waitFor } from '@testing-library/react-native';
 
 import { HttpSpotlightRepository } from '../../../../packages/api-client/src/spotlight/repository';
 
+import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { AddToCollectionScreen } from '@/features/collection/screens/add-to-collection-screen';
 import { InventoryBrowserScreen } from '@/features/inventory/screens/inventory-browser-screen';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 
 import { renderWithProviders } from '../test-utils';
+
+// PortfolioScreen's dashboard refresh is gated on activePage='portfolio'.
+// Default context value is 'scanner', so isolated test renders must override.
+const portfolioTabsContext = {
+  activePage: 'portfolio' as const,
+  chartScrubLockRef: { current: false },
+};
 
 function jsonResponse(status: number, body?: unknown) {
   return {
@@ -35,7 +43,9 @@ describe('backend-backed fallback states', () => {
     const repository = new HttpSpotlightRepository('http://example.test');
 
     renderWithProviders(
-      <PortfolioScreen onOpenSalesHistory={jest.fn()} />,
+      <TabsPageContext.Provider value={portfolioTabsContext}>
+        <PortfolioScreen onOpenSalesHistory={jest.fn()} />
+      </TabsPageContext.Provider>,
       { spotlightRepository: repository },
     );
 

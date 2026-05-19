@@ -5,6 +5,7 @@ import * as mockApiClient from '../mock-api-client';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
+import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { __resetPortfolioSummaryVisibilityForTests } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { AppProviders } from '@/providers/app-providers';
@@ -15,6 +16,16 @@ describe('PortfolioScreen', () => {
   const safeAreaMetrics = {
     frame: { height: 852, width: 393, x: 0, y: 0 },
     insets: { top: 59, right: 0, bottom: 34, left: 0 },
+  };
+
+  // The portfolio dashboard refresh effect is gated on the tabs context's
+  // activePage being 'portfolio' so the 13-call fan-out doesn't fire while
+  // the user is on the scanner tab. The default context value is 'scanner'
+  // for isolated renders; tests targeting the portfolio screen must override
+  // it so the loading effects run.
+  const portfolioTabsContext = {
+    activePage: 'portfolio' as const,
+    chartScrubLockRef: { current: false },
   };
 
   beforeEach(() => {
@@ -32,11 +43,13 @@ describe('PortfolioScreen', () => {
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
         <SpotlightThemeProvider>
           <AppProviders spotlightRepository={repository}>
-            {showPortfolio ? (
-              <PortfolioScreen />
-            ) : (
-              <Text testID="portfolio-placeholder">Portfolio hidden</Text>
-            )}
+            <TabsPageContext.Provider value={portfolioTabsContext}>
+              {showPortfolio ? (
+                <PortfolioScreen />
+              ) : (
+                <Text testID="portfolio-placeholder">Portfolio hidden</Text>
+              )}
+            </TabsPageContext.Provider>
           </AppProviders>
         </SpotlightThemeProvider>
       </SafeAreaProvider>,
@@ -148,7 +161,9 @@ describe('PortfolioScreen', () => {
         <SafeAreaProvider initialMetrics={safeAreaMetrics}>
           <SpotlightThemeProvider>
             <AppProviders spotlightRepository={repository}>
-              <Text testID="portfolio-placeholder">Portfolio hidden</Text>
+              <TabsPageContext.Provider value={portfolioTabsContext}>
+                <Text testID="portfolio-placeholder">Portfolio hidden</Text>
+              </TabsPageContext.Provider>
             </AppProviders>
           </SpotlightThemeProvider>
         </SafeAreaProvider>,
@@ -162,7 +177,9 @@ describe('PortfolioScreen', () => {
         <SafeAreaProvider initialMetrics={safeAreaMetrics}>
           <SpotlightThemeProvider>
             <AppProviders spotlightRepository={repository}>
-              <PortfolioScreen />
+              <TabsPageContext.Provider value={portfolioTabsContext}>
+                <PortfolioScreen />
+              </TabsPageContext.Provider>
             </AppProviders>
           </SpotlightThemeProvider>
         </SafeAreaProvider>,
@@ -219,7 +236,9 @@ describe('PortfolioScreen', () => {
       <SafeAreaProvider initialMetrics={safeAreaMetrics}>
         <SpotlightThemeProvider>
           <AppProviders>
-            <PortfolioScreen />
+            <TabsPageContext.Provider value={portfolioTabsContext}>
+              <PortfolioScreen />
+            </TabsPageContext.Provider>
           </AppProviders>
         </SpotlightThemeProvider>
       </SafeAreaProvider>,
