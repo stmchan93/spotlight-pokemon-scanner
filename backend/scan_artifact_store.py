@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 from pathlib import Path
 import re
@@ -14,6 +15,8 @@ except ImportError:  # pragma: no cover - optional dependency
 SCAN_ARTIFACTS_STORAGE_ENV = "SPOTLIGHT_SCAN_ARTIFACTS_STORAGE"
 SCAN_ARTIFACTS_ROOT_ENV = "SPOTLIGHT_SCAN_ARTIFACTS_ROOT"
 SCAN_ARTIFACTS_GCS_BUCKET_ENV = "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET"
+
+ARTIFACTS_JSON_BASENAME = "artifacts.json"
 
 
 _SAFE_PATH_SEGMENT_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
@@ -55,6 +58,31 @@ class ScanArtifactStore(Protocol):
         normalized_bytes: bytes,
     ) -> StoredScanArtifacts:
         ...
+
+    def write_artifacts_json(
+        self,
+        *,
+        scan_id: str,
+        year: str,
+        month: str,
+        day: str,
+        document: dict[str, Any],
+    ) -> str:
+        ...
+
+    def read_artifacts_json(
+        self,
+        *,
+        scan_id: str,
+        year: str,
+        month: str,
+        day: str,
+    ) -> dict[str, Any] | None:
+        ...
+
+
+def _scan_artifact_root(*, year: str, month: str, day: str, scan_id: str) -> Path:
+    return Path("scans") / year / month / day / scan_id
 
 
 def _safe_path_segment(value: object, *, fallback: str) -> str:
@@ -101,7 +129,7 @@ class FilesystemScanArtifactStore:
         month: str,
         day: str,
     ) -> StoredScanArtifacts:
-        relative_root = Path("scans") / year / month / day / scan_id
+        relative_root = _scan_artifact_root(year=year, month=month, day=day, scan_id=scan_id)
         absolute_root = self.root / relative_root
         absolute_root.mkdir(parents=True, exist_ok=True)
 
@@ -141,6 +169,49 @@ class FilesystemScanArtifactStore:
             source_object_path=relative_root.joinpath("source_capture.jpg").as_posix(),
             normalized_object_path=relative_root.joinpath("normalized_target.jpg").as_posix(),
         )
+
+    def write_artifacts_json(
+        self,
+        *,
+        scan_id: str,
+        year: str,
+        month: str,
+        day: str,
+        document: dict[str, Any],
+    ) -> str:
+        relative_root = _scan_artifact_root(year=year, month=month, day=day, scan_id=scan_id)
+        absolute_root = self.root / relative_root
+        absolute_root.mkdir(parents=True, exist_ok=True)
+        relative_path = relative_root.joinpath(ARTIFACTS_JSON_BASENAME)
+        absolute_path = self.root / relative_path
+        absolute_path.write_text(json.dumps(document, separators=(",", ":")), encoding="utf-8")
+        return relative_path.as_posix()
+
+    def read_artifacts_json(
+        self,
+        *,
+        scan_id: str,
+        year: str,
+        month: str,
+        day: str,
+    ) -> dict[str, Any] | None:
+        relative_path = _scan_artifact_root(year=year, month=month, day=day, scan_id=scan_id).joinpath(
+            ARTIFACTS_JSON_BASENAME
+        )
+        absolute_path = self.root / relative_path
+        if not absolute_path.exists():
+            return None
+        try:
+            raw = absolute_path.read_text(encoding="utf-8")
+        except OSError:
+            return None
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
 
 
 class GoogleCloudScanArtifactStore:
@@ -200,7 +271,7 @@ class GoogleCloudScanArtifactStore:
         month: str,
         day: str,
     ) -> StoredScanArtifacts:
-        relative_root = Path("scans") / year / month / day / scan_id
+        relative_root = _scan_artifact_root(year=year, month=month, day=day, scan_id=scan_id)
         source_object_path = self._object_name(relative_root.joinpath("source_capture.jpg"))
         normalized_object_path = self._object_name(relative_root.joinpath("normalized_target.jpg"))
 
@@ -214,6 +285,66 @@ class GoogleCloudScanArtifactStore:
             source_object_path=source_object_path,
             normalized_object_path=normalized_object_path,
         )
+
+    def write_artifacts_json(
+        self,
+        *,
+        scan_id: str,
+        year: str,
+        month: str,
+        day: str,
+        document: dict[str, Any],
+    ) -> str:
+        relative_path = _scan_artifact_root(year=year, month=month, day=day, scan_id=scan_id).joinpath(
+            ARTIFACTS_JSON_BASENAME
+        )
+        object_path = self._object_name(relative_path)
+        blob = self.bucket.blob(object_path)
+        blob.upload_from_string(
+            json.dumps(document, separators=(",", ":")),
+            content_type="application/json",
+        )
+        return object_path
+
+    def read_artifacts_json(
+        self,
+        *,
+        scan_id: str,
+        year: str,
+        month: str,
+        day: str,
+    ) -> dict[str, Any] | None:
+        relative_path = _scan_artifact_root(year=year, month=month, day=day, scan_id=scan_id).joinpath(
+            ARTIFACTS_JSON_BASENAME
+        )
+        object_path = self._object_name(relative_path)
+        blob = self.bucket.blob(object_path)
+        exists = getattr(blob, "exists", None)
+        if callable(exists):
+            try:
+                if not exists():
+                    return None
+            except Exception:  # noqa: BLE001 - treat any check failure as missing
+                return None
+        download = getattr(blob, "download_as_text", None) or getattr(blob, "download_as_string", None)
+        if download is None:
+            return None
+        try:
+            raw = download()
+        except Exception:  # noqa: BLE001 - missing blob or transient failure
+            return None
+        if isinstance(raw, bytes):
+            try:
+                raw = raw.decode("utf-8")
+            except UnicodeDecodeError:
+                return None
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError):
+            return None
+        if not isinstance(parsed, dict):
+            return None
+        return parsed
 
     def store_labeling_session_artifact(
         self,

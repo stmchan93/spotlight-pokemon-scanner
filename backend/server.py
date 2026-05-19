@@ -125,7 +125,7 @@ from scrydex_adapter import (
     raw_evidence_looks_japanese,
     search_remote_scrydex_japanese_raw_candidates,
 )
-from slab_cert_resolver import resolve_psa_cert_from_scan_cache
+from slab_cert_resolver import normalize_cert_number, resolve_psa_cert_from_scan_cache
 from slab_set_aliases import resolve_slab_set_aliases
 from scan_artifact_store import (
     SCAN_ARTIFACTS_GCS_BUCKET_ENV,
@@ -152,6 +152,15 @@ RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
 RECENT_SALES_EMPTY_REFRESH_HOURS = 48
+
+# Fail-fast budget for slab resolution. Slabs hit the OCR label-scoring
+# fallback when both the cert cache and (gated) remote search miss; that
+# path was producing 40-50s requests on staging. Cap the whole slab match
+# path at this many seconds and return a clean "could not identify" shape
+# when the budget is exceeded instead of grinding on local OCR fallbacks
+# that surface unrelated cards (e.g. cert OCR collisions on collector
+# number 290 matching me2pt5-290).
+SLAB_MATCH_BUDGET_SECONDS = 7.0
 
 
 def _recent_sales_age_hours(fetched_at: str | None) -> int | None:
@@ -7343,10 +7352,12 @@ class SpotlightScanService:
             confidence = "low"
 
         review_disposition = "ready" if confidence != "low" else "needs_review"
+        # Skip live pricing refresh inline — card detail fetches fresh pricing on open.
+        # Inline Scrydex pricing calls were causing 10s+ timeouts on slab scans.
         pricing_policy = self._scan_candidate_pricing_policy(
-            refresh_top_candidate_stale=True,
-            refresh_top_candidate_missing=True,
-            force_show_mode_top_candidate_refresh=True,
+            refresh_top_candidate_stale=False,
+            refresh_top_candidate_missing=False,
+            force_show_mode_top_candidate_refresh=False,
         )
         encoded_candidates, scored_candidates, encode_debug = self._encode_top_candidates(
             [
@@ -7450,6 +7461,8 @@ class SpotlightScanService:
         }
 
     def _resolve_slab_candidates(self, payload: dict[str, Any]) -> dict[str, Any]:
+        slab_started_at = perf_counter()
+        deadline = slab_started_at + SLAB_MATCH_BUDGET_SECONDS
         evidence = self._build_slab_evidence(payload)
         cert_candidate, cert_debug = self._resolve_psa_cert_candidate(payload, evidence)
         if cert_candidate is not None:
@@ -7486,14 +7499,60 @@ class SpotlightScanService:
             self._finalize_scan_response(payload, response, top_candidates)
             return response
 
-        local_candidates = self._retrieve_local_slab_candidates(evidence)
+        # Cert-mode policy: when a usable PSA cert is provided but the
+        # cert-first resolver did not produce a candidate, the LOCAL OCR
+        # label-scoring sweep across the general catalog is disabled. That
+        # local sweep was promoting collector-number collisions (e.g. cert
+        # 152157800 with OCR card number "290" mapping to me2pt5-290 Mega
+        # Dragonite ex) and then stamping the wrong card with
+        # pricingMode=psa_grade_estimate. Remote Scrydex expansion is still
+        # allowed (gated separately by search policy) since a real provider
+        # hit is preferable to no answer; if remote is also blocked or
+        # empty, we return a clean unsupported response instead of the
+        # bogus local-OCR match.
+        cert_normalized = normalize_cert_number(evidence.cert_number)
+        cert_mode_active = cert_normalized is not None
+
+        if perf_counter() >= deadline:
+            return self._slab_no_match_response(
+                payload,
+                evidence,
+                cert_debug=cert_debug,
+                resolver_path="psa_label_timeout",
+                review_reason="Slab match timed out before local lookup could run.",
+                ambiguity_flag="Slab resolution exceeded the fail-fast budget.",
+                remote_reason="slab_match_timeout",
+            )
+
+        if cert_mode_active:
+            local_candidates: list[dict[str, Any]] = []
+        else:
+            local_candidates = self._retrieve_local_slab_candidates(evidence)
+        if perf_counter() >= deadline:
+            return self._slab_no_match_response(
+                payload,
+                evidence,
+                cert_debug=cert_debug,
+                resolver_path="psa_label_timeout",
+                review_reason="Slab match timed out during local lookup.",
+                ambiguity_flag="Slab resolution exceeded the fail-fast budget.",
+                remote_reason="slab_match_timeout",
+                local_candidate_count=len(local_candidates),
+            )
         top_local_score = float(local_candidates[0].get("_retrievalScoreHint") or 0.0) if local_candidates else 0.0
         local_delta = (
             top_local_score - float(local_candidates[1].get("_retrievalScoreHint") or 0.0)
             if len(local_candidates) > 1
             else top_local_score
         )
-        should_expand_remote = len(local_candidates) < 3 or top_local_score < 70.0 or local_delta < 8.0
+        # In cert-mode we always try remote (the only allowed expansion path)
+        # since the local OCR label scoring is intentionally skipped above.
+        should_expand_remote = (
+            cert_mode_active
+            or len(local_candidates) < 3
+            or top_local_score < 70.0
+            or local_delta < 8.0
+        )
         remote_candidates, remote_debug = (
             self._retrieve_remote_slab_candidates(evidence)
             if should_expand_remote
@@ -7507,6 +7566,45 @@ class SpotlightScanService:
                 },
             )
         )
+        if perf_counter() >= deadline:
+            return self._slab_no_match_response(
+                payload,
+                evidence,
+                cert_debug=cert_debug,
+                resolver_path="psa_label_timeout",
+                review_reason="Slab match timed out after remote expansion.",
+                ambiguity_flag="Slab resolution exceeded the fail-fast budget.",
+                remote_reason="slab_match_timeout",
+                local_candidate_count=len(local_candidates),
+                remote_candidate_count=len(remote_candidates),
+                remote_debug=remote_debug,
+            )
+        # Cert-mode with no remote candidates means we have no trusted
+        # identity path remaining. Route through the explicit no-match
+        # helper so the resolverPath reflects the cert-mode policy decision
+        # and the log captures it (vs. falling through to
+        # build_slab_match_response and getting a generic empty-candidates
+        # path).
+        if cert_mode_active and not remote_candidates:
+            return self._slab_no_match_response(
+                payload,
+                evidence,
+                cert_debug=cert_debug,
+                resolver_path="psa_cert_unresolved",
+                review_reason=(
+                    "Could not identify this PSA slab from the cert number. "
+                    "Try re-scanning the label."
+                ),
+                ambiguity_flag=(
+                    "PSA cert was provided but cert-first resolution did not "
+                    "produce a match; OCR label fallback is disabled for "
+                    "cert-mode scans."
+                ),
+                remote_reason=str(remote_debug.get("reason") or "cert_fallback_blocked"),
+                local_candidate_count=len(local_candidates),
+                remote_candidate_count=len(remote_candidates),
+                remote_debug=remote_debug,
+            )
         merged_candidates = merge_raw_candidate_pools([local_candidates, remote_candidates])
         ranked_candidates = sorted(
             merged_candidates,
@@ -7540,6 +7638,64 @@ class SpotlightScanService:
             )
         )
         self._finalize_scan_response(payload, response, top_candidates)
+        return response
+
+    def _slab_no_match_response(
+        self,
+        payload: dict[str, Any],
+        evidence: SlabMatchEvidence,
+        *,
+        cert_debug: dict[str, Any] | None,
+        resolver_path: str,
+        review_reason: str,
+        ambiguity_flag: str,
+        remote_reason: str,
+        local_candidate_count: int = 0,
+        remote_candidate_count: int = 0,
+        remote_debug: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        pricing_context = self._slab_pricing_context(
+            grader=evidence.grader,
+            grade=evidence.grade,
+            cert_number=evidence.cert_number,
+            variant_hints=evidence.variant_hints,
+        )
+        slab_context = self._slab_context_payload_for_pricing_context(
+            pricing_context,
+            include_variant_hints=True,
+        )
+        response = self._unsupported_match_response(
+            payload,
+            resolver_mode="psa_slab",
+            resolver_path=resolver_path,
+            review_reason=review_reason,
+            ambiguity_flags=[ambiguity_flag],
+            slab_context=slab_context,
+        )
+        debug = remote_debug or {
+            "queries": [],
+            "attempts": [],
+            "resultCount": 0,
+            "reason": remote_reason,
+        }
+        self._emit_structured_log(
+            self._slab_resolution_log_payload(
+                payload,
+                evidence,
+                local_candidate_count=local_candidate_count,
+                remote_candidate_count=remote_candidate_count,
+                merged_candidate_count=0,
+                remote_debug=debug,
+                ranked_candidates=[],
+                confidence="low",
+                confidence_percent=0.0,
+                ambiguity_flags=list(response.get("ambiguityFlags") or []),
+                review_disposition=str(response.get("reviewDisposition") or "unsupported"),
+                review_reason=response.get("reviewReason"),
+                cert_debug=cert_debug,
+            )
+        )
+        self._finalize_scan_response(payload, response, [])
         return response
 
     def _log_raw_scan_event(
@@ -8824,14 +8980,17 @@ class SpotlightScanService:
             partition_datetime = datetime.fromisoformat(submitted_at.replace("Z", "+00:00"))
         except ValueError:
             partition_datetime = datetime.now(timezone.utc)
+        year = f"{partition_datetime.year:04d}"
+        month = f"{partition_datetime.month:02d}"
+        day = f"{partition_datetime.day:02d}"
         try:
             stored = self.artifact_store.store(
                 scan_id=scan_id,
                 source_bytes=source_bytes,
                 normalized_bytes=normalized_bytes,
-                year=f"{partition_datetime.year:04d}",
-                month=f"{partition_datetime.month:02d}",
-                day=f"{partition_datetime.day:02d}",
+                year=year,
+                month=month,
+                day=day,
             )
 
             upsert_scan_artifact(
@@ -8853,14 +9012,258 @@ class SpotlightScanService:
         except Exception:
             self.connection.rollback()
             raise
+
+        artifacts_json_object_path: str | None = None
+        try:
+            artifacts_document = self._build_scan_artifacts_document(
+                scan_id=scan_id,
+                payload=payload,
+                source_object_path=stored.source_object_path,
+                normalized_object_path=stored.normalized_object_path,
+                source_width=source_width,
+                source_height=source_height,
+                normalized_width=normalized_width,
+                normalized_height=normalized_height,
+                created_at=submitted_at,
+            )
+            artifacts_json_object_path = self.artifact_store.write_artifacts_json(
+                scan_id=scan_id,
+                year=year,
+                month=month,
+                day=day,
+                document=artifacts_document,
+            )
+        except Exception as exc:  # noqa: BLE001 - artifacts.json is best-effort
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "scan_artifacts_json_write_failed",
+                    "scanID": scan_id,
+                    "phase": "capture",
+                    "error": str(exc),
+                }
+            )
+
         return {
             "scanID": scan_id,
             "enabled": True,
             "storage": self.artifact_store.storage_kind,
             "sourceObjectPath": stored.source_object_path,
             "normalizedObjectPath": stored.normalized_object_path,
+            "artifactsJsonObjectPath": artifacts_json_object_path,
             "uploadedAt": submitted_at,
         }
+
+    _SCAN_ARTIFACTS_JSON_SCHEMA_VERSION = 1
+
+    @staticmethod
+    def _partition_from_object_path(object_path: str) -> tuple[str, str, str] | None:
+        if not object_path:
+            return None
+        segments = [segment for segment in object_path.split("/") if segment]
+        try:
+            scans_index = segments.index("scans")
+        except ValueError:
+            return None
+        if scans_index + 4 >= len(segments):
+            return None
+        year = segments[scans_index + 1]
+        month = segments[scans_index + 2]
+        day = segments[scans_index + 3]
+        if not (year.isdigit() and month.isdigit() and day.isdigit()):
+            return None
+        return year, month, day
+
+    def _scan_top_candidates_for_artifacts(self, scan_id: str) -> list[dict[str, Any]]:
+        rows = self.connection.execute(
+            """
+            SELECT rank, card_id, final_score, candidate_json
+            FROM scan_prediction_candidates
+            WHERE scan_id = ?
+            ORDER BY rank ASC
+            LIMIT 10
+            """,
+            (scan_id,),
+        ).fetchall()
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            rank_value = row["rank"]
+            card_id = str(row["card_id"] or "").strip()
+            final_score_value = row["final_score"]
+            try:
+                score: float | None = float(final_score_value) if final_score_value is not None else None
+            except (TypeError, ValueError):
+                score = None
+            candidates.append(
+                {
+                    "rank": int(rank_value) if isinstance(rank_value, int) else int(rank_value or 0),
+                    "card_id": card_id,
+                    "score": score,
+                }
+            )
+        return candidates
+
+    def _build_scan_artifacts_document(
+        self,
+        *,
+        scan_id: str,
+        payload: dict[str, Any],
+        source_object_path: str,
+        normalized_object_path: str,
+        source_width: int | None,
+        source_height: int | None,
+        normalized_width: int | None,
+        normalized_height: int | None,
+        created_at: str,
+    ) -> dict[str, Any]:
+        scan_event = self.connection.execute(
+            """
+            SELECT resolver_mode, matcher_version, predicted_card_id, selected_card_id,
+                   confirmed_card_id, confirmed_at, response_json
+            FROM scan_events
+            WHERE scan_id = ?
+            LIMIT 1
+            """,
+            (scan_id,),
+        ).fetchone()
+        response_payload: dict[str, Any] = {}
+        if scan_event is not None:
+            response_raw = scan_event["response_json"]
+            if response_raw:
+                try:
+                    parsed_response = json.loads(response_raw)
+                    if isinstance(parsed_response, dict):
+                        response_payload = parsed_response
+                except (TypeError, ValueError):
+                    response_payload = {}
+
+        mode = str((scan_event["resolver_mode"] if scan_event is not None else "") or "").strip() or None
+        matcher_version = str((scan_event["matcher_version"] if scan_event is not None else "") or "").strip() or None
+        predicted_card_id = str((scan_event["predicted_card_id"] if scan_event is not None else "") or "").strip() or None
+        selected_card_id = str((scan_event["selected_card_id"] if scan_event is not None else "") or "").strip() or None
+        confirmed_card_id = str((scan_event["confirmed_card_id"] if scan_event is not None else "") or "").strip() or None
+        confirmed_at = str((scan_event["confirmed_at"] if scan_event is not None else "") or "").strip() or None
+
+        slab_block: dict[str, Any] | None = None
+        slab_context = response_payload.get("slabContext") if isinstance(response_payload, dict) else None
+        if isinstance(slab_context, dict):
+            cert_number = str(slab_context.get("certNumber") or slab_context.get("cert_number") or "").strip() or None
+            grader = str(slab_context.get("grader") or "").strip() or None
+            grade = str(slab_context.get("grade") or "").strip() or None
+            variant_name = str(slab_context.get("variantName") or slab_context.get("variant_name") or "").strip() or None
+            if any((cert_number, grader, grade, variant_name)):
+                slab_block = {
+                    "cert_number": cert_number,
+                    "grader": grader,
+                    "grade": grade,
+                    "variant_name": variant_name,
+                }
+
+        camera_zoom: float | None = None
+        if isinstance(payload.get("cameraZoomFactor"), (int, float)):
+            camera_zoom = float(payload["cameraZoomFactor"])
+
+        capture_block: dict[str, Any] = {
+            "source_width": source_width,
+            "source_height": source_height,
+            "normalized_width": normalized_width,
+            "normalized_height": normalized_height,
+            "camera_zoom_factor": camera_zoom,
+            "capture_source": str(payload.get("captureSource") or "").strip() or None,
+        }
+        device_info = payload.get("device") if isinstance(payload.get("device"), dict) else None
+        if device_info:
+            capture_block["device"] = {
+                str(key): value for key, value in device_info.items()
+            }
+
+        document: dict[str, Any] = {
+            "version": self._SCAN_ARTIFACTS_JSON_SCHEMA_VERSION,
+            "scan_id": scan_id,
+            "created_at": created_at,
+            "mode": mode,
+            "predicted_card_id": predicted_card_id,
+            "selected_card_id": selected_card_id,
+            "top_candidates": self._scan_top_candidates_for_artifacts(scan_id),
+            "matcher_version": matcher_version,
+            "slab": slab_block,
+            "capture": capture_block,
+            "source_capture_uri": source_object_path,
+            "normalized_target_uri": normalized_object_path,
+            "confirmed_card_id": confirmed_card_id,
+            "confirmed_at": confirmed_at,
+        }
+        return document
+
+    def _update_scan_artifacts_json_for_confirm(
+        self,
+        *,
+        scan_id: str,
+        confirmed_card_id: str,
+        confirmed_at: str,
+    ) -> None:
+        write_artifacts_json = getattr(self.artifact_store, "write_artifacts_json", None)
+        read_artifacts_json = getattr(self.artifact_store, "read_artifacts_json", None)
+        if not callable(write_artifacts_json) or not callable(read_artifacts_json):
+            return
+
+        artifact_row = self.connection.execute(
+            "SELECT source_object_path FROM scan_artifacts WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        if artifact_row is None:
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "scan_artifacts_json_update_skipped",
+                    "scanID": scan_id,
+                    "reason": "scan_artifact_row_missing",
+                }
+            )
+            return
+
+        partition = self._partition_from_object_path(str(artifact_row["source_object_path"] or ""))
+        if partition is None:
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "scan_artifacts_json_update_skipped",
+                    "scanID": scan_id,
+                    "reason": "partition_unresolved",
+                }
+            )
+            return
+        year, month, day = partition
+
+        existing_document = read_artifacts_json(
+            scan_id=scan_id,
+            year=year,
+            month=month,
+            day=day,
+        )
+        if not isinstance(existing_document, dict):
+            self._emit_structured_log(
+                {
+                    "severity": "WARNING",
+                    "event": "scan_artifacts_json_update_skipped",
+                    "scanID": scan_id,
+                    "reason": "artifacts_json_missing",
+                }
+            )
+            return
+
+        existing_document["confirmed_card_id"] = confirmed_card_id
+        existing_document["confirmed_at"] = confirmed_at
+        if not existing_document.get("version"):
+            existing_document["version"] = self._SCAN_ARTIFACTS_JSON_SCHEMA_VERSION
+
+        write_artifacts_json(
+            scan_id=scan_id,
+            year=year,
+            month=month,
+            day=day,
+            document=existing_document,
+        )
 
     def create_deck_entry(self, payload: dict[str, Any]) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
@@ -8982,6 +9385,25 @@ class SpotlightScanService:
         except Exception:
             self.connection.rollback()
             raise
+
+        if scan_id:
+            try:
+                self._update_scan_artifacts_json_for_confirm(
+                    scan_id=scan_id,
+                    confirmed_card_id=card_id,
+                    confirmed_at=added_at,
+                )
+            except Exception as exc:  # noqa: BLE001 - artifacts.json update is best-effort
+                self._emit_structured_log(
+                    {
+                        "severity": "WARNING",
+                        "event": "scan_artifacts_json_write_failed",
+                        "scanID": scan_id,
+                        "phase": "confirm",
+                        "error": str(exc),
+                    }
+                )
+
         return {
             "deckEntryID": deck_entry_id,
             "cardID": card_id,

@@ -23,8 +23,19 @@ class _FakeBlob:
     def __init__(self) -> None:
         self.uploads: list[dict[str, object]] = []
 
-    def upload_from_string(self, data: bytes, *, content_type: str) -> None:
+    def upload_from_string(self, data, *, content_type: str) -> None:
         self.uploads.append({"data": data, "content_type": content_type})
+
+    def exists(self) -> bool:
+        return bool(self.uploads)
+
+    def download_as_text(self) -> str:
+        if not self.uploads:
+            raise RuntimeError("blob missing")
+        latest = self.uploads[-1]["data"]
+        if isinstance(latest, bytes):
+            return latest.decode("utf-8")
+        return str(latest)
 
 
 class _FakeBucket:
@@ -121,6 +132,69 @@ class ScanArtifactStoreHelperTests(unittest.TestCase):
             bucket.blobs[stored.normalized_object_path].uploads[0],
             {"data": b"normalized", "content_type": "image/jpeg"},
         )
+
+    def test_filesystem_store_write_and_read_artifacts_json_round_trip(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir_str:
+            root = Path(tempdir_str)
+            store = FilesystemScanArtifactStore(root)
+
+            relative_path = store.write_artifacts_json(
+                scan_id="scan-1",
+                year="2026",
+                month="05",
+                day="05",
+                document={"version": 1, "scan_id": "scan-1", "confirmed_card_id": None},
+            )
+
+            self.assertEqual(relative_path, "scans/2026/05/05/scan-1/artifacts.json")
+            document = store.read_artifacts_json(
+                scan_id="scan-1",
+                year="2026",
+                month="05",
+                day="05",
+            )
+            self.assertEqual(document, {"version": 1, "scan_id": "scan-1", "confirmed_card_id": None})
+
+            missing = store.read_artifacts_json(
+                scan_id="scan-missing",
+                year="2026",
+                month="05",
+                day="05",
+            )
+            self.assertIsNone(missing)
+
+    def test_gcs_store_write_and_read_artifacts_json_uses_prefix_and_json_content_type(self) -> None:
+        client = _FakeGCSClient()
+        store = GoogleCloudScanArtifactStore("artifact-bucket", client=client, object_prefix="private/scans")
+
+        object_path = store.write_artifacts_json(
+            scan_id="scan-2",
+            year="2026",
+            month="05",
+            day="05",
+            document={"version": 1, "scan_id": "scan-2"},
+        )
+
+        self.assertEqual(object_path, "private/scans/scans/2026/05/05/scan-2/artifacts.json")
+        bucket = client.buckets["artifact-bucket"]
+        upload = bucket.blobs[object_path].uploads[0]
+        self.assertEqual(upload["content_type"], "application/json")
+
+        read_back = store.read_artifacts_json(
+            scan_id="scan-2",
+            year="2026",
+            month="05",
+            day="05",
+        )
+        self.assertEqual(read_back, {"version": 1, "scan_id": "scan-2"})
+
+        missing = store.read_artifacts_json(
+            scan_id="scan-3",
+            year="2026",
+            month="05",
+            day="05",
+        )
+        self.assertIsNone(missing)
 
     def test_build_store_supports_aliases_and_validates_modes(self) -> None:
         with tempfile.TemporaryDirectory() as tempdir_str:

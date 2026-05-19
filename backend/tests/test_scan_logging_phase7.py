@@ -661,6 +661,230 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
             {"data": b"normalized-image", "content_type": "image/jpeg"},
         )
 
+    def _seed_scan_event_for_artifacts_json(
+        self,
+        *,
+        scan_id: str,
+        card_id: str = "obf-223",
+        mode: str = "raw_card",
+        matcher_version: str = "phase7-test",
+        slab_context: dict[str, str] | None = None,
+    ) -> None:
+        self._insert_card(card_id)
+        response_payload = {
+            "scanID": scan_id,
+            "topCandidates": [],
+            "confidence": "medium",
+            "ambiguityFlags": [],
+            "matcherSource": "remoteHybrid",
+            "matcherVersion": matcher_version,
+            "resolverMode": mode,
+            "resolverPath": "visual_fallback",
+            "reviewDisposition": "ready",
+            "reviewReason": None,
+        }
+        if slab_context is not None:
+            response_payload["slabContext"] = slab_context
+        self.service._log_scan(  # noqa: SLF001
+            {"scanID": scan_id},
+            response_payload,
+            [
+                {
+                    "candidate": {"id": card_id},
+                    "finalScore": 0.91,
+                    "retrievalScore": 0.8,
+                    "rerankScore": 0.85,
+                }
+            ],
+        )
+
+    def _scan_artifacts_payload(
+        self,
+        *,
+        scan_id: str,
+        submitted_at: str = "2026-04-14T20:00:00+00:00",
+        capture_source: str = "live_scan",
+        camera_zoom_factor: float = 1.5,
+    ) -> dict[str, object]:
+        return {
+            "scanID": scan_id,
+            "captureSource": capture_source,
+            "cameraZoomFactor": camera_zoom_factor,
+            "submittedAt": submitted_at,
+            "device": {"model": "iPhone15,3", "osVersion": "iOS 18.1"},
+            "sourceImage": {
+                "jpegBase64": base64.b64encode(b"source-image").decode("ascii"),
+                "width": 640,
+                "height": 960,
+            },
+            "normalizedImage": {
+                "jpegBase64": base64.b64encode(b"normalized-image").decode("ascii"),
+                "width": 630,
+                "height": 880,
+            },
+        }
+
+    def test_scan_artifacts_json_written_alongside_jpegs_with_expected_schema(self) -> None:
+        scan_id = "scan-artifacts-json-1"
+        self._seed_scan_event_for_artifacts_json(scan_id=scan_id)
+
+        response = self.service.store_scan_artifacts(
+            self._scan_artifacts_payload(scan_id=scan_id),
+        )
+
+        self.assertEqual(
+            response["artifactsJsonObjectPath"],
+            f"scans/2026/04/14/{scan_id}/artifacts.json",
+        )
+        artifacts_path = self.artifact_root / response["artifactsJsonObjectPath"]
+        self.assertTrue(artifacts_path.exists())
+        document = json.loads(artifacts_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(document["version"], 1)
+        self.assertEqual(document["scan_id"], scan_id)
+        self.assertEqual(document["created_at"], "2026-04-14T20:00:00+00:00")
+        self.assertEqual(document["mode"], "raw_card")
+        self.assertEqual(document["predicted_card_id"], "obf-223")
+        self.assertIsNone(document["selected_card_id"])
+        self.assertEqual(document["matcher_version"], "phase7-test")
+        self.assertIsNone(document["slab"])
+        self.assertEqual(
+            document["source_capture_uri"],
+            f"scans/2026/04/14/{scan_id}/source_capture.jpg",
+        )
+        self.assertEqual(
+            document["normalized_target_uri"],
+            f"scans/2026/04/14/{scan_id}/normalized_target.jpg",
+        )
+        self.assertIsNone(document["confirmed_card_id"])
+        self.assertIsNone(document["confirmed_at"])
+        self.assertEqual(len(document["top_candidates"]), 1)
+        self.assertEqual(
+            document["top_candidates"][0],
+            {"rank": 1, "card_id": "obf-223", "score": 0.91},
+        )
+        capture = document["capture"]
+        self.assertEqual(capture["source_width"], 640)
+        self.assertEqual(capture["source_height"], 960)
+        self.assertEqual(capture["normalized_width"], 630)
+        self.assertEqual(capture["normalized_height"], 880)
+        self.assertEqual(capture["camera_zoom_factor"], 1.5)
+        self.assertEqual(capture["capture_source"], "live_scan")
+        self.assertEqual(capture["device"], {"model": "iPhone15,3", "osVersion": "iOS 18.1"})
+
+    def test_create_deck_entry_updates_artifacts_json_confirm_fields(self) -> None:
+        scan_id = "scan-artifacts-json-2"
+        self._seed_scan_event_for_artifacts_json(scan_id=scan_id, card_id="gym1-60")
+        self.service.store_scan_artifacts(self._scan_artifacts_payload(scan_id=scan_id))
+
+        artifacts_path = self.artifact_root / "scans" / "2026" / "04" / "14" / scan_id / "artifacts.json"
+        initial_document = json.loads(artifacts_path.read_text(encoding="utf-8"))
+        self.assertIsNone(initial_document["confirmed_card_id"])
+        self.assertIsNone(initial_document["confirmed_at"])
+
+        self.service.create_deck_entry(
+            {
+                "cardID": "gym1-60",
+                "sourceScanID": scan_id,
+                "selectionSource": "top",
+                "selectedRank": 1,
+                "wasTopPrediction": True,
+                "addedAt": "2026-04-14T20:10:00Z",
+            }
+        )
+
+        updated_document = json.loads(artifacts_path.read_text(encoding="utf-8"))
+        self.assertEqual(updated_document["confirmed_card_id"], "gym1-60")
+        self.assertEqual(updated_document["confirmed_at"], "2026-04-14T20:10:00Z")
+        # Preserve all the existing fields
+        self.assertEqual(updated_document["version"], 1)
+        self.assertEqual(updated_document["scan_id"], scan_id)
+        self.assertEqual(updated_document["predicted_card_id"], "gym1-60")
+        self.assertEqual(updated_document["matcher_version"], "phase7-test")
+        self.assertEqual(
+            updated_document["source_capture_uri"],
+            f"scans/2026/04/14/{scan_id}/source_capture.jpg",
+        )
+
+    def test_create_deck_entry_succeeds_when_artifacts_json_missing(self) -> None:
+        # No store_scan_artifacts call before this — artifacts.json should be absent.
+        scan_id = "scan-artifacts-json-3"
+        self._seed_scan_event_for_artifacts_json(scan_id=scan_id, card_id="gym1-60")
+
+        payload = self.service.create_deck_entry(
+            {
+                "cardID": "gym1-60",
+                "sourceScanID": scan_id,
+                "selectionSource": "top",
+                "selectedRank": 1,
+                "wasTopPrediction": True,
+                "addedAt": "2026-04-14T20:11:00Z",
+            }
+        )
+
+        self.assertEqual(payload["cardID"], "gym1-60")
+        # SQLite confirm still happened
+        event_row = self.service.connection.execute(
+            "SELECT confirmed_card_id, confirmed_at FROM scan_events WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        assert event_row is not None
+        self.assertEqual(event_row["confirmed_card_id"], "gym1-60")
+        self.assertEqual(event_row["confirmed_at"], "2026-04-14T20:11:00Z")
+
+    def test_store_scan_artifacts_returns_when_artifacts_json_write_fails(self) -> None:
+        scan_id = "scan-artifacts-json-4"
+        self._seed_scan_event_for_artifacts_json(scan_id=scan_id)
+
+        original_write = self.service.artifact_store.write_artifacts_json
+
+        def _boom(**_kwargs):
+            raise RuntimeError("simulated gcs failure")
+
+        self.service.artifact_store.write_artifacts_json = _boom  # type: ignore[assignment]
+        try:
+            response = self.service.store_scan_artifacts(self._scan_artifacts_payload(scan_id=scan_id))
+        finally:
+            self.service.artifact_store.write_artifacts_json = original_write  # type: ignore[assignment]
+
+        # SQLite writes happened — scan_artifacts row exists and the JPEG paths were returned.
+        self.assertEqual(response["enabled"], True)
+        self.assertIsNone(response["artifactsJsonObjectPath"])
+        artifact_row = self.service.connection.execute(
+            "SELECT source_object_path, normalized_object_path FROM scan_artifacts WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        assert artifact_row is not None
+        self.assertEqual(
+            artifact_row["source_object_path"],
+            f"scans/2026/04/14/{scan_id}/source_capture.jpg",
+        )
+
+        # Now also assert confirm-time failure does not break create_deck_entry.
+        self.service.artifact_store.write_artifacts_json = _boom  # type: ignore[assignment]
+        try:
+            deck_payload = self.service.create_deck_entry(
+                {
+                    "cardID": "obf-223",
+                    "sourceScanID": scan_id,
+                    "selectionSource": "top",
+                    "selectedRank": 1,
+                    "wasTopPrediction": True,
+                    "addedAt": "2026-04-14T20:12:00Z",
+                }
+            )
+        finally:
+            self.service.artifact_store.write_artifacts_json = original_write  # type: ignore[assignment]
+
+        self.assertEqual(deck_payload["cardID"], "obf-223")
+        event_row = self.service.connection.execute(
+            "SELECT confirmed_card_id, confirmed_at FROM scan_events WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        assert event_row is not None
+        self.assertEqual(event_row["confirmed_card_id"], "obf-223")
+        self.assertEqual(event_row["confirmed_at"], "2026-04-14T20:12:00Z")
+
     def test_create_deck_entry_confirms_scan_and_dedupes_raw_entries(self) -> None:
         self.service.connection.execute(
             """
