@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -2285,6 +2286,12 @@ class BackendResetPhase1Tests(unittest.TestCase):
         )
         service.connection.commit()
 
+        # Cert-mode now refuses the local OCR label-scoring fallback when
+        # remote search is also empty. The old test asserted that the
+        # local-only path could disambiguate vintage vs reprint via
+        # set/release-year scoring; that is exactly the path we are now
+        # disabling because it produced wrong-card collisions on staging
+        # (see test_match_scan_with_cert_no_cache_hit_returns_no_match...).
         with patch("server.search_remote_scrydex_slab_candidates") as search_scrydex:
             search_scrydex.return_value = type("SlabSearchResult", (), {
                 "cards": [],
@@ -2297,9 +2304,9 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertEqual(response["resolverMode"], "psa_slab")
         self.assertEqual(response["slabContext"]["grader"], "PSA")
         self.assertEqual(response["slabContext"]["grade"], "9")
-        top_candidate = response["topCandidates"][0]["candidate"]
-        self.assertEqual(top_candidate["id"], "base1-4")
-        self.assertNotEqual(top_candidate["id"], "cel25c-4_A")
+        self.assertEqual(response["reviewDisposition"], "unsupported")
+        self.assertEqual(response["resolverPath"], "psa_cert_unresolved")
+        self.assertEqual(response["topCandidates"], [])
 
     def test_display_pricing_summary_for_slab_prefers_first_edition_shadowless_variant(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
@@ -3395,7 +3402,11 @@ class BackendResetPhase1Tests(unittest.TestCase):
         service.connection.close()
 
         self.assertEqual(response["resolverMode"], "psa_slab")
-        self.assertEqual(response["resolverPath"], "psa_label")
+        # Cert-mode policy: cached predictions must not poison the cert cache,
+        # AND the local OCR label-scoring fallback is disabled when a cert is
+        # present. With both local + remote returning empty here, the response
+        # routes through psa_cert_unresolved instead of the old psa_label path.
+        self.assertEqual(response["resolverPath"], "psa_cert_unresolved")
         self.assertEqual(response["reviewDisposition"], "unsupported")
         self.assertEqual(response["topCandidates"], [])
 
