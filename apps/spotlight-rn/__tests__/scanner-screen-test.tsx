@@ -883,6 +883,10 @@ describe('ScannerScreen', () => {
     }));
     expect(payloads[0].width).toBeGreaterThan(0);
     expect(payloads[0].height).toBeGreaterThan(0);
+    // The slab pipeline produces a distinct label crop for the normalized target. The
+    // upload payload must carry that crop, not a duplicate of the full source capture,
+    // otherwise GCS gets two identical blobs instead of capture + normalized.
+    expect(payloads[0].sourceImage.jpegBase64).not.toBe(payloads[0].normalizedImage.jpegBase64);
 
     fireEvent.press(screen.getByTestId('scanner-tray-open-card-0'));
 

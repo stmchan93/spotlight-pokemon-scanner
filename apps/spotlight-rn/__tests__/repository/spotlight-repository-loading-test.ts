@@ -634,7 +634,8 @@ describe('HttpSpotlightRepository', () => {
       if (url.startsWith('http://example.test/api/v1/scan/match')) {
         matchRequestBody = JSON.parse(String(init?.body ?? '{}'));
         return jsonResponse(200, {
-          scanID: 'scan-slab-dragonite',
+          // Backend echoes the client-supplied scanID.
+          scanID: matchRequestBody.scanID,
           resolverMode: 'psa_slab',
           slabContext: {
             grader: 'PSA',
@@ -664,11 +665,11 @@ describe('HttpSpotlightRepository', () => {
       if (url.startsWith('http://example.test/api/v1/scan-artifacts')) {
         artifactRequestBody = JSON.parse(String(init?.body ?? '{}'));
         return jsonResponse(202, {
-          scanID: 'scan-slab-dragonite',
+          scanID: artifactRequestBody.scanID,
           enabled: true,
           storage: 'filesystem',
-          sourceObjectPath: 'scans/2026/05/03/scan-slab-dragonite/source_capture.jpg',
-          normalizedObjectPath: 'scans/2026/05/03/scan-slab-dragonite/normalized_target.jpg',
+          sourceObjectPath: `scans/2026/05/03/${artifactRequestBody.scanID}/source_capture.jpg`,
+          normalizedObjectPath: `scans/2026/05/03/${artifactRequestBody.scanID}/normalized_target.jpg`,
           uploadedAt: '2026-05-03T12:00:00Z',
         });
       }
@@ -754,7 +755,11 @@ describe('HttpSpotlightRepository', () => {
         },
       },
     });
-    expect(result.scanID).toBe('scan-slab-dragonite');
+    // The scanID is generated client-side so artifact uploads can fire in parallel with
+    // the slow slab match. The backend echoes the same ID back.
+    expect(typeof matchRequestBody.scanID).toBe('string');
+    expect(matchRequestBody.scanID).toMatch(/[0-9a-f-]{36}/i);
+    expect(result.scanID).toBe(matchRequestBody.scanID);
     expect(result.resolverMode).toBe('psa_slab');
     expect(result.slabContext).toEqual({
       grader: 'PSA',
@@ -765,7 +770,7 @@ describe('HttpSpotlightRepository', () => {
 
     const artifactUpload = await uploadComplete;
     expect(artifactRequestBody).toEqual({
-      scanID: 'scan-slab-dragonite',
+      scanID: matchRequestBody.scanID,
       submittedAt: '2026-05-03T12:00:00Z',
       captureSource: 'camera',
       sourceImage: {
@@ -779,13 +784,103 @@ describe('HttpSpotlightRepository', () => {
         height: 280,
       },
     });
+    // Two distinct blobs must be uploaded for slabs: the full source capture and the
+    // narrow label crop. If these collapse to the same base64 payload, GCS ends up with
+    // duplicate artifacts instead of capture + normalized.
+    expect(artifactRequestBody.sourceImage.jpegBase64).not.toBe(artifactRequestBody.normalizedImage.jpegBase64);
     expect(artifactUpload).toMatchObject({
       status: 'uploaded',
       storage: 'filesystem',
-      sourceObjectPath: 'scans/2026/05/03/scan-slab-dragonite/source_capture.jpg',
-      normalizedObjectPath: 'scans/2026/05/03/scan-slab-dragonite/normalized_target.jpg',
+      sourceObjectPath: `scans/2026/05/03/${matchRequestBody.scanID}/source_capture.jpg`,
+      normalizedObjectPath: `scans/2026/05/03/${matchRequestBody.scanID}/normalized_target.jpg`,
     });
     expect(global.fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('fires the slab scan-artifact upload in parallel with the match request', async () => {
+    // Reproduces the staging bug where 40-50s slab match latency means the chained
+    // upload never fires before the user backgrounds the app. The upload must kick off
+    // independently of (and not wait on) the match response.
+    let resolveMatchHold: () => void = () => {};
+    const matchHold = new Promise<void>((resolve) => {
+      resolveMatchHold = resolve;
+    });
+
+    let artifactCalledAt: number | null = null;
+    let matchResponseSentAt: number | null = null;
+
+    global.fetch = jest.fn().mockImplementation(async (url: string, init?: RequestInit) => {
+      if (url.startsWith('http://example.test/api/v1/scan/match')) {
+        const matchRequestBody = JSON.parse(String(init?.body ?? '{}'));
+        // Block the match response until we explicitly resolve it. This simulates the
+        // slow slab match path on staging. The artifact upload must NOT depend on this.
+        await matchHold;
+        matchResponseSentAt = Date.now();
+        return jsonResponse(200, {
+          scanID: matchRequestBody.scanID,
+          resolverMode: 'psa_slab',
+          topCandidates: [],
+        });
+      }
+
+      if (url.startsWith('http://example.test/api/v1/scan-artifacts')) {
+        artifactCalledAt = Date.now();
+        const artifactRequestBody = JSON.parse(String(init?.body ?? '{}'));
+        return jsonResponse(202, {
+          scanID: artifactRequestBody.scanID,
+          enabled: true,
+          storage: 'filesystem',
+          uploadedAt: '2026-05-03T12:00:00Z',
+        });
+      }
+
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    let resolveUpload: (value: ScannerArtifactUploadResult | null) => void = () => {};
+    const uploadComplete = new Promise<ScannerArtifactUploadResult | null>((resolve) => {
+      resolveUpload = resolve;
+    });
+
+    const matchPromise = repository.matchScannerCapture({
+      mode: 'slabs',
+      jpegBase64: 'bGFiZWwtY3JvcA==',
+      width: 630,
+      height: 280,
+      captureSource: 'camera',
+      submittedAt: '2026-05-03T12:00:00Z',
+      sourceImage: {
+        jpegBase64: 'ZnVsbC1zb3VyY2U=',
+        width: 1920,
+        height: 1080,
+      },
+      normalizedImage: {
+        jpegBase64: 'bGFiZWwtY3JvcA==',
+        width: 630,
+        height: 280,
+      },
+    }, {
+      onArtifactUploadComplete: resolveUpload,
+    });
+
+    // The upload must complete while the match request is still pending - that's the
+    // whole point of the parallel-firing fix.
+    await uploadComplete;
+    const observedArtifactAt = artifactCalledAt;
+    if (observedArtifactAt === null) {
+      throw new Error('artifact upload was not fired before the match resolved');
+    }
+    expect(matchResponseSentAt).toBeNull();
+
+    // Unblock the match response and complete the call.
+    resolveMatchHold();
+    await matchPromise;
+    const observedMatchAt = matchResponseSentAt;
+    if (observedMatchAt === null) {
+      throw new Error('match request never resolved');
+    }
+    expect(observedArtifactAt).toBeLessThanOrEqual(observedMatchAt);
   });
 
   it('times out unreachable backend requests instead of hanging forever', async () => {

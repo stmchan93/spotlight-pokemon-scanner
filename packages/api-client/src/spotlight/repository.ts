@@ -1167,6 +1167,7 @@ function normalizeCardCandidate(candidate: CardCandidateDTO | null | undefined, 
 
 function createScannerMatchPayload(
   payload: ScannerCapturePayload,
+  scanID: string,
   clientContext?: RepositoryClientContext,
 ): Record<string, unknown> {
   const locale = Intl.DateTimeFormat().resolvedOptions().locale || 'en_US';
@@ -1176,7 +1177,7 @@ function createScannerMatchPayload(
   const slabAnalysis = payload.mode === 'slabs' ? (payload.slabAnalysis ?? null) : null;
 
   return {
-    scanID: createPseudoUUID(),
+    scanID,
     capturedAt: new Date().toISOString(),
     clientContext: {
       platform: 'react_native',
@@ -3088,10 +3089,16 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async matchScannerCapture(payload: ScannerCapturePayload, options?: ScannerMatchOptions) {
     const endpointPath = scannerMatchEndpointPath(payload);
     const startedAt = Date.now();
-    const response = await this.requestJson<ScanMatchResponseDTO>(
+    // Generate the scanID up-front so the artifact upload can fire in parallel with the match
+    // request. Slab matches take 40-50s on staging; if the upload were chained behind the match
+    // response the user often backgrounds the app before it ever kicks off, leaving zero slab
+    // artifacts in GCS. See repo bug investigation 2026-05-19.
+    const scanID = createPseudoUUID();
+
+    const matchRequestPromise = this.requestJson<ScanMatchResponseDTO>(
       `${this.baseUrl}/${endpointPath}`,
       {
-        body: JSON.stringify(createScannerMatchPayload(payload, this.clientContext ?? undefined)),
+        body: JSON.stringify(createScannerMatchPayload(payload, scanID, this.clientContext ?? undefined)),
         headers: {
           'Content-Type': 'application/json',
         },
@@ -3105,30 +3112,40 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       },
     );
 
+    // Fire-and-forget the artifact upload immediately, in parallel with the match request,
+    // so it never depends on (or is blocked by) the slow slab match response. The backend
+    // accepts the same client-generated scanID for both endpoints.
+    const artifactUploadPromise = this.uploadScanArtifactsForMatch(payload, scanID)
+      .then((result) => {
+        options?.onArtifactUploadComplete?.(result);
+        return result;
+      })
+      .catch((error: unknown) => {
+        const failure: ScannerArtifactUploadResult = {
+          status: 'failed',
+          errorKind: 'request_failed',
+          errorMessage: error instanceof Error ? error.message : String(error),
+        };
+        options?.onArtifactUploadComplete?.(failure);
+        return failure;
+      });
+    // Silence unhandled-rejection warnings; failures are surfaced via the callback above.
+    void artifactUploadPromise;
+
+    const response = await matchRequestPromise;
+
     if (response.kind !== 'success') {
       throw response.error;
     }
 
     const roundTripMs = Date.now() - startedAt;
     const serverProcessingMs = normalizeNumber(response.data?.performance?.serverProcessingMs);
-    const scanID = normalizeString(response.data?.scanID);
-
-    // Background the artifact upload so the candidate UI can paint as soon as match returns.
-    // The optional callback fires once the upload settles so callers can emit telemetry.
-    void this.uploadScanArtifactsForMatch(payload, scanID)
-      .then((result) => {
-        options?.onArtifactUploadComplete?.(result);
-      })
-      .catch((error: unknown) => {
-        options?.onArtifactUploadComplete?.({
-          status: 'failed',
-          errorKind: 'request_failed',
-          errorMessage: error instanceof Error ? error.message : String(error),
-        });
-      });
+    // The backend echoes the client-supplied scanID, but fall back to the local one if the
+    // response shape ever changes so the upload keys stay aligned.
+    const responseScanID = normalizeString(response.data?.scanID) ?? scanID;
 
     return {
-      scanID,
+      scanID: responseScanID,
       candidates: mapScannerMatchCandidates(response.data, this.baseUrl),
       endpointPath,
       resolverMode: normalizeString(response.data?.resolverMode),
