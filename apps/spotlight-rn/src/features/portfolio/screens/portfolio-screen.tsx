@@ -11,7 +11,7 @@ import {
 import { Eye, EyeClosed, FilterList, MoreHorizCircle } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { ChartMode, InventoryCardEntry, TopMoverEntry } from '@spotlight/api-client';
+import type { ChartMode, InventoryCardEntry } from '@spotlight/api-client';
 import {
   InventoryCardTile,
   PageTabs,
@@ -19,8 +19,6 @@ import {
   SearchField,
   SectionHeader,
   StateCard,
-  TopMoversCarousel,
-  type TopMoversCarouselItem,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -45,7 +43,6 @@ type PortfolioScreenProps = {
   onOpenAccount?: () => void;
   onOpenInventory?: () => void;
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
-  onOpenCardDetail?: (cardId: string) => void;
   /**
    * Wired to the View All link inside the Recent Sales tab — navigates
    * to the full-screen virtualized sales list at /sales.
@@ -121,36 +118,11 @@ const collectionTabs = [
 
 const recentSalesTabLimit = 6;
 
-function formatCardNumberSuffix(cardNumber: string | null): string {
-  if (!cardNumber) {
-    return '';
-  }
-  const trimmed = cardNumber.trim().replace(/^#/, '');
-  return trimmed.length > 0 ? ` (#${trimmed})` : '';
-}
-
-function formatTopMoverChangeLabel(mover: TopMoverEntry): string {
-  const sign = mover.changePercent >= 0 ? '+' : '-';
-  const percent = Math.abs(mover.changePercent).toFixed(2);
-  return `${sign}${percent}%`;
-}
-
-function topMoversCarouselItems(entries: readonly TopMoverEntry[]): TopMoversCarouselItem[] {
-  return entries.map((mover) => ({
-    id: mover.cardId,
-    imageUrl: mover.imageUrl,
-    title: `${mover.name}${formatCardNumberSuffix(mover.cardNumber)}`,
-    changeLabel: formatTopMoverChangeLabel(mover),
-    direction: mover.changeAmount >= 0 ? 'up' : 'down',
-  }));
-}
-
 export function PortfolioScreen({
   accountInitials = 'AC',
   onOpenAccount = () => {},
   onOpenInventory = () => {},
   onOpenInventoryEntry = () => {},
-  onOpenCardDetail,
   onOpenSalesHistory,
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
@@ -192,11 +164,6 @@ export function PortfolioScreen({
     : summary.changeAmount >= 0;
 
   const baseInventory = model.dashboard.inventoryItems;
-
-  const carouselItems = useMemo(
-    () => topMoversCarouselItems(model.topMovers.movers),
-    [model.topMovers.movers],
-  );
 
   const portfolioTabHighlights = useMemo(() => {
     const filtered = applyTypeFilter(baseInventory, typeFilter);
@@ -374,17 +341,6 @@ export function PortfolioScreen({
           </Text>
           <View style={styles.headerSpacer} />
         </View>
-
-        {carouselItems.length > 0 || (model.isLoadingTopMovers && !model.hasLoadedTopMovers) ? (
-          <View style={[styles.carouselWrap, { marginHorizontal: -theme.layout.pageGutter }]}>
-            <TopMoversCarousel
-              isLoading={model.isLoadingTopMovers && !model.hasLoadedTopMovers}
-              items={carouselItems}
-              onItemPress={onOpenCardDetail}
-              testID="portfolio-top-movers-carousel"
-            />
-          </View>
-        ) : null}
 
         {shouldShowInitialError ? (
           <StateCard
@@ -589,11 +545,6 @@ const styles = StyleSheet.create({
     height: 36,
     justifyContent: 'center',
     width: 36,
-  },
-  // 16dp default gap from `content.gap` + 24 marginBottom = 40dp between
-  // the ticker and the summary/chart block.
-  carouselWrap: {
-    marginBottom: 24,
   },
   // 16dp default gap + 24 marginBottom = 40dp between the chart and the
   // collection tabs.
