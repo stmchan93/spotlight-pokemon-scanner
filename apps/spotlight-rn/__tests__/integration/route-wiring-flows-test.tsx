@@ -233,6 +233,7 @@ async function enterSingleSellPriceWithCalculator() {
   fireEvent.press(screen.getByTestId('single-sell-calculator-key-1'));
   fireEvent.press(screen.getByTestId('single-sell-calculator-key-0'));
   fireEvent.press(screen.getByTestId('single-sell-calculator-equals'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-close'));
 }
 
 async function enterBulkSellPriceWithCalculator() {
@@ -244,6 +245,7 @@ async function enterBulkSellPriceWithCalculator() {
   fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-1'));
   fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-0'));
   fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-equals'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-close'));
 }
 
 async function enterSecondBulkSellPriceWithCalculator() {
@@ -252,6 +254,7 @@ async function enterSecondBulkSellPriceWithCalculator() {
   fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-×'));
   fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-3'));
   fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-equals'));
+  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-close'));
 }
 
 describe('route wiring flows', () => {

@@ -30,6 +30,7 @@ async function enterSingleSellPriceWithCalculator(value: '2.5' | '12.5') {
   }
 
   fireEvent.press(screen.getByTestId('single-sell-calculator-equals'));
+  fireEvent.press(screen.getByTestId('single-sell-calculator-close'));
 }
 
 
@@ -432,5 +433,69 @@ describe('SingleSellScreen', () => {
     expect(screen.getByTestId('single-sell-sold-price')).toBeTruthy();
     expect(screen.getByTestId('single-sell-calculator-sheet')).toBeTruthy();
     expect(screen.getByTestId('single-sell-bought-price-input')).toBeTruthy();
+  });
+
+  it('keeps the calculator open after pressing = and writes the evaluated result to the sold price', async () => {
+    renderWithProviders(
+      <SingleSellScreen
+        entryId="entry-2"
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('Oshawott')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('single-sell-sold-price'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-key-6'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-key-×'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-key-3'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-equals'));
+
+    expect(screen.getByTestId('single-sell-calculator-sheet')).toBeTruthy();
+    expect(screen.getByTestId('single-sell-calculator-result')).toHaveTextContent('= 18');
+    expect(screen.getByTestId('single-sell-sold-price')).toHaveTextContent('$18');
+  });
+
+  it('commits the current valid expression to the sold price when Close is pressed without =', async () => {
+    renderWithProviders(
+      <SingleSellScreen
+        entryId="entry-2"
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('Oshawott')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('single-sell-sold-price'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-key-6'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-key-×'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-key-3'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-close'));
+
+    expect(screen.queryByTestId('single-sell-calculator-sheet')).toBeNull();
+    expect(screen.getByTestId('single-sell-sold-price')).toHaveTextContent('$18');
+  });
+
+  it('leaves the sold price untouched when dismissed with an invalid trailing-operator expression', async () => {
+    renderWithProviders(
+      <SingleSellScreen
+        entryId="entry-2"
+        onClose={jest.fn()}
+        onComplete={jest.fn()}
+      />,
+    );
+
+    expect(await screen.findByText('Oshawott')).toBeTruthy();
+    expect(screen.getByText('Tap to enter')).toBeTruthy();
+
+    fireEvent.press(screen.getByTestId('single-sell-sold-price'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-key-5'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-key-+'));
+    fireEvent.press(screen.getByTestId('single-sell-calculator-dismiss'));
+
+    expect(screen.queryByTestId('single-sell-calculator-sheet')).toBeNull();
+    expect(screen.getByText('Tap to enter')).toBeTruthy();
   });
 });

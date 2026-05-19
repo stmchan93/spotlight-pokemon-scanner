@@ -671,7 +671,7 @@ function SellInlineCalculator({
                   style={styles.calculatorResult}
                   testID={`${testIDPrefix}-calculator-result`}
                 >
-                  {errorMessage ?? (resultText ? `= ${resultText}` : 'Use = to apply to sold price')}
+                  {errorMessage ?? (resultText ? `= ${resultText}` : 'Tap = to preview, or close to apply')}
                 </Text>
               </View>
 
@@ -826,9 +826,15 @@ export function SellFormFields({
   }, [soldPriceText]);
 
   const closeCalculator = useCallback(() => {
+    const evaluated = evaluateSellCalculatorExpression(
+      normalizeCalculatorExpression(calculatorExpression),
+    );
+    if (evaluated != null) {
+      onSoldPriceChangeText(formatEditableSellPrice(evaluated));
+    }
     setShowsCalculator(false);
     setCalculatorErrorMessage(null);
-  }, []);
+  }, [calculatorExpression, onSoldPriceChangeText]);
   const soldPriceDisplayText = soldPriceText.trim().length > 0 ? `$${soldPriceText}` : 'Tap to enter';
 
   const handleAppendCalculatorSymbol = useCallback((symbol: string) => {
@@ -850,7 +856,6 @@ export function SellFormFields({
 
     onSoldPriceChangeText(formatEditableSellPrice(evaluated));
     setCalculatorErrorMessage(null);
-    setShowsCalculator(false);
   }, [calculatorExpression, onSoldPriceChangeText]);
 
   return (
