@@ -21,25 +21,12 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import { useAppServices } from '@/providers/app-providers';
 
 type MarketInfoSectionProps = {
   entry: InventoryCardEntry;
 };
-
-function buildTcgPlayerSearchUrl(params: { cardNumber: string; name: string; setName: string }) {
-  const tokens = [
-    params.name,
-    params.cardNumber.replace(/^#/, ''),
-    params.setName,
-  ]
-    .map((value) => value.replace(/[^A-Za-z0-9 ]+/g, ' ').trim())
-    .filter(Boolean)
-    .join(' ');
-  if (!tokens) return null;
-  const search = new URLSearchParams({ q: tokens, view: 'grid' });
-  return `https://www.tcgplayer.com/search/pokemon/product?${search.toString()}`;
-}
 
 function formatCurrency(amount: number, currencyCode: string) {
   return new Intl.NumberFormat('en-US', {
@@ -111,6 +98,8 @@ export function MarketInfoSection({ entry }: MarketInfoSectionProps) {
         cardNumber: entry.cardNumber,
         name: entry.name,
         setName: entry.setName,
+        condition: entry.kind === 'raw' ? (entry.conditionLabel ?? entry.conditionCode) : null,
+        printing: entry.kind === 'raw' ? entry.variantName : null,
       })
     : null;
 

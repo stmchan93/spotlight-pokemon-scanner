@@ -36,6 +36,7 @@ import { Button, IconButton, SurfaceCard, colors, useSpotlightTheme } from '@spo
 
 import { ChromeBackButton } from '@/components/chrome-back-button';
 import { CardHero } from '@/features/cards/components/card-hero';
+import { buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import {
   resolveActiveScanReviewCandidate,
   resolveSimilarScanCandidates,
@@ -64,36 +65,6 @@ function displayNumber(value?: string | null) {
   }
 
   return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
-}
-
-function cleanedMarketplaceToken(value?: string | null) {
-  const trimmed = value?.trim();
-  return trimmed ? trimmed : null;
-}
-
-function buildTcgPlayerSearchUrl(params: {
-  cardNumber: string;
-  name: string;
-  setName: string;
-}) {
-  const query = [
-    cleanedMarketplaceToken(params.name),
-    cleanedMarketplaceToken(params.cardNumber.replace(/^#/, '')),
-    cleanedMarketplaceToken(params.setName),
-  ]
-    .filter(Boolean)
-    .join(' ');
-
-  if (!query) {
-    return null;
-  }
-
-  const searchParams = new URLSearchParams({
-    q: query,
-    view: 'grid',
-  });
-
-  return `https://www.tcgplayer.com/search/pokemon/product?${searchParams.toString()}`;
 }
 
 const favoriteHeartColor = '#E83E8C';
@@ -1284,10 +1255,15 @@ export function CardDetailScreen({
   const slabHeroSubtitle = slabGradeSummary(selectedSlabContext);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
-  const marketplaceUrl = detail?.marketplaceUrl ?? buildTcgPlayerSearchUrl({
+  const marketplacePrintingHint = selectedEntry?.kind === 'raw'
+    ? selectedEntry.variantName
+    : detail?.marketHistory?.selectedVariant ?? null;
+  const marketplaceUrl = buildTcgPlayerSearchUrl({
     cardNumber: displayCardNumber,
     name: displayName,
     setName: displaySetName,
+    condition: selectedCondition?.label ?? null,
+    printing: marketplacePrintingHint,
   });
   const sellEntryId = selectedEntry?.id ?? entryId;
 

@@ -5,10 +5,9 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  IconCheck,
   IconChevronLeft,
-  IconPlus,
 } from '@tabler/icons-react-native';
+import { RefreshDouble } from 'iconoir-react-native';
 import {
   ActivityIndicator,
   Animated,
@@ -27,7 +26,6 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import Svg, { Path } from 'react-native-svg';
 
 import {
   type CatalogSearchResult,
@@ -43,6 +41,7 @@ import {
 } from '@spotlight/design-system';
 
 import { useTabsPage } from '@/contexts/tabs-page-context';
+import { buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
 import {
   shouldSetRecentCaptureTrayShellResponder,
   shouldSetRecentCaptureTrayVerticalResponder,
@@ -848,9 +847,18 @@ export function ScannerScreen({
 
       try {
         const hint = await quickClassifyCapture(rawNormalizedTarget.normalizedImageUri);
-        isSlab = hint.isSlabLikely;
+        // CLASSIFIER TUNING (JS OVERRIDE — remove once Swift thresholds are confirmed correct):
+        // Native binary had isSlabLikely = redBand > 0.45 && barcode > 0.40 (both far too strict).
+        // Swift source updated to: redBand > 0.12 (redBand alone is primary signal; barcode is on back).
+        // This JS override mirrors that logic until a native rebuild ships the Swift change.
+        // JS override mirrors Swift logic for older native builds that predate barcode detection.
+        isSlab = hint.isSlabLikely || hint.redBandScore >= 0.12 || (hint.hasBarcode ?? false);
+        console.info(
+          `[SCANNER CLASSIFIER] isSlabLikely=${hint.isSlabLikely} hasBarcode=${hint.hasBarcode ?? false} override=${isSlab} confidence=${hint.confidence.toFixed(3)} redBand=${hint.redBandScore.toFixed(3)} decodeMs=${hint.decodeMs} classifyMs=${hint.classifyMs}`,
+        );
         capturePostHogEvent('scan_classifier_decided', {
           is_slab_likely: hint.isSlabLikely,
+          has_barcode: hint.hasBarcode ?? false,
           confidence: hint.confidence,
           red_band_score: hint.redBandScore,
           barcode_region_score: hint.barcodeRegionScore,
@@ -939,6 +947,7 @@ export function ScannerScreen({
 
         return {
           ...capture,
+          mode: isSlab ? 'slabs' : 'raw',
           normalizedImageDimensions: normalizedTarget.normalizedImageDimensions,
           normalizedImageUri: normalizedTarget.normalizedImageUri,
           slabContext,
@@ -1001,6 +1010,7 @@ export function ScannerScreen({
           isLoadingCandidates: false,
           matchReviewDisposition: isSlab ? 'unsupported' : null,
           matchReviewReason: scannerPreparationReviewReason(isSlab ? 'slabs' : 'raw', error),
+          mode: isSlab ? 'slabs' : 'raw',
           normalizedImageDimensions: null,
           normalizedImageUri: null,
           slabContext: null,
@@ -1655,15 +1665,13 @@ export function ScannerScreen({
                     accessibilityRole="button"
                     hitSlop={6}
                     onPress={() => {
-                      const url = [
-                        candidate.name,
-                        candidate.cardNumber?.replace(/^#/, ''),
-                        candidate.setName,
-                      ].filter(Boolean).join(' ');
+                      const url = buildTcgPlayerSearchUrl({
+                        cardNumber: candidate.cardNumber ?? '',
+                        name: candidate.name ?? '',
+                        setName: candidate.setName ?? '',
+                      });
                       if (url) {
-                        void Linking.openURL(
-                          `https://www.tcgplayer.com/search/pokemon/product?${new URLSearchParams({ q: url, view: 'grid' }).toString()}`,
-                        );
+                        void Linking.openURL(url);
                       }
                     }}
                     testID={`scanner-tray-tcg-${index}`}
@@ -1691,7 +1699,7 @@ export function ScannerScreen({
                 style={styles.captureAddedButton}
                 testID={`scanner-tray-added-${index}`}
               >
-                <IconCheck color="#1A1A1A" size={20} strokeWidth={2.5} />
+                <IconCheck color={colors.textPrimary} size={20} strokeWidth={2.5} />
               </Pressable>
             ) : (
               <Pressable

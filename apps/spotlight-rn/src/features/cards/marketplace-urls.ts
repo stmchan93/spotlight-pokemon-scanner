@@ -13,10 +13,68 @@ function cleanedTcgPlayerToken(value: string | null | undefined) {
     .replace(/^pokemon\s+/, '');
 }
 
+// TCGplayer's Condition filter accepts these display values verbatim.
+function normalizeTcgPlayerCondition(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase();
+  switch (normalized) {
+    case 'nm':
+    case 'near mint':
+    case 'near_mint':
+      return 'Near Mint';
+    case 'lp':
+    case 'lightly played':
+    case 'lightly_played':
+      return 'Lightly Played';
+    case 'mp':
+    case 'moderately played':
+    case 'moderately_played':
+      return 'Moderately Played';
+    case 'hp':
+    case 'heavily played':
+    case 'heavily_played':
+      return 'Heavily Played';
+    case 'd':
+    case 'dmg':
+    case 'damaged':
+      return 'Damaged';
+    default:
+      return null;
+  }
+}
+
+// TCGplayer's Printing filter values. Skip if we can't confidently map — over-filtering
+// to an unknown printing would zero out results.
+function normalizeTcgPlayerPrinting(value: string | null | undefined) {
+  const normalized = value?.trim().toLowerCase().replace(/_/g, ' ');
+  if (!normalized) return null;
+  switch (normalized) {
+    case 'normal':
+      return 'Normal';
+    case 'holo':
+    case 'holofoil':
+      return 'Holofoil';
+    case 'reverse holo':
+    case 'reverse holofoil':
+      return 'Reverse Holofoil';
+    case '1st edition normal':
+    case 'first edition normal':
+      return '1st Edition Normal';
+    case '1st edition holofoil':
+    case 'first edition holofoil':
+      return '1st Edition Holofoil';
+    case 'unlimited holofoil':
+      return 'Unlimited Holofoil';
+    default:
+      return null;
+  }
+}
+
 export function buildTcgPlayerSearchUrl(params: {
   cardNumber: string;
   name: string;
   setName: string;
+  condition?: string | null;
+  printing?: string | null;
 }) {
   const query = [
     'pokemon',
@@ -37,7 +95,15 @@ export function buildTcgPlayerSearchUrl(params: {
     .replace(/%20/g, '+')
     .replace(/%2F/g, '/')
     .replace(/%27/g, "'");
-  return `https://www.tcgplayer.com/search/all/product?q=${encodedQ}&view=grid`;
+
+  const condition = normalizeTcgPlayerCondition(params.condition);
+  const printing = normalizeTcgPlayerPrinting(params.printing);
+  const filterParts: string[] = [];
+  if (condition) filterParts.push(`Condition=${encodeURIComponent(condition).replace(/%20/g, '+')}`);
+  if (printing) filterParts.push(`Printing=${encodeURIComponent(printing).replace(/%20/g, '+')}`);
+  const filterSuffix = filterParts.length > 0 ? `&${filterParts.join('&')}` : '';
+
+  return `https://www.tcgplayer.com/search/all/product?q=${encodedQ}&view=grid${filterSuffix}`;
 }
 
 export function buildEbaySearchUrl(params: {
