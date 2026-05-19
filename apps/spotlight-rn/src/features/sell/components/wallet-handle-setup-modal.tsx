@@ -107,6 +107,9 @@ export function WalletHandleSetupModal({
               {copy.title}
             </Text>
             <Text style={styles.help}>{copy.help}</Text>
+            <Text style={styles.editHint}>
+              Need to change this later? You can update it anytime under Account → Payment handles.
+            </Text>
             <View style={styles.inputRow}>
               {copy.prefix ? <Text style={styles.prefix}>{copy.prefix}</Text> : null}
               <TextInput
@@ -174,10 +177,15 @@ const styles = StyleSheet.create({
     color: colors.danger,
     marginTop: 8,
   },
+  editHint: {
+    ...textStyles.caption,
+    color: colors.textMuted,
+    marginBottom: 16,
+  },
   help: {
     ...textStyles.body,
     color: colors.textSecondary,
-    marginBottom: 16,
+    marginBottom: 8,
   },
   input: {
     ...textStyles.body,
