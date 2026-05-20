@@ -68,12 +68,6 @@
       "url": "https://u.expo.dev/bd29d8aa-8a70-45ba-907e-f7136f2be4ff"
     },
     "extra": {
-      "spotlightApiBaseUrl": "http://Stephens-MacBook-Pro.local:8788/",
-      "spotlightSupabaseUrl": "https://lvnjshymwvagwadqeofm.supabase.co",
-      "spotlightSupabaseAnonKey": "sb_publishable_qt8HOMPYzMc0UUAgLg0e8A_JYcA53An",
-      "spotlightAuthRedirectHost": "login-callback",
-      "spotlightAuthScheme": "spotlight",
-      "router": {},
       "eas": {
         "projectId": "bd29d8aa-8a70-45ba-907e-f7136f2be4ff"
       }
