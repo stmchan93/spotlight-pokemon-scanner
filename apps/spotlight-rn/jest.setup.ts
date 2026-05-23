@@ -1,3 +1,13 @@
+// react-test-renderer's internal `reportGlobalError` (newer versions) tries to
+// dispatch an `error` event on `window` when an uncaught error fires during
+// commit. In the React Native jest env there is no full DOM `window`, so the
+// dispatch itself throws and masks the real failure. Stub it so React's error
+// reporter can complete its no-op path.
+const __globalAny = globalThis as { window?: { dispatchEvent?: (event: unknown) => boolean } };
+if (__globalAny.window && typeof __globalAny.window.dispatchEvent !== 'function') {
+  __globalAny.window.dispatchEvent = () => true;
+}
+
 jest.mock('expo-font', () => ({
   useFonts: () => [true, null],
 }));
@@ -31,15 +41,24 @@ jest.mock('iconoir-react-native', () => {
     StarSolid: make('star-solid'),
     ArrowUp: make('arrow-up'),
     ArrowDown: make('arrow-down'),
+    ArrowUpRightSquare: make('arrow-up-right-square'),
+    DollarCircle: make('dollar-circle'),
     EditPencil: make('edit-pencil'),
     Eye: make('eye'),
     EyeClosed: make('eye-closed'),
     Filter: make('filter'),
     FilterList: make('filter-list'),
+    GraphUp: make('graph-up'),
+    Heart: make('heart'),
+    LogOut: make('log-out'),
+    Menu: make('menu'),
+    Minus: make('minus'),
     MoreHoriz: make('more-horiz'),
     MoreHorizCircle: make('more-horiz-circle'),
     Calendar: make('calendar'),
     NavArrowLeft: make('nav-arrow-left'),
+    Plus: make('plus'),
+    RefreshDouble: make('refresh-double'),
     Scanning: make('scanning'),
     Search: make('search'),
     Suitcase: make('suitcase'),

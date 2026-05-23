@@ -2,6 +2,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react-nativ
 import type { CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
 
 const mockBack = jest.fn();
+const mockDismissTo = jest.fn();
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockUseLocalSearchParams = jest.fn();
@@ -46,6 +47,7 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockUseLocalSearchParams(),
   useRouter: () => ({
     back: mockBack,
+    dismissTo: mockDismissTo,
     push: mockPush,
     replace: mockReplace,
   }),
@@ -432,7 +434,7 @@ describe('misc route wrappers', () => {
     fireEvent.press(screen.getByTestId('single-sell-complete'));
 
     expect(mockBack).toHaveBeenCalled();
-    expect(mockReplace).toHaveBeenCalledWith('/portfolio');
+    expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
   });
 
   it('returns null for card-detail when cardId is missing and wires nested navigation when present', () => {
@@ -490,7 +492,7 @@ describe('misc route wrappers', () => {
 
     await waitFor(() => {
       expect(mockRestoreSessionFromUrl).toHaveBeenCalledWith('spotlight://login-callback#access_token=token');
-      expect(mockReplace).toHaveBeenCalledWith('/(tabs)/portfolio');
+      expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
     });
   });
 
@@ -502,7 +504,7 @@ describe('misc route wrappers', () => {
 
     await waitFor(() => {
       expect(mockRestoreSessionFromUrl).toHaveBeenCalledWith('spotlight://login-callback#access_token=token');
-      expect(mockReplace).toHaveBeenCalledWith('/(tabs)/portfolio');
+      expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
     });
   });
 
@@ -513,7 +515,7 @@ describe('misc route wrappers', () => {
     render(<LoginCallbackScreen />);
 
     await waitFor(() => {
-      expect(mockReplace).toHaveBeenCalledWith('/(tabs)/portfolio');
+      expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
     });
     expect(mockRestoreSessionFromUrl).not.toHaveBeenCalled();
   });

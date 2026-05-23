@@ -40,6 +40,11 @@ export function RollingNumberText({
   const flatStyle = StyleSheet.flatten(style ?? {}) as TextStyle;
   const fontSize = (flatStyle.fontSize as number | undefined) ?? 28;
   const lineHeight = (flatStyle.lineHeight as number | undefined) ?? fontSize * 1.2;
+  // Tabular-style digit advance width. Plus Jakarta Sans Bold's widest digit
+  // (`0`/`8`) renders at ~0.65 × fontSize at this weight; pinning every digit
+  // Text to that width keeps the narrow `1` from leaving trailing whitespace
+  // inside its column while still giving the wider digits room to breathe.
+  const digitWidth = Math.round(fontSize * 0.65);
 
   const chars = value.split('');
 
@@ -50,6 +55,7 @@ export function RollingNumberText({
           return (
             <DigitRoll
               digit={Number.parseInt(char, 10)}
+              digitWidth={digitWidth}
               duration={duration}
               key={`digit-${index}`}
               lineHeight={lineHeight}
@@ -69,12 +75,13 @@ export function RollingNumberText({
 
 type DigitRollProps = {
   digit: number;
+  digitWidth: number;
   duration: number;
   lineHeight: number;
   style?: StyleProp<TextStyle>;
 };
 
-function DigitRoll({ digit, duration, lineHeight, style }: DigitRollProps) {
+function DigitRoll({ digit, digitWidth, duration, lineHeight, style }: DigitRollProps) {
   const translateY = useRef(new Animated.Value(-digit * lineHeight)).current;
   const previousDigitRef = useRef<number>(digit);
 
@@ -91,10 +98,13 @@ function DigitRoll({ digit, duration, lineHeight, style }: DigitRollProps) {
   }, [digit, duration, lineHeight, translateY]);
 
   return (
-    <View style={[styles.column, { height: lineHeight }]}>
+    <View style={[styles.column, { height: lineHeight, width: digitWidth }]}>
       <Animated.View style={{ transform: [{ translateY }] }}>
         {Array.from({ length: 10 }, (_, n) => (
-          <Text key={n} style={[style, { height: lineHeight }]}>
+          <Text
+            key={n}
+            style={[style, styles.digit, { height: lineHeight, width: digitWidth }]}
+          >
             {n}
           </Text>
         ))}
@@ -106,6 +116,9 @@ function DigitRoll({ digit, duration, lineHeight, style }: DigitRollProps) {
 const styles = StyleSheet.create({
   column: {
     overflow: 'hidden',
+  },
+  digit: {
+    textAlign: 'center',
   },
   row: {
     alignItems: 'baseline',

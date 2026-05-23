@@ -14,12 +14,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Calendar, Scanning, Suitcase } from 'iconoir-react-native';
-import { useRouter } from 'expo-router';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { StatusBar } from 'expo-status-bar';
 
-import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
-
+import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 
 type TabsPage = 'portfolio' | 'scanner';
@@ -48,9 +45,6 @@ export function TopTabsPager({
   renderScannerSlot,
 }: TopTabsPagerProps) {
   const { width } = useWindowDimensions();
-  const insets = useSafeAreaInsets();
-  const router = useRouter();
-  const theme = useSpotlightTheme();
 
   const initialTranslateX = initialPage === 'portfolio' ? 0 : -width;
   const [activePage, setActivePage] = useState<TabsPage>(initialPage);
@@ -187,6 +181,11 @@ export function TopTabsPager({
   return (
     <TabsPageContext.Provider value={{ activePage, chartScrubLockRef }}>
       <View {...panResponder.panHandlers} style={styles.container} testID="top-tabs-pager">
+        {/* Portfolio and scanner are both mounted side-by-side. expo-status-bar
+            uses the most-recently-mounted StatusBar, so we need exactly one
+            here that tracks the active page — otherwise the scanner's "light"
+            style leaks into the light Collection surface and hides the icons. */}
+        <StatusBar style={activePage === 'portfolio' ? 'dark' : 'light'} />
         <Animated.View style={[styles.row, { width: width * 2, transform: [{ translateX }] }]}>
           <View style={[styles.slot, { width }]}>
             {portfolioSlot}
@@ -196,52 +195,10 @@ export function TopTabsPager({
           </View>
         </Animated.View>
         {activePage === 'portfolio' ? (
-          <BottomTabBar
-            bottomInset={Math.max(insets.bottom, 0)}
-            items={[
-              {
-                key: 'portfolio',
-                label: 'Collection',
-                selected: true,
-                onPress: () => {},
-                testID: 'bottom-nav-portfolio',
-                icon: (
-                  <Suitcase
-                    color={theme.colors.textPrimary}
-                    height={20}
-                    width={20}
-                  />
-                ),
-              },
-              {
-                key: 'scan',
-                label: 'Scan',
-                selected: false,
-                onPress: () => goToPage('scanner'),
-                testID: 'bottom-nav-scan',
-                icon: (
-                  <Scanning
-                    color={theme.colors.textPrimary}
-                    height={20}
-                    width={20}
-                  />
-                ),
-              },
-              {
-                key: 'events',
-                label: 'Events',
-                selected: false,
-                onPress: () => router.push('/events'),
-                testID: 'bottom-nav-events',
-                icon: (
-                  <Calendar
-                    color={theme.colors.textPrimary}
-                    height={20}
-                    width={20}
-                  />
-                ),
-              },
-            ]}
+          <AppBottomTabBar
+            activeKey="portfolio"
+            onPressPortfolio={() => {}}
+            onPressScan={() => goToPage('scanner')}
           />
         ) : null}
       </View>

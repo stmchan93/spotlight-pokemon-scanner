@@ -32,11 +32,11 @@ public final class SpotlightSlabScannerModule: Module {
       ]
     }
 
-    AsyncFunction("quickClassifyCapture") { (imageUri: String) -> [String: Any] in
+    AsyncFunction("quickClassifyCapture") { (imageUri: String, sourceImageUri: String?) -> [String: Any] in
       // 1. Record decode start time
       let decodeStart = Date()
 
-      // 2. Load image using existing helpers
+      // 2. Load normalized image (cropped to reticle) for red-band pixel analysis
       let fileURL = try Self.resolveFileURL(from: imageUri)
       let image = try Self.loadImage(from: fileURL)
 
@@ -47,6 +47,24 @@ public final class SpotlightSlabScannerModule: Module {
       let classifyStart = Date()
       let decodeMs = classifyStart.timeIntervalSince(decodeStart) * 1000
 
+      // Run barcode scan on the source photo when available — the normalized
+      // target is cropped to the reticle and resized to raw-card portrait
+      // dimensions (630×880), which squishes a landscape PSA slab and distorts
+      // the barcode enough that ML Kit often fails to decode it.  The source
+      // photo preserves the original aspect ratio and gives ML Kit the full
+      // undistorted label to work with.
+      let barcodeImage: UIImage
+      if let srcUri = sourceImageUri, !srcUri.isEmpty,
+         let srcURL = try? Self.resolveFileURL(from: srcUri),
+         let srcImage = try? Self.loadImage(from: srcURL) {
+        barcodeImage = srcImage
+      } else {
+        barcodeImage = image
+      }
+      let barcodeVisionImage = VisionImage(image: barcodeImage)
+      barcodeVisionImage.orientation = barcodeImage.imageOrientation
+      async let barcodesTask = Self.scanBarcodes(in: barcodeVisionImage)
+
       // Get raw pixel data once for both passes
       guard let (pixelData, width, height) = Self.getPixelData(from: small) else {
         throw Exception(
@@ -55,25 +73,30 @@ public final class SpotlightSlabScannerModule: Module {
         )
       }
 
-      // 5. Red band score — top 18% of image height
+      // 5. Red band score — check top AND bottom 18% so upside-down slabs are caught too
       let redStripHeight = max(1, Int(Double(height) * 0.18))
-      var redPixelCount = 0
       let totalPixelsInStrip = width * redStripHeight
 
-      for y in 0..<redStripHeight {
-        for x in 0..<width {
-          let idx = (y * width + x) * 4
-          let r = Double(pixelData[idx])     / 255.0
-          let g = Double(pixelData[idx + 1]) / 255.0
-          let b = Double(pixelData[idx + 2]) / 255.0
-          let (h, s, v) = Self.rgbToHSV(r: r, g: g, b: b)
-          if (h >= 350.0 || h <= 10.0) && s >= 0.6 && v >= 0.4 {
-            redPixelCount += 1
+      func countRedPixels(startY: Int) -> Int {
+        var count = 0
+        for y in startY..<(startY + redStripHeight) {
+          for x in 0..<width {
+            let idx = (y * width + x) * 4
+            let r = Double(pixelData[idx])     / 255.0
+            let g = Double(pixelData[idx + 1]) / 255.0
+            let b = Double(pixelData[idx + 2]) / 255.0
+            let (h, s, v) = Self.rgbToHSV(r: r, g: g, b: b)
+            if (h >= 350.0 || h <= 10.0) && s >= 0.6 && v >= 0.4 {
+              count += 1
+            }
           }
         }
+        return count
       }
 
-      let redBandScore = Double(redPixelCount) / Double(totalPixelsInStrip)
+      let topRedCount = countRedPixels(startY: 0)
+      let bottomRedCount = countRedPixels(startY: max(0, height - redStripHeight))
+      let redBandScore = Double(max(topRedCount, bottomRedCount)) / Double(totalPixelsInStrip)
 
       // 6. Barcode region score — bottom 12% of image height, Sobel-style edges
       let barcodeStripHeight = max(1, Int(Double(height) * 0.12))
@@ -105,7 +128,9 @@ public final class SpotlightSlabScannerModule: Module {
       let barcodeRegionScore = magnitudeCount > 0 ? magnitudeSum / Double(magnitudeCount) : 0.0
 
       // 7. Compute final metrics
-      let isSlabLikely = redBandScore > 0.45 && barcodeRegionScore > 0.40
+      let barcodes = try await barcodesTask
+      let hasBarcode = !barcodes.isEmpty
+      let isSlabLikely = redBandScore > 0.12 || hasBarcode
       let confidence = redBandScore * 0.6 + barcodeRegionScore * 0.4
       let classifyMs = Date().timeIntervalSince(classifyStart) * 1000
 
@@ -115,6 +140,7 @@ public final class SpotlightSlabScannerModule: Module {
         "confidence": confidence,
         "redBandScore": redBandScore,
         "barcodeRegionScore": barcodeRegionScore,
+        "hasBarcode": hasBarcode,
         "decodeMs": decodeMs,
         "classifyMs": classifyMs,
       ]

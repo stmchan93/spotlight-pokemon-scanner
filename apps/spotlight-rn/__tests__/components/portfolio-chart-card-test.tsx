@@ -34,7 +34,7 @@ describe('PortfolioChartCard', () => {
     renderChart();
 
     expect(screen.getByTestId('portfolio-chart-portfolio')).toBeTruthy();
-    ['1W', '1M', '3M', 'YTD', '1Y', 'ALL'].forEach((range) => {
+    ['1W', '1M', '3M', '1Y', 'ALL'].forEach((range) => {
       expect(screen.getByTestId(`range-${range}`)).toBeTruthy();
     });
   });
@@ -48,9 +48,9 @@ describe('PortfolioChartCard', () => {
   it('calls onRangeChange when a different pill is pressed', () => {
     const { onRangeChange } = renderChart();
 
-    fireEvent.press(screen.getByTestId('range-YTD'));
+    fireEvent.press(screen.getByTestId('range-3M'));
 
-    expect(onRangeChange).toHaveBeenCalledWith('YTD');
+    expect(onRangeChange).toHaveBeenCalledWith('3M');
   });
 
   it('emits onActivePointChange while the user scrubs the chart', () => {

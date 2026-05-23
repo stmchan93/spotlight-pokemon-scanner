@@ -262,15 +262,18 @@ describe('route wiring flows', () => {
     jest.useRealTimers();
   });
 
-  it('opens inventory from portfolio and returns back to the portfolio shell', async () => {
+  // The Collection redesign (Frame 1) removed the "View All" link from the
+  // Portfolio screen — the entire inventory now renders inline in the
+  // masonry grid (no 6-card cap). The /inventory route still exists for
+  // batch-sell selection mode but is no longer reachable from the Portfolio
+  // screen UI. This flow is intentionally removed.
+  it.skip('opens inventory from portfolio and returns back to the portfolio shell', async () => {
     renderAppRouter('/portfolio', {
       'inventory/index': InventoryRouteHarness,
     });
 
     expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
 
-    // The Portfolio screen's "View All" inventory action replaces the old
-    // `portfolio-see-more` entry point.
     fireEvent.press(screen.getByTestId('portfolio-inventory-view-all'));
 
     expect(await screen.findByText('All cards')).toBeTruthy();

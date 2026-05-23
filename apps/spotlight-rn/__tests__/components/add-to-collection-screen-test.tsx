@@ -100,6 +100,78 @@ describe('AddToCollectionScreen', () => {
     expect(createInventoryEntry.mock.calls[0]?.[0]).not.toHaveProperty('unitPrice');
   });
 
+  it('forwards a user-entered cost basis to createInventoryEntry', async () => {
+    const onClose = jest.fn();
+    const createInventoryEntry = jest.fn();
+    const spotlightRepository = createTestSpotlightRepository({
+      createInventoryEntry: async (payload) => {
+        createInventoryEntry(payload);
+        return {
+          deckEntryID: 'entry-cost-basis',
+          cardID: payload.cardID,
+          variantName: payload.variantName ?? null,
+          condition: payload.condition,
+          confirmationID: null,
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
+        };
+      },
+    });
+
+    renderWithProviders(
+      <AddToCollectionScreen cardId="sm7-1" onClose={onClose} />,
+      { spotlightRepository },
+    );
+
+    await screen.findByText('Treecko');
+    fireEvent.changeText(
+      screen.getByTestId('add-to-collection-cost-basis-input'),
+      '12.50',
+    );
+    fireEvent.press(screen.getByTestId('submit-add-to-collection'));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+    expect(createInventoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ costBasisPerUnit: 12.5 }),
+    );
+  });
+
+  it('omits cost basis when the input is left blank', async () => {
+    const onClose = jest.fn();
+    const createInventoryEntry = jest.fn();
+    const spotlightRepository = createTestSpotlightRepository({
+      createInventoryEntry: async (payload) => {
+        createInventoryEntry(payload);
+        return {
+          deckEntryID: 'entry-no-cost-basis',
+          cardID: payload.cardID,
+          variantName: payload.variantName ?? null,
+          condition: payload.condition,
+          confirmationID: null,
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
+        };
+      },
+    });
+
+    renderWithProviders(
+      <AddToCollectionScreen cardId="sm7-1" onClose={onClose} />,
+      { spotlightRepository },
+    );
+
+    await screen.findByText('Treecko');
+    fireEvent.press(screen.getByTestId('submit-add-to-collection'));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+    expect(createInventoryEntry).toHaveBeenCalledWith(
+      expect.objectContaining({ costBasisPerUnit: null }),
+    );
+  });
+
   it('prefills the selected row in edit mode and saves through replacePortfolioEntry', async () => {
     const onClose = jest.fn();
     const replacePortfolioEntry = jest.fn();

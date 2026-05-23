@@ -50,6 +50,7 @@ Use these docs for:
 ## React Native App
 
 - RN scanner normalized target plan: [react-native-scanner-normalized-target-mvp-plan-2026-04-28.md](/Users/stephenchan/Code/spotlight/docs/react-native-scanner-normalized-target-mvp-plan-2026-04-28.md)
+- Deferred RN scanner live lock-on UX spec (Phynite/PriceCharting-style): [scanner-live-lock-on-ux-spec-2026-05-21.md](/Users/stephenchan/Code/spotlight/docs/scanner-live-lock-on-ux-spec-2026-05-21.md) — pick up after corpus growth plateaus
 - RN migration/context docs:
   - [react-native-universal-migration-spec-2026-04-21.md](/Users/stephenchan/Code/spotlight/docs/react-native-universal-migration-spec-2026-04-21.md)
   - [react-native-parallel-execution-spec-2026-04-21.md](/Users/stephenchan/Code/spotlight/docs/react-native-parallel-execution-spec-2026-04-21.md)

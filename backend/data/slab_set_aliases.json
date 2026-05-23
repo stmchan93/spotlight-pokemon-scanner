@@ -103,5 +103,44 @@
       "EVOLVING SKIES SECRET",
       "EVOLVING SKIES-SECRET"
     ]
+  },
+  {
+    "canonicalName": "Pokémon Card Classic - CLF (JP)",
+    "scopes": ["clv"],
+    "crossLanguageSetIds": ["clv"],
+    "aliases": [
+      "CLF JP",
+      "CLF JPN",
+      "POKEMON CLF JP",
+      "POKEMON CLF JPN",
+      "CLF TRADING CARD GAME CLASSIC",
+      "TRADING CARD GAME CLASSIC CLF"
+    ]
+  },
+  {
+    "canonicalName": "Pokémon Card Classic - CLL (JP)",
+    "scopes": ["clc"],
+    "crossLanguageSetIds": ["clc"],
+    "aliases": [
+      "CLL JP",
+      "CLL JPN",
+      "POKEMON CLL JP",
+      "POKEMON CLL JPN",
+      "CLL TRADING CARD GAME CLASSIC",
+      "TRADING CARD GAME CLASSIC CLL"
+    ]
+  },
+  {
+    "canonicalName": "Pokémon Card Classic - CLK (JP)",
+    "scopes": ["clb"],
+    "crossLanguageSetIds": ["clb"],
+    "aliases": [
+      "CLK JP",
+      "CLK JPN",
+      "POKEMON CLK JP",
+      "POKEMON CLK JPN",
+      "CLK TRADING CARD GAME CLASSIC",
+      "TRADING CARD GAME CLASSIC CLK"
+    ]
   }
 ]

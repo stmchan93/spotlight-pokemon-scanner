@@ -30,6 +30,7 @@ export type SlabHint = {
   confidence: number;
   redBandScore: number;
   barcodeRegionScore: number;
+  hasBarcode: boolean;
   decodeMs: number;
   classifyMs: number;
 };
@@ -38,7 +39,7 @@ export const SLAB_SCANNER_NATIVE_MODULE_NAME = 'SpotlightSlabScanner';
 
 type NativeBindings = {
   scanPSALabel(imageUri: string): Promise<SlabScannerNativeAnalysis>;
-  quickClassifyCapture(imageUri: string): Promise<SlabHint>;
+  quickClassifyCapture(imageUri: string, sourceImageUri: string | null): Promise<SlabHint>;
 };
 
 const nativeModule = requireOptionalNativeModule<NativeBindings>(SLAB_SCANNER_NATIVE_MODULE_NAME);
@@ -67,7 +68,10 @@ export async function scanPSALabel(imageUri: string): Promise<SlabScannerNativeA
   return await nativeModule.scanPSALabel(trimmed);
 }
 
-export async function quickClassifyCapture(imageUri: string): Promise<SlabHint> {
+export async function quickClassifyCapture(
+  imageUri: string,
+  sourceImageUri?: string | null,
+): Promise<SlabHint> {
   if (!nativeModule) {
     throw new Error(
       `Native module ${SLAB_SCANNER_NATIVE_MODULE_NAME} is not registered in this build. `
@@ -84,5 +88,10 @@ export async function quickClassifyCapture(imageUri: string): Promise<SlabHint> 
     throw new Error('quickClassifyCapture requires a non-empty imageUri.');
   }
 
-  return await nativeModule.quickClassifyCapture(trimmed);
+  const sourceTrimmed =
+    typeof sourceImageUri === 'string' && sourceImageUri.trim().length > 0
+      ? sourceImageUri.trim()
+      : null;
+
+  return await nativeModule.quickClassifyCapture(trimmed, sourceTrimmed);
 }

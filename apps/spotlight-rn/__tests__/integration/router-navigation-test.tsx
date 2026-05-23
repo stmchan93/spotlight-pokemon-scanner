@@ -20,19 +20,11 @@ describe('mobile app routing', () => {
     // Both pager slots are mounted simultaneously (real screens, not fake underlays)
     expect(screen.getByTestId('top-tabs-pager')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('scanner-mode-toggle-slabs'));
-    expect(screen.getByTestId('scanner-slab-guide')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('scanner-mode-toggle-raw'));
-    await waitFor(() => {
-      expect(screen.queryByTestId('scanner-slab-guide')).toBeNull();
-    });
-
     // Press scanner back button — switches pager to portfolio
     fireEvent.press(screen.getByTestId('scanner-back-button'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-account-button')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
     });
     // Bottom nav appears on portfolio page
     expect(screen.getByTestId('bottom-nav-portfolio').props.accessibilityState).toEqual({ selected: true });
@@ -58,7 +50,7 @@ describe('mobile app routing', () => {
     renderAppRouter('/portfolio');
 
     await waitFor(() => {
-      expect(screen.getByTestId('portfolio-account-button')).toBeTruthy();
+      expect(screen.getByTestId('portfolio-header-menu')).toBeTruthy();
     });
 
     expect(screen.getByTestId('bottom-nav-portfolio').props.accessibilityState).toEqual({ selected: true });

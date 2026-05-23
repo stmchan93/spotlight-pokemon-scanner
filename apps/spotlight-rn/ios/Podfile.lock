@@ -211,6 +211,8 @@ PODS:
     - ExpoModulesCore
   - ExpoCamera (55.0.16):
     - ExpoModulesCore
+  - ExpoClipboard (55.0.13):
+    - ExpoModulesCore
   - ExpoCrypto (55.0.14):
     - ExpoModulesCore
   - ExpoDevice (55.0.15):
@@ -2390,6 +2392,7 @@ DEPENDENCIES:
   - ExpoAsset (from `../../../node_modules/expo-asset/ios`)
   - ExpoBlur (from `../../../node_modules/expo-blur/ios`)
   - ExpoCamera (from `../../../node_modules/expo-camera/ios`)
+  - ExpoClipboard (from `../../../node_modules/expo-clipboard/ios`)
   - ExpoCrypto (from `../../../node_modules/expo-crypto/ios`)
   - ExpoDevice (from `../../../node_modules/expo-device/ios`)
   - ExpoDocumentPicker (from `../../../node_modules/expo-document-picker/ios`)
@@ -2550,6 +2553,8 @@ EXTERNAL SOURCES:
     :path: "../../../node_modules/expo-blur/ios"
   ExpoCamera:
     :path: "../../../node_modules/expo-camera/ios"
+  ExpoClipboard:
+    :path: "../../../node_modules/expo-clipboard/ios"
   ExpoCrypto:
     :path: "../../../node_modules/expo-crypto/ios"
   ExpoDevice:
@@ -2774,6 +2779,7 @@ SPEC CHECKSUMS:
   ExpoAsset: f56ed740b6a127da2bfd90832cf688ae309d4410
   ExpoBlur: 7a86e84e7728108fa6908d7103fa527705a3dbbf
   ExpoCamera: 0ed88db61b7dc54712a98b8baaf415a3be88b76b
+  ExpoClipboard: 5d1b0cd2686406f21e616f2d9b3431259dee2e6a
   ExpoCrypto: 9fd0b78215cffa1aa20de026d452242401aa37dc
   ExpoDevice: 3a4a361d685333e4139da5d56bb2740c86132beb
   ExpoDocumentPicker: be59b82799ae30811e3f37a7521d6622baa63a19

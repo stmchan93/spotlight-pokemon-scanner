@@ -9,7 +9,7 @@ describe('raw scanner capture layout', () => {
   it('reserves one-row tray space from the first render', () => {
     expect(getRawScannerCollapsedTrayReservedHeight({
       bottomInset: 48,
-    })).toBe(197);
+    })).toBe(211);
   });
 
   it('keeps the empty tray visual shell compact before any scans exist', () => {
@@ -32,7 +32,7 @@ describe('raw scanner capture layout', () => {
     const trayTop = 844 - trayReservedHeight;
     const modeToggleBottom = layout.controlsTop + 56;
 
-    expect(trayReservedHeight).toBe(197);
+    expect(trayReservedHeight).toBe(211);
     expect(trayTop - modeToggleBottom).toBeGreaterThanOrEqual(rawScannerModeToggleGap);
   });
 });

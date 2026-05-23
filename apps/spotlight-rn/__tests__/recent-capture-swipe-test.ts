@@ -1,6 +1,7 @@
 import {
   clampRecentCaptureSwipeTranslate,
   recentCaptureActionRailRevealWidth,
+  recentCaptureAddRevealWidth,
   recentCaptureDeleteCloseDistanceThreshold,
   recentCaptureDeleteCloseVelocityThreshold,
   recentCaptureDeleteDistanceThreshold,
@@ -13,11 +14,14 @@ import {
 } from '@/features/scanner/recent-capture-swipe';
 
 describe('recent capture swipe constants', () => {
-  it('keeps the action rail width = favorite + delete + 12px gap', () => {
-    // Guards against silently dropping the inter-pill gap that recently
-    // landed on the scanner recent-capture row.
+  it('keeps the action rail width = favorite + add + delete + 18px gap', () => {
+    // Guards against silently dropping the inter-pill gap on the three-button
+    // scanner recent-capture row (favorite, add, delete).
     expect(recentCaptureActionRailRevealWidth).toBe(
-      recentCaptureFavoriteRevealWidth + recentCaptureDeleteRevealWidth + 12,
+      recentCaptureFavoriteRevealWidth
+      + recentCaptureAddRevealWidth
+      + recentCaptureDeleteRevealWidth
+      + 18,
     );
   });
 
@@ -92,8 +96,9 @@ describe('recent capture swipe gestures', () => {
     expect(clampRecentCaptureSwipeTranslate(40, true)).toBe(
       -recentCaptureActionRailRevealWidth + 40,
     );
-    // Large right swipe while open snaps closed at 0.
-    expect(clampRecentCaptureSwipeTranslate(200, true)).toBe(0);
+    // Large right swipe while open clamps to 0 (fully closed).
+    // (snap-to-zero is handled by Math.min(0, ...) on the upper bound.)
+    expect(clampRecentCaptureSwipeTranslate(recentCaptureActionRailRevealWidth + 100, true)).toBe(0);
     // Negative dx while already open should not exceed the rail width.
     expect(clampRecentCaptureSwipeTranslate(-16, true)).toBe(-recentCaptureActionRailRevealWidth);
   });

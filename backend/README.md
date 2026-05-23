@@ -188,7 +188,7 @@ What it does:
 - only runs an initial full sync when `SPOTLIGHT_RUN_INITIAL_SYNC=1`
 - installs user `crontab` entries for:
   - `@reboot` backend start
-  - a minute-level scheduler wrapper that evaluates the desired local timezone and fires the Scrydex sync at `6:00 AM` and `6:00 PM America/Los_Angeles`
+  - a minute-level scheduler wrapper that evaluates the desired local timezone and fires the Scrydex sync once daily at `6:00 PM America/Los_Angeles`
 - starts the backend immediately on `0.0.0.0:8788`
 - validates `EBAY_CLIENT_ID` and `EBAY_CLIENT_SECRET` before restart when `SPOTLIGHT_EBAY_BROWSE_ENABLED=1`
 

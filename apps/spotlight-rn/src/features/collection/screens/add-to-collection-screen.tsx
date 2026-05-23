@@ -5,6 +5,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -193,6 +194,7 @@ export function AddToCollectionScreen({
   const [selectedCondition, setSelectedCondition] = useState<DeckConditionCode>('near_mint');
   const [selectedNumericGrade, setSelectedNumericGrade] = useState('10');
   const [quantity, setQuantity] = useState(1);
+  const [costBasisText, setCostBasisText] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState('');
 
@@ -236,6 +238,11 @@ export function AddToCollectionScreen({
         setSelectedCondition(editingEntry?.conditionCode ?? 'near_mint');
         setSelectedNumericGrade(editingEntry?.slabContext?.grade ?? '10');
         setQuantity(editingEntry?.quantity ?? 1);
+        setCostBasisText(
+          editingEntry?.costBasisPerUnit != null
+            ? editingEntry.costBasisPerUnit.toFixed(2)
+            : '',
+        );
         setSubmitError('');
         setIsLoading(false);
       })
@@ -305,6 +312,13 @@ export function AddToCollectionScreen({
           variantName: selectedVariant,
         };
 
+    const trimmedCostBasis = costBasisText.trim();
+    const parsedCostBasis = trimmedCostBasis ? Number.parseFloat(trimmedCostBasis) : null;
+    const nextCostBasisPerUnit =
+      parsedCostBasis != null && Number.isFinite(parsedCostBasis) && parsedCostBasis >= 0
+        ? parsedCostBasis
+        : null;
+
     const request = isEditingEntry
       ? spotlightRepository.replacePortfolioEntry({
           deckEntryID: editingEntry.id,
@@ -313,7 +327,7 @@ export function AddToCollectionScreen({
           variantName: rawVariantName,
           condition: selectedGrader === 'Raw' ? selectedCondition : null,
           quantity,
-          unitPrice: editingEntry.costBasisPerUnit ?? null,
+          unitPrice: nextCostBasisPerUnit,
           currencyCode: detail?.currencyCode ?? 'USD',
           updatedAt: new Date().toISOString(),
         })
@@ -325,6 +339,7 @@ export function AddToCollectionScreen({
           quantity,
           sourceScanID: null,
           addedAt: new Date().toISOString(),
+          costBasisPerUnit: nextCostBasisPerUnit,
         });
 
     void request.then(() => {
@@ -492,6 +507,46 @@ export function AddToCollectionScreen({
                       />
                     </View>
                   </View>
+
+                  <View style={styles.section}>
+                    <Text style={theme.typography.headline}>What did you pay?</Text>
+                    <Text style={[theme.typography.caption, { color: theme.colors.gray600 }]}>
+                      Optional — used for profit + cost-basis insights. Per unit, in dollars.
+                    </Text>
+                    <View
+                      style={[
+                        styles.costBasisInputRow,
+                        {
+                          backgroundColor: theme.colors.gray100,
+                          borderColor: theme.colors.gray200,
+                        },
+                      ]}
+                    >
+                      <Text style={[theme.typography.headline, { color: theme.colors.gray600 }]}>$</Text>
+                      <TextInput
+                        accessibilityLabel="Cost basis per unit"
+                        inputMode="decimal"
+                        keyboardType="decimal-pad"
+                        onChangeText={(value) => {
+                          // strip leading $ and any character that isn't a digit or decimal
+                          const sanitized = value.replace(/[^0-9.]/g, '');
+                          // keep at most one decimal point
+                          const parts = sanitized.split('.');
+                          const cleaned = parts.length > 1 ? `${parts[0]}.${parts.slice(1).join('').slice(0, 2)}` : sanitized;
+                          setCostBasisText(cleaned);
+                        }}
+                        placeholder="0.00"
+                        placeholderTextColor={theme.colors.gray500}
+                        style={[
+                          theme.typography.headline,
+                          styles.costBasisInput,
+                          { color: theme.colors.gray900 },
+                        ]}
+                        testID="add-to-collection-cost-basis-input"
+                        value={costBasisText}
+                      />
+                    </View>
+                  </View>
                 </View>
               </View>
             )}
@@ -596,6 +651,19 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 22,
   },
+  costBasisInputRow: {
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+  },
+  costBasisInput: {
+    flex: 1,
+    padding: 0,
+  },
   quantityRow: {
     alignItems: 'center',
     flexDirection: 'row',
@@ -690,7 +758,7 @@ const styles = StyleSheet.create({
     minHeight: 48,
   },
   submitButtonLabel: {
-    color: '#0F0F12',
+    color: '#FFFFFF',
   },
   submitError: {
     paddingHorizontal: 2,

@@ -23,7 +23,7 @@ export const rawScannerTrayReservedHeight = 168;
 export const rawScannerModeToggleGap = 8;
 export const rawScannerTrayHeaderHeight = 61;
 export const rawScannerTrayEmptyPeekHeight = 12;
-export const rawScannerTrayCollapsedRowHeight = 88;
+export const rawScannerTrayCollapsedRowHeight = 102;
 export const rawScannerModeToggleReservedHeight = 89;
 export const slabLabelDividerRatio = 0.28;
 export const slabLabelAnalysisBottomRatio = 0.34;
@@ -54,6 +54,7 @@ type RawScannerCaptureSurfaceProps = {
   canCapture: boolean;
   children?: ReactNode;
   hasCameraPermission: boolean;
+  isTrayExpanded?: boolean;
   layout: RawScannerCaptureLayout;
   onCameraReady: () => void;
   onCapture: () => void;
@@ -173,6 +174,7 @@ export function RawScannerCaptureSurface({
   canCapture,
   children,
   hasCameraPermission,
+  isTrayExpanded = false,
   layout,
   onCameraReady,
   onCapture,
@@ -205,7 +207,7 @@ export function RawScannerCaptureSurface({
         />
       )}
 
-      {shouldMountCamera ? (
+      {shouldMountCamera && !isTrayExpanded ? (
         <Pressable
           accessibilityLabel="Capture scan inside frame"
           accessibilityRole="button"
@@ -226,10 +228,13 @@ export function RawScannerCaptureSurface({
 
 
       <View pointerEvents="none" style={StyleSheet.absoluteFillObject}>
-        <Text style={[styles.scanPrompt, { top: layout.promptTop }]} testID={`${testIDPrefix}-prompt`}>
-          {prompt}
-        </Text>
+        {isTrayExpanded ? null : (
+          <Text style={[styles.scanPrompt, { top: layout.promptTop }]} testID={`${testIDPrefix}-prompt`}>
+            {prompt}
+          </Text>
+        )}
 
+        {isTrayExpanded ? null : (
         <View
           style={[
             styles.reticleShell,
@@ -271,6 +276,7 @@ export function RawScannerCaptureSurface({
             <View style={[styles.reticleCornerVertical, styles.reticleCornerRightEdge]} />
           </View>
         </View>
+        )}
       </View>
 
       {children}

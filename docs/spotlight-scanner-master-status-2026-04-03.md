@@ -13,7 +13,7 @@ This is the current product/source-of-truth status doc.
   - `backend/data/visual-models/active-backups/raw_visual_runtime_active.pre-v010-20260505T000839Z.json`
   - `backend/data/visual-index/active-backups/visual_index_active_clip-vit-base-patch32.pre-v010-20260505T000839Z.npz`
   - `backend/data/visual-index/active-backups/visual_index_active_manifest.pre-v010-20260505T000839Z.json`
-- v010 is trained on the 776-entry combined corpus (`574` prior accepted entries plus `202` supported delta entries), with the two `NOT_IN_SCRYDEX` McDonald's cards and `Umbreon Star` held out of training.
+- v010 was trained on the combined corpus snapshot recorded in `v010-scrydex-cardphotos227-delta20260504_manifest.json` (prior accepted entries plus the supported delta entries), with the two `NOT_IN_SCRYDEX` McDonald's cards and `Umbreon Star` held out of training. The live dataset under `~/spotlight-datasets/raw-visual-train` has grown beyond this snapshot — treat the manifest as the v010 provenance record, not the current corpus size. Unique-card count is the number that matters for backbone-unfreeze gating, not entry count; compute it fresh when you need it (`ls ~/spotlight-datasets/raw-visual-train | sed 's/-img-[0-9]*$//' | sort -u | wc -l`).
 - Promotion rationale:
   - frozen legacy suite: `v010` beats `v009` (`visual top-1 31/71 vs 24/71`, `visual top-10 47/71 vs 44/71`, `hybrid top-1 42/71 vs 38/71`)
   - delta expansion holdout: `v010` beats `v009` (`visual top-1 34/67 vs 22/67`, `visual top-10 48/67 vs 32/67`, `hybrid top-1 37/67 vs 26/67`)

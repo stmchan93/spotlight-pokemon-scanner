@@ -2,6 +2,7 @@ import { fireEvent, render, screen } from '@testing-library/react-native';
 
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
+const mockDismissTo = jest.fn();
 const mockUseLocalSearchParams = jest.fn();
 
 jest.mock('expo-router', () => ({
@@ -11,6 +12,7 @@ jest.mock('expo-router', () => ({
   useLocalSearchParams: () => mockUseLocalSearchParams(),
   useRouter: () => ({
     back: mockBack,
+    dismissTo: mockDismissTo,
     replace: mockReplace,
   }),
 }));
@@ -76,7 +78,7 @@ describe('sell sheet route navigation', () => {
 
     fireEvent.press(screen.getByTestId('single-sell-complete-route'));
 
-    expect(mockReplace).toHaveBeenCalledWith('/portfolio');
+    expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
   });
 
   it('returns batch sell completion to the portfolio page', () => {
@@ -86,6 +88,6 @@ describe('sell sheet route navigation', () => {
 
     fireEvent.press(screen.getByTestId('bulk-sell-complete-route'));
 
-    expect(mockReplace).toHaveBeenCalledWith('/portfolio');
+    expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
   });
 });

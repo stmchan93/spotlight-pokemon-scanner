@@ -9,6 +9,7 @@ import {
 } from './mock-api-client';
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 
+import { AppDrawerProvider } from '@/providers/app-drawer-provider';
 import { AppProviders } from '@/providers/app-providers';
 
 jest.mock('@spotlight/api-client', () => mockApiClient);
@@ -29,7 +30,9 @@ function Providers({
   return (
     <SafeAreaProvider initialMetrics={safeAreaMetrics}>
       <SpotlightThemeProvider>
-        <AppProviders spotlightRepository={spotlightRepository}>{children}</AppProviders>
+        <AppDrawerProvider>
+          <AppProviders spotlightRepository={spotlightRepository}>{children}</AppProviders>
+        </AppDrawerProvider>
       </SpotlightThemeProvider>
     </SafeAreaProvider>
   );
@@ -88,6 +91,10 @@ export function createTestSpotlightRepository(
     getCardMarketHistory: (...args) => {
       return overrides.getCardMarketHistory?.(...args)
         ?? baseRepository.getCardMarketHistory(...args);
+    },
+    getRawPricingMatrix: (...args) => {
+      return overrides.getRawPricingMatrix?.(...args)
+        ?? baseRepository.getRawPricingMatrix(...args);
     },
     getCardEbayListings: (...args) => {
       return overrides.getCardEbayListings?.(...args)
@@ -184,14 +191,6 @@ export function createTestSpotlightRepository(
     listCardsInExpansion: async (...args) => {
       return overrides.listCardsInExpansion?.(...args)
         ?? baseRepository.listCardsInExpansion(...args);
-    },
-    loadTopMovers: (...args) => {
-      return overrides.loadTopMovers?.(...args)
-        ?? baseRepository.loadTopMovers(...args);
-    },
-    getTopMovers: (...args) => {
-      return overrides.getTopMovers?.(...args)
-        ?? baseRepository.getTopMovers(...args);
     },
   };
 }

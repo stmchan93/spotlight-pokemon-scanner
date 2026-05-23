@@ -1,197 +1,64 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  FlatList,
   Pressable,
   RefreshControl,
+  ScrollView,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
-import { ArrowDown, ArrowUp, EditPencil, NavArrowLeft } from 'iconoir-react-native';
+import { Menu as MenuIcon } from 'iconoir-react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { RecentSaleRecord } from '@spotlight/api-client';
 import {
+  SearchField,
   StateCard,
-  SurfaceCard,
   colors,
+  textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
-import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
+import { SaleSummaryRow } from '@/features/sales/components/sale-summary-row';
+import { SalesStatTileRow } from '@/features/sales/components/sales-stat-tile-row';
+import {
+  SalesFilterChipRow,
+  type SalesFilterKey,
+} from '@/features/sales/components/sales-filter-chip-row';
 import {
   formatEditableSellPrice,
   parseSellPrice,
   sanitizeSellPriceText,
 } from '@/features/sell/sell-order-helpers';
-import { getCardImageSource } from '@/lib/card-images';
+import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
-
-const PAGE_GUTTER = 16;
-
-function formattedCardNumber(cardNumber: string) {
-  return cardNumber.startsWith('#') ? cardNumber : `#${cardNumber}`;
-}
-
-function formatSaleActionLabel(sale: RecentSaleRecord) {
-  // Strip any verb the backend already prepended so we don't end up
-  // with strings like "Sold on Traded on May 3, 2026".
-  const dateOnly = sale.soldAtLabel.replace(/^(Sold on|Traded on)\s+/i, '');
-  const verb = sale.kind === 'traded' ? 'Traded' : 'Sold';
-  return `${verb} on ${dateOnly}`;
-}
-
-// Future-state delta data not yet on RecentSaleRecord; keep null until backend
-// surfaces gain/loss for sold inventory. JSX below already wires the pill.
-type LatestSaleGain = {
-  amountLabel: string;
-  direction: 'up' | 'down';
-} | null;
-
-function getLatestSaleGain(_sale: RecentSaleRecord): LatestSaleGain {
-  return null;
-}
-
-function LatestSaleRow({
-  onPress,
-  sale,
-}: {
-  onPress?: (sale: RecentSaleRecord) => void;
-  sale: RecentSaleRecord;
-}) {
-  const theme = useSpotlightTheme();
-  const canEdit = sale.kind === 'sold' && !!onPress;
-  const cardHeight = theme.layout.recentSaleHeight;
-  const cardPadding = theme.spacing.xxs;
-  const artHeight = cardHeight - cardPadding * 2;
-  const gain = getLatestSaleGain(sale);
-
-  return (
-    <Pressable
-      accessibilityRole={canEdit ? 'button' : undefined}
-      onPress={canEdit ? () => onPress?.(sale) : undefined}
-      style={({ pressed }) => [styles.cardPressable, canEdit ? { opacity: pressed ? 0.94 : 1 } : null]}
-      testID={`latest-sale-card-${sale.id}`}
-    >
-      <SurfaceCard padding={cardPadding} radius={16} style={[styles.card, { minHeight: cardHeight }]}>
-        <CachedImage
-          cachePolicy={imageCachePolicy.thumbnail}
-          contentFit="contain"
-          source={getCardImageSource(sale, 'small')}
-          style={[styles.art, { height: artHeight }]}
-        />
-
-        <View style={[styles.copy, { minHeight: artHeight }]}>
-          <View style={styles.topRow}>
-            <Text
-              numberOfLines={1}
-              style={[theme.typography.headline, styles.titleText, { color: theme.colors.textPrimary }]}
-            >
-              {sale.name}
-            </Text>
-            <Text
-              style={[theme.typography.headline, { color: theme.colors.textPrimary }]}
-            >
-              {formatCurrency(sale.soldPrice, sale.currencyCode)}
-            </Text>
-          </View>
-          <View style={styles.metaRow}>
-            <Text
-              numberOfLines={2}
-              style={[theme.typography.cardMeta, styles.metaText, { color: theme.colors.textMuted }]}
-            >
-              {formattedCardNumber(sale.cardNumber)}
-              {' · '}
-              {sale.setName}
-            </Text>
-            {gain ? (
-              <View style={styles.deltaInline}>
-                {gain.direction === 'down' ? (
-                  <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
-                ) : (
-                  <ArrowUp color={theme.colors.greenDelta} height={12} width={12} />
-                )}
-                <Text
-                  style={[
-                    theme.typography.deltaPill,
-                    {
-                      color:
-                        gain.direction === 'down'
-                          ? theme.colors.redDelta
-                          : theme.colors.greenDelta,
-                    },
-                  ]}
-                >
-                  {gain.amountLabel}
-                </Text>
-              </View>
-            ) : null}
-          </View>
-          {sale.qualityLabel ? (
-            <Text
-              numberOfLines={1}
-              style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
-            >
-              {sale.qualityLabel}
-            </Text>
-          ) : null}
-          {sale.quantity != null ? (
-            <Text
-              numberOfLines={1}
-              style={[theme.typography.cardMeta, { color: theme.colors.textMuted }]}
-            >
-              {`Qty: ${sale.quantity}`}
-            </Text>
-          ) : null}
-          <View style={styles.soldOnRow}>
-            <Text style={[theme.typography.overline, styles.soldOnText, { color: theme.colors.textMuted }]}>
-              {formatSaleActionLabel(sale)}
-            </Text>
-            {canEdit ? (
-              <EditPencil
-                color={theme.colors.textMuted}
-                height={16}
-                testID={`latest-sale-card-${sale.id}-edit-icon`}
-                width={16}
-              />
-            ) : null}
-          </View>
-        </View>
-      </SurfaceCard>
-    </Pressable>
-  );
-}
+import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 
 function LatestSalesSkeleton() {
   const theme = useSpotlightTheme();
 
   return (
-    <View style={styles.list} testID="latest-sales-screen-skeleton">
+    <View style={styles.skeletonList} testID="latest-sales-screen-skeleton">
       {Array.from({ length: 4 }).map((_, index) => (
-        <SurfaceCard
-          key={index}
-          padding={8}
-          radius={16}
-          style={[styles.card, { minHeight: theme.layout.recentSaleHeight }]}
-        >
-          <View
-            style={[
-              styles.skeletonArt,
-              {
-                backgroundColor: theme.colors.outlineSubtle,
-                height: theme.layout.recentSaleHeight - 16,
-              },
-            ]}
-          />
-          <View style={[styles.copy, { minHeight: theme.layout.recentSaleHeight - 16 }]}>
-            <View style={[styles.skeletonLineWide, { backgroundColor: theme.colors.outlineSubtle }]} />
-            <View style={[styles.skeletonLineMedium, { backgroundColor: theme.colors.outlineSubtle }]} />
-            <View style={[styles.skeletonLineNarrow, { backgroundColor: theme.colors.outlineSubtle }]} />
+        <View key={index} style={styles.skeletonCard}>
+          <View style={styles.skeletonLeftGroup}>
+            <View
+              style={[
+                styles.skeletonArt,
+                { backgroundColor: theme.colors.outlineSubtle },
+              ]}
+            />
+            <View style={styles.skeletonTextColumn}>
+              <View style={[styles.skeletonLineWide, { backgroundColor: theme.colors.outlineSubtle }]} />
+              <View style={[styles.skeletonLineMedium, { backgroundColor: theme.colors.outlineSubtle }]} />
+              <View style={[styles.skeletonLineNarrow, { backgroundColor: theme.colors.outlineSubtle }]} />
+            </View>
           </View>
-        </SurfaceCard>
+        </View>
       ))}
     </View>
   );
@@ -202,6 +69,7 @@ export function LatestSalesScreen() {
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const { spotlightRepository, dataVersion } = useAppServices();
+  const { openDrawer } = useAppDrawer();
 
   const [sales, setSales] = useState<RecentSaleRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -210,6 +78,8 @@ export function LatestSalesScreen() {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
   const [editingSalePriceText, setEditingSalePriceText] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [activeFilter, setActiveFilter] = useState<SalesFilterKey>('all');
 
   const editingSale = sales.find((sale) => sale.id === editingSaleId && sale.kind === 'sold') ?? null;
   const parsedEditingSalePrice = parseSellPrice(editingSalePriceText);
@@ -273,29 +143,92 @@ export function LatestSalesScreen() {
     }
   }, [loadSales]);
 
+  const bottomNavClearance =
+    theme.layout.bottomNavHeight
+    + theme.layout.bottomNavBottomInset
+    + Math.max(insets.bottom - 8, 0);
+
   const showInitialSkeleton = isLoading && !hasLoaded;
   const showInitialError = !isLoading && !isRefreshing && loadError !== null && sales.length === 0;
   const showEmptyState = !isLoading && !isRefreshing && loadError === null && sales.length === 0;
 
+  const aggregates = useMemo(() => {
+    const totalSales = sales.length;
+    const totalValue = sales.reduce(
+      (sum, sale) => sum + sale.soldPrice * (sale.quantity ?? 1),
+      0,
+    );
+    const profits = sales
+      .map((sale) => sale.profit)
+      .filter((value): value is number => value != null);
+    const totalProfit = profits.reduce((sum, value) => sum + value, 0);
+    const hasProfit = profits.length > 0;
+    return {
+      totalSalesLabel: new Intl.NumberFormat('en-US').format(totalSales),
+      totalValueLabel: formatCurrency(totalValue),
+      totalProfitLabel: hasProfit ? formatCurrency(totalProfit) : '—',
+    };
+  }, [sales]);
+
+  const visibleSales = useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLowerCase();
+    const searched = normalizedQuery
+      ? sales.filter((sale) => {
+          const haystack = [sale.name, sale.setName, sale.cardNumber]
+            .filter(Boolean)
+            .join(' ')
+            .toLowerCase();
+          return haystack.includes(normalizedQuery);
+        })
+      : sales;
+
+    switch (activeFilter) {
+      case 'az':
+        return [...searched].sort((a, b) => a.name.localeCompare(b.name));
+      case 'date':
+        return [...searched].sort((a, b) => b.soldAtISO.localeCompare(a.soldAtISO));
+      case 'ungraded':
+        return searched.filter((sale) => {
+          const label = sale.qualityLabel?.toLowerCase() ?? '';
+          // raw conditions don't include grader prefixes like "PSA"/"BGS"/"SGC"
+          return !/(psa|bgs|sgc|cgc)\b/.test(label);
+        });
+      case 'graded':
+        return searched.filter((sale) => {
+          const label = sale.qualityLabel?.toLowerCase() ?? '';
+          return /(psa|bgs|sgc|cgc)\b/.test(label);
+        });
+      case 'pokemon':
+        // No TCG field on RecentSaleRecord today — chip is aspirational
+        // until multi-TCG lands. Pass-through.
+        return searched;
+      case 'all':
+      default:
+        return searched;
+    }
+  }, [activeFilter, sales, searchQuery]);
+
   return (
     <SafeAreaView
-      edges={['top', 'left', 'right', 'bottom']}
+      edges={['top', 'left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
-      <View style={[styles.screen, { paddingBottom: insets.bottom + 24 }]}>
-        <View style={styles.navRow}>
+      <View style={[styles.screen, { paddingBottom: bottomNavClearance }]}>
+        <View style={salesStyles.headerRow}>
           <Pressable
+            accessibilityLabel="Open menu"
             accessibilityRole="button"
             hitSlop={12}
-            onPress={() => router.back()}
-            style={styles.backButton}
-            testID="latest-sales-back"
+            onPress={openDrawer}
+            style={salesStyles.headerIcon}
+            testID="sales-header-menu"
           >
-            <NavArrowLeft color={theme.colors.textPrimary} height={24} width={24} />
+            <MenuIcon color={theme.colors.gray900} height={24} width={24} />
           </Pressable>
-        </View>
-        <View style={styles.headerCopy}>
-          <Text style={theme.typography.display}>Latest Sales</Text>
+          <Text style={salesStyles.headerTitle} testID="sales-header-title">
+            Sales
+          </Text>
+          <View style={salesStyles.headerSpacer} />
         </View>
 
         {showInitialSkeleton ? (
@@ -314,22 +247,69 @@ export function LatestSalesScreen() {
             title="No sales yet"
           />
         ) : (
-          <FlatList
-            contentContainerStyle={styles.scrollContent}
-            data={sales}
-            keyExtractor={(sale) => sale.id}
+          <ScrollView
+            contentContainerStyle={salesStyles.scrollContent}
             refreshControl={(
               <RefreshControl
                 onRefresh={handleRefresh}
                 refreshing={isRefreshing}
                 testID="latest-sales-refresh"
-                tintColor={theme.colors.textSecondary}
+                tintColor={theme.colors.gray400}
               />
             )}
-            renderItem={({ item }) => <LatestSaleRow onPress={openSaleEditor} sale={item} />}
-            showsVerticalScrollIndicator={false}
-            testID="latest-sales-list"
-          />
+            testID="latest-sales-scroll"
+          >
+            <SalesStatTileRow
+              totalSales={aggregates.totalSalesLabel}
+              totalValue={aggregates.totalValueLabel}
+              totalProfit={aggregates.totalProfitLabel}
+            />
+
+            <Text style={salesStyles.sectionTitle} testID="sales-transactions-title">
+              Transactions
+            </Text>
+
+            <View style={salesStyles.searchRow}>
+              <SearchField
+                accessibilityLabel="Search your sales"
+                autoCorrect={false}
+                autoCapitalize="none"
+                clearButtonMode="while-editing"
+                onChangeText={setSearchQuery}
+                placeholder="Search your sales"
+                returnKeyType="search"
+                size="collection"
+                surface="muted"
+                value={searchQuery}
+              />
+            </View>
+
+            <SalesFilterChipRow
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
+            />
+
+            {visibleSales.length === 0 ? (
+              <View style={salesStyles.emptyWrap}>
+                <StateCard
+                  message="Try a different search or chip to find this sale."
+                  title="No sales match"
+                />
+              </View>
+            ) : (
+              <View style={salesStyles.salesList} testID="latest-sales-list">
+                {visibleSales.map((sale) => (
+                  <SaleSummaryRow
+                    key={sale.id}
+                    onPress={sale.kind === 'sold' ? openSaleEditor : undefined}
+                    sale={sale}
+                    showEditAffordance={sale.kind === 'sold'}
+                    testID={`latest-sale-card-${sale.id}`}
+                  />
+                ))}
+              </View>
+            )}
+          </ScrollView>
         )}
       </View>
 
@@ -341,111 +321,94 @@ export function LatestSalesScreen() {
         priceText={editingSalePriceText}
         sale={editingSale}
       />
+
+      <CollectionAddFab />
+
+      <AppBottomTabBar />
     </SafeAreaView>
   );
 }
 
+const salesStyles = StyleSheet.create({
+  headerRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  headerIcon: {
+    height: 24,
+    width: 24,
+  },
+  headerTitle: {
+    ...textStyles.titleMedium,
+    color: colors.gray900,
+    flex: 1,
+    textAlign: 'center',
+  },
+  headerSpacer: {
+    height: 24,
+    width: 24,
+  },
+  scrollContent: {
+    gap: 16,
+    paddingBottom: 24,
+    paddingTop: 8,
+  },
+  sectionTitle: {
+    ...textStyles.titleMedium,
+    color: colors.gray900,
+    paddingHorizontal: 16,
+  },
+  searchRow: {
+    paddingHorizontal: 16,
+  },
+  salesList: {
+    gap: 8,
+    paddingHorizontal: 16,
+  },
+  emptyWrap: {
+    paddingHorizontal: 16,
+  },
+});
+
 const styles = StyleSheet.create({
-  art: {
-    borderRadius: 12,
-    resizeMode: 'contain',
-    width: 72,
-  },
-  card: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-    gap: 12,
-  },
-  cardPressable: {
-    borderRadius: 16,
-  },
-  copy: {
-    flex: 1,
-    gap: 4,
-    justifyContent: 'flex-start',
-  },
-  deltaInline: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    flexShrink: 0,
-    gap: 2,
-  },
-  deltaPill: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  metaRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'space-between',
-  },
-  metaText: {
-    flex: 1,
-    flexShrink: 1,
-  },
-  soldOnRow: {
-    alignItems: 'center',
-    alignSelf: 'stretch',
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'space-between',
-    marginTop: 12,
-  },
-  soldOnText: {
-    flex: 1,
-  },
-  titleText: {
-    flex: 1,
-    flexShrink: 1,
-  },
-  topRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'space-between',
-  },
-  backButton: {
-    alignItems: 'center',
-    height: 32,
-    justifyContent: 'center',
-    width: 32,
-  },
-  navRow: {
-    alignItems: 'flex-start',
-    flexDirection: 'row',
-  },
-  headerCopy: {
-    gap: 4,
-  },
-  list: {
-    gap: 12,
-  },
-  priceRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 2,
-  },
   safeArea: {
     flex: 1,
   },
   screen: {
     flex: 1,
     gap: 18,
-    paddingHorizontal: PAGE_GUTTER,
     paddingTop: 8,
   },
-  scrollContent: {
-    gap: 18,
-    paddingBottom: 120,
+  skeletonList: {
+    gap: 12,
+    paddingHorizontal: 16,
+  },
+  skeletonCard: {
+    alignItems: 'flex-start',
+    backgroundColor: colors.gray50,
+    borderRadius: 12,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 16,
+  },
+  skeletonLeftGroup: {
+    alignItems: 'center',
+    flex: 1,
+    flexDirection: 'row',
+    gap: 16,
+    minWidth: 0,
+  },
+  skeletonTextColumn: {
+    flex: 1,
+    gap: 8,
+    minWidth: 0,
   },
   skeletonArt: {
-    borderRadius: 12,
-    width: 72,
+    aspectRatio: 88 / 128,
+    borderRadius: 6,
+    height: 94,
   },
   skeletonLineMedium: {
     borderRadius: 999,
@@ -464,11 +427,7 @@ const styles = StyleSheet.create({
   },
   stateCard: {
     alignItems: 'flex-start',
+    marginHorizontal: 16,
     paddingVertical: 20,
-  },
-  titleLine: {
-    alignItems: 'baseline',
-    flexDirection: 'row',
-    gap: 8,
   },
 });

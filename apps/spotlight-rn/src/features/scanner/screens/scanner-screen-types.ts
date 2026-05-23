@@ -18,6 +18,7 @@ export type RecentCapture = {
   id: string;
   isAddingToInventory: boolean;
   isLoadingCandidates: boolean;
+  recentlyAdded: boolean;
   matchReviewDisposition: string | null;
   matchReviewReason: string | null;
   mode: ScannerMode;

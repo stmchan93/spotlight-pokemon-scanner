@@ -34,7 +34,7 @@ import type {
   PortfolioHistoryRange,
   RecentSaleRecord,
 } from '@spotlight/api-client';
-import { useSpotlightTheme } from '@spotlight/design-system';
+import { fontFamilies, useSpotlightTheme } from '@spotlight/design-system';
 
 import {
   formatCurrency,
@@ -43,12 +43,11 @@ import {
 } from './portfolio-formatting';
 
 const rangeItems = [
-  { label: '1W', value: '1W' },
+  { label: '7D', value: '1W' },
   { label: '1M', value: '1M' },
   { label: '3M', value: '3M' },
-  { label: 'YTD', value: 'YTD' },
   { label: '1Y', value: '1Y' },
-  { label: 'All', value: 'ALL' },
+  { label: 'ALL', value: 'ALL' },
 ] as const;
 
 const skeletonBarScales = [0.42, 0.62, 0.5, 0.74, 0.58, 0.82, 0.68, 0.9, 0.76, 0.56, 0.72, 0.64];
@@ -299,8 +298,8 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const salesPointCounts = useMemo(() => {
     return buildSalesPointCounts(activeRange.sales, dashboard.recentSales);
   }, [activeRange.sales, dashboard.recentSales]);
-  const chartAccentColor = theme.colors.chartLine;
-  const chartFillColor = theme.colors.chartLine;
+  const chartAccentColor = theme.colors.brand;
+  const chartFillColor = theme.colors.brand;
 
   const yAxisMaxValue = useMemo(() => {
     return buildRoundedCurrencyTicks(series.map((point) => point.value));
@@ -581,6 +580,33 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
 
   return (
     <View style={styles.container}>
+      <View style={styles.rangeRow}>
+        {rangeItems.map((item) => {
+          const isSelected = item.value === selectedRange;
+          return (
+            <Pressable
+              accessibilityRole="button"
+              key={item.value}
+              onPress={() => onRangeChange(item.value as PortfolioHistoryRange)}
+              style={({ pressed }) => [
+                isSelected ? styles.rangePillSelected : styles.rangePill,
+                isSelected ? { backgroundColor: theme.colors.brand } : null,
+                pressed ? { opacity: 0.88 } : null,
+              ]}
+              testID={`range-${item.value}`}
+            >
+              <Text
+                style={[
+                  styles.rangePillLabel,
+                  { color: isSelected ? theme.colors.gray0 : theme.colors.gray700 },
+                ]}
+              >
+                {item.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
       <View
         onLayout={onChartLayout}
         style={[styles.chartArea, { height: chartHeight }]}
@@ -684,36 +710,6 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
         ) : null}
       </View>
 
-      <View style={styles.rangeRow}>
-        {rangeItems.map((item) => {
-          const isSelected = item.value === selectedRange;
-          return (
-            <Pressable
-              accessibilityRole="button"
-              key={item.value}
-              onPress={() => onRangeChange(item.value as PortfolioHistoryRange)}
-              style={({ pressed }) => [
-                styles.rangePill,
-                isSelected
-                  ? [styles.rangePillSelected, { backgroundColor: theme.colors.brand }]
-                  : null,
-                pressed ? { opacity: 0.88 } : null,
-              ]}
-              testID={`range-${item.value}`}
-            >
-              <Text
-                style={[
-                  theme.typography.overline,
-                  styles.rangePillLabel,
-                  { color: theme.colors.textMuted },
-                ]}
-              >
-                {item.label}
-              </Text>
-            </Pressable>
-          );
-        })}
-      </View>
     </View>
   );
 });
@@ -732,26 +728,29 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   rangeRow: {
+    alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
+    gap: 24,
     marginHorizontal: 16,
   },
   rangePill: {
     alignItems: 'center',
-    flex: 1,
+    borderRadius: 4,
     justifyContent: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
   rangePillSelected: {
     alignItems: 'center',
     borderRadius: 8,
-    gap: 8,
     justifyContent: 'center',
     paddingHorizontal: 8,
     paddingVertical: 4,
   },
   rangePillLabel: {
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 12,
+    lineHeight: 16.8,
     textAlign: 'center',
   },
   skeletonBar: {

@@ -49,8 +49,11 @@ import type {
   PortfolioBuyResponsePayload,
   PortfolioChartPoint,
   PortfolioDashboard,
+  PortfolioInsights,
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
+  RawPricingMatrix,
+  RawPricingMatrixConditionRow,
   RecentSaleRecord,
   SaleLifecycleResponsePayload,
   SaleStatus,
@@ -64,8 +67,6 @@ import type {
   ScannerMode,
   SlabContext,
   SpotlightRepositoryLoadResult,
-  TopMoverEntry,
-  TopMoversResult,
 } from './types';
 
 export interface SpotlightRepository {
@@ -98,6 +99,7 @@ export interface SpotlightRepository {
     days?: number;
     variant?: string | null;
   }): Promise<CardDetailRecord['marketHistory'] | null>;
+  getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix>;
   getCardEbayListings(query: CardDetailQuery & {
     limit?: number;
   }): Promise<CardEbayListingsRecord | null>;
@@ -123,15 +125,7 @@ export interface SpotlightRepository {
   commitPortfolioImportJob(jobID: string): Promise<PortfolioImportCommitResponsePayload>;
   listExpansions(game?: string): Promise<ExpansionRecord[]>;
   listCardsInExpansion(expansionId: string, query?: string, limit?: number): Promise<CatalogSearchResult[]>;
-  loadTopMovers(options?: TopMoversQuery): Promise<SpotlightRepositoryLoadResult<TopMoversResult>>;
-  getTopMovers(options?: TopMoversQuery): Promise<TopMoversResult>;
 }
-
-export type TopMoversQuery = {
-  limit?: number;
-  minPriorPrice?: number;
-  maxAgeDays?: number;
-};
 
 type SpotlightRepositoryErrorKind = 'request_failed' | 'invalid_response' | 'not_found';
 
@@ -158,7 +152,7 @@ type JsonRequestResult<T> =
   | { kind: 'error'; error: SpotlightRepositoryRequestError; meta: JsonRequestMeta | null };
 
 const defaultHttpRequestTimeoutMs = 6000;
-const scanMatchRequestTimeoutMs = 10000;
+const scanMatchRequestTimeoutMs = 20000;
 
 type JsonRequestMeta = {
   requestUrl: string;
@@ -222,6 +216,11 @@ type DeckEntryDTO = {
   quantity: number;
   costBasisTotal?: number;
   costBasisCurrencyCode?: string | null;
+  costBasisPerUnit?: number | null;
+  costBasisCents?: number | null;
+  listingUrl?: string | null;
+  listingPriceCents?: number | null;
+  listedAt?: string | null;
   addedAt?: string;
   isFavorite?: boolean | null;
   dayChangeAmount?: number | null;
@@ -266,6 +265,10 @@ type PortfolioLedgerDTO = {
     paymentMethod?: string | null;
     paidAt?: string | null;
     status?: string | null;
+    /** Per-unit cost basis snapshotted on the sale row (dollars). */
+    costBasisPerUnit?: number | null;
+    /** Derived profit on the sale row (dollars). */
+    profit?: number | null;
   }>;
   dailySeries?: Array<{
     date: string;
@@ -321,25 +324,21 @@ type CardFavoriteDTO = {
   favoritedAt?: string | null;
 };
 
-type TopMoverDTO = {
+type RawPricingMatrixDTO = {
   cardID?: string;
-  name?: string;
-  setName?: string | null;
-  cardNumber?: string | null;
-  imageURL?: string | null;
-  currencyCode?: string | null;
-  currentPrice?: number | string;
-  priorPrice?: number | string;
-  changeAmount?: number | string;
-  changePercent?: number | string;
-  currentDate?: string | null;
-  priorDate?: string | null;
-};
-
-type TopMoversDTO = {
-  asOfDate?: string | null;
-  minPriorPrice?: number | null;
-  movers?: TopMoverDTO[];
+  currencyCode?: string;
+  variants?: Array<{
+    variant?: string;
+    variantKey?: string;
+    conditions?: Array<{
+      code?: string;
+      label?: string;
+      low?: number | null;
+      mid?: number | null;
+      market?: number | null;
+      high?: number | null;
+    }>;
+  }>;
 };
 
 type CardMarketHistoryDTO = {
@@ -1315,6 +1314,15 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     || requestedConditionCode === pricingCondition
   );
 
+  // Prefer the explicit `costBasisPerUnit` the backend now surfaces (sourced
+  // from the new cost_basis_cents column); fall back to the legacy derivation
+  // from total / quantity when older backends haven't started populating it.
+  const explicitCostBasisPerUnit = normalizeNumber(entry.costBasisPerUnit);
+  const derivedCostBasisPerUnit =
+    costBasisTotal && quantity > 0
+      ? Number((costBasisTotal / quantity).toFixed(2))
+      : null;
+
   return {
     id: normalizeString(entry.id) ?? `entry-${card.id}`,
     cardId: card.id,
@@ -1335,14 +1343,14 @@ function mapDeckEntry(entry: DeckEntryDTO, baseUrl?: string): InventoryCardEntry
     conditionLabel: conditionCopy.label ?? null,
     conditionShortLabel: conditionCopy.shortLabel ?? null,
     slabContext,
-    costBasisPerUnit:
-      costBasisTotal && quantity > 0
-        ? Number((costBasisTotal / quantity).toFixed(2))
-        : null,
+    costBasisPerUnit: explicitCostBasisPerUnit ?? derivedCostBasisPerUnit,
     costBasisTotal: costBasisTotal ?? null,
     isFavorite: normalizeBoolean(entry.isFavorite) ?? card.isFavorite,
     dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
     dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
+    listingUrl: normalizeString(entry.listingUrl) ?? null,
+    listingPriceCents: normalizeNumber(entry.listingPriceCents) ?? null,
+    listedAt: normalizeString(entry.listedAt) ?? null,
   };
 }
 
@@ -1395,6 +1403,8 @@ function buildRecentSales(transactions: PortfolioLedgerDTO['transactions'], base
         paymentMethod,
         paidAt,
         status,
+        costBasisPerUnit: normalizeNumber(transaction.costBasisPerUnit) ?? null,
+        profit: normalizeNumber(transaction.profit) ?? null,
       } satisfies RecentSaleRecord];
     });
 }
@@ -2079,43 +2089,6 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return result.data ?? [];
   }
 
-  async loadTopMovers(options?: TopMoversQuery) {
-    const limit = Math.max(1, Math.min(options?.limit ?? 20, 100));
-    const movers: TopMoverEntry[] = this.inventoryEntries
-      .filter((entry) => entry.hasMarketPrice && entry.marketPrice > 0 && entry.kind === 'raw')
-      .map<TopMoverEntry>((entry, index) => {
-        const seed = (index + 1) * 3.17;
-        const changePercent = Number((seed % 25 + 1).toFixed(2));
-        const changeAmount = Number((entry.marketPrice * (changePercent / 100)).toFixed(2));
-        return {
-          cardId: entry.cardId,
-          name: entry.name,
-          setName: entry.setName ?? null,
-          cardNumber: entry.cardNumber ?? null,
-          imageUrl: entry.smallImageUrl ?? entry.imageUrl ?? null,
-          currencyCode: entry.currencyCode,
-          currentPrice: entry.marketPrice,
-          priorPrice: Number((entry.marketPrice - changeAmount).toFixed(2)),
-          changeAmount,
-          changePercent,
-          currentDate: null,
-          priorDate: null,
-        };
-      })
-      .sort((a, b) => b.changePercent - a.changePercent)
-      .slice(0, limit);
-
-    return buildLoadResult(
-      movers.length > 0 ? 'success' : 'empty',
-      { asOfDate: null, movers },
-    );
-  }
-
-  async getTopMovers(options?: TopMoversQuery) {
-    const result = await this.loadTopMovers(options);
-    return result.data ?? { asOfDate: null, movers: [] };
-  }
-
   async loadCatalogCards(query: string, limit = 20) {
     const normalized = query.trim().toLowerCase();
     if (normalized.length < 2) {
@@ -2281,6 +2254,40 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }) {
     const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
     return detail?.marketHistory ?? null;
+  }
+
+  async getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix> {
+    const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, { cardId });
+    const history = detail?.marketHistory ?? null;
+    if (!history || !history.availableConditions || history.availableConditions.length === 0) {
+      return {
+        cardID: cardId,
+        currencyCode: detail?.currencyCode ?? 'USD',
+        variants: [],
+      };
+    }
+    const variantLabel = history.selectedVariant
+      ?? history.availableVariants?.[0]?.label
+      ?? 'Normal';
+    const variantKey = history.availableVariants?.[0]?.id ?? variantLabel.toLowerCase().replace(/\s+/g, '');
+    return {
+      cardID: cardId,
+      currencyCode: history.currencyCode ?? detail?.currencyCode ?? 'USD',
+      variants: [
+        {
+          variant: variantLabel,
+          variantKey,
+          conditions: history.availableConditions.map((option) => ({
+            code: option.id,
+            label: option.label ?? option.id,
+            low: null,
+            mid: null,
+            market: option.currentPrice ?? null,
+            high: null,
+          })),
+        },
+      ],
+    };
   }
 
   async getCardEbayListings(query: CardDetailQuery & {
@@ -2832,6 +2839,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ledgerYtd,
       ledger1y,
       ledgerAll,
+      insights,
     ] = await Promise.all([
       this.loadInventoryEntries(),
       this.loadPortfolioHistory('1W'),
@@ -2846,6 +2854,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       this.loadPortfolioLedger('YTD'),
       this.loadPortfolioLedger('1Y'),
       this.loadPortfolioLedger('ALL'),
+      this.loadPortfolioInsights(),
     ]);
 
     const safeInventoryEntries = inventoryResult.data ?? [];
@@ -2900,6 +2909,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           sales: buildSalesSeries(safeLedgerAll, 'ALL'),
         },
       },
+      insights: insights ?? null,
     };
 
     const errorMessage = [
@@ -2960,70 +2970,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   async getInventoryEntries(query?: InventoryEntriesQuery) {
     const result = await this.loadInventoryEntries(query);
     return result.data ?? [];
-  }
-
-  async loadTopMovers(options?: TopMoversQuery) {
-    const queryParams = new URLSearchParams();
-    if (options?.limit !== undefined) {
-      queryParams.set('limit', String(Math.max(1, Math.min(options.limit, 100))));
-    }
-    if (options?.minPriorPrice !== undefined) {
-      queryParams.set('minPriorPrice', String(Math.max(0, options.minPriorPrice)));
-    }
-    if (options?.maxAgeDays !== undefined) {
-      queryParams.set('maxAgeDays', String(Math.max(1, Math.min(options.maxAgeDays, 60))));
-    }
-
-    const url = `${this.baseUrl}/api/v1/cards/top-movers${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
-    const response = await this.requestJson<TopMoversDTO>(url);
-
-    if (response.kind !== 'success') {
-      return buildLoadResult('error', { asOfDate: null, movers: [] }, response.error.message);
-    }
-
-    const movers = (Array.isArray(response.data?.movers) ? response.data.movers : [])
-      .map((entry): TopMoverEntry | null => {
-        const cardId = typeof entry?.cardID === 'string' ? entry.cardID.trim() : '';
-        if (cardId.length === 0) {
-          return null;
-        }
-        const currentPrice = typeof entry.currentPrice === 'number' ? entry.currentPrice : Number(entry.currentPrice);
-        const priorPrice = typeof entry.priorPrice === 'number' ? entry.priorPrice : Number(entry.priorPrice);
-        const changeAmount = typeof entry.changeAmount === 'number' ? entry.changeAmount : Number(entry.changeAmount);
-        const changePercent = typeof entry.changePercent === 'number' ? entry.changePercent : Number(entry.changePercent);
-        if (!Number.isFinite(currentPrice) || !Number.isFinite(priorPrice)) {
-          return null;
-        }
-        return {
-          cardId,
-          name: typeof entry.name === 'string' ? entry.name : '',
-          setName: typeof entry.setName === 'string' && entry.setName.length > 0 ? entry.setName : null,
-          cardNumber: typeof entry.cardNumber === 'string' && entry.cardNumber.length > 0 ? entry.cardNumber : null,
-          imageUrl: normalizeImageUrl(entry.imageURL, this.baseUrl) || null,
-          currencyCode: typeof entry.currencyCode === 'string' && entry.currencyCode.length > 0 ? entry.currencyCode : 'USD',
-          currentPrice,
-          priorPrice,
-          changeAmount: Number.isFinite(changeAmount) ? changeAmount : currentPrice - priorPrice,
-          changePercent: Number.isFinite(changePercent) ? changePercent : 0,
-          currentDate: typeof entry.currentDate === 'string' && entry.currentDate.length > 0 ? entry.currentDate : null,
-          priorDate: typeof entry.priorDate === 'string' && entry.priorDate.length > 0 ? entry.priorDate : null,
-        };
-      })
-      .filter((entry): entry is TopMoverEntry => entry !== null);
-
-    const result: TopMoversResult = {
-      asOfDate: typeof response.data?.asOfDate === 'string' && response.data.asOfDate.length > 0
-        ? response.data.asOfDate
-        : null,
-      movers,
-    };
-
-    return buildLoadResult(movers.length > 0 ? 'success' : 'empty', result);
-  }
-
-  async getTopMovers(options?: TopMoversQuery) {
-    const result = await this.loadTopMovers(options);
-    return result.data ?? { asOfDate: null, movers: [] };
   }
 
   async loadCatalogCards(query: string, limit = 20) {
@@ -3315,6 +3261,44 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return result.data;
+  }
+
+  async getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix> {
+    const encodedCardID = encodeURIComponent(cardId);
+    const response = await this.requestJson<RawPricingMatrixDTO>(
+      `${this.baseUrl}/api/v1/cards/${encodedCardID}/raw-pricing-matrix`,
+      undefined,
+      { allowNotFound: true },
+    );
+
+    if (response.kind !== 'success' || response.data === null) {
+      return { cardID: cardId, currencyCode: 'USD', variants: [] };
+    }
+
+    const data = response.data;
+    return {
+      cardID: normalizeString(data.cardID) ?? cardId,
+      currencyCode: normalizeString(data.currencyCode) ?? 'USD',
+      variants: Array.isArray(data.variants)
+        ? data.variants.map((variant) => ({
+            variant: normalizeString(variant.variant) ?? '',
+            variantKey: normalizeString(variant.variantKey) ?? '',
+            conditions: Array.isArray(variant.conditions)
+              ? variant.conditions
+                  .map((condition): RawPricingMatrixConditionRow => ({
+                    code: normalizeString(condition.code) ?? '',
+                    label: normalizeString(condition.label) ?? '',
+                    low: typeof condition.low === 'number' ? condition.low : null,
+                    mid: typeof condition.mid === 'number' ? condition.mid : null,
+                    market: typeof condition.market === 'number' ? condition.market : null,
+                    high: typeof condition.high === 'number' ? condition.high : null,
+                  }))
+                  .filter((condition) => !!condition.code)
+              : [],
+          }))
+          .filter((variant) => !!variant.variant && variant.conditions.length > 0)
+        : [],
+    };
   }
 
   async getCardMarketHistory(query: CardDetailQuery & {
@@ -3694,6 +3678,40 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       ledger.transactions.length > 0 || (ledger.dailySeries?.length ?? 0) > 0 ? 'success' : 'empty',
       ledger,
     );
+  }
+
+  /**
+   * Fetches the Insights aggregates from the backend. The featured sales
+   * (`bestReturnOfAllTime`, `topSellersThisMonth`) arrive in the raw
+   * ledger-transaction shape and must be passed through `buildRecentSales`
+   * so the Insights screen sees the same `RecentSaleRecord` fields it does
+   * for `recentSales`. Returns null on transport failure so the dashboard
+   * fetch as a whole can stay resilient.
+   */
+  private async loadPortfolioInsights(): Promise<PortfolioInsights | null> {
+    try {
+      const response = await this.requestJson<
+        Omit<PortfolioInsights, 'bestReturnOfAllTime' | 'topSellersThisMonth'> & {
+          bestReturnOfAllTime?: PortfolioLedgerDTO['transactions'][number] | null;
+          topSellersThisMonth?: PortfolioLedgerDTO['transactions'] | null;
+        }
+      >(`${this.baseUrl}/api/v1/portfolio/insights`);
+      if (response.kind !== 'success' || !response.data) {
+        return null;
+      }
+      const raw = response.data;
+      const topSellers = buildRecentSales(raw.topSellersThisMonth ?? [], this.baseUrl);
+      const bestReturn = raw.bestReturnOfAllTime
+        ? (buildRecentSales([raw.bestReturnOfAllTime], this.baseUrl)[0] ?? null)
+        : null;
+      return {
+        ...raw,
+        bestReturnOfAllTime: bestReturn,
+        topSellersThisMonth: topSellers,
+      };
+    } catch (_error) {
+      return null;
+    }
   }
 
   private async requestJson<T>(

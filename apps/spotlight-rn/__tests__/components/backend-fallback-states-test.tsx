@@ -44,7 +44,7 @@ describe('backend-backed fallback states', () => {
 
     renderWithProviders(
       <TabsPageContext.Provider value={portfolioTabsContext}>
-        <PortfolioScreen onOpenSalesHistory={jest.fn()} />
+        <PortfolioScreen />
       </TabsPageContext.Provider>,
       { spotlightRepository: repository },
     );

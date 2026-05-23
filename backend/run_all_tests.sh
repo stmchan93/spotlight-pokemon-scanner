@@ -39,6 +39,7 @@ TEST_MODULES=(
   backend.tests.test_sale_lifecycle
   backend.tests.test_wallet_handles
   backend.tests.test_show_summary
+  backend.tests.test_raw_pricing_matrix
 )
 
 run_targeted_tests() {

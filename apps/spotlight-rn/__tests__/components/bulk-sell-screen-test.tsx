@@ -115,6 +115,11 @@ describe('BulkSellScreen', () => {
 
     await enterBulkSellPriceWithCalculator('6');
 
+    // Calculator stays open after `=` (commit 7dbc2eb feat(sell): keep calculator
+    // open after = and save on dismiss). Dismiss it explicitly via the Close
+    // button to commit the value.
+    fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-close'));
+
     expect(screen.queryByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-sheet')).toBeNull();
     expect(screen.getByText('$6')).toBeTruthy();
   });

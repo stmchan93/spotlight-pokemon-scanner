@@ -17,7 +17,7 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import apply_schema, connect, upsert_card_price_summary, upsert_deck_entry, upsert_price_history_daily, upsert_price_snapshot, upsert_slab_price_snapshot  # noqa: E402
+from catalog_tools import apply_schema, connect, upsert_card_price_summary, upsert_deck_entry, upsert_price_history_daily, upsert_price_snapshot, upsert_scan_event, upsert_slab_price_snapshot  # noqa: E402
 from scan_artifact_store import (  # noqa: E402
     GoogleCloudScanArtifactStore,
     SCAN_ARTIFACTS_ROOT_ENV,
@@ -502,6 +502,137 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(summary["summary"]["likelyUnsupportedCount"], 1)
         self.assertEqual(summary["items"][0]["scanID"], "scan-phase7-3")
         self.assertEqual(summary["items"][0]["reviewDisposition"], "unsupported")
+
+    def test_store_scan_artifacts_succeeds_when_match_only_wrote_in_progress_stub(self) -> None:
+        # Regression test for the race introduced by c3300a8: the mobile
+        # client fires /scan/match and /scan-artifacts in parallel using the
+        # same client-generated scanID. Before the match_scan() handler was
+        # taught to upsert an in_progress stub row up-front, the artifact
+        # upload would consistently arrive at the backend before _log_scan()
+        # finished (slab matches take 40-50s on staging), fail its
+        # scan_events existence check, and the JPEG would never reach GCS.
+        # This test reproduces that race by:
+        #   1) simulating match_scan()'s early stub upsert
+        #   2) calling store_scan_artifacts BEFORE _log_scan
+        #   3) asserting the upload succeeded and persisted to the FS
+        #   4) calling _log_scan to simulate the match finishing
+        #   5) asserting _log_scan replaces the stub fields with real data
+        scan_id = "scan-race-fix-1"
+        owner_user_id = self.service._current_owner_user_id()  # noqa: SLF001
+
+        # Step 1: match_scan()'s early stub insert.
+        upsert_scan_event(
+            self.service.connection,
+            scan_id=scan_id,
+            owner_user_id=owner_user_id,
+            request_payload={"scanID": scan_id, "stub": True},
+            response_payload={},
+            matcher_source="in_progress",
+            matcher_version="in_progress",
+            created_at="2026-05-23T20:00:00+00:00",
+        )
+        self.service.connection.commit()
+
+        # Step 2: artifact upload arrives BEFORE the match completes.
+        payload = self.service.store_scan_artifacts(
+            {
+                "scanID": scan_id,
+                "captureSource": "live_scan",
+                "cameraZoomFactor": 1.0,
+                "submittedAt": "2026-05-23T20:00:00.500+00:00",
+                "sourceImage": {
+                    "jpegBase64": base64.b64encode(b"race-source").decode("ascii"),
+                    "width": 1080,
+                    "height": 1620,
+                },
+                "normalizedImage": {
+                    "jpegBase64": base64.b64encode(b"race-normalized").decode("ascii"),
+                    "width": 630,
+                    "height": 880,
+                },
+            }
+        )
+
+        # Step 3: upload landed despite the stub row only having placeholder
+        # matcher fields. JPEGs are on disk, scan_artifacts row is keyed to
+        # the same scanID, FK to scan_events.scan_id is satisfied.
+        self.assertTrue(payload["enabled"])
+        artifact_row = self.service.connection.execute(
+            "SELECT * FROM scan_artifacts WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        self.assertIsNotNone(artifact_row)
+        assert artifact_row is not None
+        self.assertEqual(
+            (self.artifact_root / artifact_row["source_object_path"]).read_bytes(),
+            b"race-source",
+        )
+        self.assertEqual(
+            (self.artifact_root / artifact_row["normalized_object_path"]).read_bytes(),
+            b"race-normalized",
+        )
+
+        # Step 4: match finishes ~40s later — _log_scan upserts the real
+        # request/response/matcher fields onto the same scan_id (ON CONFLICT
+        # DO UPDATE), replacing the placeholder.
+        self.service._log_scan(  # noqa: SLF001
+            {"scanID": scan_id, "collectorNumber": "001/100"},
+            {
+                "scanID": scan_id,
+                "topCandidates": [{"id": "sv1-1", "name": "Sample"}],
+                "confidence": "medium",
+                "ambiguityFlags": [],
+                "matcherSource": "remoteHybrid",
+                "matcherVersion": "phase7-test",
+                "resolverMode": "raw_card",
+                "resolverPath": "visual_hybrid",
+                "reviewDisposition": "needs_review",
+                "reviewReason": None,
+            },
+            [],
+        )
+
+        # Step 5: stub fields were replaced; the artifact row is untouched
+        # and still pointed at the right blobs.
+        final_event = self.service.connection.execute(
+            "SELECT matcher_source, matcher_version, response_json FROM scan_events WHERE scan_id = ? LIMIT 1",
+            (scan_id,),
+        ).fetchone()
+        self.assertIsNotNone(final_event)
+        assert final_event is not None
+        self.assertEqual(final_event["matcher_source"], "remoteHybrid")
+        self.assertEqual(final_event["matcher_version"], "phase7-test")
+        self.assertIn("sv1-1", final_event["response_json"])
+
+        # And unmatched_scans should NOT have surfaced this scan during the
+        # in_progress window (it now has real matcher data, but more
+        # importantly the filter would have excluded it earlier anyway).
+        post_match_summary = self.service.unmatched_scans(limit=10)
+        post_match_scan_ids = {item["scanID"] for item in post_match_summary["items"]}
+        self.assertIn(scan_id, post_match_scan_ids)  # selected_card_id is NULL → still "open review"
+
+    def test_unmatched_scans_excludes_in_progress_stub_rows(self) -> None:
+        # The match handler upserts a stub row with matcher_source='in_progress'
+        # at the start of /scan/match so the artifact upload race can land.
+        # That row must NOT appear on the /api/v1/ops/unmatched-scans dashboard
+        # — it's not "an unmatched scan that needs review", it's an
+        # in-flight match. (Stale rows that stay 'in_progress' are a separate
+        # ops signal, not a review queue item.)
+        upsert_scan_event(
+            self.service.connection,
+            scan_id="scan-stub-only",
+            owner_user_id=self.service._current_owner_user_id(),  # noqa: SLF001
+            request_payload={"scanID": "scan-stub-only", "stub": True},
+            response_payload={},
+            matcher_source="in_progress",
+            matcher_version="in_progress",
+            created_at="2026-05-23T20:00:00+00:00",
+        )
+        self.service.connection.commit()
+
+        summary = self.service.unmatched_scans(limit=25)
+        scan_ids = {item["scanID"] for item in summary["items"]}
+        self.assertNotIn("scan-stub-only", scan_ids)
 
     def test_store_scan_artifacts_persists_files_and_metadata(self) -> None:
         self.service._log_scan(  # noqa: SLF001

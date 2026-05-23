@@ -4343,16 +4343,49 @@ def record_sale_event(
     if not _table_exists(connection, "sale_events"):
         return None
 
-    row = connection.execute(
-        """
-        SELECT quantity, cost_basis_total, condition, grader, grade, cert_number, variant_name
-        FROM deck_entries
-        WHERE id = ?
-          AND owner_user_id = ?
-        LIMIT 1
-        """,
-        (deck_entry_id, owner_user_id),
-    ).fetchone()
+    # Use the broader SELECT only when the Collections-redesign columns exist on
+    # deck_entries (otherwise older test databases blow up). _table_columns is
+    # cheap and called once per sale.
+    deck_entry_columns = _table_columns(connection, "deck_entries")
+    has_listing_columns = (
+        "cost_basis_cents" in deck_entry_columns
+        and "listing_url" in deck_entry_columns
+        and "listing_price_cents" in deck_entry_columns
+        and "listed_at" in deck_entry_columns
+    )
+    if has_listing_columns:
+        row = connection.execute(
+            """
+            SELECT
+                quantity,
+                cost_basis_total,
+                condition,
+                grader,
+                grade,
+                cert_number,
+                variant_name,
+                cost_basis_cents,
+                listing_url,
+                listing_price_cents,
+                listed_at
+            FROM deck_entries
+            WHERE id = ?
+              AND owner_user_id = ?
+            LIMIT 1
+            """,
+            (deck_entry_id, owner_user_id),
+        ).fetchone()
+    else:
+        row = connection.execute(
+            """
+            SELECT quantity, cost_basis_total, condition, grader, grade, cert_number, variant_name
+            FROM deck_entries
+            WHERE id = ?
+              AND owner_user_id = ?
+            LIMIT 1
+            """,
+            (deck_entry_id, owner_user_id),
+        ).fetchone()
     if row is None:
         return None
 
@@ -4368,43 +4401,153 @@ def record_sale_event(
         cost_basis_unit_price = current_cost_basis_total / float(current_quantity)
         cost_basis_total = round(cost_basis_unit_price * normalized_quantity, 2)
     remaining_cost_basis_total = round(max(0.0, current_cost_basis_total - cost_basis_total), 2)
+
+    # Per-unit cents snapshot: prefer the explicit `cost_basis_cents` column on
+    # the inventory row (new field). Fall back to deriving from cost_basis_total
+    # / quantity only when the new field is null but the legacy total is set.
+    cost_basis_per_unit_cents: int | None = None
+    if has_listing_columns:
+        raw_cost_basis_cents = row["cost_basis_cents"]
+        if raw_cost_basis_cents is not None:
+            try:
+                cost_basis_per_unit_cents = int(raw_cost_basis_cents)
+            except (TypeError, ValueError):
+                cost_basis_per_unit_cents = None
+    if cost_basis_per_unit_cents is None and cost_basis_unit_price is not None:
+        try:
+            cost_basis_per_unit_cents = int(round(float(cost_basis_unit_price) * 100.0))
+        except (TypeError, ValueError):
+            cost_basis_per_unit_cents = None
+
     sale_id = f"sale:{uuid.uuid4().hex}"
     normalized_sold_at = sold_at or utc_now()
     normalized_paid_at = str(paid_at or "").strip() or None
     normalized_unit_price = None if unit_price is None else float(unit_price)
     total_price = None if normalized_unit_price is None else normalized_unit_price * normalized_quantity
-    connection.execute(
-        """
-        INSERT INTO sale_events (
-            id, owner_user_id, deck_entry_id, card_id, quantity, unit_price, total_price,
-            currency_code, payment_method, cost_basis_total, cost_basis_unit_price,
-            sale_source, show_session_id, note, sold_at, paid_at,
-            source_scan_id, source_confirmation_id, created_at
-        )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        (
-            sale_id,
-            owner_user_id,
-            deck_entry_id,
-            card_id,
-            normalized_quantity,
-            normalized_unit_price,
-            total_price,
-            str(currency_code or "").strip() or None,
-            str(payment_method or "").strip() or None,
-            cost_basis_total if cost_basis_total > 0 else 0.0,
-            cost_basis_unit_price,
-            str(sale_source or "manual").strip() or "manual",
-            str(show_session_id or "").strip() or None,
-            str(note or "").strip() or None,
-            normalized_sold_at,
-            normalized_paid_at,
-            str(source_scan_id or "").strip() or None,
-            str(source_confirmation_id or "").strip() or None,
-            utc_now(),
-        ),
+
+    # profit_cents = (sold_price_cents − cost_basis_per_unit_cents) × quantity
+    profit_cents: int | None = None
+    if (
+        cost_basis_per_unit_cents is not None
+        and normalized_unit_price is not None
+    ):
+        try:
+            unit_price_cents = int(round(float(normalized_unit_price) * 100.0))
+            profit_cents = (unit_price_cents - cost_basis_per_unit_cents) * normalized_quantity
+        except (TypeError, ValueError):
+            profit_cents = None
+
+    # Listing snapshot — only captured when the deck row had an active listing.
+    last_listing_snapshot_json: str | None = None
+    if has_listing_columns:
+        listing_url_value = str(row["listing_url"] or "").strip() if row["listing_url"] is not None else ""
+        if listing_url_value:
+            try:
+                listing_price_cents_value = (
+                    int(row["listing_price_cents"]) if row["listing_price_cents"] is not None else None
+                )
+            except (TypeError, ValueError):
+                listing_price_cents_value = None
+            listed_at_value = str(row["listed_at"] or "").strip() if row["listed_at"] is not None else None
+            last_listing_snapshot_json = json.dumps(
+                {
+                    "listing_url": listing_url_value,
+                    "listing_price_cents": listing_price_cents_value,
+                    "listed_at": listed_at_value or None,
+                }
+            )
+
+    sale_columns = _table_columns(connection, "sale_events")
+    has_redesign_sale_columns = (
+        "cost_basis_per_unit_cents" in sale_columns
+        and "profit_cents" in sale_columns
+        and "last_listing_snapshot" in sale_columns
     )
+    if has_redesign_sale_columns:
+        connection.execute(
+            """
+            INSERT INTO sale_events (
+                id, owner_user_id, deck_entry_id, card_id, quantity, unit_price, total_price,
+                currency_code, payment_method, cost_basis_total, cost_basis_unit_price,
+                sale_source, show_session_id, note, sold_at, paid_at,
+                source_scan_id, source_confirmation_id, created_at,
+                cost_basis_per_unit_cents, profit_cents, last_listing_snapshot
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sale_id,
+                owner_user_id,
+                deck_entry_id,
+                card_id,
+                normalized_quantity,
+                normalized_unit_price,
+                total_price,
+                str(currency_code or "").strip() or None,
+                str(payment_method or "").strip() or None,
+                cost_basis_total if cost_basis_total > 0 else 0.0,
+                cost_basis_unit_price,
+                str(sale_source or "manual").strip() or "manual",
+                str(show_session_id or "").strip() or None,
+                str(note or "").strip() or None,
+                normalized_sold_at,
+                normalized_paid_at,
+                str(source_scan_id or "").strip() or None,
+                str(source_confirmation_id or "").strip() or None,
+                utc_now(),
+                cost_basis_per_unit_cents,
+                profit_cents,
+                last_listing_snapshot_json,
+            ),
+        )
+    else:
+        connection.execute(
+            """
+            INSERT INTO sale_events (
+                id, owner_user_id, deck_entry_id, card_id, quantity, unit_price, total_price,
+                currency_code, payment_method, cost_basis_total, cost_basis_unit_price,
+                sale_source, show_session_id, note, sold_at, paid_at,
+                source_scan_id, source_confirmation_id, created_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                sale_id,
+                owner_user_id,
+                deck_entry_id,
+                card_id,
+                normalized_quantity,
+                normalized_unit_price,
+                total_price,
+                str(currency_code or "").strip() or None,
+                str(payment_method or "").strip() or None,
+                cost_basis_total if cost_basis_total > 0 else 0.0,
+                cost_basis_unit_price,
+                str(sale_source or "manual").strip() or "manual",
+                str(show_session_id or "").strip() or None,
+                str(note or "").strip() or None,
+                normalized_sold_at,
+                normalized_paid_at,
+                str(source_scan_id or "").strip() or None,
+                str(source_confirmation_id or "").strip() or None,
+                utc_now(),
+            ),
+        )
+
+    # Clear the active listing fields on the inventory row when we snapshotted
+    # a listing into the sale (idempotent — only writes the columns that exist).
+    if has_listing_columns and last_listing_snapshot_json is not None:
+        connection.execute(
+            """
+            UPDATE deck_entries
+            SET listing_url = NULL,
+                listing_price_cents = NULL,
+                listed_at = NULL
+            WHERE id = ?
+              AND owner_user_id = ?
+            """,
+            (deck_entry_id, owner_user_id),
+        )
     if normalized_paid_at is not None:
         connection.execute(
             """

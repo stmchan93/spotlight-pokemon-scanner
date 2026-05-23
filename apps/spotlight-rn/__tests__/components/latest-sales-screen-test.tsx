@@ -34,12 +34,16 @@ function buildEmptyDashboard() {
 }
 
 describe('LatestSalesScreen', () => {
-  it('renders the title and the full virtualized list of latest sales', async () => {
+  it('renders the title, stat tiles, and the full list of latest sales', async () => {
     renderWithProviders(<LatestSalesScreen />);
 
-    expect(await screen.findByText('Latest Sales')).toBeTruthy();
+    expect(await screen.findByTestId('sales-header-title')).toBeTruthy();
+    expect(screen.getByTestId('sales-header-title').props.children).toBe('Sales');
     // Count badge intentionally removed per Figma; ensure it is gone.
     expect(screen.queryByTestId('latest-sales-count')).toBeNull();
+    expect(screen.getByTestId('sales-stat-tile-row')).toBeTruthy();
+    expect(screen.getByTestId('sales-transactions-title')).toBeTruthy();
+    expect(screen.getByTestId('sales-filter-chip-row')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
     expect(screen.getAllByText('Oshawott').length).toBeGreaterThan(0);
     expect(screen.queryByTestId('latest-sales-screen-skeleton')).toBeNull();
@@ -62,11 +66,11 @@ describe('LatestSalesScreen', () => {
     expect(screen.queryByTestId('latest-sales-count')).toBeNull();
   });
 
-  it('renders a back button that pops the navigation stack', async () => {
+  it('renders a hamburger menu button that opens the app drawer', async () => {
     renderWithProviders(<LatestSalesScreen />);
 
-    await screen.findByText('Latest Sales');
-    expect(screen.getByTestId('latest-sales-back')).toBeTruthy();
+    await screen.findByTestId('sales-header-title');
+    expect(screen.getByTestId('sales-header-menu')).toBeTruthy();
   });
 
   it('reloads the sales list when pull-to-refresh fires', async () => {
@@ -80,6 +84,7 @@ describe('LatestSalesScreen', () => {
     });
 
     await screen.findByText('No sales yet');
+    await screen.findByTestId('sales-header-title');
 
     // Empty state path renders a StateCard, not the FlatList. Re-rendering with
     // sales would expose the FlatList's refreshControl. For the empty state,

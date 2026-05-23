@@ -12,7 +12,8 @@ import { Search as SearchIcon } from 'iconoir-react-native';
 
 import { useSpotlightTheme } from '../theme';
 
-export type SearchFieldSize = 'default' | 'compact';
+export type SearchFieldSize = 'default' | 'compact' | 'collection';
+export type SearchFieldSurface = 'default' | 'muted';
 
 type SearchFieldProps = Omit<TextInputProps, 'style'> & {
   containerStyle?: StyleProp<ViewStyle>;
@@ -21,6 +22,11 @@ type SearchFieldProps = Omit<TextInputProps, 'style'> & {
   leading?: ReactNode;
   trailing?: ReactNode;
   size?: SearchFieldSize;
+  /**
+   * Visual surface treatment. 'default' is the standard field bg. 'muted' is
+   * the gray/100 bg with no border (Collection / Sales section search).
+   */
+  surface?: SearchFieldSurface;
 };
 
 export function SearchField({
@@ -31,41 +37,67 @@ export function SearchField({
   trailing,
   placeholderTextColor,
   size = 'default',
+  surface = 'default',
   ...inputProps
 }: SearchFieldProps) {
   const theme = useSpotlightTheme();
   const isCompact = size === 'compact';
+  const isCollection = size === 'collection';
+  const isMuted = surface === 'muted';
 
-  const containerThemeStyle: ViewStyle = isCompact
+  const containerThemeStyle: ViewStyle = isMuted
     ? {
-        backgroundColor: theme.colors.canvasElevated,
-        borderColor: theme.colors.searchBorder,
+        backgroundColor: theme.colors.gray100,
+        borderColor: 'transparent',
       }
-    : {
-        backgroundColor: theme.colors.field,
-        borderColor: theme.colors.outlineSubtle,
-      };
+    : isCompact
+      ? {
+          backgroundColor: theme.colors.canvasElevated,
+          borderColor: theme.colors.searchBorder,
+        }
+      : {
+          backgroundColor: theme.colors.field,
+          borderColor: theme.colors.outlineSubtle,
+        };
+
+  const sizeStyle = isCollection
+    ? styles.containerCollection
+    : isCompact
+      ? styles.containerCompact
+      : styles.containerDefault;
+
+  const inputSizeStyle = isCollection
+    ? styles.inputCollection
+    : isCompact
+      ? styles.inputCompact
+      : null;
+
+  const inputTextStyle = isCollection ? theme.typography.label : theme.typography.body;
+
+  const iconColor = isMuted ? theme.colors.gray500 : theme.colors.gray400;
+  const placeholderColor = placeholderTextColor ?? (isMuted ? theme.colors.gray500 : theme.colors.gray400);
 
   return (
     <View
       style={[
         styles.container,
-        isCompact ? styles.containerCompact : styles.containerDefault,
+        sizeStyle,
         containerThemeStyle,
+        isMuted ? styles.containerNoBorder : null,
         containerStyle,
       ]}
       testID={containerTestID}
     >
       {leading ?? (
-        <SearchIcon color={theme.colors.gray400} height={16} width={16} />
+        <SearchIcon color={iconColor} height={16} width={16} />
       )}
       <TextInput
-        placeholderTextColor={placeholderTextColor ?? theme.colors.gray400}
+        placeholderTextColor={placeholderColor}
         style={[
-          theme.typography.body,
+          inputTextStyle,
           { color: theme.colors.textPrimary },
           styles.input,
-          isCompact ? styles.inputCompact : null,
+          inputSizeStyle,
           inputStyle,
         ]}
         {...inputProps}
@@ -81,6 +113,9 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     flexDirection: 'row',
   },
+  containerNoBorder: {
+    borderWidth: 0,
+  },
   containerDefault: {
     borderRadius: 16,
     gap: 12,
@@ -94,10 +129,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 7,
   },
+  containerCollection: {
+    borderRadius: 8,
+    gap: 8,
+    height: 32,
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+  },
   input: {
     flex: 1,
   },
   inputCompact: {
+    paddingVertical: 0,
+  },
+  inputCollection: {
     paddingVertical: 0,
   },
 });

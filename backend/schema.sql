@@ -263,7 +263,18 @@ CREATE TABLE IF NOT EXISTS deck_entries (
     added_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     source_scan_id TEXT REFERENCES scan_events(scan_id),
-    source_confirmation_id TEXT REFERENCES scan_confirmations(id)
+    source_confirmation_id TEXT REFERENCES scan_confirmations(id),
+    -- Per-unit cost basis in cents, captured at add-to-collection time (optional).
+    -- When set, this is the authoritative cost basis for Insights aggregates;
+    -- the legacy `cost_basis_total` (REAL dollars) is maintained in parallel for
+    -- backward compatibility.
+    cost_basis_cents BIGINT,
+    -- Lightweight "Mark as Listed" tagging (no live eBay API). When listingUrl
+    -- is set, the inventory tile shows the "Live on eBay" footer. Auto-cleared
+    -- on sale with a snapshot copied into `sale_events.last_listing_snapshot`.
+    listing_url TEXT,
+    listing_price_cents BIGINT,
+    listed_at TIMESTAMPTZ
 );
 
 CREATE TABLE IF NOT EXISTS sale_events (
@@ -286,7 +297,18 @@ CREATE TABLE IF NOT EXISTS sale_events (
     voided_at TEXT,
     source_scan_id TEXT REFERENCES scan_events(scan_id),
     source_confirmation_id TEXT REFERENCES scan_confirmations(id),
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    -- Cost-basis snapshot captured at sell-time (per-unit cents). Sourced from
+    -- the inventory row's `cost_basis_cents` at the moment of sale so it stays
+    -- stable even if the inventory row is later edited or deleted.
+    cost_basis_per_unit_cents BIGINT,
+    -- Derived profit in cents = (unit_price_cents − cost_basis_per_unit_cents) × quantity.
+    -- Null when cost_basis_per_unit_cents is null.
+    profit_cents BIGINT,
+    -- Snapshot of the inventory row's active listing fields at the moment of
+    -- sale, preserved for the Sales/Insights surfaces. JSON with keys:
+    --   listing_url, listing_price_cents, listed_at
+    last_listing_snapshot JSONB
 );
 
 CREATE TABLE IF NOT EXISTS vendor_wallet_handles (
@@ -451,6 +473,9 @@ CREATE INDEX IF NOT EXISTS idx_cards_set_name
 CREATE INDEX IF NOT EXISTS idx_cards_number
     ON cards(number);
 
+CREATE INDEX IF NOT EXISTS idx_cards_number_upper
+    ON cards(UPPER(number), language, set_release_date, id);
+
 CREATE INDEX IF NOT EXISTS idx_cards_set_id
     ON cards(set_id);
 
@@ -490,6 +515,8 @@ CREATE INDEX IF NOT EXISTS idx_fx_rate_snapshots_lookup
 
 CREATE INDEX IF NOT EXISTS idx_scan_events_created_at
     ON scan_events(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_scan_events_resolver_mode
+    ON scan_events(resolver_mode, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_scan_events_owner_user_id
     ON scan_events(owner_user_id, created_at DESC);
 

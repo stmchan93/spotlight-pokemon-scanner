@@ -13,6 +13,7 @@ class SlabSetAliasResolution:
     scopes: tuple[str, ...]
     matched_alias: str | None
     source: str | None
+    cross_language_set_ids: tuple[str, ...] = ()
 
 
 def resolve_slab_set_aliases(
@@ -64,10 +65,18 @@ def resolve_slab_set_aliases(
             if str(value or "").strip()
         )
     )
+    cross_language_set_ids = tuple(
+        dict.fromkeys(
+            str(value or "").strip()
+            for value in matched_entry.get("crossLanguageSetIds") or []
+            if str(value or "").strip()
+        )
+    )
     return SlabSetAliasResolution(
         scopes=scopes,
         matched_alias=matched_alias,
         source="psa_alias_map",
+        cross_language_set_ids=cross_language_set_ids,
     )
 
 

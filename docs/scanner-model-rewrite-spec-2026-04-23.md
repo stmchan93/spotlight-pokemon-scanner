@@ -28,7 +28,7 @@ If a proposed change improves top-10 at the cost of top-1, reject it unless it i
 
 - `raw_visual_runtime_active.json` says `artifactVersion = v010-scrydex-cardphotos227-delta20260504`, published `2026-05-05T00:08:39Z`.
 - `raw_visual_adapter_active.pt` and `visual_index_active_*.npz` bytes confirm this — they are identical to the `v010-scrydex-cardphotos227-delta20260504_*` source files.
-- v010 is trained on the `776`-entry combined corpus and replaces the previous `v009-scrydex-cardphotos259-sweep-selected` active alias.
+- v010 is trained on the combined corpus snapshot recorded in its training manifest (`v010-scrydex-cardphotos227-delta20260504_manifest.json`) and replaces the previous `v009-scrydex-cardphotos259-sweep-selected` active alias. Do not quote a stale entry count here — read the manifest if you need v010's exact training-time corpus, and read the live `~/spotlight-datasets/raw-visual-train` directory if you need the current corpus.
 - A fresh pre-v010 backup exists under `backend/data/visual-models/active-backups/` and `backend/data/visual-index/active-backups/`.
 
 ### Corpus ceiling

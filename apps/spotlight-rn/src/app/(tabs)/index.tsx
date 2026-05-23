@@ -1,18 +1,15 @@
 import { useLocalSearchParams, useRouter } from 'expo-router';
 
 import { TopTabsPager } from '@/components/top-tabs-pager';
-import { getUserInitials } from '@/features/auth/auth-models';
 import { saveCardDetailPreviewFromInventoryEntry } from '@/features/cards/card-detail-preview-session';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { ScannerScreen } from '@/features/scanner/screens/scanner-screen';
-import { useAuth } from '@/providers/auth-provider';
 
 export default function TabsRoot() {
   const router = useRouter();
   const params = useLocalSearchParams<{
     page?: 'portfolio' | 'scanner' | string | string[];
   }>();
-  const { currentUser } = useAuth();
   const requestedPage = Array.isArray(params.page) ? params.page[0] : params.page;
   const initialPage = requestedPage === 'portfolio' ? 'portfolio' : 'scanner';
 
@@ -21,9 +18,6 @@ export default function TabsRoot() {
       initialPage={initialPage}
       portfolioSlot={(
         <PortfolioScreen
-          accountInitials={currentUser ? getUserInitials(currentUser) : 'AC'}
-          onOpenAccount={() => router.push('/account')}
-          onOpenInventory={() => router.push('/inventory')}
           onOpenInventoryEntry={(entry) =>
             router.push({
               pathname: '/cards/[cardId]',
@@ -33,7 +27,6 @@ export default function TabsRoot() {
                 previewId: saveCardDetailPreviewFromInventoryEntry(entry),
               },
             })}
-          onOpenSalesHistory={() => router.push('/sales')}
         />
       )}
       renderScannerSlot={(onExitToPortfolio, onTopLevelSwipeEnabledChange) => (

@@ -1,4 +1,4 @@
-import { ArrowDown, ArrowUp, Star, StarSolid } from 'iconoir-react-native';
+import { ArrowDown, ArrowUp, ArrowUpRightSquare, Star, StarSolid } from 'iconoir-react-native';
 import { Image, Pressable, StyleSheet, View } from 'react-native';
 
 import { useSpotlightTheme } from '../theme';
@@ -25,6 +25,17 @@ export type InventoryCardTileProps = {
   selected?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
+  /**
+   * When true, renders a "Live on eBay" footer below the price row with a
+   * small live-dot, the label, and an arrow-up-right icon. Tile grows by ~38px
+   * to make room.
+   */
+  liveOnEbay?: boolean;
+  /**
+   * Optional tap handler for the Live on eBay footer (e.g., opens the listing
+   * URL in an external browser).
+   */
+  onOpenListing?: () => void;
   testID?: string;
 };
 
@@ -88,6 +99,8 @@ export function InventoryCardTile({
   selected = false,
   onPress,
   onLongPress,
+  liveOnEbay = false,
+  onOpenListing,
   testID,
 }: InventoryCardTileProps) {
   const theme = useSpotlightTheme();
@@ -248,6 +261,43 @@ export function InventoryCardTile({
               </View>
             ) : null}
           </View>
+
+          {liveOnEbay ? (
+            <Pressable
+              accessibilityLabel="Open eBay listing"
+              accessibilityRole="link"
+              disabled={!onOpenListing}
+              onPress={onOpenListing}
+              style={({ pressed }) => [
+                styles.ebayFooter,
+                {
+                  borderTopColor: theme.colors.gray200,
+                  opacity: pressed && onOpenListing ? 0.7 : 1,
+                },
+              ]}
+              testID={testID ? `${testID}-live-on-ebay` : undefined}
+            >
+              <View
+                style={[
+                  styles.ebayDot,
+                  { backgroundColor: theme.colors.green400 },
+                ]}
+              />
+              <AppText
+                color="textMuted"
+                numberOfLines={1}
+                style={styles.ebayLabel}
+                variant="cardMeta"
+              >
+                Live on eBay
+              </AppText>
+              <ArrowUpRightSquare
+                color={theme.colors.gray600}
+                height={12}
+                width={12}
+              />
+            </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -262,16 +312,16 @@ export function InventoryCardTile({
         {isFavorite ? (
           <StarSolid
             color={theme.colors.starFavorited}
-            height={18}
+            height={20}
             testID={testID ? `${testID}-star-filled` : undefined}
-            width={18}
+            width={20}
           />
         ) : (
           <Star
             color={theme.colors.starOutline}
-            height={18}
+            height={20}
             testID={testID ? `${testID}-star-outlined` : undefined}
-            width={18}
+            width={20}
           />
         )}
       </View>
@@ -347,5 +397,22 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 8,
     top: 8,
+  },
+  ebayFooter: {
+    alignItems: 'center',
+    alignSelf: 'stretch',
+    borderTopWidth: 1,
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 8,
+    paddingTop: 10,
+  },
+  ebayDot: {
+    borderRadius: 999,
+    height: 6,
+    width: 6,
+  },
+  ebayLabel: {
+    flex: 1,
   },
 });

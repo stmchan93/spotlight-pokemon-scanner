@@ -52,10 +52,11 @@ export function SegmentedControl<T extends string>({
   const metrics = sizeMetrics[size];
   const shell = tone === 'inverted'
     ? {
-        backgroundColor: 'transparent' as const,
-        borderColor: theme.colors.gray300,
-        borderWidth: 0.5,
+        backgroundColor: theme.colors.gray100,
+        borderColor: 'transparent' as const,
+        borderWidth: 0,
         containerBorderRadius: 12,
+        gap: 0,
         segmentBorderRadius: 10,
         selectedBackgroundColor: theme.colors.gray0,
         selectedTextColor: theme.colors.gray900,
@@ -66,6 +67,7 @@ export function SegmentedControl<T extends string>({
         borderColor: 'transparent' as const,
         borderWidth: 0,
         containerBorderRadius: 999,
+        gap: 4,
         segmentBorderRadius: 999,
         selectedBackgroundColor: theme.colors.brand,
         selectedTextColor: theme.colors.textPrimary,
@@ -83,6 +85,7 @@ export function SegmentedControl<T extends string>({
           borderColor: shell.borderColor,
           borderRadius: shell.containerBorderRadius,
           borderWidth: shell.borderWidth,
+          gap: shell.gap,
           padding: metrics.containerPadding,
         },
       ]}
@@ -129,7 +132,6 @@ export function SegmentedControl<T extends string>({
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    gap: 4,
   },
   segment: {
     alignItems: 'center',

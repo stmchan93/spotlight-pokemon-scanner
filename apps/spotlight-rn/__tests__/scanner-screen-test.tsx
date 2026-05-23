@@ -215,8 +215,8 @@ describe('ScannerScreen', () => {
   it('submits the scanner top search into the catalog search sheet route', () => {
     renderScannerScreen();
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search for a card'), 'charizard');
-    fireEvent(screen.getByPlaceholderText('Search for a card'), 'submitEditing', {
+    fireEvent.changeText(screen.getByPlaceholderText('Search cards'), 'charizard');
+    fireEvent(screen.getByPlaceholderText('Search cards'), 'submitEditing', {
       nativeEvent: { text: 'charizard' },
     });
 
@@ -232,7 +232,7 @@ describe('ScannerScreen', () => {
     renderScannerScreen();
 
     await waitForScannerReady();
-    const searchInput = screen.getByPlaceholderText('Search for a card');
+    const searchInput = screen.getByPlaceholderText('Search cards');
     fireEvent(searchInput, 'focus');
     fireEvent.changeText(searchInput, 'bulbasaur');
 
@@ -278,12 +278,12 @@ describe('ScannerScreen', () => {
       minHeight: rawScannerTrayEmptyPeekHeight,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-recent-title').props.style)).toMatchObject({
-      fontSize: 16,
-      lineHeight: 21.6,
+      fontSize: 13,
+      lineHeight: 18.2,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-value-pill-text').props.style)).toMatchObject({
-      fontSize: 15,
-      lineHeight: 20,
+      fontSize: 13,
+      lineHeight: 18.2,
     });
     expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
   });
@@ -336,11 +336,9 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray-image-0').props.source).toEqual({
       uri: 'https://images.pokemontcg.io/mcdonalds25/21.png',
     });
-    expect(screen.getByText("McDonald's Collection 2021")).toBeTruthy();
-    expect(screen.getByText('#21/25')).toBeTruthy();
-    expect(screen.getByTestId('scanner-tray-qty-0')).toBeTruthy();
+    expect(screen.getByText("McDonald's Collection 2021 · #21/25")).toBeTruthy();
     expect(screen.queryByTestId('scanner-matches-button')).toBeNull();
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.56');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('Total: $0.56');
     expect(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
       includeHiddenElements: true,
     })).toBeTruthy();
@@ -565,7 +563,7 @@ describe('ScannerScreen', () => {
     }));
 
     expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.56');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('Total: $0.56');
   });
 
   it('disables top-level scanner swipe while a tray action rail is open and restores it when closed', async () => {
@@ -657,11 +655,11 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
     expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
     // Tray viewport fits content (captureRowHeight) when only one row remains.
-    expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height).toBeGreaterThanOrEqual(88);
+    expect(StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height).toBeGreaterThanOrEqual(102);
     // Verify the tray is still in the expanded state (not collapsed back).
     expect(screen.getByTestId('scanner-tray-header').props.accessibilityLabel).toBe('Collapse recent scans');
     // Avoid an unused-variable lint by referencing the saved expanded height.
-    expect(expandedViewportHeight).toBeGreaterThanOrEqual(88);
+    expect(expandedViewportHeight).toBeGreaterThanOrEqual(102);
   });
 
   it('shows the pending tray row immediately before scanner matches resolve', async () => {
@@ -845,9 +843,8 @@ describe('ScannerScreen', () => {
     expect(mockAnalyzeSlabCapture).toHaveBeenCalledTimes(1);
     expect(await screen.findByText('Mega Dragonite ex')).toBeTruthy();
     expect(screen.getByText('PSA • 9')).toBeTruthy();
-    expect(screen.getByText('#232/193')).toBeTruthy();
-    expect(screen.getByText('Mega 2A')).toBeTruthy();
-    expect(screen.getByText('Market avg')).toBeTruthy();
+    expect(screen.getByText('Mega 2A · #232/193')).toBeTruthy();
+    expect(screen.getByText('Market avg.')).toBeTruthy();
     expect(screen.getAllByText('$30.83').length).toBeGreaterThan(0);
     expect(screen.getByTestId('scanner-tray-image-0').props.source).toEqual({
       uri: 'https://cdn.spotlight.test/m2a-232.png',
@@ -946,10 +943,9 @@ describe('ScannerScreen', () => {
 
     expect(screen.getByText('Charizard')).toBeTruthy();
     expect(screen.getByText('PSA • 9')).toBeTruthy();
-    expect(screen.getByText('#4/102')).toBeTruthy();
-    expect(screen.getByText('Base')).toBeTruthy();
-    expect(screen.getAllByText('$0.00').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.00');
+    expect(screen.getByText('Base · #4/102')).toBeTruthy();
+    expect(screen.getAllByText('$0.00').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('Total: $0.00');
   });
 
   it('allows another scan while earlier scans are still processing', async () => {
@@ -1014,7 +1010,7 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Scorbunny')).toBeTruthy();
   });
 
-  it('cycles through scan candidates when the thumbnail is tapped', async () => {
+  it('swaps the active candidate when one is picked in the change card picker', async () => {
     renderScannerScreen();
 
     await waitForScannerReady();
@@ -1023,13 +1019,15 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Oshawott')).toBeTruthy();
     expect(screen.queryByText('Potential match')).toBeNull();
 
-    fireEvent.press(screen.getByTestId('scanner-tray-thumb-0'));
+    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+
+    fireEvent.press(await screen.findByTestId('change-card-picker-row-1'));
 
     await waitFor(() => {
       expect(screen.getByText('Scorbunny')).toBeTruthy();
     });
 
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('$0.38');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('Total: $0.38');
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -1087,7 +1085,16 @@ describe('ScannerScreen', () => {
     }
 
     expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
-    expect(screen.queryByTestId('scanner-tray-row-1')).toBeNull();
+    // The second-newest scan is RENDERED in the DOM in the collapsed state
+    // (so it can peek beneath the top row), but the tray viewport height
+    // crops it to a small sliver via overflow:hidden. Confirm the peek row
+    // exists and the viewport is sized for "one full row + small peek",
+    // NOT for two full rows.
+    expect(screen.getByTestId('scanner-tray-row-1')).toBeTruthy();
+    const collapsedViewportHeight =
+      StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
+    expect(collapsedViewportHeight).toBeGreaterThanOrEqual(102 + 14); // one row + peek
+    expect(collapsedViewportHeight).toBeLessThan(102 + 16 + 102); // less than two full rows + gap
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     expect(mockConfigureNext).toHaveBeenCalled();
@@ -1102,14 +1109,11 @@ describe('ScannerScreen', () => {
     expect(viewportHeight).toBeGreaterThanOrEqual(184);
     expect(viewportHeight).toBeLessThanOrEqual(428);
 
-    fireEvent.press(screen.getByTestId('scanner-preview'));
-
-    await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-2')).toBeTruthy();
-    });
-
-    expect(screen.getByTestId('scanner-tray-scroll').props.scrollEnabled).toBe(false);
-    expect(screen.getByTestId('scanner-tray-scroll').props.showsVerticalScrollIndicator).toBe(false);
+    // While expanded, scanner-preview is intentionally not rendered so taps on
+    // the camera surface fall through to scanner-tray-collapse-backdrop (which
+    // collapses the tray). Verify that contract.
+    expect(screen.queryByTestId('scanner-preview')).toBeNull();
+    expect(screen.getByTestId('scanner-tray-collapse-backdrop')).toBeTruthy();
   });
 
   it('adds a scanned card into inventory from the tray', async () => {
@@ -1172,12 +1176,14 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
-    expect(screen.queryByTestId('scanner-tray-qty-0')).toBeNull();
 
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+      hidden: true,
+    }));
     fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-qty-0')).toBeTruthy();
+      expect(addPayloads).toHaveLength(1);
     });
     expect(addPayloads[0]).toEqual(expect.objectContaining({
       sourceScanID: 'scan-froakie',
@@ -1225,6 +1231,9 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Froakie')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+      hidden: true,
+    }));
     fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
 
     await waitFor(() => {
@@ -1303,6 +1312,9 @@ describe('ScannerScreen', () => {
 
     expect(await screen.findByText('Mega Dragonite ex')).toBeTruthy();
     expect(screen.getByText('PSA • 9')).toBeTruthy();
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+      hidden: true,
+    }));
     fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
 
     await waitFor(() => {
@@ -1358,7 +1370,9 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     expect(await screen.findByText('Oshawott')).toBeTruthy();
-    fireEvent.press(screen.getByTestId('scanner-tray-refresh-0'));
+    fireEvent.press(screen.getByTestId('scanner-tray-change-0'));
+
+    fireEvent.press(await screen.findByTestId('change-card-picker-row-1'));
 
     await waitFor(() => {
       expect(screen.getByText('Scorbunny')).toBeTruthy();
@@ -1389,58 +1403,21 @@ describe('ScannerScreen', () => {
     });
   });
 
-  it('routes the tray Sell button to /sell/[entryId] when the card is in inventory', async () => {
-    const inventoryEntries = [{
-      id: 'entry-froakie',
-      cardId: 'mcdonalds25-22',
-      name: 'Froakie',
-      cardNumber: '#22/25',
-      setName: "McDonald's Collection 2021",
-      imageUrl: 'https://cdn.spotlight.test/froakie.png',
-      marketPrice: 55,
-      hasMarketPrice: true,
-      currencyCode: 'USD',
-      quantity: 1,
-      addedAt: '2026-04-30T00:00:00.000Z',
-      kind: 'raw' as const,
-      conditionCode: 'near_mint' as const,
-      conditionLabel: 'Near Mint',
-      conditionShortLabel: 'NM',
-      costBasisPerUnit: null,
-      costBasisTotal: 0,
-    }];
+  it('passes the condition selected in the price sheet through to inventory add', async () => {
+    const addPayloads: any[] = [];
     const spotlightRepository = createTestSpotlightRepository({
-      getInventoryEntries: async () => inventoryEntries,
-      matchScannerCapture: async () => ({
-        scanID: 'scan-froakie',
-        candidates: [{
-          id: 'froakie-candidate',
-          cardId: 'mcdonalds25-22',
-          name: 'Froakie',
-          cardNumber: '#22/25',
-          setName: "McDonald's Collection 2021",
-          imageUrl: 'https://cdn.spotlight.test/froakie.png',
-          marketPrice: 55,
-          currencyCode: 'USD',
-        }],
-      }),
-    });
-
-    renderScannerScreen({ spotlightRepository });
-    await waitForScannerReady();
-    fireEvent.press(screen.getByTestId('scanner-preview'));
-    expect(await screen.findByText('Froakie')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('scanner-tray-sell-0'));
-
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/sell/[entryId]',
-      params: { entryId: 'entry-froakie', cardId: 'mcdonalds25-22', fromScan: '1' },
-    });
-  });
-
-  it('routes the tray Sell button to /quick-sell when the card is not in inventory', async () => {
-    const spotlightRepository = createTestSpotlightRepository({
+      createInventoryEntry: async (payload) => {
+        addPayloads.push(payload);
+        return {
+          deckEntryID: 'entry-froakie',
+          cardID: payload.cardID,
+          variantName: null,
+          condition: payload.condition,
+          confirmationID: null,
+          sourceScanID: payload.sourceScanID,
+          addedAt: payload.addedAt,
+        };
+      },
       getInventoryEntries: async () => [],
       matchScannerCapture: async () => ({
         scanID: 'scan-froakie',
@@ -1451,22 +1428,49 @@ describe('ScannerScreen', () => {
           cardNumber: '#22/25',
           setName: "McDonald's Collection 2021",
           imageUrl: 'https://cdn.spotlight.test/froakie.png',
-          marketPrice: 55,
+          marketPrice: 0.55,
           currencyCode: 'USD',
         }],
+      }),
+      getRawPricingMatrix: async () => ({
+        cardID: 'mcdonalds25-22',
+        currencyCode: 'USD',
+        variants: [
+          {
+            variant: 'Holofoil',
+            variantKey: 'holofoil',
+            conditions: [
+              { code: 'NM', label: 'Near Mint', market: 0.55, low: null, mid: null, high: null },
+              { code: 'LP', label: 'Lightly Played', market: 0.42, low: null, mid: null, high: null },
+            ],
+          },
+        ],
       }),
     });
 
     renderScannerScreen({ spotlightRepository });
+
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
+
     expect(await screen.findByText('Froakie')).toBeTruthy();
 
-    fireEvent.press(screen.getByTestId('scanner-tray-sell-0'));
+    fireEvent.press(screen.getByTestId('scanner-tray-price-0'));
 
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/sell/[entryId]',
-      params: { entryId: 'new', cardId: 'mcdonalds25-22', fromScan: '1' },
+    const lpRow = await screen.findByTestId('scan-price-sheet-row-holofoil-LP');
+    fireEvent.press(lpRow);
+
+    fireEvent.press(screen.getByTestId('scanner-tray-swipe-0-reveal-actions', {
+      hidden: true,
+    }));
+    fireEvent.press(screen.getByTestId('scanner-tray-add-0'));
+
+    await waitFor(() => {
+      expect(addPayloads).toHaveLength(1);
     });
+    expect(addPayloads[0]).toEqual(expect.objectContaining({
+      condition: 'lightly_played',
+    }));
   });
+
 });

@@ -1,6 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
 import {
-  Modal,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -8,16 +7,11 @@ import {
   Text,
   View,
 } from 'react-native';
-import { Eye, EyeClosed, FilterList, MoreHorizCircle } from 'iconoir-react-native';
+import { Menu as MenuIcon } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { ChartMode, InventoryCardEntry } from '@spotlight/api-client';
+import type { InventoryCardEntry } from '@spotlight/api-client';
 import {
-  InventoryCardTile,
-  PageTabs,
-  RollingNumberText,
-  SearchField,
-  SectionHeader,
   StateCard,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -26,45 +20,22 @@ import {
   PortfolioChartCard,
   type PortfolioChartActivePoint,
 } from '@/features/portfolio/components/portfolio-chart-card';
-import { RecentSalesSection } from '@/features/portfolio/components/recent-sales-section';
+import { PortfolioBalanceHeader } from '@/features/portfolio/components/portfolio-balance-header';
 import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
+import { CollectionSearchRow } from '@/features/portfolio/components/collection-search-row';
 import {
-  formatCurrency,
-  formatOptionalCurrency,
-  formatPercent,
-  formatSignedCurrency,
-} from '@/features/portfolio/components/portfolio-formatting';
+  CollectionFilterChipRow,
+  type CollectionFilterKey,
+} from '@/features/portfolio/components/collection-filter-chip-row';
+import { CollectionMasonryGrid } from '@/features/portfolio/components/collection-masonry-grid';
+import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
-import { getCardImageUrl } from '@/lib/card-images';
+import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 type PortfolioScreenProps = {
-  accountInitials?: string;
-  onOpenAccount?: () => void;
-  onOpenInventory?: () => void;
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
-  /**
-   * Wired to the View All link inside the Recent Sales tab — navigates
-   * to the full-screen virtualized sales list at /sales.
-   */
-  onOpenSalesHistory?: () => void;
 };
-
-type InventoryTypeFilter = 'all' | 'raw' | 'graded';
-type CollectionTab = 'portfolio' | 'recent-sales' | 'favorites';
-
-const inventoryHighlightLimit = 6;
-const hiddenValueMask = '*****';
-
-function applyTypeFilter(items: InventoryCardEntry[], filter: InventoryTypeFilter) {
-  if (filter === 'all') {
-    return items;
-  }
-  if (filter === 'raw') {
-    return items.filter((item) => item.kind === 'raw');
-  }
-  return items.filter((item) => item.kind === 'graded');
-}
 
 function applyInventorySearch(items: InventoryCardEntry[], query: string) {
   const normalized = query.trim().toLowerCase();
@@ -91,50 +62,43 @@ function applyInventorySearch(items: InventoryCardEntry[], query: string) {
   });
 }
 
-function sortByMarketPriceDesc(items: InventoryCardEntry[]) {
-  return [...items].sort((a, b) => {
-    const ap = a.hasMarketPrice ? a.marketPrice : -Infinity;
-    const bp = b.hasMarketPrice ? b.marketPrice : -Infinity;
-    return bp - ap;
-  });
+function applyCollectionFilter(
+  items: InventoryCardEntry[],
+  filter: CollectionFilterKey,
+): InventoryCardEntry[] {
+  switch (filter) {
+    case 'all':
+      return items;
+    case 'az':
+      return [...items].sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }));
+    case 'price':
+      return [...items].sort((a, b) => {
+        const ap = a.hasMarketPrice ? a.marketPrice : -Infinity;
+        const bp = b.hasMarketPrice ? b.marketPrice : -Infinity;
+        return bp - ap;
+      });
+    case 'favorites':
+      return items.filter((entry) => entry.isFavorite === true);
+    case 'ungraded':
+      return items.filter((entry) => entry.kind !== 'graded');
+    case 'graded':
+      return items.filter((entry) => entry.kind === 'graded');
+    default:
+      return items;
+  }
 }
 
-const inventoryTypeFilterOptions: ReadonlyArray<{ value: InventoryTypeFilter; label: string }> = [
-  { value: 'all', label: 'All' },
-  { value: 'raw', label: 'Raw' },
-  { value: 'graded', label: 'Graded' },
-];
-
-const chartModeOptions: ReadonlyArray<{ value: ChartMode; label: string }> = [
-  { value: 'portfolio', label: 'Portfolio' },
-  { value: 'sales', label: 'Sales' },
-];
-
-const collectionTabs = [
-  { value: 'portfolio', label: 'Collection' },
-  { value: 'recent-sales', label: 'Recent Sales' },
-  { value: 'favorites', label: 'Favorites' },
-] as const satisfies ReadonlyArray<{ value: CollectionTab; label: string }>;
-
-const recentSalesTabLimit = 6;
-
 export function PortfolioScreen({
-  accountInitials = 'AC',
-  onOpenAccount = () => {},
-  onOpenInventory = () => {},
   onOpenInventoryEntry = () => {},
-  onOpenSalesHistory,
 }: PortfolioScreenProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const model = usePortfolioScreenModel();
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
+  const { openDrawer } = useAppDrawer();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
-  const [chartModeMenuOpen, setChartModeMenuOpen] = useState(false);
-  const [typeFilter, setTypeFilter] = useState<InventoryTypeFilter>('all');
-  const [typeFilterMenuOpen, setTypeFilterMenuOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<CollectionTab>('portfolio');
+  const [activeFilter, setActiveFilter] = useState<CollectionFilterKey>('all');
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -147,153 +111,18 @@ export function PortfolioScreen({
     && model.loadError !== null;
 
   const summary = model.dashboard.summary;
-  const rawSummaryValueLabel = activeChartPoint?.valueLabel
-    ?? formatCurrency(summary.currentValue);
-  const summaryValueLabel = isSummaryHidden ? hiddenValueMask : rawSummaryValueLabel;
-  const summaryDateLabel = activeChartPoint?.dateLabel ?? 'Today';
-  // Sales mode emits an empty changePercentLabel (no percent applies to
-  // a sale count). Skip the trailing "()" when there's no percent value.
-  const rawSummaryDeltaAmountLabel = activeChartPoint
-    ? activeChartPoint.changePercentLabel
-      ? `${activeChartPoint.changeAmountLabel} (${activeChartPoint.changePercentLabel})`
-      : activeChartPoint.changeAmountLabel
-    : `${formatSignedCurrency(summary.changeAmount)} (${formatPercent(summary.changePercent)})`;
-  const summaryDeltaAmountLabel = isSummaryHidden ? hiddenValueMask : rawSummaryDeltaAmountLabel;
-  const summaryDeltaIsPositive = activeChartPoint
-    ? activeChartPoint.changeAmount >= 0
-    : summary.changeAmount >= 0;
-
   const baseInventory = model.dashboard.inventoryItems;
 
-  const portfolioTabHighlights = useMemo(() => {
-    const filtered = applyTypeFilter(baseInventory, typeFilter);
-    const searched = applyInventorySearch(filtered, model.searchQuery);
-    return sortByMarketPriceDesc(searched).slice(0, inventoryHighlightLimit);
-  }, [baseInventory, model.searchQuery, typeFilter]);
+  const visibleInventory = useMemo(() => {
+    const filtered = applyCollectionFilter(baseInventory, activeFilter);
+    return applyInventorySearch(filtered, model.searchQuery);
+  }, [activeFilter, baseInventory, model.searchQuery]);
 
-  const favoritesTabItems = useMemo(() => {
-    const favoritesOnly = baseInventory.filter((item) => item.isFavorite === true);
-    const searched = applyInventorySearch(favoritesOnly, model.searchQuery);
-    return sortByMarketPriceDesc(searched);
-  }, [baseInventory, model.searchQuery]);
-
-  const handleSelectTypeFilter = useCallback((filter: InventoryTypeFilter) => {
-    setTypeFilter(filter);
-    setTypeFilterMenuOpen(false);
-  }, []);
-
-  const handleSelectChartMode = useCallback((mode: ChartMode) => {
-    model.setChartMode(mode);
-    setChartModeMenuOpen(false);
-  }, [model]);
-
-  const filterTriggerIcon = useMemo(() => (
-    <Pressable
-      hitSlop={8}
-      onPress={() => setTypeFilterMenuOpen(true)}
-      style={styles.filterIconPressable}
-      testID="portfolio-inventory-filter-trigger"
-    >
-      <FilterList color={theme.colors.gray400} height={16} width={16} />
-    </Pressable>
-  ), [theme.colors.textSecondary]);
-
-  const renderInventoryTile = useCallback((entry: InventoryCardEntry) => {
-    const tileKind = entry.kind === 'graded' ? 'slab' : 'raw';
-    const dayDelta = entry.dayChangeAmount ?? null;
-    const hasDelta = dayDelta != null && dayDelta !== 0;
-    const dayChangeLabel = hasDelta
-      ? formatCurrency(Math.abs(dayDelta), entry.currencyCode)
-      : null;
-    const dayChangeDirection = hasDelta ? (dayDelta > 0 ? 'up' : 'down') : null;
-
-    return (
-      <View key={entry.id} style={styles.inventoryTileWrap}>
-        <InventoryCardTile
-          imageUrl={getCardImageUrl(entry, 'small')}
-          name={entry.name}
-          setName={entry.setName ?? ''}
-          cardNumber={entry.cardNumber ?? null}
-          kind={tileKind}
-          conditionLabel={tileKind === 'raw' ? entry.conditionLabel ?? null : null}
-          graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
-          gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
-          quantity={entry.quantity}
-          priceLabel={entry.hasMarketPrice ? formatOptionalCurrency(entry.marketPrice, entry.currencyCode) : null}
-          dayChangeLabel={dayChangeLabel}
-          dayChangeDirection={dayChangeDirection}
-          isFavorite={entry.isFavorite === true}
-          onPress={() => onOpenInventoryEntry(entry)}
-          testID={`portfolio-inventory-tile-${entry.id}`}
-        />
-      </View>
-    );
-  }, [onOpenInventoryEntry]);
-
-  const renderPortfolioTab = () => (
-    <View style={styles.tabContent}>
-      <SectionHeader
-        actionLabel="View All"
-        actionTestID="portfolio-inventory-view-all"
-        expanded
-        onActionPress={onOpenInventory}
-        title="Collection"
-      />
-
-      <SearchField
-        onChangeText={model.setSearchQuery}
-        placeholder="Search collection"
-        size="compact"
-        testID="portfolio-inventory-search"
-        trailing={filterTriggerIcon}
-        value={model.searchQuery}
-      />
-
-      {model.hasInventoryEntries ? (
-        <View style={styles.inventoryGrid}>
-          {portfolioTabHighlights.map(renderInventoryTile)}
-        </View>
-      ) : (
-        <StateCard
-          message="Add cards from the scanner to see your highest-value picks here."
-          style={styles.emptyStateCard}
-          title="No cards in your collection yet"
-        />
-      )}
-    </View>
-  );
-
-  const recentSalesTabItems = model.recentSales.slice(0, recentSalesTabLimit);
-
-  const renderRecentSalesTab = () => (
-    <View style={styles.tabContent}>
-      <RecentSalesSection
-        expanded
-        isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
-        onOpenSalesHistory={onOpenSalesHistory}
-        onSalePress={model.openSaleEditor}
-        sales={recentSalesTabItems}
-        title="Latest Sales"
-      />
-    </View>
-  );
-
-  const renderFavoritesTab = () => (
-    <View style={styles.tabContent}>
-      <SectionHeader expanded title="Favorites" />
-
-      {favoritesTabItems.length > 0 ? (
-        <View style={styles.inventoryGrid}>
-          {favoritesTabItems.map(renderInventoryTile)}
-        </View>
-      ) : (
-        <StateCard
-          message="Tap the star on a card's detail page to favorite it. Your favorites will appear here."
-          style={styles.emptyStateCard}
-          title="No favorites yet"
-        />
-      )}
-    </View>
+  const handlePressEntry = useCallback(
+    (entry: InventoryCardEntry) => {
+      onOpenInventoryEntry(entry);
+    },
+    [onOpenInventoryEntry],
   );
 
   return (
@@ -307,7 +136,6 @@ export function PortfolioScreen({
           styles.content,
           {
             paddingBottom: bottomNavClearance,
-            paddingHorizontal: theme.layout.pageGutter,
             paddingTop: theme.layout.pageTopInset,
           },
         ]}
@@ -321,20 +149,20 @@ export function PortfolioScreen({
         )}
         scrollEnabled={!isChartScrubbing}
       >
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingHorizontal: theme.layout.pageGutter }]}>
           <Pressable
+            accessibilityLabel="Open menu"
             accessibilityRole="button"
-            onPress={onOpenAccount}
-            style={[styles.accountBadge, { backgroundColor: theme.colors.brand }]}
-            testID="portfolio-account-button"
+            hitSlop={12}
+            onPress={openDrawer}
+            style={styles.headerIcon}
+            testID="portfolio-header-menu"
           >
-            <Text style={[theme.typography.caption, { color: theme.colors.textInverse }]}>
-              {accountInitials}
-            </Text>
+            <MenuIcon color={theme.colors.gray900} height={24} width={24} />
           </Pressable>
           <Text
             numberOfLines={1}
-            style={[theme.typography.headline, styles.headerTitle, { color: theme.colors.textPrimary }]}
+            style={[theme.typography.titleMedium, styles.headerTitle]}
             testID="portfolio-header-title"
           >
             Collection
@@ -343,70 +171,25 @@ export function PortfolioScreen({
         </View>
 
         {shouldShowInitialError ? (
-          <StateCard
-            message={model.loadError || 'Please try again once your backend is reachable.'}
-            title="Could not load your backend data"
-            variant="field"
-          />
+          <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+            <StateCard
+              message={model.loadError || 'Please try again once your backend is reachable.'}
+              title="Could not load your backend data"
+              variant="field"
+            />
+          </View>
         ) : (
           <>
-            <View style={styles.summaryBlock}>
-              <View style={styles.summaryValueRow}>
-                <View style={styles.summaryValueGroup}>
-                  <RollingNumberText
-                    style={[theme.typography.display, styles.summaryValue, { color: theme.colors.textPrimary }]}
-                    testID="portfolio-summary-value"
-                    value={summaryValueLabel}
-                  />
-                  <Pressable
-                    accessibilityLabel={isSummaryHidden ? 'Show portfolio value' : 'Hide portfolio value'}
-                    accessibilityRole="button"
-                    hitSlop={8}
-                    onPress={toggleSummaryHidden}
-                    style={styles.summaryVisibilityButton}
-                    testID="portfolio-summary-visibility-toggle"
-                  >
-                    {isSummaryHidden ? (
-                      <EyeClosed color={theme.colors.textSecondary} height={20} width={20} />
-                    ) : (
-                      <Eye color={theme.colors.textSecondary} height={20} width={20} />
-                    )}
-                  </Pressable>
-                </View>
-                <Pressable
-                  accessibilityRole="button"
-                  hitSlop={8}
-                  onPress={() => setChartModeMenuOpen(true)}
-                  style={styles.modeMenuButton}
-                  testID="portfolio-chart-mode-trigger"
-                >
-                  <MoreHorizCircle color={theme.colors.textSecondary} height={20} width={20} />
-                </Pressable>
-              </View>
-              <View style={styles.summaryDeltaRow}>
-                <Text
-                  style={[
-                    theme.typography.overline,
-                    {
-                      color: summaryDeltaIsPositive ? theme.colors.greenDelta : theme.colors.redDelta,
-                    },
-                  ]}
-                  testID="portfolio-summary-delta"
-                >
-                  {summaryDeltaAmountLabel}
-                </Text>
-                <Text
-                  style={[theme.typography.overline, { color: theme.colors.gray600 }]}
-                  testID="portfolio-summary-delta-date"
-                >
-                  {summaryDateLabel}
-                </Text>
-              </View>
-            </View>
+            <PortfolioBalanceHeader
+              summary={summary}
+              activeChartPoint={activeChartPoint}
+              isSummaryHidden={isSummaryHidden}
+              onToggleHidden={toggleSummaryHidden}
+            />
 
-            <View style={[styles.chartWrap, { marginHorizontal: -theme.layout.pageGutter }]}>
+            <View style={styles.chartWrap}>
               <PortfolioChartCard
-                chartMode={model.chartMode}
+                chartMode="portfolio"
                 dashboard={model.dashboard}
                 isLoading={model.isLoadingDashboard && !model.hasLoadedDashboard}
                 onActivePointChange={setActiveChartPoint}
@@ -417,114 +200,51 @@ export function PortfolioScreen({
             </View>
 
             {model.loadError ? (
-              <StateCard
-                message={model.loadError}
-                title="Could not refresh your backend data"
-                variant="field"
-              />
+              <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+                <StateCard
+                  message={model.loadError}
+                  title="Could not refresh your backend data"
+                  variant="field"
+                />
+              </View>
             ) : null}
 
-            <PageTabs<CollectionTab>
-              onChange={setActiveTab}
-              tabs={collectionTabs}
-              testID="portfolio-collection-tabs"
-              value={activeTab}
+            <CollectionSearchRow
+              onChangeQuery={model.setSearchQuery}
+              query={model.searchQuery}
             />
 
-            {activeTab === 'portfolio'
-              ? renderPortfolioTab()
-              : activeTab === 'recent-sales'
-                ? renderRecentSalesTab()
-                : renderFavoritesTab()}
+            <CollectionFilterChipRow
+              activeFilter={activeFilter}
+              onFilterChange={setActiveFilter}
+            />
+
+            {visibleInventory.length > 0 ? (
+              <CollectionMasonryGrid
+                entries={visibleInventory}
+                onPressEntry={handlePressEntry}
+              />
+            ) : (
+              <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
+                <StateCard
+                  message="Add cards from the scanner or tap the + button to start your collection."
+                  style={styles.emptyStateCard}
+                  title="No cards match this filter"
+                />
+              </View>
+            )}
+
+            <Text
+              style={[theme.typography.captionMedium, styles.endOfList, { color: theme.colors.gray600 }]}
+              testID="portfolio-end-of-list"
+            >
+              End of List
+            </Text>
           </>
         )}
       </ScrollView>
 
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setChartModeMenuOpen(false)}
-        transparent
-        visible={chartModeMenuOpen}
-      >
-        <Pressable
-          onPress={() => setChartModeMenuOpen(false)}
-          style={styles.menuBackdrop}
-          testID="portfolio-chart-mode-menu-backdrop"
-        >
-          <Pressable
-            onPress={() => {}}
-            style={[styles.menuSheet, { backgroundColor: theme.colors.canvasElevated }]}
-          >
-            {chartModeOptions.map((option) => {
-              const selected = option.value === model.chartMode;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  key={option.value}
-                  onPress={() => handleSelectChartMode(option.value)}
-                  style={({ pressed }) => [
-                    styles.menuOption,
-                    pressed ? { backgroundColor: theme.colors.surfaceMuted } : null,
-                  ]}
-                  testID={`portfolio-chart-mode-option-${option.value}`}
-                >
-                  <Text style={[theme.typography.body, { color: theme.colors.textPrimary }]}>
-                    {option.label}
-                  </Text>
-                  {selected ? (
-                    <Text style={[theme.typography.caption, { color: theme.colors.brand }]}>
-                      ✓
-                    </Text>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </Pressable>
-        </Pressable>
-      </Modal>
-
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setTypeFilterMenuOpen(false)}
-        transparent
-        visible={typeFilterMenuOpen}
-      >
-        <Pressable
-          onPress={() => setTypeFilterMenuOpen(false)}
-          style={styles.menuBackdrop}
-          testID="portfolio-inventory-filter-menu-backdrop"
-        >
-          <Pressable
-            onPress={() => {}}
-            style={[styles.menuSheet, { backgroundColor: theme.colors.canvasElevated }]}
-          >
-            {inventoryTypeFilterOptions.map((option) => {
-              const selected = option.value === typeFilter;
-              return (
-                <Pressable
-                  accessibilityRole="button"
-                  key={option.value}
-                  onPress={() => handleSelectTypeFilter(option.value)}
-                  style={({ pressed }) => [
-                    styles.menuOption,
-                    pressed ? { backgroundColor: theme.colors.surfaceMuted } : null,
-                  ]}
-                  testID={`portfolio-inventory-filter-option-${option.value}`}
-                >
-                  <Text style={[theme.typography.body, { color: theme.colors.textPrimary }]}>
-                    {option.label}
-                  </Text>
-                  {selected ? (
-                    <Text style={[theme.typography.caption, { color: theme.colors.brand }]}>
-                      ✓
-                    </Text>
-                  ) : null}
-                </Pressable>
-              );
-            })}
-          </Pressable>
-        </Pressable>
-      </Modal>
+      <CollectionAddFab />
 
       <SalePriceEditSheet
         canConfirm={model.canConfirmSalePriceEdit}
@@ -539,17 +259,12 @@ export function PortfolioScreen({
 }
 
 const styles = StyleSheet.create({
-  accountBadge: {
-    alignItems: 'center',
-    borderRadius: 20,
-    height: 36,
-    justifyContent: 'center',
-    width: 36,
-  },
-  // 16dp default gap + 24 marginBottom = 40dp between the chart and the
-  // collection tabs.
   chartWrap: {
-    marginBottom: 24,
+    // Figma puts the Time Filter Container 64px below the Portfolio Balance
+    // Container. The ScrollView `content` style adds a 16px gap between
+    // children, so we add 48 here to land at exactly 64.
+    marginTop: 48,
+    marginBottom: 16,
   },
   content: {
     gap: 16,
@@ -557,88 +272,28 @@ const styles = StyleSheet.create({
   emptyStateCard: {
     marginTop: 12,
   },
-  filterIconPressable: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  endOfList: {
+    marginTop: 24,
+    textAlign: 'center',
   },
   header: {
     alignItems: 'center',
     flexDirection: 'row',
     height: 40,
-    justifyContent: 'space-between',
+  },
+  headerIcon: {
+    height: 24,
+    width: 24,
   },
   headerSpacer: {
-    width: 36,
-  },
-  summaryVisibilityButton: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    padding: 4,
+    height: 24,
+    width: 24,
   },
   headerTitle: {
     flex: 1,
-    fontWeight: '600',
     textAlign: 'center',
-  },
-  inventoryGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 12,
-    marginTop: 12,
-  },
-  inventoryTileWrap: {
-    width: '48%',
-  },
-  menuBackdrop: {
-    backgroundColor: 'rgba(0,0,0,0.32)',
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 32,
-  },
-  menuOption: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 20,
-    paddingVertical: 16,
-  },
-  menuSheet: {
-    borderRadius: 16,
-    overflow: 'hidden',
-  },
-  modeMenuButton: {
-    alignItems: 'center',
-    backgroundColor: 'transparent',
-    height: 28,
-    justifyContent: 'center',
-    width: 28,
   },
   safeArea: {
     flex: 1,
-  },
-  summaryBlock: {
-    gap: 4,
-  },
-  summaryDeltaRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  summaryValue: {
-    flexShrink: 1,
-    fontWeight: '700',
-  },
-  summaryValueRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-  },
-  summaryValueGroup: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-  },
-  tabContent: {
-    gap: 12,
   },
 });

@@ -244,29 +244,15 @@ export type InventoryCardEntry = {
   // and dayChangePercent is also null when yesterday's price was 0.
   dayChangeAmount?: number | null;
   dayChangePercent?: number | null;
+  // Listing fields — populated when the user has marked the entry as listed
+  // on an external marketplace (eBay). Drives the "Live on eBay" tile footer.
+  listingUrl?: string | null;
+  listingPriceCents?: number | null;
+  listedAt?: string | null;
 };
 
 export type PortfolioInventoryItem = InventoryCardEntry;
 
-export type TopMoverEntry = {
-  cardId: string;
-  name: string;
-  setName: string | null;
-  cardNumber: string | null;
-  imageUrl: string | null;
-  currencyCode: string;
-  currentPrice: number;
-  priorPrice: number;
-  changeAmount: number;
-  changePercent: number;
-  currentDate: string | null;
-  priorDate: string | null;
-};
-
-export type TopMoversResult = {
-  asOfDate: string | null;
-  movers: TopMoverEntry[];
-};
 
 export type RecentTransactionKind = 'sold' | 'traded';
 
@@ -298,6 +284,56 @@ export type RecentSaleRecord = {
   paidAt?: string | null;
   /** Payment status: paid, pending, or voided. Null when not surfaced. */
   status?: SaleStatus | null;
+  /**
+   * Cost-basis snapshot per unit captured at sell-time. Null when the
+   * inventory row had no cost basis at the moment of sale. Stays stable
+   * even if the original inventory entry is later deleted or edited.
+   */
+  costBasisPerUnit?: number | null;
+  /**
+   * Derived profit for this sale ((soldPrice − costBasisPerUnit) × quantity)
+   * computed and snapshotted server-side. Null when costBasisPerUnit is null.
+   */
+  profit?: number | null;
+};
+
+/**
+ * Aggregated portfolio + sales metrics used by the Insights screen
+ * (Collections tab redesign, Frame 5). All money values are dollars (floats).
+ * Optional/nullable to keep older clients backwards-compatible.
+ */
+export type PortfolioInsights = {
+  // Inventory / collection-health aggregates
+  totalCostBasis: number;
+  unrealizedGain: number;
+  trackedInventoryCount: number;
+  inventoryAddedThisMonth: number;
+  activeListings: number;
+  unlistedInventory: number;
+  listingRate: number;
+  avgListingValue?: number | null;
+  // Monthly sales aggregates (current calendar month)
+  monthlyRevenue: number;
+  monthlyProfit: number;
+  monthlyExpense: number;
+  monthlyMargin?: number | null;
+  /** MoM change as a fraction (0.12 = +12%); null when prior month had no activity. */
+  monthlyRevenueChangePercent?: number | null;
+  monthlyProfitChangePercent?: number | null;
+  numSales: number;
+  avgSalesPrice?: number | null;
+  avgDaysToSell?: number | null;
+  unsoldListings: number;
+  // All-time sales aggregates
+  totalSales: number;
+  totalRevenue: number;
+  totalExpense: number;
+  totalProfit: number;
+  overallROI?: number | null;
+  // Featured sales
+  bestReturnOfAllTime?: RecentSaleRecord | null;
+  topSellersThisMonth: RecentSaleRecord[];
+  refreshedAt?: string | null;
 };
 
 export type PortfolioDashboard = {
@@ -306,6 +342,12 @@ export type PortfolioDashboard = {
   inventoryItems: InventoryCardEntry[];
   recentSales: RecentSaleRecord[];
   ranges: Record<PortfolioHistoryRange, RangeChartData>;
+  /**
+   * Insights aggregates surfaced by the backend `/api/v1/portfolio/insights`
+   * endpoint. Optional so older clients can continue to consume the dashboard
+   * without breakage.
+   */
+  insights?: PortfolioInsights | null;
 };
 
 export type CatalogSearchResult = {
@@ -342,6 +384,27 @@ export type CardMarketInsight = {
   label: string;
   deltaAmount?: number | null;
   deltaPercent?: number | null;
+};
+
+export type RawPricingMatrixConditionRow = {
+  code: string;
+  label: string;
+  low?: number | null;
+  mid?: number | null;
+  market?: number | null;
+  high?: number | null;
+};
+
+export type RawPricingMatrixVariant = {
+  variant: string;
+  variantKey: string;
+  conditions: RawPricingMatrixConditionRow[];
+};
+
+export type RawPricingMatrix = {
+  cardID: string;
+  currencyCode: string;
+  variants: RawPricingMatrixVariant[];
 };
 
 export type CardMarketHistoryRecord = {
@@ -488,6 +551,11 @@ export type InventoryEntryCreateRequestPayload = {
   selectedRank?: number | null;
   wasTopPrediction?: boolean | null;
   addedAt: string;
+  /**
+   * Optional per-unit cost basis in dollars. When set, backend stores it on
+   * the inventory row's `cost_basis_cents` column for Insights aggregates.
+   */
+  costBasisPerUnit?: number | null;
 };
 
 export type InventoryEntryCreateResponsePayload = {

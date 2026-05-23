@@ -74,7 +74,7 @@ describe('sell order helpers', () => {
     })).toEqual({
       title: 'Processing sale',
       headline: 'Selling $75.08',
-      detail: 'Locking in 2 cards.',
+      detail: '',
     });
 
     expect(buildSingleSellStatusCopy({

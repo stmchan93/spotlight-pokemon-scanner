@@ -86,15 +86,15 @@ describe('formatSignedCurrency', () => {
 
 describe('formatPercent', () => {
   it('formats whole numbers with two fraction digits', () => {
-    expect(formatPercent(10)).toBe('10.00%');
+    expect(formatPercent(10)).toBe('+10.00%');
   });
 
   it('rounds at the second fraction digit', () => {
     // 1.015 happens to be stored as 1.01499... so it rounds down with
     // toFixed(2). Use a value with a clean binary representation to avoid
     // platform/runtime drift around banker's rounding.
-    expect(formatPercent(1.236)).toBe('1.24%');
-    expect(formatPercent(1.234)).toBe('1.23%');
+    expect(formatPercent(1.236)).toBe('+1.24%');
+    expect(formatPercent(1.234)).toBe('+1.23%');
   });
 
   it('handles negative values', () => {

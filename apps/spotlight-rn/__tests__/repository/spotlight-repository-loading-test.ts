@@ -944,7 +944,7 @@ describe('HttpSpotlightRepository', () => {
     });
     const capturedRejection = matchPromise.catch((error: unknown) => error);
 
-    await jest.advanceTimersByTimeAsync(9000);
+    await jest.advanceTimersByTimeAsync(19000);
     await Promise.resolve();
     expect(global.fetch).toHaveBeenCalledTimes(1);
 

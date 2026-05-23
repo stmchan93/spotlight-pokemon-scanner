@@ -170,6 +170,20 @@ SLAB_MATCH_BUDGET_SECONDS = 7.0
 _CARD_LOOKUP_CACHE_MISS: object = object()
 
 
+def _strip_cross_language_set_suffix(set_name: str) -> str:
+    """Strip deck-specific suffixes from cross-language set names.
+
+    "Pokémon TCG Classic - Venusaur"  → "Pokémon TCG Classic"
+    "Pokémon TCG Classic - Charizard" → "Pokémon TCG Classic"
+    "Pokémon TCG Classic - Blastoise" → "Pokémon TCG Classic"
+    Other set names are returned unchanged.
+    """
+    prefix = "Pokémon TCG Classic"
+    if set_name.startswith(prefix + " - "):
+        return prefix
+    return set_name
+
+
 def _recent_sales_age_hours(fetched_at: str | None) -> int | None:
     text = str(fetched_at or "").strip()
     if not text:
@@ -369,6 +383,22 @@ def _apply_sale_payment_schema_patch(connection: sqlite3.Connection) -> None:
     _sqlite_add_column_if_missing(connection, "sale_events", "voided_at", "TEXT")
 
 
+def _apply_collections_redesign_schema_patch(connection: sqlite3.Connection) -> None:
+    """Additive columns for the Collections-tab redesign (Frame 4/5).
+
+    All columns are nullable and additive — no destructive changes. SQLite uses
+    INTEGER for BIGINT and TEXT for both JSONB and TIMESTAMPTZ at the storage
+    layer; the type names are kept for production-Postgres parity.
+    """
+    _sqlite_add_column_if_missing(connection, "deck_entries", "cost_basis_cents", "BIGINT")
+    _sqlite_add_column_if_missing(connection, "deck_entries", "listing_url", "TEXT")
+    _sqlite_add_column_if_missing(connection, "deck_entries", "listing_price_cents", "BIGINT")
+    _sqlite_add_column_if_missing(connection, "deck_entries", "listed_at", "TIMESTAMPTZ")
+    _sqlite_add_column_if_missing(connection, "sale_events", "cost_basis_per_unit_cents", "BIGINT")
+    _sqlite_add_column_if_missing(connection, "sale_events", "profit_cents", "BIGINT")
+    _sqlite_add_column_if_missing(connection, "sale_events", "last_listing_snapshot", "JSONB")
+
+
 def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -427,6 +457,7 @@ class SlabMatchEvidence:
     grade: str | None
     cert_number: str | None
     recommended_lookup_path: str | None
+    cross_language_set_ids: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -568,6 +599,7 @@ class SpotlightScanService:
             _apply_labeling_pipeline_schema_patch(bootstrap_connection)
             _apply_card_favorites_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
+            _apply_collections_redesign_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -3325,6 +3357,9 @@ class SpotlightScanService:
                 sale_events.currency_code,
                 sale_events.payment_method,
                 sale_events.cost_basis_total,
+                sale_events.cost_basis_per_unit_cents,
+                sale_events.profit_cents,
+                sale_events.last_listing_snapshot,
                 sale_events.sale_source,
                 sale_events.note,
                 sale_events.sold_at,
@@ -3442,6 +3477,28 @@ class SpotlightScanService:
                     bucket["revenue"] += total_price
                     bucket["realizedProfit"] += gross
                     bucket["sellCount"] += 1
+            cost_basis_per_unit_cents_raw = (
+                row["cost_basis_per_unit_cents"]
+                if "cost_basis_per_unit_cents" in row.keys()
+                else None
+            )
+            profit_cents_raw = (
+                row["profit_cents"] if "profit_cents" in row.keys() else None
+            )
+            cost_basis_per_unit_dollars: float | None = None
+            if cost_basis_per_unit_cents_raw is not None:
+                try:
+                    cost_basis_per_unit_dollars = round(
+                        float(cost_basis_per_unit_cents_raw) / 100.0, 2
+                    )
+                except (TypeError, ValueError):
+                    cost_basis_per_unit_dollars = None
+            profit_dollars: float | None = None
+            if profit_cents_raw is not None:
+                try:
+                    profit_dollars = round(float(profit_cents_raw) / 100.0, 2)
+                except (TypeError, ValueError):
+                    profit_dollars = None
             transactions.append(
                 {
                     "id": str(row["id"] or "").strip(),
@@ -3457,6 +3514,8 @@ class SpotlightScanService:
                     "paidAt": str(row["paid_at"] or "").strip() or None,
                     "status": "voided" if str(row["voided_at"] or "").strip() else ("paid" if str(row["paid_at"] or "").strip() else "pending"),
                     "costBasisTotal": cost_basis_total,
+                    "costBasisPerUnit": cost_basis_per_unit_dollars,
+                    "profit": profit_dollars,
                     "grossProfit": gross,
                     "occurredAt": str(row["sold_at"] or "").strip(),
                     "note": str(row["note"] or "").strip() or None,
@@ -3621,6 +3680,10 @@ class SpotlightScanService:
         bought_at = str(payload.get("boughtAt") or utc_now()).strip() or utc_now()
         source_scan_id = str(payload.get("sourceScanID") or "").strip() or None
         source_confirmation_id = str(payload.get("sourceConfirmationID") or "").strip() or None
+        # Optional explicit per-unit cost basis (dollars). When provided, mirrors
+        # into the new `cost_basis_cents` column so Insights aggregates pick it
+        # up without depending on the legacy `cost_basis_total` derivation.
+        cost_basis_per_unit_cents = self._parse_cost_basis_per_unit_cents(payload)
         if source_scan_id:
             scan_exists = self.connection.execute(
                 "SELECT 1 FROM scan_events WHERE scan_id = ? AND owner_user_id = ? LIMIT 1",
@@ -3668,6 +3731,12 @@ class SpotlightScanService:
                 source_confirmation_id=source_confirmation_id,
                 event_kind="buy",
             )
+            if cost_basis_per_unit_cents is not None:
+                self._set_deck_entry_cost_basis_cents(
+                    deck_entry_id=deck_entry_id,
+                    cost_basis_cents=cost_basis_per_unit_cents,
+                    updated_at=bought_at,
+                )
             self.connection.commit()
         except Exception:
             self.connection.rollback()
@@ -4423,6 +4492,7 @@ class SpotlightScanService:
             grade=grade,
             cert_number=cert_number,
             recommended_lookup_path=str(recommended_lookup_path or "").strip() or None,
+            cross_language_set_ids=alias_resolution.cross_language_set_ids,
         )
 
     @staticmethod
@@ -5743,6 +5813,13 @@ class SpotlightScanService:
                 completed_at
             FROM scan_events
             WHERE selected_card_id IS NULL
+              -- Exclude in-progress stub rows that the match handler creates
+              -- up-front so /api/v1/scan-artifacts can find a FK target. They
+              -- get upserted into a real row by _log_scan when the matcher
+              -- finishes; if they stay at 'in_progress' beyond a few minutes
+              -- it means the match crashed/timed-out — that's a separate ops
+              -- signal, not an "unmatched scan that needs review."
+              AND matcher_source != 'in_progress'
             ORDER BY created_at DESC
             LIMIT ?
             """,
@@ -6318,10 +6395,13 @@ class SpotlightScanService:
             """,
             params,
         ).fetchall()
+        all_ids = [str(row["id"] or "").strip() for row in rows if row["id"]]
+        # Batch-load all missing IDs in two queries (card rows + title aliases)
+        # instead of calling card_by_id once per row (2 queries × N rows).
+        self._prime_card_lookup_cache(all_ids)
         cards: list[dict[str, Any]] = []
         seen: set[str] = set()
-        for row in rows:
-            card_id = str(row["id"] or "").strip()
+        for card_id in all_ids:
             if not card_id or card_id in seen:
                 continue
             seen.add(card_id)
@@ -6329,6 +6409,48 @@ class SpotlightScanService:
             if cached is not None:
                 cards.append(cached)
         return cards
+
+    def _local_cards_by_set_ids_and_number(
+        self,
+        set_ids: tuple[str, ...],
+        card_number: str | None,
+        *,
+        limit: int = 20,
+    ) -> list[dict[str, Any]]:
+        """Targeted lookup by set_id + number with no language filter.
+
+        Why: cross-language alias entries (e.g. CLF JP → clv) explicitly name
+        an English set_id that would otherwise be excluded by the language hint
+        filter.  This helper bypasses that filter for the matched set only and
+        is only called when evidence.cross_language_set_ids is non-empty.
+        """
+        if not set_ids or not card_number:
+            return []
+        exact_values, like_values = self._slab_number_query_values(card_number)
+        if not exact_values and not like_values:
+            return []
+        set_placeholders = ",".join("?" for _ in set_ids)
+        number_clauses: list[str] = []
+        params: list[Any] = list(set_ids)
+        for value in exact_values:
+            number_clauses.append("UPPER(number) = ?")
+            params.append(value)
+        for value in like_values:
+            number_clauses.append("UPPER(number) LIKE ?")
+            params.append(value)
+        params.append(limit)
+        rows = self.connection.execute(
+            f"SELECT id FROM cards WHERE set_id IN ({set_placeholders})"
+            f" AND ({' OR '.join(number_clauses)}) LIMIT ?",
+            params,
+        ).fetchall()
+        all_ids = [str(row["id"] or "").strip() for row in rows if row["id"]]
+        self._prime_card_lookup_cache(all_ids)
+        return [
+            cached
+            for card_id in all_ids
+            if (cached := self._cached_card_by_id(card_id)) is not None
+        ]
 
     @staticmethod
     def _slab_sql_language_clause(
@@ -6391,17 +6513,46 @@ class SpotlightScanService:
             language_hint=evidence.language_hint,
             label_years=self._slab_label_years(evidence),
         )
-        if not cards:
-            return []
 
         candidates: list[dict[str, Any]] = []
+        seen_ids: set[str] = set()
         for card in cards:
             if not self._slab_candidate_matches_language_hint(card, evidence):
                 continue
             score, reasons = self._score_slab_candidate(card, evidence)
             if score <= 0:
                 continue
+            card_id = str(card.get("id") or "")
+            seen_ids.add(card_id)
             candidates.append(self._slab_candidate_from_card(card, score, reasons, "local_slab_structured"))
+
+        # When the alias explicitly resolved to cross-language set IDs (e.g. CLF JP
+        # → clv), also look up cards in those sets by number without the language
+        # filter.  This lets the English Classic set stand in for the Japanese
+        # variant when Scrydex has no separate Japanese entry.
+        if evidence.cross_language_set_ids:
+            cl_cards = self._local_cards_by_set_ids_and_number(
+                evidence.cross_language_set_ids,
+                evidence.card_number,
+            )
+            for card in cl_cards:
+                card_id = str(card.get("id") or "")
+                if card_id in seen_ids:
+                    continue
+                seen_ids.add(card_id)
+                # Strip deck-specific suffix from the set name so the card
+                # displays as "Pokémon TCG Classic" rather than
+                # "Pokémon TCG Classic - Venusaur" etc.
+                raw_set_name = str(card.get("setName") or "")
+                cleaned_set_name = _strip_cross_language_set_suffix(raw_set_name)
+                card = {**card, "setName": cleaned_set_name} if cleaned_set_name != raw_set_name else card
+                score, reasons = self._score_slab_candidate(card, evidence)
+                if score <= 0:
+                    continue
+                candidates.append(self._slab_candidate_from_card(card, score, reasons, "local_slab_cross_language"))
+
+        if not candidates:
+            return []
         candidates.sort(
             key=lambda candidate: (
                 -float(candidate.get("_retrievalScoreHint") or 0.0),
@@ -8314,6 +8465,39 @@ class SpotlightScanService:
         scrydex_before_total = int(scrydex_request_stats_snapshot().get("total") or 0)
         scan_id = str(payload.get("scanID") or "")
         match_started = perf_counter()
+        # Pre-create the scan_events row up-front so the fire-and-forget
+        # /api/v1/scan-artifacts call (which races with this match handler)
+        # finds a row to attach to. Slab matches take 40-50s on staging; if
+        # the row weren't written until _log_scan at the end of the matcher
+        # work, the artifact upload would consistently arrive first, fail
+        # its scan_events existence check, and the JPEG would never reach
+        # GCS. _log_scan still upserts the same row at the end with the real
+        # request/response/matcher fields via ON CONFLICT DO UPDATE, so this
+        # stub is transparently replaced when the matcher completes. Rows
+        # that stay at matcher_source='in_progress' for >5min indicate a
+        # crashed or timed-out match — useful incident signal, not noise.
+        if scan_id:
+            try:
+                upsert_scan_event(
+                    self.connection,
+                    scan_id=scan_id,
+                    owner_user_id=self._current_owner_user_id(),
+                    request_payload=self._request_payload_for_scan_event(payload),
+                    response_payload={},
+                    matcher_source="in_progress",
+                    matcher_version="in_progress",
+                    created_at=utc_now(),
+                )
+                self.connection.commit()
+            except Exception as exc:  # noqa: BLE001 - never block match on stub-row write
+                self._emit_structured_log(
+                    {
+                        "severity": "WARNING",
+                        "event": "scan_event_stub_insert_failed",
+                        "scanID": scan_id,
+                        "error": str(exc),
+                    }
+                )
         resolver_mode = resolver_mode_for_payload(payload)
         if resolver_mode == "raw_card":
             raw_resolver_strategy = self._raw_resolver_strategy(payload)
@@ -9451,6 +9635,8 @@ class SpotlightScanService:
         }
         confirmation_source = confirmation_source_map.get(selection_source, "add_unknown")
 
+        cost_basis_per_unit_cents = self._parse_cost_basis_per_unit_cents(payload)
+
         try:
             deck_entry_id = upsert_deck_entry(
                 self.connection,
@@ -9466,6 +9652,12 @@ class SpotlightScanService:
                 source_scan_id=scan_id,
                 source_confirmation_id=None,
             )
+            if cost_basis_per_unit_cents is not None:
+                self._set_deck_entry_cost_basis_cents(
+                    deck_entry_id=deck_entry_id,
+                    cost_basis_cents=cost_basis_per_unit_cents,
+                    updated_at=added_at,
+                )
 
             confirmation_id = None
             if scan_id:
@@ -9669,6 +9861,9 @@ class SpotlightScanService:
 
         quantity = max(1, int(row["quantity"] or 1))
         cost_basis_total = round(unit_price * quantity, 2)
+        # Mirror into the new per-unit cents column when the redesign columns
+        # are present. Older databases without the column path just skip this.
+        cost_basis_per_unit_cents = int(round(float(unit_price) * 100.0))
 
         self.connection.execute(
             """
@@ -9678,6 +9873,11 @@ class SpotlightScanService:
               AND owner_user_id = ?
             """,
             (cost_basis_total, currency_code, updated_at, deck_entry_id, owner_user_id),
+        )
+        self._set_deck_entry_cost_basis_cents(
+            deck_entry_id=deck_entry_id,
+            cost_basis_cents=cost_basis_per_unit_cents,
+            updated_at=updated_at,
         )
         append_deck_entry_event(
             self.connection,
@@ -9704,6 +9904,733 @@ class SpotlightScanService:
             "costBasisTotal": cost_basis_total,
             "currencyCode": currency_code,
             "updatedAt": updated_at,
+        }
+
+    # ------------------------------------------------------------------ #
+    # Collections-redesign helpers + endpoints                            #
+    # ------------------------------------------------------------------ #
+
+    def _deck_entry_has_collections_columns(self) -> bool:
+        try:
+            columns = {
+                str(row["name"])
+                for row in self.connection.execute("PRAGMA table_info(deck_entries)").fetchall()
+            }
+        except sqlite3.OperationalError:
+            return False
+        return {"cost_basis_cents", "listing_url", "listing_price_cents", "listed_at"}.issubset(columns)
+
+    def _parse_cost_basis_per_unit_cents(self, payload: dict[str, Any]) -> int | None:
+        """Read either `costBasisPerUnit` (dollars float) or
+        `costBasisPerUnitCents` (int) off a payload and normalize to cents.
+        Returns None when neither field is present (no change requested).
+        """
+        if not isinstance(payload, dict):
+            return None
+        if "costBasisPerUnitCents" in payload:
+            raw = payload.get("costBasisPerUnitCents")
+            if raw is None or raw == "":
+                return None
+            try:
+                value = int(raw)
+            except (TypeError, ValueError):
+                raise ValueError("costBasisPerUnitCents must be an integer") from None
+            if value < 0:
+                raise ValueError("costBasisPerUnitCents must be non-negative")
+            return value
+        if "costBasisPerUnit" in payload:
+            raw = payload.get("costBasisPerUnit")
+            if raw is None or raw == "":
+                return None
+            try:
+                dollars = float(raw)
+            except (TypeError, ValueError):
+                raise ValueError("costBasisPerUnit must be a number") from None
+            if dollars < 0:
+                raise ValueError("costBasisPerUnit must be non-negative")
+            return int(round(dollars * 100.0))
+        return None
+
+    def _set_deck_entry_cost_basis_cents(
+        self,
+        *,
+        deck_entry_id: str,
+        cost_basis_cents: int | None,
+        updated_at: str | None = None,
+    ) -> None:
+        if not self._deck_entry_has_collections_columns():
+            return
+        owner_user_id = self._current_owner_user_id()
+        self.connection.execute(
+            """
+            UPDATE deck_entries
+            SET cost_basis_cents = ?,
+                updated_at = ?
+            WHERE id = ?
+              AND owner_user_id = ?
+            """,
+            (
+                cost_basis_cents,
+                str(updated_at or utc_now()).strip() or utc_now(),
+                deck_entry_id,
+                owner_user_id,
+            ),
+        )
+
+    def update_deck_entry_cost_basis(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Edit cost basis on an existing inventory row after the fact.
+
+        Accepts `deckEntryID` plus either `costBasisPerUnit` (dollars float) or
+        `costBasisPerUnitCents` (int). Pass null to clear. Persists cents and
+        keeps the legacy `cost_basis_total` in sync.
+        """
+        owner_user_id = self._current_owner_user_id()
+        deck_entry_id = str(payload.get("deckEntryID") or "").strip()
+        if not deck_entry_id:
+            raise ValueError("deckEntryID is required")
+
+        explicitly_clearing = (
+            "costBasisPerUnit" in payload and payload.get("costBasisPerUnit") is None
+        ) or (
+            "costBasisPerUnitCents" in payload and payload.get("costBasisPerUnitCents") is None
+        )
+        cost_basis_per_unit_cents = self._parse_cost_basis_per_unit_cents(payload)
+        if cost_basis_per_unit_cents is None and not explicitly_clearing:
+            raise ValueError("costBasisPerUnit or costBasisPerUnitCents is required")
+
+        row = self.connection.execute(
+            """
+            SELECT id, card_id, quantity
+            FROM deck_entries
+            WHERE id = ? AND owner_user_id = ? LIMIT 1
+            """,
+            (deck_entry_id, owner_user_id),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError("deck entry not found")
+
+        quantity = max(1, int(row["quantity"] or 1))
+        updated_at = str(payload.get("updatedAt") or utc_now()).strip() or utc_now()
+        currency_code = str(payload.get("currencyCode") or "").strip() or "USD"
+
+        try:
+            if cost_basis_per_unit_cents is None:
+                # Clear path — null both the cents and the legacy total.
+                self.connection.execute(
+                    """
+                    UPDATE deck_entries
+                    SET cost_basis_cents = NULL,
+                        cost_basis_total = 0,
+                        updated_at = ?
+                    WHERE id = ? AND owner_user_id = ?
+                    """,
+                    (updated_at, deck_entry_id, owner_user_id),
+                )
+            else:
+                dollars_per_unit = round(cost_basis_per_unit_cents / 100.0, 2)
+                new_total = round(dollars_per_unit * quantity, 2)
+                self.connection.execute(
+                    """
+                    UPDATE deck_entries
+                    SET cost_basis_cents = ?,
+                        cost_basis_total = ?,
+                        cost_basis_currency_code = ?,
+                        updated_at = ?
+                    WHERE id = ? AND owner_user_id = ?
+                    """,
+                    (
+                        cost_basis_per_unit_cents,
+                        new_total,
+                        currency_code,
+                        updated_at,
+                        deck_entry_id,
+                        owner_user_id,
+                    ),
+                )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return {
+            "deckEntryID": deck_entry_id,
+            "cardID": str(row["card_id"] or "").strip(),
+            "costBasisPerUnit": (
+                None
+                if cost_basis_per_unit_cents is None
+                else round(cost_basis_per_unit_cents / 100.0, 2)
+            ),
+            "costBasisPerUnitCents": cost_basis_per_unit_cents,
+            "currencyCode": currency_code,
+            "updatedAt": updated_at,
+        }
+
+    def update_deck_entry_listing(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Set or clear the "Mark as Listed" fields on an inventory row.
+
+        Accepts `deckEntryID` + optional `listingUrl` (string or null),
+        `listingPriceCents` (int) or `listingPrice` (dollars float), and
+        `listedAt` (ISO string; defaults to now() when listingUrl is being set).
+
+        Passing `listingUrl: null` clears all three listing columns.
+        """
+        if not self._deck_entry_has_collections_columns():
+            raise RuntimeError("collections-redesign schema patch not applied")
+
+        owner_user_id = self._current_owner_user_id()
+        deck_entry_id = str(payload.get("deckEntryID") or "").strip()
+        if not deck_entry_id:
+            raise ValueError("deckEntryID is required")
+
+        listing_url_value: str | None
+        if "listingUrl" in payload:
+            raw_url = payload.get("listingUrl")
+            if raw_url is None:
+                listing_url_value = None
+            else:
+                listing_url_value = str(raw_url).strip() or None
+        else:
+            raise ValueError("listingUrl is required (use null to clear)")
+
+        listing_price_cents: int | None = None
+        if listing_url_value is not None:
+            if "listingPriceCents" in payload and payload.get("listingPriceCents") is not None:
+                try:
+                    listing_price_cents = int(payload.get("listingPriceCents"))
+                except (TypeError, ValueError):
+                    raise ValueError("listingPriceCents must be an integer") from None
+                if listing_price_cents < 0:
+                    raise ValueError("listingPriceCents must be non-negative")
+            elif "listingPrice" in payload and payload.get("listingPrice") is not None:
+                try:
+                    dollars = float(payload.get("listingPrice"))
+                except (TypeError, ValueError):
+                    raise ValueError("listingPrice must be a number") from None
+                if dollars < 0:
+                    raise ValueError("listingPrice must be non-negative")
+                listing_price_cents = int(round(dollars * 100.0))
+
+        if listing_url_value is None:
+            listed_at_value: str | None = None
+        else:
+            listed_at_raw = payload.get("listedAt")
+            if listed_at_raw is None or str(listed_at_raw).strip() == "":
+                listed_at_value = utc_now()
+            else:
+                listed_at_value = str(listed_at_raw).strip()
+
+        row = self.connection.execute(
+            """
+            SELECT id, card_id FROM deck_entries
+            WHERE id = ? AND owner_user_id = ? LIMIT 1
+            """,
+            (deck_entry_id, owner_user_id),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError("deck entry not found")
+
+        updated_at = str(payload.get("updatedAt") or utc_now()).strip() or utc_now()
+        try:
+            self.connection.execute(
+                """
+                UPDATE deck_entries
+                SET listing_url = ?,
+                    listing_price_cents = ?,
+                    listed_at = ?,
+                    updated_at = ?
+                WHERE id = ? AND owner_user_id = ?
+                """,
+                (
+                    listing_url_value,
+                    listing_price_cents,
+                    listed_at_value,
+                    updated_at,
+                    deck_entry_id,
+                    owner_user_id,
+                ),
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+
+        return {
+            "deckEntryID": deck_entry_id,
+            "cardID": str(row["card_id"] or "").strip(),
+            "listingUrl": listing_url_value,
+            "listingPriceCents": listing_price_cents,
+            "listedAt": listed_at_value,
+            "updatedAt": updated_at,
+        }
+
+    def portfolio_insights(self) -> dict[str, Any]:
+        """Aggregate inventory + sales metrics for the Insights screen.
+
+        Returned shape matches the `insights` key the client merges into
+        `PortfolioDashboard`. All money values are dollars (floats), all counts
+        are ints. Fields that have no meaningful value yet (e.g. no sales)
+        return 0 for sums/counts and null for derived ratios/single records.
+        """
+        owner_user_id = self._current_owner_user_id()
+        has_columns = self._deck_entry_has_collections_columns()
+
+        # Calendar-month bounds for "this month" aggregates.
+        now_utc = datetime.now(timezone.utc)
+        month_start = datetime(now_utc.year, now_utc.month, 1, tzinfo=timezone.utc)
+        month_start_iso = month_start.isoformat()
+        # Previous calendar-month bounds for MoM deltas (handle Jan -> Dec wrap).
+        if now_utc.month == 1:
+            prev_month_start = datetime(now_utc.year - 1, 12, 1, tzinfo=timezone.utc)
+        else:
+            prev_month_start = datetime(now_utc.year, now_utc.month - 1, 1, tzinfo=timezone.utc)
+
+        # ---- Inventory aggregates ----
+        if has_columns:
+            inventory_rows = self.connection.execute(
+                """
+                SELECT
+                    deck_entries.id,
+                    deck_entries.card_id,
+                    deck_entries.quantity,
+                    deck_entries.cost_basis_cents,
+                    deck_entries.cost_basis_total,
+                    deck_entries.listing_url,
+                    deck_entries.listing_price_cents,
+                    deck_entries.listed_at
+                FROM deck_entries
+                WHERE owner_user_id = ?
+                  AND quantity > 0
+                """,
+                (owner_user_id,),
+            ).fetchall()
+        else:
+            inventory_rows = self.connection.execute(
+                """
+                SELECT
+                    deck_entries.id,
+                    deck_entries.card_id,
+                    deck_entries.quantity,
+                    deck_entries.cost_basis_total
+                FROM deck_entries
+                WHERE owner_user_id = ?
+                  AND quantity > 0
+                """,
+                (owner_user_id,),
+            ).fetchall()
+
+        total_cost_basis_cents = 0
+        unrealized_gain_cents = 0
+        tracked_inventory_count = 0
+        active_listings = 0
+        unlisted_inventory = 0
+        listing_price_with_value_count = 0
+        listing_price_cents_sum = 0
+
+        # Pull market-price snapshots so we can derive unrealized gain.
+        inventory_card_ids = [str(row["card_id"] or "").strip() for row in inventory_rows]
+        price_snapshot_rows = (
+            self._price_snapshot_rows_by_card_id(inventory_card_ids)
+            if inventory_card_ids
+            else {}
+        )
+
+        for row in inventory_rows:
+            quantity = max(0, int(row["quantity"] or 0))
+            if quantity <= 0:
+                continue
+            card_id = str(row["card_id"] or "").strip()
+
+            # Resolve a per-unit market price (cents) from the snapshot row.
+            snapshot = price_snapshot_rows.get(card_id) if card_id else None
+            market_price_dollars: float | None = None
+            if snapshot is not None:
+                for key in (
+                    "default_raw_market_price",
+                    "default_raw_mid_price",
+                    "default_raw_low_price",
+                    "default_raw_trend_price",
+                ):
+                    try:
+                        value = snapshot[key]
+                    except (KeyError, IndexError):
+                        value = None
+                    if isinstance(value, (int, float)) and value > 0:
+                        market_price_dollars = float(value)
+                        break
+
+            cost_basis_per_unit_cents: int | None = None
+            if has_columns and row["cost_basis_cents"] is not None:
+                try:
+                    cost_basis_per_unit_cents = int(row["cost_basis_cents"])
+                except (TypeError, ValueError):
+                    cost_basis_per_unit_cents = None
+            elif row["cost_basis_total"] is not None:
+                try:
+                    total = float(row["cost_basis_total"] or 0.0)
+                except (TypeError, ValueError):
+                    total = 0.0
+                if total > 0 and quantity > 0:
+                    cost_basis_per_unit_cents = int(round((total / quantity) * 100.0))
+
+            if cost_basis_per_unit_cents is not None and cost_basis_per_unit_cents > 0:
+                tracked_inventory_count += 1
+                row_basis_cents = cost_basis_per_unit_cents * quantity
+                total_cost_basis_cents += row_basis_cents
+                if market_price_dollars is not None:
+                    market_cents = int(round(market_price_dollars * 100.0)) * quantity
+                    unrealized_gain_cents += market_cents - row_basis_cents
+
+            if has_columns:
+                listing_url = str(row["listing_url"] or "").strip() if row["listing_url"] is not None else ""
+                if listing_url:
+                    active_listings += 1
+                    if row["listing_price_cents"] is not None:
+                        try:
+                            listing_price_cents_sum += int(row["listing_price_cents"])
+                            listing_price_with_value_count += 1
+                        except (TypeError, ValueError):
+                            pass
+                else:
+                    unlisted_inventory += 1
+            else:
+                unlisted_inventory += 1
+
+        total_inventory_rows = active_listings + unlisted_inventory
+        listing_rate = (
+            round(active_listings / total_inventory_rows, 4)
+            if total_inventory_rows > 0
+            else 0.0
+        )
+        avg_listing_value_dollars = (
+            round((listing_price_cents_sum / listing_price_with_value_count) / 100.0, 2)
+            if listing_price_with_value_count > 0
+            else None
+        )
+
+        inventory_added_this_month_row = self.connection.execute(
+            """
+            SELECT COUNT(*) AS added_count
+            FROM deck_entries
+            WHERE owner_user_id = ?
+              AND quantity > 0
+              AND added_at >= ?
+            """,
+            (owner_user_id, month_start_iso),
+        ).fetchone()
+        inventory_added_this_month = (
+            int(inventory_added_this_month_row["added_count"] or 0)
+            if inventory_added_this_month_row is not None
+            else 0
+        )
+
+        # ---- Sales aggregates ----
+        sale_select_columns = """
+            sale_events.id,
+            sale_events.deck_entry_id,
+            sale_events.card_id,
+            sale_events.quantity,
+            sale_events.unit_price,
+            sale_events.total_price,
+            sale_events.currency_code,
+            sale_events.cost_basis_total,
+            sale_events.sold_at,
+            sale_events.paid_at,
+            sale_events.voided_at,
+            deck_entries.grader,
+            deck_entries.grade,
+            deck_entries.condition
+        """
+        if has_columns:
+            sale_select_columns += """,
+            sale_events.cost_basis_per_unit_cents,
+            sale_events.profit_cents
+            """
+        sale_rows = self.connection.execute(
+            f"""
+            SELECT {sale_select_columns}
+            FROM sale_events
+            LEFT JOIN deck_entries ON deck_entries.id = sale_events.deck_entry_id
+            WHERE sale_events.owner_user_id = ?
+              AND COALESCE(sale_events.sale_source, 'manual') != 'inventory_adjustment'
+              AND (sale_events.voided_at IS NULL OR TRIM(sale_events.voided_at) = '')
+            ORDER BY sale_events.sold_at DESC, sale_events.id DESC
+            """,
+            (owner_user_id,),
+        ).fetchall()
+
+        total_sales = 0
+        total_revenue_cents = 0
+        total_expense_cents = 0
+        total_profit_cents = 0
+
+        monthly_revenue_cents = 0
+        monthly_expense_cents = 0
+        monthly_profit_cents = 0
+        monthly_sales_count = 0
+        prev_monthly_revenue_cents = 0
+        prev_monthly_profit_cents = 0
+        sales_with_unit_price = 0
+        sales_unit_price_sum_cents = 0
+        days_to_sell_sum = 0
+        days_to_sell_count = 0
+
+        best_return_sale: dict[str, Any] | None = None
+        best_return_profit_cents: int | None = None
+        monthly_sale_rows: list[tuple[int, sqlite3.Row]] = []  # (revenue_cents, row)
+
+        # Pull deck-entry added_at separately for avg-days-to-sell.
+        deck_added_at_lookup: dict[str, str] = {}
+        if sale_rows:
+            deck_ids = [str(r["deck_entry_id"] or "").strip() for r in sale_rows]
+            deck_ids = [d for d in deck_ids if d]
+            if deck_ids:
+                placeholders = ",".join(["?"] * len(deck_ids))
+                rows_added_at = self.connection.execute(
+                    f"SELECT id, added_at FROM deck_entries WHERE id IN ({placeholders})",
+                    deck_ids,
+                ).fetchall()
+                for r in rows_added_at:
+                    deck_added_at_lookup[str(r["id"] or "").strip()] = str(r["added_at"] or "").strip()
+
+        for row in sale_rows:
+            quantity = max(1, int(row["quantity"] or 1))
+            try:
+                unit_price = float(row["unit_price"]) if row["unit_price"] is not None else None
+            except (TypeError, ValueError):
+                unit_price = None
+            try:
+                total_price = float(row["total_price"]) if row["total_price"] is not None else (
+                    unit_price * quantity if unit_price is not None else 0.0
+                )
+            except (TypeError, ValueError):
+                total_price = 0.0
+
+            revenue_cents = int(round(total_price * 100.0))
+            total_sales += 1
+            total_revenue_cents += revenue_cents
+            if unit_price is not None:
+                sales_with_unit_price += 1
+                sales_unit_price_sum_cents += int(round(unit_price * 100.0))
+
+            profit_cents_value: int | None = None
+            cost_basis_per_unit_cents_value: int | None = None
+            if has_columns:
+                if row["profit_cents"] is not None:
+                    try:
+                        profit_cents_value = int(row["profit_cents"])
+                    except (TypeError, ValueError):
+                        profit_cents_value = None
+                if row["cost_basis_per_unit_cents"] is not None:
+                    try:
+                        cost_basis_per_unit_cents_value = int(row["cost_basis_per_unit_cents"])
+                    except (TypeError, ValueError):
+                        cost_basis_per_unit_cents_value = None
+            # Fallback: derive from legacy cost_basis_total
+            if cost_basis_per_unit_cents_value is None and row["cost_basis_total"] is not None:
+                try:
+                    legacy_cost_basis_total = float(row["cost_basis_total"] or 0.0)
+                except (TypeError, ValueError):
+                    legacy_cost_basis_total = 0.0
+                if legacy_cost_basis_total > 0:
+                    cost_basis_per_unit_cents_value = int(
+                        round((legacy_cost_basis_total / quantity) * 100.0)
+                    )
+            if profit_cents_value is None and cost_basis_per_unit_cents_value is not None and unit_price is not None:
+                unit_price_cents = int(round(unit_price * 100.0))
+                profit_cents_value = (unit_price_cents - cost_basis_per_unit_cents_value) * quantity
+
+            if cost_basis_per_unit_cents_value is not None:
+                expense_cents = cost_basis_per_unit_cents_value * quantity
+                total_expense_cents += expense_cents
+            else:
+                expense_cents = 0
+
+            if profit_cents_value is not None:
+                total_profit_cents += profit_cents_value
+                if best_return_profit_cents is None or abs(profit_cents_value) > abs(best_return_profit_cents):
+                    best_return_profit_cents = profit_cents_value
+                    best_return_sale = self._insights_recent_sale_payload(row)
+
+            sold_at = self._coerce_utc_datetime(str(row["sold_at"] or "").strip())
+            if sold_at is not None and sold_at >= month_start:
+                monthly_sales_count += 1
+                monthly_revenue_cents += revenue_cents
+                if cost_basis_per_unit_cents_value is not None:
+                    monthly_expense_cents += expense_cents
+                if profit_cents_value is not None:
+                    monthly_profit_cents += profit_cents_value
+                monthly_sale_rows.append((revenue_cents, row))
+            elif sold_at is not None and sold_at >= prev_month_start and sold_at < month_start:
+                prev_monthly_revenue_cents += revenue_cents
+                if profit_cents_value is not None:
+                    prev_monthly_profit_cents += profit_cents_value
+
+            # Days-to-sell
+            deck_entry_id = str(row["deck_entry_id"] or "").strip()
+            added_at_str = deck_added_at_lookup.get(deck_entry_id, "")
+            added_at_dt = self._coerce_utc_datetime(added_at_str) if added_at_str else None
+            if sold_at is not None and added_at_dt is not None:
+                delta_days = max(0, (sold_at - added_at_dt).days)
+                days_to_sell_sum += delta_days
+                days_to_sell_count += 1
+
+        # Top sellers this month: rank monthly sales by revenue_cents desc.
+        monthly_sale_rows.sort(key=lambda pair: pair[0], reverse=True)
+        top_sellers_this_month = [
+            payload
+            for payload in (
+                self._insights_recent_sale_payload(row) for _, row in monthly_sale_rows[:5]
+            )
+            if payload is not None
+        ]
+
+        avg_sales_price_dollars = (
+            round((sales_unit_price_sum_cents / sales_with_unit_price) / 100.0, 2)
+            if sales_with_unit_price > 0
+            else None
+        )
+        avg_days_to_sell = (
+            round(days_to_sell_sum / days_to_sell_count, 2)
+            if days_to_sell_count > 0
+            else None
+        )
+        monthly_margin = (
+            round(monthly_profit_cents / monthly_revenue_cents, 4)
+            if monthly_revenue_cents > 0
+            else None
+        )
+        # MoM % change. Null when the prior month had no activity so the
+        # client can hide the trend pill rather than show a misleading
+        # divide-by-zero number.
+        monthly_revenue_change_percent: float | None = (
+            round((monthly_revenue_cents - prev_monthly_revenue_cents) / prev_monthly_revenue_cents, 4)
+            if prev_monthly_revenue_cents > 0
+            else None
+        )
+        monthly_profit_change_percent: float | None = (
+            round((monthly_profit_cents - prev_monthly_profit_cents) / prev_monthly_profit_cents, 4)
+            if prev_monthly_profit_cents > 0
+            else None
+        )
+        overall_roi = (
+            round(total_profit_cents / total_expense_cents, 4)
+            if total_expense_cents > 0
+            else None
+        )
+
+        def _cents_to_dollars(value: int) -> float:
+            return round(value / 100.0, 2)
+
+        return {
+            "totalCostBasis": _cents_to_dollars(total_cost_basis_cents),
+            "unrealizedGain": _cents_to_dollars(unrealized_gain_cents),
+            "trackedInventoryCount": tracked_inventory_count,
+            "inventoryAddedThisMonth": inventory_added_this_month,
+            "activeListings": active_listings,
+            "unlistedInventory": unlisted_inventory,
+            "listingRate": listing_rate,
+            "avgListingValue": avg_listing_value_dollars,
+            "monthlyRevenue": _cents_to_dollars(monthly_revenue_cents),
+            "monthlyProfit": _cents_to_dollars(monthly_profit_cents),
+            "monthlyExpense": _cents_to_dollars(monthly_expense_cents),
+            "monthlyMargin": monthly_margin,
+            "monthlyRevenueChangePercent": monthly_revenue_change_percent,
+            "monthlyProfitChangePercent": monthly_profit_change_percent,
+            "numSales": monthly_sales_count,
+            "avgSalesPrice": avg_sales_price_dollars,
+            "avgDaysToSell": avg_days_to_sell,
+            "unsoldListings": active_listings,
+            "totalSales": total_sales,
+            "totalRevenue": _cents_to_dollars(total_revenue_cents),
+            "totalExpense": _cents_to_dollars(total_expense_cents),
+            "totalProfit": _cents_to_dollars(total_profit_cents),
+            "overallROI": overall_roi,
+            "bestReturnOfAllTime": best_return_sale,
+            "topSellersThisMonth": top_sellers_this_month,
+            "refreshedAt": utc_now(),
+        }
+
+    def _insights_recent_sale_payload(self, row: sqlite3.Row) -> dict[str, Any] | None:
+        """Shape a sale row into the RecentSaleRecord-friendly payload the
+        Insights screen consumes ("bestReturnOfAllTime", "topSellersThisMonth").
+
+        The client maps this through the same path as
+        `loadPortfolioDashboard.recentSales`, so the keys mirror the ledger
+        transaction shape.
+        """
+        card_id = str(row["card_id"] or "").strip()
+        if not card_id:
+            return None
+        card_map = cards_by_ids(self.connection, [card_id])
+        card = card_map.get(card_id)
+        if card is None:
+            return None
+        card_payload = self._candidate_base_payload(card, card)
+
+        grader = None
+        grade = None
+        condition = None
+        try:
+            grader = str(row["grader"] or "").strip() or None
+        except (IndexError, KeyError):
+            pass
+        try:
+            grade = str(row["grade"] or "").strip() or None
+        except (IndexError, KeyError):
+            pass
+        try:
+            condition = self._normalized_deck_card_condition(row["condition"])
+        except (IndexError, KeyError):
+            pass
+
+        slab_context = None
+        if grader or grade:
+            slab_context = {"grader": grader, "grade": grade}
+
+        try:
+            unit_price = float(row["unit_price"]) if row["unit_price"] is not None else None
+        except (TypeError, ValueError):
+            unit_price = None
+        try:
+            total_price = float(row["total_price"]) if row["total_price"] is not None else None
+        except (TypeError, ValueError):
+            total_price = None
+        quantity = max(1, int(row["quantity"] or 1))
+
+        cost_basis_per_unit_dollars: float | None = None
+        profit_dollars: float | None = None
+        try:
+            cbpu_cents = row["cost_basis_per_unit_cents"]
+        except (IndexError, KeyError):
+            cbpu_cents = None
+        try:
+            profit_cents_raw = row["profit_cents"]
+        except (IndexError, KeyError):
+            profit_cents_raw = None
+        if cbpu_cents is not None:
+            try:
+                cost_basis_per_unit_dollars = round(float(cbpu_cents) / 100.0, 2)
+            except (TypeError, ValueError):
+                cost_basis_per_unit_dollars = None
+        if profit_cents_raw is not None:
+            try:
+                profit_dollars = round(float(profit_cents_raw) / 100.0, 2)
+            except (TypeError, ValueError):
+                profit_dollars = None
+
+        return {
+            "id": str(row["id"] or "").strip(),
+            "kind": "sell",
+            "card": card_payload,
+            "slabContext": slab_context,
+            "condition": condition,
+            "quantity": quantity,
+            "unitPrice": unit_price,
+            "totalPrice": total_price,
+            "currencyCode": str(row["currency_code"] or "").strip() or "USD",
+            "occurredAt": str(row["sold_at"] or "").strip(),
+            "costBasisPerUnit": cost_basis_per_unit_dollars,
+            "profit": profit_dollars,
         }
 
     def _recompute_deck_entry_cost_basis_total(
@@ -9975,6 +10902,10 @@ class SpotlightScanService:
                 quantity,
                 cost_basis_total,
                 cost_basis_currency_code,
+                cost_basis_cents,
+                listing_url,
+                listing_price_cents,
+                listed_at,
                 added_at,
                 updated_at,
                 source_scan_id,
@@ -10074,6 +11005,21 @@ class SpotlightScanService:
                 today_pricing=pricing,
             )
 
+            cost_basis_cents_raw = row["cost_basis_cents"] if "cost_basis_cents" in row.keys() else None
+            cost_basis_per_unit_dollars: float | None = None
+            if cost_basis_cents_raw is not None:
+                try:
+                    cost_basis_per_unit_dollars = round(float(cost_basis_cents_raw) / 100.0, 2)
+                except (TypeError, ValueError):
+                    cost_basis_per_unit_dollars = None
+            listing_url_value = str(row["listing_url"] or "").strip() if "listing_url" in row.keys() else ""
+            listing_price_cents_raw = row["listing_price_cents"] if "listing_price_cents" in row.keys() else None
+            try:
+                listing_price_cents_value = int(listing_price_cents_raw) if listing_price_cents_raw is not None else None
+            except (TypeError, ValueError):
+                listing_price_cents_value = None
+            listed_at_value = str(row["listed_at"] or "").strip() if "listed_at" in row.keys() else ""
+
             entries.append(
                 {
                     "id": row["id"],
@@ -10085,6 +11031,11 @@ class SpotlightScanService:
                     "quantity": quantity,
                     "costBasisTotal": round(float(row["cost_basis_total"] or 0.0), 2),
                     "costBasisCurrencyCode": str(row["cost_basis_currency_code"] or "").strip() or None,
+                    "costBasisPerUnit": cost_basis_per_unit_dollars,
+                    "costBasisCents": int(cost_basis_cents_raw) if cost_basis_cents_raw is not None else None,
+                    "listingUrl": listing_url_value or None,
+                    "listingPriceCents": listing_price_cents_value,
+                    "listedAt": listed_at_value or None,
                     "addedAt": row["added_at"],
                     "updatedAt": row["updated_at"],
                     "sourceScanID": row["source_scan_id"],
@@ -10278,6 +11229,23 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Show summary failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, summary_payload)
+            return
+
+        if parsed.path == "/api/v1/portfolio/insights":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.portfolio_insights()
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Portfolio insights failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, payload)
             return
 
         if parsed.path in {"/api/v1/ledger", "/api/v1/portfolio/ledger", "/api/v1/deals"}:
@@ -11354,6 +12322,46 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             except Exception as error:
                 traceback.print_exc()
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Deck purchase price update failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, update_payload)
+            return
+
+        if parsed.path == "/api/v1/deck/entries/cost-basis":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    update_payload = self.service.update_deck_entry_cost_basis(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Cost basis update failed: {error}"})
+                return
+            self._write_json(HTTPStatus.OK, update_payload)
+            return
+
+        if parsed.path == "/api/v1/deck/entries/listing":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    update_payload = self.service.update_deck_entry_listing(payload)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Listing update failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, update_payload)
             return

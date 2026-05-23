@@ -21,7 +21,8 @@ export function formatSignedCurrency(value: number, currencyCode = 'USD') {
 }
 
 export function formatPercent(value: number) {
-  return `${value.toFixed(2)}%`;
+  const sign = value > 0 ? '+' : value < 0 ? '-' : '';
+  return `${sign}${Math.abs(value).toFixed(2)}%`;
 }
 
 export function formatCompactCurrency(value: number, currencyCode = 'USD') {

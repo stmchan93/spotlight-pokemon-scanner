@@ -35,6 +35,8 @@ import { AuthGate } from '@/features/auth/components/auth-gate';
 import { PostHogAppProvider, identifyPostHogUser } from '@/lib/observability/posthog';
 import { PostHogScreenTracker } from '@/lib/observability/posthog-screen-tracker';
 import { AppProviders } from '@/providers/app-providers';
+import { AppDrawer } from '@/components/app-drawer';
+import { AppDrawerProvider } from '@/providers/app-drawer-provider';
 import { AuthProvider, useAuth } from '@/providers/auth-provider';
 
 void SplashScreen.preventAutoHideAsync();
@@ -172,10 +174,13 @@ function RootLayout() {
               <PostHogAppProvider>
                 <ObservabilityAuthSync />
                 <AuthenticatedAppProviders>
-                  <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
-                    <RootNavigator />
-                    <StagingSmokeDiagnostics />
-                  </View>
+                  <AppDrawerProvider>
+                    <View style={{ flex: 1, backgroundColor: navigationTheme.colors.background }}>
+                      <RootNavigator />
+                      <StagingSmokeDiagnostics />
+                      <AppDrawer />
+                    </View>
+                  </AppDrawerProvider>
                 </AuthenticatedAppProviders>
               </PostHogAppProvider>
             </AuthProvider>

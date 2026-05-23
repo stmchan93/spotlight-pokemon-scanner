@@ -2,6 +2,8 @@ import { Pressable, StyleSheet, Text, type StyleProp, type ViewStyle } from 'rea
 
 import { useSpotlightTheme } from '../theme';
 
+export type PillButtonTone = 'default' | 'filter';
+
 type PillButtonProps = {
   label: string;
   minWidth?: number;
@@ -9,6 +11,13 @@ type PillButtonProps = {
   selected?: boolean;
   style?: StyleProp<ViewStyle>;
   testID?: string;
+  /**
+   * Visual tone. 'default' is the brand-yellow pill used in chart range pills,
+   * filter modal etc. 'filter' is the lighter chip used in the Collection /
+   * Sales chip rows (white inactive, pale-yellow active with brand-yellow
+   * border).
+   */
+  tone?: PillButtonTone;
 };
 
 export function PillButton({
@@ -18,20 +27,35 @@ export function PillButton({
   selected = false,
   style,
   testID,
+  tone = 'default',
 }: PillButtonProps) {
   const theme = useSpotlightTheme();
+
+  const containerStyle = tone === 'filter' ? styles.filterContainer : styles.container;
+  const labelStyle = tone === 'filter' ? theme.typography.label : theme.typography.control;
+
+  const backgroundColor = tone === 'filter'
+    ? (selected ? theme.colors.yellow50 : theme.colors.gray0)
+    : (selected ? theme.colors.brand : theme.colors.field);
+
+  const borderColor = tone === 'filter'
+    ? (selected ? theme.colors.brand : theme.colors.gray300)
+    : (selected ? theme.colors.brand : theme.colors.outlineSubtle);
+
+  const labelColor = tone === 'filter' ? theme.colors.gray900 : theme.colors.textPrimary;
 
   return (
     <Pressable
       accessibilityRole="button"
+      accessibilityState={{ selected }}
       onPress={onPress}
       testID={testID}
       style={({ pressed }) => [
-        styles.container,
+        containerStyle,
         {
           minWidth,
-          backgroundColor: selected ? theme.colors.brand : theme.colors.field,
-          borderColor: selected ? theme.colors.brand : theme.colors.outlineSubtle,
+          backgroundColor,
+          borderColor,
           opacity: pressed ? 0.88 : 1,
         },
         style,
@@ -39,10 +63,10 @@ export function PillButton({
     >
       <Text
         style={[
-          theme.typography.control,
+          labelStyle,
           styles.label,
           {
-            color: theme.colors.textPrimary,
+            color: labelColor,
           },
         ]}
       >
@@ -59,6 +83,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     justifyContent: 'center',
     paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  filterContainer: {
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    justifyContent: 'center',
+    minHeight: 32,
+    paddingHorizontal: 16,
     paddingVertical: 8,
   },
   label: {
