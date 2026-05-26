@@ -517,6 +517,14 @@ class RawVisualMatcher:
         )
 
     def _query_language_preference(self, payload: dict[str, Any]) -> tuple[str | None, float, list[str]]:
+        # An explicit, user-selected language from the scanner "Scanning for"
+        # toggle is authoritative: trust it over OCR character counting and the
+        # visual language probe. High confidence (above the 0.65 bias threshold)
+        # so the language bias is applied without further inference.
+        explicit_language = _normalize_language(payload.get("cardLanguage"))
+        if explicit_language is not None:
+            return explicit_language, 0.99, []
+
         ocr_analysis = payload.get("ocrAnalysis") or {}
         raw_evidence = ocr_analysis.get("rawEvidence") or {}
         title_confidence = raw_evidence.get("titleConfidence") or {}

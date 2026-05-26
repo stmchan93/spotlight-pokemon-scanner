@@ -5735,6 +5735,12 @@ def resolver_mode_for_payload(payload: dict[str, Any]) -> str:
     hint = str(payload.get("resolverModeHint") or "").strip().lower()
     if hint in {"psa_slab", "slab", "slab_card"}:
         return "psa_slab"
+    # An explicit raw hint from the client (scanner "Scanning for" → Ungraded) is
+    # authoritative. Trust it and skip the OCR-evidence promotion below, so a
+    # stray slab token in OCR can't bounce a user-chosen raw scan into the slab
+    # lane. The OCR fallback remains for older clients that send no hint.
+    if hint in {"raw_card", "raw", "card"}:
+        return "raw_card"
     ocr_analysis = payload.get("ocrAnalysis") or {}
     slab_evidence = (ocr_analysis.get("slabEvidence") or {}) if isinstance(ocr_analysis, dict) else {}
     if any([

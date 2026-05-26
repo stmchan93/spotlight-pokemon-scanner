@@ -1996,6 +1996,18 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertIn("pokemon go", evidence.set_hint_tokens)
         self.assertIn("pgo", evidence.set_hint_tokens)
 
+    def test_build_slab_evidence_prefers_explicit_card_language_over_label_inference(self) -> None:
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+        # The English-label Charizard infers no language hint on its own, so an
+        # explicit user-selected "japanese" from the scanner toggle must win.
+        payload = sample_charizard_slab_scan_payload()
+        payload["cardLanguage"] = "japanese"
+        evidence = service._build_slab_evidence(payload)
+        service.connection.close()
+
+        self.assertEqual(evidence.language_hint, "Japanese")
+
     def test_build_slab_evidence_ignores_noisy_marketplace_prefixes_when_set_is_explicit(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
 

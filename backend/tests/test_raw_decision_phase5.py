@@ -20,6 +20,7 @@ from catalog_tools import (  # noqa: E402
     build_raw_evidence,
     connect,
     finalize_raw_decision,
+    resolver_mode_for_payload,
     score_raw_signals,
     upsert_catalog_card,
 )
@@ -1222,6 +1223,31 @@ class RawDecisionPhase5Tests(unittest.TestCase):
         self.assertTrue(payload["visualRuntime"]["prewarmed"])
         self.assertTrue(payload["visualRuntime"]["inferencePrewarmed"])
         self.assertTrue(matcher.run_inference)
+
+
+class ResolverModeForPayloadTests(unittest.TestCase):
+    def test_explicit_slab_hint_wins(self) -> None:
+        self.assertEqual(resolver_mode_for_payload({"resolverModeHint": "psa_slab"}), "psa_slab")
+
+    def test_explicit_raw_hint_is_authoritative_over_ocr_evidence(self) -> None:
+        # The scanner "Scanning for" → Ungraded toggle sends raw_card. A stray
+        # slab token in OCR must not bounce the scan into the slab lane.
+        payload = {
+            "resolverModeHint": "raw_card",
+            "slabGrader": "PSA",
+            "ocrAnalysis": {"slabEvidence": {"grader": "PSA", "grade": "10"}},
+        }
+        self.assertEqual(resolver_mode_for_payload(payload), "raw_card")
+
+    def test_ocr_promotion_still_applies_without_explicit_hint(self) -> None:
+        # Older clients that send no hint keep the OCR-evidence safety net.
+        payload = {
+            "ocrAnalysis": {"slabEvidence": {"grader": "PSA", "grade": "10"}},
+        }
+        self.assertEqual(resolver_mode_for_payload(payload), "psa_slab")
+
+    def test_defaults_to_raw_when_no_signal(self) -> None:
+        self.assertEqual(resolver_mode_for_payload({}), "raw_card")
 
 
 if __name__ == "__main__":

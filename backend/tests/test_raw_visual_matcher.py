@@ -386,6 +386,30 @@ class RawVisualMatcherTests(unittest.TestCase):
         self.assertEqual(matcher._query_language_preference(english_payload)[0], "English")
         self.assertEqual(matcher._query_language_preference({}), (None, 0.0, []))
 
+    def test_query_language_preference_trusts_explicit_card_language(self) -> None:
+        matcher = object.__new__(RawVisualMatcher)
+
+        # An explicit, user-selected language overrides conflicting OCR text and
+        # is returned at high confidence (above the 0.65 bias threshold).
+        explicit_japanese = {
+            "cardLanguage": "japanese",
+            "ocrAnalysis": {
+                "rawEvidence": {
+                    "titleTextPrimary": "Charizard",
+                    "titleConfidence": {"score": 0.9},
+                }
+            },
+        }
+        language, confidence, _ = matcher._query_language_preference(explicit_japanese)
+        self.assertEqual(language, "Japanese")
+        self.assertGreaterEqual(confidence, 0.65)
+
+        explicit_english = {"cardLanguage": "english"}
+        self.assertEqual(matcher._query_language_preference(explicit_english)[0], "English")
+
+        # An unrecognized value falls through to OCR-based detection.
+        self.assertEqual(matcher._query_language_preference({"cardLanguage": "klingon"}), (None, 0.0, []))
+
     def test_apply_language_adjustments_penalizes_tcgp_and_mismatched_language(self) -> None:
         adjusted = RawVisualMatcher._apply_language_adjustments(
             [

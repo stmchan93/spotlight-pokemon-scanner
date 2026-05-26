@@ -4425,7 +4425,14 @@ class SpotlightScanService:
                 card_number=card_number,
             )
         )
-        language_hint = SpotlightScanService._inferred_slab_language_hint(
+        # An explicit, user-selected language from the scanner "Scanning for"
+        # toggle is authoritative over OCR label inference.
+        explicit_card_language = str(payload.get("cardLanguage") or "").strip().lower()
+        explicit_language_hint = {
+            "english": "English",
+            "japanese": "Japanese",
+        }.get(explicit_card_language)
+        language_hint = explicit_language_hint or SpotlightScanService._inferred_slab_language_hint(
             label_text,
             parsed_label_text=parsed_label_text,
         )
