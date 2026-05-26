@@ -22,6 +22,8 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { CatalogSearchResult } from '@spotlight/api-client';
 import { colors, useSpotlightTheme } from '@spotlight/design-system';
 
+import { matchConfidenceColor, matchPercentFromScore } from './change-card-picker-helpers';
+
 type ChangeCardPickerProps = {
   visible: boolean;
   candidates: readonly CatalogSearchResult[];
@@ -200,6 +202,7 @@ export function ChangeCardPicker({
               {visibleCandidates.map((candidate, index) => {
                 const isSelected = index === selectedIndex;
                 const meta = [candidate.cardNumber, candidate.setName].filter(Boolean).join(' · ');
+                const matchPct = matchPercentFromScore(candidate.matchScore);
                 return (
                   <Pressable
                     accessibilityRole="button"
@@ -236,6 +239,15 @@ export function ChangeCardPicker({
                             style={[styles.rowMeta, { color: colors.gray50 }]}
                           >
                             {meta}
+                          </Text>
+                        ) : null}
+                        {matchPct != null ? (
+                          <Text
+                            numberOfLines={1}
+                            style={[styles.rowMeta, { color: matchConfidenceColor(matchPct) }]}
+                            testID={`${testID}-match-${index}`}
+                          >
+                            {`${matchPct}% Match`}
                           </Text>
                         ) : null}
                         {candidate.subtitle ? (
