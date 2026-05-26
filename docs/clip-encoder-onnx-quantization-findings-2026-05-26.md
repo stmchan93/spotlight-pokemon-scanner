@@ -67,7 +67,13 @@ This was the gating question and the answer is **split by how lossy the change i
 - `backend/tests/test_raw_visual_model.py` — backend resolution, default path, and ONNX embed normalize/shape-validation tests.
 - The `.onnx` artifact itself is **not** committed (`backend/data/visual-models/` is gitignored, like the index `.npz` and adapter `.pt`).
 
-## Enablement runbook (FP32 ONNX on staging) — NOT yet done
+## Enablement status — DONE on staging 2026-05-26
+
+ONNX FP32 is **live on staging** as of 2026-05-26 (commits `41428f7` code, `6a2ee4f` staging flag). Verified on the VM: `SPOTLIGHT_VISUAL_ENCODER_BACKEND=onnx`, prewarm succeeded at startup, `encoderForwardMs ~65-69ms`, `matchPayloadMs ~105ms`, local + public health 200.
+
+Note: the staging VM was migrated off the throttled `e2-medium` to `t2d-standard-2` (8 GB) during this work, so the live `~65ms` forward is faster than the `e2-medium` `140ms` benchmark — different hardware, but the apples-to-apples `215ms→140ms` (1.5x) e2-medium comparison still stands as the validated ONNX-vs-torch delta. No torch baseline was captured on `t2d-standard-2`.
+
+### Enablement runbook (for production or re-enablement)
 
 The backend deploy (`tools/deploy_backend.sh`) **excludes `./data`** from its bundle, so the artifact must be placed on the VM out-of-band, exactly like the index/adapter already are:
 
