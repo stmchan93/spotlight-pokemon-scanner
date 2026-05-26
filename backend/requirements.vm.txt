@@ -5,3 +5,4 @@ PyJWT[crypto]>=2.10,<3
 python-dotenv==1.2.2
 safetensors==0.7.0
 transformers==5.5.4
+onnxruntime==1.26.0

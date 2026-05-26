@@ -19,9 +19,11 @@ if str(BACKEND_ROOT) not in sys.path:
 from raw_visual_model import (  # noqa: E402
     RawVisualFrozenEncoder,
     RawVisualProjectionAdapter,
+    default_onnx_encoder_path,
     load_projection_adapter,
     project_embeddings_numpy,
     project_embeddings_tensor,
+    resolve_encoder_backend,
     resolve_torch_device,
 )
 
@@ -161,6 +163,46 @@ class RawVisualModelTests(unittest.TestCase):
 
         self.assertEqual(embedded.shape, (3, 2))
         self.assertTrue(np.allclose(embedded[0], np.array([1.0, 1.0], dtype=np.float32)))
+
+
+    def test_resolve_encoder_backend_defaults_env_and_validates(self) -> None:
+        with patch.dict("os.environ", {}, clear=False):
+            import os
+
+            os.environ.pop("SPOTLIGHT_VISUAL_ENCODER_BACKEND", None)
+            self.assertEqual(resolve_encoder_backend(None), "torch")
+            self.assertEqual(resolve_encoder_backend("ONNX"), "onnx")
+            with patch.dict("os.environ", {"SPOTLIGHT_VISUAL_ENCODER_BACKEND": "onnx"}):
+                self.assertEqual(resolve_encoder_backend(None), "onnx")
+            with self.assertRaisesRegex(RuntimeError, "Unknown visual encoder backend"):
+                resolve_encoder_backend("tensorrt")
+
+    def test_default_onnx_encoder_path_uses_model_slug(self) -> None:
+        path = default_onnx_encoder_path("openai/clip-vit-base-patch32")
+        self.assertEqual(path.name, "clip-vit-base-patch32_vision_fp32.onnx")
+        self.assertEqual(path.parent.name, "visual-models")
+
+    def test_embed_batch_with_timing_onnx_normalizes_and_validates_shape(self) -> None:
+        encoder = object.__new__(RawVisualFrozenEncoder)
+        encoder.backend = "onnx"
+        encoder.embedding_dim = 3
+        encoder.processor = lambda images, return_tensors: {  # type: ignore[assignment]
+            "pixel_values": np.zeros((len(images), 3, 4, 4), dtype=np.float32)
+        }
+        encoder._onnx_input_name = "pixel_values"
+        encoder._onnx_session = types.SimpleNamespace(
+            run=lambda _outputs, _feed: [np.array([[3.0, 0.0, 4.0]], dtype=np.float32)]
+        )
+
+        result, timing = encoder._embed_batch_with_timing_onnx([Image.new("RGB", (4, 4))])
+        self.assertTrue(np.allclose(result, np.array([[0.6, 0.0, 0.8]], dtype=np.float32)))
+        self.assertEqual(set(timing), {"preprocessMs", "modelForwardMs", "postprocessMs", "totalMs"})
+
+        encoder._onnx_session = types.SimpleNamespace(
+            run=lambda _outputs, _feed: [np.zeros((1, 2), dtype=np.float32)]
+        )
+        with self.assertRaisesRegex(RuntimeError, "unexpected output shape"):
+            encoder._embed_batch_with_timing_onnx([Image.new("RGB", (4, 4))])
 
 
 if __name__ == "__main__":

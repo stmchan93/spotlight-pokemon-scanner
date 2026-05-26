@@ -76,24 +76,118 @@ class RawVisualProjectionAdapter(torch.nn.Module):
         return self.logit_scale.exp().clamp(max=100.0)
 
 
+# Encoder backend selection. The default torch path is unchanged; the optional
+# ONNX path (SPOTLIGHT_VISUAL_ENCODER_BACKEND=onnx) runs the CLIP image tower
+# through onnxruntime on CPU, which is faster than eager torch on few-core hosts
+# and produces numerically identical embeddings (validated: cosine 1.000000 on
+# the held-out raw suite). See docs/clip-encoder-onnx-quantization-findings-2026-05-26.md.
+VALID_ENCODER_BACKENDS = ("torch", "onnx")
+
+
+def visual_model_slug(model_id: str) -> str:
+    slug = model_id.split("/")[-1].strip().lower()
+    return "".join(character if character.isalnum() or character in {"-", "_"} else "-" for character in slug)
+
+
+def default_onnx_encoder_path(model_id: str) -> Path:
+    backend_root = Path(__file__).resolve().parent
+    return backend_root / "data" / "visual-models" / f"{visual_model_slug(model_id)}_vision_fp32.onnx"
+
+
+def resolve_encoder_backend(backend: str | None) -> str:
+    value = (backend or os.environ.get("SPOTLIGHT_VISUAL_ENCODER_BACKEND") or "torch").strip().lower()
+    if value not in VALID_ENCODER_BACKENDS:
+        raise RuntimeError(f"Unknown visual encoder backend {value!r}; expected one of {VALID_ENCODER_BACKENDS}.")
+    return value
+
+
+def _resolve_onnx_artifact_path(onnx_path: str | Path | None, model_id: str) -> Path:
+    if onnx_path is not None:
+        return Path(onnx_path)
+    env_value = os.environ.get("SPOTLIGHT_VISUAL_ENCODER_ONNX_PATH")
+    if env_value and env_value.strip():
+        return Path(env_value.strip())
+    return default_onnx_encoder_path(model_id)
+
+
+def _env_int_or_none(name: str) -> int | None:
+    raw = os.environ.get(name)
+    if raw is None or not raw.strip():
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
+
+
 class RawVisualFrozenEncoder:
     def __init__(
         self,
         *,
         model_id: str = DEFAULT_VISUAL_MODEL_ID,
         device: str = "auto",
+        backend: str | None = None,
+        onnx_path: str | Path | None = None,
     ) -> None:
         self.model_id = model_id
         self.device = resolve_torch_device(device)
         self.processor = CLIPProcessor.from_pretrained(model_id, use_fast=False)
-        self.model = CLIPModel.from_pretrained(model_id).to(self.device)
+        self.backend = resolve_encoder_backend(backend)
+        self.model = None
+        self._onnx_session = None
+        self._onnx_input_name = None
+        self._onnx_path: str | None = None
+        if self.backend == "onnx":
+            self._init_onnx_backend(onnx_path)
+        else:
+            self._init_torch_backend()
+
+    def _init_torch_backend(self) -> None:
+        self.model = CLIPModel.from_pretrained(self.model_id).to(self.device)
         self.model.eval()
         for parameter in self.model.parameters():
             parameter.requires_grad_(False)
         projection_dim = getattr(self.model.config, "projection_dim", None)
         if not isinstance(projection_dim, int) or projection_dim <= 0:
-            raise RuntimeError(f"Unable to determine CLIP projection_dim for model {model_id}")
+            raise RuntimeError(f"Unable to determine CLIP projection_dim for model {self.model_id}")
         self.embedding_dim = projection_dim
+
+    def _init_onnx_backend(self, onnx_path: str | Path | None) -> None:
+        # The torch CLIP weights are intentionally NOT loaded in this path. Only
+        # the lightweight processor + config are needed alongside the ONNX
+        # session, which keeps memory down on small hosts.
+        try:
+            import onnxruntime as ort
+        except ImportError as exc:
+            raise RuntimeError(
+                "onnxruntime is required for the ONNX encoder backend "
+                "(SPOTLIGHT_VISUAL_ENCODER_BACKEND=onnx)."
+            ) from exc
+        from transformers import CLIPConfig
+
+        resolved = _resolve_onnx_artifact_path(onnx_path, self.model_id)
+        if not resolved.exists():
+            raise RuntimeError(f"ONNX encoder artifact not found: {resolved}")
+
+        config = CLIPConfig.from_pretrained(self.model_id)
+        projection_dim = getattr(config, "projection_dim", None)
+        if not isinstance(projection_dim, int) or projection_dim <= 0:
+            raise RuntimeError(f"Unable to determine CLIP projection_dim for model {self.model_id}")
+        self.embedding_dim = projection_dim
+
+        session_options = ort.SessionOptions()
+        intra_op_threads = _env_int_or_none("SPOTLIGHT_VISUAL_ONNX_INTRA_OP_THREADS")
+        inter_op_threads = _env_int_or_none("SPOTLIGHT_VISUAL_ONNX_INTER_OP_THREADS")
+        if intra_op_threads is not None:
+            session_options.intra_op_num_threads = intra_op_threads
+        if inter_op_threads is not None:
+            session_options.inter_op_num_threads = inter_op_threads
+
+        self._onnx_session = ort.InferenceSession(
+            str(resolved), session_options, providers=["CPUExecutionProvider"]
+        )
+        self._onnx_input_name = self._onnx_session.get_inputs()[0].name
+        self._onnx_path = str(resolved)
 
     def _project_visual_features_if_needed(self, features: torch.Tensor) -> torch.Tensor:
         if features.shape[-1] == self.embedding_dim:
@@ -140,6 +234,9 @@ class RawVisualFrozenEncoder:
         )
 
     def _embed_batch_with_timing(self, images: list[Image.Image]) -> tuple[np.ndarray, dict[str, float]]:
+        if self.backend == "onnx":
+            return self._embed_batch_with_timing_onnx(images)
+
         preprocess_started_at = perf_counter()
         if _should_letterbox():
             images = [letterbox_to_square(image) for image in images]
@@ -156,6 +253,37 @@ class RawVisualFrozenEncoder:
 
         postprocess_started_at = perf_counter()
         result = features.detach().cpu().numpy().astype(np.float32)
+        postprocess_ms = (perf_counter() - postprocess_started_at) * 1000.0
+
+        return result, {
+            "preprocessMs": round(preprocess_ms, 3),
+            "modelForwardMs": round(model_forward_ms, 3),
+            "postprocessMs": round(postprocess_ms, 3),
+            "totalMs": round(preprocess_ms + model_forward_ms + postprocess_ms, 3),
+        }
+
+    def _embed_batch_with_timing_onnx(self, images: list[Image.Image]) -> tuple[np.ndarray, dict[str, float]]:
+        preprocess_started_at = perf_counter()
+        if _should_letterbox():
+            images = [letterbox_to_square(image) for image in images]
+        inputs = self.processor(images=images, return_tensors="np")
+        pixel_values = np.asarray(inputs["pixel_values"], dtype=np.float32)
+        preprocess_ms = (perf_counter() - preprocess_started_at) * 1000.0
+
+        forward_started_at = perf_counter()
+        outputs = self._onnx_session.run(None, {self._onnx_input_name: pixel_values})
+        features = np.asarray(outputs[0], dtype=np.float32)
+        model_forward_ms = (perf_counter() - forward_started_at) * 1000.0
+
+        postprocess_started_at = perf_counter()
+        if features.ndim != 2 or features.shape[-1] != self.embedding_dim:
+            raise RuntimeError(
+                f"ONNX encoder produced unexpected output shape {features.shape}; "
+                f"expected (batch, {self.embedding_dim})."
+            )
+        # Match the torch path's L2 normalization of image features.
+        norms = np.linalg.norm(features, axis=-1, keepdims=True)
+        result = np.divide(features, norms, out=np.zeros_like(features), where=norms > 0)
         postprocess_ms = (perf_counter() - postprocess_started_at) * 1000.0
 
         return result, {
