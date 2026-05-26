@@ -185,6 +185,34 @@ Current API concepts:
   - `title`
   - `titleCompact`
 
+### SheetSurface
+
+File: `src/components/sheet-surface.tsx`
+
+Use for the rounded-top surface of a bottom sheet (handle + padded body).
+
+Current API concepts:
+
+- optional handle
+- tone:
+  - `light` (white elevated sheet — default)
+  - `dark` (gray-900 scanner sheet shown over the camera)
+
+### RadioDot
+
+File: `src/components/radio-dot.tsx`
+
+Use for single-select option indicators in lists and sheets (e.g. the scanner
+"Scanning for" sheet). Selected = brand-yellow fill; unselected = gray ring.
+
+Current API concepts:
+
+- selected
+- optional size (defaults to 16)
+- tone:
+  - `light` (gray-300 ring)
+  - `dark` (gray-600 ring for dark surfaces)
+
 ### StateCard
 
 File: `src/components/state-card.tsx`
