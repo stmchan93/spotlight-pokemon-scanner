@@ -284,6 +284,8 @@ type SearchResultsDTO = {
 type ScanMatchCandidateDTO = {
   rank?: number | null;
   candidate?: CardCandidateDTO | null;
+  finalScore?: number | null;
+  imageScore?: number | null;
 };
 
 type ScanMatchResponseDTO = {
@@ -1208,6 +1210,7 @@ function createScannerMatchPayload(
     slabRecommendedLookupPath: slabAnalysis?.slabRecommendedLookupPath ?? null,
     resolverModeHint: payload.mode === 'slabs' ? 'psa_slab' : 'raw_card',
     rawResolverMode: payload.mode === 'raw' ? 'visual' : null,
+    cardLanguage: payload.cardLanguage ?? null,
     cropConfidence: 1,
     warnings: [],
     ocrAnalysis: slabAnalysis?.ocrAnalysis ?? null,
@@ -1276,6 +1279,7 @@ function mapScannerMatchCandidates(
       currencyCode: card.pricing.currencyCode,
       ownedQuantity: 0,
       isFavorite: card.isFavorite,
+      matchScore: normalizeNumber(entry?.finalScore) ?? normalizeNumber(entry?.imageScore),
     }];
   });
 }

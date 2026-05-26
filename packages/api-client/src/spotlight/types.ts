@@ -11,6 +11,7 @@ export const legacyPortfolioHistoryRangeAliases: Record<string, PortfolioHistory
 
 export type ChartMode = 'portfolio' | 'sales';
 export type ScannerMode = 'raw' | 'slabs';
+export type ScannerCardLanguage = 'english' | 'japanese';
 
 export type ScannerImagePayload = {
   jpegBase64: string;
@@ -37,6 +38,12 @@ export type ScannerSlabAnalysisPayload = {
 
 export type ScannerCapturePayload = ScannerImagePayload & {
   mode: ScannerMode;
+  /**
+   * Explicit card language chosen by the user via the scanner's "Scanning for"
+   * toggle. Sent to the backend as an authoritative `preferred_language` hint so
+   * it can skip OCR-based language detection. Defaults to English when omitted.
+   */
+  cardLanguage?: ScannerCardLanguage | null;
   captureSource?: 'camera' | 'smoke_fixture' | string | null;
   normalizedImage?: ScannerImagePayload | null;
   slabAnalysis?: ScannerSlabAnalysisPayload | null;
@@ -362,6 +369,8 @@ export type CatalogSearchResult = {
   currencyCode?: string | null;
   ownedQuantity?: number;
   isFavorite?: boolean;
+  /** Normalized match confidence in [0, 1] for scanner candidates; null/undefined for catalog search. */
+  matchScore?: number | null;
 };
 
 export type ExpansionRecord = {
