@@ -6,13 +6,13 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronLeft,
+  IconSearch,
 } from '@tabler/icons-react-native';
-import { FilterList, RefreshDouble } from 'iconoir-react-native';
+import { RefreshDouble } from 'iconoir-react-native';
 import {
   ActivityIndicator,
   Animated,
   Image,
-  Keyboard,
   LayoutAnimation,
   Linking,
   PanResponder,
@@ -73,10 +73,18 @@ import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
 
+import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
+import { ScanningForSheet } from '@/features/scanner/components/scanning-for-sheet';
+import {
+  cardLanguageForCardType,
+  scanTargetPillLabel,
+  useScannerTargetConfig,
+  type ScannerCondition,
+} from '@/features/scanner/use-scanner-target-config';
+
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
 import { ScanPriceSheet, type ScanPriceSheetSelection } from './scan-price-sheet';
-import { ScannerSearchLauncher } from './scanner-search-launcher';
 import {
   activeCandidateForCapture,
   alignToFourPointGrid,
@@ -173,8 +181,12 @@ export function ScannerScreen({
   const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
-  const [catalogSearchQuery, setCatalogSearchQuery] = useState('');
-  const [isCatalogSearchFocused, setIsCatalogSearchFocused] = useState(false);
+  const { cardType, condition, setCardType, setCondition } = useScannerTargetConfig();
+  const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
+  // Set when the (non-authoritative) on-device classifier disagrees with the
+  // selected condition — e.g. a barcode/red band shows up on the raw lane.
+  // Holds the condition we suggest switching to, or null when there's no notice.
+  const [scanModeMismatchNotice, setScanModeMismatchNotice] = useState<ScannerCondition | null>(null);
   const [isRawPictureConfigReady, setIsRawPictureConfigReady] = useState(
     isTestEnv || cachedRawVisualPictureSize != null,
   );
@@ -693,12 +705,6 @@ export function ScannerScreen({
   }, [spotlightRepository, updateRecentCapture]);
 
   const handleCapture = useCallback(async () => {
-    if (isCatalogSearchFocused) {
-      setIsCatalogSearchFocused(false);
-      Keyboard.dismiss();
-      return;
-    }
-
     if (!permission?.granted) {
       if (permission?.canAskAgain) {
         await requestPermission();
@@ -711,6 +717,8 @@ export function ScannerScreen({
     }
 
     void triggerScannerHaptic();
+    // Each capture re-evaluates the lane mismatch, so clear any prior warning.
+    setScanModeMismatchNotice(null);
     const scanStartedAt = Date.now();
     setIsCapturing(true);
 
@@ -872,49 +880,49 @@ export function ScannerScreen({
         throw new Error('normalized_target_unavailable');
       }
 
-      try {
-        const hint = await quickClassifyCapture(
-          rawNormalizedTarget.normalizedImageUri,
-          // Pass the original source photo for barcode detection — the normalized
-          // target is squished to raw-card portrait (630×880) which distorts
-          // landscape PSA slab barcodes and causes ML Kit to miss them.
-          photo.uri,
-        );
-        // CLASSIFIER TUNING (JS OVERRIDE — remove once Swift thresholds are confirmed correct):
-        // Native binary had isSlabLikely = redBand > 0.45 && barcode > 0.40 (both far too strict).
-        // Swift source updated to: redBand > 0.12 (redBand alone is primary signal; barcode is on back).
-        // This JS override mirrors that logic until a native rebuild ships the Swift change.
-        // JS override mirrors Swift logic for older native builds that predate barcode detection.
-        const nativeIsSlab = hint.isSlabLikely;
-        const redBandPasses = hint.redBandScore >= 0.12;
-        const barcodePasses = hint.hasBarcode ?? false;
-        isSlab = nativeIsSlab || redBandPasses || barcodePasses;
-        const jsOverridePath = nativeIsSlab
-          ? 'native_islab'
-          : redBandPasses
-            ? 'redband_only'
-            : barcodePasses
-              ? 'has_barcode'
-              : 'no_signal';
-        const modeDecided = isSlab ? 'slabs' : 'raw';
-        console.info(
-          `[SCANNER CLASSIFIER] modeDecided=${modeDecided} jsOverridePath=${jsOverridePath} isSlabLikely=${hint.isSlabLikely} hasBarcode=${hint.hasBarcode ?? false} override=${isSlab} confidence=${hint.confidence.toFixed(3)} redBand=${hint.redBandScore.toFixed(3)} barcodeRegion=${hint.barcodeRegionScore.toFixed(3)} decodeMs=${hint.decodeMs} classifyMs=${hint.classifyMs}`,
-        );
-        capturePostHogEvent('scan_classifier_decided', {
-          is_slab_likely: hint.isSlabLikely,
-          has_barcode: hint.hasBarcode ?? false,
-          confidence: hint.confidence,
-          red_band_score: hint.redBandScore,
-          barcode_region_score: hint.barcodeRegionScore,
-          decode_ms: hint.decodeMs,
-          classify_ms: hint.classifyMs,
-          js_override_decision: isSlab,
-          js_override_path: jsOverridePath,
-          mode_decided: modeDecided,
-        });
-      } catch (classifierError) {
-        console.warn('[SCANNER] quickClassifyCapture failed, defaulting to raw', classifierError);
-        isSlab = false;
+      // The user's "Scanning for" condition is authoritative for the scan lane:
+      // Graded → slab lane, Ungraded → raw lane. Trusting the toggle lets us skip
+      // the slab re-normalize + analyzeSlabCapture work on raw scans and tells the
+      // backend the lane up front instead of re-inferring it.
+      isSlab = condition === 'graded';
+
+      // The on-device classifier no longer chooses the lane. On the raw lane we
+      // still run it as a cheap, non-authoritative check so we can warn when a
+      // graded slab is scanned while set to Ungraded (the classifier signal is
+      // meaningful there). On the graded lane we trust the toggle fully and skip
+      // the classifier entirely for speed.
+      if (!isSlab) {
+        try {
+          const hint = await quickClassifyCapture(
+            rawNormalizedTarget.normalizedImageUri,
+            // Pass the original source photo for barcode detection — the normalized
+            // target is squished to raw-card portrait (630×880) which distorts
+            // landscape PSA slab barcodes and causes ML Kit to miss them.
+            photo.uri,
+          );
+          const looksLikeSlab = hint.isSlabLikely
+            || (hint.hasBarcode ?? false)
+            || hint.redBandScore >= 0.12;
+          console.info(
+            `[SCANNER CLASSIFIER] lane=raw(selected) looksLikeSlab=${looksLikeSlab} isSlabLikely=${hint.isSlabLikely} hasBarcode=${hint.hasBarcode ?? false} confidence=${hint.confidence.toFixed(3)} redBand=${hint.redBandScore.toFixed(3)} barcodeRegion=${hint.barcodeRegionScore.toFixed(3)} decodeMs=${hint.decodeMs} classifyMs=${hint.classifyMs}`,
+          );
+          if (looksLikeSlab) {
+            setScanModeMismatchNotice('graded');
+            capturePostHogEvent('scan_mode_mismatch', {
+              selected_condition: condition,
+              suggested_condition: 'graded',
+              is_slab_likely: hint.isSlabLikely,
+              has_barcode: hint.hasBarcode ?? false,
+              confidence: hint.confidence,
+              red_band_score: hint.redBandScore,
+              barcode_region_score: hint.barcodeRegionScore,
+            });
+          }
+        } catch (classifierError) {
+          // Non-fatal — the classifier only powers the mismatch warning now, so a
+          // failure just means no warning this capture. The lane stays raw.
+          console.warn('[SCANNER] quickClassifyCapture mismatch check failed', classifierError);
+        }
       }
 
       if (process.env.NODE_ENV !== 'test') {
@@ -959,6 +967,7 @@ export function ScannerScreen({
         height: normalizedTarget.normalizedImageDimensions.height,
         jpegBase64: normalizedTarget.normalizedImageBase64,
         mode: isSlab ? 'slabs' : 'raw',
+        cardLanguage: cardLanguageForCardType(cardType),
         width: normalizedTarget.normalizedImageDimensions.width,
         captureSource: 'camera',
         normalizedImage: {
@@ -1083,7 +1092,8 @@ export function ScannerScreen({
       }));
     }
   }, [
-    isCatalogSearchFocused,
+    cardType,
+    condition,
     isCameraReady,
     isCapturing,
     permission,
@@ -1491,22 +1501,8 @@ export function ScannerScreen({
     router.dismissTo({ pathname: '/', params: { page: 'portfolio' } });
   }, [onExitToPortfolio, router]);
 
-  const handleSubmitCatalogSearch = useCallback(() => {
-    const trimmedQuery = catalogSearchQuery.trim();
-    if (!trimmedQuery) {
-      return;
-    }
-
-    router.push({
-      pathname: '/catalog/search',
-      params: {
-        q: trimmedQuery,
-      },
-    });
-  }, [catalogSearchQuery, router]);
-
-  const handleOpenExpansionBrowser = useCallback(() => {
-    router.push('/catalog/expansion-browser');
+  const handleOpenCatalogSearch = useCallback(() => {
+    router.push('/catalog/search');
   }, [router]);
 
   const trayHeaderPanResponder = useMemo(() => PanResponder.create({
@@ -1871,23 +1867,51 @@ export function ScannerScreen({
           >
             <IconChevronLeft color={colors.gray0} size={20} strokeWidth={1.5} />
           </Pressable>
-          <ScannerSearchLauncher
-            onChangeText={setCatalogSearchQuery}
-            onFocusChange={setIsCatalogSearchFocused}
-            onSubmit={handleSubmitCatalogSearch}
-            value={catalogSearchQuery}
+          <ScanTargetPill
+            label={scanTargetPillLabel(cardType)}
+            onPress={() => setIsScanTargetSheetOpen(true)}
+            testID="scanner-target-pill"
           />
           <Pressable
-            accessibilityLabel="Filter cards"
+            accessibilityLabel="Search cards"
             accessibilityRole="button"
             hitSlop={8}
-            onPress={handleOpenExpansionBrowser}
-            style={styles.scannerFilterButton}
-            testID="scanner-filter-button"
+            onPress={handleOpenCatalogSearch}
+            style={styles.scannerSearchButton}
+            testID="scanner-search-button"
           >
-            <FilterList color={colors.gray0} height={16} width={16} />
+            <IconSearch color={colors.gray0} size={16} strokeWidth={2} />
           </Pressable>
         </View>
+
+        {scanModeMismatchNotice ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Switch to Graded"
+            onPress={() => {
+              setCondition(scanModeMismatchNotice);
+              setScanModeMismatchNotice(null);
+            }}
+            style={[
+              styles.modeMismatchNotice,
+              { top: captureSurfaceLayout.backButtonTop + 44 },
+            ]}
+            testID="scanner-mode-mismatch-notice"
+          >
+            <Text style={styles.modeMismatchText}>
+              Looks like a graded slab — tap to switch to Graded
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+              hitSlop={8}
+              onPress={() => setScanModeMismatchNotice(null)}
+              testID="scanner-mode-mismatch-dismiss"
+            >
+              <Text style={styles.modeMismatchDismiss}>×</Text>
+            </Pressable>
+          </Pressable>
+        ) : null}
 
         {scannerSmokeEnabled ? (
           <View
@@ -2056,6 +2080,18 @@ export function ScannerScreen({
           />
         );
       })()}
+
+      <ScanningForSheet
+        visible={isScanTargetSheetOpen}
+        condition={condition}
+        cardType={cardType}
+        onSelectCondition={(next) => {
+          setCondition(next);
+          setScanModeMismatchNotice((current) => (current === next ? null : current));
+        }}
+        onSelectCardType={setCardType}
+        onClose={() => setIsScanTargetSheetOpen(false)}
+      />
     </SafeAreaView>
   );
 }
@@ -2071,7 +2107,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 32,
   },
-  scannerFilterButton: {
+  scannerSearchButton: {
     alignItems: 'center',
     backgroundColor: 'transparent',
     borderColor: colors.gray0,
@@ -2092,8 +2128,32 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     gap: 16,
+    justifyContent: 'space-between',
     position: 'absolute',
     zIndex: 5,
+  },
+  modeMismatchNotice: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    borderRadius: 12,
+    flexDirection: 'row',
+    gap: 10,
+    left: 16,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    position: 'absolute',
+    right: 16,
+    zIndex: 6,
+  },
+  modeMismatchText: {
+    ...textStyles.caption,
+    color: colors.gray0,
+    flex: 1,
+  },
+  modeMismatchDismiss: {
+    ...textStyles.headline,
+    color: colors.gray0,
+    lineHeight: 20,
   },
   topActionStack: {
     alignItems: 'flex-end',

@@ -10,6 +10,8 @@ import {
   clearScanCandidateReviewSessions,
   getScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
+import { __resetScannerTargetConfigForTests } from '@/features/scanner/use-scanner-target-config';
+
 import { createTestSpotlightRepository, renderWithProviders } from './test-utils';
 
 const { useKeepAwake } = jest.requireMock('expo-keep-awake') as {
@@ -24,8 +26,9 @@ const mockLoadRawScannerSmokeFixture = jest.fn(async () => ({
   normalizedImageUri: 'file:///scanner-smoke-fixture.jpg',
   sourceImageCrop: { height: 880, width: 630, x: 0, y: 0 },
 }));
-const mockQuickClassifyCapture = jest.fn(async (_imageUri: string) => ({
+const mockQuickClassifyCapture = jest.fn(async (_imageUri: string, _sourceUri?: string) => ({
   isSlabLikely: false,
+  hasBarcode: false,
   confidence: 0.2,
   redBandScore: 0.1,
   barcodeRegionScore: 0.15,
@@ -129,6 +132,15 @@ async function waitForScannerReady() {
   });
 }
 
+// The scan lane is now driven by the "Scanning for" toggle, not the on-device
+// classifier. Open the header pill, pick Graded, and dismiss the sheet so the
+// next capture routes through the slab lane.
+function selectGradedCondition() {
+  fireEvent.press(screen.getByTestId('scanner-target-pill'));
+  fireEvent.press(screen.getByTestId('scanning-for-sheet-condition-graded'));
+  fireEvent.press(screen.getByTestId('scanning-for-sheet-backdrop'));
+}
+
 describe('ScannerScreen', () => {
   const originalExtra = mockedConstants.expoConfig?.extra
     ? { ...mockedConstants.expoConfig.extra }
@@ -148,6 +160,7 @@ describe('ScannerScreen', () => {
     mockLoadRawScannerSmokeFixture.mockClear();
     mockAnalyzeSlabCapture.mockClear();
     mockQuickClassifyCapture.mockClear();
+    __resetScannerTargetConfigForTests();
     if (!mockedConstants.expoConfig) {
       mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };
     }
@@ -212,40 +225,48 @@ describe('ScannerScreen', () => {
     expect(onTopLevelSwipeEnabledChange).toHaveBeenLastCalledWith(true);
   });
 
-  it('submits the scanner top search into the catalog search sheet route', () => {
+  it('opens catalog search from the scanner header search button', () => {
     renderScannerScreen();
 
-    fireEvent.changeText(screen.getByPlaceholderText('Search cards'), 'charizard');
-    fireEvent(screen.getByPlaceholderText('Search cards'), 'submitEditing', {
-      nativeEvent: { text: 'charizard' },
-    });
+    fireEvent.press(screen.getByTestId('scanner-search-button'));
 
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/catalog/search',
-      params: {
-        q: 'charizard',
-      },
-    });
+    expect(mockPush).toHaveBeenCalledWith('/catalog/search');
   });
 
-  it('dismisses the add-card search keyboard before allowing a scan capture', async () => {
-    renderScannerScreen();
+  it('warns without changing the lane when the classifier sees a slab on the raw lane', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        return { scanID: 'scan-mismatch', candidates: [] };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    // Default condition is Ungraded (raw lane). The classifier flags a slab.
+    mockQuickClassifyCapture.mockResolvedValueOnce({
+      isSlabLikely: true,
+      hasBarcode: true,
+      confidence: 0.8,
+      redBandScore: 0.6,
+      barcodeRegionScore: 0.5,
+      decodeMs: 5,
+      classifyMs: 3,
+    });
 
     await waitForScannerReady();
-    const searchInput = screen.getByPlaceholderText('Search cards');
-    fireEvent(searchInput, 'focus');
-    fireEvent.changeText(searchInput, 'bulbasaur');
-
-    fireEvent.press(screen.getByTestId('scanner-preview'));
-
-    expect(keyboardDismissSpy).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId('scanner-tray-row-0')).toBeNull();
-
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
     await waitFor(() => {
-      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+      expect(payloads).toHaveLength(1);
     });
+
+    // The lane is authoritative: the toggle says Ungraded, so we stay raw and
+    // never run the slab analysis, but we surface a dismissible mismatch notice.
+    expect(payloads[0].mode).toBe('raw');
+    expect(mockAnalyzeSlabCapture).not.toHaveBeenCalled();
+    expect(await screen.findByTestId('scanner-mode-mismatch-notice')).toBeTruthy();
   });
 
   it('renders an empty recent scans tray with no placeholder rows', () => {
@@ -427,6 +448,7 @@ describe('ScannerScreen', () => {
 
     expect(payloads[0]).toMatchObject({
       mode: 'raw',
+      cardLanguage: 'english',
       captureSource: 'camera',
       sourceImage: {
         jpegBase64: 'bW9jay1zY2FuLWJhc2U2NA==',
@@ -441,6 +463,31 @@ describe('ScannerScreen', () => {
     }));
     expect(typeof payloads[0].submittedAt).toBe('string');
     expect(payloads[0].slabAnalysis).toBeUndefined();
+  });
+
+  it('threads the selected Pokémon JP card type into the match payload language', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        return { scanID: 'scan-jp', candidates: [] };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    fireEvent.press(screen.getByTestId('scanner-target-pill'));
+    fireEvent.press(screen.getByTestId('scanning-for-sheet-type-pokemon-jp'));
+    fireEvent.press(screen.getByTestId('scanning-for-sheet-backdrop'));
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+
+    expect(payloads[0]).toMatchObject({ mode: 'raw', cardLanguage: 'japanese' });
   });
 
   it('shows the scanner smoke fixture trigger when staging smoke is enabled', () => {
@@ -718,7 +765,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
+    selectGradedCondition();
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -762,7 +809,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
+    selectGradedCondition();
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -790,7 +837,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
+    selectGradedCondition();
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -832,7 +879,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
+    selectGradedCondition();
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -933,7 +980,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
+    selectGradedCondition();
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
@@ -1306,7 +1353,7 @@ describe('ScannerScreen', () => {
 
     renderScannerScreen({ spotlightRepository });
 
-    mockQuickClassifyCapture.mockResolvedValueOnce({ isSlabLikely: true, confidence: 0.8, redBandScore: 0.6, barcodeRegionScore: 0.5, decodeMs: 5, classifyMs: 3 });
+    selectGradedCondition();
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
 
