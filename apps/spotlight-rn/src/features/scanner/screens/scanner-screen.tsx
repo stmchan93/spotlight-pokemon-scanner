@@ -989,8 +989,19 @@ export function ScannerScreen({
             encoding: 'base64',
           });
         } catch {
-          // Non-fatal — scan proceeds; artifact upload will be skipped for this capture.
+          // Non-fatal: the source capture is optional. The artifact upload now
+          // proceeds with the normalized_target alone (the training-critical
+          // image), so the scan's data is no longer dropped — only the optional
+          // source context is omitted.
         }
+      }
+      if (!sourceBase64) {
+        // Breadcrumb so we can measure how often the optional source image drops
+        // (the dominant cause of the 2026-05 card-show artifact loss).
+        capturePostHogEvent('scan_source_base64_missing', {
+          mode: isSlab ? 'slabs' : 'raw',
+          had_photo_uri: Boolean(photo.uri),
+        });
       }
 
       let matchPayload: ScannerCapturePayload = {

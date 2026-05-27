@@ -1228,7 +1228,11 @@ function createScanArtifactUploadPayload(
   payload: ScannerCapturePayload,
   scanID: string,
 ): Record<string, unknown> | null {
-  if (!payload.sourceImage || !payload.normalizedImage) {
+  // normalizedImage is the training-critical image; sourceImage is optional
+  // context that can drop under phone memory pressure. Upload whatever we have
+  // as long as the normalized image is present — never discard it just because
+  // the optional source is missing.
+  if (!payload.normalizedImage) {
     return null;
   }
   if (payload.captureSource === 'smoke_fixture') {
@@ -1239,7 +1243,7 @@ function createScanArtifactUploadPayload(
     scanID,
     submittedAt: normalizeString(payload.submittedAt) ?? new Date().toISOString(),
     captureSource: normalizeString(payload.captureSource) ?? 'camera',
-    sourceImage: payload.sourceImage,
+    sourceImage: payload.sourceImage ?? null,
     normalizedImage: payload.normalizedImage,
   };
 }
@@ -3937,6 +3941,19 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       return null;
     }
 
+    let result = await this.postScanArtifacts(uploadPayload);
+    if (result.status === 'failed') {
+      // One retry. The upload is idempotent (backend upserts by scanID), so a
+      // transient network/VM hiccup shouldn't permanently drop the artifact.
+      await new Promise((resolve) => setTimeout(resolve, 750));
+      result = await this.postScanArtifacts(uploadPayload);
+    }
+    return result;
+  }
+
+  private async postScanArtifacts(
+    uploadPayload: Record<string, unknown>,
+  ): Promise<ScannerArtifactUploadResult> {
     const startedAt = Date.now();
     const response = await this.requestJson<ScanArtifactUploadResponseDTO>(
       `${this.baseUrl}/api/v1/scan-artifacts`,

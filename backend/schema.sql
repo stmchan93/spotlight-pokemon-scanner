@@ -138,8 +138,11 @@ CREATE TABLE IF NOT EXISTS scan_events (
 CREATE TABLE IF NOT EXISTS scan_artifacts (
     scan_id TEXT PRIMARY KEY REFERENCES scan_events(scan_id) ON DELETE CASCADE,
     owner_user_id TEXT,
-    source_object_path TEXT NOT NULL,
-    normalized_object_path TEXT NOT NULL,
+    -- Nullable: a scan may persist only the normalized_target (the training image)
+    -- when the optional source_capture base64 is unavailable, or neither when an
+    -- upload is attempted-but-failed (upload_status='failed'). See store_scan_artifacts.
+    source_object_path TEXT,
+    normalized_object_path TEXT,
     source_width INTEGER,
     source_height INTEGER,
     normalized_width INTEGER,

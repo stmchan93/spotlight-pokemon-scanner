@@ -305,6 +305,75 @@ def _add_column_if_missing(
     connection.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_sql}")
 
 
+def _relax_scan_artifacts_nullability(connection: sqlite3.Connection) -> None:
+    """Drop the NOT NULL constraint on scan_artifacts.source_object_path /
+    normalized_object_path on pre-existing DBs.
+
+    SQLite cannot ALTER away a NOT NULL constraint, so we do the standard
+    table-rebuild. This lets a scan persist only the normalized_target (when the
+    optional source image is missing) or write a 'failed' observability row.
+    Runs only when the live table still has notnull=1; idempotent afterward.
+    """
+    if not _table_exists(connection, "scan_artifacts"):
+        return
+    notnull_by_column = {
+        str(row[1]): int(row[3])
+        for row in connection.execute("PRAGMA table_info(scan_artifacts)").fetchall()
+    }
+    if not (notnull_by_column.get("source_object_path") or notnull_by_column.get("normalized_object_path")):
+        return  # already relaxed
+
+    # Copy only columns shared between the rebuilt table and the existing one so
+    # the migration is robust to any columns added by earlier migration steps.
+    new_columns = [
+        "scan_id", "owner_user_id", "source_object_path", "normalized_object_path",
+        "source_width", "source_height", "normalized_width", "normalized_height",
+        "camera_zoom_factor", "capture_source", "upload_status", "uploaded_at",
+        "artifact_version", "created_at",
+    ]
+    existing_columns = _table_columns(connection, "scan_artifacts")
+    shared_columns = [column for column in new_columns if column in existing_columns]
+    column_list = ", ".join(shared_columns)
+
+    previous_fk_state = connection.execute("PRAGMA foreign_keys").fetchone()[0]
+    connection.execute("PRAGMA foreign_keys = OFF")
+    try:
+        connection.execute("DROP TABLE IF EXISTS scan_artifacts_relaxed_migration")
+        connection.execute(
+            """
+            CREATE TABLE scan_artifacts_relaxed_migration (
+                scan_id TEXT PRIMARY KEY REFERENCES scan_events(scan_id) ON DELETE CASCADE,
+                owner_user_id TEXT,
+                source_object_path TEXT,
+                normalized_object_path TEXT,
+                source_width INTEGER,
+                source_height INTEGER,
+                normalized_width INTEGER,
+                normalized_height INTEGER,
+                camera_zoom_factor REAL,
+                capture_source TEXT,
+                upload_status TEXT NOT NULL,
+                uploaded_at TEXT,
+                artifact_version TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            f"INSERT INTO scan_artifacts_relaxed_migration ({column_list}) "
+            f"SELECT {column_list} FROM scan_artifacts"
+        )
+        connection.execute("DROP TABLE scan_artifacts")
+        connection.execute("ALTER TABLE scan_artifacts_relaxed_migration RENAME TO scan_artifacts")
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS idx_scan_artifacts_owner_user_id "
+            "ON scan_artifacts(owner_user_id, created_at DESC)"
+        )
+    finally:
+        connection.execute(f"PRAGMA foreign_keys = {previous_fk_state}")
+    connection.commit()
+
+
 def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
     # Additive scan/dataset schema changes must not trigger the destructive reset path.
     scan_event_columns = {
@@ -339,6 +408,7 @@ def _apply_additive_runtime_migrations(connection: sqlite3.Connection) -> None:
         _add_column_if_missing(connection, "labeling_session_artifacts", column_name, column_sql)
 
     _add_column_if_missing(connection, "scan_artifacts", "owner_user_id", "TEXT")
+    _relax_scan_artifacts_nullability(connection)
     _add_column_if_missing(connection, "scan_confirmations", "owner_user_id", "TEXT")
     _add_column_if_missing(connection, "deck_entries", "owner_user_id", "TEXT")
     _add_column_if_missing(connection, "deck_entries", "identity_key", "TEXT")
@@ -4147,8 +4217,8 @@ def upsert_scan_artifact(
     *,
     scan_id: str,
     owner_user_id: str | None = None,
-    source_object_path: str,
-    normalized_object_path: str,
+    source_object_path: str | None = None,
+    normalized_object_path: str | None = None,
     source_width: int | None = None,
     source_height: int | None = None,
     normalized_width: int | None = None,

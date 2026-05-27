@@ -697,6 +697,74 @@ class ScanLoggingPhase7Tests(unittest.TestCase):
         self.assertEqual(artifact_status["storedArtifactCount"], 1)
         self.assertEqual(artifact_status["latestUploadedAt"], "2026-04-14T20:00:00+00:00")
 
+    def test_store_scan_artifacts_persists_normalized_only_when_source_missing(self) -> None:
+        # The dominant card-show data-loss path: the optional source image's
+        # base64 dropped on the phone, so only normalizedImage arrives. We must
+        # still persist the training-critical normalized image, not discard it.
+        self.service._log_scan(  # noqa: SLF001
+            {"scanID": "scan-phase7-normonly"},
+            {
+                "scanID": "scan-phase7-normonly",
+                "topCandidates": [],
+                "confidence": "low",
+                "ambiguityFlags": [],
+                "matcherSource": "visualIndex",
+                "matcherVersion": "phase7-test",
+                "resolverMode": "raw_card",
+                "resolverPath": "visual_only_index",
+                "reviewDisposition": "needs_review",
+                "reviewReason": None,
+            },
+            [],
+        )
+
+        payload = self.service.store_scan_artifacts(
+            {
+                "scanID": "scan-phase7-normonly",
+                "captureSource": "live_scan",
+                "submittedAt": "2026-05-24T20:00:00+00:00",
+                # no sourceImage key at all
+                "normalizedImage": {
+                    "jpegBase64": base64.b64encode(b"normalized-only-image").decode("ascii"),
+                    "width": 630,
+                    "height": 880,
+                },
+            }
+        )
+
+        self.assertEqual(payload["uploadStatus"] if "uploadStatus" in payload else None, "normalized_only")
+        self.assertIsNone(payload["sourceObjectPath"])
+
+        row = self.service.connection.execute(
+            "SELECT source_object_path, normalized_object_path, upload_status FROM scan_artifacts WHERE scan_id = ?",
+            ("scan-phase7-normonly",),
+        ).fetchone()
+        self.assertIsNotNone(row)
+        assert row is not None
+        self.assertIsNone(row["source_object_path"])
+        self.assertEqual(row["upload_status"], "normalized_only")
+        self.assertEqual((self.artifact_root / row["normalized_object_path"]).read_bytes(), b"normalized-only-image")
+
+    def test_store_scan_artifacts_raises_when_normalized_missing(self) -> None:
+        self.service._log_scan(  # noqa: SLF001
+            {"scanID": "scan-phase7-nonorm"},
+            {
+                "scanID": "scan-phase7-nonorm", "topCandidates": [], "confidence": "low",
+                "ambiguityFlags": [], "matcherSource": "visualIndex", "matcherVersion": "phase7-test",
+                "resolverMode": "raw_card", "resolverPath": "visual_only_index",
+                "reviewDisposition": "needs_review", "reviewReason": None,
+            },
+            [],
+        )
+        with self.assertRaises(ValueError):
+            self.service.store_scan_artifacts(
+                {
+                    "scanID": "scan-phase7-nonorm",
+                    "sourceImage": {"jpegBase64": base64.b64encode(b"src").decode("ascii")},
+                    # normalizedImage missing -> required, must raise
+                }
+            )
+
     def test_store_scan_artifacts_skips_when_runtime_gate_disabled(self) -> None:
         self.service._log_scan(  # noqa: SLF001
             {"scanID": "scan-phase7-4-disabled"},

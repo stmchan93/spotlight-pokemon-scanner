@@ -24,7 +24,9 @@ _SAFE_PATH_SEGMENT_PATTERN = re.compile(r"[^A-Za-z0-9._-]+")
 
 @dataclass(frozen=True)
 class StoredScanArtifacts:
-    source_object_path: str
+    # source_object_path is None for a normalized-only store (the optional source
+    # capture was unavailable, e.g. dropped under phone memory pressure).
+    source_object_path: str | None
     normalized_object_path: str
 
 
@@ -41,6 +43,17 @@ class ScanArtifactStore(Protocol):
         *,
         scan_id: str,
         source_bytes: bytes,
+        normalized_bytes: bytes,
+        year: str,
+        month: str,
+        day: str,
+    ) -> StoredScanArtifacts:
+        ...
+
+    def store_normalized_only(
+        self,
+        *,
+        scan_id: str,
         normalized_bytes: bytes,
         year: str,
         month: str,
@@ -140,6 +153,27 @@ class FilesystemScanArtifactStore:
 
         return StoredScanArtifacts(
             source_object_path=relative_root.joinpath("source_capture.jpg").as_posix(),
+            normalized_object_path=relative_root.joinpath("normalized_target.jpg").as_posix(),
+        )
+
+    def store_normalized_only(
+        self,
+        *,
+        scan_id: str,
+        normalized_bytes: bytes,
+        year: str,
+        month: str,
+        day: str,
+    ) -> StoredScanArtifacts:
+        relative_root = _scan_artifact_root(year=year, month=month, day=day, scan_id=scan_id)
+        absolute_root = self.root / relative_root
+        absolute_root.mkdir(parents=True, exist_ok=True)
+
+        normalized_path = absolute_root / "normalized_target.jpg"
+        normalized_path.write_bytes(normalized_bytes)
+
+        return StoredScanArtifacts(
+            source_object_path=None,
             normalized_object_path=relative_root.joinpath("normalized_target.jpg").as_posix(),
         )
 
@@ -283,6 +317,26 @@ class GoogleCloudScanArtifactStore:
 
         return StoredScanArtifacts(
             source_object_path=source_object_path,
+            normalized_object_path=normalized_object_path,
+        )
+
+    def store_normalized_only(
+        self,
+        *,
+        scan_id: str,
+        normalized_bytes: bytes,
+        year: str,
+        month: str,
+        day: str,
+    ) -> StoredScanArtifacts:
+        relative_root = _scan_artifact_root(year=year, month=month, day=day, scan_id=scan_id)
+        normalized_object_path = self._object_name(relative_root.joinpath("normalized_target.jpg"))
+
+        normalized_blob = self.bucket.blob(normalized_object_path)
+        normalized_blob.upload_from_string(normalized_bytes, content_type="image/jpeg")
+
+        return StoredScanArtifacts(
+            source_object_path=None,
             normalized_object_path=normalized_object_path,
         )
 

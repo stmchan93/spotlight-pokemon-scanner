@@ -100,6 +100,41 @@ class ScanArtifactStoreHelperTests(unittest.TestCase):
             )
             self.assertEqual((root / stored_labeling.source_object_path).read_bytes(), b"source-labeling")
 
+    def test_filesystem_store_normalized_only_writes_only_normalized(self) -> None:
+        with tempfile.TemporaryDirectory() as tempdir_str:
+            root = Path(tempdir_str)
+            store = FilesystemScanArtifactStore(root)
+
+            stored = store.store_normalized_only(
+                scan_id="scan-2",
+                normalized_bytes=b"normalized-only",
+                year="2026",
+                month="05",
+                day="24",
+            )
+
+            self.assertIsNone(stored.source_object_path)
+            self.assertEqual(stored.normalized_object_path, "scans/2026/05/24/scan-2/normalized_target.jpg")
+            self.assertEqual((root / stored.normalized_object_path).read_bytes(), b"normalized-only")
+            self.assertFalse((root / "scans/2026/05/24/scan-2/source_capture.jpg").exists())
+
+    def test_gcs_store_normalized_only_uploads_only_normalized(self) -> None:
+        client = _FakeGCSClient()
+        store = GoogleCloudScanArtifactStore("artifact-bucket", client=client)
+
+        stored = store.store_normalized_only(
+            scan_id="scan-3",
+            normalized_bytes=b"normalized-only",
+            year="2026",
+            month="05",
+            day="24",
+        )
+
+        self.assertIsNone(stored.source_object_path)
+        self.assertEqual(stored.normalized_object_path, "scans/2026/05/24/scan-3/normalized_target.jpg")
+        bucket = client.buckets["artifact-bucket"]
+        self.assertEqual(set(bucket.blobs), {"scans/2026/05/24/scan-3/normalized_target.jpg"})
+
     def test_gcs_store_uses_prefix_and_reports_debug_status(self) -> None:
         client = _FakeGCSClient()
         store = GoogleCloudScanArtifactStore("artifact-bucket", client=client, object_prefix="private/scans")

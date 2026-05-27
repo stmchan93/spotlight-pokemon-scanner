@@ -9265,13 +9265,21 @@ class SpotlightScanService:
         return self._labeling_session_payload(session_row)
 
     @staticmethod
-    def _decode_scan_image_payload(payload: dict[str, Any], *, field_name: str) -> tuple[bytes, int | None, int | None]:
+    def _decode_scan_image_payload(
+        payload: dict[str, Any], *, field_name: str, optional: bool = False
+    ) -> tuple[bytes | None, int | None, int | None]:
         image_payload = payload.get(field_name)
         if not isinstance(image_payload, dict):
+            if optional:
+                return None, None, None
             raise ValueError(f"{field_name} must be an object")
         encoded = str(image_payload.get("jpegBase64") or "").strip()
         if not encoded:
+            if optional:
+                return None, None, None
             raise ValueError(f"{field_name}.jpegBase64 is required")
+        # A present-but-invalid value is always an error, even when optional —
+        # don't silently accept garbage.
         try:
             raw_bytes = base64.b64decode(encoded, validate=True)
         except Exception as exc:  # noqa: BLE001
@@ -9281,6 +9289,27 @@ class SpotlightScanService:
         width = int(width_value) if isinstance(width_value, int) else None
         height = int(height_value) if isinstance(height_value, int) else None
         return raw_bytes, width, height
+
+    def _record_failed_scan_artifact(self, scan_id: str, owner_user_id: str | None, created_at: str) -> None:
+        """Best-effort 'failed' marker so a dropped upload is visible (one row per
+        attempt) instead of silently absent. Must never mask the original error."""
+        try:
+            upsert_scan_artifact(
+                self.connection,
+                scan_id=scan_id,
+                owner_user_id=owner_user_id,
+                source_object_path=None,
+                normalized_object_path=None,
+                upload_status="failed",
+                uploaded_at=None,
+                created_at=created_at,
+            )
+            self.connection.commit()
+        except Exception:  # noqa: BLE001 - observability must not break the request path
+            try:
+                self.connection.rollback()
+            except Exception:  # noqa: BLE001
+                pass
 
     def store_scan_artifacts(self, payload: dict[str, Any]) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
@@ -9304,8 +9333,16 @@ class SpotlightScanService:
                 "storage": self.artifact_store.storage_kind,
             }
 
-        source_bytes, source_width, source_height = self._decode_scan_image_payload(payload, field_name="sourceImage")
-        normalized_bytes, normalized_width, normalized_height = self._decode_scan_image_payload(payload, field_name="normalizedImage")
+        # normalized_target is the training-critical image and is required.
+        # source_capture is optional context — when the client couldn't attach it
+        # (e.g. its base64 dropped under phone memory pressure) we still persist
+        # the normalized image rather than discarding the whole upload.
+        normalized_bytes, normalized_width, normalized_height = self._decode_scan_image_payload(
+            payload, field_name="normalizedImage"
+        )
+        source_bytes, source_width, source_height = self._decode_scan_image_payload(
+            payload, field_name="sourceImage", optional=True
+        )
 
         submitted_at = str(payload.get("submittedAt") or utc_now()).strip() or utc_now()
         try:
@@ -9316,14 +9353,25 @@ class SpotlightScanService:
         month = f"{partition_datetime.month:02d}"
         day = f"{partition_datetime.day:02d}"
         try:
-            stored = self.artifact_store.store(
-                scan_id=scan_id,
-                source_bytes=source_bytes,
-                normalized_bytes=normalized_bytes,
-                year=year,
-                month=month,
-                day=day,
-            )
+            if source_bytes is not None:
+                stored = self.artifact_store.store(
+                    scan_id=scan_id,
+                    source_bytes=source_bytes,
+                    normalized_bytes=normalized_bytes,
+                    year=year,
+                    month=month,
+                    day=day,
+                )
+                upload_status = "uploaded"
+            else:
+                stored = self.artifact_store.store_normalized_only(
+                    scan_id=scan_id,
+                    normalized_bytes=normalized_bytes,
+                    year=year,
+                    month=month,
+                    day=day,
+                )
+                upload_status = "normalized_only"
 
             upsert_scan_artifact(
                 self.connection,
@@ -9337,12 +9385,15 @@ class SpotlightScanService:
                 normalized_height=normalized_height,
                 camera_zoom_factor=float(payload["cameraZoomFactor"]) if isinstance(payload.get("cameraZoomFactor"), (int, float)) else None,
                 capture_source=str(payload.get("captureSource") or "").strip() or None,
+                upload_status=upload_status,
                 uploaded_at=submitted_at,
                 created_at=submitted_at,
             )
             self.connection.commit()
         except Exception:
             self.connection.rollback()
+            # Record a visible 'failed' marker so server-side drops aren't silent.
+            self._record_failed_scan_artifact(scan_id, owner_user_id, submitted_at)
             raise
 
         artifacts_json_object_path: str | None = None
@@ -9380,6 +9431,7 @@ class SpotlightScanService:
             "scanID": scan_id,
             "enabled": True,
             "storage": self.artifact_store.storage_kind,
+            "uploadStatus": upload_status,
             "sourceObjectPath": stored.source_object_path,
             "normalizedObjectPath": stored.normalized_object_path,
             "artifactsJsonObjectPath": artifacts_json_object_path,
@@ -9440,7 +9492,7 @@ class SpotlightScanService:
         *,
         scan_id: str,
         payload: dict[str, Any],
-        source_object_path: str,
+        source_object_path: str | None,
         normalized_object_path: str,
         source_width: int | None,
         source_height: int | None,
