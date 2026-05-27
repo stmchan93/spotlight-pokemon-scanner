@@ -1048,6 +1048,7 @@ class SpotlightScanService:
             "resolverMode": "raw_card",
             "resolverPath": "visual_only_index",
             "slabContext": None,
+            "targetLanguageMismatch": debug.get("targetLanguageMismatch"),
             "reviewDisposition": review_disposition,
             "reviewReason": None if confidence != "low" else "Visual-only candidates are ambiguous.",
             "rawDecisionDebug": {

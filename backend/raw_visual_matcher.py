@@ -28,6 +28,12 @@ _MINI_ENERGY_INDEX_MIN_SIMILARITY = 0.55
 # preferred_language. Below this we don't trust the visual probe and let
 # the main matcher behave as if no language hint were available.
 _LANGUAGE_PROBE_MIN_CONFIDENCE = 0.80
+# Min confidence for the visual language probe to flag a TARGET MISMATCH (the
+# user picked a language the card visibly is not). This gates a user-facing
+# "wrong toggle" warning that removes the scan from the tray, so it is set
+# deliberately HIGHER than the soft-hint threshold to keep false positives
+# (a valid scan wrongly rejected) rare. Tunable via env.
+_LANGUAGE_MISMATCH_DEFAULT_MIN_CONFIDENCE = 0.90
 
 
 def _emit_matcher_log(severity: str, event: str, **fields: Any) -> None:
@@ -81,6 +87,38 @@ def _language_character_counts(value: str) -> tuple[int, int, int]:
     latin_chars = sum(1 for char in value if char.isascii() and char.isalpha())
     digit_chars = sum(1 for char in value if char.isdigit())
     return japanese_chars, latin_chars, digit_chars
+
+
+def detect_language_mismatch(
+    selected_language: Any,
+    predicted_language: Any,
+    confidence: float,
+    *,
+    min_confidence: float,
+) -> dict[str, Any] | None:
+    """Return a mismatch descriptor when the user's explicitly selected scan
+    language disagrees with a confident visual language prediction, else None.
+
+    Fires only when BOTH languages are known, they differ, and the prediction
+    clears `min_confidence`. Pure and O(1) so it can run on every scan with no
+    measurable cost — the heavy work (the embedding + probe) already happened.
+
+    Returns lowercase language codes ('english' | 'japanese') to match the
+    client's ScannerCardLanguage type.
+    """
+    selected = _normalize_language(selected_language)
+    predicted = _normalize_language(predicted_language)
+    if selected is None or predicted is None:
+        return None
+    if selected == predicted:
+        return None
+    if float(confidence) < float(min_confidence):
+        return None
+    return {
+        "selected": selected.lower(),
+        "detected": predicted.lower(),
+        "confidence": round(float(confidence), 6),
+    }
 
 
 def resolve_repo_relative_path(repo_root: Path, value: str | Path | None, default: Path) -> Path:
@@ -236,12 +274,21 @@ class RawVisualMatcher:
         # that estimates EN vs JP. Used as a fallback preferred_language when
         # OCR-derived hints are missing.
         language_probe_env = os.environ.get("SPOTLIGHT_VISUAL_LANGUAGE_PROBE_PATH")
-        default_language_probe_path = default_model_root / "language_probe_v1.npz"
+        # Default next to the RESOLVED adapter checkpoint rather than
+        # repo_root/backend/data, so the probe loads with no env override even on
+        # the flat VM layout (where repo_root + "backend/data" mis-resolves to
+        # ~/backend/data). The adapter path is already resolved correctly above.
+        default_language_probe_path = self.adapter_checkpoint_path.parent / "language_probe_v1.npz"
         self.language_probe_path = resolve_repo_relative_path(
             repo_root, language_probe_env, default_language_probe_path,
         )
         self._language_probe: dict[str, Any] | None = None
         self._load_language_probe()
+        # Confidence floor for flagging a target-language mismatch (wrong toggle).
+        self.language_mismatch_min_confidence = _env_float(
+            "SPOTLIGHT_VISUAL_LANGUAGE_MISMATCH_MIN_CONFIDENCE",
+            _LANGUAGE_MISMATCH_DEFAULT_MIN_CONFIDENCE,
+        )
 
         self._encoder: RawVisualFrozenEncoder | None = None
         self._adapter = None
@@ -438,7 +485,14 @@ class RawVisualMatcher:
         with self._runtime_lock:
             if self._runtime_ready:
                 return
-            encoder = RawVisualFrozenEncoder(model_id=self.model_id, device="auto")
+            # The runtime scanner defaults to the ONNX encoder (faster on the
+            # CPU VM, numerically identical to torch). No env var needed; set
+            # SPOTLIGHT_VISUAL_ENCODER_BACKEND=torch to force torch. The encoder
+            # falls back to torch on its own if the ONNX artifact is missing.
+            encoder_backend = os.environ.get("SPOTLIGHT_VISUAL_ENCODER_BACKEND") or "onnx"
+            encoder = RawVisualFrozenEncoder(
+                model_id=self.model_id, device="auto", backend=encoder_backend
+            )
             adapter = None
             if self.adapter_checkpoint_path and self.adapter_checkpoint_path.exists():
                 adapter = load_projection_adapter(
@@ -747,14 +801,15 @@ class RawVisualMatcher:
             "setName": str(mini["set_names"][selected_index]),
         }
 
-    def _predict_language(
+    def _language_probe_prediction(
         self, query_embedding: np.ndarray
     ) -> tuple[str | None, float]:
-        """Run the logistic-regression language probe over the embedding.
+        """Raw top language-probe prediction + confidence, WITHOUT the soft-hint
+        confidence gate. Returns (None, 0.0) when the probe is unavailable.
 
-        Returns (predicted_language, confidence). If the probe artifact is
-        unavailable or the prediction confidence is below the threshold,
-        returns (None, confidence).
+        This is the shared core used by both the soft preferred_language hint
+        (`_predict_language`) and the target-mismatch check, which apply their
+        own thresholds.
         """
         probe = getattr(self, "_language_probe", None)
         if probe is None:
@@ -773,6 +828,20 @@ class RawVisualMatcher:
         confidence = float(probabilities[top])
         predicted_raw = str(classes[top])
         predicted = _normalize_language(predicted_raw) or predicted_raw
+        return predicted, confidence
+
+    def _predict_language(
+        self, query_embedding: np.ndarray
+    ) -> tuple[str | None, float]:
+        """Run the logistic-regression language probe over the embedding.
+
+        Returns (predicted_language, confidence). If the probe artifact is
+        unavailable or the prediction confidence is below the threshold,
+        returns (None, confidence).
+        """
+        predicted, confidence = self._language_probe_prediction(query_embedding)
+        if predicted is None:
+            return None, confidence
         if confidence < _LANGUAGE_PROBE_MIN_CONFIDENCE:
             return None, confidence
         return predicted, confidence
@@ -1140,6 +1209,29 @@ class RawVisualMatcher:
                 if replacement_match is not None and matches:
                     matches = [replacement_match] + matches[1:]
 
+            # Target-language mismatch: compare the user's explicit toggle against a
+            # confident visual language prediction so the client can warn "wrong
+            # toggle" and drop the scan. Runs regardless of the explicit hint (the
+            # soft-hint probe above is skipped when an explicit hint is present), and
+            # is O(1) on top of the embedding that already exists.
+            target_language_mismatch = None
+            if base_variant_embedding is not None and getattr(self, "_language_probe", None) is not None:
+                probe_predicted_language, probe_prediction_confidence = self._language_probe_prediction(
+                    base_variant_embedding
+                )
+                language_probe_debug["rawPredictedLanguage"] = probe_predicted_language
+                language_probe_debug["rawPredictionConfidence"] = round(float(probe_prediction_confidence), 6)
+                target_language_mismatch = detect_language_mismatch(
+                    payload.get("cardLanguage"),
+                    probe_predicted_language,
+                    probe_prediction_confidence,
+                    min_confidence=getattr(
+                        self,
+                        "language_mismatch_min_confidence",
+                        _LANGUAGE_MISMATCH_DEFAULT_MIN_CONFIDENCE,
+                    ),
+                )
+
             debug = {
                 "modelId": self.model_id,
                 "indexNpzPath": str(self.index.npz_path),
@@ -1153,6 +1245,7 @@ class RawVisualMatcher:
                 "languageFragments": language_fragments[:8],
                 "languageBiasApplied": language_bias_applied,
                 "languageProbe": language_probe_debug,
+                "targetLanguageMismatch": target_language_mismatch,
                 "queryVariants": variant_debug,
                 "queryVariantCount": len(query_variants),
                 "queryVariantStrategy": "best_similarity_dedupe",

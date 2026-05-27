@@ -269,6 +269,44 @@ describe('ScannerScreen', () => {
     expect(await screen.findByTestId('scanner-mode-mismatch-notice')).toBeTruthy();
   });
 
+  it('drops the scan and warns when the card language differs from the toggle', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        return {
+          scanID: 'scan-lang-mismatch',
+          candidates: [],
+          targetLanguageMismatch: { selected: 'english', detected: 'japanese', confidence: 0.97 },
+        };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+    // Default toggle is English; the backend says this card is Japanese.
+    expect(payloads[0].cardLanguage).toBe('english');
+
+    const notice = await screen.findByTestId('scanner-language-mismatch-notice');
+    expect(notice).toBeTruthy();
+    // Clear, actionable messaging that names the detected language.
+    expect(screen.getByText(/looks like a Japanese card/i)).toBeTruthy();
+
+    // A wrong-language scan is never kept in the tray.
+    expect(screen.queryByTestId('scanner-tray-row-pending')).toBeNull();
+    expect(screen.queryByTestId('scanner-tray-row-review')).toBeNull();
+
+    // Tapping the notice flips the toggle and clears the warning.
+    fireEvent.press(notice);
+    expect(screen.queryByTestId('scanner-language-mismatch-notice')).toBeNull();
+  });
+
   it('renders an empty recent scans tray with no placeholder rows', () => {
     renderScannerScreen();
 

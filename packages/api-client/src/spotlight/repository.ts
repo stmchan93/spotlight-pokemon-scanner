@@ -61,10 +61,12 @@ import type {
   VendorWalletHandlesUpdate,
   ScannerArtifactUploadResult,
   ScannerCapturePayload,
+  ScannerCardLanguage,
   ScanFeedbackPayload,
   ScannerMatchOptions,
   ScannerMatchResult,
   ScannerMode,
+  ScannerTargetLanguageMismatch,
   SlabContext,
   SpotlightRepositoryLoadResult,
 } from './types';
@@ -295,6 +297,11 @@ type ScanMatchResponseDTO = {
   slabContext?: DeckEntryDTO['slabContext'];
   reviewDisposition?: string | null;
   reviewReason?: string | null;
+  targetLanguageMismatch?: {
+    selected?: string | null;
+    detected?: string | null;
+    confidence?: number | null;
+  } | null;
   performance?: {
     serverProcessingMs?: number | null;
   } | null;
@@ -1295,6 +1302,27 @@ function normalizeSlabContext(value: DeckEntryDTO['slabContext']): SlabContext |
     grade: normalizeString(value?.grade),
     certNumber: normalizeString(value?.certNumber),
     variantName: normalizeString(value?.variantName),
+  };
+}
+
+function isScannerCardLanguage(value: string | null | undefined): value is ScannerCardLanguage {
+  return value === 'english' || value === 'japanese';
+}
+
+function normalizeTargetLanguageMismatch(
+  value: ScanMatchResponseDTO['targetLanguageMismatch'],
+): ScannerTargetLanguageMismatch | null {
+  const selected = normalizeString(value?.selected);
+  const detected = normalizeString(value?.detected);
+  // Only trust a well-formed, genuinely-opposing pair; anything else is ignored
+  // so a malformed payload can never wrongly reject a scan.
+  if (!isScannerCardLanguage(selected) || !isScannerCardLanguage(detected) || selected === detected) {
+    return null;
+  }
+  return {
+    selected,
+    detected,
+    confidence: normalizeNumber(value?.confidence) ?? 0,
   };
 }
 
@@ -3106,6 +3134,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       roundTripMs,
       serverProcessingMs,
       slabContext: normalizeSlabContext(response.data?.slabContext),
+      targetLanguageMismatch: normalizeTargetLanguageMismatch(response.data?.targetLanguageMismatch),
     } satisfies ScannerMatchResult;
   }
 

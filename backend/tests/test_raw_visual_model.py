@@ -182,6 +182,18 @@ class RawVisualModelTests(unittest.TestCase):
         self.assertEqual(path.name, "clip-vit-base-patch32_vision_fp32.onnx")
         self.assertEqual(path.parent.name, "visual-models")
 
+    def test_onnx_backend_falls_back_to_torch_when_unavailable(self) -> None:
+        # ONNX is the runtime default; any environment missing the artifact or
+        # onnxruntime must transparently fall back to torch rather than crash.
+        with patch("raw_visual_model.CLIPProcessor") as mock_processor, \
+                patch.object(RawVisualFrozenEncoder, "_init_onnx_backend", side_effect=RuntimeError("missing artifact")), \
+                patch.object(RawVisualFrozenEncoder, "_init_torch_backend") as mock_torch_init:
+            mock_processor.from_pretrained.return_value = object()
+            encoder = RawVisualFrozenEncoder(device="cpu", backend="onnx")
+
+        self.assertEqual(encoder.backend, "torch")
+        mock_torch_init.assert_called_once()
+
     def test_embed_batch_with_timing_onnx_normalizes_and_validates_shape(self) -> None:
         encoder = object.__new__(RawVisualFrozenEncoder)
         encoder.backend = "onnx"

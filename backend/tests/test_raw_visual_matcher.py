@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import tempfile
+import time
 import unittest
 from base64 import b64encode
 from io import BytesIO
@@ -21,7 +22,7 @@ try:
     import torch  # noqa: E402
     from raw_visual_index import RawVisualSearchMatch  # noqa: E402
     import raw_visual_matcher as raw_visual_matcher_module  # noqa: E402
-    from raw_visual_matcher import RawVisualMatcher, resolve_repo_relative_path  # noqa: E402
+    from raw_visual_matcher import RawVisualMatcher, detect_language_mismatch, resolve_repo_relative_path  # noqa: E402
     _IMPORT_ERROR: Exception | None = None
 except Exception as exc:  # pragma: no cover - host-python dependency fallback
     RawVisualSearchMatch = None  # type: ignore[assignment]
@@ -197,7 +198,7 @@ class RawVisualMatcherTests(unittest.TestCase):
         encoder_inits: list[tuple[str, str]] = []
 
         class _FakeEncoder:
-            def __init__(self, *, model_id: str, device: str) -> None:
+            def __init__(self, *, model_id: str, device: str, backend: str | None = None) -> None:
                 encoder_inits.append((model_id, device))
                 self.embedding_dim = 512
                 self.device = "cpu"
@@ -229,7 +230,7 @@ class RawVisualMatcherTests(unittest.TestCase):
 
     def test_ensure_runtime_skips_adapter_load_when_checkpoint_is_missing(self) -> None:
         class _FakeEncoder:
-            def __init__(self, *, model_id: str, device: str) -> None:
+            def __init__(self, *, model_id: str, device: str, backend: str | None = None) -> None:
                 self.embedding_dim = 256
                 self.device = "cpu"
 
@@ -569,6 +570,48 @@ class RawVisualMatcherTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Visual index artifacts are not available"):
             matcher.match_payload({})
+
+
+@unittest.skipIf(_IMPORT_ERROR is not None, f"raw visual matcher test deps unavailable: {_IMPORT_ERROR}")
+class DetectLanguageMismatchTests(unittest.TestCase):
+    def test_flags_high_confidence_opposite_language(self) -> None:
+        # English selected, the card visibly looks Japanese -> mismatch.
+        result = detect_language_mismatch("english", "Japanese", 0.97, min_confidence=0.90)
+        self.assertEqual(result, {"selected": "english", "detected": "japanese", "confidence": 0.97})
+
+        # And the reverse direction.
+        reverse = detect_language_mismatch("japanese", "english", 0.95, min_confidence=0.90)
+        self.assertEqual(reverse, {"selected": "japanese", "detected": "english", "confidence": 0.95})
+
+    def test_no_mismatch_when_languages_agree(self) -> None:
+        self.assertIsNone(detect_language_mismatch("english", "English", 0.99, min_confidence=0.90))
+        self.assertIsNone(detect_language_mismatch("japanese", "Japanese", 0.99, min_confidence=0.90))
+
+    def test_no_mismatch_below_confidence_floor(self) -> None:
+        # Disagreement but the probe isn't confident enough -> stay silent.
+        self.assertIsNone(detect_language_mismatch("english", "Japanese", 0.89, min_confidence=0.90))
+
+    def test_no_mismatch_when_selection_or_prediction_missing(self) -> None:
+        self.assertIsNone(detect_language_mismatch(None, "Japanese", 0.99, min_confidence=0.90))
+        self.assertIsNone(detect_language_mismatch("english", None, 0.99, min_confidence=0.90))
+        self.assertIsNone(detect_language_mismatch("", "Japanese", 0.99, min_confidence=0.90))
+        # Unknown/garbage language values normalize to None and never mismatch.
+        self.assertIsNone(detect_language_mismatch("klingon", "Japanese", 0.99, min_confidence=0.90))
+
+    def test_detection_is_fast_enough_to_run_every_scan(self) -> None:
+        # The detector must add negligible cost to the scan path — the user wants
+        # the "wrong toggle" warning to feel instant. 20k calls should finish far
+        # under the ~100ms end-to-end budget (i.e. microseconds per call).
+        iterations = 20_000
+        started = time.perf_counter()
+        for _ in range(iterations):
+            detect_language_mismatch("english", "Japanese", 0.97, min_confidence=0.90)
+        elapsed_ms = (time.perf_counter() - started) * 1000.0
+        self.assertLess(
+            elapsed_ms,
+            100.0,
+            f"{iterations} mismatch detections took {elapsed_ms:.1f}ms; expected <100ms total.",
+        )
 
 
 if __name__ == "__main__":

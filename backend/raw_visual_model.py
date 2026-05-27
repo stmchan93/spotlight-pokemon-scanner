@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import os
+import sys
 from pathlib import Path
 from time import perf_counter
 from typing import Iterable
@@ -138,7 +139,19 @@ class RawVisualFrozenEncoder:
         self._onnx_input_name = None
         self._onnx_path: str | None = None
         if self.backend == "onnx":
-            self._init_onnx_backend(onnx_path)
+            try:
+                self._init_onnx_backend(onnx_path)
+            except Exception as exc:
+                # Graceful fallback so ONNX can be the default everywhere: any
+                # environment without the exported artifact or onnxruntime
+                # transparently uses torch. Production ships the artifact.
+                print(
+                    f"[raw_visual_model] ONNX encoder unavailable ({exc}); falling back to torch backend.",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                self.backend = "torch"
+                self._init_torch_backend()
         else:
             self._init_torch_backend()
 

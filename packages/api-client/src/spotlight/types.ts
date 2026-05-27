@@ -75,6 +75,17 @@ export type ScanFeedbackPayload = {
   wasTopPrediction?: boolean | null;
 };
 
+/**
+ * Set when the backend's visual language probe is confident the scanned card is
+ * a different language than the user's selected toggle (e.g. a Japanese card
+ * scanned with English selected). Drives the "wrong toggle" warning.
+ */
+export type ScannerTargetLanguageMismatch = {
+  selected: ScannerCardLanguage;
+  detected: ScannerCardLanguage;
+  confidence: number;
+};
+
 export type ScannerMatchResult = {
   scanID: string | null;
   candidates: CatalogSearchResult[];
@@ -87,6 +98,7 @@ export type ScannerMatchResult = {
   requestUrl?: string | null;
   requestAttemptCount?: number | null;
   slabContext?: SlabContext | null;
+  targetLanguageMismatch?: ScannerTargetLanguageMismatch | null;
 };
 
 export type ScannerMatchOptions = {

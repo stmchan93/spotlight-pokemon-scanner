@@ -79,6 +79,7 @@ import {
   cardLanguageForCardType,
   scanTargetPillLabel,
   useScannerTargetConfig,
+  type ScannerCardType,
   type ScannerCondition,
 } from '@/features/scanner/use-scanner-target-config';
 
@@ -187,6 +188,11 @@ export function ScannerScreen({
   // selected condition — e.g. a barcode/red band shows up on the raw lane.
   // Holds the condition we suggest switching to, or null when there's no notice.
   const [scanModeMismatchNotice, setScanModeMismatchNotice] = useState<ScannerCondition | null>(null);
+  // Set when the backend's visual language probe is confident the scanned card is
+  // a different language than the selected toggle. Holds the card type we suggest
+  // switching to, or null when there's no notice. Mismatched scans are dropped
+  // from the tray (never saved) and this drives the warning.
+  const [scanLanguageMismatchNotice, setScanLanguageMismatchNotice] = useState<ScannerCardType | null>(null);
   const [isRawPictureConfigReady, setIsRawPictureConfigReady] = useState(
     isTestEnv || cachedRawVisualPictureSize != null,
   );
@@ -637,6 +643,28 @@ export function ScannerScreen({
         );
       }
 
+      // Wrong-toggle guard: if the card is confidently a different language than
+      // the selected toggle, never keep it in the tray — drop it and warn so the
+      // user fixes the toggle and rescans. The detection itself is O(1) on the
+      // backend (probe over the already-computed embedding); this just reacts to
+      // the flag the moment the response lands.
+      if (matchResult.targetLanguageMismatch) {
+        const detectedLanguage = matchResult.targetLanguageMismatch.detected;
+        const suggestedCardType: ScannerCardType =
+          detectedLanguage === 'japanese' ? 'pokemon_jp' : 'pokemon_en';
+        capturePostHogEvent('scan_language_mismatch', {
+          mode,
+          selected_card_language: matchResult.targetLanguageMismatch.selected,
+          detected_card_language: detectedLanguage,
+          confidence: matchResult.targetLanguageMismatch.confidence,
+        });
+        deleteRecentCapture(captureId);
+        // Language warning supersedes the lane warning for this capture.
+        setScanModeMismatchNotice(null);
+        setScanLanguageMismatchNotice(suggestedCardType);
+        return;
+      }
+
       updateRecentCapture(captureId, (capture) => ({
         ...capture,
         activeCandidateIndex: 0,
@@ -702,7 +730,7 @@ export function ScannerScreen({
         slabAnalysisMs,
       }));
     }
-  }, [spotlightRepository, updateRecentCapture]);
+  }, [deleteRecentCapture, spotlightRepository, updateRecentCapture]);
 
   const handleCapture = useCallback(async () => {
     if (!permission?.granted) {
@@ -717,8 +745,9 @@ export function ScannerScreen({
     }
 
     void triggerScannerHaptic();
-    // Each capture re-evaluates the lane mismatch, so clear any prior warning.
+    // Each capture re-evaluates the mismatches, so clear any prior warnings.
     setScanModeMismatchNotice(null);
+    setScanLanguageMismatchNotice(null);
     const scanStartedAt = Date.now();
     setIsCapturing(true);
 
@@ -1913,6 +1942,41 @@ export function ScannerScreen({
           </Pressable>
         ) : null}
 
+        {scanLanguageMismatchNotice ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={
+              scanLanguageMismatchNotice === 'pokemon_jp'
+                ? 'Switch to Japanese'
+                : 'Switch to English'
+            }
+            onPress={() => {
+              setCardType(scanLanguageMismatchNotice);
+              setScanLanguageMismatchNotice(null);
+            }}
+            style={[
+              styles.modeMismatchNotice,
+              { top: captureSurfaceLayout.backButtonTop + 44 },
+            ]}
+            testID="scanner-language-mismatch-notice"
+          >
+            <Text style={styles.modeMismatchText}>
+              {scanLanguageMismatchNotice === 'pokemon_jp'
+                ? 'This looks like a Japanese card. Tap to switch the toggle to Japanese, then scan again.'
+                : 'This looks like an English card. Tap to switch the toggle to English, then scan again.'}
+            </Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Dismiss"
+              hitSlop={8}
+              onPress={() => setScanLanguageMismatchNotice(null)}
+              testID="scanner-language-mismatch-dismiss"
+            >
+              <Text style={styles.modeMismatchDismiss}>×</Text>
+            </Pressable>
+          </Pressable>
+        ) : null}
+
         {scannerSmokeEnabled ? (
           <View
             style={[
@@ -2089,7 +2153,10 @@ export function ScannerScreen({
           setCondition(next);
           setScanModeMismatchNotice((current) => (current === next ? null : current));
         }}
-        onSelectCardType={setCardType}
+        onSelectCardType={(next) => {
+          setCardType(next);
+          setScanLanguageMismatchNotice((current) => (current === next ? null : current));
+        }}
         onClose={() => setIsScanTargetSheetOpen(false)}
       />
     </SafeAreaView>
