@@ -35,6 +35,11 @@ from raw_visual_model import (  # noqa: E402
     project_embeddings_numpy,
     resolve_torch_device,
 )
+from rerank_pool_curation import (  # noqa: E402
+    PROTOTYPE_KIND,
+    CurationParams,
+    curate_card_embeddings,
+)
 
 
 def utc_now_iso() -> str:
@@ -104,6 +109,16 @@ def parse_args() -> argparse.Namespace:
         default=Path("backend/data/visual-models/raw_visual_adapter_active.pt"),
         help="Adapter checkpoint to project pool embeddings into the same space as the query encoder. Set to a missing path to skip projection (base CLIP only).",
     )
+    # Curation (shared with the eval harness via tools/rerank_pool_curation.py).
+    parser.add_argument(
+        "--no-curate",
+        action="store_true",
+        help="Disable per-card curation (outlier gate + cap + prototype). Reproduces the legacy raw-exemplar pool.",
+    )
+    parser.add_argument("--max-exemplars-per-card", type=int, default=12)
+    parser.add_argument("--centroid-cos-floor", type=float, default=0.80)
+    parser.add_argument("--centroid-mad-k", type=float, default=2.5)
+    parser.add_argument("--no-prototype", action="store_true", help="Disable the averaged prototype row.")
     return parser.parse_args()
 
 
@@ -220,6 +235,66 @@ def main() -> None:
     else:
         print(f"NO adapter applied (path missing: {adapter_path})", flush=True)
 
+    # --- Curation (shared with the eval harness) -----------------------------
+    # Group rows by card and apply the outlier gate + cap + prototype so the
+    # pool is robust and bounded as it grows. Done AFTER the adapter so curation
+    # operates in the same space the live matcher compares in.
+    curation_params = CurationParams(
+        max_exemplars=args.max_exemplars_per_card,
+        centroid_cos_floor=args.centroid_cos_floor,
+        centroid_mad_k=args.centroid_mad_k,
+        with_prototype=not args.no_prototype,
+    )
+    if not args.no_curate:
+        pid_to_local: dict[str, list[int]] = {}
+        for local_idx, row in enumerate(rows):
+            pid_to_local.setdefault(row["providerCardId"], []).append(local_idx)
+
+        curated_vectors: list[np.ndarray] = []
+        curated_rows: list[dict[str, Any]] = []
+        agg = {"droppedOutliers": 0, "cappedRemoved": 0, "prototypesAdded": 0}
+        for pid, local_idxs in pid_to_local.items():
+            group = matrix[local_idxs]
+            kept_rows, _kinds, stats = curate_card_embeddings(group, curation_params)
+            agg["droppedOutliers"] += stats.droppedOutliers
+            agg["cappedRemoved"] += stats.cappedRemoved
+            agg["prototypesAdded"] += 1 if stats.prototypeAdded else 0
+            for j, kept_local in enumerate(stats.keptIndices):
+                orig = dict(rows[local_idxs[kept_local]])
+                orig["exemplarKind"] = "exemplar"
+                curated_rows.append(orig)
+                curated_vectors.append(kept_rows[j])
+            if stats.prototypeAdded:
+                base = rows[local_idxs[stats.keptIndices[0]]]
+                curated_rows.append({
+                    "providerCardId": pid,
+                    "normalizedImagePath": None,
+                    "fixtureName": None,
+                    "cardName": base.get("cardName"),
+                    "collectorNumber": base.get("collectorNumber"),
+                    "setCode": base.get("setCode"),
+                    "mappingConfidence": base.get("mappingConfidence"),
+                    "exemplarKind": PROTOTYPE_KIND,
+                })
+                curated_vectors.append(kept_rows[-1])
+
+        matrix = np.stack(curated_vectors, axis=0).astype(np.float32)
+        rows = curated_rows
+        total = len(rows)
+        unique_pids = sorted({r["providerCardId"] for r in rows})
+        curation_summary = {"applied": True, **curation_params.as_dict(), **agg}
+        print(
+            f"curation: {total} rows across {len(unique_pids)} cards "
+            f"(dropped {agg['droppedOutliers']} outliers, capped {agg['cappedRemoved']}, "
+            f"+{agg['prototypesAdded']} prototypes)",
+            flush=True,
+        )
+    else:
+        for row in rows:
+            row["exemplarKind"] = "exemplar"
+        curation_summary = {"applied": False}
+        print("curation OFF (legacy raw-exemplar pool)", flush=True)
+
     model_slug = args.model_id.split("/")[-1].lower()
     artifact_stem = f"visual_index_user_photos_rerank_pool_{args.artifact_version}"
     npz_path = output_dir / f"{artifact_stem}_{model_slug}.npz"
@@ -239,16 +314,18 @@ def main() -> None:
         "rejectionCounts": rejected_counts,
         "adapterCheckpointPath": str(adapter_path) if adapter_applied else None,
         "adapterApplied": adapter_applied,
+        "curation": curation_summary,
         "entries": [
             {
                 "rowIndex": idx,
                 "providerCardId": row["providerCardId"],
-                "fixtureName": row["fixtureName"],
-                "cardName": row["cardName"],
-                "collectorNumber": row["collectorNumber"],
-                "setCode": row["setCode"],
-                "normalizedImagePath": row["normalizedImagePath"],
-                "mappingConfidence": row["mappingConfidence"],
+                "fixtureName": row.get("fixtureName"),
+                "cardName": row.get("cardName"),
+                "collectorNumber": row.get("collectorNumber"),
+                "setCode": row.get("setCode"),
+                "normalizedImagePath": row.get("normalizedImagePath"),
+                "mappingConfidence": row.get("mappingConfidence"),
+                "exemplarKind": row.get("exemplarKind", "exemplar"),
             }
             for idx, row in enumerate(rows)
         ],

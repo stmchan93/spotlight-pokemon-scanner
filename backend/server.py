@@ -1011,7 +1011,7 @@ class SpotlightScanService:
             ]
         )
         ranked_matches = [self._visual_match_summary(match) for match in matches]
-        confidence, ambiguity_flags = self._visual_confidence(ranked_matches)
+        confidence, ambiguity_flags, confidence_detail = self._visual_confidence(ranked_matches)
         review_disposition = "ready" if confidence != "low" else "needs_review"
         pricing_policy = self._scan_candidate_pricing_policy(
             refresh_top_candidate_stale=True,
@@ -1042,6 +1042,7 @@ class SpotlightScanService:
             "scanID": payload["scanID"],
             "topCandidates": encoded_candidates,
             "confidence": confidence,
+            "confidenceDetail": confidence_detail,
             "ambiguityFlags": ambiguity_flags,
             "matcherSource": "visualIndex",
             "matcherVersion": MATCHER_VERSION,
@@ -7090,20 +7091,32 @@ class SpotlightScanService:
         }
 
     @staticmethod
-    def _visual_confidence(matches: list[dict[str, Any]]) -> tuple[str, list[str]]:
+    def _visual_confidence(
+        matches: list[dict[str, Any]],
+    ) -> tuple[str, list[str], dict[str, Any]]:
         if not matches:
-            return "low", ["No visual candidates were available."]
+            detail = {"top1": 0.0, "top2": 0.0, "margin": 0.0}
+            return "low", ["No visual candidates were available."], detail
         top1 = float(matches[0].get("similarity") or 0.0)
         top2 = float(matches[1].get("similarity") or 0.0) if len(matches) > 1 else 0.0
         margin = top1 - top2
+        # Numeric detail mirrors the categorical thresholds below; surfaced so the
+        # client (and the Phase-2 collector tiebreak) can reason about "how close"
+        # without re-deriving it. Scores here are post-rerank (matches are the final
+        # ranked summaries), so the margin reflects any user-photo boost.
+        detail = {
+            "top1": round(top1, 6),
+            "top2": round(top2, 6),
+            "margin": round(margin, 6),
+        }
         if top1 >= 0.85 and margin >= 0.05:
-            return "high", []
+            return "high", [], detail
         if top1 >= 0.72 and margin >= 0.02:
-            return "medium", []
+            return "medium", [], detail
         flags = ["Visual match is ambiguous; review recommended."]
         if margin < 0.02:
             flags.append("Top visual candidates are very close.")
-        return "low", flags
+        return "low", flags, detail
 
     def _resolve_raw_candidates_visual_only(
         self,

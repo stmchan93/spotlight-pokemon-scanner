@@ -31,6 +31,7 @@ if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
 from raw_visual_model import DEFAULT_VISUAL_MODEL_ID, RawVisualFrozenEncoder  # noqa: E402
+from rerank_pool_curation import CurationParams, curate_card_embeddings  # noqa: E402
 
 
 def truth_key(name: str, num: str, setc: str) -> str:
@@ -93,6 +94,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--alphas", type=float, nargs="+", default=[0.0, 0.1, 0.25, 0.5, 1.0])
     parser.add_argument("--thresholds", type=float, nargs="+", default=[0.0])
     parser.add_argument("--shortlist-k", type=int, default=50, help="Stage-1 candidate count.")
+    parser.add_argument(
+        "--curate",
+        action="store_true",
+        help="Apply the shared rerank-pool curation (outlier gate + cap + prototype) to each card's "
+        "exemplars before computing the rerank max — so the measured lift reflects the shipped pool.",
+    )
+    parser.add_argument("--max-exemplars-per-card", type=int, default=12)
+    parser.add_argument("--centroid-cos-floor", type=float, default=0.80)
+    parser.add_argument("--centroid-mad-k", type=float, default=2.5)
+    parser.add_argument("--no-prototype", action="store_true", help="Disable the averaged prototype row.")
     parser.add_argument("--model-id", default=DEFAULT_VISUAL_MODEL_ID)
     parser.add_argument("--device", default="auto", choices=["auto", "cpu", "mps"])
     return parser.parse_args()
@@ -141,6 +152,8 @@ def evaluate(
     alphas: list[float],
     thresholds: list[float],
     shortlist_k: int,
+    curate: bool = False,
+    curation_params: CurationParams | None = None,
 ) -> None:
     # Encode all queries
     q_paths = [q[2] for q in queries]
@@ -188,8 +201,16 @@ def evaluate(
             eligible_paths = [p for p in up_paths if p not in exclude_paths]
             idxs = [path_to_emb_idx[p] for p in eligible_paths if p in path_to_emb_idx]
             if idxs:
-                up_sims = photo_emb[idxs] @ q
-                up_max_by_pid[pid] = float(up_sims.max())
+                card_emb = photo_emb[idxs]
+                if curate:
+                    # Curate AFTER leave-one-out exclusion so the centroid/prototype
+                    # never sees the held-out query photo — keeps the eval honest.
+                    card_emb, _kinds, _stats = curate_card_embeddings(card_emb, curation_params)
+                if card_emb.shape[0]:
+                    up_sims = card_emb @ q
+                    up_max_by_pid[pid] = float(up_sims.max())
+                else:
+                    up_max_by_pid[pid] = None
             else:
                 up_max_by_pid[pid] = None
         shortlists.append((shortlist_pids, shortlist_scores, up_max_by_pid))
@@ -257,6 +278,17 @@ def main() -> None:
     encoder = RawVisualFrozenEncoder(model_id=args.model_id, device=args.device)
     print(f"encoder ready on {encoder.device}")
 
+    curation_params = CurationParams(
+        max_exemplars=args.max_exemplars_per_card,
+        centroid_cos_floor=args.centroid_cos_floor,
+        centroid_mad_k=args.centroid_mad_k,
+        with_prototype=not args.no_prototype,
+    )
+    if args.curate:
+        print(f"curation ON: {curation_params.as_dict()}")
+    else:
+        print("curation OFF (raw exemplars)")
+
     if args.mode == "holdout":
         # Build queries from held-out fixtures
         # Need providerCardId for truth — same logic as eval_base_clip_retrieval.py
@@ -308,6 +340,8 @@ def main() -> None:
             alphas=args.alphas,
             thresholds=args.thresholds,
             shortlist_k=args.shortlist_k,
+            curate=args.curate,
+            curation_params=curation_params,
         )
 
     elif args.mode == "leave_one_out":
@@ -330,6 +364,8 @@ def main() -> None:
             alphas=args.alphas,
             thresholds=args.thresholds,
             shortlist_k=args.shortlist_k,
+            curate=args.curate,
+            curation_params=curation_params,
         )
 
 

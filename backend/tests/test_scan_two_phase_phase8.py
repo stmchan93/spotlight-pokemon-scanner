@@ -214,6 +214,12 @@ class TwoPhaseScanTests(unittest.TestCase):
         self.assertEqual(response["matchingStage"], "visual")
         self.assertEqual(response["resolverPath"], "visual_only_index")
         self.assertEqual(response["topCandidates"][0]["candidate"]["id"], "obf-223")
+        # Numeric confidence detail is surfaced and reflects the ranked top-1/top-2.
+        detail = response["confidenceDetail"]
+        self.assertAlmostEqual(detail["top1"], 0.91, places=4)
+        self.assertAlmostEqual(detail["top2"], 0.84, places=4)
+        self.assertAlmostEqual(detail["margin"], detail["top1"] - detail["top2"], places=6)
+        self.assertEqual(response["confidence"], "high")
         pending = self.service._pending_visual_scan("scan-phase8")
         self.assertIsNotNone(pending)
         self.assertEqual(len(pending.visual_matches), 2)
