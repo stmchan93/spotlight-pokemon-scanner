@@ -203,15 +203,16 @@ Current API concepts:
 File: `src/components/radio-dot.tsx`
 
 Use for single-select option indicators in lists and sheets (e.g. the scanner
-"Scanning for" sheet). Selected = brand-yellow fill; unselected = gray ring.
+"Scanning for" sheet). Selected = white dot with a brand-yellow ring and
+brand-yellow center; unselected = light filled circle with a gray-300 ring.
 
 Current API concepts:
 
 - selected
-- optional size (defaults to 16)
-- tone:
-  - `light` (gray-300 ring)
-  - `dark` (gray-600 ring for dark surfaces)
+- optional size (defaults to 16; the inner dot is ~0.625× when selected)
+- tone (sets the unselected fill so the dot reads on its surface):
+  - `light` (white fill for light surfaces)
+  - `dark` (gray-50 fill so it reads on the dark scanner sheet)
 
 ### Toast
 

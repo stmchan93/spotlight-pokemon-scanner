@@ -31,7 +31,7 @@ export function SheetSurface({
   const isDark = tone === 'dark';
   const surfaceColor = isDark ? theme.colors.gray900 : theme.colors.canvasElevated;
   const borderColor = isDark ? theme.colors.gray800 : theme.colors.outlineSubtle;
-  const handleColor = isDark ? theme.colors.gray700 : theme.colors.outlineSubtle;
+  const handleColor = isDark ? theme.colors.gray100 : theme.colors.outlineSubtle;
 
   return (
     <View
