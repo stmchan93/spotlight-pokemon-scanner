@@ -44,6 +44,9 @@ backend/data/*.sqlite.bak.*
 backend/data/visual-index/
 backend/data/visual-models/
 
+# Rerank-pool flywheel runtime state (known-good marker, watermark, review queue) — mutates each run
+tools/state/
+
 # Generated QA caches
 qa/raw-visual-train
 qa/raw-visual-train-excluded

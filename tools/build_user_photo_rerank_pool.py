@@ -13,6 +13,7 @@ contamination.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from datetime import datetime, timezone
@@ -119,6 +120,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--centroid-cos-floor", type=float, default=0.80)
     parser.add_argument("--centroid-mad-k", type=float, default=2.5)
     parser.add_argument("--no-prototype", action="store_true", help="Disable the averaged prototype row.")
+    # Ingest trust filter (opt-in; default off so current behavior is unchanged).
+    # When on, the far-from-centroid exemplars curation ALREADY drops are also
+    # surfaced to a review-queue CSV (instead of vanishing silently), and the
+    # rejected count + queue path are recorded in the manifest.
+    parser.add_argument(
+        "--review-queue",
+        action="store_true",
+        help="Route per-card far-from-centroid curation rejects to a review-queue CSV "
+        "(default: tools/state/rerank_review_queue.csv) instead of silently dropping them.",
+    )
+    parser.add_argument(
+        "--review-queue-path",
+        type=Path,
+        default=REPO_ROOT / "tools" / "state" / "rerank_review_queue.csv",
+        help="Where the review queue CSV is written when --review-queue is on.",
+    )
     return parser.parse_args()
 
 
@@ -252,6 +269,7 @@ def main() -> None:
 
         curated_vectors: list[np.ndarray] = []
         curated_rows: list[dict[str, Any]] = []
+        review_queue_rows: list[dict[str, Any]] = []
         agg = {"droppedOutliers": 0, "cappedRemoved": 0, "prototypesAdded": 0}
         for pid, local_idxs in pid_to_local.items():
             group = matrix[local_idxs]
@@ -259,6 +277,23 @@ def main() -> None:
             agg["droppedOutliers"] += stats.droppedOutliers
             agg["cappedRemoved"] += stats.cappedRemoved
             agg["prototypesAdded"] += 1 if stats.prototypeAdded else 0
+            # Trust filter: surface the rows curation ALREADY dropped as
+            # far-from-centroid outliers to a review queue (don't recompute the
+            # outlier math here — just consume curate_card_embeddings' indices).
+            if args.review_queue and stats.droppedOutlierIndices:
+                for dropped_local in stats.droppedOutlierIndices:
+                    src = rows[local_idxs[dropped_local]]
+                    review_queue_rows.append({
+                        "providerCardId": pid,
+                        "cardName": src.get("cardName"),
+                        "collectorNumber": src.get("collectorNumber"),
+                        "setCode": src.get("setCode"),
+                        "normalizedImagePath": src.get("normalizedImagePath"),
+                        "fixtureName": src.get("fixtureName"),
+                        "mappingConfidence": src.get("mappingConfidence"),
+                        "rejectReason": "far_from_centroid_outlier",
+                        "artifactVersion": args.artifact_version,
+                    })
             for j, kept_local in enumerate(stats.keptIndices):
                 orig = dict(rows[local_idxs[kept_local]])
                 orig["exemplarKind"] = "exemplar"
@@ -289,6 +324,34 @@ def main() -> None:
             f"+{agg['prototypesAdded']} prototypes)",
             flush=True,
         )
+
+        # Trust filter: persist the already-dropped outliers to a review queue.
+        review_queue_summary: dict[str, Any] = {"enabled": bool(args.review_queue)}
+        if args.review_queue:
+            review_queue_path = args.review_queue_path.resolve()
+            review_queue_path.parent.mkdir(parents=True, exist_ok=True)
+            fieldnames = [
+                "providerCardId", "cardName", "collectorNumber", "setCode",
+                "normalizedImagePath", "fixtureName", "mappingConfidence",
+                "rejectReason", "artifactVersion",
+            ]
+            write_header = not review_queue_path.exists()
+            with review_queue_path.open("a", newline="") as handle:
+                writer = csv.DictWriter(handle, fieldnames=fieldnames)
+                if write_header:
+                    writer.writeheader()
+                for queue_row in review_queue_rows:
+                    writer.writerow(queue_row)
+            review_queue_summary.update({
+                "rejectedCount": len(review_queue_rows),
+                "queuePath": str(review_queue_path),
+            })
+            print(
+                f"trust filter: routed {len(review_queue_rows)} far-from-centroid "
+                f"rejects to {review_queue_path}",
+                flush=True,
+            )
+        curation_summary["reviewQueue"] = review_queue_summary
     else:
         for row in rows:
             row["exemplarKind"] = "exemplar"

@@ -75,6 +75,10 @@ class CardCurationStats:
     prototypeAdded: bool = False
     outputCount: int = 0
     keptIndices: list[int] = field(default_factory=list)
+    # Input indices rejected by the far-from-centroid outlier gate. Surfaced so
+    # an opt-in ingest trust filter can route these to a review queue instead of
+    # silently dropping them. (Capped-but-not-outlier rows are NOT included.)
+    droppedOutlierIndices: list[int] = field(default_factory=list)
 
 
 def _l2_normalize(matrix: np.ndarray) -> np.ndarray:
@@ -128,6 +132,7 @@ def curate_card_embeddings(
         if not keep_mask.any():
             keep_mask[int(np.argmax(cos_to_centroid))] = True
         stats.droppedOutliers = int(n - keep_mask.sum())
+        stats.droppedOutlierIndices = [int(i) for i in np.where(~keep_mask)[0]]
 
     kept_idx = np.where(keep_mask)[0]
     # Order kept exemplars by closeness to centroid (best first) for capping.
