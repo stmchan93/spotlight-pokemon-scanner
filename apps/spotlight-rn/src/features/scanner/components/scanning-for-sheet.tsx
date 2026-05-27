@@ -3,7 +3,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import {
   AppText,
-  Badge,
   RadioDot,
   SheetSurface,
   useSpotlightTheme,
@@ -71,7 +70,7 @@ export function ScanningForSheet({
           tone="dark"
           style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}
         >
-          <AppText color="gray0" style={styles.title} variant="titleSmall">
+          <AppText color="gray50" style={styles.title} variant="titleSmall">
             Scanning for
           </AppText>
 
@@ -120,7 +119,7 @@ export function ScanningForSheet({
 function Section({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <View style={styles.section}>
-      <AppText color="gray500" style={styles.sectionLabel} variant="overline">
+      <AppText color="gray600" style={styles.sectionLabel} variant="overline">
         {label}
       </AppText>
       {children}
@@ -147,7 +146,7 @@ function OptionRow({
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       testID={testID}
     >
-      <AppText color="gray0" style={styles.rowLabel} variant="body">
+      <AppText color="gray50" style={styles.rowLabel} variant="body">
         {label}
       </AppText>
       <RadioDot selected={selected} tone="dark" />
@@ -158,10 +157,14 @@ function OptionRow({
 function ComingSoonRow({ label }: { label: string }) {
   return (
     <View style={styles.row}>
-      <AppText color="gray600" style={styles.rowLabel} variant="body">
+      <AppText color="gray700" style={styles.rowLabel} variant="body">
         {label}
       </AppText>
-      <Badge label="Coming Soon" size="sm" tone="brand" />
+      <View style={styles.comingSoonTag}>
+        <AppText color="brand" variant="overline">
+          Coming Soon
+        </AppText>
+      </View>
     </View>
   );
 }
@@ -170,6 +173,12 @@ const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: 'rgba(5, 5, 5, 0.6)',
+  },
+  comingSoonTag: {
+    backgroundColor: 'rgba(254, 227, 51, 0.1)',
+    borderRadius: 6,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
   },
   divider: {
     height: StyleSheet.hairlineWidth,
