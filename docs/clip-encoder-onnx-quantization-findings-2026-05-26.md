@@ -67,9 +67,11 @@ This was the gating question and the answer is **split by how lossy the change i
 - `backend/tests/test_raw_visual_model.py` — backend resolution, default path, and ONNX embed normalize/shape-validation tests.
 - The `.onnx` artifact itself is **not** committed (`backend/data/visual-models/` is gitignored, like the index `.npz` and adapter `.pt`).
 
-## Enablement status — DONE on staging 2026-05-26
+## Enablement status — DONE on staging 2026-05-26 (now the default 2026-05-27)
 
-ONNX FP32 is **live on staging** as of 2026-05-26 (commits `41428f7` code, `6a2ee4f` staging flag). Verified on the VM: `SPOTLIGHT_VISUAL_ENCODER_BACKEND=onnx`, prewarm succeeded at startup, `encoderForwardMs ~65-69ms`, `matchPayloadMs ~105ms`, local + public health 200.
+ONNX FP32 is **live on staging** as of 2026-05-26 (commits `41428f7` code, `6a2ee4f` staging flag). Verified on the VM: prewarm succeeded at startup, `encoderForwardMs ~60-69ms`, `matchPayloadMs ~105ms`, local + public health 200.
+
+**Update 2026-05-27 (`1bf25ea`): ONNX is now the runtime default — no env flag needed.** `RawVisualMatcher._ensure_runtime` constructs the encoder with `backend="onnx"` by default; the encoder falls back to torch automatically if the artifact or onnxruntime is missing. `SPOTLIGHT_VISUAL_ENCODER_BACKEND=torch` forces torch (rollback). Offline tools keep the torch default (ONNX is CPU-only and would lose MPS on Mac index builds). The `SPOTLIGHT_VISUAL_ENCODER_BACKEND=onnx` line was removed from `backend/.env.staging`.
 
 Note: the staging VM was migrated off the throttled `e2-medium` to `t2d-standard-2` (8 GB) during this work, so the live `~65ms` forward is faster than the `e2-medium` `140ms` benchmark — different hardware, but the apples-to-apples `215ms→140ms` (1.5x) e2-medium comparison still stands as the validated ONNX-vs-torch delta. No torch baseline was captured on `t2d-standard-2`.
 
