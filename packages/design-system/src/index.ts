@@ -23,6 +23,7 @@ export * from './components/skeleton-block';
 export * from './components/state-card';
 export * from './components/surface-card';
 export * from './components/text-field';
+export * from './components/toast';
 export * from './components/top-movers-carousel';
 export * from './components/trend-pill';
 export * from './theme';

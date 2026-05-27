@@ -213,6 +213,26 @@ Current API concepts:
   - `light` (gray-300 ring)
   - `dark` (gray-600 ring for dark surfaces)
 
+### Toast
+
+File: `src/components/toast.tsx`
+
+Lightweight, auto-dismissing transient message. Controlled via `visible`; fades
+in, calls `onDismiss` after `durationMs`, then fades out. Optionally tappable as
+a single primary action (e.g. the scanner's "looks like a Japanese card — tap to
+switch" notice). Layout-agnostic — the consumer positions it via `style`.
+
+Current API concepts:
+
+- visible / message
+- optional onPress (tappable primary action) + actionAccessibilityLabel
+- onDismiss (fires on timeout or × tap)
+- optional durationMs (defaults to 6000; 0 disables auto-dismiss)
+- optional showDismiss (the × affordance; defaults to true)
+- tone:
+  - `dark` (default; reads over the camera)
+  - `light` (elevated surface)
+
 ### StateCard
 
 File: `src/components/state-card.tsx`
