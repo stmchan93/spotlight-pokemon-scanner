@@ -13,6 +13,7 @@ from typing import Any
 
 import numpy as np
 
+from catalog_tools import _collector_components
 from raw_visual_index import RawVisualIndex, RawVisualSearchMatch
 from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy
 from raw_visual_user_photo_rerank import RawVisualUserPhotoRerankPool
@@ -258,6 +259,18 @@ class RawVisualMatcher:
         self.user_photo_rerank_threshold = _env_float("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_THRESHOLD", 0.90)
         self.user_photo_rerank_shortlist_k = _env_int("SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_SHORTLIST_K", 50)
         self._user_photo_rerank_pool: RawVisualUserPhotoRerankPool | None = None
+
+        # Collector-number tiebreak (Phase 2): SECONDARY verification only. When
+        # the top visual candidates are a near-tie among same-artwork /
+        # different-number lookalikes (e.g. Frogadier 087 vs 089), nudge the
+        # candidate whose printed collector number matches the OCR'd footer
+        # number. This is NEVER a primary identifier and NEVER a hard filter
+        # (no candidate is ever dropped or introduced from outside the shortlist).
+        # Default OFF: it is a no-op until the client forwards the footer number,
+        # and must be latency-measured on a real device before enabling.
+        self.collector_tiebreak_enabled = _env_flag_enabled("SPOTLIGHT_VISUAL_COLLECTOR_TIEBREAK", default=False)
+        self.collector_tiebreak_margin = _env_float("SPOTLIGHT_VISUAL_COLLECTOR_TIEBREAK_MARGIN", 0.03)
+        self.collector_tiebreak_beta = _env_float("SPOTLIGHT_VISUAL_COLLECTOR_TIEBREAK_BETA", 0.04)
 
         # Basic-energy mini-index: a small parallel CLIP embedding index that
         # routes obvious basic-energy queries away from the main lookup. Built
@@ -1027,6 +1040,112 @@ class RawVisualMatcher:
             "boosts": boost_log[:20],
         }
 
+    def _apply_collector_number_tiebreak(
+        self,
+        matches: list[RawVisualSearchMatch],
+        payload: dict[str, Any],
+        *,
+        top_k: int,
+    ) -> tuple[list[RawVisualSearchMatch], dict[str, Any]]:
+        """SECONDARY collector-number tiebreak for same-art / different-number lookalikes.
+
+        Only fires when the visual top-1 vs top-2 similarity gap is within
+        ``collector_tiebreak_margin`` AND the shortlist window contains a
+        same-name group with >=2 distinct printed numbers (the ambiguous
+        same-artwork case). In that case it applies a small additive ``beta``
+        boost to candidates whose printed collector number matches the OCR'd
+        footer number, then re-sorts. It never drops a candidate and never
+        introduces one from outside ``matches``. OCR is never a primary
+        identifier and never a hard filter.
+
+        Uses getattr defaults throughout so tests built via
+        ``object.__new__(RawVisualMatcher)`` work without __init__.
+        """
+        if not getattr(self, "collector_tiebreak_enabled", False):
+            return matches, {"applied": False, "reason": "feature_disabled"}
+        if len(matches) < 2:
+            return matches, {"applied": False, "reason": "insufficient_candidates"}
+
+        ocr = (payload.get("ocrAnalysis") or {}).get("rawEvidence") or {}
+        if not isinstance(ocr, dict):
+            ocr = {}
+        raw = str(
+            ocr.get("collectorNumberExact")
+            or ocr.get("collectorNumberPartial")
+            or payload.get("collectorNumber")
+            or ""
+        ).strip()
+        if not raw:
+            return matches, {"applied": False, "reason": "no_ocr_number"}
+        ocr_num = _collector_components(raw)[0]
+        if not ocr_num:
+            return matches, {"applied": False, "reason": "unparseable_ocr_number"}
+
+        margin = float(getattr(self, "collector_tiebreak_margin", 0.03))
+        beta = float(getattr(self, "collector_tiebreak_beta", 0.04))
+
+        # Ambiguity gate: look at the leading window. The gap between the top
+        # two candidates must be small (near-tie) AND the window must contain a
+        # same-name group with >=2 distinct printed numbers.
+        window = matches[:5]
+        top_gap = float(matches[0].similarity) - float(matches[1].similarity)
+        numbers_by_name: dict[str, set[str]] = {}
+        for match in window:
+            entry = match.entry
+            name_key = str(entry.get("name") or "").strip().lower()
+            if not name_key:
+                continue
+            cand_num = _collector_components(str(entry.get("collectorNumber") or ""))[0]
+            if cand_num:
+                numbers_by_name.setdefault(name_key, set()).add(cand_num)
+        ambiguous = any(len(nums) >= 2 for nums in numbers_by_name.values())
+        ambiguous_groups = sum(1 for nums in numbers_by_name.values() if len(nums) >= 2)
+
+        if not (top_gap < margin and ambiguous):
+            return matches, {
+                "applied": False,
+                "reason": "not_ambiguous",
+                "ocrNumber": ocr_num,
+                "margin": round(margin, 6),
+                "topGap": round(top_gap, 6),
+                "ambiguous": ambiguous,
+                "ambiguousNameGroups": ambiguous_groups,
+                "windowConsidered": len(window),
+                "shortlistConsidered": len(matches),
+            }
+
+        # Soft additive boost: only candidates whose printed number matches the
+        # OCR'd number are nudged. No candidate is dropped or introduced.
+        boosted_matches: list[RawVisualSearchMatch] = []
+        candidates_matched = 0
+        for match in matches:
+            entry = dict(match.entry)
+            cand_num = _collector_components(str(entry.get("collectorNumber") or ""))[0]
+            adjusted = float(match.similarity)
+            if cand_num and cand_num == ocr_num:
+                adjusted = float(match.similarity) + beta
+                entry["_collectorTiebreakMatched"] = True
+                candidates_matched += 1
+            boosted_matches.append(
+                RawVisualSearchMatch(
+                    row_index=match.row_index,
+                    similarity=adjusted,
+                    entry=entry,
+                )
+            )
+
+        boosted_matches.sort(key=lambda item: item.similarity, reverse=True)
+        return boosted_matches[:top_k], {
+            "applied": True,
+            "ocrNumber": ocr_num,
+            "beta": round(beta, 6),
+            "margin": round(margin, 6),
+            "topGap": round(top_gap, 6),
+            "ambiguousNameGroups": ambiguous_groups,
+            "candidatesMatched": candidates_matched,
+            "shortlistConsidered": len(matches),
+        }
+
     @staticmethod
     def _merge_variant_matches(
         variant_matches: list[list[RawVisualSearchMatch]],
@@ -1209,6 +1328,18 @@ class RawVisualMatcher:
                 if replacement_match is not None and matches:
                     matches = [replacement_match] + matches[1:]
 
+            # Collector-number tiebreak (Phase 2): SECONDARY verification only.
+            # Runs after the mini-index routing so it operates on the final
+            # candidate ordering. No-op unless the flag is enabled AND the
+            # client forwards an OCR'd footer collector number.
+            collector_tiebreak_started_at = perf_counter()
+            matches, collector_tiebreak_debug = self._apply_collector_number_tiebreak(
+                matches,
+                payload,
+                top_k=top_k,
+            )
+            collector_tiebreak_ms = (perf_counter() - collector_tiebreak_started_at) * 1000.0
+
             # Target-language mismatch: compare the user's explicit toggle against a
             # confident visual language prediction so the client can warn "wrong
             # toggle" and drop the scan. Runs regardless of the explicit hint (the
@@ -1261,6 +1392,7 @@ class RawVisualMatcher:
                 },
                 "userPhotoRerank": rerank_debug,
                 "miniIndexEnergyRouted": mini_routed_debug,
+                "collectorNumberTiebreak": collector_tiebreak_debug,
                 "timings": {
                     "imageDecodeMs": round(image_decode_ms, 3),
                     "ensureRuntimeMs": round(ensure_runtime_ms, 3),
@@ -1272,6 +1404,7 @@ class RawVisualMatcher:
                     "embeddingNormalizeMs": round(embedding_normalize_ms, 3),
                     "indexSearchMs": round(index_search_ms, 3),
                     "userPhotoRerankMs": round(user_photo_rerank_ms, 3),
+                    "collectorTiebreakMs": round(collector_tiebreak_ms, 3),
                     "matchPayloadMs": round((perf_counter() - match_started_at) * 1000.0, 3),
                 },
             }

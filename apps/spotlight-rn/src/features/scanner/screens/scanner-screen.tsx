@@ -70,8 +70,9 @@ import {
 import { quickClassifyCapture } from '@/features/scanner/slab-scanner-native';
 import { buildSlabScannerTarget } from '@/features/scanner/scanner-slab-target';
 import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fixtures';
+import { readRawCollectorNumber } from '@/features/scanner/raw-collector-number-ocr';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
-import { resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
+import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
 
 import { ScanTargetPill } from '@/features/scanner/components/scan-target-pill';
@@ -123,6 +124,16 @@ import type {
 
 const maxStoredCaptures = 12;
 const collapsedVisibleCaptures = 1;
+
+// Phase 2 raw collector-number OCR (SECONDARY verification only). Default OFF.
+// Enable per-build for on-device latency measurement. Requires the custom dev
+// client (native ML Kit text reader); no-ops gracefully in Expo Go. Must be
+// measured on a real device before the backend tiebreak flag is enabled.
+const rawCollectorNumberOcrEnabled = resolveRuntimeBoolean(
+  ['EXPO_PUBLIC_SPOTLIGHT_RAW_COLLECTOR_NUMBER_OCR_ENABLED'],
+  ['spotlightRawCollectorNumberOcrEnabled'],
+  false,
+);
 const captureRowHeight = 102;
 const captureRowGap = 16;
 // Height of the next-row "peek" sliver below the fully-visible top row. ~1/8
@@ -576,6 +587,7 @@ export function ScannerScreen({
     scanStartedAt,
     slabAnalysisMs,
     sourceImageDimensions,
+    rawCollectorNumberPromise,
   }: CaptureMatchParams) => {
     try {
       capturePostHogEvent('scan_match_requested', {
@@ -583,6 +595,25 @@ export function ScannerScreen({
         ...(typeof slabAnalysisMs === 'number' ? { slab_analysis_ms: slabAnalysisMs } : {}),
       });
       const matchStartedAt = Date.now();
+
+      // Phase 2: resolve the on-device collector-number reading that was started
+      // (concurrently with normalization / state updates) by the capture handler
+      // and fold it into the payload as SECONDARY verification before the request
+      // body is built. Never blocks beyond the OCR it was already running, and
+      // never fails the scan (the promise resolves to null on any error).
+      let resolvedMatchPayload = matchPayload;
+      if (rawCollectorNumberPromise) {
+        const rawCollectorNumber = await rawCollectorNumberPromise;
+        if (rawCollectorNumber) {
+          resolvedMatchPayload = {
+            ...matchPayload,
+            ocrAnalysis: {
+              rawEvidence: { collectorNumberExact: rawCollectorNumber },
+            },
+          };
+          capturePostHogEvent('scan_raw_collector_number_read', { mode });
+        }
+      }
       const estimatedPayloadKB = Math.round((matchTarget.normalizedImageBase64.length * 0.75) / 1024);
       if (mode === 'raw' && process.env.NODE_ENV !== 'test') {
         console.info(
@@ -595,7 +626,7 @@ export function ScannerScreen({
           + `quality=${captureSource === 'camera' ? rawVisualCaptureQuality : 'fixture'}`,
         );
       }
-      const matchResult = await spotlightRepository.matchScannerCapture(matchPayload, {
+      const matchResult = await spotlightRepository.matchScannerCapture(resolvedMatchPayload, {
         onArtifactUploadComplete: (artifactUpload) => {
           if (!artifactUpload) {
             return;
@@ -979,6 +1010,18 @@ export function ScannerScreen({
         throw new Error('normalized_target_unavailable');
       }
       const normalizedTarget = normalizedTargetOrNull;
+
+      // Phase 2: kick off raw collector-number OCR HERE so it runs concurrently
+      // with the remaining capture work (source-base64 read, state updates) and
+      // the network match request — never sequentially before/after. The promise
+      // is awaited inside runMatchForCapture and folded into the payload as a
+      // SECONDARY verification signal. Raw lane only; no-ops when the flag is off
+      // or the native text reader is unavailable (Expo Go).
+      const rawCollectorNumberPromise =
+        !isSlab && rawCollectorNumberOcrEnabled
+          ? readRawCollectorNumber(normalizedTarget.normalizedImageUri)
+          : null;
+
       // expo-camera occasionally returns photo.base64 = undefined under memory
       // pressure. Fall back to reading from disk so the artifact upload always
       // has a source image and scan data is never silently dropped.
@@ -1081,6 +1124,7 @@ export function ScannerScreen({
         scanStartedAt,
         slabAnalysisMs: slabAnalysisMsForAnalytics,
         sourceImageDimensions,
+        rawCollectorNumberPromise,
       });
     } catch (error) {
       if (!isSlab) {

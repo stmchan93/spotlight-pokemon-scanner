@@ -45,4 +45,12 @@ export type CaptureMatchParams = {
   scanStartedAt: number;
   slabAnalysisMs?: number | null;
   sourceImageDimensions: ScanSourceImageDimensions;
+  /**
+   * Phase 2 raw collector-number OCR (SECONDARY verification). Started by the
+   * capture handler so it runs CONCURRENTLY with the network match work; the
+   * resolved value is merged into the payload as
+   * `ocrAnalysis.rawEvidence.collectorNumberExact` before the request body is
+   * built. Resolves to null when disabled / unavailable / no number read.
+   */
+  rawCollectorNumberPromise?: Promise<string | null> | null;
 };

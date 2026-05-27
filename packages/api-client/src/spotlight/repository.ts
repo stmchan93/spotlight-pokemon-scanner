@@ -1183,6 +1183,16 @@ function createScannerMatchPayload(
   const appVersion = normalizeString(clientContext?.appVersion) || '0';
   const buildNumber = normalizeString(clientContext?.buildNumber) || '0';
   const slabAnalysis = payload.mode === 'slabs' ? (payload.slabAnalysis ?? null) : null;
+  // Phase 2: raw lane forwards an optional on-device collector-number reading as
+  // SECONDARY verification (server reads ocrAnalysis.rawEvidence.collectorNumberExact).
+  // Slab captures keep carrying their OCR evidence inside slabAnalysis.ocrAnalysis.
+  const rawCollectorNumberExact =
+    payload.mode === 'raw'
+      ? normalizeString(payload.ocrAnalysis?.rawEvidence?.collectorNumberExact)
+      : null;
+  const rawOcrAnalysis = rawCollectorNumberExact
+    ? { rawEvidence: { collectorNumberExact: rawCollectorNumberExact } }
+    : null;
 
   return {
     scanID,
@@ -1200,7 +1210,7 @@ function createScannerMatchPayload(
       height: Math.max(1, normalizeInteger(payload.height, 1)),
     },
     recognizedTokens: [],
-    collectorNumber: null,
+    collectorNumber: rawCollectorNumberExact,
     setHintTokens: [],
     setBadgeHint: null,
     promoCodeHint: null,
@@ -1220,7 +1230,7 @@ function createScannerMatchPayload(
     cardLanguage: payload.cardLanguage ?? null,
     cropConfidence: 1,
     warnings: [],
-    ocrAnalysis: slabAnalysis?.ocrAnalysis ?? null,
+    ocrAnalysis: slabAnalysis?.ocrAnalysis ?? rawOcrAnalysis,
   };
 }
 

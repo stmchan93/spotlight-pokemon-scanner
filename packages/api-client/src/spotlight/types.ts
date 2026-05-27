@@ -49,6 +49,20 @@ export type ScannerCapturePayload = ScannerImagePayload & {
   slabAnalysis?: ScannerSlabAnalysisPayload | null;
   sourceImage?: ScannerImagePayload | null;
   submittedAt?: string | null;
+  /**
+   * Phase 2 collector-number tiebreak (raw lane only). Optional on-device OCR
+   * evidence forwarded as a SECONDARY verification signal. The backend reads
+   * `ocrAnalysis.rawEvidence.collectorNumberExact`; it is never a primary
+   * identifier and never a hard filter. Null/omitted for slab captures (those
+   * carry their OCR evidence inside `slabAnalysis.ocrAnalysis`).
+   */
+  ocrAnalysis?: ScannerOcrAnalysisPayload | null;
+};
+
+export type ScannerOcrAnalysisPayload = {
+  rawEvidence?: {
+    collectorNumberExact?: string | null;
+  } | null;
 };
 
 export type ScannerArtifactUploadResult = {
