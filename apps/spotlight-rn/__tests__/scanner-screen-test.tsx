@@ -302,9 +302,12 @@ describe('ScannerScreen', () => {
     expect(screen.queryByTestId('scanner-tray-row-pending')).toBeNull();
     expect(screen.queryByTestId('scanner-tray-row-review')).toBeNull();
 
-    // Tapping the notice flips the toggle and clears the warning.
+    // Tapping the notice flips the toggle and clears the warning (the toast
+    // fades out, then unmounts).
     fireEvent.press(notice);
-    expect(screen.queryByTestId('scanner-language-mismatch-notice')).toBeNull();
+    await waitFor(() => {
+      expect(screen.queryByTestId('scanner-language-mismatch-notice')).toBeNull();
+    });
   });
 
   it('renders an empty recent scans tray with no placeholder rows', () => {

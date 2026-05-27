@@ -39,6 +39,7 @@ import {
   colors,
   fontFamilies,
   textStyles,
+  Toast,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -1942,40 +1943,29 @@ export function ScannerScreen({
           </Pressable>
         ) : null}
 
-        {scanLanguageMismatchNotice ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={
-              scanLanguageMismatchNotice === 'pokemon_jp'
-                ? 'Switch to Japanese'
-                : 'Switch to English'
-            }
-            onPress={() => {
+        <Toast
+          visible={scanLanguageMismatchNotice != null}
+          message={
+            scanLanguageMismatchNotice === 'pokemon_jp'
+              ? 'This looks like a Japanese card. Tap to switch the toggle to Japanese, then scan again.'
+              : 'This looks like an English card. Tap to switch the toggle to English, then scan again.'
+          }
+          actionAccessibilityLabel={
+            scanLanguageMismatchNotice === 'pokemon_jp' ? 'Switch to Japanese' : 'Switch to English'
+          }
+          onPress={() => {
+            if (scanLanguageMismatchNotice) {
               setCardType(scanLanguageMismatchNotice);
-              setScanLanguageMismatchNotice(null);
-            }}
-            style={[
-              styles.modeMismatchNotice,
-              { top: captureSurfaceLayout.backButtonTop + 44 },
-            ]}
-            testID="scanner-language-mismatch-notice"
-          >
-            <Text style={styles.modeMismatchText}>
-              {scanLanguageMismatchNotice === 'pokemon_jp'
-                ? 'This looks like a Japanese card. Tap to switch the toggle to Japanese, then scan again.'
-                : 'This looks like an English card. Tap to switch the toggle to English, then scan again.'}
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Dismiss"
-              hitSlop={8}
-              onPress={() => setScanLanguageMismatchNotice(null)}
-              testID="scanner-language-mismatch-dismiss"
-            >
-              <Text style={styles.modeMismatchDismiss}>×</Text>
-            </Pressable>
-          </Pressable>
-        ) : null}
+            }
+            setScanLanguageMismatchNotice(null);
+          }}
+          onDismiss={() => setScanLanguageMismatchNotice(null)}
+          style={[
+            styles.languageMismatchToast,
+            { top: captureSurfaceLayout.backButtonTop + 44 },
+          ]}
+          testID="scanner-language-mismatch-notice"
+        />
 
         {scannerSmokeEnabled ? (
           <View
@@ -2221,6 +2211,12 @@ const styles = StyleSheet.create({
     ...textStyles.headline,
     color: colors.gray0,
     lineHeight: 20,
+  },
+  languageMismatchToast: {
+    left: 16,
+    position: 'absolute',
+    right: 16,
+    zIndex: 6,
   },
   topActionStack: {
     alignItems: 'flex-end',
