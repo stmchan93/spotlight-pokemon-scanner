@@ -239,6 +239,15 @@ if [ -f "$BACKEND_DIR/data/slab_set_aliases.json" ]; then
   mkdir -p "$BUNDLE_ROOT/data"
   cp "$BACKEND_DIR/data/slab_set_aliases.json" "$BUNDLE_ROOT/data/slab_set_aliases.json"
 fi
+# Ship the user-photo rerank pool with the bundle. It is small (~1MB) and changes
+# as new confirmed scans accrue, so unlike the large reference index (provisioned
+# on the VM separately and excluded above) it travels with each deploy. The remote
+# extract is additive — it drops these files into data/visual-index without
+# disturbing the index already on the VM.
+if compgen -G "$BACKEND_DIR/data/visual-index/visual_index_user_photos_rerank_pool_*" > /dev/null; then
+  mkdir -p "$BUNDLE_ROOT/data/visual-index"
+  cp "$BACKEND_DIR"/data/visual-index/visual_index_user_photos_rerank_pool_* "$BUNDLE_ROOT/data/visual-index/"
+fi
 
 BUNDLE_ARCHIVE="$TMP_DIR/backend-bundle.tgz"
 COPYFILE_DISABLE=1 tar --exclude='./._*' -C "$BUNDLE_ROOT" -czf "$BUNDLE_ARCHIVE" .
