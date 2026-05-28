@@ -40,6 +40,7 @@ import {
   colors,
   fontFamilies,
   textStyles,
+  Toast,
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
@@ -96,7 +97,6 @@ import {
 
 import { ChangeCardPicker } from './change-card-picker';
 import { RecentCaptureSwipeRow } from './recent-capture-swipe-row';
-import { RecentCaptureWarningChip } from './recent-capture-warning-chip';
 import { ScanPriceSheet, type ScanPriceSheetSelection } from './scan-price-sheet';
 import {
   activeCandidateForCapture,
@@ -122,7 +122,6 @@ import {
   scannerSlabSubtitle,
   slabContextFromAnalysis,
   triggerScannerHaptic,
-  type UnifiedWarning,
   unsupportedSlabSubtitle,
   unsupportedSlabTitle,
   withOptimisticInventoryAdd,
@@ -148,6 +147,11 @@ const rawCollectorNumberOcrEnabled = resolveRuntimeBoolean(
 );
 const captureRowHeight = 102;
 const captureRowGap = 16;
+// Only surface a language-mismatch warning when the backend's visual language
+// probe is strongly confident. Below this the probe is too noisy at a card
+// show (e.g. Lechonk on EN → flagged as JP) and the warning would mostly
+// cry wolf. Tunable as the probe improves.
+const LANGUAGE_MISMATCH_CONFIDENCE_THRESHOLD = 0.9;
 // Height of the next-row "peek" sliver below the fully-visible top row. ~1/8
 // of a row exposes the top of the next card's image and its title baseline —
 // enough to signal that swiping/expanding reveals more, without dominating
@@ -244,12 +248,13 @@ export function ScannerScreen({
   const [priceSelection, setPriceSelection] = useState<Map<string, ScanPriceSheetSelection>>(new Map());
   const [activePriceCaptureId, setActivePriceCaptureId] = useState<string | null>(null);
   const [activeChangeCaptureId, setActiveChangeCaptureId] = useState<string | null>(null);
-  // Tracks which captures had their mismatch warning actively dismissed by the
-  // user (tap "Keep result") vs auto-dismissed by the 10s timer. When set, the
-  // value is passed as `userOverrodeMismatchWarning` to createInventoryEntry so
-  // the backend can flag the row for human re-labeling. Auto-dismiss is NOT an
-  // override and intentionally does NOT populate this map.
-  const [dismissedWarningKind, setDismissedWarningKind] = useState<Map<string, 'language' | 'condition' | 'both'>>(new Map());
+  // Tracks which captures had a mismatch warning SHOWN at scan time. Set when
+  // the warning fires, never cleared by Toast dismiss. Used by
+  // handleAddToInventory to pass `userOverrodeMismatchWarning` to the backend
+  // so the resulting scan_events row can be flagged for human re-labeling
+  // (the photo is real, but the user's confirmed label may not match what the
+  // photo actually shows — keep it but quarantine from automated training).
+  const [shownWarningKind, setShownWarningKind] = useState<Map<string, 'language' | 'condition' | 'both'>>(new Map());
   const hasFocusedScannerRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
   const cameraRef = useRef<CameraView | null>(null);
@@ -620,7 +625,7 @@ export function ScannerScreen({
       next.delete(captureId);
       return next;
     });
-    setDismissedWarningKind((current) => {
+    setShownWarningKind((current) => {
       if (!current.has(captureId)) {
         return current;
       }
@@ -656,7 +661,7 @@ export function ScannerScreen({
     setOpenActionRailKeys({});
     setActivePriceCaptureId(null);
     setActiveChangeCaptureId(null);
-    setDismissedWarningKind(new Map());
+    setShownWarningKind(new Map());
     // Don't wait for the debounce window — overwrite storage immediately so a
     // force-quit right after Clear All can't resurrect just-deleted scans.
     void flushPersist();
@@ -802,10 +807,15 @@ export function ScannerScreen({
 
       // Wrong-toggle soft warning: when the backend's visual language probe is
       // confident the scanned card is a different language than the selected
-      // toggle, attach a per-row suggestion. The scan result still paints —
-      // the user keeps the match and can either tap "Switch & rescan" or
-      // "Keep result" on the inline chip rendered above the capture row.
-      if (matchResult.targetLanguageMismatch) {
+      // toggle, set a suggestion on the capture so the global mismatch Toast
+      // can offer "Switch & rescan" / "Keep result". The scan result still
+      // paints — the user keeps the match and decides what to do. Gated on
+      // confidence so weak signals (Lechonk-on-EN style false positives)
+      // don't cry wolf.
+      if (
+        matchResult.targetLanguageMismatch
+        && matchResult.targetLanguageMismatch.confidence >= LANGUAGE_MISMATCH_CONFIDENCE_THRESHOLD
+      ) {
         const detectedLanguage = matchResult.targetLanguageMismatch.detected;
         const suggestedCardType: ScannerCardType =
           detectedLanguage === 'japanese' ? 'pokemon_jp' : 'pokemon_en';
@@ -813,6 +823,12 @@ export function ScannerScreen({
           ...capture,
           languageMismatchSuggestion: suggestedCardType,
         }));
+        setShownWarningKind((current) => {
+          const existing = current.get(captureId);
+          const next = new Map(current);
+          next.set(captureId, existing === 'condition' ? 'both' : 'language');
+          return next;
+        });
         capturePostHogEvent('scan_warning_shown', {
           warning_kind: 'language',
           mode,
@@ -821,7 +837,7 @@ export function ScannerScreen({
           confidence: matchResult.targetLanguageMismatch.confidence,
         });
         // Intentionally do NOT return — let the normal candidate-paint code
-        // below run so the user sees the result alongside the warning chip.
+        // below run so the user sees the result alongside the warning Toast.
       }
 
       const paintedAt = Date.now();
@@ -1167,6 +1183,12 @@ export function ScannerScreen({
               ...capture,
               conditionMismatchSuggestion: 'graded',
             }));
+            setShownWarningKind((current) => {
+              const existing = current.get(captureId);
+              const next = new Map(current);
+              next.set(captureId, existing === 'language' ? 'both' : 'condition');
+              return next;
+            });
             capturePostHogEvent('scan_warning_shown', {
               warning_kind: 'condition',
               mode: 'raw',
@@ -1191,6 +1213,12 @@ export function ScannerScreen({
               ...capture,
               conditionMismatchSuggestion: 'ungraded',
             }));
+            setShownWarningKind((current) => {
+              const existing = current.get(captureId);
+              const next = new Map(current);
+              next.set(captureId, existing === 'language' ? 'both' : 'condition');
+              return next;
+            });
             capturePostHogEvent('scan_warning_shown', {
               warning_kind: 'condition',
               mode: 'slabs',
@@ -1519,32 +1547,14 @@ export function ScannerScreen({
     setActiveChangeCaptureId(null);
   }, []);
 
-  const handleAcceptWarning = useCallback((captureId: string, warning: UnifiedWarning) => {
-    if (warning.targetCardType) {
-      setCardType(warning.targetCardType);
-    }
-    if (warning.targetCondition) {
-      setCondition(warning.targetCondition);
-    }
-    capturePostHogEvent('scan_warning_switch_tapped', {
-      warning_kind: warning.kind,
-      ...(warning.targetCardType ? { target_card_type: warning.targetCardType } : {}),
-      ...(warning.targetCondition ? { target_condition: warning.targetCondition } : {}),
-    });
-    deleteRecentCapture(captureId);
-    setDismissedWarningKind((current) => {
-      if (!current.has(captureId)) {
-        return current;
-      }
-      const next = new Map(current);
-      next.delete(captureId);
-      return next;
-    });
-  }, [deleteRecentCapture, setCardType, setCondition]);
-
-  const handleDismissWarning = useCallback((captureId: string) => {
+  // Dismisses the global mismatch Toast for a capture (X tap or 10s auto-dismiss).
+  // Clears the suggestion fields so the Toast disappears. We deliberately do
+  // NOT clear `shownWarningKind` — that Map is the data-quality breadcrumb
+  // used to flag inventory adds where the user saw a warning before
+  // confirming.
+  const handleToastDismiss = useCallback((captureId: string) => {
     setRecentCaptures((current) => {
-      let didSet = false;
+      let didClear = false;
       let warningKind: 'language' | 'condition' | 'both' | null = null;
       const next = current.map((capture) => {
         if (capture.id !== captureId) {
@@ -1553,7 +1563,7 @@ export function ScannerScreen({
         const warning = buildUnifiedMismatchWarning(capture);
         if (warning) {
           warningKind = warning.kind;
-          didSet = true;
+          didClear = true;
         }
         return {
           ...capture,
@@ -1561,39 +1571,8 @@ export function ScannerScreen({
           languageMismatchSuggestion: null,
         };
       });
-      if (didSet && warningKind) {
-        setDismissedWarningKind((prev) => {
-          const map = new Map(prev);
-          map.set(captureId, warningKind!);
-          return map;
-        });
-        capturePostHogEvent('scan_warning_keep_tapped', {
-          warning_kind: warningKind,
-        });
-      }
-      return next;
-    });
-  }, []);
-
-  const handleAutoDismissWarning = useCallback((captureId: string) => {
-    setRecentCaptures((current) => {
-      let warningKind: 'language' | 'condition' | 'both' | null = null;
-      const next = current.map((capture) => {
-        if (capture.id !== captureId) {
-          return capture;
-        }
-        const warning = buildUnifiedMismatchWarning(capture);
-        if (warning) {
-          warningKind = warning.kind;
-        }
-        return {
-          ...capture,
-          conditionMismatchSuggestion: null,
-          languageMismatchSuggestion: null,
-        };
-      });
-      if (warningKind) {
-        capturePostHogEvent('scan_warning_auto_dismissed', {
+      if (didClear && warningKind) {
+        capturePostHogEvent('scan_warning_dismissed', {
           warning_kind: warningKind,
         });
       }
@@ -1661,7 +1640,7 @@ export function ScannerScreen({
     });
 
     let didSucceed = false;
-    const overrodeMismatchWarning = dismissedWarningKind.get(capture.id) ?? null;
+    const overrodeMismatchWarning = shownWarningKind.get(capture.id) ?? null;
     try {
       trackCandidateSelectionIfNeeded(capture);
       const selectedCondition: DeckConditionCode = priceSelection.get(capture.id)?.conditionCode ?? 'near_mint';
@@ -1730,7 +1709,7 @@ export function ScannerScreen({
         recentlyAddedTimersRef.current.set(captureId, timerId);
       }
     }
-  }, [dismissedWarningKind, priceSelection, recentCaptures, refreshData, spotlightRepository, trackCandidateSelectionIfNeeded]);
+  }, [shownWarningKind, priceSelection, recentCaptures, refreshData, spotlightRepository, trackCandidateSelectionIfNeeded]);
 
   const handleOpenCard = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((entry) => entry.id === captureId);
@@ -2036,22 +2015,9 @@ export function ScannerScreen({
     const modeTagLine = capture.mode === 'slabs'
       ? scannerSlabInlineLabel(capture) || 'GRADED'
       : 'RAW';
-    const mismatchWarning = buildUnifiedMismatchWarning(capture);
     return (
-      <View key={capture.id} style={styles.captureRowWithWarningWrap}>
-        {mismatchWarning ? (
-          <RecentCaptureWarningChip
-            message={mismatchWarning.message}
-            primaryActionLabel={mismatchWarning.primaryActionLabel}
-            onPrimaryAction={() => handleAcceptWarning(capture.id, mismatchWarning)}
-            secondaryActionLabel="Keep result"
-            onSecondaryAction={() => handleDismissWarning(capture.id)}
-            autoDismissMs={10000}
-            onAutoDismiss={() => handleAutoDismissWarning(capture.id)}
-            testID={`scanner-warning-${mismatchWarning.kind}-${capture.id}`}
-          />
-        ) : null}
       <RecentCaptureSwipeRow
+        key={capture.id}
         actionRailKey={capture.id}
         isFavorite={candidate?.isFavorite ?? false}
         onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
@@ -2201,7 +2167,6 @@ export function ScannerScreen({
           ) : null}
         </View>
       </RecentCaptureSwipeRow>
-      </View>
     );
   };
 
@@ -2291,6 +2256,37 @@ export function ScannerScreen({
             <IconSearch color={colors.gray0} size={16} strokeWidth={2} />
           </Pressable>
         </View>
+
+        {(() => {
+          // Mismatch Toast: informational only. The user keeps the scan result;
+          // tapping the × dismisses; auto-dismisses after 10 s. We deliberately
+          // don't surface a tap-to-switch action — toggling Pokémon EN/JP or
+          // Graded/Ungraded is the user's choice, not the app's. The Toast just
+          // tells them what the detector saw so they can decide. We read from
+          // recentCaptures[0] so the Toast always reflects the most recent scan.
+          const mostRecentCapture = recentCaptures[0] ?? null;
+          const mismatchWarning = mostRecentCapture
+            ? buildUnifiedMismatchWarning(mostRecentCapture)
+            : null;
+          return (
+            <Toast
+              visible={mismatchWarning != null}
+              message={mismatchWarning?.message ?? ''}
+              onDismiss={() => {
+                if (mostRecentCapture) {
+                  handleToastDismiss(mostRecentCapture.id);
+                }
+              }}
+              durationMs={10000}
+              tone="warning"
+              style={[
+                styles.mismatchToast,
+                { bottom: collapsedTrayReservedHeight + 8 },
+              ]}
+              testID="scanner-mismatch-toast"
+            />
+          );
+        })()}
 
         {scannerSmokeEnabled ? (
           <View
@@ -2560,8 +2556,11 @@ const styles = StyleSheet.create({
     minHeight: captureRowHeight,
     width: '100%',
   },
-  captureRowWithWarningWrap: {
-    gap: 8,
+  mismatchToast: {
+    left: 16,
+    position: 'absolute',
+    right: 16,
+    zIndex: 6,
   },
   captureLeftGroup: {
     alignItems: 'center',

@@ -267,11 +267,11 @@ describe('ScannerScreen', () => {
     // above the capture row.
     expect(payloads[0].mode).toBe('raw');
     expect(mockAnalyzeSlabCapture).not.toHaveBeenCalled();
-    const chip = await screen.findByText(/looks like a graded slab/i);
-    expect(chip).toBeTruthy();
+    const toastMessage = await screen.findByText(/looks like a graded slab/i);
+    expect(toastMessage).toBeTruthy();
   });
 
-  it('keeps the scan and surfaces an inline chip when the card language differs from the toggle', async () => {
+  it('keeps the scan and surfaces an informational Toast when the card language differs from the toggle', async () => {
     const payloads: any[] = [];
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async (payload) => {
@@ -295,13 +295,38 @@ describe('ScannerScreen', () => {
     // Default toggle is English; the backend says this card is Japanese.
     expect(payloads[0].cardLanguage).toBe('english');
 
-    // The soft warning now renders above the capture row as a chip. The
-    // result row itself is still kept in the tray — the user decides whether
-    // to switch toggles or keep the result.
-    const chip = await screen.findByText(/looks like a Japanese card/i);
-    expect(chip).toBeTruthy();
-    expect(screen.getByText(/Switch to JP & rescan/i)).toBeTruthy();
-    expect(screen.getByText(/Keep result/i)).toBeTruthy();
+    // The warning now renders as a global Toast above the tray (not per-row).
+    // It's informational only — no tap-to-switch action, just a dismiss × and
+    // a 10 s auto-dismiss. The scan result still lives in the tray.
+    const toastMessage = await screen.findByText(/looks like a Japanese card/i);
+    expect(toastMessage).toBeTruthy();
+  });
+
+  it('does NOT show the language warning when backend confidence is below 0.90', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        return {
+          scanID: 'scan-lang-low-conf',
+          candidates: [],
+          // 0.85 < threshold 0.90 — don't cry wolf on weak probe signals.
+          targetLanguageMismatch: { selected: 'english', detected: 'japanese', confidence: 0.85 },
+        };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+
+    // Toast should NOT appear at sub-threshold confidence.
+    expect(screen.queryByText(/looks like a Japanese card/i)).toBeNull();
   });
 
   it('renders an empty recent scans tray with no placeholder rows', () => {
