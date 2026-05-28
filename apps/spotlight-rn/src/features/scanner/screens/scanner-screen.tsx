@@ -2281,7 +2281,11 @@ export function ScannerScreen({
               tone="warning"
               style={[
                 styles.mismatchToast,
-                { bottom: collapsedTrayReservedHeight + 8 },
+                // Sit roughly centered between the bottom of the reticle and
+                // the top of the (collapsed) tray. The +24 offset reads as
+                // comfortable breathing room above the tray edge rather than
+                // hugging it.
+                { bottom: collapsedTrayReservedHeight + 24 },
               ]}
               testID="scanner-mismatch-toast"
             />
