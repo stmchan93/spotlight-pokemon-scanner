@@ -108,6 +108,10 @@ export function createTestSpotlightRepository(
       return overrides.setCardFavorite?.(...args)
         ?? baseRepository.setCardFavorite(...args);
     },
+    getCardFavorites: (...args) => {
+      return overrides.getCardFavorites?.(...args)
+        ?? baseRepository.getCardFavorites(...args);
+    },
     getAddToCollectionOptions: (...args) => {
       return overrides.getAddToCollectionOptions?.(...args)
         ?? baseRepository.getAddToCollectionOptions(...args);

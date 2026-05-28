@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -17,110 +17,37 @@ import {
   Upload as ShareIcon,
 } from 'iconoir-react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 
+import type { CardFavoriteEntry } from '@spotlight/api-client';
 import { SearchField, colors, useSpotlightTheme } from '@spotlight/design-system';
 
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
+import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
+import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
+import { useAppServices } from '@/providers/app-providers';
 
-type WishlistFilterKey = 'all' | 'az' | 'price' | 'ungraded' | 'graded';
+type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
 
-const FILTERS: ReadonlyArray<{ key: WishlistFilterKey; label: string; hasArrow?: boolean }> = [
+const FILTERS: readonly { key: WishlistFilterKey; label: string; hasArrow?: boolean }[] = [
   { key: 'all', label: 'All' },
   { key: 'az', label: 'A-Z' },
   { key: 'price', label: 'Price', hasArrow: true },
-  { key: 'ungraded', label: 'Ungraded' },
-  { key: 'graded', label: 'Graded' },
-];
-
-type WishlistEntry = {
-  id: string;
-  name: string;
-  cardNumber: string;
-  setName: string;
-  condition: string;
-  price: string;
-  delta: string;
-  qty: number;
-  imageUri: string | null;
-};
-
-// Placeholder rows so the screen matches the Figma. Real wishlist persistence
-// is not built yet — when it lands this list comes from the backend.
-const SAMPLE_ENTRIES: ReadonlyArray<WishlistEntry> = [
-  {
-    id: '1',
-    name: 'Charizard',
-    cardNumber: '100/101',
-    setName: 'Dragon Frontiers',
-    condition: 'PSA 10',
-    price: '$129,198.30',
-    delta: '$3.99',
-    qty: 1,
-    imageUri: null,
-  },
-  {
-    id: '2',
-    name: 'Gengar ex',
-    cardNumber: '193/162',
-    setName: 'Perfect Order',
-    condition: 'Near Mint',
-    price: '$450.12',
-    delta: '$3.99',
-    qty: 1,
-    imageUri: null,
-  },
-  {
-    id: '3',
-    name: 'Poncho-Wearing Pikachu',
-    cardNumber: '193/162',
-    setName: 'Perfect Order',
-    condition: 'PSA 10',
-    price: '$16,499.12',
-    delta: '$3.99',
-    qty: 1,
-    imageUri: null,
-  },
-  {
-    id: '4',
-    name: 'Charizard',
-    cardNumber: '100/101',
-    setName: 'Dragon Frontiers',
-    condition: 'PSA 10',
-    price: '$129,198.30',
-    delta: '$3.99',
-    qty: 1,
-    imageUri: null,
-  },
-  {
-    id: '5',
-    name: 'Gengar ex',
-    cardNumber: '193/162',
-    setName: 'Perfect Order',
-    condition: 'Near Mint',
-    price: '$450.12',
-    delta: '$3.99',
-    qty: 1,
-    imageUri: null,
-  },
-  {
-    id: '6',
-    name: 'Poncho-Wearing Pikachu',
-    cardNumber: '193/162',
-    setName: 'Perfect Order',
-    condition: 'PSA 10',
-    price: '$16,499.12',
-    delta: '$3.99',
-    qty: 1,
-    imageUri: null,
-  },
+  { key: 'unowned', label: 'Unowned' },
+  { key: 'owned', label: 'Owned' },
 ];
 
 export function WishlistScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const router = useRouter();
   const { openDrawer } = useAppDrawer();
+  const { spotlightRepository, dataVersion } = useAppServices();
+  const [favorites, setFavorites] = useState<CardFavoriteEntry[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<WishlistFilterKey>('all');
 
@@ -129,24 +56,69 @@ export function WishlistScreen() {
     + theme.layout.bottomNavBottomInset
     + Math.max(insets.bottom - 8, 0);
 
+  const loadFavorites = useCallback(async () => {
+    try {
+      const result = await spotlightRepository.getCardFavorites();
+      setFavorites(result);
+      setErrorMessage(null);
+    } catch {
+      setErrorMessage('Could not load your wishlist right now.');
+    }
+  }, [spotlightRepository]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setIsLoading(true);
+    void loadFavorites().finally(() => {
+      if (!cancelled) {
+        setIsLoading(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [dataVersion, loadFavorites]);
+
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
-    await new Promise((resolve) => setTimeout(resolve, 400));
+    await loadFavorites();
     setIsRefreshing(false);
-  }, []);
+  }, [loadFavorites]);
 
-  const filteredEntries = useMemo(() => {
+  const visibleEntries = useMemo(() => {
     const normalized = query.trim().toLowerCase();
-    if (normalized.length === 0) {
-      return SAMPLE_ENTRIES;
+    let entries = favorites;
+    if (activeFilter === 'owned') {
+      entries = entries.filter((entry) => entry.isOwned);
+    } else if (activeFilter === 'unowned') {
+      entries = entries.filter((entry) => !entry.isOwned);
     }
-    return SAMPLE_ENTRIES.filter((entry) =>
-      [entry.name, entry.cardNumber, entry.setName, entry.condition]
-        .join(' ')
-        .toLowerCase()
-        .includes(normalized),
-    );
-  }, [query]);
+    if (normalized.length > 0) {
+      entries = entries.filter((entry) =>
+        [entry.name, entry.cardNumber, entry.setName]
+          .join(' ')
+          .toLowerCase()
+          .includes(normalized),
+      );
+    }
+    if (activeFilter === 'az') {
+      entries = [...entries].sort((left, right) => left.name.localeCompare(right.name));
+    } else if (activeFilter === 'price') {
+      entries = [...entries].sort((left, right) => (right.marketPrice ?? 0) - (left.marketPrice ?? 0));
+    }
+    return entries;
+  }, [activeFilter, favorites, query]);
+
+  const handleEntryPress = useCallback((entry: CardFavoriteEntry) => {
+    const previewId = saveCardDetailPreviewFromFavorite(entry);
+    router.push({
+      pathname: '/cards/[cardId]',
+      params: {
+        cardId: entry.cardId,
+        previewId,
+      },
+    });
+  }, [router]);
 
   return (
     <SafeAreaView
@@ -277,81 +249,97 @@ export function WishlistScreen() {
           </ScrollView>
         </View>
 
-        <View style={styles.list}>
-          {filteredEntries.map((entry) => (
-            <View
-              key={entry.id}
-              style={[
-                styles.row,
-                { borderTopColor: theme.colors.gray100, borderBottomColor: theme.colors.gray100 },
-              ]}
-              testID={`wishlist-row-${entry.id}`}
+        <View style={styles.list} testID="wishlist-list">
+          {isLoading && favorites.length === 0 ? (
+            <Text
+              style={[styles.emptyText, { color: theme.colors.gray600 }]}
+              testID="wishlist-loading"
             >
-              <View style={styles.rowLeft}>
-                <View style={styles.thumbWrap}>
-                  {entry.imageUri ? (
-                    <Image source={{ uri: entry.imageUri }} style={styles.thumb} />
-                  ) : (
-                    <View style={[styles.thumb, { backgroundColor: theme.colors.gray100 }]} />
-                  )}
-                  <View
-                    style={[
-                      styles.heartBadge,
-                      { backgroundColor: theme.colors.brand },
-                    ]}
-                  >
-                    <Heart color={theme.colors.gray900} height={9} width={9} />
+              Loading your wishlist…
+            </Text>
+          ) : errorMessage ? (
+            <Text
+              style={[styles.emptyText, { color: theme.colors.gray600 }]}
+              testID="wishlist-error"
+            >
+              {errorMessage}
+            </Text>
+          ) : visibleEntries.length === 0 ? (
+            <Text
+              style={[styles.emptyText, { color: theme.colors.gray600 }]}
+              testID="wishlist-empty"
+            >
+              {favorites.length === 0
+                ? 'Tap the heart on any card to add it here.'
+                : 'No cards match your filters.'}
+            </Text>
+          ) : (
+            visibleEntries.map((entry) => (
+              <Pressable
+                accessibilityRole="button"
+                key={entry.cardId}
+                onPress={() => handleEntryPress(entry)}
+                style={({ pressed }) => [
+                  styles.row,
+                  { borderTopColor: theme.colors.gray100, borderBottomColor: theme.colors.gray100 },
+                  pressed ? styles.rowPressed : null,
+                ]}
+                testID={`wishlist-row-${entry.cardId}`}
+              >
+                <View style={styles.rowLeft}>
+                  <View style={styles.thumbWrap}>
+                    {entry.imageUrl ? (
+                      <Image source={{ uri: entry.imageUrl }} style={styles.thumb} />
+                    ) : (
+                      <View style={[styles.thumb, { backgroundColor: theme.colors.gray100 }]} />
+                    )}
+                    <View
+                      style={[
+                        styles.heartBadge,
+                        { backgroundColor: theme.colors.brand },
+                      ]}
+                    >
+                      <Heart color={theme.colors.gray900} height={9} width={9} />
+                    </View>
+                  </View>
+
+                  <View style={styles.rowText}>
+                    <Text
+                      numberOfLines={1}
+                      style={[theme.typography.bodyMedium, { color: theme.colors.gray900, fontWeight: '600' }]}
+                    >
+                      {entry.name}
+                    </Text>
+                    <Text
+                      numberOfLines={1}
+                      style={[styles.metaText, { color: theme.colors.gray600 }]}
+                    >
+                      {entry.cardNumber}
+                      {entry.cardNumber && entry.setName ? '  ·  ' : ''}
+                      {entry.setName}
+                    </Text>
+                    {entry.isOwned ? (
+                      <Text
+                        numberOfLines={1}
+                        style={[styles.metaText, styles.conditionText, { color: theme.colors.gray600 }]}
+                      >
+                        In your collection
+                      </Text>
+                    ) : null}
                   </View>
                 </View>
 
-                <View style={styles.rowText}>
+                <View style={styles.rowRight}>
                   <Text
                     numberOfLines={1}
-                    style={[theme.typography.bodyMedium, { color: theme.colors.gray900, fontWeight: '600' }]}
+                    style={[theme.typography.label, styles.priceText, { color: theme.colors.gray900 }]}
                   >
-                    {entry.name}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.metaText, { color: theme.colors.gray600 }]}
-                  >
-                    {entry.cardNumber}
-                    {'  ·  '}
-                    {entry.setName}
-                  </Text>
-                  <Text
-                    numberOfLines={1}
-                    style={[styles.metaText, styles.conditionText, { color: theme.colors.gray600 }]}
-                  >
-                    {entry.condition}
+                    {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
                   </Text>
                 </View>
-              </View>
-
-              <View style={styles.rowRight}>
-                <Text
-                  numberOfLines={1}
-                  style={[theme.typography.label, styles.priceText, { color: theme.colors.gray900 }]}
-                >
-                  {entry.price}
-                </Text>
-                <View style={[styles.deltaPill, { backgroundColor: theme.colors.green100 }]}>
-                  <ArrowUp color={theme.colors.green400} height={11} strokeWidth={2} width={11} />
-                  <Text
-                    style={[styles.deltaText, { color: theme.colors.green400 }]}
-                  >
-                    {entry.delta}
-                  </Text>
-                </View>
-                <Text
-                  numberOfLines={1}
-                  style={[styles.qtyText, { color: theme.colors.gray600 }]}
-                >
-                  Qty: {entry.qty}
-                </Text>
-              </View>
-            </View>
-          ))}
+              </Pressable>
+            ))
+          )}
         </View>
       </ScrollView>
 
@@ -419,6 +407,14 @@ const styles = StyleSheet.create({
   list: {
     marginTop: 16,
   },
+  emptyText: {
+    fontFamily: 'SpotlightBodyRegular',
+    fontSize: 14,
+    lineHeight: 20,
+    paddingHorizontal: 16,
+    paddingVertical: 32,
+    textAlign: 'center',
+  },
   row: {
     alignItems: 'flex-start',
     borderBottomWidth: 1,
@@ -427,6 +423,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  rowPressed: {
+    opacity: 0.78,
   },
   rowLeft: {
     flexDirection: 'row',
@@ -475,24 +474,5 @@ const styles = StyleSheet.create({
     fontFamily: 'SpotlightBodySemiBold',
     fontSize: 13,
     lineHeight: 18.2,
-  },
-  deltaPill: {
-    alignItems: 'center',
-    borderRadius: 4,
-    flexDirection: 'row',
-    gap: 2,
-    paddingHorizontal: 4,
-    paddingVertical: 2,
-  },
-  deltaText: {
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 11,
-    lineHeight: 14.3,
-  },
-  qtyText: {
-    fontFamily: 'SpotlightBodyRegular',
-    fontSize: 12,
-    lineHeight: 15.6,
-    marginTop: 18,
   },
 });

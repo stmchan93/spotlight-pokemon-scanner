@@ -538,6 +538,25 @@ export type CardFavoriteRecord = {
   favoritedAt?: string | null;
 };
 
+export type CardFavoriteEntry = {
+  cardId: string;
+  name: string;
+  cardNumber: string;
+  setName: string;
+  imageUrl: string;
+  smallImageUrl?: string | null;
+  largeImageUrl?: string | null;
+  marketPrice: number | null;
+  currencyCode: string;
+  favoritedAt: string | null;
+  isOwned: boolean;
+};
+
+export type CardFavoritesQuery = {
+  limit?: number;
+  offset?: number;
+};
+
 export type CollectionVariantOption = {
   id: string;
   label: string;

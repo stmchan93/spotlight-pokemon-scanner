@@ -1,4 +1,4 @@
-import type { CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
+import type { CardFavoriteEntry, CatalogSearchResult, InventoryCardEntry } from '@spotlight/api-client';
 
 export type CardDetailPreview = {
   cardId: string;
@@ -86,6 +86,24 @@ export function saveCardDetailPreviewFromCatalogResult(result: CatalogSearchResu
 
 export function saveCardDetailPreviewFromInventoryEntry(entry: InventoryCardEntry) {
   return saveCardDetailPreview(cardDetailPreviewFromInventoryEntry(entry));
+}
+
+export function cardDetailPreviewFromFavorite(entry: CardFavoriteEntry): CardDetailPreview {
+  return {
+    cardId: entry.cardId,
+    cardNumber: entry.cardNumber,
+    currencyCode: entry.currencyCode,
+    id: `favorite:${entry.cardId}`,
+    imageUrl: entry.imageUrl,
+    largeImageUrl: entry.largeImageUrl ?? null,
+    marketPrice: entry.marketPrice ?? null,
+    name: entry.name,
+    setName: entry.setName,
+  };
+}
+
+export function saveCardDetailPreviewFromFavorite(entry: CardFavoriteEntry) {
+  return saveCardDetailPreview(cardDetailPreviewFromFavorite(entry));
 }
 
 export function getCardDetailPreview(id?: string | null) {

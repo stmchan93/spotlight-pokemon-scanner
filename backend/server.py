@@ -11132,6 +11132,71 @@ class SpotlightScanService:
             "offset": safe_offset,
         }
 
+    def card_favorites(self, *, limit: int = 200, offset: int = 0) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        safe_limit = max(0, min(int(limit), 1000))
+        safe_offset = max(0, int(offset))
+        rows = self.connection.execute(
+            """
+            SELECT card_id, created_at
+            FROM card_favorites
+            WHERE owner_user_id = ?
+            ORDER BY created_at DESC, card_id ASC
+            LIMIT ? OFFSET ?
+            """,
+            (owner_user_id, safe_limit, safe_offset),
+        ).fetchall()
+
+        card_ids_in_order = [str(row["card_id"] or "").strip() for row in rows if row["card_id"]]
+        if not card_ids_in_order:
+            return {"entries": [], "limit": safe_limit, "offset": safe_offset}
+
+        cards_by_id_map = cards_by_ids(self.connection, card_ids_in_order)
+        price_snapshot_rows = self._price_snapshot_rows_by_card_id(card_ids_in_order)
+        owned_card_ids = self._owned_card_ids_for_user(owner_user_id, card_ids_in_order)
+
+        entries: list[dict[str, Any]] = []
+        for row in rows:
+            card_id = str(row["card_id"] or "").strip()
+            card = cards_by_id_map.get(card_id)
+            if card is None:
+                continue
+            pricing = self._display_pricing_summary_for_context(
+                card_id,
+                pricing_context=self._raw_pricing_context(),
+                snapshot_row=price_snapshot_rows.get(card_id),
+            )
+            card_payload = self._candidate_base_payload(card, card)
+            if pricing is not None:
+                card_payload["pricing"] = pricing
+            card_payload["isFavorite"] = True
+            entries.append(
+                {
+                    "card": card_payload,
+                    "favoritedAt": row["created_at"],
+                    "isOwned": card_id in owned_card_ids,
+                }
+            )
+
+        return {"entries": entries, "limit": safe_limit, "offset": safe_offset}
+
+    def _owned_card_ids_for_user(self, owner_user_id: str, card_ids: list[str]) -> set[str]:
+        normalized = [card_id for card_id in card_ids if card_id]
+        if not owner_user_id or not normalized:
+            return set()
+        placeholders = ",".join("?" for _ in normalized)
+        rows = self.connection.execute(
+            f"""
+            SELECT DISTINCT card_id
+            FROM deck_entries
+            WHERE owner_user_id = ?
+              AND quantity > 0
+              AND card_id IN ({placeholders})
+            """,
+            (owner_user_id, *normalized),
+        ).fetchall()
+        return {str(row["card_id"] or "").strip() for row in rows if row["card_id"]}
+
     def _log_scan(self, request_payload: dict[str, Any], response_payload: dict[str, Any], top_candidates: list[dict[str, Any]]) -> None:
         scan_id = request_payload["scanID"]
         now = utc_now()
@@ -11208,6 +11273,27 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
         if parsed.path == "/api/v1/ops/unmatched-scans":
             limit = int(query.get("limit", ["25"])[0])
             self._write_json(HTTPStatus.OK, self.service.unmatched_scans(limit=limit))
+            return
+
+        if parsed.path == "/api/v1/card-favorites":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                limit = int(query.get("limit", ["200"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
+                return
+            with self.service.request_identity_context(identity):
+                self._write_json(
+                    HTTPStatus.OK,
+                    self.service.card_favorites(limit=limit, offset=offset),
+                )
             return
 
         if parsed.path == "/api/v1/deck/entries":

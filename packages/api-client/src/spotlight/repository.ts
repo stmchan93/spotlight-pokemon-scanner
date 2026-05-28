@@ -13,7 +13,9 @@ import {
 import { labelingSessionAngleLabels } from './types';
 import type {
   AddToCollectionOptions,
+  CardFavoriteEntry,
   CardFavoriteRecord,
+  CardFavoritesQuery,
   CardDetailQuery,
   CardDetailRecord,
   CardEbayListingRecord,
@@ -107,6 +109,7 @@ export interface SpotlightRepository {
   }): Promise<CardEbayListingsRecord | null>;
   getCardRecentSales(query: CardRecentSalesQuery): Promise<CardRecentSalesRecord | null>;
   setCardFavorite(cardId: string, isFavorite?: boolean | null): Promise<CardFavoriteRecord>;
+  getCardFavorites(query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]>;
   getAddToCollectionOptions(cardId: string): Promise<AddToCollectionOptions>;
   createInventoryEntry(payload: InventoryEntryCreateRequestPayload): Promise<InventoryEntryCreateResponsePayload>;
   createPortfolioBuy(payload: PortfolioBuyRequestPayload): Promise<PortfolioBuyResponsePayload>;
@@ -2396,6 +2399,33 @@ export class MockSpotlightRepository implements SpotlightRepository {
     } satisfies CardFavoriteRecord;
   }
 
+  async getCardFavorites(_query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]> {
+    const ownedCardIds = new Set(this.inventoryEntries.map((entry) => entry.cardId));
+    const entries: CardFavoriteEntry[] = [];
+    const sortedFavorites = Array.from(this.favoriteCardTimestamps.entries())
+      .sort(([, leftTs], [, rightTs]) => (leftTs < rightTs ? 1 : leftTs > rightTs ? -1 : 0));
+    for (const [cardId, favoritedAt] of sortedFavorites) {
+      const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, { cardId });
+      if (!detail) {
+        continue;
+      }
+      entries.push({
+        cardId,
+        name: detail.name,
+        cardNumber: detail.cardNumber,
+        setName: detail.setName,
+        imageUrl: detail.imageUrl,
+        smallImageUrl: detail.imageUrl,
+        largeImageUrl: detail.largeImageUrl ?? null,
+        marketPrice: detail.marketPrice ?? null,
+        currencyCode: detail.currencyCode ?? 'USD',
+        favoritedAt,
+        isOwned: ownedCardIds.has(cardId),
+      });
+    }
+    return entries;
+  }
+
   async getAddToCollectionOptions(cardId: string) {
     const detailResult = await this.loadCardDetail({ cardId });
     if (!detailResult.data) {
@@ -3432,6 +3462,62 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       isFavorite: normalizeBoolean(response.isFavorite) ?? false,
       favoritedAt: normalizeString(response.favoritedAt),
     };
+  }
+
+  async getCardFavorites(query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]> {
+    const params = new URLSearchParams();
+    if (typeof query?.limit === 'number') {
+      params.set('limit', String(query.limit));
+    }
+    if (typeof query?.offset === 'number') {
+      params.set('offset', String(query.offset));
+    }
+    const queryString = params.toString();
+    const url = `${this.baseUrl}/api/v1/card-favorites${queryString ? `?${queryString}` : ''}`;
+    const response = await this.requestJson<{ entries?: unknown[] }>(url);
+    if (response.kind !== 'success' || !response.data) {
+      return [];
+    }
+    const entries = Array.isArray(response.data.entries) ? response.data.entries : [];
+    return entries
+      .map((entry): CardFavoriteEntry | null => {
+        if (!isRecord(entry)) {
+          return null;
+        }
+        const card = isRecord(entry.card) ? entry.card : null;
+        if (!card) {
+          return null;
+        }
+        const cardId = normalizeString(card.id);
+        if (!cardId) {
+          return null;
+        }
+        const pricing = isRecord(card.pricing) ? card.pricing : null;
+        const marketPrice = pricing
+          ? normalizeNumber(pricing.market)
+            ?? normalizeNumber(pricing.primaryPrice)
+            ?? normalizeNumber(pricing.mid)
+            ?? normalizeNumber(pricing.low)
+            ?? null
+          : null;
+        const currencyCode = pricing
+          ? normalizeString(pricing.currencyCode) ?? 'USD'
+          : 'USD';
+        return {
+          cardId,
+          name: normalizeString(card.name) ?? '',
+          cardNumber: normalizeString(card.number) ?? '',
+          setName: normalizeString(card.setName) ?? '',
+          imageUrl: normalizeString(card.imageSmallURL) ?? normalizeString(card.imageLargeURL) ?? '',
+          smallImageUrl: normalizeString(card.imageSmallURL),
+          largeImageUrl: normalizeString(card.imageLargeURL),
+          marketPrice,
+          currencyCode,
+          favoritedAt: normalizeString(entry.favoritedAt),
+          isOwned: normalizeBoolean(entry.isOwned) ?? false,
+        };
+      })
+      .filter((entry): entry is CardFavoriteEntry => entry !== null);
   }
 
   async getAddToCollectionOptions(cardId: string) {

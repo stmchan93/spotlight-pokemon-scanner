@@ -183,6 +183,43 @@ class CardFavoritesTests(unittest.TestCase):
             favorites_only=True,
         )
 
+    def test_card_favorites_returns_favorited_cards_owned_and_unowned(self) -> None:
+        self._insert_card(card_id="base-pikachu-58", name="Pikachu", set_name="Base Set", number="58/102", set_code="BS")
+        self._insert_card(card_id="gym1-60", name="Sabrina's Slowbro", set_name="Gym Heroes", number="60/132", set_code="GYM1")
+        self._insert_card(card_id="sm7-1", name="Treecko", set_name="Sun & Moon", number="1/96", set_code="SM7")
+        self._record_buy(user_id="user-a", card_id="base-pikachu-58", bought_at="2026-04-30T11:00:00Z")
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.set_card_favorite("base-pikachu-58", is_favorite=True)
+            self.service.set_card_favorite("gym1-60", is_favorite=True)
+            self.service.set_card_favorite("sm7-1", is_favorite=True)
+            payload = self.service.card_favorites()
+
+        card_ids = [entry["card"]["id"] for entry in payload["entries"]]
+        self.assertCountEqual(card_ids, ["base-pikachu-58", "gym1-60", "sm7-1"])
+        by_id = {entry["card"]["id"]: entry for entry in payload["entries"]}
+        self.assertTrue(by_id["base-pikachu-58"]["isOwned"])
+        self.assertFalse(by_id["gym1-60"]["isOwned"])
+        self.assertFalse(by_id["sm7-1"]["isOwned"])
+        for entry in payload["entries"]:
+            self.assertTrue(entry["card"]["isFavorite"])
+            self.assertIsNotNone(entry["favoritedAt"])
+
+    def test_card_favorites_get_route_runs_inside_authenticated_request_context(self) -> None:
+        identity = RequestIdentity(user_id="favorite-user", auth_source="test")
+        handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
+        handler.path = "/api/v1/card-favorites?limit=50&offset=5"
+        handler.service = Mock()
+        handler.service.request_identity_context.return_value = contextlib.nullcontext()
+        handler.service.card_favorites.return_value = {"entries": [], "limit": 50, "offset": 5}
+        handler._require_request_identity = lambda: identity  # type: ignore[method-assign]
+        handler._write_json = Mock()  # type: ignore[method-assign]
+
+        handler.do_GET()
+
+        handler.service.request_identity_context.assert_called_once_with(identity)
+        handler.service.card_favorites.assert_called_once_with(limit=50, offset=5)
+
     def test_card_detail_get_route_uses_authenticated_identity_when_present(self) -> None:
         identity = RequestIdentity(user_id="favorite-user", auth_source="test")
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)
