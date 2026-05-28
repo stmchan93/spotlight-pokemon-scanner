@@ -5,8 +5,10 @@ import {
   Linking,
   Modal,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -96,6 +98,8 @@ export function ScanPriceSheet({
 }: ScanPriceSheetProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const windowHeight = useWindowDimensions().height;
+  const listMaxHeight = Math.max(220, windowHeight * 0.45);
   const { spotlightRepository } = useAppServices();
 
   const [matrix, setMatrix] = useState<RawPricingMatrix | null>(null);
@@ -260,7 +264,12 @@ export function ScanPriceSheet({
                   <ActivityIndicator color={theme.colors.brand} size="small" />
                 </View>
               ) : hasMatrix ? (
-                <View style={styles.list} testID={`${testID}-list`}>
+                <ScrollView
+                  contentContainerStyle={styles.list}
+                  style={{ maxHeight: listMaxHeight }}
+                  showsVerticalScrollIndicator
+                  testID={`${testID}-list`}
+                >
                   {matrix!.variants.map((variant) => (
                     variant.conditions.map((condition) => {
                       const isSelected = selectedVariantKey === variant.variantKey
@@ -302,7 +311,7 @@ export function ScanPriceSheet({
                       );
                     })
                   ))}
-                </View>
+                </ScrollView>
               ) : (
                 <View style={styles.singleRow} testID={`${testID}-empty`}>
                   <View style={styles.rowCopy}>

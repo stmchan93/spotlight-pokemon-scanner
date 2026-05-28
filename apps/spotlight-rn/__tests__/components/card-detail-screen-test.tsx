@@ -117,7 +117,7 @@ describe('CardDetailScreen', () => {
     });
 
     fireEvent.press(await screen.findByTestId('detail-condition-dropdown'));
-    fireEvent.press(await screen.findByTestId('detail-condition-dropdown-option-lightly_played'));
+    fireEvent.press(await screen.findByTestId('detail-condition-dropdown-option-normal|lightly_played'));
 
     await waitFor(() => {
       expect(screen.getByTestId('detail-market-price').props.children).toBe('$0.22');
@@ -130,6 +130,13 @@ describe('CardDetailScreen', () => {
 
   it('renders market condition prices in the dropdown options when the backend returns short condition ids', async () => {
     const baseRepository = createTestSpotlightRepository();
+    const shortIdByLabel: Record<string, string> = {
+      Damaged: 'DMG',
+      'Heavily Played': 'HP',
+      'Lightly Played': 'LP',
+      'Moderately Played': 'MP',
+      'Near Mint': 'NM',
+    };
     const repository = createTestSpotlightRepository({
       getCardDetail: async (query) => {
         const detail = await baseRepository.getCardDetail(query);
@@ -137,13 +144,6 @@ describe('CardDetailScreen', () => {
           return null;
         }
 
-        const shortIdByLabel: Record<string, string> = {
-          Damaged: 'DMG',
-          'Heavily Played': 'HP',
-          'Lightly Played': 'LP',
-          'Moderately Played': 'MP',
-          'Near Mint': 'NM',
-        };
         return {
           ...detail,
           marketHistory: {
@@ -155,6 +155,19 @@ describe('CardDetailScreen', () => {
             selectedCondition: 'NM',
           },
         } satisfies CardDetailRecord;
+      },
+      getRawPricingMatrix: async (cardId) => {
+        const matrix = await baseRepository.getRawPricingMatrix(cardId);
+        return {
+          ...matrix,
+          variants: matrix.variants.map((variant) => ({
+            ...variant,
+            conditions: variant.conditions.map((condition) => ({
+              ...condition,
+              code: shortIdByLabel[condition.label] ?? condition.code,
+            })),
+          })),
+        };
       },
     });
 
@@ -170,8 +183,8 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByText('Treecko')).toBeTruthy();
 
     fireEvent.press(await screen.findByTestId('detail-condition-dropdown'));
-    expect(await screen.findByTestId('detail-condition-dropdown-option-near_mint')).toBeTruthy();
-    expect(await screen.findByTestId('detail-condition-dropdown-option-lightly_played')).toBeTruthy();
+    expect(await screen.findByTestId('detail-condition-dropdown-option-normal|NM')).toBeTruthy();
+    expect(await screen.findByTestId('detail-condition-dropdown-option-normal|LP')).toBeTruthy();
   });
 
   it('shows quantity stepper + Sell button for owned cards and routes increment/edit/sell correctly', async () => {

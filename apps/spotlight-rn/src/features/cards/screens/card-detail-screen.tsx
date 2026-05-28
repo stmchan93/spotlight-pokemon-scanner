@@ -22,6 +22,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -31,6 +32,7 @@ import {
   deckConditionOptions,
   type CardDetailRecord,
   type CardRecentSalesRecord,
+  type RawPricingMatrix,
 } from '@spotlight/api-client';
 import { Button, IconButton, SurfaceCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
@@ -139,6 +141,22 @@ function compactCurrency(value: number, currencyCode: string) {
     maximumFractionDigits: value >= 10 ? 0 : 2,
   }).format(value);
 }
+
+type DeckConditionCode = 'near_mint' | 'lightly_played' | 'moderately_played' | 'heavily_played' | 'damaged';
+
+const matrixCodeToDeckCondition: Record<string, DeckConditionCode> = {
+  NM: 'near_mint',
+  LP: 'lightly_played',
+  MP: 'moderately_played',
+  HP: 'heavily_played',
+  DM: 'damaged',
+  DMG: 'damaged',
+  near_mint: 'near_mint',
+  lightly_played: 'lightly_played',
+  moderately_played: 'moderately_played',
+  heavily_played: 'heavily_played',
+  damaged: 'damaged',
+};
 
 function normalizeMarketConditionId(value?: string | null) {
   const normalized = value?.trim().toLowerCase();
@@ -579,6 +597,8 @@ function ConditionDropdown({
 }) {
   const theme = useSpotlightTheme();
   const [isOpen, setIsOpen] = useState(false);
+  const windowHeight = useWindowDimensions().height;
+  const optionsMaxHeight = Math.max(220, windowHeight * 0.6);
 
   const close = () => setIsOpen(false);
 
@@ -619,39 +639,44 @@ function ConditionDropdown({
           testID={testID ? `${testID}-backdrop` : undefined}
         >
           <Pressable onPress={() => undefined} style={styles.dropdownSheet}>
-            {options.map((option) => {
-              const isSelected = option.id === selectedId;
-              return (
-                <Pressable
-                  key={option.id}
-                  accessibilityRole="button"
-                  disabled={!option.isAvailable}
-                  onPress={() => {
-                    onSelect(option.id);
-                    close();
-                  }}
-                  style={({ pressed }) => [
-                    styles.dropdownOption,
-                    {
-                      backgroundColor: isSelected ? theme.colors.surfaceMuted : 'transparent',
-                      opacity: option.isAvailable ? (pressed ? 0.84 : 1) : 0.42,
-                    },
-                  ]}
-                  testID={testID ? `${testID}-option-${option.id}` : undefined}
-                >
-                  <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
-                    {option.label}
-                  </Text>
-                  {hideOptionPrice ? null : (
-                    <Text style={[theme.typography.bodyStrong, styles.dropdownOptionPrice]}>
-                      {option.currentPrice != null
-                        ? formatCurrency(option.currentPrice, 'USD')
-                        : '—'}
+            <ScrollView
+              showsVerticalScrollIndicator
+              style={{ maxHeight: optionsMaxHeight }}
+            >
+              {options.map((option) => {
+                const isSelected = option.id === selectedId;
+                return (
+                  <Pressable
+                    key={option.id}
+                    accessibilityRole="button"
+                    disabled={!option.isAvailable}
+                    onPress={() => {
+                      onSelect(option.id);
+                      close();
+                    }}
+                    style={({ pressed }) => [
+                      styles.dropdownOption,
+                      {
+                        backgroundColor: isSelected ? theme.colors.surfaceMuted : 'transparent',
+                        opacity: option.isAvailable ? (pressed ? 0.84 : 1) : 0.42,
+                      },
+                    ]}
+                    testID={testID ? `${testID}-option-${option.id}` : undefined}
+                  >
+                    <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
+                      {option.label}
                     </Text>
-                  )}
-                </Pressable>
-              );
-            })}
+                    {hideOptionPrice ? null : (
+                      <Text style={[theme.typography.bodyStrong, styles.dropdownOptionPrice]}>
+                        {option.currentPrice != null
+                          ? formatCurrency(option.currentPrice, 'USD')
+                          : '—'}
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
           </Pressable>
         </Pressable>
       </Modal>
@@ -684,6 +709,8 @@ export function CardDetailScreen({
   const [isEbayIconLoading, setIsEbayIconLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [selectedConditionId, setSelectedConditionId] = useState<string | null>(null);
+  const [pricingMatrix, setPricingMatrix] = useState<RawPricingMatrix | null>(null);
+  const [selectedVariantKey, setSelectedVariantKey] = useState<string | null>(null);
   const [isFavoritePending, setIsFavoritePending] = useState(false);
   const [favoriteState, setFavoriteState] = useState<{ isFavorite: boolean; favoritedAt: string | null }>({
     favoritedAt: null,
@@ -817,6 +844,35 @@ export function CardDetailScreen({
   }, [detail?.marketHistory, selectedConditionId, selectedSlabContext]);
 
   useEffect(() => {
+    if (selectedSlabContext != null) {
+      setPricingMatrix(null);
+      return;
+    }
+    let cancelled = false;
+    void spotlightRepository.getRawPricingMatrix(cardId)
+      .then((result) => {
+        if (!cancelled) {
+          setPricingMatrix(result);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPricingMatrix(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [cardId, dataVersion, selectedSlabContext, spotlightRepository]);
+
+  const selectedVariantLabel = useMemo(() => {
+    if (!pricingMatrix || !selectedVariantKey) {
+      return null;
+    }
+    return pricingMatrix.variants.find((variant) => variant.variantKey === selectedVariantKey)?.variant ?? null;
+  }, [pricingMatrix, selectedVariantKey]);
+
+  useEffect(() => {
     let cancelled = false;
     const requestedCondition = selectedSlabContextForPricing == null
       ? (
@@ -831,7 +887,7 @@ export function CardDetailScreen({
       days: 90,
       condition: requestedCondition,
       slabContext: selectedSlabContextForPricing,
-      variant: selectedSlabContextForPricing?.variantName ?? undefined,
+      variant: selectedSlabContextForPricing?.variantName ?? selectedVariantLabel ?? undefined,
     })
       .then((nextHistory) => {
         if (!cancelled) {
@@ -847,7 +903,15 @@ export function CardDetailScreen({
     return () => {
       cancelled = true;
     };
-  }, [cardId, dataVersion, detail?.marketHistory, selectedConditionId, selectedSlabContextForPricing, spotlightRepository]);
+  }, [
+    cardId,
+    dataVersion,
+    detail?.marketHistory,
+    selectedConditionId,
+    selectedSlabContextForPricing,
+    selectedVariantLabel,
+    spotlightRepository,
+  ]);
 
   useEffect(() => {
     setRecentSalesState(null);
@@ -1051,6 +1115,77 @@ export function CardDetailScreen({
       ?? null;
   }, [effectiveMarketHistory, marketConditionOptions, selectedConditionId]);
 
+  const variantConditionDropdownOptions = useMemo(() => {
+    if (!pricingMatrix) {
+      return [];
+    }
+    return pricingMatrix.variants.flatMap((variant) => (
+      variant.conditions
+        .filter((condition) => typeof condition.market === 'number' && Number.isFinite(condition.market))
+        .map((condition) => ({
+          currentPrice: condition.market ?? null,
+          id: `${variant.variantKey}|${condition.code}`,
+          isAvailable: true,
+          label: `${variant.variant} · ${condition.label}`,
+          shortLabel: condition.code,
+        }))
+    ));
+  }, [pricingMatrix]);
+
+  useEffect(() => {
+    if (isSlabDetail || !pricingMatrix || pricingMatrix.variants.length === 0 || selectedVariantKey != null) {
+      return;
+    }
+
+    const candidates = pricingMatrix.variants.flatMap((variant) => (
+      variant.conditions
+        .filter((condition) => typeof condition.market === 'number' && Number.isFinite(condition.market))
+        .map((condition) => ({
+          conditionCode: condition.code,
+          conditionLabel: condition.label,
+          variantKey: variant.variantKey,
+          variantLabel: variant.variant,
+        }))
+    ));
+
+    if (candidates.length === 0) {
+      return;
+    }
+
+    const inventoryVariantName = selectedEntry?.kind === 'raw' ? selectedEntry.variantName?.trim() ?? '' : '';
+    const inventoryConditionLabel = selectedEntry?.kind === 'raw' ? selectedEntry.conditionLabel?.trim() ?? '' : '';
+
+    const chosen = (
+      (inventoryVariantName
+        ? candidates.find((candidate) => (
+          candidate.variantLabel.toLowerCase() === inventoryVariantName.toLowerCase()
+          && (!inventoryConditionLabel || candidate.conditionLabel.toLowerCase() === inventoryConditionLabel.toLowerCase())
+        ))
+        : null)
+      ?? candidates[0]
+    );
+
+    setSelectedVariantKey(chosen.variantKey);
+    const deckCondition = matrixCodeToDeckCondition[chosen.conditionCode];
+    if (deckCondition && selectedConditionId == null) {
+      setSelectedConditionId(deckCondition);
+    }
+  }, [isSlabDetail, pricingMatrix, selectedConditionId, selectedEntry, selectedVariantKey]);
+
+  const matrixSelectedPrice = useMemo(() => {
+    if (!pricingMatrix || !selectedVariantKey || !selectedConditionId) {
+      return null;
+    }
+    const variant = pricingMatrix.variants.find((v) => v.variantKey === selectedVariantKey);
+    if (!variant) {
+      return null;
+    }
+    const condition = variant.conditions.find((c) => matrixCodeToDeckCondition[c.code] === selectedConditionId);
+    return typeof condition?.market === 'number' && Number.isFinite(condition.market)
+      ? condition.market
+      : null;
+  }, [pricingMatrix, selectedConditionId, selectedVariantKey]);
+
   const marketTint = useMemo(() => {
     if (!effectiveMarketHistory) {
       return theme.colors.brand;
@@ -1241,7 +1376,8 @@ export function CardDetailScreen({
   const displayedPrice = isSlabDetail
     ? (slabDisplayedPrice ?? effectiveMarketHistory?.currentPrice ?? null)
     : (
-      selectedCondition?.currentPrice
+      matrixSelectedPrice
+      ?? selectedCondition?.currentPrice
       ?? effectiveMarketHistory?.currentPrice
       ?? detail?.marketPrice
       ?? detailPreview?.marketPrice
@@ -1255,9 +1391,10 @@ export function CardDetailScreen({
   const slabHeroSubtitle = slabGradeSummary(selectedSlabContext);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
-  const marketplacePrintingHint = selectedEntry?.kind === 'raw'
-    ? selectedEntry.variantName
-    : detail?.marketHistory?.selectedVariant ?? null;
+  const marketplacePrintingHint = selectedVariantLabel
+    ?? (selectedEntry?.kind === 'raw'
+      ? selectedEntry.variantName
+      : detail?.marketHistory?.selectedVariant ?? null);
   const marketplaceUrl = buildTcgPlayerSearchUrl({
     cardNumber: displayCardNumber,
     name: displayName,
@@ -1267,9 +1404,28 @@ export function CardDetailScreen({
   });
   const sellEntryId = selectedEntry?.id ?? entryId;
 
+  const selectedVariantConditionId = (() => {
+    if (!pricingMatrix || !selectedVariantKey || !selectedConditionId) {
+      return null;
+    }
+    const variant = pricingMatrix.variants.find((v) => v.variantKey === selectedVariantKey);
+    if (!variant) {
+      return null;
+    }
+    const matchingCondition = variant.conditions.find((c) => matrixCodeToDeckCondition[c.code] === selectedConditionId);
+    return matchingCondition ? `${selectedVariantKey}|${matchingCondition.code}` : null;
+  })();
+
+  const variantConditionLabel = isSlabDetail
+    ? null
+    : (variantConditionDropdownOptions.find((option) => option.id === selectedVariantConditionId)?.label
+      ?? (selectedVariantLabel && selectedCondition?.label
+        ? `${selectedVariantLabel} · ${selectedCondition.label}`
+        : null));
+
   const conditionDropdownLabel = isSlabDetail
     ? (slabDropdownLabel ?? 'Slab')
-    : (selectedCondition?.label ?? 'Condition');
+    : (variantConditionLabel ?? selectedCondition?.label ?? 'Condition');
 
   const recentSalesUpdatedLabel = formatRecentSalesUpdatedLabel(recentSales?.fetchedAt);
   const recentSalesSection = recentSalesSectionState(recentSales);
@@ -1448,6 +1604,24 @@ export function CardDetailScreen({
                   onSelect={(id) => setSlabGradeOverride(id)}
                   options={slabGradeDropdownOptions}
                   selectedId={effectiveSlabGrade || null}
+                  selectedLabel={conditionDropdownLabel}
+                  testID="detail-condition-dropdown"
+                />
+              ) : variantConditionDropdownOptions.length > 0 ? (
+                <ConditionDropdown
+                  onSelect={(id) => {
+                    const [variantKey, conditionCode] = id.split('|');
+                    if (!variantKey || !conditionCode) {
+                      return;
+                    }
+                    setSelectedVariantKey(variantKey);
+                    const deckCondition = matrixCodeToDeckCondition[conditionCode];
+                    if (deckCondition) {
+                      setSelectedConditionId(deckCondition);
+                    }
+                  }}
+                  options={variantConditionDropdownOptions}
+                  selectedId={selectedVariantConditionId}
                   selectedLabel={conditionDropdownLabel}
                   testID="detail-condition-dropdown"
                 />
