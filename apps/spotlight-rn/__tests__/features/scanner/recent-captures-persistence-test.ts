@@ -98,12 +98,10 @@ function makeCapture(overrides: Partial<RecentCapture> = {}): RecentCapture {
   return {
     activeCandidateIndex: 0,
     candidates: [],
-    conditionMismatchSuggestion: null,
     hasTrackedSelectionEvent: false,
     id: 'cap-1',
     isAddingToInventory: false,
     isLoadingCandidates: false,
-    languageMismatchSuggestion: null,
     matchReviewDisposition: null,
     matchReviewReason: null,
     mode: 'raw',

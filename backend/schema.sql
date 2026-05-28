@@ -132,13 +132,7 @@ CREATE TABLE IF NOT EXISTS scan_events (
     review_disposition TEXT,
     correction_type TEXT,
     completed_at TEXT,
-    confirmed_at TEXT,
-    -- Soft mismatch-warning override flag. NULL = no warning was active when
-    -- the user added this scan to inventory. 'language' | 'condition' | 'both'
-    -- = user dismissed an active mismatch warning ("Keep result") AND then
-    -- added the card anyway. Flagged rows are quarantined from the automated
-    -- labeling pipeline because confirmed_card_id may not match the photo.
-    user_overrode_mismatch_warning TEXT
+    confirmed_at TEXT
 );
 
 CREATE TABLE IF NOT EXISTS scan_artifacts (

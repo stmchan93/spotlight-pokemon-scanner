@@ -3553,11 +3553,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   }
 
   async createInventoryEntry(payload: InventoryEntryCreateRequestPayload) {
-    // Explicit body shape so the optional mismatch-override flag is forwarded
-    // verbatim. Backend reads `userOverrodeMismatchWarning` from this body and
-    // writes it to `scan_events.user_overrode_mismatch_warning`. Listed
-    // explicitly (rather than relying on JSON.stringify(payload)) so the
-    // contract with the server is obvious from this call site.
     const body = {
       cardID: payload.cardID,
       slabContext: payload.slabContext,
@@ -3570,7 +3565,6 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       wasTopPrediction: payload.wasTopPrediction ?? null,
       addedAt: payload.addedAt,
       costBasisPerUnit: payload.costBasisPerUnit ?? null,
-      userOverrodeMismatchWarning: payload.userOverrodeMismatchWarning ?? null,
     };
     return this.requestJsonOrThrow<InventoryEntryCreateResponsePayload>(`${this.baseUrl}/api/v1/deck/entries`, {
       method: 'POST',

@@ -9,87 +9,8 @@ import {
 } from '@spotlight/api-client';
 
 import { analyzePSASlabCapture } from '@/features/scanner/slab-native-analysis';
-import type {
-  ScannerCardType,
-  ScannerCondition,
-} from '@/features/scanner/use-scanner-target-config';
 
 import type { RecentCapture, ScannerMode } from './scanner-screen-types';
-
-export type UnifiedWarning = {
-  kind: 'language' | 'condition' | 'both';
-  targetCardType: ScannerCardType | null;
-  targetCondition: ScannerCondition | null;
-  message: string;
-  primaryActionLabel: string;
-};
-
-function languageAdjective(cardType: ScannerCardType): string {
-  return cardType === 'pokemon_jp' ? 'Japanese' : 'English';
-}
-
-function articleFor(adjective: string): string {
-  return /^[aeiou]/i.test(adjective) ? 'an' : 'a';
-}
-
-function languageActionToken(cardType: ScannerCardType): string {
-  return cardType === 'pokemon_jp' ? 'JP' : 'EN';
-}
-
-function conditionNoun(condition: ScannerCondition): string {
-  return condition === 'graded' ? 'graded slab' : 'raw card';
-}
-
-function conditionActionToken(condition: ScannerCondition): string {
-  return condition === 'graded' ? 'Graded' : 'Ungraded';
-}
-
-/**
- * Builds a single combined warning chip describing language and/or condition
- * mismatches detected for a capture. Returns null when no suggestions are
- * active. When both are active, the message folds the language adjective in
- * front of the condition noun and the action label combines both switches.
- */
-export function buildUnifiedMismatchWarning(
-  capture: RecentCapture,
-): UnifiedWarning | null {
-  const languageSuggestion = capture.languageMismatchSuggestion ?? null;
-  const conditionSuggestion = capture.conditionMismatchSuggestion ?? null;
-
-  if (languageSuggestion && conditionSuggestion) {
-    const adjective = languageAdjective(languageSuggestion);
-    return {
-      kind: 'both',
-      targetCardType: languageSuggestion,
-      targetCondition: conditionSuggestion,
-      message: `Looks like ${articleFor(adjective)} ${adjective} ${conditionNoun(conditionSuggestion)}.`,
-      primaryActionLabel: `Switch to ${languageActionToken(languageSuggestion)} + ${conditionActionToken(conditionSuggestion)} & rescan`,
-    };
-  }
-
-  if (languageSuggestion) {
-    const adjective = languageAdjective(languageSuggestion);
-    return {
-      kind: 'language',
-      targetCardType: languageSuggestion,
-      targetCondition: null,
-      message: `Looks like ${articleFor(adjective)} ${adjective} card.`,
-      primaryActionLabel: `Switch to ${languageActionToken(languageSuggestion)} & rescan`,
-    };
-  }
-
-  if (conditionSuggestion) {
-    return {
-      kind: 'condition',
-      targetCardType: null,
-      targetCondition: conditionSuggestion,
-      message: `Looks like a ${conditionNoun(conditionSuggestion)}.`,
-      primaryActionLabel: `Switch to ${conditionActionToken(conditionSuggestion)} & rescan`,
-    };
-  }
-
-  return null;
-}
 
 export const unsupportedSlabTitle = 'Slab type is currently not supported';
 export const unsupportedSlabSubtitle = 'We currently only support PSA slabs for now.';

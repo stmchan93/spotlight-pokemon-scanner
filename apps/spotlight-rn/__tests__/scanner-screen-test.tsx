@@ -26,16 +26,6 @@ const mockLoadRawScannerSmokeFixture = jest.fn(async () => ({
   normalizedImageUri: 'file:///scanner-smoke-fixture.jpg',
   sourceImageCrop: { height: 880, width: 630, x: 0, y: 0 },
 }));
-const mockQuickClassifyCapture = jest.fn(async (_imageUri: string, _sourceUri?: string) => ({
-  isSlabLikely: false,
-  hasBarcode: false,
-  confidence: 0.2,
-  redBandScore: 0.1,
-  barcodeRegionScore: 0.15,
-  decodeMs: 5,
-  classifyMs: 3,
-}));
-
 const mockAnalyzeSlabCapture = jest.fn(async (_imageUri: string): Promise<any> => ({
   parsed: {
     unsupportedReason: null,
@@ -72,11 +62,6 @@ jest.mock('@/features/scanner/scanner-smoke-fixtures', () => ({
 
 jest.mock('@/features/scanner/slab-native-analysis', () => ({
   analyzePSASlabCapture: (imageUri: string) => mockAnalyzeSlabCapture(imageUri),
-}));
-
-jest.mock('@/features/scanner/slab-scanner-native', () => ({
-  quickClassifyCapture: (imageUri: any) => mockQuickClassifyCapture(imageUri),
-  isSlabScannerNativeAvailable: () => true,
 }));
 
 const mockPush = jest.fn();
@@ -159,7 +144,6 @@ describe('ScannerScreen', () => {
     keyboardDismissSpy.mockClear();
     mockLoadRawScannerSmokeFixture.mockClear();
     mockAnalyzeSlabCapture.mockClear();
-    mockQuickClassifyCapture.mockClear();
     __resetScannerTargetConfigForTests();
     if (!mockedConstants.expoConfig) {
       mockedConstants.expoConfig = { extra: {}, name: 'Spotlight', slug: 'spotlight' };
@@ -231,102 +215,6 @@ describe('ScannerScreen', () => {
     fireEvent.press(screen.getByTestId('scanner-search-button'));
 
     expect(mockPush).toHaveBeenCalledWith('/catalog/search');
-  });
-
-  it('warns without changing the lane when the classifier sees a slab on the raw lane', async () => {
-    const payloads: any[] = [];
-    const spotlightRepository = createTestSpotlightRepository({
-      matchScannerCapture: async (payload) => {
-        payloads.push(payload);
-        return { scanID: 'scan-mismatch', candidates: [] };
-      },
-    });
-
-    renderScannerScreen({ spotlightRepository });
-
-    // Default condition is Ungraded (raw lane). The classifier flags a slab.
-    mockQuickClassifyCapture.mockResolvedValueOnce({
-      isSlabLikely: true,
-      hasBarcode: true,
-      confidence: 0.8,
-      redBandScore: 0.6,
-      barcodeRegionScore: 0.5,
-      decodeMs: 5,
-      classifyMs: 3,
-    });
-
-    await waitForScannerReady();
-    fireEvent.press(screen.getByTestId('scanner-preview'));
-
-    await waitFor(() => {
-      expect(payloads).toHaveLength(1);
-    });
-
-    // The lane is authoritative: the toggle says Ungraded, so we stay raw and
-    // never run the slab analysis, but the soft inline warning chip renders
-    // above the capture row.
-    expect(payloads[0].mode).toBe('raw');
-    expect(mockAnalyzeSlabCapture).not.toHaveBeenCalled();
-    const toastMessage = await screen.findByText(/looks like a graded slab/i);
-    expect(toastMessage).toBeTruthy();
-  });
-
-  it('keeps the scan and surfaces an informational Toast when the card language differs from the toggle', async () => {
-    const payloads: any[] = [];
-    const spotlightRepository = createTestSpotlightRepository({
-      matchScannerCapture: async (payload) => {
-        payloads.push(payload);
-        return {
-          scanID: 'scan-lang-mismatch',
-          candidates: [],
-          targetLanguageMismatch: { selected: 'english', detected: 'japanese', confidence: 0.97 },
-        };
-      },
-    });
-
-    renderScannerScreen({ spotlightRepository });
-
-    await waitForScannerReady();
-    fireEvent.press(screen.getByTestId('scanner-preview'));
-
-    await waitFor(() => {
-      expect(payloads).toHaveLength(1);
-    });
-    // Default toggle is English; the backend says this card is Japanese.
-    expect(payloads[0].cardLanguage).toBe('english');
-
-    // The warning now renders as a global Toast above the tray (not per-row).
-    // It's informational only — no tap-to-switch action, just a dismiss × and
-    // a 10 s auto-dismiss. The scan result still lives in the tray.
-    const toastMessage = await screen.findByText(/looks like a Japanese card/i);
-    expect(toastMessage).toBeTruthy();
-  });
-
-  it('does NOT show the language warning when backend confidence is below 0.90', async () => {
-    const payloads: any[] = [];
-    const spotlightRepository = createTestSpotlightRepository({
-      matchScannerCapture: async (payload) => {
-        payloads.push(payload);
-        return {
-          scanID: 'scan-lang-low-conf',
-          candidates: [],
-          // 0.85 < threshold 0.90 — don't cry wolf on weak probe signals.
-          targetLanguageMismatch: { selected: 'english', detected: 'japanese', confidence: 0.85 },
-        };
-      },
-    });
-
-    renderScannerScreen({ spotlightRepository });
-
-    await waitForScannerReady();
-    fireEvent.press(screen.getByTestId('scanner-preview'));
-
-    await waitFor(() => {
-      expect(payloads).toHaveLength(1);
-    });
-
-    // Toast should NOT appear at sub-threshold confidence.
-    expect(screen.queryByText(/looks like a Japanese card/i)).toBeNull();
   });
 
   it('renders an empty recent scans tray with no placeholder rows', () => {
