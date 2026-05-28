@@ -263,13 +263,15 @@ describe('ScannerScreen', () => {
     });
 
     // The lane is authoritative: the toggle says Ungraded, so we stay raw and
-    // never run the slab analysis, but we surface a dismissible mismatch notice.
+    // never run the slab analysis, but the soft inline warning chip renders
+    // above the capture row.
     expect(payloads[0].mode).toBe('raw');
     expect(mockAnalyzeSlabCapture).not.toHaveBeenCalled();
-    expect(await screen.findByTestId('scanner-mode-mismatch-notice')).toBeTruthy();
+    const chip = await screen.findByText(/looks like a graded slab/i);
+    expect(chip).toBeTruthy();
   });
 
-  it('drops the scan and warns when the card language differs from the toggle', async () => {
+  it('keeps the scan and surfaces an inline chip when the card language differs from the toggle', async () => {
     const payloads: any[] = [];
     const spotlightRepository = createTestSpotlightRepository({
       matchScannerCapture: async (payload) => {
@@ -293,21 +295,13 @@ describe('ScannerScreen', () => {
     // Default toggle is English; the backend says this card is Japanese.
     expect(payloads[0].cardLanguage).toBe('english');
 
-    const notice = await screen.findByTestId('scanner-language-mismatch-notice');
-    expect(notice).toBeTruthy();
-    // Clear, actionable messaging that names the detected language.
-    expect(screen.getByText(/looks like a Japanese card/i)).toBeTruthy();
-
-    // A wrong-language scan is never kept in the tray.
-    expect(screen.queryByTestId('scanner-tray-row-pending')).toBeNull();
-    expect(screen.queryByTestId('scanner-tray-row-review')).toBeNull();
-
-    // Tapping the notice flips the toggle and clears the warning (the toast
-    // fades out, then unmounts).
-    fireEvent.press(notice);
-    await waitFor(() => {
-      expect(screen.queryByTestId('scanner-language-mismatch-notice')).toBeNull();
-    });
+    // The soft warning now renders above the capture row as a chip. The
+    // result row itself is still kept in the tray — the user decides whether
+    // to switch toggles or keep the result.
+    const chip = await screen.findByText(/looks like a Japanese card/i);
+    expect(chip).toBeTruthy();
+    expect(screen.getByText(/Switch to JP & rescan/i)).toBeTruthy();
+    expect(screen.getByText(/Keep result/i)).toBeTruthy();
   });
 
   it('renders an empty recent scans tray with no placeholder rows', () => {

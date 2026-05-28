@@ -610,6 +610,16 @@ export type InventoryEntryCreateRequestPayload = {
    * the inventory row's `cost_basis_cents` column for Insights aggregates.
    */
   costBasisPerUnit?: number | null;
+  /**
+   * Set when the user actively dismissed an inline mismatch warning ("Keep
+   * result") on the capture row before adding it to inventory. Backend writes
+   * this value to `scan_events.user_overrode_mismatch_warning` so the
+   * labeling pipeline can quarantine the row from automated training while
+   * still preserving the photo for human re-labeling. Auto-dismissed
+   * warnings (10s timer expired with no user engagement) MUST NOT set this
+   * field — only active dismissals count as overrides.
+   */
+  userOverrodeMismatchWarning?: 'language' | 'condition' | 'both' | null;
 };
 
 export type InventoryEntryCreateResponsePayload = {

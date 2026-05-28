@@ -4071,6 +4071,7 @@ def upsert_scan_event(
     resolver_path: str | None = None,
     completed_at: str | None = None,
     confirmed_at: str | None = None,
+    user_overrode_mismatch_warning: str | None = None,
 ) -> None:
     connection.execute(
         """
@@ -4079,9 +4080,10 @@ def upsert_scan_event(
             request_json, response_json, matcher_source, matcher_version,
             predicted_card_id, selected_card_id, selected_rank, was_top_prediction,
             selection_source, confirmed_card_id, confirmation_source, deck_entry_id,
-            confidence, review_disposition, correction_type, completed_at, confirmed_at
+            confidence, review_disposition, correction_type, completed_at, confirmed_at,
+            user_overrode_mismatch_warning
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(scan_id) DO UPDATE SET
             owner_user_id=COALESCE(excluded.owner_user_id, scan_events.owner_user_id),
             resolver_mode=excluded.resolver_mode,
@@ -4102,7 +4104,11 @@ def upsert_scan_event(
             review_disposition=excluded.review_disposition,
             correction_type=excluded.correction_type,
             completed_at=excluded.completed_at,
-            confirmed_at=excluded.confirmed_at
+            confirmed_at=excluded.confirmed_at,
+            user_overrode_mismatch_warning=COALESCE(
+                excluded.user_overrode_mismatch_warning,
+                scan_events.user_overrode_mismatch_warning
+            )
         """,
         (
             scan_id,
@@ -4127,6 +4133,7 @@ def upsert_scan_event(
             correction_type,
             completed_at,
             confirmed_at,
+            user_overrode_mismatch_warning,
         ),
     )
 

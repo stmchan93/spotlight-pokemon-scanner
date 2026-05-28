@@ -172,9 +172,14 @@ function toPersistedCapture(capture: RecentCapture): PersistedCapture {
 function fromPersistedCapture(persisted: PersistedCapture): RecentCapture {
   return {
     ...persisted,
+    // Mismatch warnings are ephemeral by design (10s auto-dismiss). On rehydrate
+    // we deliberately reset them to null — if the user force-quit during the
+    // 10s window, the warning would have auto-dismissed by the time they return.
+    conditionMismatchSuggestion: null,
     hasTrackedSelectionEvent: false,
     isAddingToInventory: false,
     isLoadingCandidates: false,
+    languageMismatchSuggestion: null,
     recentlyAdded: false,
   };
 }

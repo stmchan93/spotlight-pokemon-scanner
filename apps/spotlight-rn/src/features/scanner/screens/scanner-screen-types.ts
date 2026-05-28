@@ -9,15 +9,21 @@ import type {
   ScanSourceImageDimensions,
 } from '@/features/scanner/scan-candidate-review-session';
 import type { NormalizedScannerTarget } from '@/features/scanner/scanner-normalized-target';
+import type {
+  ScannerCardType,
+  ScannerCondition,
+} from '@/features/scanner/use-scanner-target-config';
 
 export type ScannerMode = 'raw' | 'slabs';
 
 export type RecentCapture = {
   candidates: CatalogSearchResult[];
+  conditionMismatchSuggestion: ScannerCondition | null;
   hasTrackedSelectionEvent: boolean;
   id: string;
   isAddingToInventory: boolean;
   isLoadingCandidates: boolean;
+  languageMismatchSuggestion: ScannerCardType | null;
   recentlyAdded: boolean;
   matchReviewDisposition: string | null;
   matchReviewReason: string | null;

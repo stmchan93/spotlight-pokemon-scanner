@@ -383,6 +383,22 @@ def _apply_sale_payment_schema_patch(connection: sqlite3.Connection) -> None:
     _sqlite_add_column_if_missing(connection, "sale_events", "voided_at", "TEXT")
 
 
+def _apply_scan_events_mismatch_override_schema_patch(connection: sqlite3.Connection) -> None:
+    """Additive column for the soft mismatch-warning data-quality safeguard.
+
+    NULL by default. When set ('language' | 'condition' | 'both'), the row
+    represents an inventory add where the user dismissed a live mismatch
+    warning before confirming the card — the photo+label pair is flagged for
+    human re-labeling rather than auto-trained.
+    """
+    _sqlite_add_column_if_missing(
+        connection,
+        "scan_events",
+        "user_overrode_mismatch_warning",
+        "TEXT",
+    )
+
+
 def _apply_collections_redesign_schema_patch(connection: sqlite3.Connection) -> None:
     """Additive columns for the Collections-tab redesign (Frame 4/5).
 
@@ -600,6 +616,7 @@ class SpotlightScanService:
             _apply_card_favorites_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
             _apply_collections_redesign_schema_patch(bootstrap_connection)
+            _apply_scan_events_mismatch_override_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -9668,6 +9685,25 @@ class SpotlightScanService:
         if not card_id:
             raise ValueError("cardID is required")
 
+        # Soft mismatch-warning data-quality safeguard: when the client adds a
+        # card to inventory after dismissing an active mismatch warning, it
+        # passes the kind ('language' | 'condition' | 'both') so the resulting
+        # scan_events row can be flagged for human re-labeling instead of
+        # auto-trained. NULL/absent means no warning was active. Only validated
+        # at the request boundary — internal callers trust the value.
+        override_raw = payload.get("userOverrodeMismatchWarning")
+        user_overrode_mismatch_warning: str | None = None
+        if override_raw is not None:
+            if not isinstance(override_raw, str) or override_raw not in (
+                "language",
+                "condition",
+                "both",
+            ):
+                raise ValueError(
+                    "userOverrodeMismatchWarning must be 'language', 'condition', or 'both'"
+                )
+            user_overrode_mismatch_warning = override_raw
+
         scan_id = str(payload.get("sourceScanID") or "").strip() or None
         existing_event = None
         if scan_id:
@@ -9784,6 +9820,7 @@ class SpotlightScanService:
                     resolver_path=existing_event["resolver_path"],
                     completed_at=added_at,
                     confirmed_at=added_at,
+                    user_overrode_mismatch_warning=user_overrode_mismatch_warning,
                 )
 
             self.connection.commit()
