@@ -120,6 +120,7 @@ export function buildScanMatchSuccessProperties(params: {
   endToEndMs?: number | null;
   mode: ScannerMode;
   normalizeMs?: number | null;
+  persistCopyQueuedAfterPaintMs?: number | null;
   requestAttemptCount?: number | null;
   reviewDisposition?: string | null;
   roundTripMs?: number | null;
@@ -161,6 +162,13 @@ export function buildScanMatchSuccessProperties(params: {
 
   if (typeof params.serverProcessingMs === 'number') {
     properties.server_processing_ms = params.serverProcessingMs;
+  }
+
+  // Hot-path guard: delta between painting the result and queueing the
+  // post-paint persistence copy. Expected <5ms; a sustained rise here means
+  // persistence work has crept onto the scan hot path.
+  if (typeof params.persistCopyQueuedAfterPaintMs === 'number') {
+    properties.persist_copy_queued_after_paint_ms = params.persistCopyQueuedAfterPaintMs;
   }
 
   return properties;

@@ -4,7 +4,6 @@ import {
   IconHeart,
   IconHeartFilled,
   IconMinus,
-  IconPlus,
 } from '@tabler/icons-react-native';
 import {
   Animated,
@@ -16,12 +15,11 @@ import {
   View,
 } from 'react-native';
 
-import { colors, textStyles } from '@spotlight/design-system';
+import { textStyles } from '@spotlight/design-system';
 
 import {
   clampRecentCaptureSwipeTranslate,
   recentCaptureActionRailRevealWidth,
-  recentCaptureAddRevealWidth,
   recentCaptureDeleteRevealWidth,
   recentCaptureFavoriteRevealWidth,
   shouldCollapseRecentCaptureDeleteFromSwipe,
@@ -36,7 +34,6 @@ export type RecentCaptureSwipeRowProps = {
   actionRailKey: string;
   children: ReactNode;
   onActionRailVisibilityChange?: (key: string, visible: boolean) => void;
-  onAdd?: () => void;
   onDelete: () => void;
   onFavorite: () => void;
   isFavorite: boolean;
@@ -48,7 +45,6 @@ export function RecentCaptureSwipeRow({
   children,
   isFavorite,
   onActionRailVisibilityChange,
-  onAdd,
   onDelete,
   onFavorite,
   testID,
@@ -177,30 +173,6 @@ export function RecentCaptureSwipeRow({
             )}
             <Text style={styles.captureFavoriteLabel}>Favorite</Text>
           </Pressable>
-          {onAdd ? (
-            <Pressable
-              accessibilityElementsHidden={!isActionRailRevealed}
-              accessibilityLabel="Add recent scan to collection"
-              accessibilityRole="button"
-              accessibilityState={{ disabled: !isActionRailRevealed }}
-              importantForAccessibility={isActionRailRevealed ? 'auto' : 'no-hide-descendants'}
-              onPress={isActionRailRevealed
-                ? () => {
-                    onAdd();
-                    settleClosed();
-                  }
-                : undefined}
-              style={({ pressed }) => [
-                styles.captureAddButton,
-                pressed ? styles.captureAddButtonPressed : null,
-              ]}
-              testID={`${testID}-add-button`}
-            >
-              <BlurView intensity={20} pointerEvents="none" style={StyleSheet.absoluteFill} tint="dark" />
-              <IconPlus color={colors.brand} size={18} strokeWidth={2.2} />
-              <Text style={styles.captureAddLabel}>Add</Text>
-            </Pressable>
-          ) : null}
           <Pressable
             accessibilityElementsHidden={!isActionRailRevealed}
             accessibilityLabel="Delete recent scan"
@@ -281,27 +253,6 @@ const styles = StyleSheet.create({
   captureFavoriteLabel: {
     ...textStyles.control,
     color: favoriteHeartColor,
-    fontSize: 10,
-    lineHeight: 12,
-    textAlign: 'center',
-    textTransform: 'none',
-  },
-  captureAddButton: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.75)',
-    borderRadius: 18,
-    gap: 6,
-    justifyContent: 'center',
-    minHeight: captureRowHeight,
-    overflow: 'hidden',
-    width: recentCaptureAddRevealWidth,
-  },
-  captureAddButtonPressed: {
-    opacity: 0.84,
-  },
-  captureAddLabel: {
-    ...textStyles.control,
-    color: colors.brand,
     fontSize: 10,
     lineHeight: 12,
     textAlign: 'center',

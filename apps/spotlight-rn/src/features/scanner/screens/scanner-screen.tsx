@@ -11,6 +11,7 @@ import {
 import { RefreshDouble } from 'iconoir-react-native';
 import {
   ActivityIndicator,
+  Alert,
   Animated,
   Image,
   LayoutAnimation,
@@ -71,6 +72,16 @@ import { quickClassifyCapture } from '@/features/scanner/slab-scanner-native';
 import { buildSlabScannerTarget } from '@/features/scanner/scanner-slab-target';
 import { loadRawScannerSmokeFixture } from '@/features/scanner/scanner-smoke-fixtures';
 import { readRawCollectorNumber } from '@/features/scanner/raw-collector-number-ocr';
+import {
+  copyToScansDir,
+  deleteScanFile,
+  ensureScansDir,
+  flushPersist,
+  loadPersistedTray,
+  RECENT_CAPTURES_MAX,
+  schedulePersist,
+  sweepOrphanScans,
+} from '@/features/scanner/recent-captures-persistence';
 import { capturePostHogEvent } from '@/lib/observability/posthog';
 import { resolveRuntimeBoolean, resolveRuntimeValue, resolveStagingSmokeModeEnabled } from '@/lib/runtime-config';
 import { useAppServices } from '@/providers/app-providers';
@@ -122,7 +133,7 @@ import type {
   RecentCapture,
 } from './scanner-screen-types';
 
-const maxStoredCaptures = 12;
+const maxStoredCaptures = RECENT_CAPTURES_MAX;
 const collapsedVisibleCaptures = 1;
 
 // Phase 2 raw collector-number OCR (SECONDARY verification only). Default OFF.
@@ -164,6 +175,30 @@ const scannerTrayLayoutAnimation = {
   },
 } as const;
 
+
+function applyCapEviction(
+  nextItems: RecentCapture[],
+  insertingMode: 'raw' | 'slabs',
+): RecentCapture[] {
+  if (nextItems.length <= maxStoredCaptures) {
+    return nextItems;
+  }
+  const survivors = nextItems.slice(0, maxStoredCaptures);
+  const dropped = nextItems.slice(maxStoredCaptures);
+  capturePostHogEvent('scan_tray_evicted_for_cap', {
+    evicted_count: dropped.length,
+    mode: insertingMode,
+  });
+  dropped.forEach((item) => {
+    if (item.normalizedImageUri) {
+      void deleteScanFile(item.normalizedImageUri, 'cap_evict');
+    }
+    if (item.uri && item.uri !== item.normalizedImageUri) {
+      void deleteScanFile(item.uri, 'cap_evict');
+    }
+  });
+  return survivors;
+}
 
 type ScannerScreenProps = {
   onExitToPortfolio?: () => void;
@@ -232,6 +267,47 @@ export function ScannerScreen({
       timers.forEach((timerId) => clearTimeout(timerId));
       timers.clear();
     };
+  }, []);
+
+  // Rehydrate the tray from disk on first mount. Runs once per scanner-screen
+  // lifecycle; the persistence module's own AsyncStorage read is cheap and
+  // does not block paint (the scanner renders against the empty tray until
+  // this resolves, then state updates and the rows pop in). Also kicks off a
+  // background orphan-file sweep so cap-evicted/force-quit-lost files don't
+  // accumulate forever.
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        await ensureScansDir();
+        const loaded = await loadPersistedTray();
+        if (cancelled || loaded.length === 0) {
+          return;
+        }
+        setRecentCaptures((current) => (current.length > 0 ? current : loaded));
+        void sweepOrphanScans(new Set(loaded.map((item) => item.id)));
+      } catch {
+        // Persistence errors are reported inside the module via PostHog.
+        // A failed rehydrate just leaves the tray empty for this session.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Persist on every tray change, debounced inside the module so rapid scans
+  // coalesce into one AsyncStorage write. Loading items are skipped by the
+  // module itself, so the very first persist of any given scan naturally
+  // happens after the match resolves.
+  useEffect(() => {
+    schedulePersist(recentCaptures);
+  }, [recentCaptures]);
+
+  // Flush any pending debounced write on unmount so a force-background right
+  // after a scan doesn't lose the most recent state.
+  useEffect(() => () => {
+    void flushPersist();
   }, []);
 
   const trayBottomInset = insets.bottom + 14;
@@ -528,7 +604,16 @@ export function ScannerScreen({
   }, [recentCaptures]);
 
   const deleteRecentCapture = useCallback((captureId: string) => {
-    setRecentCaptures((current) => current.filter((capture) => capture.id !== captureId));
+    setRecentCaptures((current) => {
+      const removed = current.find((capture) => capture.id === captureId);
+      if (removed) {
+        void deleteScanFile(removed.normalizedImageUri, 'swipe');
+        if (removed.uri && removed.uri !== removed.normalizedImageUri) {
+          void deleteScanFile(removed.uri, 'swipe');
+        }
+      }
+      return current.filter((capture) => capture.id !== captureId);
+    });
     setPriceSelection((current) => {
       if (!current.has(captureId)) {
         return current;
@@ -539,14 +624,47 @@ export function ScannerScreen({
     });
   }, []);
 
-  const handleClearAllCaptures = useCallback(() => {
-    setRecentCaptures([]);
+  const performClearAllCaptures = useCallback(() => {
+    const clearStartedAt = Date.now();
+    setRecentCaptures((current) => {
+      const uris: string[] = [];
+      current.forEach((capture) => {
+        if (capture.normalizedImageUri) {
+          uris.push(capture.normalizedImageUri);
+        }
+        if (capture.uri && capture.uri !== capture.normalizedImageUri) {
+          uris.push(capture.uri);
+        }
+      });
+      void (async () => {
+        await Promise.all(uris.map((uri) => deleteScanFile(uri, 'clear_all')));
+      })();
+      capturePostHogEvent('scan_tray_cleared', {
+        cleared_count: current.length,
+        clear_ms: Date.now() - clearStartedAt,
+      });
+      return [];
+    });
     setPriceSelection(new Map());
     setEbayTrayState(new Map());
     setOpenActionRailKeys({});
     setActivePriceCaptureId(null);
     setActiveChangeCaptureId(null);
+    // Don't wait for the debounce window — overwrite storage immediately so a
+    // force-quit right after Clear All can't resurrect just-deleted scans.
+    void flushPersist();
   }, []);
+
+  const handleClearAllCaptures = useCallback(() => {
+    Alert.alert(
+      'Clear all scans?',
+      'This permanently removes every scan in the tray.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear', style: 'destructive', onPress: performClearAllCaptures },
+      ],
+    );
+  }, [performClearAllCaptures]);
 
   const updateRecentCapture = useCallback((
     captureId: string,
@@ -697,28 +815,65 @@ export function ScannerScreen({
         return;
       }
 
-      updateRecentCapture(captureId, (capture) => ({
-        ...capture,
-        activeCandidateIndex: 0,
-        candidates: matchResult.candidates,
-        isLoadingCandidates: false,
-        matchReviewDisposition: matchResult.reviewDisposition ?? null,
-        matchReviewReason: matchResult.reviewReason ?? null,
-        normalizedImageDimensions: matchTarget.normalizedImageDimensions,
-        normalizedImageUri: matchTarget.normalizedImageUri,
-        scanID: matchResult.scanID,
-        slabContext: matchResult.slabContext ?? capture.slabContext,
-        sourceImageCrop: matchTarget.sourceImageCrop,
-        sourceImageDimensions,
-        sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
-        uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
-      }));
+      const paintedAt = Date.now();
+      // Grabbed inside the updater so we can copy the slab raw photo (which
+      // lives at `capture.uri` for slab rows) after paint.
+      let slabRawSourceUri: string | null = null;
+      updateRecentCapture(captureId, (capture) => {
+        if (mode === 'slabs') {
+          slabRawSourceUri = capture.uri || null;
+        }
+        return {
+          ...capture,
+          activeCandidateIndex: 0,
+          candidates: matchResult.candidates,
+          isLoadingCandidates: false,
+          matchReviewDisposition: matchResult.reviewDisposition ?? null,
+          matchReviewReason: matchResult.reviewReason ?? null,
+          normalizedImageDimensions: matchTarget.normalizedImageDimensions,
+          normalizedImageUri: matchTarget.normalizedImageUri,
+          scanID: matchResult.scanID,
+          slabContext: matchResult.slabContext ?? capture.slabContext,
+          sourceImageCrop: matchTarget.sourceImageCrop,
+          sourceImageDimensions,
+          sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
+          uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
+        };
+      });
+      // Persistence copy. Fire-and-forget AFTER the result has been painted —
+      // the user already sees their match. We measure the gap between paint
+      // and the moment the copy is queued (persist_copy_queued_after_paint_ms)
+      // and ship it on scan_match_succeeded so any regression that sneaks
+      // persistence onto the scan hot path is visible in PostHog.
+      const persistCopyQueuedAfterPaintMs = Date.now() - paintedAt;
+      void (async () => {
+        const normalizedPermanent = await copyToScansDir(
+          matchTarget.normalizedImageUri,
+          captureId,
+          'normalized',
+          mode,
+        );
+        const slabRawPermanent = mode === 'slabs' && slabRawSourceUri
+          ? await copyToScansDir(slabRawSourceUri, captureId, 'raw', 'slabs')
+          : null;
+        if (!normalizedPermanent && !slabRawPermanent) {
+          return;
+        }
+        updateRecentCapture(captureId, (capture) => ({
+          ...capture,
+          normalizedImageUri: normalizedPermanent ?? capture.normalizedImageUri,
+          uri: mode === 'slabs'
+            ? (slabRawPermanent ?? capture.uri)
+            : (normalizedPermanent ?? capture.uri),
+        }));
+      })();
       capturePostHogEvent('scan_match_succeeded', buildScanMatchSuccessProperties({
         candidateCount: matchResult.candidates.length,
         captureMs,
         endToEndMs,
         mode,
         normalizeMs,
+        persistCopyQueuedAfterPaintMs,
         requestAttemptCount: matchResult.requestAttemptCount,
         reviewDisposition: matchResult.reviewDisposition,
         roundTripMs: matchResult.roundTripMs,
@@ -784,7 +939,7 @@ export function ScannerScreen({
     setIsCapturing(true);
 
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setRecentCaptures((current) => [
+    setRecentCaptures((current) => applyCapEviction([
       {
         activeCandidateIndex: 0,
         candidates: [],
@@ -806,7 +961,7 @@ export function ScannerScreen({
         uri: '',
       },
       ...current,
-    ].slice(0, maxStoredCaptures));
+    ], 'raw'));
 
     let capturedPhotoUri = '';
     let capturedSourceImageCrop: ScanSourceImageCrop | null = null;
@@ -1199,7 +1354,7 @@ export function ScannerScreen({
     setIsCapturing(true);
 
     const captureId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    setRecentCaptures((current) => [
+    setRecentCaptures((current) => applyCapEviction([
       {
         activeCandidateIndex: 0,
         candidates: [],
@@ -1221,7 +1376,7 @@ export function ScannerScreen({
         uri: '',
       },
       ...current,
-    ].slice(0, maxStoredCaptures));
+    ], 'raw'));
 
     try {
       const normalizedTarget = await loadRawScannerSmokeFixture();
@@ -1969,34 +2124,24 @@ export function ScannerScreen({
           </Pressable>
         </View>
 
-        {scanModeMismatchNotice ? (
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Switch to Graded"
-            onPress={() => {
+        <Toast
+          visible={scanModeMismatchNotice != null}
+          message="Looks like a graded slab — tap to switch to Graded"
+          actionAccessibilityLabel="Switch to Graded"
+          onPress={() => {
+            if (scanModeMismatchNotice) {
               setCondition(scanModeMismatchNotice);
-              setScanModeMismatchNotice(null);
-            }}
-            style={[
-              styles.modeMismatchNotice,
-              { top: captureSurfaceLayout.backButtonTop + 44 },
-            ]}
-            testID="scanner-mode-mismatch-notice"
-          >
-            <Text style={styles.modeMismatchText}>
-              Looks like a graded slab — tap to switch to Graded
-            </Text>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Dismiss"
-              hitSlop={8}
-              onPress={() => setScanModeMismatchNotice(null)}
-              testID="scanner-mode-mismatch-dismiss"
-            >
-              <Text style={styles.modeMismatchDismiss}>×</Text>
-            </Pressable>
-          </Pressable>
-        ) : null}
+            }
+            setScanModeMismatchNotice(null);
+          }}
+          onDismiss={() => setScanModeMismatchNotice(null)}
+          tone="warning"
+          style={[
+            styles.mismatchToast,
+            { bottom: collapsedTrayReservedHeight + 8 },
+          ]}
+          testID="scanner-mode-mismatch-notice"
+        />
 
         <Toast
           visible={scanLanguageMismatchNotice != null}
@@ -2015,9 +2160,10 @@ export function ScannerScreen({
             setScanLanguageMismatchNotice(null);
           }}
           onDismiss={() => setScanLanguageMismatchNotice(null)}
+          tone="warning"
           style={[
-            styles.languageMismatchToast,
-            { top: captureSurfaceLayout.backButtonTop + 44 },
+            styles.mismatchToast,
+            { bottom: collapsedTrayReservedHeight + 8 },
           ]}
           testID="scanner-language-mismatch-notice"
         />
@@ -2244,30 +2390,7 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 5,
   },
-  modeMismatchNotice: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
-    borderRadius: 12,
-    flexDirection: 'row',
-    gap: 10,
-    left: 16,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    position: 'absolute',
-    right: 16,
-    zIndex: 6,
-  },
-  modeMismatchText: {
-    ...textStyles.caption,
-    color: colors.gray0,
-    flex: 1,
-  },
-  modeMismatchDismiss: {
-    ...textStyles.headline,
-    color: colors.gray0,
-    lineHeight: 20,
-  },
-  languageMismatchToast: {
+  mismatchToast: {
     left: 16,
     position: 'absolute',
     right: 16,

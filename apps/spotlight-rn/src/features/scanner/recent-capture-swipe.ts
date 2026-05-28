@@ -1,11 +1,9 @@
 export const recentCaptureFavoriteRevealWidth = 68;
-export const recentCaptureAddRevealWidth = 68;
 export const recentCaptureDeleteRevealWidth = 68;
 export const recentCaptureActionRailRevealWidth =
   recentCaptureFavoriteRevealWidth
-  + recentCaptureAddRevealWidth
   + recentCaptureDeleteRevealWidth
-  + 18;
+  + 12;
 export const recentCaptureDeleteDistanceThreshold = 64;
 export const recentCaptureDeleteVelocityThreshold = 0.62;
 export const recentCaptureDeleteCloseDistanceThreshold = 32;

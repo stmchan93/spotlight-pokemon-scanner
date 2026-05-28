@@ -1,7 +1,6 @@
 import {
   clampRecentCaptureSwipeTranslate,
   recentCaptureActionRailRevealWidth,
-  recentCaptureAddRevealWidth,
   recentCaptureDeleteCloseDistanceThreshold,
   recentCaptureDeleteCloseVelocityThreshold,
   recentCaptureDeleteDistanceThreshold,
@@ -14,14 +13,13 @@ import {
 } from '@/features/scanner/recent-capture-swipe';
 
 describe('recent capture swipe constants', () => {
-  it('keeps the action rail width = favorite + add + delete + 18px gap', () => {
-    // Guards against silently dropping the inter-pill gap on the three-button
-    // scanner recent-capture row (favorite, add, delete).
+  it('keeps the action rail width = favorite + delete + 12px gap', () => {
+    // Guards against silently widening the rail past the two visible pills
+    // (favorite, delete) — Add lives at the bottom right of the tray item.
     expect(recentCaptureActionRailRevealWidth).toBe(
       recentCaptureFavoriteRevealWidth
-      + recentCaptureAddRevealWidth
       + recentCaptureDeleteRevealWidth
-      + 18,
+      + 12,
     );
   });
 

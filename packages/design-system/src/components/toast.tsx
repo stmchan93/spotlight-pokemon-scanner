@@ -11,7 +11,7 @@ import {
 
 import { colors, textStyles } from '../tokens';
 
-export type ToastTone = 'dark' | 'light';
+export type ToastTone = 'dark' | 'light' | 'warning';
 
 export type ToastProps = {
   /** Whether the toast is shown. Toggling to false fades it out, then unmounts. */
@@ -31,7 +31,7 @@ export type ToastProps = {
   actionAccessibilityLabel?: string;
   /** Render the × close affordance. Defaults to true. */
   showDismiss?: boolean;
-  /** `dark` (default) reads over the camera; `light` for elevated surfaces. */
+  /** `dark` (default) reads over the camera; `light` for elevated surfaces; `warning` for yellow alert state. */
   tone?: ToastTone;
   /** Positioning/layout overrides — the toast itself is layout-agnostic. */
   style?: StyleProp<ViewStyle>;
@@ -116,8 +116,9 @@ export function Toast({
     return null;
   }
 
-  const isDark = tone === 'dark';
-  const contentColor = isDark ? colors.gray0 : colors.textPrimary;
+  const contentColor = tone === 'dark' ? colors.gray0 : colors.textPrimary;
+  const toneStyle =
+    tone === 'dark' ? styles.toastDark : tone === 'warning' ? styles.toastWarning : styles.toastLight;
   const Body = onPress ? Pressable : View;
 
   return (
@@ -129,7 +130,7 @@ export function Toast({
         accessibilityRole={onPress ? 'button' : undefined}
         accessibilityLabel={actionAccessibilityLabel}
         onPress={onPress}
-        style={[styles.toast, isDark ? styles.toastDark : styles.toastLight]}
+        style={[styles.toast, toneStyle]}
         testID={testID}
       >
         <Text style={[styles.message, { color: contentColor }]}>{renderedMessage}</Text>
@@ -163,6 +164,9 @@ const styles = StyleSheet.create({
   },
   toastLight: {
     backgroundColor: colors.canvasElevated,
+  },
+  toastWarning: {
+    backgroundColor: colors.warning,
   },
   message: {
     ...textStyles.caption,

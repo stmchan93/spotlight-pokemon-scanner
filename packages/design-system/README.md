@@ -233,6 +233,7 @@ Current API concepts:
 - tone:
   - `dark` (default; reads over the camera)
   - `light` (elevated surface)
+  - `warning` (yellow background, near-black text — for soft alerts like wrong-toggle scans)
 
 ### StateCard
 
