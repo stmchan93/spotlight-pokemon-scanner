@@ -31,7 +31,7 @@ Created 2026-05-27.
 ## D. During-show hygiene
 
 - [ ] No deploys / OTA pushes during show hours.
-- [ ] No manual scrydex sync during show hours (daily auto-sync runs ~01:00 UTC, off-peak — leave it).
+- [ ] No manual scrydex sync during show hours (daily auto-sync runs 09:00 PT / 16:00 UTC, ~1h 45m before Ontario doors — leave it).
 - [ ] Tail logs for OOM / errors if anything feels slow.
 
 ## E. After the show — resize back down
