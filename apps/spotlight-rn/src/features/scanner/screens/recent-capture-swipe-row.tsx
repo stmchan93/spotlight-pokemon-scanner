@@ -1,5 +1,5 @@
 import { BlurView } from 'expo-blur';
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconHeart,
   IconHeartFilled,
@@ -34,13 +34,13 @@ export type RecentCaptureSwipeRowProps = {
   actionRailKey: string;
   children: ReactNode;
   onActionRailVisibilityChange?: (key: string, visible: boolean) => void;
-  onDelete: () => void;
-  onFavorite: () => void;
+  onDelete: (id: string) => void;
+  onFavorite: (id: string) => void;
   isFavorite: boolean;
   testID: string;
 };
 
-export function RecentCaptureSwipeRow({
+function RecentCaptureSwipeRowInner({
   actionRailKey,
   children,
   isFavorite,
@@ -103,7 +103,8 @@ export function RecentCaptureSwipeRow({
   }, [isActionRailRevealed, revealActionRail, settleClosed]);
 
   const panResponder = useMemo(() => PanResponder.create({
-    onMoveShouldSetPanResponder: (_, gestureState) => shouldSetRecentCaptureSwipeResponder(gestureState, isActionRailRevealed),
+    onMoveShouldSetPanResponderCapture: (_, gestureState) =>
+      shouldSetRecentCaptureSwipeResponder(gestureState, isActionRailRevealed),
     onPanResponderMove: (_, gestureState) => handleSwipeMove(gestureState),
     onPanResponderRelease: (_, gestureState) => handleSwipeEnd(gestureState),
     onPanResponderTerminate: () => {
@@ -155,7 +156,7 @@ export function RecentCaptureSwipeRow({
             importantForAccessibility={isActionRailRevealed ? 'auto' : 'no-hide-descendants'}
             onPress={isActionRailRevealed
               ? () => {
-                  onFavorite();
+                  onFavorite(actionRailKey);
                   settleClosed();
                 }
               : undefined}
@@ -179,7 +180,7 @@ export function RecentCaptureSwipeRow({
             accessibilityRole="button"
             accessibilityState={{ disabled: !isActionRailRevealed }}
             importantForAccessibility={isActionRailRevealed ? 'auto' : 'no-hide-descendants'}
-            onPress={isActionRailRevealed ? onDelete : undefined}
+            onPress={isActionRailRevealed ? () => onDelete(actionRailKey) : undefined}
             style={({ pressed }) => [
               styles.captureDeleteButton,
               pressed ? styles.captureDeleteUnderlayPressed : null,
@@ -198,6 +199,8 @@ export function RecentCaptureSwipeRow({
     </View>
   );
 }
+
+export const RecentCaptureSwipeRow = memo(RecentCaptureSwipeRowInner);
 
 const styles = StyleSheet.create({
   captureActionRail: {

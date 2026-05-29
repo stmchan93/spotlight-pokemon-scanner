@@ -462,3 +462,30 @@ export async function triggerScannerHaptic() {
     }
   }
 }
+
+// Module-level so rapid back-to-back scans (e.g. card-show bursts) collapse
+// to one rumble. 300 ms is short enough that normal-paced scans always fire
+// and long enough that a 3-tap-in-1s burst feels like a single confirmation.
+const PROCESSED_HAPTIC_DEBOUNCE_MS = 300;
+let lastProcessedHapticAt = 0;
+
+export async function triggerScannerProcessedHaptic() {
+  if (process.env.NODE_ENV === 'test') {
+    return;
+  }
+
+  const now = Date.now();
+  if (now - lastProcessedHapticAt < PROCESSED_HAPTIC_DEBOUNCE_MS) {
+    return;
+  }
+  lastProcessedHapticAt = now;
+
+  try {
+    const Haptics = await import('expo-haptics');
+    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  } catch {
+    if (Platform.OS !== 'web') {
+      Vibration.vibrate(10);
+    }
+  }
+}

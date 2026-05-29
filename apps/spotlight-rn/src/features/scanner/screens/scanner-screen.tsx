@@ -118,6 +118,7 @@ import {
   scannerSlabSubtitle,
   slabContextFromAnalysis,
   triggerScannerHaptic,
+  triggerScannerProcessedHaptic,
   unsupportedSlabSubtitle,
   unsupportedSlabTitle,
   withOptimisticInventoryAdd,
@@ -805,6 +806,7 @@ export function ScannerScreen({
           uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
         };
       });
+      void triggerScannerProcessedHaptic();
       // Persistence copy. Fire-and-forget AFTER the result has been painted —
       // the user already sees their match. We measure the gap between paint
       // and the moment the copy is queued (persist_copy_queued_after_paint_ms)
@@ -873,6 +875,7 @@ export function ScannerScreen({
         sourceImageRotationDegrees: matchTarget.normalizationRotationDegrees,
         uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
       }));
+      void triggerScannerProcessedHaptic();
       capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
         captureMs,
         endToEndMs: Date.now() - scanStartedAt,
@@ -989,6 +992,7 @@ export function ScannerScreen({
             uri: photo?.uri ?? '',
           };
         }));
+        void triggerScannerProcessedHaptic();
         return;
       }
 
@@ -1253,6 +1257,7 @@ export function ScannerScreen({
           uri: capturedPhotoUri,
         };
       }));
+      void triggerScannerProcessedHaptic();
     }
   }, [
     cardType,
@@ -1347,6 +1352,7 @@ export function ScannerScreen({
         matchReviewDisposition: 'unsupported',
         matchReviewReason: 'Scanner smoke fixture could not load.',
       }));
+      void triggerScannerProcessedHaptic();
       capturePostHogEvent('scan_match_failed', buildScanMatchFailureProperties({
         captureMs: 0,
         endToEndMs: Date.now() - scanStartedAt,
@@ -1421,6 +1427,16 @@ export function ScannerScreen({
       );
     }
   }, [recentCaptures, refreshData, spotlightRepository]);
+
+  // Stable wrapper for the swipe row so React.memo doesn't re-render every row
+  // when handleToggleFavorite re-creates on recentCaptures change.
+  const handleToggleFavoriteRef = useRef(handleToggleFavorite);
+  useEffect(() => {
+    handleToggleFavoriteRef.current = handleToggleFavorite;
+  }, [handleToggleFavorite]);
+  const handleRowFavorite = useCallback((captureId: string) => {
+    void handleToggleFavoriteRef.current(captureId);
+  }, []);
 
   const handleAddToInventory = useCallback(async (captureId: string) => {
     const capture = recentCaptures.find((candidate) => candidate.id === captureId);
@@ -1819,12 +1835,8 @@ export function ScannerScreen({
         actionRailKey={capture.id}
         isFavorite={candidate?.isFavorite ?? false}
         onActionRailVisibilityChange={handleCaptureActionRailVisibilityChange}
-        onDelete={() => {
-          deleteRecentCapture(capture.id);
-        }}
-        onFavorite={() => {
-          void handleToggleFavorite(capture.id);
-        }}
+        onDelete={deleteRecentCapture}
+        onFavorite={handleRowFavorite}
         testID={`scanner-tray-swipe-${index}`}
       >
         <View style={styles.captureRow} testID={`scanner-tray-row-${index}`}>
@@ -2039,7 +2051,7 @@ export function ScannerScreen({
             <IconChevronLeft color={colors.gray0} size={20} strokeWidth={1.5} />
           </Pressable>
           <ScanTargetPill
-            label={scanTargetPillLabel(cardType)}
+            label={scanTargetPillLabel(cardType, condition)}
             onPress={() => setIsScanTargetSheetOpen(true)}
             testID="scanner-target-pill"
           />

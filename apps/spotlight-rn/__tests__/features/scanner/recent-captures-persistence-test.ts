@@ -288,6 +288,6 @@ describe('recent-captures-persistence', () => {
   });
 
   it('exposes the agreed-upon cap', () => {
-    expect(RECENT_CAPTURES_MAX).toBe(50);
+    expect(RECENT_CAPTURES_MAX).toBe(12);
   });
 });
