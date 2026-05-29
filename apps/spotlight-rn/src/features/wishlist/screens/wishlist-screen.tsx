@@ -16,11 +16,19 @@ import {
   Search as SearchIcon,
   Upload as ShareIcon,
 } from 'iconoir-react-native';
+import { IconLayoutGrid, IconList } from '@tabler/icons-react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
 import type { CardFavoriteEntry } from '@spotlight/api-client';
-import { SearchField, colors, useSpotlightTheme } from '@spotlight/design-system';
+import {
+  CardListRow,
+  IconButton,
+  SearchField,
+  colors,
+  useSpotlightTheme,
+} from '@spotlight/design-system';
 
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
@@ -29,6 +37,7 @@ import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
+type WishlistViewMode = 'grid' | 'list';
 
 const FILTERS: readonly { key: WishlistFilterKey; label: string; hasArrow?: boolean }[] = [
   { key: 'all', label: 'All' },
@@ -37,6 +46,43 @@ const FILTERS: readonly { key: WishlistFilterKey; label: string; hasArrow?: bool
   { key: 'unowned', label: 'Unowned' },
   { key: 'owned', label: 'Owned' },
 ];
+
+const WISHLIST_VIEW_MODE_STORAGE_KEY = '@spotlight/wishlist/view-mode';
+const DEFAULT_VIEW_MODE: WishlistViewMode = 'list';
+
+function parseViewMode(raw: string | null): WishlistViewMode {
+  return raw === 'grid' || raw === 'list' ? raw : DEFAULT_VIEW_MODE;
+}
+
+function useWishlistViewMode(): [WishlistViewMode, (next: WishlistViewMode) => void] {
+  const [viewMode, setViewModeState] = useState<WishlistViewMode>(DEFAULT_VIEW_MODE);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(WISHLIST_VIEW_MODE_STORAGE_KEY);
+        if (!cancelled) {
+          setViewModeState(parseViewMode(stored));
+        }
+      } catch {
+        // ignore — keep default
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const setViewMode = useCallback((next: WishlistViewMode) => {
+    setViewModeState(next);
+    void AsyncStorage.setItem(WISHLIST_VIEW_MODE_STORAGE_KEY, next).catch(() => {
+      // ignore persistence failure — in-memory state still reflects the toggle
+    });
+  }, []);
+
+  return [viewMode, setViewMode];
+}
 
 export function WishlistScreen() {
   const theme = useSpotlightTheme();
@@ -50,6 +96,7 @@ export function WishlistScreen() {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<WishlistFilterKey>('all');
+  const [viewMode, setViewMode] = useWishlistViewMode();
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -120,6 +167,13 @@ export function WishlistScreen() {
     });
   }, [router]);
 
+  const handleToggleViewMode = useCallback(() => {
+    setViewMode(viewMode === 'list' ? 'grid' : 'list');
+  }, [setViewMode, viewMode]);
+
+  const toggleAccessibilityLabel =
+    viewMode === 'list' ? 'Switch to grid view' : 'Switch to list view';
+
   return (
     <SafeAreaView
       edges={['top', 'left', 'right']}
@@ -189,6 +243,19 @@ export function WishlistScreen() {
                 value={query}
               />
             </View>
+            <IconButton
+              accessibilityLabel={toggleAccessibilityLabel}
+              onPress={handleToggleViewMode}
+              size={32}
+              testID="wishlist-view-toggle"
+              variant="elevated"
+            >
+              {viewMode === 'list' ? (
+                <IconLayoutGrid color={theme.colors.gray900} size={18} />
+              ) : (
+                <IconList color={theme.colors.gray900} size={18} />
+              )}
+            </IconButton>
             <Pressable
               accessibilityLabel="Search"
               accessibilityRole="button"
@@ -249,7 +316,7 @@ export function WishlistScreen() {
           </ScrollView>
         </View>
 
-        <View style={styles.list} testID="wishlist-list">
+        <View style={styles.listContainer} testID="wishlist-list">
           {isLoading && favorites.length === 0 ? (
             <Text
               style={[styles.emptyText, { color: theme.colors.gray600 }]}
@@ -273,78 +340,196 @@ export function WishlistScreen() {
                 ? 'Tap the heart on any card to add it here.'
                 : 'No cards match your filters.'}
             </Text>
+          ) : viewMode === 'list' ? (
+            <WishlistListView entries={visibleEntries} onPressEntry={handleEntryPress} />
           ) : (
-            visibleEntries.map((entry) => (
-              <Pressable
-                accessibilityRole="button"
-                key={entry.cardId}
-                onPress={() => handleEntryPress(entry)}
-                style={({ pressed }) => [
-                  styles.row,
-                  { borderTopColor: theme.colors.gray100, borderBottomColor: theme.colors.gray100 },
-                  pressed ? styles.rowPressed : null,
-                ]}
-                testID={`wishlist-row-${entry.cardId}`}
-              >
-                <View style={styles.rowLeft}>
-                  <View style={styles.thumbWrap}>
-                    {entry.imageUrl ? (
-                      <Image source={{ uri: entry.imageUrl }} style={styles.thumb} />
-                    ) : (
-                      <View style={[styles.thumb, { backgroundColor: theme.colors.gray100 }]} />
-                    )}
-                    <View
-                      style={[
-                        styles.heartBadge,
-                        { backgroundColor: theme.colors.brand },
-                      ]}
-                    >
-                      <Heart color={theme.colors.gray900} height={9} width={9} />
-                    </View>
-                  </View>
-
-                  <View style={styles.rowText}>
-                    <Text
-                      numberOfLines={1}
-                      style={[theme.typography.bodyMedium, { color: theme.colors.gray900, fontWeight: '600' }]}
-                    >
-                      {entry.name}
-                    </Text>
-                    <Text
-                      numberOfLines={1}
-                      style={[styles.metaText, { color: theme.colors.gray600 }]}
-                    >
-                      {entry.cardNumber}
-                      {entry.cardNumber && entry.setName ? '  ·  ' : ''}
-                      {entry.setName}
-                    </Text>
-                    {entry.isOwned ? (
-                      <Text
-                        numberOfLines={1}
-                        style={[styles.metaText, styles.conditionText, { color: theme.colors.gray600 }]}
-                      >
-                        In your collection
-                      </Text>
-                    ) : null}
-                  </View>
-                </View>
-
-                <View style={styles.rowRight}>
-                  <Text
-                    numberOfLines={1}
-                    style={[theme.typography.label, styles.priceText, { color: theme.colors.gray900 }]}
-                  >
-                    {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
-                  </Text>
-                </View>
-              </Pressable>
-            ))
+            <WishlistGridView entries={visibleEntries} onPressEntry={handleEntryPress} />
           )}
         </View>
       </ScrollView>
 
       <CollectionAddFab />
     </SafeAreaView>
+  );
+}
+
+type WishlistViewProps = {
+  entries: CardFavoriteEntry[];
+  onPressEntry: (entry: CardFavoriteEntry) => void;
+};
+
+function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
+  const theme = useSpotlightTheme();
+  return (
+    <View style={styles.listColumn}>
+      {entries.map((entry) => (
+        <View
+          key={entry.cardId}
+          style={styles.listRowWrap}
+          testID={`wishlist-row-wrap-${entry.cardId}`}
+        >
+          <CardListRow
+            cardNumber={entry.cardNumber}
+            currencyCode={entry.currencyCode ?? 'USD'}
+            gradeLabel={null}
+            imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
+            marketPrice={entry.marketPrice ?? null}
+            name={entry.name}
+            onPress={() => onPressEntry(entry)}
+            quantity={1}
+            setName={entry.setName}
+            testID={`wishlist-row-${entry.cardId}`}
+            trendChangeAmount={null}
+          />
+          <View
+            pointerEvents="none"
+            style={[styles.heartBadge, { backgroundColor: theme.colors.brand }]}
+            testID={`wishlist-row-heart-${entry.cardId}`}
+          >
+            <Heart color={theme.colors.gray900} height={9} width={9} />
+          </View>
+          {entry.isOwned ? (
+            <View
+              pointerEvents="none"
+              style={[
+                styles.ownedPill,
+                {
+                  backgroundColor: theme.colors.gray100,
+                  borderColor: theme.colors.gray300,
+                },
+              ]}
+              testID={`wishlist-row-owned-${entry.cardId}`}
+            >
+              <Text
+                style={[
+                  theme.typography.label,
+                  styles.ownedPillText,
+                  { color: theme.colors.gray700 },
+                ]}
+              >
+                In collection
+              </Text>
+            </View>
+          ) : null}
+        </View>
+      ))}
+    </View>
+  );
+}
+
+function WishlistGridView({ entries, onPressEntry }: WishlistViewProps) {
+  const theme = useSpotlightTheme();
+  const leftColumn: CardFavoriteEntry[] = [];
+  const rightColumn: CardFavoriteEntry[] = [];
+  entries.forEach((entry, index) => {
+    (index % 2 === 0 ? leftColumn : rightColumn).push(entry);
+  });
+
+  return (
+    <View style={styles.gridContainer} testID="wishlist-grid">
+      <View style={styles.gridColumn}>
+        {leftColumn.map((entry) => (
+          <WishlistGridTile
+            entry={entry}
+            key={entry.cardId}
+            onPress={() => onPressEntry(entry)}
+            theme={theme}
+          />
+        ))}
+      </View>
+      <View style={styles.gridColumn}>
+        {rightColumn.map((entry) => (
+          <WishlistGridTile
+            entry={entry}
+            key={entry.cardId}
+            onPress={() => onPressEntry(entry)}
+            theme={theme}
+          />
+        ))}
+      </View>
+    </View>
+  );
+}
+
+type WishlistGridTileProps = {
+  entry: CardFavoriteEntry;
+  onPress: () => void;
+  theme: ReturnType<typeof useSpotlightTheme>;
+};
+
+function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
+  const imageUri = entry.smallImageUrl ?? entry.imageUrl ?? null;
+  return (
+    <Pressable
+      accessibilityRole="button"
+      onPress={onPress}
+      style={({ pressed }) => [
+        styles.gridTile,
+        {
+          backgroundColor: theme.colors.canvasElevated,
+          borderColor: theme.colors.outlineSubtle,
+          opacity: pressed ? 0.84 : 1,
+        },
+      ]}
+      testID={`wishlist-grid-tile-${entry.cardId}`}
+    >
+      <View
+        style={[
+          styles.gridImageWrap,
+          { backgroundColor: theme.colors.field, borderColor: theme.colors.outlineSubtle },
+        ]}
+      >
+        {imageUri ? (
+          <Image
+            accessibilityIgnoresInvertColors
+            resizeMode="cover"
+            source={{ uri: imageUri }}
+            style={StyleSheet.absoluteFill}
+            testID={`wishlist-grid-tile-${entry.cardId}-image`}
+          />
+        ) : null}
+        <View
+          style={[styles.heartBadgeGrid, { backgroundColor: theme.colors.brand }]}
+          testID={`wishlist-grid-tile-${entry.cardId}-heart`}
+        >
+          <Heart color={theme.colors.gray900} height={10} width={10} />
+        </View>
+      </View>
+      <View style={styles.gridTextWrap}>
+        <Text
+          numberOfLines={2}
+          style={[theme.typography.bodyMedium, { color: theme.colors.gray900, fontWeight: '600' }]}
+        >
+          {entry.name}
+        </Text>
+        {entry.cardNumber || entry.setName ? (
+          <Text
+            numberOfLines={1}
+            style={[styles.gridMeta, { color: theme.colors.gray600 }]}
+          >
+            {entry.cardNumber}
+            {entry.cardNumber && entry.setName ? '  ·  ' : ''}
+            {entry.setName}
+          </Text>
+        ) : null}
+        <View style={styles.gridPriceRow}>
+          <Text
+            numberOfLines={1}
+            style={[theme.typography.label, styles.gridPrice, { color: theme.colors.gray900 }]}
+          >
+            {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
+          </Text>
+          {entry.isOwned ? (
+            <Text
+              numberOfLines={1}
+              style={[styles.gridOwnedText, { color: theme.colors.gray600 }]}
+            >
+              In collection
+            </Text>
+          ) : null}
+        </View>
+      </View>
+    </Pressable>
   );
 }
 
@@ -404,7 +589,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingHorizontal: 16,
   },
-  list: {
+  listContainer: {
     marginTop: 16,
   },
   emptyText: {
@@ -415,64 +600,93 @@ const styles = StyleSheet.create({
     paddingVertical: 32,
     textAlign: 'center',
   },
-  row: {
-    alignItems: 'flex-start',
-    borderBottomWidth: 1,
-    borderTopWidth: 0,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+  listColumn: {
+    gap: 8,
     paddingHorizontal: 16,
-    paddingVertical: 12,
   },
-  rowPressed: {
-    opacity: 0.78,
-  },
-  rowLeft: {
-    flexDirection: 'row',
-    flex: 1,
-    gap: 12,
-  },
-  thumbWrap: {
-    height: 78,
+  listRowWrap: {
     position: 'relative',
-    width: 54,
-  },
-  thumb: {
-    borderRadius: 2,
-    height: 78,
-    width: 54,
   },
   heartBadge: {
     alignItems: 'center',
     borderRadius: 7,
-    bottom: 4,
+    bottom: 14,
     height: 14,
     justifyContent: 'center',
+    left: 60,
     position: 'absolute',
-    right: 4,
     width: 14,
   },
-  rowText: {
-    flex: 1,
-    gap: 5,
-    justifyContent: 'space-between',
+  ownedPill: {
+    borderRadius: 999,
+    borderWidth: 1,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    position: 'absolute',
+    right: 14,
+    top: 10,
   },
-  metaText: {
+  ownedPillText: {
+    fontSize: 10,
+    lineHeight: 14,
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 16,
+  },
+  gridColumn: {
+    flex: 1,
+    gap: 12,
+  },
+  gridTile: {
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    padding: 8,
+  },
+  gridImageWrap: {
+    aspectRatio: 0.72,
+    borderRadius: 8,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+    width: '100%',
+  },
+  heartBadgeGrid: {
+    alignItems: 'center',
+    borderRadius: 8,
+    bottom: 6,
+    height: 16,
+    justifyContent: 'center',
+    position: 'absolute',
+    right: 6,
+    width: 16,
+  },
+  gridTextWrap: {
+    gap: 4,
+    paddingHorizontal: 2,
+    paddingTop: 8,
+  },
+  gridMeta: {
     fontFamily: 'SpotlightBodyRegular',
     fontSize: 12,
     lineHeight: 15.6,
   },
-  conditionText: {
-    marginTop: 8,
+  gridPriceRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 4,
   },
-  rowRight: {
-    alignItems: 'flex-end',
-    gap: 3,
-    minWidth: 80,
-  },
-  priceText: {
+  gridPrice: {
     fontFamily: 'SpotlightBodySemiBold',
     fontSize: 13,
     lineHeight: 18.2,
+  },
+  gridOwnedText: {
+    fontFamily: 'SpotlightBodyRegular',
+    fontSize: 10,
+    lineHeight: 14,
   },
 });

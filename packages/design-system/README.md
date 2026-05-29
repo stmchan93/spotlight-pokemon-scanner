@@ -249,6 +249,27 @@ Current API concepts:
 - optional action button
 - optional centered layout
 
+### CardListRow
+
+File: `src/components/card-list-row.tsx`
+
+Use for horizontal card-list views like Wishlist and Collections — a thumbnail
+on the left, name/meta/grade in the middle, and price/trend/quantity stacked on
+the right.
+
+Current API concepts:
+
+- `imageUrl` (renders a "CARD" placeholder when null)
+- `name` (bold, single line)
+- `cardNumber` + `setName` (joined as `"{cardNumber} · {setName}"`)
+- optional `gradeLabel` (e.g. `"PSA 10"` or `"Near Mint"`)
+- `marketPrice` + `currencyCode` (formatted via `Intl.NumberFormat`, defaults
+  to USD; hidden when null)
+- optional `trendChangeAmount` (positive → green up arrow, negative → red down
+  arrow, null/0 → hidden)
+- `quantity` (rendered as `"Qty: {n}"`)
+- optional `onPress` (whole row becomes a `Pressable` with button role)
+
 ### SurfaceCard
 
 File: `src/components/surface-card.tsx`

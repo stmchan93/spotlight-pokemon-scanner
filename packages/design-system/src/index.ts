@@ -2,6 +2,7 @@ export * from './components/app-text';
 export * from './components/badge';
 export * from './components/bottom-tab-bar';
 export * from './components/button';
+export * from './components/card-list-row';
 export * from './components/card-thumbnail';
 export * from './components/floating-bottom-nav';
 export * from './components/icon-button';

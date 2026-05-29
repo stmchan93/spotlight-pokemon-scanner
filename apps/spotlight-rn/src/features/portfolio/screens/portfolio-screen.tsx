@@ -28,8 +28,10 @@ import {
   type CollectionFilterKey,
 } from '@/features/portfolio/components/collection-filter-chip-row';
 import { CollectionMasonryGrid } from '@/features/portfolio/components/collection-masonry-grid';
+import { CollectionListView } from '@/features/portfolio/components/collection-list-view';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
+import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 
@@ -95,6 +97,7 @@ export function PortfolioScreen({
   const insets = useSafeAreaInsets();
   const model = usePortfolioScreenModel();
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
+  const { viewMode, toggleViewMode } = usePortfolioViewMode();
   const { openDrawer } = useAppDrawer();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
@@ -211,7 +214,9 @@ export function PortfolioScreen({
 
             <CollectionSearchRow
               onChangeQuery={model.setSearchQuery}
+              onToggleViewMode={toggleViewMode}
               query={model.searchQuery}
+              viewMode={viewMode}
             />
 
             <CollectionFilterChipRow
@@ -220,10 +225,17 @@ export function PortfolioScreen({
             />
 
             {visibleInventory.length > 0 ? (
-              <CollectionMasonryGrid
-                entries={visibleInventory}
-                onPressEntry={handlePressEntry}
-              />
+              viewMode === 'list' ? (
+                <CollectionListView
+                  entries={visibleInventory}
+                  onPressEntry={handlePressEntry}
+                />
+              ) : (
+                <CollectionMasonryGrid
+                  entries={visibleInventory}
+                  onPressEntry={handlePressEntry}
+                />
+              )
             ) : (
               <View style={{ paddingHorizontal: theme.layout.pageGutter }}>
                 <StateCard
