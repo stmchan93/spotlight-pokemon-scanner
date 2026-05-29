@@ -2266,6 +2266,102 @@ class BackendResetPhase1Tests(unittest.TestCase):
         self.assertIn("first_edition_vintage_bias", candidates[0]["_reasons"])
         self.assertNotEqual(candidates[0]["id"], "cel25c-4_A")
 
+    def test_local_slab_retrieval_uses_set_name_in_label_to_break_ties(self) -> None:
+        """Regression: PSA Machamp V Astral Radiance cert 108468160 (uncached) used to
+        tie with Hisuian Electrode V at the same card_number_partial + release_year_exact
+        score, picking Hisuian Electrode V alphabetically. With set-name-in-label
+        scoring, the Astral Radiance candidate wins because its set name appears in
+        the OCR'd labelText.
+        """
+        service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            service.connection,
+            card_id="swsh10-172",
+            name="Machamp V",
+            set_name="Astral Radiance",
+            number="172/189",
+            rarity="Ultra Rare",
+            variant="Holofoil",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="swsh10-172",
+            set_id="swsh10",
+            set_series="Sword & Shield",
+            set_release_date="2022-05-27",
+        )
+        upsert_card(
+            service.connection,
+            card_id="swsh11-172",
+            name="Hisuian Electrode V",
+            set_name="Lost Origin",
+            number="172/196",
+            rarity="Ultra Rare",
+            variant="Holofoil",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="swsh11-172",
+            set_id="swsh11",
+            set_series="Sword & Shield",
+            set_release_date="2022-09-09",
+        )
+        upsert_card(
+            service.connection,
+            card_id="swsh12-172",
+            name="Reshiram V",
+            set_name="Silver Tempest",
+            number="172/195",
+            rarity="Ultra Rare",
+            variant="Holofoil",
+            language="English",
+            source_provider="scrydex",
+            source_record_id="swsh12-172",
+            set_id="swsh12",
+            set_series="Sword & Shield",
+            set_release_date="2022-11-11",
+        )
+        service.connection.commit()
+
+        payload = {
+            "scanID": "scan-slab-machamp-v-astral-radiance",
+            "capturedAt": "2026-05-29T01:05:45Z",
+            "resolverModeHint": "psa_slab",
+            "cropConfidence": 0.9,
+            "setHintTokens": [],
+            "warnings": [],
+            "ocrAnalysis": {
+                "slabEvidence": {
+                    "titleTextPrimary": "Machampv Astral Radiance",
+                    "titleTextSecondary": "Machampv Astral Radiance",
+                    "cardNumber": "172",
+                    "setHints": [],
+                    "grader": "PSA",
+                    "grade": "10",
+                    "cert": "108468160",
+                    "labelWideText": "2022 POKEMON SWSH FA/MACHAMPV ASTRAL RADIANCE #172 GEM MT 10 108468160",
+                },
+            },
+            "slabGrader": "PSA",
+            "slabGrade": "10",
+            "slabCertNumber": "108468160",
+            "slabCardNumberRaw": "172",
+            "slabParsedLabelText": [
+                "2022 POKEMON SWSH FA/MACHAMPV ASTRAL RADIANCE #172 GEM MT 10 108468160",
+            ],
+            "slabRecommendedLookupPath": "psa_cert",
+        }
+        evidence = service._build_slab_evidence(payload)
+        candidates = service._retrieve_local_slab_candidates(evidence)
+        service.connection.close()
+
+        self.assertGreaterEqual(len(candidates), 3)
+        self.assertEqual(candidates[0]["id"], "swsh10-172")
+        self.assertIn("set_name_in_label_text", candidates[0]["_reasons"])
+        # The Lost Origin / Silver Tempest candidates should NOT pick up the new
+        # boost — their set names aren't in the label.
+        for candidate in candidates:
+            if candidate["id"] in {"swsh11-172", "swsh12-172"}:
+                self.assertNotIn("set_name_in_label_text", candidate["_reasons"])
+
     def test_match_scan_prefers_vintage_first_edition_base_charizard_over_modern_reprint(self) -> None:
         service = SpotlightScanService(self.database_path, REPO_ROOT)
         upsert_card(

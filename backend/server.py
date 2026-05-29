@@ -5218,6 +5218,33 @@ class SpotlightScanService:
         return overlap / max(1, len(query_tokens))
 
     @staticmethod
+    def _slab_set_name_in_label(card: dict[str, Any], evidence: SlabMatchEvidence) -> bool:
+        """Direct tiebreaker: does the candidate's set name appear as tokens in the PSA labelText?
+
+        The curated `slab_set_aliases.json` map is partial (e.g. "ASTRAL RADIANCE"
+        isn't in it as of 2026-05), so when the PSA cert isn't cached and the
+        alias fallback empty-handed, multiple candidates from different sets that
+        share a card number tie at the same score and the resolver picks the
+        alphabetical first. The OCR'd labelText (e.g. "2022 POKEMON SWSH
+        FA/MACHAMP V ASTRAL RADIANCE #172 GEM MT 10 108468160") often contains
+        the set name plainly — we just weren't using it. This boost fires only
+        when ALL of the candidate setName's 4+-char alphanumeric tokens appear
+        as label tokens, so noisy single-word matches ("Base", "Promo") don't
+        over-fire.
+        """
+        label_text = (evidence.label_text or "").upper()
+        if not label_text:
+            return False
+        set_name = str(card.get("setName") or "").strip()
+        if not set_name:
+            return False
+        set_tokens = [token for token in re.findall(r"[A-Z0-9]+", set_name.upper()) if len(token) >= 4]
+        if not set_tokens:
+            return False
+        label_tokens = set(re.findall(r"[A-Z0-9]+", label_text))
+        return all(token in label_tokens for token in set_tokens)
+
+    @staticmethod
     def _slab_card_number_overlap(card: dict[str, Any], evidence: SlabMatchEvidence) -> float:
         if not evidence.card_number:
             return 0.0
@@ -5308,12 +5335,18 @@ class SpotlightScanService:
         card_number_overlap = self._slab_card_number_overlap(card, evidence)
         release_year_alignment, release_year_reason = self._slab_release_year_alignment(card, evidence)
         first_edition_bias, first_edition_reason = self._slab_first_edition_bias(card, evidence)
+        set_name_in_label = self._slab_set_name_in_label(card, evidence)
         score = (
             (title_overlap * 50.0)
             + (card_number_overlap * 30.0)
             + (set_overlap * 20.0)
             + (release_year_alignment * 18.0)
             + (first_edition_bias * 10.0)
+            # Weight above set_overlap (20) and release_year_exact (18) so a
+            # direct set-name match in the OCR'd PSA label outranks the curated
+            # alias signal and the year heuristic, but stays below
+            # title_overlap (50) so a real title match still dominates.
+            + (25.0 if set_name_in_label else 0.0)
         )
         reasons: list[str] = []
         if title_overlap > 0:
@@ -5324,6 +5357,8 @@ class SpotlightScanService:
             reasons.append("card_number_partial")
         if set_overlap > 0:
             reasons.append("set_overlap")
+        if set_name_in_label:
+            reasons.append("set_name_in_label_text")
         if release_year_reason and release_year_alignment != 0:
             reasons.append(release_year_reason)
         if first_edition_reason and first_edition_bias != 0:
