@@ -17,6 +17,7 @@ import {
   Plus,
   Search as SearchIcon,
 } from 'iconoir-react-native';
+import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
@@ -52,14 +53,16 @@ export function ChangeCardPicker({
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [pendingSelection, setPendingSelection] = useState<number | null>(null);
   const translateY = useRef(new Animated.Value(0)).current;
+  const tiltX = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
       setVisibleCount(INITIAL_VISIBLE_COUNT);
       setPendingSelection(activeCandidateIndex);
       translateY.setValue(0);
+      tiltX.setValue(0);
     }
-  }, [activeCandidateIndex, translateY, visible]);
+  }, [activeCandidateIndex, tiltX, translateY, visible]);
 
   const dismissWithAnimation = () => {
     Animated.timing(translateY, {
@@ -106,6 +109,33 @@ export function ChangeCardPicker({
     }),
   ).current;
 
+  const heroPan = useRef(
+    PanResponder.create({
+      onMoveShouldSetPanResponder: (_evt, gesture) => {
+        return Math.abs(gesture.dx) > 4 && Math.abs(gesture.dx) > Math.abs(gesture.dy);
+      },
+      onPanResponderMove: (_evt, gesture) => {
+        tiltX.setValue(Math.max(-140, Math.min(140, gesture.dx)));
+      },
+      onPanResponderRelease: () => {
+        Animated.spring(tiltX, {
+          toValue: 0,
+          useNativeDriver: true,
+          friction: 6,
+          tension: 80,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(tiltX, {
+          toValue: 0,
+          useNativeDriver: true,
+          friction: 6,
+          tension: 80,
+        }).start();
+      },
+    }),
+  ).current;
+
   const selectedIndex = pendingSelection ?? activeCandidateIndex;
   const heroCandidate = candidates[selectedIndex] ?? candidates[0] ?? null;
 
@@ -135,6 +165,17 @@ export function ChangeCardPicker({
       visible={visible}
     >
       <View style={styles.root} testID={testID}>
+        {/* Per Figma 726:4379 — the change-card layer is a transparent dark
+            wash (rgba(0,0,0,0.3)) over an 8px blur of the live camera behind
+            it, not an opaque scrim. expo-blur uses an intensity scale rather
+            than px; 24 is the scanner's established ~8px-equivalent value and
+            pairs with the same 0.3 overlay used by the tray backdrop. */}
+        <BlurView
+          intensity={24}
+          pointerEvents="none"
+          style={styles.backdropBlur}
+          tint="dark"
+        />
         <Pressable
           accessibilityLabel="Close change card picker"
           accessibilityRole="button"
@@ -179,6 +220,31 @@ export function ChangeCardPicker({
             >
               <View style={styles.handle} />
               <Text style={[theme.typography.label, styles.title]}>Change card</Text>
+            </View>
+
+            <Animated.View
+              {...heroPan.panHandlers}
+              style={[
+                styles.heroWrap,
+                {
+                  transform: [
+                    { perspective: 800 },
+                    {
+                      rotateY: tiltX.interpolate({
+                        inputRange: [-140, 140],
+                        outputRange: ['-14deg', '14deg'],
+                      }),
+                    },
+                    {
+                      translateX: tiltX.interpolate({
+                        inputRange: [-140, 140],
+                        outputRange: [-10, 10],
+                      }),
+                    },
+                  ],
+                },
+              ]}
+            >
               {heroCandidate?.imageUrl ? (
                 <Image
                   source={{ uri: heroCandidate.imageUrl }}
@@ -189,7 +255,7 @@ export function ChangeCardPicker({
               ) : (
                 <View style={[styles.heroImage, styles.heroPlaceholder]} />
               )}
-            </View>
+            </Animated.View>
 
             <ScrollView
               contentContainerStyle={[
@@ -299,9 +365,12 @@ const styles = StyleSheet.create({
   root: {
     flex: 1,
   },
+  backdropBlur: {
+    ...StyleSheet.absoluteFillObject,
+  },
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(0, 0, 0, 0.55)',
+    backgroundColor: 'rgba(0, 0, 0, 0.3)',
   },
   topBarSafe: {
     position: 'absolute',
@@ -374,11 +443,18 @@ const styles = StyleSheet.create({
     fontFamily: 'SpotlightBodySemiBold',
     marginTop: 12,
   },
-  heroImage: {
+  heroWrap: {
     alignSelf: 'center',
+    marginTop: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.12,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  heroImage: {
     aspectRatio: 143 / 200,
     height: 200,
-    marginTop: 16,
   },
   heroPlaceholder: {
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
@@ -392,13 +468,14 @@ const styles = StyleSheet.create({
   },
   cardRow: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
+    backgroundColor: 'rgba(0, 0, 0, 0.25)',
     borderColor: 'transparent',
     borderRadius: 12,
     borderWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   cardRowSelected: {
     borderColor: colors.brand,
@@ -410,7 +487,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flex: 1,
     flexDirection: 'row',
-    gap: 9,
+    gap: 16,
   },
   thumb: {
     borderRadius: 4,

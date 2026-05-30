@@ -6,6 +6,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronLeft,
+  IconChevronRight,
   IconSearch,
 } from '@tabler/icons-react-native';
 import { RefreshDouble } from 'iconoir-react-native';
@@ -143,7 +144,8 @@ const rawCollectorNumberOcrEnabled = resolveRuntimeBoolean(
   false,
 );
 const captureRowHeight = 102;
-const captureRowGap = 16;
+// A little breathing room between scan rows in the tray (Figma scan-tray spacing).
+const captureRowGap = 20;
 // Height of the next-row "peek" sliver below the fully-visible top row. ~1/8
 // of a row exposes the top of the next card's image and its title baseline —
 // enough to signal that swiping/expanding reveals more, without dominating
@@ -1940,9 +1942,16 @@ export function ScannerScreen({
                 ]}
                 testID={`scanner-tray-price-${index}`}
               >
-                <Text style={styles.capturePriceValue}>
-                  {formatCurrency(displayMarketPrice, currencyCode)}
-                </Text>
+                <View style={styles.capturePriceValueRow}>
+                  <Text style={styles.capturePriceValue}>
+                    {formatCurrency(displayMarketPrice, currencyCode)}
+                  </Text>
+                  <IconChevronRight
+                    color={colors.scannerTextPrimary}
+                    size={16}
+                    strokeWidth={2}
+                  />
+                </View>
                 <Text style={styles.capturePriceLabel}>{priceSublabel}</Text>
               </Pressable>
               <Pressable
@@ -2319,6 +2328,11 @@ const styles = StyleSheet.create({
     color: colors.scannerTextPrimary,
     textAlign: 'right',
   },
+  capturePriceValueRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 2,
+  },
   capturePriceWrap: {
     alignItems: 'flex-end',
     gap: 2,
@@ -2415,14 +2429,14 @@ const styles = StyleSheet.create({
   },
   scansLabel: {
     fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 13,
-    lineHeight: 18.2,
+    fontSize: 14,
+    lineHeight: 19.6,
     color: colors.scannerTextPrimary,
   },
   clearChip: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    borderRadius: 6,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 999,
     justifyContent: 'center',
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -2433,13 +2447,13 @@ const styles = StyleSheet.create({
   clearChipLabel: {
     color: colors.scannerTextPrimary,
     fontFamily: fontFamilies.bodyBold,
-    fontSize: 10,
-    lineHeight: 14,
+    fontSize: 11,
+    lineHeight: 15.4,
   },
   totalLabel: {
     fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 13,
-    lineHeight: 18.2,
+    fontSize: 14,
+    lineHeight: 19.6,
     color: colors.gray100,
   },
   safeArea: {

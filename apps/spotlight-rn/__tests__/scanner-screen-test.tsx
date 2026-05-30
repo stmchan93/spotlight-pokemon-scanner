@@ -247,12 +247,12 @@ describe('ScannerScreen', () => {
       minHeight: rawScannerTrayEmptyPeekHeight,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-recent-title').props.style)).toMatchObject({
-      fontSize: 13,
-      lineHeight: 18.2,
+      fontSize: 14,
+      lineHeight: 19.6,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-value-pill-text').props.style)).toMatchObject({
-      fontSize: 13,
-      lineHeight: 18.2,
+      fontSize: 14,
+      lineHeight: 19.6,
     });
     expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
   });

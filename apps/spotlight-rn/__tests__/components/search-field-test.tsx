@@ -96,8 +96,8 @@ describe('SearchField', () => {
       );
 
       const flattened = StyleSheet.flatten(screen.getByTestId('search-collection').props.style);
-      // collection size enforces a 32px height.
-      expect(flattened.height).toBe(32);
+      // collection size enforces a 40px height.
+      expect(flattened.height).toBe(40);
       expect(screen.getByPlaceholderText('Search')).toBeTruthy();
     });
   });

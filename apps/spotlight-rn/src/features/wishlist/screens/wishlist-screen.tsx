@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Image,
   Pressable,
@@ -25,6 +25,7 @@ import type { CardFavoriteEntry } from '@spotlight/api-client';
 import {
   CardListRow,
   IconButton,
+  ListPaginationFooter,
   SearchField,
   colors,
   useSpotlightTheme,
@@ -49,6 +50,7 @@ const FILTERS: readonly { key: WishlistFilterKey; label: string; hasArrow?: bool
 
 const WISHLIST_VIEW_MODE_STORAGE_KEY = '@spotlight/wishlist/view-mode';
 const DEFAULT_VIEW_MODE: WishlistViewMode = 'list';
+const LIST_PAGE_SIZE = 10;
 
 function parseViewMode(raw: string | null): WishlistViewMode {
   return raw === 'grid' || raw === 'list' ? raw : DEFAULT_VIEW_MODE;
@@ -97,6 +99,8 @@ export function WishlistScreen() {
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<WishlistFilterKey>('all');
   const [viewMode, setViewMode] = useWishlistViewMode();
+  const scrollRef = useRef<ScrollView>(null);
+  const [listVisibleCount, setListVisibleCount] = useState(LIST_PAGE_SIZE);
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -125,6 +129,14 @@ export function WishlistScreen() {
       cancelled = true;
     };
   }, [dataVersion, loadFavorites]);
+
+  useEffect(() => {
+    setListVisibleCount(LIST_PAGE_SIZE);
+  }, [activeFilter, query, viewMode]);
+
+  const handleBackToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
@@ -180,6 +192,7 @@ export function WishlistScreen() {
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <ScrollView
+        ref={scrollRef}
         contentContainerStyle={[
           styles.scrollContent,
           { paddingBottom: bottomNavClearance + 16 },
@@ -246,14 +259,15 @@ export function WishlistScreen() {
             <IconButton
               accessibilityLabel={toggleAccessibilityLabel}
               onPress={handleToggleViewMode}
+              shape="rounded"
               size={32}
               testID="wishlist-view-toggle"
-              variant="elevated"
+              variant="outlined"
             >
               {viewMode === 'list' ? (
-                <IconLayoutGrid color={theme.colors.gray900} size={18} />
+                <IconLayoutGrid color={theme.colors.gray900} size={16} />
               ) : (
-                <IconList color={theme.colors.gray900} size={18} />
+                <IconList color={theme.colors.gray900} size={16} />
               )}
             </IconButton>
             <Pressable
@@ -341,10 +355,25 @@ export function WishlistScreen() {
                 : 'No cards match your filters.'}
             </Text>
           ) : viewMode === 'list' ? (
-            <WishlistListView entries={visibleEntries} onPressEntry={handleEntryPress} />
+            <WishlistListView
+              entries={visibleEntries.slice(0, listVisibleCount)}
+              onPressEntry={handleEntryPress}
+            />
           ) : (
-            <WishlistGridView entries={visibleEntries} onPressEntry={handleEntryPress} />
+            <WishlistGridView
+              entries={visibleEntries.slice(0, listVisibleCount)}
+              onPressEntry={handleEntryPress}
+            />
           )}
+
+          {visibleEntries.length > 0 ? (
+            <ListPaginationFooter
+              canViewMore={visibleEntries.length > listVisibleCount}
+              onBackToTop={handleBackToTop}
+              onViewMore={() => setListVisibleCount((count) => count + LIST_PAGE_SIZE)}
+              testID="wishlist-list-pagination"
+            />
+          ) : null}
         </View>
       </ScrollView>
 
@@ -603,6 +632,7 @@ const styles = StyleSheet.create({
   listColumn: {
     gap: 8,
     paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   listRowWrap: {
     position: 'relative',
@@ -634,6 +664,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 12,
     paddingHorizontal: 16,
+    paddingVertical: 16,
   },
   gridColumn: {
     flex: 1,

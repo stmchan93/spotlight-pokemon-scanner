@@ -130,11 +130,11 @@ const styles = StyleSheet.create({
     paddingVertical: 7,
   },
   containerCollection: {
-    borderRadius: 8,
+    borderRadius: 10,
     gap: 8,
-    height: 32,
-    paddingHorizontal: 8,
-    paddingVertical: 7,
+    height: 40,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
   },
   input: {
     flex: 1,

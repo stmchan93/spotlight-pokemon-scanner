@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react-native';
+import { fireEvent, render, screen, within } from '@testing-library/react-native';
 
 import { SpotlightThemeProvider } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
@@ -49,12 +49,14 @@ describe('CollectionMasonryGrid', () => {
     makeEntry({ id: 'd' }),
   ];
 
-  it('renders left + right columns with their testIDs', () => {
+  it('renders ruled rows with their testIDs', () => {
     renderGrid(entries);
 
     expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
-    expect(screen.getByTestId('collection-masonry-grid-col-left')).toBeTruthy();
-    expect(screen.getByTestId('collection-masonry-grid-col-right')).toBeTruthy();
+    // 4 entries → 2 rows of 2 columns.
+    expect(screen.getByTestId('collection-masonry-grid-row-0')).toBeTruthy();
+    expect(screen.getByTestId('collection-masonry-grid-row-1')).toBeTruthy();
+    expect(screen.queryByTestId('collection-masonry-grid-row-2')).toBeNull();
   });
 
   it('renders a tile testID for every entry', () => {
@@ -67,23 +69,17 @@ describe('CollectionMasonryGrid', () => {
     }
   });
 
-  it('distributes 4 equal-height entries roughly evenly (2 per column)', () => {
+  it('lays entries left-to-right into rows of two', () => {
     renderGrid(entries);
 
-    const leftCol = screen.getByTestId('collection-masonry-grid-col-left');
-    const rightCol = screen.getByTestId('collection-masonry-grid-col-right');
+    const rowZero = within(screen.getByTestId('collection-masonry-grid-row-0'));
+    const rowOne = within(screen.getByTestId('collection-masonry-grid-row-1'));
 
-    // Each column should contain 2 tile slots. Tiles render under a wrapper
-    // View; flat-count children to verify the distribution.
-    expect(leftCol.findAllByType('View').length).toBeGreaterThan(0);
-    expect(rightCol.findAllByType('View').length).toBeGreaterThan(0);
-
-    // Tile testIDs make the column membership unambiguous; assert that the
-    // first two land in left and the last two in right.
-    const leftTileA = screen.getByTestId('collection-masonry-grid-tile-a');
-    const rightTileB = screen.getByTestId('collection-masonry-grid-tile-b');
-    expect(leftTileA).toBeTruthy();
-    expect(rightTileB).toBeTruthy();
+    // First two entries fill row 0, next two fill row 1.
+    expect(rowZero.getByTestId('collection-masonry-grid-tile-a')).toBeTruthy();
+    expect(rowZero.getByTestId('collection-masonry-grid-tile-b')).toBeTruthy();
+    expect(rowOne.getByTestId('collection-masonry-grid-tile-c')).toBeTruthy();
+    expect(rowOne.getByTestId('collection-masonry-grid-tile-d')).toBeTruthy();
   });
 
   it('triggers onPressEntry with the right entry when a tile is tapped', () => {

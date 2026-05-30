@@ -48,10 +48,12 @@ export function CollectionSearchRow({
           <IconButton
             accessibilityLabel={toggleLabel}
             onPress={onToggleViewMode}
+            shape="rounded"
+            size={40}
             testID={`${testID}-view-toggle`}
-            variant="elevated"
+            variant="outlined"
           >
-            <ToggleIcon color={colors.gray900} height={20} width={20} />
+            <ToggleIcon color={colors.gray900} height={16} width={16} />
           </IconButton>
         ) : null}
       </View>

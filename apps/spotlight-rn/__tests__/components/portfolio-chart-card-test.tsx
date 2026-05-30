@@ -76,8 +76,29 @@ describe('PortfolioChartCard', () => {
       }),
     );
 
-    // (Hover tooltip removed — date label is rendered in the screen
-    // header instead, so the on-chart tooltip no longer exists.)
+  });
+
+  it('shows the date/value tooltip and hides the range row while scrubbing', () => {
+    renderChart();
+
+    const chartContainer = screen.getByTestId('portfolio-chart-portfolio');
+    fireEvent(chartContainer, 'layout', { nativeEvent: { layout: { width: 320, height: 200 } } });
+
+    // No active point yet → no tooltip, range row visible.
+    expect(screen.queryByTestId('portfolio-chart-tooltip')).toBeNull();
+    expect(screen.getByTestId('range-1W')).toBeTruthy();
+
+    const touchTarget = screen.getByTestId('portfolio-chart-touch-target');
+    fireEvent(touchTarget, 'responderGrant', { nativeEvent: { locationX: 160 } });
+
+    const tooltip = screen.getByTestId('portfolio-chart-tooltip');
+    expect(tooltip).toBeTruthy();
+    // Date headline matches the "JAN, 1, 2026" Figma format.
+    expect(screen.getByText(/^[A-Z]{3}, \d{1,2}, \d{4}$/)).toBeTruthy();
+
+    // Releasing clears the tooltip.
+    fireEvent(touchTarget, 'responderRelease', { nativeEvent: { locationX: 160 } });
+    expect(screen.queryByTestId('portfolio-chart-tooltip')).toBeNull();
   });
 
   it('shows the skeleton when loading and no series points are available', () => {

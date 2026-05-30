@@ -154,4 +154,35 @@ describe('InventoryCardTile', () => {
 
     expect(screen.getByText('—')).toBeTruthy();
   });
+
+  it('renders a 1px #F2F2F2 hairline border around the tile', () => {
+    renderTile();
+
+    const tile = screen.getByTestId('tile');
+    const flattened = Object.assign(
+      {},
+      ...(Array.isArray(tile.props.style)
+        ? tile.props.style
+        : [tile.props.style]),
+    );
+
+    expect(flattened.borderWidth).toBe(1);
+    expect(flattened.borderColor).toBe('#F2F2F2');
+  });
+
+  it('renders a plain tile with no border or rounding when bordered={false}', () => {
+    renderTile({ bordered: false });
+
+    const tile = screen.getByTestId('tile');
+    const flattened = Object.assign(
+      {},
+      ...(Array.isArray(tile.props.style)
+        ? tile.props.style
+        : [tile.props.style]),
+    );
+
+    expect(flattened.borderWidth).toBe(0);
+    expect(flattened.borderRadius).toBe(0);
+    expect(flattened.backgroundColor).toBe('transparent');
+  });
 });

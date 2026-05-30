@@ -113,6 +113,8 @@ Current API concepts:
   - `elevated`
   - `brand`
   - `ghost`
+  - `outlined` (white fill, `gray300` hairline border — the Collection / Wishlist view toggle)
+- `shape`: `circle` (default) or `rounded` (rounded square at `radii.sm`)
 
 ### SearchField
 
@@ -269,6 +271,22 @@ Current API concepts:
   arrow, null/0 → hidden)
 - `quantity` (rendered as `"Qty: {n}"`)
 - optional `onPress` (whole row becomes a `Pressable` with button role)
+
+### ListPaginationFooter
+
+File: `src/components/list-pagination-footer.tsx`
+
+Footer for long list views (Collection / Wishlist) that page in 10 rows at a
+time per Figma node 669-8499.
+
+Current API concepts:
+
+- `canViewMore` (renders the gray `gray100` "View More" pill that reveals the
+  next page; hide once every row is visible)
+- `onViewMore` (reveal-next-page handler)
+- optional `onBackToTop` (renders the up-chevron "Back to top" affordance)
+- optional `viewMoreLabel` (defaults to `"View More"`)
+- renders nothing when `!canViewMore && !onBackToTop`
 
 ### SurfaceCard
 

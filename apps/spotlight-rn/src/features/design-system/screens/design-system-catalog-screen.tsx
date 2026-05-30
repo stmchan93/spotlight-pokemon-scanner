@@ -12,6 +12,7 @@ import {
   colors,
   fontFamilies,
   IconButton,
+  ListPaginationFooter,
   PillButton,
   ScreenHeader,
   SearchField,
@@ -41,6 +42,7 @@ export function DesignSystemCatalogScreen({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const [segmentValue, setSegmentValue] = useState<'portfolio' | 'scan'>('portfolio');
+  const [visibleRows, setVisibleRows] = useState(6);
 
   const typographySamples = useMemo(() => {
     return [
@@ -220,6 +222,16 @@ export function DesignSystemCatalogScreen({
               onActionPress={() => {}}
               title="Search unavailable"
             />
+
+            <SurfaceCard padding={18} radius={22} variant="field">
+              <ListPaginationFooter
+                canViewMore
+                onBackToTop={() => setVisibleRows(6)}
+                onViewMore={() => setVisibleRows((rows) => rows + 6)}
+                testID="catalog-list-pagination-footer"
+                viewMoreLabel={`View More (${visibleRows} shown)`}
+              />
+            </SurfaceCard>
 
             <SurfaceCard padding={18} radius={22} variant="field">
               <SheetHeader

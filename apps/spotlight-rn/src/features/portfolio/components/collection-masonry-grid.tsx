@@ -1,7 +1,6 @@
-import { Linking } from 'react-native';
-import { StyleSheet, View } from 'react-native';
+import { Linking, StyleSheet, View } from 'react-native';
 
-import { InventoryCardTile } from '@spotlight/design-system';
+import { InventoryCardTile, useSpotlightTheme } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
@@ -15,13 +14,19 @@ type CollectionMasonryGridProps = {
   testID?: string;
 };
 
-const PLAIN_TILE_HEIGHT = 244;
-const LIVE_ON_EBAY_TILE_HEIGHT = 282;
+const COLUMNS = 2;
 
 function isLiveOnEbay(entry: InventoryCardEntry): boolean {
   return typeof entry.listingUrl === 'string' && entry.listingUrl.trim().length > 0;
 }
 
+/**
+ * Collection grid laid out as a flat ruled grid (Figma node 813-16133): two
+ * fixed columns split into aligned rows, separated by gray100 hairlines — a
+ * vertical divider between the columns (each right cell's left border) and a
+ * horizontal divider between rows. Tiles render "plain" (no per-card border or
+ * rounding); the grid draws all the dividers.
+ */
 export function CollectionMasonryGrid({
   entries,
   onPressEntry,
@@ -29,48 +34,55 @@ export function CollectionMasonryGrid({
   selectedEntryId,
   testID = 'collection-masonry-grid',
 }: CollectionMasonryGridProps) {
-  const left: InventoryCardEntry[] = [];
-  const right: InventoryCardEntry[] = [];
-  let leftHeight = 0;
-  let rightHeight = 0;
+  const theme = useSpotlightTheme();
 
-  for (const entry of entries) {
-    const tileHeight = isLiveOnEbay(entry) ? LIVE_ON_EBAY_TILE_HEIGHT : PLAIN_TILE_HEIGHT;
-    if (leftHeight <= rightHeight) {
-      left.push(entry);
-      leftHeight += tileHeight;
-    } else {
-      right.push(entry);
-      rightHeight += tileHeight;
-    }
+  const rows: InventoryCardEntry[][] = [];
+  for (let index = 0; index < entries.length; index += COLUMNS) {
+    rows.push(entries.slice(index, index + COLUMNS));
   }
 
   return (
     <View style={styles.grid} testID={testID}>
-      <View style={styles.column} testID={`${testID}-col-left`}>
-        {left.map((entry) => (
-          <CollectionTileSlot
-            key={entry.id}
-            entry={entry}
-            onPress={onPressEntry}
-            onLongPress={onLongPressEntry}
-            selected={selectedEntryId === entry.id}
-            testIDPrefix={`${testID}-tile`}
-          />
-        ))}
-      </View>
-      <View style={styles.column} testID={`${testID}-col-right`}>
-        {right.map((entry) => (
-          <CollectionTileSlot
-            key={entry.id}
-            entry={entry}
-            onPress={onPressEntry}
-            onLongPress={onLongPressEntry}
-            selected={selectedEntryId === entry.id}
-            testIDPrefix={`${testID}-tile`}
-          />
-        ))}
-      </View>
+      {rows.map((row, rowIndex) => {
+        const isLastRow = rowIndex === rows.length - 1;
+        return (
+          <View
+            key={row[0]?.id ?? `row-${rowIndex}`}
+            style={[
+              styles.row,
+              isLastRow
+                ? null
+                : { borderBottomColor: theme.colors.gray100, borderBottomWidth: 1 },
+            ]}
+            testID={`${testID}-row-${rowIndex}`}
+          >
+            {Array.from({ length: COLUMNS }).map((_, colIndex) => {
+              const entry = row[colIndex];
+              return (
+                <View
+                  key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
+                  style={[
+                    styles.cell,
+                    colIndex === 0
+                      ? null
+                      : { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 },
+                  ]}
+                >
+                  {entry ? (
+                    <CollectionTileSlot
+                      entry={entry}
+                      onPress={onPressEntry}
+                      onLongPress={onLongPressEntry}
+                      selected={selectedEntryId === entry.id}
+                      testIDPrefix={`${testID}-tile`}
+                    />
+                  ) : null}
+                </View>
+              );
+            })}
+          </View>
+        );
+      })}
     </View>
   );
 }
@@ -109,43 +121,41 @@ function CollectionTileSlot({
     : undefined;
 
   return (
-    <View style={styles.tileWrap}>
-      <InventoryCardTile
-        imageUrl={getCardImageUrl(entry, 'small')}
-        name={entry.name}
-        setName={entry.setName ?? ''}
-        cardNumber={entry.cardNumber ?? null}
-        kind={tileKind}
-        conditionLabel={tileKind === 'raw' ? entry.conditionLabel ?? null : null}
-        graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
-        gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
-        quantity={entry.quantity}
-        priceLabel={entry.hasMarketPrice ? formatOptionalCurrency(entry.marketPrice, entry.currencyCode) : null}
-        dayChangeLabel={dayChangeLabel}
-        dayChangeDirection={dayChangeDirection}
-        isFavorite={entry.isFavorite === true}
-        selected={selected}
-        onPress={() => onPress(entry)}
-        onLongPress={onLongPress ? () => onLongPress(entry) : undefined}
-        liveOnEbay={liveOnEbay}
-        onOpenListing={handleOpenListing}
-        testID={`${testIDPrefix}-${entry.id}`}
-      />
-    </View>
+    <InventoryCardTile
+      bordered={false}
+      imageUrl={getCardImageUrl(entry, 'small')}
+      name={entry.name}
+      setName={entry.setName ?? ''}
+      cardNumber={entry.cardNumber ?? null}
+      kind={tileKind}
+      conditionLabel={tileKind === 'raw' ? entry.conditionLabel ?? null : null}
+      graderLabel={tileKind === 'slab' ? entry.slabContext?.grader ?? null : null}
+      gradeLabel={tileKind === 'slab' ? entry.slabContext?.grade ?? null : null}
+      quantity={entry.quantity}
+      priceLabel={entry.hasMarketPrice ? formatOptionalCurrency(entry.marketPrice, entry.currencyCode) : null}
+      dayChangeLabel={dayChangeLabel}
+      dayChangeDirection={dayChangeDirection}
+      isFavorite={entry.isFavorite === true}
+      selected={selected}
+      onPress={() => onPress(entry)}
+      onLongPress={onLongPress ? () => onLongPress(entry) : undefined}
+      liveOnEbay={liveOnEbay}
+      onOpenListing={handleOpenListing}
+      testID={`${testIDPrefix}-${entry.id}`}
+    />
   );
 }
 
 const styles = StyleSheet.create({
   grid: {
-    flexDirection: 'row',
-    gap: 12,
     paddingHorizontal: 16,
+    paddingVertical: 16,
   },
-  column: {
+  row: {
+    alignItems: 'stretch',
+    flexDirection: 'row',
+  },
+  cell: {
     flex: 1,
-    gap: 12,
-  },
-  tileWrap: {
-    width: '100%',
   },
 });

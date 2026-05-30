@@ -23,6 +23,14 @@ export type InventoryCardTileProps = {
   dayChangeDirection?: InventoryCardTileDirection | null;
   isFavorite: boolean;
   selected?: boolean;
+  /**
+   * When true (default) the tile is a self-contained card: gray50 fill, a
+   * gray100 hairline border, and rounded corners. When false the tile is
+   * "plain" — no fill, no border, no rounding — for ruled-grid layouts where
+   * the surrounding container draws the dividers (Collection grid, Figma
+   * node 813-16133).
+   */
+  bordered?: boolean;
   onPress: () => void;
   onLongPress?: () => void;
   /**
@@ -97,6 +105,7 @@ export function InventoryCardTile({
   dayChangeDirection = null,
   isFavorite,
   selected = false,
+  bordered = true,
   onPress,
   onLongPress,
   liveOnEbay = false,
@@ -104,6 +113,8 @@ export function InventoryCardTile({
   testID,
 }: InventoryCardTileProps) {
   const theme = useSpotlightTheme();
+
+  const artRadius = bordered ? theme.layout.inventoryArtRadius : 0;
 
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);
@@ -125,8 +136,10 @@ export function InventoryCardTile({
       style={({ pressed }) => [
         styles.pressable,
         {
-          backgroundColor: theme.colors.gray50,
-          borderRadius: theme.radii.md,
+          backgroundColor: bordered ? theme.colors.gray50 : 'transparent',
+          borderColor: bordered ? theme.colors.gray100 : 'transparent',
+          borderWidth: bordered ? 1 : 0,
+          borderRadius: bordered ? theme.radii.md : 0,
           opacity: pressed ? 0.92 : 1,
         },
       ]}
@@ -137,7 +150,7 @@ export function InventoryCardTile({
           style={[
             styles.imageFrame,
             {
-              borderRadius: theme.layout.inventoryArtRadius,
+              borderRadius: artRadius,
               borderColor: selected ? theme.colors.brand : 'transparent',
               borderWidth: selected ? 2 : 0,
             },
@@ -151,7 +164,7 @@ export function InventoryCardTile({
               source={{ uri: imageUrl }}
               style={[
                 styles.image,
-                { borderRadius: theme.layout.inventoryArtRadius },
+                { borderRadius: artRadius },
               ]}
               testID={testID ? `${testID}-image` : undefined}
             />
@@ -170,7 +183,7 @@ export function InventoryCardTile({
                 styles.selectionVeil,
                 {
                   backgroundColor: 'rgba(254, 227, 51, 0.16)',
-                  borderRadius: theme.layout.inventoryArtRadius,
+                  borderRadius: artRadius,
                 },
               ]}
               testID={testID ? `${testID}-selection-overlay` : undefined}

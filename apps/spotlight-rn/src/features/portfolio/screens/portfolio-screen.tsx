@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Pressable,
   RefreshControl,
@@ -12,6 +12,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 
 import type { InventoryCardEntry } from '@spotlight/api-client';
 import {
+  ListPaginationFooter,
   StateCard,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -34,6 +35,8 @@ import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfoli
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
+
+const LIST_PAGE_SIZE = 10;
 
 type PortfolioScreenProps = {
   onOpenInventoryEntry?: (entry: InventoryCardEntry) => void;
@@ -102,6 +105,8 @@ export function PortfolioScreen({
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<CollectionFilterKey>('all');
+  const scrollRef = useRef<ScrollView>(null);
+  const [listVisibleCount, setListVisibleCount] = useState(LIST_PAGE_SIZE);
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -121,6 +126,14 @@ export function PortfolioScreen({
     return applyInventorySearch(filtered, model.searchQuery);
   }, [activeFilter, baseInventory, model.searchQuery]);
 
+  useEffect(() => {
+    setListVisibleCount(LIST_PAGE_SIZE);
+  }, [activeFilter, model.searchQuery, viewMode]);
+
+  const handleBackToTop = useCallback(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
+
   const handlePressEntry = useCallback(
     (entry: InventoryCardEntry) => {
       onOpenInventoryEntry(entry);
@@ -134,6 +147,7 @@ export function PortfolioScreen({
       style={[styles.safeArea, { backgroundColor: theme.colors.gray0 }]}
     >
       <ScrollView
+        ref={scrollRef}
         testID="portfolio-scroll-view"
         contentContainerStyle={[
           styles.content,
@@ -227,12 +241,12 @@ export function PortfolioScreen({
             {visibleInventory.length > 0 ? (
               viewMode === 'list' ? (
                 <CollectionListView
-                  entries={visibleInventory}
+                  entries={visibleInventory.slice(0, listVisibleCount)}
                   onPressEntry={handlePressEntry}
                 />
               ) : (
                 <CollectionMasonryGrid
-                  entries={visibleInventory}
+                  entries={visibleInventory.slice(0, listVisibleCount)}
                   onPressEntry={handlePressEntry}
                 />
               )
@@ -246,12 +260,21 @@ export function PortfolioScreen({
               </View>
             )}
 
-            <Text
-              style={[theme.typography.captionMedium, styles.endOfList, { color: theme.colors.gray600 }]}
-              testID="portfolio-end-of-list"
-            >
-              End of List
-            </Text>
+            {visibleInventory.length > 0 ? (
+              <ListPaginationFooter
+                canViewMore={visibleInventory.length > listVisibleCount}
+                onBackToTop={handleBackToTop}
+                onViewMore={() => setListVisibleCount((count) => count + LIST_PAGE_SIZE)}
+                testID="portfolio-list-pagination"
+              />
+            ) : (
+              <Text
+                style={[theme.typography.captionMedium, styles.endOfList, { color: theme.colors.gray600 }]}
+                testID="portfolio-end-of-list"
+              >
+                End of List
+              </Text>
+            )}
           </>
         )}
       </ScrollView>

@@ -27,6 +27,7 @@ describe('DesignSystemCatalogScreen', () => {
     expect(screen.getByTestId('catalog-text-field')).toBeTruthy();
     expect(screen.getByTestId('catalog-segmented-control-inverted')).toBeTruthy();
     expect(screen.getByTestId('catalog-state-card-action')).toBeTruthy();
+    expect(screen.getByTestId('catalog-list-pagination-footer')).toBeTruthy();
 
     fireEvent.press(screen.getByTestId('design-system-back'));
     expect(onBack).toHaveBeenCalledTimes(1);

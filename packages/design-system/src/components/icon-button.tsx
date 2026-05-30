@@ -3,7 +3,8 @@ import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-nat
 
 import { useSpotlightTheme } from '../theme';
 
-export type IconButtonVariant = 'elevated' | 'brand' | 'ghost';
+export type IconButtonVariant = 'elevated' | 'brand' | 'ghost' | 'outlined';
+export type IconButtonShape = 'circle' | 'rounded';
 
 type IconButtonProps = {
   accessibilityLabel: string;
@@ -11,6 +12,12 @@ type IconButtonProps = {
   disabled?: boolean;
   onPress?: () => void;
   size?: number;
+  /**
+   * 'circle' (default) renders a fully round button. 'rounded' renders a
+   * rounded square (radii.sm) — used for the Collection / Wishlist view-mode
+   * toggle per Figma node 773-1720.
+   */
+  shape?: IconButtonShape;
   style?: StyleProp<ViewStyle>;
   testID?: string;
   variant?: IconButtonVariant;
@@ -22,6 +29,7 @@ export function IconButton({
   disabled = false,
   onPress,
   size = 34,
+  shape = 'circle',
   style,
   testID,
   variant = 'elevated',
@@ -39,10 +47,17 @@ export function IconButton({
             backgroundColor: 'transparent',
             borderColor: 'transparent',
           }
-        : {
-            backgroundColor: theme.colors.canvasElevated,
-            borderColor: theme.colors.outlineSubtle,
-          };
+        : variant === 'outlined'
+          ? {
+              backgroundColor: theme.colors.gray0,
+              borderColor: theme.colors.gray300,
+            }
+          : {
+              backgroundColor: theme.colors.canvasElevated,
+              borderColor: theme.colors.outlineSubtle,
+            };
+
+  const borderRadius = shape === 'rounded' ? theme.radii.sm : size / 2;
 
   return (
     <Pressable
@@ -56,7 +71,7 @@ export function IconButton({
         {
           height: size,
           width: size,
-          borderRadius: size / 2,
+          borderRadius,
           backgroundColor: colors.backgroundColor,
           borderColor: colors.borderColor,
           opacity: disabled ? 0.45 : pressed ? 0.84 : 1,

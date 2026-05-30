@@ -91,6 +91,36 @@ describe('CardListRow', () => {
     expect(colors).toContain('#E0524C');
   });
 
+  it('renders the thumbnail at the Figma dimensions (54x78, radius 2)', () => {
+    renderRow();
+
+    const thumbnail = screen.getByTestId('row-thumbnail');
+    const flat = (Array.isArray(thumbnail.props.style)
+      ? thumbnail.props.style.flat(Infinity)
+      : [thumbnail.props.style]
+    ).filter(Boolean);
+    const merged = Object.assign({}, ...flat);
+    expect(merged.width).toBe(54);
+    expect(merged.height).toBe(78);
+    expect(merged.borderRadius).toBe(2);
+    // no thumbnail border in the Figma spec
+    expect(merged.borderWidth).toBeUndefined();
+  });
+
+  it('draws a single bottom hairline divider on the row', () => {
+    renderRow();
+
+    const row = screen.getByTestId('row');
+    const flat = (Array.isArray(row.props.style)
+      ? row.props.style.flat(Infinity)
+      : [row.props.style]
+    ).filter(Boolean);
+    const merged = Object.assign({}, ...flat);
+    expect(merged.borderBottomWidth).toBe(1);
+    expect(merged.borderBottomColor).toBe('#F2F2F2');
+    expect(merged.borderTopWidth).toBeUndefined();
+  });
+
   it('renders the CARD placeholder when imageUrl is null and does not crash', () => {
     renderRow({ imageUrl: null });
 

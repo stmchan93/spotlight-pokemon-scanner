@@ -94,6 +94,27 @@ function formatHoverDateLabel(isoDate: string) {
   });
 }
 
+// "JAN, 1, 2026" — the on-chart scrub tooltip headline. Matches the Figma
+// modal (uppercase short month, comma-separated day and year).
+function formatTooltipDateLabel(isoDate: string) {
+  const date = new Date(normalizeChartPointDate(isoDate));
+  if (Number.isNaN(date.valueOf())) {
+    return '';
+  }
+
+  // toLocaleDateString → "Jan 1, 2026"; insert a comma after the month and
+  // uppercase the whole thing → "JAN, 1, 2026".
+  return date
+    .toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      timeZone: 'UTC',
+    })
+    .replace(/^(\w+)\s/, '$1, ')
+    .toUpperCase();
+}
+
 function buildRoundedCurrencyTicks(values: number[]) {
   const maxValue = Math.max(...values, 0);
   const upperTick = maxValue > 0 ? Number(maxValue.toFixed(2)) : 1;
@@ -289,6 +310,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
 }: PortfolioChartCardProps) {
   const theme = useSpotlightTheme();
   const [chartWidth, setChartWidth] = useState(0);
+  const [tooltipWidth, setTooltipWidth] = useState(0);
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
   const chartHeight = 200;
   const chartPadding = 12;
@@ -401,6 +423,27 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
       y: bar.y,
     };
   }, [activePointIndex, chartMode, coordinates, salesBars, series]);
+
+  // Content for the on-chart scrub tooltip (the small Figma modal): the
+  // exact date and the point's value.
+  const tooltipLabels = useMemo(() => {
+    if (!activeSelection) {
+      return null;
+    }
+
+    return {
+      dateLabel: formatTooltipDateLabel(activeSelection.point.isoDate),
+      valueLabel: formatCurrency(activeSelection.point.value),
+    };
+  }, [activeSelection]);
+
+  // Center the tooltip over the active point, clamped so it never spills off
+  // either chart edge.
+  const tooltipLeft = activeSelection
+    ? clamp(activeSelection.x - tooltipWidth / 2, 0, Math.max(chartWidth - tooltipWidth, 0))
+    : 0;
+
+  const isScrubbing = activePointIndex != null;
 
   // Bubble the active hovered point up to the parent so it can render the
   // big value, date, and delta in the screen header.
@@ -580,7 +623,13 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
 
   return (
     <View style={styles.container}>
-      <View style={styles.rangeRow}>
+      <View
+        // While scrubbing, the date-range selector is hidden and replaced by
+        // the on-chart date/value tooltip. Keep it mounted (opacity 0) so the
+        // chart below doesn't shift when the user lifts off.
+        pointerEvents={isScrubbing ? 'none' : 'auto'}
+        style={[styles.rangeRow, isScrubbing ? styles.rangeRowHidden : null]}
+      >
         {rangeItems.map((item) => {
           const isSelected = item.value === selectedRange;
           return (
@@ -639,6 +688,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                     <>
                       <Line
                         stroke={theme.colors.chartGuide}
+                        strokeDasharray={[4, 4]}
                         strokeWidth={1.5}
                         x1={activeSelection.x}
                         x2={activeSelection.x}
@@ -680,6 +730,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                   {activeSelection ? (
                     <Line
                       stroke={theme.colors.chartGuide}
+                      strokeDasharray={[4, 4]}
                       strokeWidth={1.5}
                       x1={activeSelection.x}
                       x2={activeSelection.x}
@@ -691,10 +742,31 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               )}
             </Svg>
 
-            {/* The on-chart yellow date tooltip was redundant with the
-                date label rendered in the screen header. Removed to keep
-                the chart surface clean during scrub — header copy is the
-                source of truth for the active point's date. */}
+            {/* Scrub tooltip — the small Figma modal pinned to the top of the
+                chart, tracking the active point's x and showing its exact date
+                and value. Non-interactive so it never steals the scrub touch. */}
+            {activeSelection && tooltipLabels ? (
+              <View
+                onLayout={(event) => setTooltipWidth(event.nativeEvent.layout.width)}
+                pointerEvents="none"
+                style={[
+                  styles.tooltip,
+                  {
+                    backgroundColor: theme.colors.gray100,
+                    left: tooltipLeft,
+                    opacity: tooltipWidth > 0 ? 1 : 0,
+                  },
+                ]}
+                testID="portfolio-chart-tooltip"
+              >
+                <Text style={[styles.tooltipDate, { color: theme.colors.gray900 }]}>
+                  {tooltipLabels.dateLabel}
+                </Text>
+                <Text style={[styles.tooltipValue, { color: theme.colors.gray900 }]}>
+                  {tooltipLabels.valueLabel}
+                </Text>
+              </View>
+            ) : null}
 
             <View
               onMoveShouldSetResponder={() => true}
@@ -732,6 +804,28 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 24,
     marginHorizontal: 16,
+  },
+  rangeRowHidden: {
+    opacity: 0,
+  },
+  tooltip: {
+    alignItems: 'flex-start',
+    borderRadius: 8,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    position: 'absolute',
+    top: 0,
+  },
+  tooltipDate: {
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 10,
+    lineHeight: 13,
+  },
+  tooltipValue: {
+    fontFamily: fontFamilies.bodyRegular,
+    fontSize: 12,
+    lineHeight: 15.6,
   },
   rangePill: {
     alignItems: 'center',

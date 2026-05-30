@@ -7,6 +7,7 @@ import type { InventoryCardEntry, PortfolioDashboard } from '@spotlight/api-clie
 import { TabsPageContext } from '@/contexts/tabs-page-context';
 import { PortfolioScreen } from '@/features/portfolio/screens/portfolio-screen';
 import { __resetPortfolioSummaryVisibilityForTests } from '@/features/portfolio/use-portfolio-summary-visibility';
+import { __resetPortfolioViewModeForTests } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 
 import * as mockApiClient from '../mock-api-client';
 import { createTestSpotlightRepository, renderWithProviders } from '../test-utils';
@@ -91,6 +92,7 @@ describe('PortfolioScreen', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     __resetPortfolioSummaryVisibilityForTests();
+    __resetPortfolioViewModeForTests();
     (useRouter as jest.Mock).mockReturnValue({
       push,
       back: jest.fn(),
@@ -114,9 +116,12 @@ describe('PortfolioScreen', () => {
     expect(screen.getByTestId('portfolio-summary-delta-date')).toBeTruthy();
     expect(screen.getByTestId('portfolio-summary-visibility-toggle')).toBeTruthy();
 
-    // Scroll container & end-of-list marker.
+    // Scroll container & pagination footer. The default mock inventory is
+    // non-empty, so the footer renders (in both grid and list views) instead
+    // of the empty-state "End of List" marker.
     expect(screen.getByTestId('portfolio-scroll-view')).toBeTruthy();
-    expect(screen.getByTestId('portfolio-end-of-list')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-list-pagination')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-end-of-list')).toBeNull();
 
     // Collection search row + filter chips.
     expect(screen.getByTestId('collection-search-row')).toBeTruthy();
@@ -366,13 +371,9 @@ describe('PortfolioScreen', () => {
       fireEvent.press(screen.getByTestId('collection-filter-chip-row-az'));
     });
 
-    // After A-Z, masonry distributes alphabetically: alpha then mu go in the
-    // left column first (each ~244 height, balanced), zeta lands in the right.
+    // After A-Z the grid re-renders alphabetically into ruled rows.
     await waitFor(() => {
-      const leftCol = screen.getByTestId('collection-masonry-grid-col-left');
-      const rightCol = screen.getByTestId('collection-masonry-grid-col-right');
-      expect(leftCol).toBeTruthy();
-      expect(rightCol).toBeTruthy();
+      expect(screen.getByTestId('collection-masonry-grid-row-0')).toBeTruthy();
     });
 
     // All three are still rendered; the visual ordering is verified by the
@@ -425,6 +426,122 @@ describe('PortfolioScreen', () => {
     });
 
     expect(menuButton).toBeTruthy();
+  });
+
+  it('paginates the list view: shows 10 rows + View More, then reveals more on tap', async () => {
+    const inventory = Array.from({ length: 12 }, (_, index) =>
+      buildInventoryEntry({
+        id: `page-${index}`,
+        cardId: `page-${index}`,
+        name: `Card ${index}`,
+      }),
+    );
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    renderPortfolioScreen({ repository });
+
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+    });
+
+    // Switch from the default grid view to the list view.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('collection-search-row-view-toggle'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-list-view')).toBeTruthy();
+    });
+
+    // Only the first page of 10 rows is rendered initially. The CardListRow
+    // primitive applies the same base testID to its pressable container and a
+    // `${testID}-*` to each inner element, so match only the container ids
+    // (`card-list-row-page-<n>` with no trailing suffix) to count rows.
+    const rowContainerPattern = /^card-list-row-page-\d+$/;
+    expect(screen.queryAllByTestId(rowContainerPattern).length).toBe(10);
+    expect(screen.getByTestId('card-list-row-page-0')).toBeTruthy();
+    expect(screen.getByTestId('card-list-row-page-9')).toBeTruthy();
+    expect(screen.queryByTestId('card-list-row-page-10')).toBeNull();
+    expect(screen.queryByTestId('card-list-row-page-11')).toBeNull();
+
+    // The pagination footer shows the View More button (not the End of List marker).
+    expect(screen.getByTestId('portfolio-list-pagination')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-list-pagination-view-more')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-end-of-list')).toBeNull();
+
+    // Tapping View More reveals the remaining rows.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-list-pagination-view-more'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('card-list-row-page-10')).toBeTruthy();
+    });
+    expect(screen.getByTestId('card-list-row-page-11')).toBeTruthy();
+    expect(screen.queryAllByTestId(rowContainerPattern).length).toBe(12);
+
+    // All rows are now visible, so the View More button is gone but Back to top remains.
+    expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
+    expect(screen.getByTestId('portfolio-list-pagination-back-to-top')).toBeTruthy();
+  });
+
+  it('paginates the grid view: shows 10 tiles + View More, then reveals more on tap', async () => {
+    const inventory = Array.from({ length: 12 }, (_, index) =>
+      buildInventoryEntry({
+        id: `page-${index}`,
+        cardId: `page-${index}`,
+        name: `Card ${index}`,
+      }),
+    );
+    const dashboard = buildDashboardWithInventory(inventory);
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success', data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => ({ state: 'success', data: dashboard, errorMessage: null }),
+    });
+
+    renderPortfolioScreen({ repository });
+
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+    });
+
+    // The default view is the grid (card) view, so no toggle is needed.
+    // Only the first page of 10 tiles is rendered initially. The
+    // InventoryCardTile primitive applies the same base testID to its
+    // pressable container and `${testID}-*` to each inner element, so match
+    // only the container ids (`collection-masonry-grid-tile-page-<n>` with no
+    // trailing suffix) to count tiles.
+    const tileContainerPattern = /^collection-masonry-grid-tile-page-\d+$/;
+    expect(screen.queryAllByTestId(tileContainerPattern).length).toBe(10);
+    expect(screen.getByTestId('collection-masonry-grid-tile-page-0')).toBeTruthy();
+    expect(screen.queryByTestId('collection-masonry-grid-tile-page-10')).toBeNull();
+    expect(screen.queryByTestId('collection-masonry-grid-tile-page-11')).toBeNull();
+
+    // The pagination footer shows the View More button (not the End of List marker).
+    expect(screen.getByTestId('portfolio-list-pagination')).toBeTruthy();
+    expect(screen.getByTestId('portfolio-list-pagination-view-more')).toBeTruthy();
+    expect(screen.queryByTestId('portfolio-end-of-list')).toBeNull();
+
+    // Tapping View More reveals the remaining tiles.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('portfolio-list-pagination-view-more'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid-tile-page-10')).toBeTruthy();
+    });
+    expect(screen.getByTestId('collection-masonry-grid-tile-page-11')).toBeTruthy();
+    expect(screen.queryAllByTestId(tileContainerPattern).length).toBe(12);
+
+    // All tiles are now visible, so the View More button is gone but Back to top remains.
+    expect(screen.queryByTestId('portfolio-list-pagination-view-more')).toBeNull();
+    expect(screen.getByTestId('portfolio-list-pagination-back-to-top')).toBeTruthy();
   });
 
   it('navigates to the catalog search route when the FAB is tapped', async () => {

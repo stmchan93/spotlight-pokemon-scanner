@@ -18,9 +18,12 @@ export type CardListRowProps = {
   testID?: string;
 };
 
-const THUMBNAIL_WIDTH = 52;
-const THUMBNAIL_HEIGHT = 72;
-const THUMBNAIL_RADIUS = 6;
+const THUMBNAIL_WIDTH = 54;
+const THUMBNAIL_HEIGHT = 78;
+const THUMBNAIL_RADIUS = 2;
+
+const DELTA_UP_BACKGROUND = 'rgba(76, 175, 110, 0.15)';
+const DELTA_DOWN_BACKGROUND = 'rgba(224, 82, 76, 0.15)';
 
 function formatCurrency(amount: number, currencyCode: string) {
   return new Intl.NumberFormat('en-US', {
@@ -73,7 +76,8 @@ export function CardListRow({
         style: ({ pressed }: { pressed: boolean }) => [
           styles.row,
           {
-            backgroundColor: theme.colors.canvasElevated,
+            backgroundColor: theme.colors.gray0,
+            borderBottomColor: theme.colors.gray100,
             opacity: pressed ? 0.82 : 1,
           },
         ],
@@ -82,7 +86,10 @@ export function CardListRow({
     : {
         style: [
           styles.row,
-          { backgroundColor: theme.colors.canvasElevated },
+          {
+            backgroundColor: theme.colors.gray0,
+            borderBottomColor: theme.colors.gray100,
+          },
         ],
         testID,
       };
@@ -94,7 +101,6 @@ export function CardListRow({
           styles.thumbnail,
           {
             backgroundColor: theme.colors.field,
-            borderColor: theme.colors.outlineSubtle,
             borderRadius: THUMBNAIL_RADIUS,
           },
         ]}
@@ -151,7 +157,15 @@ export function CardListRow({
 
         {showTrend ? (
           <View
-            style={styles.trendRow}
+            style={[
+              styles.trendPill,
+              {
+                backgroundColor: trendIsDown
+                  ? DELTA_DOWN_BACKGROUND
+                  : DELTA_UP_BACKGROUND,
+                borderRadius: theme.radii.pill,
+              },
+            ]}
             testID={testID ? `${testID}-trend` : undefined}
           >
             {trendIsDown ? (
@@ -209,14 +223,14 @@ const styles = StyleSheet.create({
   },
   row: {
     alignItems: 'center',
+    borderBottomWidth: 1,
     flexDirection: 'row',
     gap: 12,
     minHeight: 72,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   thumbnail: {
-    borderWidth: 1,
     height: THUMBNAIL_HEIGHT,
     overflow: 'hidden',
     position: 'relative',
@@ -230,9 +244,11 @@ const styles = StyleSheet.create({
   trendLabel: {
     // color set inline based on direction
   },
-  trendRow: {
+  trendPill: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
   },
 });

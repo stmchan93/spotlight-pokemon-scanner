@@ -7,6 +7,7 @@ export * from './components/card-thumbnail';
 export * from './components/floating-bottom-nav';
 export * from './components/icon-button';
 export * from './components/inventory-card-tile';
+export * from './components/list-pagination-footer';
 export * from './components/list-row';
 export * from './components/page-tabs';
 export * from './components/pill-button';
