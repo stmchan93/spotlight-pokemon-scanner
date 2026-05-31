@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Animated,
+  BackHandler,
   Dimensions,
   Image,
-  Modal,
   PanResponder,
   Pressable,
   ScrollView,
@@ -155,27 +155,38 @@ export function ChangeCardPicker({
     setVisibleCount((current) => Math.min(current + LOAD_MORE_STEP, candidates.length));
   };
 
+  // Rendered as an in-tree overlay (not a Modal): an RN Modal presents in a
+  // separate iOS window, so a BlurView inside it has nothing behind it to
+  // blur and renders as a flat black panel. Sitting in the scanner's own view
+  // tree lets the BlurView frost the live camera behind it (Figma 726:4379).
+  useEffect(() => {
+    if (!visible) {
+      return undefined;
+    }
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      onClose();
+      return true;
+    });
+    return () => sub.remove();
+  }, [visible, onClose]);
+
+  if (!visible) {
+    return null;
+  }
+
   return (
-    <Modal
-      animationType="none"
-      onRequestClose={onClose}
-      presentationStyle="overFullScreen"
-      statusBarTranslucent
-      transparent
-      visible={visible}
-    >
-      <View style={styles.root} testID={testID}>
-        {/* Per Figma 726:4379 — the change-card layer is a transparent dark
-            wash (rgba(0,0,0,0.3)) over an 8px blur of the live camera behind
-            it, not an opaque scrim. expo-blur uses an intensity scale rather
-            than px; 24 is the scanner's established ~8px-equivalent value and
-            pairs with the same 0.3 overlay used by the tray backdrop. */}
-        <BlurView
-          intensity={24}
-          pointerEvents="none"
-          style={styles.backdropBlur}
-          tint="dark"
-        />
+    <View style={styles.root} testID={testID}>
+      {/* Per Figma 726:4379 — the change-card layer is a transparent dark
+          wash (rgba(0,0,0,0.3)) over an 8px blur of the live camera behind
+          it, not an opaque scrim. expo-blur uses an intensity scale rather
+          than px; 24 is the scanner's established ~8px-equivalent value and
+          pairs with the same 0.3 overlay used by the tray backdrop. */}
+      <BlurView
+        intensity={24}
+        pointerEvents="none"
+        style={styles.backdropBlur}
+        tint="dark"
+      />
         <Pressable
           accessibilityLabel="Close change card picker"
           accessibilityRole="button"
@@ -356,14 +367,15 @@ export function ChangeCardPicker({
             </ScrollView>
           </View>
         </Animated.View>
-      </View>
-    </Modal>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   root: {
-    flex: 1,
+    ...StyleSheet.absoluteFillObject,
+    elevation: 24,
+    zIndex: 100,
   },
   backdropBlur: {
     ...StyleSheet.absoluteFillObject,

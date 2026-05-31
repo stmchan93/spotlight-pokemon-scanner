@@ -78,6 +78,7 @@ export function CardListRow({
           {
             backgroundColor: theme.colors.gray0,
             borderBottomColor: theme.colors.gray100,
+            borderTopColor: theme.colors.gray100,
             opacity: pressed ? 0.82 : 1,
           },
         ],
@@ -89,6 +90,7 @@ export function CardListRow({
           {
             backgroundColor: theme.colors.gray0,
             borderBottomColor: theme.colors.gray100,
+            borderTopColor: theme.colors.gray100,
           },
         ],
         testID,
@@ -224,6 +226,7 @@ const styles = StyleSheet.create({
   row: {
     alignItems: 'center',
     borderBottomWidth: 1,
+    borderTopWidth: 1,
     flexDirection: 'row',
     gap: 12,
     minHeight: 72,

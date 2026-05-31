@@ -107,7 +107,7 @@ describe('CardListRow', () => {
     expect(merged.borderWidth).toBeUndefined();
   });
 
-  it('draws a single bottom hairline divider on the row', () => {
+  it('draws top and bottom hairline border bars on the row', () => {
     renderRow();
 
     const row = screen.getByTestId('row');
@@ -118,7 +118,8 @@ describe('CardListRow', () => {
     const merged = Object.assign({}, ...flat);
     expect(merged.borderBottomWidth).toBe(1);
     expect(merged.borderBottomColor).toBe('#F2F2F2');
-    expect(merged.borderTopWidth).toBeUndefined();
+    expect(merged.borderTopWidth).toBe(1);
+    expect(merged.borderTopColor).toBe('#F2F2F2');
   });
 
   it('renders the CARD placeholder when imageUrl is null and does not crash', () => {

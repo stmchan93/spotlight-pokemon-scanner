@@ -1,6 +1,6 @@
 import { Linking, StyleSheet, View } from 'react-native';
 
-import { InventoryCardTile, useSpotlightTheme } from '@spotlight/design-system';
+import { InventoryCardTile } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
@@ -21,11 +21,10 @@ function isLiveOnEbay(entry: InventoryCardEntry): boolean {
 }
 
 /**
- * Collection grid laid out as a flat ruled grid (Figma node 813-16133): two
- * fixed columns split into aligned rows, separated by gray100 hairlines — a
- * vertical divider between the columns (each right cell's left border) and a
- * horizontal divider between rows. Tiles render "plain" (no per-card border or
- * rounding); the grid draws all the dividers.
+ * Collection grid laid out as two fixed columns of self-contained cards
+ * (Figma node 800-7656): each tile draws its own full border + rounded
+ * corners around the entire card, and the cells are separated by gaps rather
+ * than shared divider hairlines.
  */
 export function CollectionMasonryGrid({
   entries,
@@ -34,8 +33,6 @@ export function CollectionMasonryGrid({
   selectedEntryId,
   testID = 'collection-masonry-grid',
 }: CollectionMasonryGridProps) {
-  const theme = useSpotlightTheme();
-
   const rows: InventoryCardEntry[][] = [];
   for (let index = 0; index < entries.length; index += COLUMNS) {
     rows.push(entries.slice(index, index + COLUMNS));
@@ -44,16 +41,10 @@ export function CollectionMasonryGrid({
   return (
     <View style={styles.grid} testID={testID}>
       {rows.map((row, rowIndex) => {
-        const isLastRow = rowIndex === rows.length - 1;
         return (
           <View
             key={row[0]?.id ?? `row-${rowIndex}`}
-            style={[
-              styles.row,
-              isLastRow
-                ? null
-                : { borderBottomColor: theme.colors.gray100, borderBottomWidth: 1 },
-            ]}
+            style={styles.row}
             testID={`${testID}-row-${rowIndex}`}
           >
             {Array.from({ length: COLUMNS }).map((_, colIndex) => {
@@ -61,12 +52,7 @@ export function CollectionMasonryGrid({
               return (
                 <View
                   key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
-                  style={[
-                    styles.cell,
-                    colIndex === 0
-                      ? null
-                      : { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 },
-                  ]}
+                  style={styles.cell}
                 >
                   {entry ? (
                     <CollectionTileSlot
@@ -122,7 +108,6 @@ function CollectionTileSlot({
 
   return (
     <InventoryCardTile
-      bordered={false}
       imageUrl={getCardImageUrl(entry, 'small')}
       name={entry.name}
       setName={entry.setName ?? ''}
@@ -148,12 +133,14 @@ function CollectionTileSlot({
 
 const styles = StyleSheet.create({
   grid: {
+    gap: 12,
     paddingHorizontal: 16,
     paddingVertical: 16,
   },
   row: {
     alignItems: 'stretch',
     flexDirection: 'row',
+    gap: 12,
   },
   cell: {
     flex: 1,
