@@ -63,8 +63,20 @@ jest.mock('iconoir-react-native', () => {
     Scanning: make('scanning'),
     Search: make('search'),
     Suitcase: make('suitcase'),
+    Upload: make('upload'),
   };
 });
+
+jest.mock('react-native-image-colors', () => ({
+  getColors: jest.fn(async () => ({
+    platform: 'ios',
+    background: '#0D2B35',
+    primary: '#1A4A5A',
+    secondary: '#6D8C96',
+    detail: '#FFFFFF',
+    quality: 'low',
+  })),
+}));
 
 jest.mock('expo-splash-screen', () => ({
   hideAsync: jest.fn(),

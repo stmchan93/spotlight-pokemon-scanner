@@ -116,6 +116,7 @@ class ServerHelperTests(unittest.TestCase):
         )
         self.assertIsNone(_labeling_session_id_from_path("/api/v1/cards/base1-4", "/artifacts"))
         self.assertTrue(_is_large_image_upload_path("/api/v1/scan-artifacts"))
+        self.assertTrue(_is_large_image_upload_path("/api/v1/card-transactions"))
         self.assertTrue(_is_large_image_upload_path("/api/v1/labeling-sessions/session-1/artifacts"))
         self.assertFalse(_is_large_image_upload_path("/api/v1/cards/base1-4"))
 

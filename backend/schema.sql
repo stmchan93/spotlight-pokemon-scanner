@@ -314,14 +314,27 @@ CREATE TABLE IF NOT EXISTS sale_events (
     last_listing_snapshot JSONB
 );
 
-CREATE TABLE IF NOT EXISTS vendor_wallet_handles (
-    owner_user_id TEXT PRIMARY KEY,
-    venmo_handle TEXT,
-    cashapp_handle TEXT,
-    paypal_me_slug TEXT,
-    zelle_email_or_phone TEXT,
-    updated_at TEXT NOT NULL
+-- Standalone "memory bank" transaction ledger. Decoupled from inventory: no
+-- card_id/deck_entry_id, no profit/cost-basis. A single user-captured photo
+-- lives on the row (private, served via an auth-gated proxy), mirroring the
+-- scan_artifacts *_object_path / upload_status semantics.
+CREATE TABLE IF NOT EXISTS card_transactions (
+    id TEXT PRIMARY KEY,
+    owner_user_id TEXT NOT NULL,
+    kind TEXT NOT NULL CHECK(kind IN ('bought','sold','traded')),
+    amount_cents BIGINT NOT NULL,           -- cents, matches profit_cents/cost_basis_*_cents convention
+    currency_code TEXT NOT NULL DEFAULT 'USD',
+    note TEXT,
+    photo_object_path TEXT,                 -- object path in the artifact store (GCS / filesystem)
+    photo_upload_status TEXT,               -- 'uploaded' | 'failed' | NULL
+    photo_uploaded_at TEXT,
+    photo_width INTEGER,
+    photo_height INTEGER,
+    occurred_at TEXT NOT NULL,              -- the day it happened (client-supplied ISO)
+    created_at TEXT NOT NULL
 );
+CREATE INDEX IF NOT EXISTS idx_card_transactions_owner_occurred
+    ON card_transactions (owner_user_id, occurred_at DESC, id DESC);
 
 CREATE TABLE IF NOT EXISTS deck_entry_events (
     id TEXT PRIMARY KEY,

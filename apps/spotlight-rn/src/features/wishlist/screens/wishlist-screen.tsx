@@ -12,9 +12,7 @@ import {
   ArrowUp,
   Filter as FilterIcon,
   Heart,
-  Menu as MenuIcon,
   Search as SearchIcon,
-  Upload as ShareIcon,
 } from 'iconoir-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -34,8 +32,22 @@ import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { WishlistHero } from '@/features/wishlist/components/wishlist-hero';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
+
+function gradeLabelForFavorite(entry: CardFavoriteEntry): string | null {
+  if (entry.slabContext) {
+    const grader = (entry.slabContext.grader ?? '').trim();
+    const grade = (entry.slabContext.grade ?? '').trim();
+    const combined = [grader, grade].filter(Boolean).join(' ');
+    if (combined.length > 0) {
+      return combined;
+    }
+  }
+  const short = (entry.conditionShortLabel ?? '').trim();
+  return short.length > 0 ? short : null;
+}
 
 type WishlistFilterKey = 'all' | 'az' | 'price' | 'owned' | 'unowned';
 type WishlistViewMode = 'grid' | 'list';
@@ -99,6 +111,7 @@ export function WishlistScreen() {
   const [query, setQuery] = useState('');
   const [activeFilter, setActiveFilter] = useState<WishlistFilterKey>('all');
   const [viewMode, setViewMode] = useWishlistViewMode();
+  const [featuredCardId, setFeaturedCardId] = useState<string | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const [listVisibleCount, setListVisibleCount] = useState(LIST_PAGE_SIZE);
 
@@ -168,7 +181,19 @@ export function WishlistScreen() {
     return entries;
   }, [activeFilter, favorites, query]);
 
-  const handleEntryPress = useCallback((entry: CardFavoriteEntry) => {
+  // The hero features the tapped card; it falls back to the first visible entry
+  // on load and whenever the selected card is filtered out of the list.
+  const featuredEntry = useMemo(() => {
+    if (visibleEntries.length === 0) {
+      return null;
+    }
+    const selected = featuredCardId
+      ? visibleEntries.find((entry) => entry.cardId === featuredCardId)
+      : null;
+    return selected ?? visibleEntries[0];
+  }, [featuredCardId, visibleEntries]);
+
+  const handleOpenDetail = useCallback((entry: CardFavoriteEntry) => {
     const previewId = saveCardDetailPreviewFromFavorite(entry);
     router.push({
       pathname: '/cards/[cardId]',
@@ -179,6 +204,13 @@ export function WishlistScreen() {
     });
   }, [router]);
 
+  // Tapping a row/tile promotes that card into the hero; the detail screen is
+  // reached by tapping the hero card image (onOpenDetail).
+  const handleFeatureEntry = useCallback((entry: CardFavoriteEntry) => {
+    setFeaturedCardId(entry.cardId);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, []);
+
   const handleToggleViewMode = useCallback(() => {
     setViewMode(viewMode === 'list' ? 'grid' : 'list');
   }, [setViewMode, viewMode]);
@@ -188,7 +220,7 @@ export function WishlistScreen() {
 
   return (
     <SafeAreaView
-      edges={['top', 'left', 'right']}
+      edges={['left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
       <ScrollView
@@ -207,34 +239,15 @@ export function WishlistScreen() {
         )}
         testID="wishlist-scroll"
       >
-        <View style={[styles.header, { paddingHorizontal: theme.layout.pageGutter }]}>
-          <Pressable
-            accessibilityLabel="Open menu"
-            accessibilityRole="button"
-            hitSlop={12}
-            onPress={openDrawer}
-            style={styles.headerIcon}
-            testID="wishlist-header-menu"
-          >
-            <MenuIcon color={theme.colors.gray900} height={24} width={24} />
-          </Pressable>
-          <Text
-            numberOfLines={1}
-            style={[theme.typography.titleMedium, styles.headerTitle]}
-            testID="wishlist-header-title"
-          >
-            Wishlist
-          </Text>
-          <Pressable
-            accessibilityLabel="Share wishlist"
-            accessibilityRole="button"
-            hitSlop={12}
-            style={styles.headerIcon}
-            testID="wishlist-header-share"
-          >
-            <ShareIcon color={theme.colors.gray900} height={22} width={22} />
-          </Pressable>
-        </View>
+        <WishlistHero
+          entry={featuredEntry}
+          onOpenDetail={() => {
+            if (featuredEntry) {
+              handleOpenDetail(featuredEntry);
+            }
+          }}
+          onOpenMenu={openDrawer}
+        />
 
         <View style={[styles.controls, { paddingHorizontal: theme.layout.pageGutter }]}>
           <View style={styles.searchRow}>
@@ -357,12 +370,12 @@ export function WishlistScreen() {
           ) : viewMode === 'list' ? (
             <WishlistListView
               entries={visibleEntries.slice(0, listVisibleCount)}
-              onPressEntry={handleEntryPress}
+              onPressEntry={handleFeatureEntry}
             />
           ) : (
             <WishlistGridView
               entries={visibleEntries.slice(0, listVisibleCount)}
-              onPressEntry={handleEntryPress}
+              onPressEntry={handleFeatureEntry}
             />
           )}
 
@@ -400,7 +413,7 @@ function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
           <CardListRow
             cardNumber={entry.cardNumber}
             currencyCode={entry.currencyCode ?? 'USD'}
-            gradeLabel={null}
+            gradeLabel={gradeLabelForFavorite(entry)}
             imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
             marketPrice={entry.marketPrice ?? null}
             name={entry.name}
@@ -408,7 +421,7 @@ function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
             quantity={1}
             setName={entry.setName}
             testID={`wishlist-row-${entry.cardId}`}
-            trendChangeAmount={null}
+            trendChangeAmount={entry.dayChangeAmount ?? null}
           />
           <View
             pointerEvents="none"
@@ -446,36 +459,47 @@ function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
   );
 }
 
+const GRID_COLUMNS = 2;
+
 function WishlistGridView({ entries, onPressEntry }: WishlistViewProps) {
   const theme = useSpotlightTheme();
-  const leftColumn: CardFavoriteEntry[] = [];
-  const rightColumn: CardFavoriteEntry[] = [];
-  entries.forEach((entry, index) => {
-    (index % 2 === 0 ? leftColumn : rightColumn).push(entry);
-  });
+  const rows: CardFavoriteEntry[][] = [];
+  for (let index = 0; index < entries.length; index += GRID_COLUMNS) {
+    rows.push(entries.slice(index, index + GRID_COLUMNS));
+  }
 
   return (
     <View style={styles.gridContainer} testID="wishlist-grid">
-      <View style={styles.gridColumn}>
-        {leftColumn.map((entry) => (
-          <WishlistGridTile
-            entry={entry}
-            key={entry.cardId}
-            onPress={() => onPressEntry(entry)}
-            theme={theme}
-          />
-        ))}
-      </View>
-      <View style={styles.gridColumn}>
-        {rightColumn.map((entry) => (
-          <WishlistGridTile
-            entry={entry}
-            key={entry.cardId}
-            onPress={() => onPressEntry(entry)}
-            theme={theme}
-          />
-        ))}
-      </View>
+      {rows.map((row, rowIndex) => (
+        <View
+          key={row[0]?.cardId ?? `wishlist-grid-row-${rowIndex}`}
+          style={[
+            styles.gridRow,
+            {
+              borderTopColor: theme.colors.gray100,
+              borderBottomColor: theme.colors.gray100,
+            },
+          ]}
+        >
+          {Array.from({ length: GRID_COLUMNS }).map((_, colIndex) => {
+            const entry = row[colIndex];
+            return (
+              <View
+                key={entry?.cardId ?? `wishlist-grid-row-${rowIndex}-col-${colIndex}`}
+                style={styles.gridCell}
+              >
+                {entry ? (
+                  <WishlistGridTile
+                    entry={entry}
+                    onPress={() => onPressEntry(entry)}
+                    theme={theme}
+                  />
+                ) : null}
+              </View>
+            );
+          })}
+        </View>
+      ))}
     </View>
   );
 }
@@ -494,24 +518,20 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
       onPress={onPress}
       style={({ pressed }) => [
         styles.gridTile,
-        {
-          backgroundColor: theme.colors.canvasElevated,
-          borderColor: theme.colors.outlineSubtle,
-          opacity: pressed ? 0.84 : 1,
-        },
+        { opacity: pressed ? 0.84 : 1 },
       ]}
       testID={`wishlist-grid-tile-${entry.cardId}`}
     >
       <View
         style={[
           styles.gridImageWrap,
-          { backgroundColor: theme.colors.field, borderColor: theme.colors.outlineSubtle },
+          { backgroundColor: theme.colors.field },
         ]}
       >
         {imageUri ? (
           <Image
             accessibilityIgnoresInvertColors
-            resizeMode="cover"
+            resizeMode="contain"
             source={{ uri: imageUri }}
             style={StyleSheet.absoluteFill}
             testID={`wishlist-grid-tile-${entry.cardId}-image`}
@@ -567,22 +587,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingTop: 16,
-  },
-  header: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    height: 40,
-  },
-  headerIcon: {
-    alignItems: 'center',
-    height: 24,
-    justifyContent: 'center',
-    width: 24,
-  },
-  headerTitle: {
-    flex: 1,
-    textAlign: 'center',
+    paddingTop: 0,
   },
   controls: {
     gap: 12,
@@ -663,25 +668,26 @@ const styles = StyleSheet.create({
     lineHeight: 14,
   },
   gridContainer: {
-    flexDirection: 'row',
-    gap: 12,
-    paddingHorizontal: 16,
+    // Full-bleed ruled grid (matches the collection card view): rows stack with
+    // full-width top/bottom hairlines; no horizontal gutter or row gap.
     paddingVertical: 16,
   },
-  gridColumn: {
+  gridRow: {
+    alignItems: 'stretch',
+    borderBottomWidth: 1,
+    borderTopWidth: 1,
+    flexDirection: 'row',
+  },
+  gridCell: {
     flex: 1,
-    gap: 12,
   },
   gridTile: {
-    borderRadius: 12,
-    borderWidth: 1,
-    overflow: 'hidden',
-    padding: 8,
+    // Plain tile — no shell border/fill; the row draws the dividers.
+    padding: 16,
   },
   gridImageWrap: {
-    aspectRatio: 0.72,
+    aspectRatio: 1,
     borderRadius: 8,
-    borderWidth: 1,
     overflow: 'hidden',
     position: 'relative',
     width: '100%',
@@ -698,8 +704,7 @@ const styles = StyleSheet.create({
   },
   gridTextWrap: {
     gap: 4,
-    paddingHorizontal: 2,
-    paddingTop: 8,
+    paddingTop: 12,
   },
   gridMeta: {
     fontFamily: 'SpotlightBodyRegular',

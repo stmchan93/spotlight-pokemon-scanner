@@ -38,10 +38,10 @@ describe('PostHogScreenTracker', () => {
       expect(mockCapturePostHogScreen).toHaveBeenNthCalledWith(3, 'scan_review');
     });
 
-    mockedPathname = '/sell/batch/review';
+    mockedPathname = '/card-transactions/new';
     view.rerender(<PostHogScreenTracker />);
     await waitFor(() => {
-      expect(mockCapturePostHogScreen).toHaveBeenNthCalledWith(4, 'sell_batch');
+      expect(mockCapturePostHogScreen).toHaveBeenNthCalledWith(4, 'log_transaction');
     });
   });
 

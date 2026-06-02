@@ -72,6 +72,17 @@ class ScanArtifactStore(Protocol):
     ) -> StoredScanArtifacts:
         ...
 
+    def store_transaction_photo(
+        self,
+        *,
+        transaction_id: str,
+        photo_bytes: bytes,
+        year: str,
+        month: str,
+        day: str,
+    ) -> str:
+        ...
+
     def write_artifacts_json(
         self,
         *,
@@ -96,6 +107,10 @@ class ScanArtifactStore(Protocol):
 
 def _scan_artifact_root(*, year: str, month: str, day: str, scan_id: str) -> Path:
     return Path("scans") / year / month / day / scan_id
+
+
+def _transaction_photo_root(*, year: str, month: str, day: str, transaction_id: str) -> Path:
+    return Path("transactions") / year / month / day / transaction_id
 
 
 def _safe_path_segment(value: object, *, fallback: str) -> str:
@@ -203,6 +218,42 @@ class FilesystemScanArtifactStore:
             source_object_path=relative_root.joinpath("source_capture.jpg").as_posix(),
             normalized_object_path=relative_root.joinpath("normalized_target.jpg").as_posix(),
         )
+
+    def store_transaction_photo(
+        self,
+        *,
+        transaction_id: str,
+        photo_bytes: bytes,
+        year: str,
+        month: str,
+        day: str,
+    ) -> str:
+        relative_root = _transaction_photo_root(
+            year=year, month=month, day=day, transaction_id=transaction_id
+        )
+        absolute_root = self.root / relative_root
+        absolute_root.mkdir(parents=True, exist_ok=True)
+        photo_path = absolute_root / "photo.jpg"
+        photo_path.write_bytes(photo_bytes)
+        return relative_root.joinpath("photo.jpg").as_posix()
+
+    def read_object_bytes(self, object_path: str) -> bytes | None:
+        """Read the raw bytes of an object by its store-relative path.
+
+        Mirrors :meth:`GoogleCloudScanArtifactStore.read_object_bytes`. Returns
+        None when the object cannot be found or read. ``object_path`` is treated
+        as relative to the store root.
+        """
+        normalized = str(object_path or "").strip().lstrip("/")
+        if not normalized:
+            return None
+        absolute_path = self.root / Path(normalized)
+        try:
+            if not absolute_path.exists():
+                return None
+            return absolute_path.read_bytes()
+        except OSError:
+            return None
 
     def write_artifacts_json(
         self,
@@ -364,6 +415,23 @@ class GoogleCloudScanArtifactStore:
             source_object_path=None,
             normalized_object_path=normalized_object_path,
         )
+
+    def store_transaction_photo(
+        self,
+        *,
+        transaction_id: str,
+        photo_bytes: bytes,
+        year: str,
+        month: str,
+        day: str,
+    ) -> str:
+        relative_root = _transaction_photo_root(
+            year=year, month=month, day=day, transaction_id=transaction_id
+        )
+        object_path = self._object_name(relative_root.joinpath("photo.jpg"))
+        blob = self.bucket.blob(object_path)
+        blob.upload_from_string(photo_bytes, content_type="image/jpeg")
+        return object_path
 
     def write_artifacts_json(
         self,

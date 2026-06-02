@@ -4,6 +4,7 @@ import {
   buildMockDashboard,
   getMockCardDetail,
   seedMockCardDetails,
+  seedMockCardTransactions,
   seedMockCatalogResults,
   seedMockInventoryEntries,
   seedMockRecentSales,
@@ -24,7 +25,9 @@ import type {
   CardRecentSaleRecord,
   CardRecentSalesQuery,
   CardRecentSalesRecord,
+  CardTransactionRecord,
   CatalogSearchResult,
+  CreateCardTransactionPayload,
   ExpansionRecord,
   InventoryEntryCreateRequestPayload,
   InventoryEntryCreateResponsePayload,
@@ -117,6 +120,8 @@ export interface SpotlightRepository {
   deletePortfolioEntry(payload: PortfolioEntryDeleteRequestPayload): Promise<PortfolioEntryDeleteResponsePayload>;
   createPortfolioSale(payload: PortfolioSaleRequestPayload): Promise<PortfolioSaleResponsePayload>;
   createPortfolioSalesBatch(payloads: PortfolioSaleRequestPayload[]): Promise<PortfolioSaleResponsePayload[]>;
+  createCardTransaction(payload: CreateCardTransactionPayload): Promise<CardTransactionRecord>;
+  listCardTransactions(): Promise<CardTransactionRecord[]>;
   markSalePaid(saleID: string): Promise<SaleLifecycleResponsePayload>;
   voidSale(saleID: string): Promise<SaleLifecycleResponsePayload>;
   getVendorWalletHandles(): Promise<VendorWalletHandles>;
@@ -2081,6 +2086,7 @@ async function safeResponseText(response: Response) {
 export class MockSpotlightRepository implements SpotlightRepository {
   private inventoryEntries = seedMockInventoryEntries();
   private recentSales = seedMockRecentSales();
+  private cardTransactions: CardTransactionRecord[] = seedMockCardTransactions();
   private catalogResults = seedMockCatalogResults();
   private cardDetails = seedMockCardDetails();
   private favoriteCardTimestamps = new Map<string, string>();
@@ -2571,6 +2577,26 @@ export class MockSpotlightRepository implements SpotlightRepository {
       responses.push(await this.createPortfolioSale(payload));
     }
     return responses;
+  }
+
+  async createCardTransaction(payload: CreateCardTransactionPayload): Promise<CardTransactionRecord> {
+    const record: CardTransactionRecord = {
+      id: createPseudoUUID(),
+      kind: payload.kind,
+      amountCents: payload.amountCents,
+      currencyCode: payload.currencyCode,
+      occurredAt: payload.occurredAt,
+      occurredAtLabel: null,
+      note: payload.note,
+      photoUrl: payload.photo ? `data:image/jpeg;base64,${payload.photo.jpegBase64}` : null,
+      createdAt: new Date().toISOString(),
+    };
+    this.cardTransactions = [record, ...this.cardTransactions];
+    return record;
+  }
+
+  async listCardTransactions(): Promise<CardTransactionRecord[]> {
+    return this.cardTransactions.map((transaction) => ({ ...transaction }));
   }
 
   async markSalePaid(saleID: string): Promise<SaleLifecycleResponsePayload> {
@@ -3634,6 +3660,41 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       },
     );
     return Array.isArray(payload.results) ? payload.results : [];
+  }
+
+  async createCardTransaction(payload: CreateCardTransactionPayload) {
+    const record = await this.requestJsonOrThrow<CardTransactionRecord>(
+      `${this.baseUrl}/api/v1/card-transactions`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    return this.absolutizeCardTransaction(record);
+  }
+
+  async listCardTransactions() {
+    const response = await this.requestJsonOrThrow<{ transactions?: CardTransactionRecord[] }>(
+      `${this.baseUrl}/api/v1/card-transactions`,
+      {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      },
+    );
+    return (response.transactions ?? []).map((transaction) => this.absolutizeCardTransaction(transaction));
+  }
+
+  private absolutizeCardTransaction(record: CardTransactionRecord): CardTransactionRecord {
+    const photoUrl = normalizeImageUrl(record.photoUrl, this.baseUrl);
+    return {
+      ...record,
+      photoUrl: photoUrl || null,
+    };
   }
 
   async markSalePaid(saleID: string) {

@@ -37,7 +37,8 @@ TEST_MODULES=(
   backend.tests.test_vm_runtime_config
   backend.tests.test_auto_stub_sale
   backend.tests.test_sale_lifecycle
-  backend.tests.test_wallet_handles
+  backend.tests.test_card_transactions
+  backend.tests.test_user_isolation
   backend.tests.test_show_summary
   backend.tests.test_raw_pricing_matrix
 )

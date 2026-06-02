@@ -38,11 +38,8 @@ import { getCardImageUrl } from '@/lib/card-images';
 import { useAppServices } from '@/providers/app-providers';
 
 type InventoryBrowserScreenProps = {
-  initialMode?: 'browse' | 'select';
-  initialSelectedIds?: string[];
   onBack: () => void;
   onOpenAddCard?: () => void;
-  onOpenBulkSell: (entryIds: string[]) => void;
   onOpenEntry: (entry: InventoryCardEntry) => void;
 };
 
@@ -139,11 +136,8 @@ function SortRow({
 }
 
 export function InventoryBrowserScreen({
-  initialMode = 'browse',
-  initialSelectedIds = [],
   onBack,
   onOpenAddCard,
-  onOpenBulkSell,
   onOpenEntry,
 }: InventoryBrowserScreenProps) {
   const theme = useSpotlightTheme();
@@ -158,8 +152,6 @@ export function InventoryBrowserScreen({
   const [sortOption, setSortOption] = useState<InventorySortOption>('value');
   const [filterOption, setFilterOption] = useState<InventoryFilterOption>('all');
   const [filterMenuOpen, setFilterMenuOpen] = useState(false);
-  const [selectionMode, setSelectionMode] = useState(initialMode === 'select');
-  const [selectedIds, setSelectedIds] = useState<string[]>(initialSelectedIds);
 
   const tileWidth = useMemo(() => {
     return Math.max(96, Math.floor((width - PAGE_GUTTER * 2 - GRID_GAP) / 2));
@@ -209,7 +201,6 @@ export function InventoryBrowserScreen({
     });
   }, [entries, filterOption, searchQuery, sortOption]);
 
-  const selectionCount = selectedIds.length;
   const trimmedSearchQuery = searchQuery.trim();
 
   const emptyState = useMemo(() => {
@@ -233,51 +224,12 @@ export function InventoryBrowserScreen({
     };
   }, [entries.length, trimmedSearchQuery.length]);
 
-  const handleResetSelection = useCallback(() => {
-    setSelectedIds([]);
-  }, []);
-
-  const toggleSelection = useCallback((entryId: string) => {
-    setSelectedIds((current) => {
-      if (current.includes(entryId)) {
-        return current.filter((candidate) => candidate !== entryId);
-      }
-
-      return [...current, entryId];
-    });
-  }, []);
-
   const handleEntryPress = useCallback(
     (entry: InventoryCardEntry) => {
-      if (selectionMode) {
-        toggleSelection(entry.id);
-        return;
-      }
       onOpenEntry(entry);
     },
-    [onOpenEntry, selectionMode, toggleSelection],
+    [onOpenEntry],
   );
-
-  const handleEntryLongPress = useCallback((entry: InventoryCardEntry) => {
-    setSelectionMode(true);
-    setSelectedIds((current) => {
-      if (current.includes(entry.id)) {
-        return current;
-      }
-
-      return [...current, entry.id];
-    });
-  }, []);
-
-  const handleToggleBulkSell = useCallback(() => {
-    setSelectionMode((current) => {
-      if (current) {
-        setSelectedIds([]);
-        return false;
-      }
-      return true;
-    });
-  }, []);
 
   const handleSelectFilter = useCallback((value: InventoryFilterOption) => {
     setFilterOption(value);
@@ -314,15 +266,6 @@ export function InventoryBrowserScreen({
             style={styles.actionButton}
             testID="inventory-add-card"
             variant="primary"
-          />
-          <Button
-            label={selectionMode ? 'Cancel' : 'Bulk Sell'}
-            labelStyleVariant="control"
-            onPress={handleToggleBulkSell}
-            size="sm"
-            style={styles.actionButton}
-            testID="inventory-bulk-sell-toggle"
-            variant="secondary"
           />
         </View>
 
@@ -386,7 +329,6 @@ export function InventoryBrowserScreen({
           ) : (
             <View style={styles.grid}>
               {displayedEntries.map((entry) => {
-                const isSelected = selectedIds.includes(entry.id);
                 const tileKind = entry.kind === 'graded' ? 'slab' : 'raw';
                 return (
                   <View key={entry.id} style={[styles.tileWrap, { width: tileWidth }]}>
@@ -402,11 +344,9 @@ export function InventoryBrowserScreen({
                         isFavorite={entry.isFavorite === true}
                         kind={tileKind}
                         name={entry.name}
-                        onLongPress={() => handleEntryLongPress(entry)}
                         onPress={() => handleEntryPress(entry)}
                         priceLabel={priceLabelFor(entry)}
                         quantity={entry.quantity}
-                        selected={selectionMode && isSelected}
                         setName={entry.setName}
                         testID={makeInventorySmokeTestID(entry)}
                       />
@@ -418,49 +358,6 @@ export function InventoryBrowserScreen({
           )}
         </ScrollView>
       </View>
-
-      {selectionMode ? (
-        <View
-          style={[
-            styles.selectionBar,
-            {
-              paddingBottom: insets.bottom + 10,
-            },
-          ]}
-        >
-          <View style={styles.selectionInner}>
-            <Pressable
-              accessibilityRole="button"
-              onPress={handleResetSelection}
-              testID="inventory-clear-selection"
-              style={[
-                styles.selectionDismiss,
-                {
-                  backgroundColor: theme.colors.canvasElevated,
-                  borderColor: theme.colors.outlineSubtle,
-                },
-              ]}
-            >
-              <Text style={theme.typography.titleCompact}>×</Text>
-            </Pressable>
-
-            <Button
-              disabled={selectionCount === 0}
-              label="Sell selected"
-              labelStyleVariant="body"
-              onPress={() => {
-                if (selectionCount === 0) {
-                  return;
-                }
-                onOpenBulkSell(selectedIds);
-              }}
-              style={styles.selectionAction}
-              testID="inventory-sell-selected"
-              variant="primary"
-            />
-          </View>
-        </View>
-      ) : null}
 
       <Modal
         animationType="fade"
@@ -611,27 +508,6 @@ const styles = StyleSheet.create({
   searchField: {},
   sectionLabel: {
     letterSpacing: 1.8,
-  },
-  selectionAction: {
-    flex: 1,
-    minHeight: 56,
-  },
-  selectionBar: {
-    paddingHorizontal: PAGE_GUTTER,
-    paddingTop: 12,
-  },
-  selectionDismiss: {
-    alignItems: 'center',
-    borderRadius: 32,
-    borderWidth: 1,
-    height: 56,
-    justifyContent: 'center',
-    width: 56,
-  },
-  selectionInner: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
   },
   sortPill: {
     height: 32,

@@ -1558,26 +1558,6 @@ export function ScannerScreen({
     });
   }, [inventoryByCardId, recentCaptures, router, trackCandidateSelectionIfNeeded]);
 
-  const handleSellFromCapture = useCallback((captureId: string) => {
-    const capture = recentCaptures.find((entry) => entry.id === captureId);
-    const candidate = capture ? activeCandidateForCapture(capture) : null;
-    if (!capture || !candidate) {
-      return;
-    }
-    const entryId = inventoryByCardId.get(candidate.cardId)?.entryIds?.[0];
-    if (entryId) {
-      router.push({
-        pathname: '/sell/[entryId]',
-        params: { entryId, cardId: candidate.cardId, fromScan: '1' },
-      });
-      return;
-    }
-    router.push({
-      pathname: '/sell/[entryId]',
-      params: { entryId: 'new', cardId: candidate.cardId, fromScan: '1' },
-    });
-  }, [inventoryByCardId, recentCaptures, router]);
-
   const handleEbayTrayTap = useCallback((captureId: string, slabContext: { grader?: string | null; grade?: string | null; certNumber?: string | null; variantName?: string | null } | null) => {
     const existing = ebayTrayState.get(captureId);
     if (existing?.url) {

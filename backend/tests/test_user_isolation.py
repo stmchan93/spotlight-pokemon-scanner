@@ -276,6 +276,37 @@ class UserIsolationTests(unittest.TestCase):
                     },
                 )
 
+    def test_card_transactions_are_private_to_the_request_owner(self) -> None:
+        with self.service.request_identity_context(self._identity("user-a")):
+            created = self.service.create_card_transaction(
+                {
+                    "kind": "sold",
+                    "amountCents": 4200,
+                    "currencyCode": "USD",
+                    "occurredAt": "2026-06-01T12:00:00Z",
+                    "note": None,
+                    "photo": None,
+                }
+            )
+            owned = self.service.list_card_transactions()
+        transaction_id = created["id"]
+        self.assertEqual(owned["count"], 1)
+
+        with self.service.request_identity_context(self._identity("user-b")):
+            # user-b cannot see user-a's ledger
+            other = self.service.list_card_transactions()
+            self.assertEqual(other["count"], 0)
+            # cannot resolve the photo path cross-owner
+            self.assertIsNone(self.service.card_transaction_photo_object_path(transaction_id))
+            # cannot delete cross-owner
+            with self.assertRaises(FileNotFoundError):
+                self.service.delete_card_transaction(transaction_id)
+
+        # The row still exists for the real owner.
+        with self.service.request_identity_context(self._identity("user-a")):
+            still_owned = self.service.list_card_transactions()
+            self.assertEqual(still_owned["count"], 1)
+
 
 if __name__ == "__main__":
     unittest.main()

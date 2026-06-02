@@ -98,6 +98,18 @@
     .cand .meta { flex: 1; min-width: 0; }
     .cand .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .cand .sub { color: var(--muted); font-size: 13px; }
+    .cand .thumb {
+      flex: 0 0 40px; width: 40px; height: 56px; border-radius: 4px;
+      object-fit: cover; background: #000;
+    }
+    .cand .thumb-empty { background: var(--panel-2); border: 1px solid var(--border); }
+    .cand.cand-ai { border-color: var(--accent-2); }
+    .cand.cand-ai .rank {
+      background: #15351f; color: var(--accent-2); border-color: var(--accent-2);
+      font-size: 11px; font-weight: 700;
+    }
+    #aiOption { display: grid; gap: 8px; margin-top: 6px; }
+    .section-label { color: var(--muted); font-size: 12px; margin-top: 12px; }
     .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
     .row button { flex: 1; min-width: 120px; }
     .search-results { display: grid; gap: 6px; margin-top: 8px; max-height: 320px; overflow: auto; }
@@ -144,6 +156,11 @@
         <div class="imgbox"><img id="scanImg" alt="scan" /></div>
         <div class="predicted" id="predicted"></div>
         <div class="ai-label" id="aiLabel"></div>
+        <div id="aiOptionWrap" class="hidden">
+          <div class="section-label">AI suggestion — tap to pick</div>
+          <div class="candidates" id="aiOption"></div>
+        </div>
+        <div class="section-label" id="candidatesLabel">Scanner candidates</div>
         <div class="candidates" id="candidates"></div>
         <div class="row">
           <button data-disp="unclear">Unclear (u)</button>
@@ -155,7 +172,7 @@
           <div class="search-results" id="searchResults"></div>
         </div>
       </div>
-      <div class="hint">Keys: 1–9, 0 pick a candidate · u unclear · n not in list · s skip</div>
+      <div class="hint">Keys: a AI pick · 1–9, 0 candidate · u unclear · n not in list · s skip · z undo</div>
     </div>
 
     <div id="done" class="card-panel hidden">
@@ -289,30 +306,43 @@
         "Scanner top-1: " + (predicted.name || predicted.card_id || predicted.cardId || "(no prediction)");
 
       // AI determination (what the labeling model guessed for this scan).
+      // Confident -> render as a one-tap selectable option (with thumbnail).
+      // Unsure -> keep the small non-clickable "needs a human" chip.
       const ai = item.ai_label || null;
       const aiEl = $("aiLabel");
+      const aiWrap = $("aiOptionWrap");
+      const aiOpt = $("aiOption");
       aiEl.className = "ai-label";
+      aiOpt.innerHTML = "";
+      aiWrap.classList.add("hidden");
       if (!ai) {
         aiEl.classList.add("hidden");
       } else if (ai.disposition === "unsure") {
         aiEl.classList.remove("hidden");
         aiEl.classList.add("unsure");
-        aiEl.innerHTML =
-          '<span class="tag">AI</span>Unsure — needs a human';
+        aiEl.innerHTML = '<span class="tag">AI</span>Unsure — needs a human';
       } else {
-        aiEl.classList.remove("hidden");
+        aiEl.classList.add("hidden");
+        aiWrap.classList.remove("hidden");
         const tier = (ai.tier || "").toLowerCase();
-        const tierClass = tier === "high" ? "high" : tier === "medium" ? "medium" : "";
         const where = ai.in_top10
           ? "from list" + (ai.rank ? " #" + ai.rank : "")
           : "catalog search";
-        aiEl.innerHTML =
-          '<span class="tag ' + tierClass + '">AI' + (tier ? " · " + tier : "") + "</span>" +
-          '<span class="name">' + escapeHtml(ai.name || ai.card_id || "(unknown)") + "</span> " +
-          '<span class="sub">' +
-          escapeHtml([ai.number, ai.set].filter(Boolean).join(" · ")) +
-          (where ? " · " + escapeHtml(where) : "") +
-          "</span>";
+        aiOpt.appendChild(
+          cardOptionButton({
+            image: ai.image,
+            badge: "AI",
+            badgeClass: "cand-ai",
+            name: ai.name || cardId(ai) || "(unknown)",
+            sub: cardSubLine(ai, [tier, where].filter(Boolean).join(" · ")),
+            onPick: () =>
+              submit({
+                labeledCardID: cardId(ai),
+                labelDisposition: "confirmed",
+                selectedRank: ai.in_top10 && ai.rank ? ai.rank : null,
+              }),
+          })
+        );
       }
 
       // Image (auth-gated fetch -> blob)
@@ -338,23 +368,20 @@
       const candidates = item.candidates || [];
       candidates.slice(0, 10).forEach((c, i) => {
         const rank = c.rank != null ? c.rank : i + 1;
-        const btn = document.createElement("button");
-        btn.className = "cand";
-        const key = i < 9 ? String(i + 1) : "0";
-        btn.innerHTML =
-          '<span class="rank">' + key + "</span>" +
-          '<span class="meta"><span class="name">' +
-          escapeHtml(c.name || c.cardId || "(unknown)") +
-          "</span><span class=\"sub\">" +
-          escapeHtml([c.number, c.setName].filter(Boolean).join(" · ")) +
-          "</span></span>";
-        btn.onclick = () =>
-          submit({
-            labeledCardID: c.cardId || c.id || c.card_id,
-            labelDisposition: "confirmed",
-            selectedRank: rank,
-          });
-        wrap.appendChild(btn);
+        wrap.appendChild(
+          cardOptionButton({
+            image: c.image,
+            badge: i < 9 ? String(i + 1) : "0",
+            name: c.name || cardId(c),
+            sub: cardSubLine(c),
+            onPick: () =>
+              submit({
+                labeledCardID: cardId(c),
+                labelDisposition: "confirmed",
+                selectedRank: rank,
+              }),
+          })
+        );
       });
 
       $("search").value = "";
@@ -364,6 +391,33 @@
     function escapeHtml(s) {
       return String(s == null ? "" : s)
         .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    // card_id/setName differ across queue candidates (card_id/set) and catalog
+    // search results (id/setName) — normalize so display + submit work for both.
+    function cardId(c) { return c.cardId || c.card_id || c.id || null; }
+    function cardSetName(c) { return c.setName || c.set || ""; }
+    function cardSubLine(c, extra) {
+      const base = [c.number, cardSetName(c)].filter(Boolean).join(" · ");
+      return extra ? (base ? base + " · " + extra : extra) : base;
+    }
+
+    // Build a tappable option (thumbnail + badge + name + sub). Shared by the
+    // ranked candidates, the AI suggestion, and catalog search results.
+    function cardOptionButton({ image, badge, badgeClass, name, sub, onPick }) {
+      const btn = document.createElement("button");
+      btn.className = "cand" + (badgeClass ? " " + badgeClass : "");
+      const thumb = image
+        ? '<img class="thumb" src="' + encodeURI(image) + '" alt="" loading="lazy" />'
+        : '<span class="thumb thumb-empty"></span>';
+      btn.innerHTML =
+        thumb +
+        '<span class="rank">' + escapeHtml(badge) + "</span>" +
+        '<span class="meta"><span class="name">' +
+        escapeHtml(name || "(unknown)") +
+        '</span><span class="sub">' + escapeHtml(sub || "") + "</span></span>";
+      btn.onclick = onPick;
+      return btn;
     }
 
     async function submit(body) {
@@ -432,22 +486,20 @@
       const wrap = $("searchResults");
       wrap.innerHTML = "";
       results.forEach((c) => {
-        const btn = document.createElement("button");
-        btn.className = "cand";
-        btn.innerHTML =
-          '<span class="rank">+</span>' +
-          '<span class="meta"><span class="name">' +
-          escapeHtml(c.name || "(unknown)") +
-          "</span><span class=\"sub\">" +
-          escapeHtml([c.number, c.setName].filter(Boolean).join(" · ")) +
-          "</span></span>";
-        btn.onclick = () =>
-          submit({
-            labeledCardID: c.id,
-            labelDisposition: "confirmed",
-            selectedRank: null,
-          });
-        wrap.appendChild(btn);
+        wrap.appendChild(
+          cardOptionButton({
+            image: c.imageSmallURL || c.imageURL,
+            badge: "+",
+            name: c.name,
+            sub: cardSubLine(c),
+            onPick: () =>
+              submit({
+                labeledCardID: cardId(c),
+                labelDisposition: "confirmed",
+                selectedRank: null,
+              }),
+          })
+        );
       });
     }
 
@@ -465,6 +517,9 @@
       } else if (k === "0") {
         const btns = $("candidates").querySelectorAll("button.cand");
         if (btns[9]) btns[9].click();
+      } else if (k === "a") {
+        const aiBtn = $("aiOption").querySelector("button.cand");
+        if (aiBtn) aiBtn.click();
       } else if (k === "u") {
         submit({ labelDisposition: "unclear" });
       } else if (k === "n") {

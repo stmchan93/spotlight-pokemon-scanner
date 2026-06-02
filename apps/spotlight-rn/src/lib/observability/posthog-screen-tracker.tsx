@@ -36,12 +36,8 @@ function resolveScreenName(pathname: string) {
     return 'card_detail';
   }
 
-  if (pathname.startsWith('/sell/batch')) {
-    return 'sell_batch';
-  }
-
-  if (pathname.startsWith('/sell/')) {
-    return 'sell_single';
+  if (pathname.startsWith('/card-transactions/new')) {
+    return 'log_transaction';
   }
 
   if (pathname.startsWith('/collection/add/')) {

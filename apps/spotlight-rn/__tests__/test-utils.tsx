@@ -140,6 +140,14 @@ export function createTestSpotlightRepository(
       return overrides.createPortfolioSalesBatch?.(...args)
         ?? baseRepository.createPortfolioSalesBatch(...args);
     },
+    createCardTransaction: (...args) => {
+      return overrides.createCardTransaction?.(...args)
+        ?? baseRepository.createCardTransaction(...args);
+    },
+    listCardTransactions: (...args) => {
+      return overrides.listCardTransactions?.(...args)
+        ?? baseRepository.listCardTransactions(...args);
+    },
     markSalePaid: (...args) => {
       return overrides.markSalePaid?.(...args)
         ?? baseRepository.markSalePaid(...args);
@@ -336,15 +344,8 @@ export function renderAppRouter(
   });
   registerRoute(routeMap, routeAliases, {
     candidates: [
-      { key: '(sheet)/sell/[entryId]', modulePath: '@/app/(sheet)/sell/[entryId]' },
-      { key: 'sell/[entryId]', modulePath: '@/app/sell/[entryId]' },
-    ],
-    optional: true,
-  });
-  registerRoute(routeMap, routeAliases, {
-    candidates: [
-      { key: '(sheet)/sell/batch', modulePath: '@/app/(sheet)/sell/batch' },
-      { key: 'sell/batch', modulePath: '@/app/sell/batch' },
+      { key: '(sheet)/card-transactions/new', modulePath: '@/app/(sheet)/card-transactions/new' },
+      { key: 'card-transactions/new', modulePath: '@/app/card-transactions/new' },
     ],
     optional: true,
   });

@@ -65,7 +65,6 @@ describe('backend-backed fallback states', () => {
     renderWithProviders(
       <InventoryBrowserScreen
         onBack={jest.fn()}
-        onOpenBulkSell={jest.fn()}
         onOpenEntry={jest.fn()}
       />,
       { spotlightRepository: repository },

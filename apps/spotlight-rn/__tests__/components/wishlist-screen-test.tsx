@@ -169,6 +169,71 @@ describe('WishlistScreen', () => {
     expect(screen.getByTestId('wishlist-list-pagination-back-to-top')).toBeTruthy();
   });
 
+  it('features the first favorite in the hero and re-features the tapped row', async () => {
+    const favorites = [
+      buildFavoriteEntry({
+        cardId: 'charizard',
+        name: 'Charizard',
+        cardNumber: '100/101',
+        setName: 'Dragon Frontiers',
+        marketPrice: 129198.3,
+        isOwned: true,
+        slabContext: { grader: 'PSA', grade: '10' },
+        dayChangeAmount: 3.99,
+      }),
+      buildFavoriteEntry({
+        cardId: 'gengar',
+        name: 'Gengar ex',
+        cardNumber: '193/162',
+        setName: 'Perfect Order',
+        marketPrice: 450.12,
+        isOwned: true,
+        conditionShortLabel: 'NM',
+        dayChangeAmount: 3.99,
+      }),
+    ];
+    const repository = createTestSpotlightRepository({
+      getCardFavorites: async () => favorites,
+    });
+
+    renderWishlistScreen(repository);
+
+    // Hero defaults to the first favorite, with its price + grade + delta.
+    const heroPrice = await screen.findByTestId('wishlist-hero-price');
+    expect(heroPrice).toHaveTextContent('$129,198.30');
+    expect(screen.getByTestId('wishlist-hero-trend')).toBeTruthy();
+    expect(screen.getByTestId('wishlist-hero-gradient')).toBeTruthy();
+
+    // The list row carries the grade + price delta sourced from the favorite.
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-row-gengar')).toBeTruthy();
+    });
+
+    // Tapping the second row promotes it into the hero.
+    await act(async () => {
+      fireEvent.press(screen.getByTestId('wishlist-row-gengar'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('wishlist-hero-price')).toHaveTextContent('$450.12');
+    });
+
+    // Tapping the hero card (a release with no drag) opens the featured card's
+    // detail screen. The card is driven by PanResponder, so fire its release
+    // handler directly rather than a Pressable press.
+    await act(async () => {
+      fireEvent(screen.getByTestId('wishlist-hero-card'), 'responderRelease', {
+        nativeEvent: {},
+      });
+    });
+    expect(push).toHaveBeenCalledWith(
+      expect.objectContaining({
+        pathname: '/cards/[cardId]',
+        params: expect.objectContaining({ cardId: 'gengar' }),
+      }),
+    );
+  });
+
   it('does not render the pagination footer when the wishlist is empty', async () => {
     const repository = createTestSpotlightRepository({
       getCardFavorites: async () => [],

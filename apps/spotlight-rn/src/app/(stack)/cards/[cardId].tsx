@@ -51,15 +51,6 @@ export default function CardDetailRoute() {
           },
         });
       }}
-      onOpenSell={(selectedEntryId) => {
-        router.push({
-          pathname: '/sell/[entryId]',
-          params: {
-            entryId: selectedEntryId,
-            cardId,
-          },
-        });
-      }}
       previewId={previewId}
       scanReviewId={scanReviewId}
     />

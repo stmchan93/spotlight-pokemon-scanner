@@ -56,8 +56,12 @@ from catalog_tools import (
     connect,
     contextual_pricing_summary_for_card,
     deck_entry_storage_key,
+    delete_card_transaction,
     delete_runtime_setting,
     finalize_raw_decision,
+    get_card_transaction,
+    insert_card_transaction,
+    list_card_transactions,
     latest_price_history_update_for_context,
     latest_price_history_row_for_card,
     latest_provider_sync_run,
@@ -291,6 +295,8 @@ def _labeling_session_id_from_path(path: str, suffix: str) -> str | None:
 
 def _is_large_image_upload_path(path: str) -> bool:
     if path == "/api/v1/scan-artifacts":
+        return True
+    if path == "/api/v1/card-transactions":
         return True
     return _labeling_session_id_from_path(path, "/artifacts") is not None
 
@@ -3609,7 +3615,7 @@ class SpotlightScanService:
 
         sale_rows = self.connection.execute(
             """
-            SELECT id, card_id, quantity, unit_price, total_price, currency_code, payment_method, sold_at
+            SELECT id, card_id, quantity, unit_price, total_price, currency_code, sold_at
             FROM sale_events
             WHERE owner_user_id = ?
               AND sold_at >= ?
@@ -3632,21 +3638,6 @@ class SpotlightScanService:
             if currency_counter
             else None
         )
-
-        by_method: dict[str | None, dict[str, float]] = {}
-        for row in sale_rows:
-            method = str(row["payment_method"] or "").strip() or None
-            bucket = by_method.setdefault(method, {"count": 0, "revenue": 0.0})
-            bucket["count"] = int(bucket["count"]) + 1
-            bucket["revenue"] = float(bucket["revenue"]) + float(row["total_price"] or 0.0)
-        by_payment_method = [
-            {
-                "paymentMethod": method,
-                "count": int(bucket["count"]),
-                "revenue": round(float(bucket["revenue"]), 2),
-            }
-            for method, bucket in sorted(by_method.items(), key=lambda item: -float(item[1]["revenue"]))
-        ]
 
         card_totals: dict[str, dict[str, float]] = {}
         for row in sale_rows:
@@ -3684,7 +3675,6 @@ class SpotlightScanService:
             "totalSales": total_sales,
             "totalRevenue": total_revenue,
             "currencyCode": currency_code,
-            "byPaymentMethod": by_payment_method,
             "topCards": top_cards,
         }
 
@@ -4102,12 +4092,7 @@ class SpotlightScanService:
         if unit_price is None or unit_price < 0:
             raise ValueError("unitPrice must be a non-negative number")
 
-        deferred_payment_methods = {"venmo", "cashapp", "paypal", "zelle"}
-        normalized_payment_method = (payment_method or "").lower()
-        if normalized_payment_method in deferred_payment_methods:
-            paid_at: str | None = None
-        else:
-            paid_at = sold_at
+        paid_at: str | None = sold_at
 
         source_scan_id = str(payload.get("sourceScanID") or "").strip() or None
         source_confirmation_id = str(payload.get("sourceConfirmationID") or "").strip() or None
@@ -4192,234 +4177,198 @@ class SpotlightScanService:
 
         return {"results": results}
 
-    def mark_sale_paid(self, sale_id: str, payload: dict[str, Any] | None = None) -> dict[str, Any]:
-        normalized_sale_id = str(sale_id or "").strip()
-        if not normalized_sale_id:
-            raise ValueError("saleID is required")
-        owner_user_id = self._current_owner_user_id()
-        sale_row = self.connection.execute(
-            """
-            SELECT id, owner_user_id, deck_entry_id, card_id, quantity, sold_at,
-                   unit_price, total_price, currency_code, payment_method,
-                   paid_at, voided_at
-            FROM sale_events
-            WHERE id = ?
-            LIMIT 1
-            """,
-            (normalized_sale_id,),
-        ).fetchone()
-        if sale_row is None:
-            raise FileNotFoundError("sale not found")
-        if str(sale_row["owner_user_id"] or "").strip() != owner_user_id:
-            raise FileNotFoundError("sale not found")
-        if sale_row["voided_at"]:
-            raise ValueError("sale was cancelled")
-        existing_paid_at = str(sale_row["paid_at"] or "").strip() or None
-        deck_entry_id = str(sale_row["deck_entry_id"] or "").strip()
-        sale_quantity = max(1, int(sale_row["quantity"] or 1))
-        card_id = str(sale_row["card_id"] or "").strip()
-        if existing_paid_at:
-            remaining_row = self.connection.execute(
-                "SELECT quantity FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
-                (deck_entry_id, owner_user_id),
-            ).fetchone()
-            remaining_quantity = (
-                max(0, int(remaining_row["quantity"] or 0)) if remaining_row is not None else 0
-            )
-            return {
-                "saleID": normalized_sale_id,
-                "deckEntryID": deck_entry_id,
-                "paidAt": existing_paid_at,
-                "status": "paid",
-                "remainingQuantity": remaining_quantity,
-            }
+    _CARD_TRANSACTION_KINDS = {"bought", "sold", "traded"}
 
-        deck_row = self.connection.execute(
-            "SELECT quantity, cost_basis_total FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
-            (deck_entry_id, owner_user_id),
-        ).fetchone()
-        if deck_row is None:
-            raise FileNotFoundError("deck entry not found")
-        current_quantity = max(0, int(deck_row["quantity"] or 0))
-        if sale_quantity > current_quantity:
-            raise ValueError("sale quantity exceeds deck quantity")
-        current_cost_basis_total = float(deck_row["cost_basis_total"] or 0.0)
-        cost_basis_total_for_sale = 0.0
-        if current_quantity > 0 and current_cost_basis_total > 0:
-            cost_basis_unit_price = current_cost_basis_total / float(current_quantity)
-            cost_basis_total_for_sale = round(cost_basis_unit_price * sale_quantity, 2)
-        remaining_cost_basis_total = round(
-            max(0.0, current_cost_basis_total - cost_basis_total_for_sale), 2
-        )
+    @staticmethod
+    def _card_transaction_occurred_at_label(occurred_at: str | None) -> str | None:
+        parsed = SpotlightScanService._coerce_utc_datetime(occurred_at)
+        if parsed is None:
+            return None
+        # e.g. "Jun 2, 2026" — leading zero on the day is stripped for display.
+        return f"{parsed.strftime('%b')} {parsed.day}, {parsed.year}"
 
-        now = utc_now()
-        try:
-            self.connection.execute(
-                "UPDATE sale_events SET paid_at = ? WHERE id = ? AND owner_user_id = ?",
-                (now, normalized_sale_id, owner_user_id),
-            )
-            self.connection.execute(
-                """
-                UPDATE deck_entries
-                SET quantity = quantity - ?,
-                    cost_basis_total = ?,
-                    updated_at = ?
-                WHERE id = ?
-                  AND owner_user_id = ?
-                """,
-                (sale_quantity, remaining_cost_basis_total, now, deck_entry_id, owner_user_id),
-            )
-            append_deck_entry_event(
-                self.connection,
-                owner_user_id=owner_user_id,
-                deck_entry_id=deck_entry_id,
-                card_id=card_id,
-                event_kind="sale",
-                quantity_delta=-sale_quantity,
-                total_price=None if sale_row["total_price"] is None else float(sale_row["total_price"]),
-                unit_price=None if sale_row["unit_price"] is None else float(sale_row["unit_price"]),
-                currency_code=str(sale_row["currency_code"] or "").strip() or None,
-                payment_method=str(sale_row["payment_method"] or "").strip() or None,
-                sale_id=normalized_sale_id,
-                created_at=now,
-            )
-            self.connection.commit()
-        except Exception:
-            self.connection.rollback()
-            raise
-
-        remaining_row = self.connection.execute(
-            "SELECT quantity FROM deck_entries WHERE id = ? AND owner_user_id = ? LIMIT 1",
-            (deck_entry_id, owner_user_id),
-        ).fetchone()
-        remaining_quantity = (
-            max(0, int(remaining_row["quantity"] or 0)) if remaining_row is not None else 0
-        )
+    @staticmethod
+    def _card_transaction_row_to_payload(row: dict[str, Any]) -> dict[str, Any]:
+        transaction_id = str(row.get("id") or "")
+        upload_status = str(row.get("photo_upload_status") or "").strip()
+        has_photo = bool(str(row.get("photo_object_path") or "").strip()) and upload_status == "uploaded"
+        photo_url = f"/api/v1/card-transactions/{transaction_id}/photo" if has_photo else None
+        occurred_at = str(row.get("occurred_at") or "") or None
+        amount_value = row.get("amount_cents")
         return {
-            "saleID": normalized_sale_id,
-            "deckEntryID": deck_entry_id,
-            "paidAt": now,
-            "status": "paid",
-            "remainingQuantity": remaining_quantity,
+            "id": transaction_id,
+            "kind": str(row.get("kind") or ""),
+            "amountCents": int(amount_value) if amount_value is not None else 0,
+            "currencyCode": str(row.get("currency_code") or "USD"),
+            "note": str(row.get("note") or "").strip() or None,
+            "occurredAt": occurred_at,
+            "occurredAtLabel": SpotlightScanService._card_transaction_occurred_at_label(occurred_at),
+            "createdAt": str(row.get("created_at") or "") or None,
+            "photoUrl": photo_url,
         }
 
-    def void_sale(self, sale_id: str) -> dict[str, Any]:
-        normalized_sale_id = str(sale_id or "").strip()
-        if not normalized_sale_id:
-            raise ValueError("saleID is required")
-        owner_user_id = self._current_owner_user_id()
-        sale_row = self.connection.execute(
-            """
-            SELECT id, owner_user_id, deck_entry_id, paid_at, voided_at
-            FROM sale_events
-            WHERE id = ?
-            LIMIT 1
-            """,
-            (normalized_sale_id,),
-        ).fetchone()
-        if sale_row is None:
-            raise FileNotFoundError("sale not found")
-        if str(sale_row["owner_user_id"] or "").strip() != owner_user_id:
-            raise FileNotFoundError("sale not found")
-        if sale_row["paid_at"]:
-            raise ValueError("paid sales cannot be voided")
-        deck_entry_id = str(sale_row["deck_entry_id"] or "").strip()
-        existing_voided_at = str(sale_row["voided_at"] or "").strip() or None
-        if existing_voided_at:
-            return {
-                "saleID": normalized_sale_id,
-                "deckEntryID": deck_entry_id,
-                "voidedAt": existing_voided_at,
-                "status": "voided",
-            }
-        now = utc_now()
-        try:
-            self.connection.execute(
-                "UPDATE sale_events SET voided_at = ? WHERE id = ? AND owner_user_id = ?",
-                (now, normalized_sale_id, owner_user_id),
-            )
-            self.connection.commit()
-        except Exception:
-            self.connection.rollback()
-            raise
-        return {
-            "saleID": normalized_sale_id,
-            "deckEntryID": deck_entry_id,
-            "voidedAt": now,
-            "status": "voided",
-        }
-
-    def vendor_wallet_handles(self) -> dict[str, Any]:
-        owner_user_id = self._current_owner_user_id()
-        row = self.connection.execute(
-            """
-            SELECT venmo_handle, cashapp_handle, paypal_me_slug, zelle_email_or_phone, updated_at
-            FROM vendor_wallet_handles
-            WHERE owner_user_id = ?
-            LIMIT 1
-            """,
-            (owner_user_id,),
-        ).fetchone()
-        if row is None:
-            return {
-                "venmoHandle": None,
-                "cashappHandle": None,
-                "paypalMeSlug": None,
-                "zelleEmailOrPhone": None,
-                "updatedAt": None,
-            }
-        return {
-            "venmoHandle": str(row["venmo_handle"] or "").strip() or None,
-            "cashappHandle": str(row["cashapp_handle"] or "").strip() or None,
-            "paypalMeSlug": str(row["paypal_me_slug"] or "").strip() or None,
-            "zelleEmailOrPhone": str(row["zelle_email_or_phone"] or "").strip() or None,
-            "updatedAt": str(row["updated_at"] or "").strip() or None,
-        }
-
-    def update_vendor_wallet_handles(self, payload: dict[str, Any]) -> dict[str, Any]:
-        owner_user_id = self._current_owner_user_id()
+    def create_card_transaction(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not isinstance(payload, dict):
             raise ValueError("payload must be an object")
-        venmo_handle = str(payload.get("venmoHandle") or "").strip() or None
-        cashapp_handle = str(payload.get("cashappHandle") or "").strip() or None
-        paypal_me_slug = str(payload.get("paypalMeSlug") or "").strip() or None
-        zelle_email_or_phone = str(payload.get("zelleEmailOrPhone") or "").strip() or None
-        now = utc_now()
-        try:
-            self.connection.execute(
-                """
-                INSERT INTO vendor_wallet_handles (
-                    owner_user_id, venmo_handle, cashapp_handle, paypal_me_slug,
-                    zelle_email_or_phone, updated_at
+        owner_user_id = self._current_owner_user_id()
+
+        kind = str(payload.get("kind") or "").strip().lower()
+        if kind not in self._CARD_TRANSACTION_KINDS:
+            raise ValueError("kind must be one of bought, sold, traded")
+
+        amount_raw = payload.get("amountCents")
+        if isinstance(amount_raw, bool) or not isinstance(amount_raw, int):
+            raise ValueError("amountCents must be an integer")
+        amount_cents = int(amount_raw)
+        if amount_cents < 0:
+            raise ValueError("amountCents must be non-negative")
+
+        currency_code = str(payload.get("currencyCode") or "").strip() or "USD"
+        note = str(payload.get("note") or "").strip() or None
+
+        occurred_at = str(payload.get("occurredAt") or "").strip()
+        if not occurred_at:
+            raise ValueError("occurredAt is required")
+
+        # A present-but-invalid photo object is an error; a missing/null photo is allowed.
+        photo_bytes, photo_width, photo_height = self._decode_scan_image_payload(
+            payload, field_name="photo", optional=True
+        )
+
+        partition_datetime = self._coerce_utc_datetime(occurred_at) or datetime.now(timezone.utc)
+        year = f"{partition_datetime.year:04d}"
+        month = f"{partition_datetime.month:02d}"
+        day = f"{partition_datetime.day:02d}"
+
+        transaction_id = f"card-transaction:{uuid.uuid4().hex}"
+        created_at = utc_now()
+
+        photo_object_path: str | None = None
+        photo_upload_status: str | None = None
+        photo_uploaded_at: str | None = None
+        if photo_bytes is not None:
+            try:
+                photo_object_path = self.artifact_store.store_transaction_photo(
+                    transaction_id=transaction_id,
+                    photo_bytes=photo_bytes,
+                    year=year,
+                    month=month,
+                    day=day,
                 )
-                VALUES (?, ?, ?, ?, ?, ?)
-                ON CONFLICT(owner_user_id) DO UPDATE SET
-                    venmo_handle = excluded.venmo_handle,
-                    cashapp_handle = excluded.cashapp_handle,
-                    paypal_me_slug = excluded.paypal_me_slug,
-                    zelle_email_or_phone = excluded.zelle_email_or_phone,
-                    updated_at = excluded.updated_at
-                """,
-                (
-                    owner_user_id,
-                    venmo_handle,
-                    cashapp_handle,
-                    paypal_me_slug,
-                    zelle_email_or_phone,
-                    now,
-                ),
+                photo_upload_status = "uploaded"
+                photo_uploaded_at = created_at
+            except Exception as exc:  # noqa: BLE001 - never lose the transaction on a photo write failure
+                self._emit_structured_log(
+                    {
+                        "severity": "WARNING",
+                        "event": "card_transaction_photo_write_failed",
+                        "transactionID": transaction_id,
+                        "error": str(exc),
+                    }
+                )
+                photo_object_path = None
+                photo_upload_status = "failed"
+                photo_uploaded_at = None
+                photo_width = None
+                photo_height = None
+
+        try:
+            insert_card_transaction(
+                self.connection,
+                transaction_id=transaction_id,
+                owner_user_id=owner_user_id,
+                kind=kind,
+                amount_cents=amount_cents,
+                currency_code=currency_code,
+                occurred_at=occurred_at,
+                note=note,
+                photo_object_path=photo_object_path,
+                photo_upload_status=photo_upload_status,
+                photo_uploaded_at=photo_uploaded_at,
+                photo_width=photo_width,
+                photo_height=photo_height,
+                created_at=created_at,
             )
             self.connection.commit()
         except Exception:
             self.connection.rollback()
             raise
+
+        row = get_card_transaction(
+            self.connection, transaction_id=transaction_id, owner_user_id=owner_user_id
+        )
+        if row is None:  # pragma: no cover - just inserted
+            raise RuntimeError("card transaction not found after insert")
+        return self._card_transaction_row_to_payload(row)
+
+    def list_card_transactions(
+        self, *, limit: int = 100, offset: int = 0, kind: str | None = None
+    ) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        normalized_limit = max(1, min(int(limit), 500))
+        normalized_offset = max(0, int(offset))
+        normalized_kind = str(kind or "").strip().lower() or None
+        if normalized_kind is not None and normalized_kind not in self._CARD_TRANSACTION_KINDS:
+            raise ValueError("kind must be one of bought, sold, traded")
+        rows = list_card_transactions(
+            self.connection,
+            owner_user_id=owner_user_id,
+            kind=normalized_kind,
+            limit=normalized_limit,
+            offset=normalized_offset,
+        )
+        transactions = [self._card_transaction_row_to_payload(row) for row in rows]
         return {
-            "venmoHandle": venmo_handle,
-            "cashappHandle": cashapp_handle,
-            "paypalMeSlug": paypal_me_slug,
-            "zelleEmailOrPhone": zelle_email_or_phone,
-            "updatedAt": now,
+            "transactions": transactions,
+            "count": len(transactions),
+            "limit": normalized_limit,
+            "offset": normalized_offset,
         }
+
+    def card_transaction_photo_object_path(self, transaction_id: str) -> str | None:
+        owner_user_id = self._current_owner_user_id()
+        normalized_id = str(transaction_id or "").strip()
+        if not normalized_id:
+            return None
+        row = get_card_transaction(
+            self.connection, transaction_id=normalized_id, owner_user_id=owner_user_id
+        )
+        if row is None:
+            return None
+        if str(row.get("photo_upload_status") or "").strip() != "uploaded":
+            return None
+        return str(row.get("photo_object_path") or "").strip() or None
+
+    def delete_card_transaction(self, transaction_id: str) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        normalized_id = str(transaction_id or "").strip()
+        if not normalized_id:
+            raise ValueError("transactionID is required")
+        row = get_card_transaction(
+            self.connection, transaction_id=normalized_id, owner_user_id=owner_user_id
+        )
+        if row is None:
+            raise FileNotFoundError("transaction not found")
+        object_path = str(row.get("photo_object_path") or "").strip() or None
+        try:
+            deleted = delete_card_transaction(
+                self.connection, transaction_id=normalized_id, owner_user_id=owner_user_id
+            )
+            self.connection.commit()
+        except Exception:
+            self.connection.rollback()
+            raise
+        if not deleted:
+            raise FileNotFoundError("transaction not found")
+        # Best-effort object delete; never fail the request if the blob is gone.
+        if object_path:
+            deleter = getattr(self.artifact_store, "delete_object", None)
+            if callable(deleter):
+                try:
+                    deleter(object_path)
+                except Exception:  # noqa: BLE001 - best-effort
+                    pass
+        return {"deleted": True, "id": normalized_id}
 
     @staticmethod
     def _should_use_scrydex_japanese_raw(evidence: RawEvidence) -> bool:
@@ -6028,6 +5977,35 @@ class SpotlightScanService:
             pending.append(item)
         return pending
 
+    @staticmethod
+    def _review_card_id(card: object) -> str:
+        if not isinstance(card, dict):
+            return ""
+        return str(card.get("card_id") or card.get("cardId") or card.get("id") or "").strip()
+
+    def _review_image_map(self, card_ids: list[str]) -> dict[str, str]:
+        """card_id -> catalog image URL (small preferred). Scrydex image URLs
+        are public CDN links, so reviewers' browsers load them directly — no
+        auth proxy needed (unlike the private scan capture)."""
+        unique = {cid for cid in card_ids if cid}
+        if not unique:
+            return {}
+        out: dict[str, str] = {}
+        for card_id, card in cards_by_ids(self.connection, sorted(unique)).items():
+            url = str(card.get("imageSmallURL") or card.get("imageURL") or "").strip()
+            if url:
+                out[str(card_id)] = url
+        return out
+
+    def _review_with_image(self, card: object, image_map: dict[str, str]) -> object:
+        """Attach a catalog image URL to a candidate / ai_label / predicted dict."""
+        if not isinstance(card, dict):
+            return card
+        url = image_map.get(self._review_card_id(card))
+        if not url:
+            return card
+        return {**card, "image": url}
+
     def review_queue(
         self, queue_id: str, reviewer_user_id: str, *, limit: int = REVIEW_QUEUE_DEFAULT_LIMIT
     ) -> dict[str, Any]:
@@ -6038,16 +6016,25 @@ class SpotlightScanService:
         items: list[dict[str, Any]] = []
         for item in selected:
             scan_id = str(item.get("scan_id") or "").strip()
+            predicted = item.get("predicted")
+            candidates = item.get("candidates") or []
+            ai_label = item.get("ai_label")
+            # Resolve catalog thumbnails for the prediction, every candidate, and
+            # the AI pick so reviewers can eyeball the card art when choosing.
+            card_ids = [self._review_card_id(predicted)]
+            card_ids += [self._review_card_id(c) for c in candidates]
+            card_ids.append(self._review_card_id(ai_label))
+            image_map = self._review_image_map(card_ids)
             items.append(
                 {
                     "scan_id": scan_id,
-                    "predicted": item.get("predicted"),
-                    "candidates": item.get("candidates") or [],
+                    "predicted": self._review_with_image(predicted, image_map),
+                    "candidates": [self._review_with_image(c, image_map) for c in candidates],
                     # The AI's own determination for this scan (card_id + display
-                    # name/tier/source, or {disposition:"unsure"}). Surfaced so
-                    # reviewers see what the model guessed and we can measure AI
-                    # accuracy across the full set. May be absent on older queues.
-                    "ai_label": item.get("ai_label"),
+                    # name/tier/source/image, or {disposition:"unsure"}). Surfaced
+                    # so reviewers see (and can one-tap pick) the model's guess and
+                    # we can measure AI accuracy. May be absent on older queues.
+                    "ai_label": self._review_with_image(ai_label, image_map),
                     "image_url": f"/api/v1/review/image/{scan_id}?queue={safe_id}",
                 }
             )
@@ -11865,20 +11852,6 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, payload)
             return
 
-        if parsed.path == "/api/v1/vendor/wallet-handles":
-            identity = self._require_request_identity()
-            if identity is None:
-                return
-            try:
-                with self.service.request_identity_context(identity):
-                    wallet_payload = self.service.vendor_wallet_handles()
-            except Exception as error:
-                traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Wallet handles fetch failed: {error}"})
-                return
-            self._write_json(HTTPStatus.OK, wallet_payload)
-            return
-
         if parsed.path == "/api/v1/vendor/show-summary":
             identity = self._require_request_identity()
             if identity is None:
@@ -11900,6 +11873,71 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Show summary failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, summary_payload)
+            return
+
+        if parsed.path == "/api/v1/card-transactions":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            try:
+                limit = int(query.get("limit", ["100"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
+                return
+            kind_value = query.get("kind", [""])[0].strip() or None
+            try:
+                with self.service.request_identity_context(identity):
+                    list_payload = self.service.list_card_transactions(
+                        limit=limit, offset=offset, kind=kind_value
+                    )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Card transactions load failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, list_payload)
+            return
+
+        if parsed.path.startswith("/api/v1/card-transactions/") and parsed.path.endswith("/photo"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            transaction_id = unquote(
+                parsed.path.removeprefix("/api/v1/card-transactions/").removesuffix("/photo").strip("/")
+            )
+            if not transaction_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    object_path = self.service.card_transaction_photo_object_path(transaction_id)
+                    if not object_path:
+                        self._write_json(
+                            HTTPStatus.NOT_FOUND, {"error": "Transaction photo not found"}
+                        )
+                        return
+                    image_bytes = self.service.read_scan_object_bytes(object_path)
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Transaction photo load failed: {error}"},
+                )
+                return
+            if not image_bytes:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Transaction photo not found"})
+                return
+            self._write_image(HTTPStatus.OK, image_bytes)
             return
 
         if parsed.path == "/api/v1/portfolio/insights":
@@ -12656,73 +12694,24 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.OK, sale_payload)
             return
 
-        if parsed.path.startswith("/api/v1/sales/") and parsed.path.endswith("/mark-paid"):
-            identity = self._require_request_identity()
-            if identity is None:
-                return
-            sale_id = unquote(
-                parsed.path.removeprefix("/api/v1/sales/").removesuffix("/mark-paid").strip("/")
-            )
-            if not sale_id:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "saleID is required"})
-                return
-            try:
-                with self.service.request_identity_context(identity):
-                    sale_payload = self.service.mark_sale_paid(sale_id, payload)
-            except ValueError as error:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
-                return
-            except FileNotFoundError as error:
-                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
-                return
-            except Exception as error:
-                traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Mark sale paid failed: {error}"})
-                return
-            self._write_json(HTTPStatus.OK, sale_payload)
-            return
-
-        if parsed.path.startswith("/api/v1/sales/") and parsed.path.endswith("/void"):
-            identity = self._require_request_identity()
-            if identity is None:
-                return
-            sale_id = unquote(
-                parsed.path.removeprefix("/api/v1/sales/").removesuffix("/void").strip("/")
-            )
-            if not sale_id:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "saleID is required"})
-                return
-            try:
-                with self.service.request_identity_context(identity):
-                    sale_payload = self.service.void_sale(sale_id)
-            except ValueError as error:
-                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
-                return
-            except FileNotFoundError as error:
-                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
-                return
-            except Exception as error:
-                traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Void sale failed: {error}"})
-                return
-            self._write_json(HTTPStatus.OK, sale_payload)
-            return
-
-        if parsed.path == "/api/v1/vendor/wallet-handles":
+        if parsed.path == "/api/v1/card-transactions":
             identity = self._require_request_identity()
             if identity is None:
                 return
             try:
                 with self.service.request_identity_context(identity):
-                    wallet_payload = self.service.update_vendor_wallet_handles(payload)
+                    transaction_payload = self.service.create_card_transaction(payload)
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
                 return
             except Exception as error:
                 traceback.print_exc()
-                self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Wallet handles update failed: {error}"})
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Card transaction create failed: {error}"},
+                )
                 return
-            self._write_json(HTTPStatus.OK, wallet_payload)
+            self._write_json(HTTPStatus.CREATED, transaction_payload)
             return
 
         if parsed.path.startswith("/api/v1/portfolio/sales/") and parsed.path.endswith("/price"):
@@ -13065,6 +13054,43 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Listing update failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, update_payload)
+            return
+
+        self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+
+    def do_DELETE(self) -> None:
+        parsed = urlparse(self.path)
+
+        if (
+            parsed.path.startswith("/api/v1/card-transactions/")
+            and not parsed.path.endswith("/photo")
+        ):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            transaction_id = unquote(
+                parsed.path.removeprefix("/api/v1/card-transactions/").strip("/")
+            )
+            if not transaction_id or "/" in transaction_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    delete_payload = self.service.delete_card_transaction(transaction_id)
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Card transaction delete failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, delete_payload)
             return
 
         self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})

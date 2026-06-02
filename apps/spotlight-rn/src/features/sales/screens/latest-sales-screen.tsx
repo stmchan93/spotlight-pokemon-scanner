@@ -11,32 +11,31 @@ import { Menu as MenuIcon } from 'iconoir-react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import type { RecentSaleRecord } from '@spotlight/api-client';
+import type { CardTransactionKind, CardTransactionRecord } from '@spotlight/api-client';
 import {
   SearchField,
+  SegmentedControl,
   StateCard,
   colors,
   textStyles,
   useSpotlightTheme,
+  type SegmentedControlItem,
 } from '@spotlight/design-system';
 
-import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
-import { SalePriceEditSheet } from '@/features/portfolio/components/sale-price-edit-sheet';
-import { SaleSummaryRow } from '@/features/sales/components/sale-summary-row';
-import { SalesStatTileRow } from '@/features/sales/components/sales-stat-tile-row';
-import {
-  SalesFilterChipRow,
-  type SalesFilterKey,
-} from '@/features/sales/components/sales-filter-chip-row';
-import {
-  formatEditableSellPrice,
-  parseSellPrice,
-  sanitizeSellPriceText,
-} from '@/features/sell/sell-order-helpers';
+import { TransactionRow } from '@/features/sales/components/transaction-row';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
+
+type TransactionFilterKey = 'all' | CardTransactionKind;
+
+const filterItems: readonly SegmentedControlItem<TransactionFilterKey>[] = [
+  { label: 'All', value: 'all' },
+  { label: 'Bought', value: 'bought' },
+  { label: 'Sold', value: 'sold' },
+  { label: 'Traded', value: 'traded' },
+];
 
 function LatestSalesSkeleton() {
   const theme = useSpotlightTheme();
@@ -55,7 +54,6 @@ function LatestSalesSkeleton() {
             <View style={styles.skeletonTextColumn}>
               <View style={[styles.skeletonLineWide, { backgroundColor: theme.colors.outlineSubtle }]} />
               <View style={[styles.skeletonLineMedium, { backgroundColor: theme.colors.outlineSubtle }]} />
-              <View style={[styles.skeletonLineNarrow, { backgroundColor: theme.colors.outlineSubtle }]} />
             </View>
           </View>
         </View>
@@ -71,50 +69,21 @@ export function LatestSalesScreen() {
   const { spotlightRepository, dataVersion } = useAppServices();
   const { openDrawer } = useAppDrawer();
 
-  const [sales, setSales] = useState<RecentSaleRecord[]>([]);
+  const [transactions, setTransactions] = useState<CardTransactionRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [hasLoaded, setHasLoaded] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [editingSaleId, setEditingSaleId] = useState<string | null>(null);
-  const [editingSalePriceText, setEditingSalePriceText] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
-  const [activeFilter, setActiveFilter] = useState<SalesFilterKey>('all');
+  const [activeFilter, setActiveFilter] = useState<TransactionFilterKey>('all');
 
-  const editingSale = sales.find((sale) => sale.id === editingSaleId && sale.kind === 'sold') ?? null;
-  const parsedEditingSalePrice = parseSellPrice(editingSalePriceText);
-  const canConfirmSalePriceEdit = editingSale !== null && parsedEditingSalePrice != null;
-
-  const openSaleEditor = useCallback((sale: RecentSaleRecord) => {
-    if (sale.kind !== 'sold') return;
-    setEditingSaleId(sale.id);
-    setEditingSalePriceText(formatEditableSellPrice(sale.soldPrice));
-  }, []);
-
-  const closeSaleEditor = useCallback(() => {
-    setEditingSaleId(null);
-    setEditingSalePriceText('');
-  }, []);
-
-  const updateEditingSalePriceText = useCallback((value: string) => {
-    setEditingSalePriceText(sanitizeSellPriceText(value));
-  }, []);
-
-  const confirmSalePriceEdit = useCallback(() => {
-    if (!editingSaleId || parsedEditingSalePrice == null) return;
-    setSales((prev) => prev.map((sale) => (
-      sale.id === editingSaleId ? { ...sale, soldPrice: parsedEditingSalePrice } : sale
-    )));
-    closeSaleEditor();
-  }, [closeSaleEditor, editingSaleId, parsedEditingSalePrice]);
-
-  const loadSales = useCallback(async () => {
-    const loadResult = await spotlightRepository.loadPortfolioDashboard();
-    if (loadResult.data && loadResult.state !== 'error') {
-      setSales(loadResult.data.recentSales);
+  const loadTransactions = useCallback(async () => {
+    try {
+      const records = await spotlightRepository.listCardTransactions();
+      setTransactions(records);
       setLoadError(null);
-    } else {
-      setLoadError(loadResult.state === 'error' ? loadResult.errorMessage : null);
+    } catch {
+      setLoadError('Please try again once your backend is reachable.');
     }
     setHasLoaded(true);
   }, [spotlightRepository]);
@@ -123,7 +92,7 @@ export function LatestSalesScreen() {
     let cancelled = false;
     setIsLoading(true);
     void (async () => {
-      await loadSales();
+      await loadTransactions();
       if (!cancelled) {
         setIsLoading(false);
       }
@@ -132,16 +101,16 @@ export function LatestSalesScreen() {
     return () => {
       cancelled = true;
     };
-  }, [dataVersion, loadSales]);
+  }, [dataVersion, loadTransactions]);
 
   const handleRefresh = useCallback(async () => {
     setIsRefreshing(true);
     try {
-      await loadSales();
+      await loadTransactions();
     } finally {
       setIsRefreshing(false);
     }
-  }, [loadSales]);
+  }, [loadTransactions]);
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -149,58 +118,31 @@ export function LatestSalesScreen() {
     + Math.max(insets.bottom - 8, 0);
 
   const showInitialSkeleton = isLoading && !hasLoaded;
-  const showInitialError = !isLoading && !isRefreshing && loadError !== null && sales.length === 0;
-  const showEmptyState = !isLoading && !isRefreshing && loadError === null && sales.length === 0;
+  const showInitialError = !isLoading && !isRefreshing && loadError !== null && transactions.length === 0;
+  const showEmptyState = !isLoading && !isRefreshing && loadError === null && transactions.length === 0;
 
-  const aggregates = useMemo(() => {
-    const totalCount = sales.length;
-    const totalValue = sales.reduce(
-      (sum, sale) => sum + sale.soldPrice * (sale.quantity ?? 1),
-      0,
-    );
-    return {
-      totalCountLabel: new Intl.NumberFormat('en-US').format(totalCount),
-      totalValueLabel: formatCurrency(totalValue),
-    };
-  }, [sales]);
-
-  const visibleSales = useMemo(() => {
+  const visibleTransactions = useMemo(() => {
     const normalizedQuery = searchQuery.trim().toLowerCase();
     const searched = normalizedQuery
-      ? sales.filter((sale) => {
-          const haystack = [sale.name, sale.setName, sale.cardNumber]
+      ? transactions.filter((transaction) => {
+          const haystack = [
+            transaction.note,
+            transaction.kind,
+            (transaction.amountCents / 100).toFixed(2),
+          ]
             .filter(Boolean)
             .join(' ')
             .toLowerCase();
           return haystack.includes(normalizedQuery);
         })
-      : sales;
+      : transactions;
 
-    switch (activeFilter) {
-      case 'az':
-        return [...searched].sort((a, b) => a.name.localeCompare(b.name));
-      case 'date':
-        return [...searched].sort((a, b) => b.soldAtISO.localeCompare(a.soldAtISO));
-      case 'ungraded':
-        return searched.filter((sale) => {
-          const label = sale.qualityLabel?.toLowerCase() ?? '';
-          // raw conditions don't include grader prefixes like "PSA"/"BGS"/"SGC"
-          return !/(psa|bgs|sgc|cgc)\b/.test(label);
-        });
-      case 'graded':
-        return searched.filter((sale) => {
-          const label = sale.qualityLabel?.toLowerCase() ?? '';
-          return /(psa|bgs|sgc|cgc)\b/.test(label);
-        });
-      case 'pokemon':
-        // No TCG field on RecentSaleRecord today — chip is aspirational
-        // until multi-TCG lands. Pass-through.
-        return searched;
-      case 'all':
-      default:
-        return searched;
+    if (activeFilter === 'all') {
+      return searched;
     }
-  }, [activeFilter, sales, searchQuery]);
+
+    return searched.filter((transaction) => transaction.kind === activeFilter);
+  }, [activeFilter, searchQuery, transactions]);
 
   return (
     <SafeAreaView
@@ -236,7 +178,7 @@ export function LatestSalesScreen() {
           />
         ) : showEmptyState ? (
           <StateCard
-            message="Completed transactions will appear here as soon as you start moving inventory."
+            message="Logged buys, sells, and trades will appear here. Tap + to log your first one."
             style={styles.stateCard}
             title="No transactions yet"
           />
@@ -253,11 +195,6 @@ export function LatestSalesScreen() {
             )}
             testID="latest-sales-scroll"
           >
-            <SalesStatTileRow
-              totalValue={aggregates.totalValueLabel}
-              totalCount={aggregates.totalCountLabel}
-            />
-
             <Text style={salesStyles.sectionTitle} testID="sales-transactions-title">
               Transactions
             </Text>
@@ -277,27 +214,29 @@ export function LatestSalesScreen() {
               />
             </View>
 
-            <SalesFilterChipRow
-              activeFilter={activeFilter}
-              onFilterChange={setActiveFilter}
-            />
+            <View style={salesStyles.filterRow}>
+              <SegmentedControl
+                items={filterItems}
+                onChange={setActiveFilter}
+                testID="sales-kind-filter"
+                value={activeFilter}
+              />
+            </View>
 
-            {visibleSales.length === 0 ? (
+            {visibleTransactions.length === 0 ? (
               <View style={salesStyles.emptyWrap}>
                 <StateCard
-                  message="Try a different search or chip to find this transaction."
+                  message="Try a different search or filter to find this transaction."
                   title="No transactions match"
                 />
               </View>
             ) : (
               <View style={salesStyles.salesList} testID="latest-sales-list">
-                {visibleSales.map((sale) => (
-                  <SaleSummaryRow
-                    key={sale.id}
-                    onPress={sale.kind === 'sold' ? openSaleEditor : undefined}
-                    sale={sale}
-                    showEditAffordance={sale.kind === 'sold'}
-                    testID={`latest-sale-card-${sale.id}`}
+                {visibleTransactions.map((transaction) => (
+                  <TransactionRow
+                    key={transaction.id}
+                    record={transaction}
+                    testID={`latest-transaction-card-${transaction.id}`}
                   />
                 ))}
               </View>
@@ -306,16 +245,7 @@ export function LatestSalesScreen() {
         )}
       </View>
 
-      <SalePriceEditSheet
-        canConfirm={canConfirmSalePriceEdit}
-        onChangePriceText={updateEditingSalePriceText}
-        onClose={closeSaleEditor}
-        onConfirm={confirmSalePriceEdit}
-        priceText={editingSalePriceText}
-        sale={editingSale}
-      />
-
-      <CollectionAddFab />
+      <CollectionAddFab onPress={() => router.push('/card-transactions/new')} />
 
       <AppBottomTabBar />
     </SafeAreaView>
@@ -356,10 +286,10 @@ const salesStyles = StyleSheet.create({
   searchRow: {
     paddingHorizontal: 16,
   },
+  filterRow: {
+    paddingHorizontal: 16,
+  },
   salesList: {
-    // Full-bleed flat rows: each SaleSummaryRow carries its own 16px content
-    // inset + top/bottom hairlines, so no list gutter or row gap here — the
-    // rules stack into one continuous ruled list (matches the collection list).
     gap: 0,
   },
   emptyWrap: {
@@ -409,11 +339,6 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     height: 12,
     width: '58%',
-  },
-  skeletonLineNarrow: {
-    borderRadius: 999,
-    height: 10,
-    width: '42%',
   },
   skeletonLineWide: {
     borderRadius: 999,

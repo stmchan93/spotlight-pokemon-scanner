@@ -4,8 +4,6 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Pressable, Text, TextInput, View } from 'react-native';
 
 import AddToCollectionRoute from '@/app/(sheet)/collection/add/[cardId]';
-import BulkSellRoute from '@/app/(sheet)/sell/batch';
-import SingleSellRoute from '@/app/(sheet)/sell/[entryId]';
 
 import { renderAppRouter } from '../test-utils';
 
@@ -17,36 +15,8 @@ function firstParam(value?: string | string[]) {
   return value;
 }
 
-function listParam(value?: string | string[]) {
-  const rawValues = Array.isArray(value) ? value : value ? [value] : [];
-
-  return [...new Set(
-    rawValues
-      .flatMap((candidate) => candidate.split(','))
-      .map((candidate) => candidate.trim())
-      .filter(Boolean),
-  )];
-}
-
 function InventoryRouteHarness() {
   const router = useRouter();
-  const params = useLocalSearchParams<{
-    mode?: string | string[];
-    selected?: string | string[];
-  }>();
-  const initialMode = firstParam(params.mode) === 'select' ? 'select' : 'browse';
-  const [selectedIds, setSelectedIds] = useState<string[]>(listParam(params.selected));
-
-  const toggleSelection = (entryId: string) => {
-    setSelectedIds((current) => {
-      if (current.includes(entryId)) {
-        return current.filter((candidate) => candidate !== entryId);
-      }
-
-      return [...current, entryId];
-    });
-  };
-
   return (
     <View>
       <Text>All cards</Text>
@@ -55,11 +25,6 @@ function InventoryRouteHarness() {
       </Pressable>
       <Pressable
         onPress={() => {
-          if (initialMode === 'select') {
-            toggleSelection('entry-1');
-            return;
-          }
-
           router.push({
             pathname: '/cards/[cardId]',
             params: {
@@ -74,11 +39,6 @@ function InventoryRouteHarness() {
       </Pressable>
       <Pressable
         onPress={() => {
-          if (initialMode === 'select') {
-            toggleSelection('entry-2');
-            return;
-          }
-
           router.push({
             pathname: '/cards/[cardId]',
             params: {
@@ -91,25 +51,6 @@ function InventoryRouteHarness() {
       >
         <Text>Oshawott</Text>
       </Pressable>
-      {initialMode === 'select' ? (
-        <Pressable
-          onPress={() => {
-            if (selectedIds.length === 0) {
-              return;
-            }
-
-            router.push({
-              pathname: '/sell/batch',
-              params: {
-                entryIds: selectedIds.join(','),
-              },
-            });
-          }}
-          testID="inventory-sell-selected"
-        >
-          <Text>Sell selected</Text>
-        </Pressable>
-      ) : null}
     </View>
   );
 }
@@ -191,19 +132,6 @@ function CardDetailRouteHarness() {
           >
             <Text>EDIT COLLECTION</Text>
           </Pressable>
-          <Pressable
-            onPress={() => {
-              router.push({
-                pathname: '/sell/[entryId]',
-                params: {
-                  entryId,
-                },
-              });
-            }}
-            testID="detail-sell-card"
-          >
-            <Text>SELL CARD</Text>
-          </Pressable>
         </>
       ) : (
         <Pressable
@@ -222,39 +150,6 @@ function CardDetailRouteHarness() {
       )}
     </View>
   );
-}
-
-async function enterSingleSellPriceWithCalculator() {
-  fireEvent.press(screen.getByTestId('single-sell-sold-price'));
-  fireEvent.press(screen.getByTestId('single-sell-calculator-key-1'));
-  fireEvent.press(screen.getByTestId('single-sell-calculator-key-2'));
-  fireEvent.press(screen.getByTestId('single-sell-calculator-key-5'));
-  fireEvent.press(screen.getByTestId('single-sell-calculator-key-÷'));
-  fireEvent.press(screen.getByTestId('single-sell-calculator-key-1'));
-  fireEvent.press(screen.getByTestId('single-sell-calculator-key-0'));
-  fireEvent.press(screen.getByTestId('single-sell-calculator-equals'));
-  fireEvent.press(screen.getByTestId('single-sell-calculator-close'));
-}
-
-async function enterBulkSellPriceWithCalculator() {
-  fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-16'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-1'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-2'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-5'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-÷'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-1'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-key-0'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-equals'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-16-calculator-close'));
-}
-
-async function enterSecondBulkSellPriceWithCalculator() {
-  fireEvent.press(screen.getByTestId('bulk-sell-sold-price-smoke-raw-mcdonalds25-21'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-2'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-×'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-key-3'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-equals'));
-  fireEvent.press(screen.getByTestId('bulk-sell-smoke-raw-mcdonalds25-21-calculator-close'));
 }
 
 describe('route wiring flows', () => {
@@ -352,83 +247,6 @@ describe('route wiring flows', () => {
     await waitFor(() => {
       expect(screen.getByTestId('detail-edit-collection')).toBeTruthy();
       expect(screen.queryByText('Edit Collection')).toBeNull();
-    });
-  });
-
-  it('opens single sell from owned detail and completes the happy path', async () => {
-    jest.useFakeTimers();
-
-    renderAppRouter('/inventory', {
-      'inventory/index': InventoryRouteHarness,
-      'cards/[cardId]': CardDetailRouteHarness,
-      'sell/[entryId]': SingleSellRoute,
-    });
-
-    expect(await screen.findByText('All cards')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('inventory-entry-entry-1'));
-
-    expect(await screen.findByTestId('detail-sell-card')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('detail-sell-card'));
-
-    expect(await screen.findByText('Scorbunny')).toBeTruthy();
-    await enterSingleSellPriceWithCalculator();
-    expect(screen.getByText('$12.5')).toBeTruthy();
-
-    // SWIPE-CONFIRM DISABLED: was triggered via rail accessibility action; using tap button instead
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('single-sell-tap-confirm'));
-    });
-
-    expect(screen.getByText('Processing sale')).toBeTruthy();
-
-    await act(async () => {
-      jest.runAllTimers();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-title')).toBeTruthy();
-    });
-  });
-
-  it('opens batch sell from inventory selection mode and completes the happy path', async () => {
-    jest.useFakeTimers();
-
-    renderAppRouter('/inventory?mode=select&selected=entry-1', {
-      'inventory/index': InventoryRouteHarness,
-      'sell/batch': BulkSellRoute,
-    });
-
-    expect(await screen.findByText('All cards')).toBeTruthy();
-    expect(screen.getByText('Sell selected')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('inventory-entry-entry-2'));
-    fireEvent.press(screen.getByTestId('inventory-sell-selected'));
-
-    expect(await screen.findByText('3 cards selected')).toBeTruthy();
-
-    await enterBulkSellPriceWithCalculator();
-    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
-    expect(screen.queryByText('Review before confirm')).toBeNull();
-
-    await enterSecondBulkSellPriceWithCalculator();
-    fireEvent.press(screen.getByTestId('bulk-sell-review-sale'));
-    expect(await screen.findByText('Review before confirm')).toBeTruthy();
-
-    // SWIPE-CONFIRM DISABLED: was triggered via rail accessibility action; using confirm button instead
-    await act(async () => {
-      fireEvent.press(screen.getByTestId('bulk-sell-confirm-sale'));
-    });
-
-    expect(screen.getByText('Processing sale')).toBeTruthy();
-
-    await act(async () => {
-      jest.runAllTimers();
-    });
-
-    await waitFor(() => {
-      expect(screen.getByTestId('portfolio-header-title')).toBeTruthy();
     });
   });
 });

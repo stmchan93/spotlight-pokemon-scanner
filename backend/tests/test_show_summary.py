@@ -77,17 +77,16 @@ class VendorShowSummaryTests(unittest.TestCase):
         self.assertEqual(summary["totalSales"], 0)
         self.assertEqual(summary["totalRevenue"], 0.0)
         self.assertIsNone(summary["currencyCode"])
-        self.assertEqual(summary["byPaymentMethod"], [])
         self.assertEqual(summary["topCards"], [])
 
-    def test_summary_totals_and_payment_method_breakdown(self) -> None:
+    def test_summary_totals(self) -> None:
         self._insert_card("c-1", "Pikachu")
         self._insert_card("c-2", "Charmander")
         self._insert_card("c-3", "Bulbasaur")
         now = datetime.now(timezone.utc).isoformat()
-        self._quick_sale(card_id="c-1", unit_price=100.0, payment_method="venmo", sold_at=now)
-        self._quick_sale(card_id="c-2", unit_price=50.0, payment_method="cash", sold_at=now)
-        self._quick_sale(card_id="c-3", unit_price=25.0, payment_method=None, sold_at=now)
+        self._quick_sale(card_id="c-1", unit_price=100.0, sold_at=now)
+        self._quick_sale(card_id="c-2", unit_price=50.0, sold_at=now)
+        self._quick_sale(card_id="c-3", unit_price=25.0, sold_at=now)
 
         with self.service.request_identity_context(self._identity()):
             summary = self.service.vendor_show_summary()
@@ -95,12 +94,7 @@ class VendorShowSummaryTests(unittest.TestCase):
         self.assertEqual(summary["totalSales"], 3)
         self.assertEqual(summary["totalRevenue"], 175.0)
         self.assertEqual(summary["currencyCode"], "USD")
-
-        by_method = {bucket["paymentMethod"]: bucket for bucket in summary["byPaymentMethod"]}
-        self.assertEqual(by_method["venmo"]["count"], 1)
-        self.assertEqual(by_method["venmo"]["revenue"], 100.0)
-        self.assertEqual(by_method["cash"]["revenue"], 50.0)
-        self.assertEqual(by_method[None]["revenue"], 25.0)
+        self.assertNotIn("byPaymentMethod", summary)
 
     def test_top_cards_limited_and_sorted_by_revenue_desc(self) -> None:
         for idx in range(5):

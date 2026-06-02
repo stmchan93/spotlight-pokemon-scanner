@@ -4271,6 +4271,109 @@ def upsert_scan_artifact(
     )
 
 
+def insert_card_transaction(
+    connection: sqlite3.Connection,
+    *,
+    transaction_id: str,
+    owner_user_id: str,
+    kind: str,
+    amount_cents: int,
+    currency_code: str,
+    occurred_at: str,
+    note: str | None = None,
+    photo_object_path: str | None = None,
+    photo_upload_status: str | None = None,
+    photo_uploaded_at: str | None = None,
+    photo_width: int | None = None,
+    photo_height: int | None = None,
+    created_at: str | None = None,
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO card_transactions (
+            id, owner_user_id, kind, amount_cents, currency_code, note,
+            photo_object_path, photo_upload_status, photo_uploaded_at,
+            photo_width, photo_height, occurred_at, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            transaction_id,
+            owner_user_id,
+            kind,
+            amount_cents,
+            currency_code,
+            note,
+            photo_object_path,
+            photo_upload_status,
+            photo_uploaded_at,
+            photo_width,
+            photo_height,
+            occurred_at,
+            created_at or utc_now(),
+        ),
+    )
+
+
+def list_card_transactions(
+    connection: sqlite3.Connection,
+    *,
+    owner_user_id: str,
+    kind: str | None = None,
+    limit: int | None = None,
+    offset: int = 0,
+) -> list[dict[str, Any]]:
+    clauses = ["owner_user_id = ?"]
+    params: list[Any] = [owner_user_id]
+    if kind:
+        clauses.append("kind = ?")
+        params.append(kind)
+    where = " AND ".join(clauses)
+    sql = (
+        "SELECT id, owner_user_id, kind, amount_cents, currency_code, note, "
+        "photo_object_path, photo_upload_status, photo_uploaded_at, "
+        "photo_width, photo_height, occurred_at, created_at "
+        f"FROM card_transactions WHERE {where} "
+        "ORDER BY occurred_at DESC, id DESC"
+    )
+    if limit is not None:
+        sql += " LIMIT ? OFFSET ?"
+        params.extend([int(limit), int(offset)])
+    rows = connection.execute(sql, tuple(params)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_card_transaction(
+    connection: sqlite3.Connection,
+    *,
+    transaction_id: str,
+    owner_user_id: str,
+) -> dict[str, Any] | None:
+    row = connection.execute(
+        "SELECT id, owner_user_id, kind, amount_cents, currency_code, note, "
+        "photo_object_path, photo_upload_status, photo_uploaded_at, "
+        "photo_width, photo_height, occurred_at, created_at "
+        "FROM card_transactions WHERE id = ? AND owner_user_id = ?",
+        (transaction_id, owner_user_id),
+    ).fetchone()
+    if row is None:
+        return None
+    return dict(row)
+
+
+def delete_card_transaction(
+    connection: sqlite3.Connection,
+    *,
+    transaction_id: str,
+    owner_user_id: str,
+) -> bool:
+    cursor = connection.execute(
+        "DELETE FROM card_transactions WHERE id = ? AND owner_user_id = ?",
+        (transaction_id, owner_user_id),
+    )
+    return cursor.rowcount > 0
+
+
 def deck_entry_storage_key(
     *,
     card_id: str,

@@ -187,8 +187,7 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByTestId('detail-condition-dropdown-option-normal|LP')).toBeTruthy();
   });
 
-  it('shows quantity stepper + Sell button for owned cards and routes increment/edit/sell correctly', async () => {
-    const onOpenSell = jest.fn();
+  it('shows quantity stepper for owned cards and routes increment/edit correctly', async () => {
     const onOpenAddToCollection = jest.fn();
 
     renderWithProviders(
@@ -197,7 +196,6 @@ describe('CardDetailScreen', () => {
         entryId="entry-3"
         onBack={jest.fn()}
         onOpenAddToCollection={onOpenAddToCollection}
-        onOpenSell={onOpenSell}
       />,
     );
 
@@ -205,13 +203,11 @@ describe('CardDetailScreen', () => {
     expect(screen.getByTestId('detail-quantity-stepper')).toBeTruthy();
     expect(screen.getByTestId('detail-quantity-increment')).toBeTruthy();
     expect(screen.getByTestId('detail-edit-collection-entry')).toBeTruthy();
-    expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
-    expect(screen.getByTestId('detail-sticky-sell-footer')).toBeTruthy();
+    // Selling is decoupled from a card now; no sell footer here.
+    expect(screen.queryByTestId('detail-sell-card')).toBeNull();
+    expect(screen.queryByTestId('detail-sticky-sell-footer')).toBeNull();
     // The standalone Add icon is hidden when owned — stepper handles add-another via `+`.
     expect(screen.queryByTestId('detail-add-to-collection')).toBeNull();
-
-    fireEvent.press(screen.getByTestId('detail-sell-card'));
-    expect(onOpenSell).toHaveBeenCalledWith('entry-3');
 
     fireEvent.press(screen.getByTestId('detail-quantity-increment'));
     expect(onOpenAddToCollection).toHaveBeenLastCalledWith('xyp-111', undefined);
@@ -409,20 +405,19 @@ describe('CardDetailScreen', () => {
     });
   });
 
-  it('shows the Add to collection button (no stepper) and Sell button when the card is not owned', async () => {
+  it('shows the Add to collection button (no stepper, no sell) when the card is not owned', async () => {
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
       />,
     );
 
     expect(await screen.findByText('Treecko')).toBeTruthy();
     expect(screen.getByTestId('detail-add-to-collection')).toBeTruthy();
     expect(screen.queryByTestId('detail-quantity-stepper')).toBeNull();
-    expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
+    expect(screen.queryByTestId('detail-sell-card')).toBeNull();
     expect(screen.queryByTestId('detail-edit-collection-entry')).toBeNull();
     expect(screen.queryByTestId('detail-hero-raw-inventory')).toBeNull();
     expect(screen.queryByTestId('detail-hero-slab-cert-quantity')).toBeNull();
@@ -724,7 +719,6 @@ describe('CardDetailScreen', () => {
         entryId="graded-treecko-entry"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({
@@ -827,7 +821,6 @@ describe('CardDetailScreen', () => {
         entryId="graded-load-more-entry"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({
@@ -904,7 +897,6 @@ describe('CardDetailScreen', () => {
         entryId="graded-empty-sales-entry"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({
@@ -938,7 +930,6 @@ describe('CardDetailScreen', () => {
         entryId="entry-3"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({
@@ -1008,7 +999,6 @@ describe('CardDetailScreen', () => {
         entryId="graded-open-entry"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({
@@ -1086,7 +1076,6 @@ describe('CardDetailScreen', () => {
         cardId="base1-4"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
         scanReviewId={scanReviewId}
       />,
       {
@@ -1180,7 +1169,6 @@ describe('CardDetailScreen', () => {
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
         onOpenScanCandidateReview={onOpenScanCandidateReview}
-        onOpenSell={jest.fn()}
         scanReviewId={scanReviewId}
       />,
     );
@@ -1240,7 +1228,6 @@ describe('CardDetailScreen', () => {
         entryId="entry-2"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
         scanReviewId={scanReviewId}
       />,
       { spotlightRepository: repository },
@@ -1336,7 +1323,6 @@ describe('CardDetailScreen', () => {
         entryId="owned-preview-entry"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
         previewId={previewId}
       />,
       {
@@ -1351,7 +1337,7 @@ describe('CardDetailScreen', () => {
     expect(screen.queryByText('Loading card...')).toBeNull();
     expect(screen.getByText('Preview Oshawott')).toBeTruthy();
     expect(screen.getByText('#021/025 • McDonald\'s Collection 2021')).toBeTruthy();
-    expect(screen.getByTestId('detail-sell-card')).toBeTruthy();
+    expect(screen.queryByTestId('detail-sell-card')).toBeNull();
     expect(screen.getAllByText('$56.78').length).toBeGreaterThan(0);
   });
 
@@ -1403,7 +1389,6 @@ describe('CardDetailScreen', () => {
         entryId="graded-no-tcgplayer-entry"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenSell={jest.fn()}
       />,
       {
         spotlightRepository: createTestSpotlightRepository({

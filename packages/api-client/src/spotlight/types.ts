@@ -676,6 +676,31 @@ export type PortfolioSaleRequestPayload = {
   sourceScanID: string | null;
 };
 
+export type CardTransactionKind = 'bought' | 'sold' | 'traded';
+
+export type CardTransactionPhotoUpload = { jpegBase64: string; width: number; height: number };
+
+export type CreateCardTransactionPayload = {
+  kind: CardTransactionKind;
+  amountCents: number;
+  currencyCode: string;
+  occurredAt: string;
+  note: string | null;
+  photo: CardTransactionPhotoUpload | null;
+};
+
+export type CardTransactionRecord = {
+  id: string;
+  kind: CardTransactionKind;
+  amountCents: number;
+  currencyCode: string;
+  occurredAt: string;
+  occurredAtLabel?: string | null;
+  note: string | null;
+  photoUrl: string | null;
+  createdAt?: string | null;
+};
+
 export type SaleStatus = 'paid' | 'pending' | 'voided';
 
 export type PaymentMethod = 'cash' | 'venmo' | 'cashapp' | 'paypal' | 'zelle' | 'other';

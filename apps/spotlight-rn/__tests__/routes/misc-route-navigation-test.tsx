@@ -118,7 +118,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
     onBack,
     onOpenAddToCollection,
     onOpenScanCandidateReview,
-    onOpenSell,
     previewId,
     scanReviewId,
   }: {
@@ -127,7 +126,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
     onBack: () => void;
     onOpenAddToCollection: (nextCardId: string, nextEntryId?: string) => void;
     onOpenScanCandidateReview: (nextScanReviewId: string) => void;
-    onOpenSell: (entryId: string) => void;
     previewId?: string;
     scanReviewId?: string;
   }) => {
@@ -141,7 +139,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
         <Pressable onPress={onBack} testID="card-detail-back" />
         <Pressable onPress={() => onOpenAddToCollection(cardId, entryId)} testID="card-detail-add" />
         <Pressable onPress={() => onOpenScanCandidateReview('scan-review-1')} testID="card-detail-review" />
-        <Pressable onPress={() => onOpenSell(entryId ?? 'entry-1')} testID="card-detail-sell" />
       </>
     );
   },
@@ -161,26 +158,16 @@ jest.mock('@/features/design-system/screens/design-system-catalog-screen', () =>
 
 jest.mock('@/features/inventory/screens/inventory-browser-screen', () => ({
   InventoryBrowserScreen: ({
-    initialMode,
-    initialSelectedIds,
     onBack,
-    onOpenBulkSell,
     onOpenEntry,
   }: {
-    initialMode: string;
-    initialSelectedIds: string[];
     onBack: () => void;
-    onOpenBulkSell: (entryIds: string[]) => void;
     onOpenEntry: (entry: { cardId: string; id: string }) => void;
   }) => {
-    const { Pressable, Text } = require('react-native');
+    const { Pressable } = require('react-native');
     return (
       <>
-        <Text testID="inventory-initial-mode">{initialMode}</Text>
-        <Text testID="inventory-selected">{initialSelectedIds.join(',')}</Text>
         <Pressable onPress={onBack} testID="inventory-back" />
-        <Pressable onPress={() => onOpenBulkSell([])} testID="inventory-open-empty-bulk" />
-        <Pressable onPress={() => onOpenBulkSell(['entry-1', 'entry-2'])} testID="inventory-open-bulk" />
         <Pressable onPress={() => onOpenEntry({ cardId: 'base1-4', id: 'entry-1' })} testID="inventory-open-entry" />
       </>
     );
@@ -227,34 +214,12 @@ jest.mock('@/features/portfolio/screens/sales-history-screen', () => ({
   },
 }));
 
-jest.mock('@/features/sell/screens/single-sell-screen', () => ({
-  SingleSellScreen: ({
-    entryId,
-    onClose,
-    onComplete,
-  }: {
-    entryId: string;
-    onClose: () => void;
-    onComplete: () => void;
-  }) => {
-    const { Pressable, Text } = require('react-native');
-    return (
-      <>
-        <Text testID="single-sell-entry">{entryId}</Text>
-        <Pressable onPress={onClose} testID="single-sell-close" />
-        <Pressable onPress={onComplete} testID="single-sell-complete" />
-      </>
-    );
-  },
-}));
-
 import AccountImportRoute from '@/app/(modal)/account/import';
 import ModalLayout from '@/app/(modal)/_layout';
 import AccountRoute from '@/app/(modal)/account';
 import CatalogSearchRoute from '@/app/(sheet)/catalog/search';
 import SheetLayout from '@/app/(sheet)/_layout';
 import AddToCollectionRoute from '@/app/(sheet)/collection/add/[cardId]';
-import SingleSellRoute from '@/app/(sheet)/sell/[entryId]';
 import BrowseStackLayout from '@/app/(stack)/_layout';
 import CardDetailRoute from '@/app/(stack)/cards/[cardId]';
 import DesignSystemRoute from '@/app/(stack)/design-system';
@@ -367,30 +332,11 @@ describe('misc route wrappers', () => {
     );
   });
 
-  it('parses inventory route params and opens bulk sell and card detail routes', () => {
-    mockUseLocalSearchParams.mockReturnValue({
-      mode: ['select'],
-      selected: ['entry-1,entry-2', 'entry-1'],
-    });
-
+  it('wires inventory back and card detail navigation', () => {
     render(<InventoryRoute />);
-
-    expect(screen.getByTestId('inventory-initial-mode').props.children).toBe('select');
-    expect(screen.getByTestId('inventory-selected').props.children).toBe('entry-1,entry-2');
 
     fireEvent.press(screen.getByTestId('inventory-back'));
     expect(mockBack).toHaveBeenCalledTimes(1);
-
-    fireEvent.press(screen.getByTestId('inventory-open-empty-bulk'));
-    expect(mockPush).not.toHaveBeenCalled();
-
-    fireEvent.press(screen.getByTestId('inventory-open-bulk'));
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/sell/batch',
-      params: {
-        entryIds: 'entry-1,entry-2',
-      },
-    });
 
     fireEvent.press(screen.getByTestId('inventory-open-entry'));
     expect(mockSaveInventoryPreview).toHaveBeenCalledTimes(1);
@@ -420,23 +366,6 @@ describe('misc route wrappers', () => {
     expect(mockBack).toHaveBeenCalled();
   });
 
-  it('returns null for single-sell when entryId is missing and wires close and complete actions', () => {
-    mockUseLocalSearchParams.mockReturnValue({ entryId: '' });
-    const { rerender } = render(<SingleSellRoute />);
-
-    expect(screen.queryByTestId('single-sell-entry')).toBeNull();
-
-    mockUseLocalSearchParams.mockReturnValue({ entryId: ['entry-7'] });
-    rerender(<SingleSellRoute />);
-
-    expect(screen.getByTestId('single-sell-entry').props.children).toBe('entry-7');
-    fireEvent.press(screen.getByTestId('single-sell-close'));
-    fireEvent.press(screen.getByTestId('single-sell-complete'));
-
-    expect(mockBack).toHaveBeenCalled();
-    expect(mockDismissTo).toHaveBeenCalledWith({ pathname: '/', params: { page: 'portfolio' } });
-  });
-
   it('returns null for card-detail when cardId is missing and wires nested navigation when present', () => {
     mockUseLocalSearchParams.mockReturnValue({ cardId: '' });
     const { rerender } = render(<CardDetailRoute />);
@@ -459,7 +388,6 @@ describe('misc route wrappers', () => {
     fireEvent.press(screen.getByTestId('card-detail-back'));
     fireEvent.press(screen.getByTestId('card-detail-add'));
     fireEvent.press(screen.getByTestId('card-detail-review'));
-    fireEvent.press(screen.getByTestId('card-detail-sell'));
 
     expect(mockBack).toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith({
@@ -474,13 +402,6 @@ describe('misc route wrappers', () => {
       params: {
         cardId: 'base1-4',
         scanReviewId: 'scan-review-1',
-      },
-    });
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/sell/[entryId]',
-      params: {
-        entryId: 'entry-7',
-        cardId: 'base1-4',
       },
     });
   });

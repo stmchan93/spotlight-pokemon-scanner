@@ -12,7 +12,7 @@ REPO_ROOT = BACKEND_ROOT.parent
 if str(BACKEND_ROOT) not in sys.path:
     sys.path.insert(0, str(BACKEND_ROOT))
 
-from catalog_tools import apply_schema, connect  # noqa: E402
+from catalog_tools import apply_schema, connect, upsert_card  # noqa: E402
 from server import SpotlightScanService  # noqa: E402
 
 
@@ -28,6 +28,18 @@ class ReviewQueueAiLabelTests(unittest.TestCase):
         apply_schema(connection, BACKEND_ROOT / "schema.sql")
         connection.close()
         self.service = SpotlightScanService(self.database_path, REPO_ROOT)
+        upsert_card(
+            self.service.connection,
+            card_id="base1-4",
+            name="Charizard",
+            set_name="Base",
+            number="4/102",
+            rarity="Rare Holo",
+            variant="",
+            language="en",
+            image_small_url="https://img.example/base1-4-small.png",
+        )
+        self.service.connection.commit()
 
         queue_path = Path(self.tempdir.name) / "queue.json"
         queue_path.write_text(
@@ -86,6 +98,12 @@ class ReviewQueueAiLabelTests(unittest.TestCase):
         self.assertEqual(confident["ai_label"]["card_id"], "base1-4")
         self.assertEqual(confident["ai_label"]["tier"], "high")
         self.assertTrue(confident["ai_label"]["in_top10"])
+        # Catalog thumbnails are attached to the candidate + the AI pick so
+        # reviewers can eyeball the art.
+        self.assertEqual(
+            confident["candidates"][0]["image"], "https://img.example/base1-4-small.png"
+        )
+        self.assertEqual(confident["ai_label"]["image"], "https://img.example/base1-4-small.png")
 
         unsure = by_id["scan-unsure"]
         self.assertEqual(unsure["ai_label"], {"disposition": "unsure"})

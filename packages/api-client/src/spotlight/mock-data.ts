@@ -2,6 +2,7 @@ import type {
   AddToCollectionOptions,
   CardDetailQuery,
   CardDetailRecord,
+  CardTransactionRecord,
   CatalogSearchResult,
   DeckConditionCode,
   InventoryCardEntry,
@@ -393,6 +394,42 @@ export const mockRecentSales: RecentSaleRecord[] = [
     soldAtLabel: 'Traded on Apr 17, 2026',
     soldAtISO: '2026-04-17T08:15:00.000Z',
     imageUrl: `${cdn}/sv2/232.png`,
+  },
+];
+
+export const mockCardTransactions: CardTransactionRecord[] = [
+  {
+    id: 'txn-1',
+    kind: 'sold',
+    amountCents: 4500,
+    currencyCode: 'USD',
+    occurredAt: '2026-04-21T16:30:00.000Z',
+    occurredAtLabel: 'Sold on Apr 21, 2026',
+    note: null,
+    photoUrl: `${cdn}/mcdonalds25/22.png`,
+    createdAt: '2026-04-21T16:31:00.000Z',
+  },
+  {
+    id: 'txn-2',
+    kind: 'bought',
+    amountCents: 1200,
+    currencyCode: 'USD',
+    occurredAt: '2026-04-20T12:05:00.000Z',
+    occurredAtLabel: 'Bought on Apr 20, 2026',
+    note: 'Pickup from a local show',
+    photoUrl: `${cdn}/mcdonalds25/4.png`,
+    createdAt: '2026-04-20T12:06:00.000Z',
+  },
+  {
+    id: 'txn-3',
+    kind: 'traded',
+    amountCents: 0,
+    currencyCode: 'USD',
+    occurredAt: '2026-04-19T09:15:00.000Z',
+    occurredAtLabel: 'Traded on Apr 19, 2026',
+    note: null,
+    photoUrl: `${cdn}/xyp/XY111.png`,
+    createdAt: '2026-04-19T09:16:00.000Z',
   },
 ];
 
@@ -950,6 +987,10 @@ export function seedMockInventoryEntries() {
 
 export function seedMockRecentSales() {
   return mockRecentSales.map((sale) => ({ ...sale }));
+}
+
+export function seedMockCardTransactions() {
+  return mockCardTransactions.map((transaction) => ({ ...transaction }));
 }
 
 export function seedMockCatalogResults() {
