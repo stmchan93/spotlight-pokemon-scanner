@@ -4,6 +4,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { BottomTabBar, useSpotlightTheme } from '@spotlight/design-system';
 
+import { useTabBarCollapseProgress } from '@/contexts/tab-bar-chrome-context';
+
 export type AppBottomTabKey = 'portfolio' | 'scan' | 'events';
 
 type AppBottomTabBarProps = {
@@ -22,6 +24,7 @@ export function AppBottomTabBar({
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const router = useRouter();
+  const collapseProgress = useTabBarCollapseProgress();
 
   const goToPortfolio = onPressPortfolio
     ?? (() => router.push({ pathname: '/', params: { page: 'portfolio' } } as never));
@@ -31,6 +34,7 @@ export function AppBottomTabBar({
 
   return (
     <BottomTabBar
+      collapseProgress={collapseProgress}
       bottomInset={Math.max(insets.bottom, 0)}
       items={[
         {

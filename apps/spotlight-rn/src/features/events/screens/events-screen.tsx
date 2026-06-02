@@ -1,11 +1,14 @@
-import { StyleSheet, Text, View } from 'react-native';
+import { ScrollView, StyleSheet, Text } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { StateCard, colors, useSpotlightTheme } from '@spotlight/design-system';
 
+import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
+
 export function EventsScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const handleTabBarScroll = useTabBarScrollHandler();
 
   const bottomNavClearance =
     theme.layout.bottomNavHeight
@@ -17,8 +20,8 @@ export function EventsScreen() {
       edges={['top', 'left', 'right']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
-      <View
-        style={[
+      <ScrollView
+        contentContainerStyle={[
           styles.content,
           {
             paddingBottom: bottomNavClearance,
@@ -26,6 +29,8 @@ export function EventsScreen() {
             paddingTop: theme.layout.pageTopInset,
           },
         ]}
+        onScroll={handleTabBarScroll}
+        scrollEventThrottle={16}
       >
         <Text
           style={[theme.typography.display, { color: theme.colors.textPrimary }]}
@@ -39,14 +44,14 @@ export function EventsScreen() {
           style={styles.placeholder}
           title="Events are coming soon"
         />
-      </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   content: {
-    flex: 1,
+    flexGrow: 1,
     gap: 16,
   },
   placeholder: {

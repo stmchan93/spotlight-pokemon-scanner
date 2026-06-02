@@ -19,6 +19,7 @@ import {
   type SpotlightRepository,
 } from '@spotlight/api-client';
 
+import { TabBarChromeProvider } from '@/contexts/tab-bar-chrome-context';
 import { prefetchCardImages } from '@/lib/card-images';
 import { resolveRuntimeValue } from '@/lib/runtime-config';
 
@@ -249,7 +250,9 @@ export function AppProviders({
 
   return (
     <AppServicesContext.Provider value={services}>
-      {children}
+      <TabBarChromeProvider>
+        {children}
+      </TabBarChromeProvider>
     </AppServicesContext.Provider>
   );
 }

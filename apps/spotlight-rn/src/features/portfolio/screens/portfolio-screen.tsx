@@ -34,6 +34,7 @@ import { CollectionAddFab } from '@/features/portfolio/components/collection-add
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioViewMode } from '@/features/portfolio/hooks/use-portfolio-view-mode';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
+import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 
 const LIST_PAGE_SIZE = 10;
@@ -102,6 +103,7 @@ export function PortfolioScreen({
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
   const { viewMode, toggleViewMode } = usePortfolioViewMode();
   const { openDrawer } = useAppDrawer();
+  const handleTabBarScroll = useTabBarScrollHandler();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
   const [isChartScrubbing, setIsChartScrubbing] = useState(false);
   const [activeFilter, setActiveFilter] = useState<CollectionFilterKey>('all');
@@ -165,6 +167,8 @@ export function PortfolioScreen({
           />
         )}
         scrollEnabled={!isChartScrubbing}
+        onScroll={handleTabBarScroll}
+        scrollEventThrottle={16}
       >
         <View style={[styles.header, { paddingHorizontal: theme.layout.pageGutter }]}>
           <Pressable

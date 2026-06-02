@@ -22,6 +22,7 @@ import {
 } from '@/features/sell/sell-order-helpers';
 import { usePortfolioScreenModel } from '@/features/portfolio/hooks/use-portfolio-screen-model';
 import { usePortfolioSummaryVisibility } from '@/features/portfolio/use-portfolio-summary-visibility';
+import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import {
   PortfolioChartCard,
@@ -36,6 +37,7 @@ export function InsightsScreen() {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
   const { openDrawer } = useAppDrawer();
+  const handleTabBarScroll = useTabBarScrollHandler();
   const model = usePortfolioScreenModel();
   const { isHidden: isSummaryHidden, toggle: toggleSummaryHidden } = usePortfolioSummaryVisibility();
   const [activeChartPoint, setActiveChartPoint] = useState<PortfolioChartActivePoint | null>(null);
@@ -142,6 +144,8 @@ export function InsightsScreen() {
           styles.scrollContent,
           { paddingBottom: bottomNavClearance + 24 },
         ]}
+        onScroll={handleTabBarScroll}
+        scrollEventThrottle={16}
         refreshControl={(
           <RefreshControl
             onRefresh={model.refresh}

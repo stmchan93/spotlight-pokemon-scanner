@@ -11,6 +11,7 @@ import {
   Button,
   colors,
   fontFamilies,
+  GlassSurface,
   IconButton,
   ListPaginationFooter,
   PillButton,
@@ -205,6 +206,17 @@ export function DesignSystemCatalogScreen({
               />
             </View>
 
+            <View style={styles.glassDemoWrap}>
+              <GlassSurface style={styles.glassDemoSurface} testID="catalog-glass-surface">
+                <Text style={[theme.typography.control, { color: theme.colors.textPrimary }]}>
+                  Liquid Glass
+                </Text>
+                <Text style={[theme.typography.caption, { color: theme.colors.textSecondary }]}>
+                  Frosted material shell used by the floating bottom tab bar.
+                </Text>
+              </GlassSurface>
+            </View>
+
             <SectionHeader
               actionLabel="View all"
               countText="(12)"
@@ -267,6 +279,18 @@ const styles = StyleSheet.create({
   },
   content: {
     gap: 16,
+  },
+  glassDemoSurface: {
+    borderRadius: 22,
+    gap: 4,
+    overflow: 'hidden',
+    paddingHorizontal: 18,
+    paddingVertical: 16,
+  },
+  glassDemoWrap: {
+    backgroundColor: '#1A1A1A',
+    borderRadius: 24,
+    padding: 16,
   },
   iconRow: {
     alignItems: 'center',

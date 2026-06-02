@@ -24,6 +24,7 @@ import {
 
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { TransactionRow } from '@/features/sales/components/transaction-row';
+import { useTabBarScrollHandler } from '@/contexts/tab-bar-chrome-context';
 import { useAppDrawer } from '@/providers/app-drawer-provider';
 import { useAppServices } from '@/providers/app-providers';
 import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
@@ -68,6 +69,7 @@ export function LatestSalesScreen() {
   const router = useRouter();
   const { spotlightRepository, dataVersion } = useAppServices();
   const { openDrawer } = useAppDrawer();
+  const handleTabBarScroll = useTabBarScrollHandler();
 
   const [transactions, setTransactions] = useState<CardTransactionRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -185,6 +187,8 @@ export function LatestSalesScreen() {
         ) : (
           <ScrollView
             contentContainerStyle={salesStyles.scrollContent}
+            onScroll={handleTabBarScroll}
+            scrollEventThrottle={16}
             refreshControl={(
               <RefreshControl
                 onRefresh={handleRefresh}

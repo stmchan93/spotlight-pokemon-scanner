@@ -338,6 +338,35 @@ Current behavior:
 - default surface uses a frosted/glass capsule shell with a soft selected segment treatment
 - scanner surface keeps the tighter, darker scanner-specific treatment
 
+### GlassSurface
+
+File: `src/components/glass-surface.tsx`
+
+Frosted "Liquid Glass" material shell. Owns only the material; the caller owns
+the shape via `style` (border radius, size, `overflow: 'hidden'` clip).
+
+- iOS 26+ → real `GlassView` Liquid Glass material (`expo-glass-effect`)
+- iOS <26 → `expo-blur` `BlurView` frosted fallback
+- Android → translucent solid `View` (derived from `canvasElevated` at ~0.82 alpha)
+
+Props: `tint?: 'light' | 'dark' | 'default'` (blur fallback) and
+`glassTintColor?: string` (iOS 26 material tint), plus standard `ViewProps`.
+
+### BottomTabBar
+
+File: `src/components/bottom-tab-bar.tsx`
+
+Floating Liquid-Glass bottom navigation bar built on `GlassSurface`. Floats
+above the safe area with a brand-tinted active-tab indicator.
+
+- `items` render an icon-over-label tab; the `selected` item gets a tinted
+  icon pill plus a `brandPurple` label
+- `collapseProgress?: Animated.Value` (0 = expanded full bar, 1 = collapsed
+  pill showing only the active icon) drives a native-driver-friendly
+  opacity/scale cross-fade between the full bar and a centered pill
+- omit `collapseProgress` for a static, fully-expanded bar
+- when a `testID` is given, the collapsed pill is exposed as `${testID}-collapsed`
+
 ## Design-System Editing Rules
 
 - Prefer editing tokens or shared primitives before patching individual screens.
