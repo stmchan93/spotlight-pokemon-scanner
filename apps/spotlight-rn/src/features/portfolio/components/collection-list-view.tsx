@@ -51,8 +51,10 @@ export function CollectionListView({
 
 const styles = StyleSheet.create({
   list: {
-    gap: 8,
-    paddingHorizontal: 16,
+    // Rows stack flush (no inter-row gap) and full-bleed (no horizontal
+    // gutter) so the per-row top/bottom hairlines run edge to edge and form
+    // one continuous ruled list, matching the full-width Figma "Price
+    // Container" row (669:8573). Each row keeps its own 16px content padding.
     paddingVertical: 16,
   },
 });

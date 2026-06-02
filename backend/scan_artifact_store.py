@@ -295,6 +295,31 @@ class GoogleCloudScanArtifactStore:
             return f"{self.object_prefix}/{object_name}"
         return object_name
 
+    def read_object_bytes(self, object_path: str) -> bytes | None:
+        """Read the raw bytes of an object by its full bucket-relative path.
+
+        Returns None when the object cannot be found or read. Unlike the
+        artifact helpers above, ``object_path`` is treated as an already-fully
+        qualified object name (the caller is responsible for any prefix); this
+        matches the absolute ``scans/...`` paths stored in review queue files.
+        """
+        normalized = str(object_path or "").strip().lstrip("/")
+        if not normalized:
+            return None
+        blob = self.bucket.blob(normalized)
+        download = getattr(blob, "download_as_bytes", None) or getattr(blob, "download_as_string", None)
+        if download is None:
+            return None
+        try:
+            raw = download()
+        except Exception:  # noqa: BLE001 - missing blob or transient failure
+            return None
+        if isinstance(raw, str):
+            return raw.encode("utf-8")
+        if isinstance(raw, bytes):
+            return raw
+        return None
+
     def store(
         self,
         *,

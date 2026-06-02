@@ -239,6 +239,40 @@ describe('PortfolioScreen', () => {
     expect(screen.queryByTestId('collection-masonry-grid')).toBeNull();
   });
 
+  it('keeps showing the last data with a stale hint when a refresh fails after a good load', async () => {
+    const inventory = [buildInventoryEntry({ id: 'a', name: 'Card A', marketPrice: 5 })];
+    const dashboard = buildDashboardWithInventory(inventory);
+    let calls = 0;
+    const repository = createTestSpotlightRepository({
+      loadInventoryEntries: async () => ({ state: 'success' as const, data: inventory, errorMessage: null }),
+      loadPortfolioDashboard: async () => {
+        calls += 1;
+        return calls === 1
+          ? { state: 'success' as const, data: dashboard, errorMessage: null }
+          : { state: 'error' as const, data: null, errorMessage: 'offline' };
+      },
+    });
+
+    renderPortfolioScreen({ repository });
+    await screen.findByTestId('portfolio-header-title');
+    await waitFor(() => {
+      expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+    });
+
+    // A refresh that fails must NOT wipe the chart or surface a blocking error.
+    const refreshControl = screen.getByTestId('portfolio-scroll-view').props.refreshControl;
+    await act(async () => {
+      refreshControl.props.onRefresh();
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId('portfolio-stale-hint')).toBeTruthy();
+    });
+    expect(screen.queryByText('Could not refresh your backend data')).toBeNull();
+    expect(screen.queryByText('Could not load your backend data')).toBeNull();
+    expect(screen.getByTestId('collection-masonry-grid')).toBeTruthy();
+  });
+
   it('filters to favorites only when the Favorites chip is tapped', async () => {
     const inventory = [
       buildInventoryEntry({ id: 'fav-1', name: 'Favorited Card', isFavorite: true, marketPrice: 5 }),

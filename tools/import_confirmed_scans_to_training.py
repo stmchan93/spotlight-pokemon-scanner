@@ -99,6 +99,13 @@ def main() -> int:
     parser.add_argument("--heldout-root", default=str(HELDOUT_ROOT))
     parser.add_argument("--output-root", help="Where to stage the batch. Defaults next to the CSV.")
     parser.add_argument("--run-batch", action="store_true", help="Invoke process_raw_visual_batch.py --import-safe.")
+    parser.add_argument(
+        "--train",
+        action="store_true",
+        help="Also pass --run-training-pipeline so the import refreshes the raw-visual "
+        "training manifest/fixtures (requires --run-batch). Without this the batch is "
+        "imported into the corpus but the training manifest is NOT rebuilt.",
+    )
     parser.add_argument("--dry-run", action="store_true", help="Stage the batch + report, do not write the registry or run.")
     args = parser.parse_args()
 
@@ -223,6 +230,10 @@ def main() -> int:
             "--registry-path", str(registry_path),
             "--import-safe",
         ]
+        if args.train:
+            # Rebuild the raw-visual training manifest/fixtures from the freshly
+            # imported corpus so the labels actually feed the next model build.
+            command.append("--run-training-pipeline")
         print(f"[import] handing off: {' '.join(command)}", flush=True)
         subprocess.run(command, check=True, cwd=str(REPO_ROOT))
     else:

@@ -25,10 +25,11 @@ export type InventoryCardTileProps = {
   selected?: boolean;
   /**
    * When true (default) the tile is a self-contained card: gray50 fill, a
-   * gray100 hairline border, and rounded corners. When false the tile is
-   * "plain" — no fill, no border, no rounding — for ruled-grid layouts where
-   * the surrounding container draws the dividers (Collection grid, Figma
-   * node 813-16133).
+   * gray100 hairline border, and rounded shell corners. When false the tile is
+   * "plain" — no fill, no shell border, no shell rounding — for ruled-grid
+   * layouts where the surrounding container draws full-bleed top/bottom
+   * dividers (Collection card view, Figma node 800-7368). The card art keeps
+   * its rounded corners in either mode.
    */
   bordered?: boolean;
   onPress: () => void;
@@ -114,7 +115,9 @@ export function InventoryCardTile({
 }: InventoryCardTileProps) {
   const theme = useSpotlightTheme();
 
-  const artRadius = bordered ? theme.layout.inventoryArtRadius : 0;
+  // The card art stays rounded regardless of the tile shell mode — only the
+  // outer shell (fill/border/corner radius) toggles with `bordered`.
+  const artRadius = theme.layout.inventoryArtRadius;
 
   const setLine = buildSetLine(setName, cardNumber);
   const qualityLine = buildQualityLine(kind, conditionLabel, graderLabel, gradeLabel);

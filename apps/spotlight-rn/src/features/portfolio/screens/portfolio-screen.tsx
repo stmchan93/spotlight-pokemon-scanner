@@ -224,6 +224,17 @@ export function PortfolioScreen({
                   variant="field"
                 />
               </View>
+            ) : model.isDashboardStale ? (
+              <Text
+                style={[
+                  theme.typography.captionMedium,
+                  styles.staleHint,
+                  { color: theme.colors.gray500 },
+                ]}
+                testID="portfolio-stale-hint"
+              >
+                Couldn’t refresh just now — showing your last update.
+              </Text>
             ) : null}
 
             <CollectionSearchRow
@@ -310,6 +321,9 @@ const styles = StyleSheet.create({
   endOfList: {
     marginTop: 24,
     textAlign: 'center',
+  },
+  staleHint: {
+    paddingHorizontal: 16,
   },
   header: {
     alignItems: 'center',

@@ -189,7 +189,7 @@ export function AppDrawer() {
     },
     {
       key: 'sales',
-      label: 'Sales',
+      label: 'Transactions',
       icon: DollarCircle,
       selected: activeKey === 'sales',
       onPress: () => goTo('/sales'),

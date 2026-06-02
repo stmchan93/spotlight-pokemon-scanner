@@ -16,7 +16,6 @@ import {
   Search as SearchIcon,
   Upload as ShareIcon,
 } from 'iconoir-react-native';
-import { IconLayoutGrid, IconList } from '@tabler/icons-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
@@ -31,6 +30,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
 import { formatOptionalCurrency } from '@/features/portfolio/components/portfolio-formatting';
@@ -265,9 +265,9 @@ export function WishlistScreen() {
               variant="outlined"
             >
               {viewMode === 'list' ? (
-                <IconLayoutGrid color={theme.colors.gray900} size={16} />
+                <GridViewIcon color={theme.colors.gray900} size={16} />
               ) : (
-                <IconList color={theme.colors.gray900} size={16} />
+                <ListViewIcon color={theme.colors.gray900} size={16} />
               )}
             </IconButton>
             <Pressable
@@ -630,8 +630,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   listColumn: {
-    gap: 8,
-    paddingHorizontal: 16,
+    // Rows stack flush (no inter-row gap) and full-bleed (no horizontal
+    // gutter) so the per-row top/bottom hairlines run edge to edge and form
+    // one continuous ruled list, matching the full-width Figma "Price
+    // Container" row (669:8573). Each row keeps its own 16px content padding.
     paddingVertical: 16,
   },
   listRowWrap: {

@@ -2400,7 +2400,9 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }
 
   async getCardFavorites(_query?: CardFavoritesQuery): Promise<CardFavoriteEntry[]> {
-    const ownedCardIds = new Set(this.inventoryEntries.map((entry) => entry.cardId));
+    const ownedEntryByCardId = new Map(
+      this.inventoryEntries.map((entry) => [entry.cardId, entry] as const),
+    );
     const entries: CardFavoriteEntry[] = [];
     const sortedFavorites = Array.from(this.favoriteCardTimestamps.entries())
       .sort(([, leftTs], [, rightTs]) => (leftTs < rightTs ? 1 : leftTs > rightTs ? -1 : 0));
@@ -2409,6 +2411,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
       if (!detail) {
         continue;
       }
+      const ownedEntry = ownedEntryByCardId.get(cardId) ?? null;
       entries.push({
         cardId,
         name: detail.name,
@@ -2420,7 +2423,12 @@ export class MockSpotlightRepository implements SpotlightRepository {
         marketPrice: detail.marketPrice ?? null,
         currencyCode: detail.currencyCode ?? 'USD',
         favoritedAt,
-        isOwned: ownedCardIds.has(cardId),
+        isOwned: ownedEntry != null,
+        kind: ownedEntry?.kind ?? null,
+        conditionShortLabel: ownedEntry?.conditionShortLabel ?? null,
+        slabContext: ownedEntry?.slabContext ?? null,
+        dayChangeAmount: ownedEntry?.dayChangeAmount ?? null,
+        dayChangePercent: ownedEntry?.dayChangePercent ?? null,
       });
     }
     return entries;
@@ -3503,6 +3511,10 @@ export class HttpSpotlightRepository implements SpotlightRepository {
         const currencyCode = pricing
           ? normalizeString(pricing.currencyCode) ?? 'USD'
           : 'USD';
+        const slabContext = normalizeSlabContext(
+          isRecord(entry.slabContext) ? (entry.slabContext as DeckEntryDTO['slabContext']) : null,
+        );
+        const conditionCopy = mapDeckCondition(normalizeString(entry.condition));
         return {
           cardId,
           name: normalizeString(card.name) ?? '',
@@ -3515,6 +3527,11 @@ export class HttpSpotlightRepository implements SpotlightRepository {
           currencyCode,
           favoritedAt: normalizeString(entry.favoritedAt),
           isOwned: normalizeBoolean(entry.isOwned) ?? false,
+          kind: slabContext ? 'graded' : 'raw',
+          conditionShortLabel: conditionCopy.shortLabel ?? null,
+          slabContext,
+          dayChangeAmount: normalizeNumber(entry.dayChangeAmount) ?? null,
+          dayChangePercent: normalizeNumber(entry.dayChangePercent) ?? null,
         };
       })
       .filter((entry): entry is CardFavoriteEntry => entry !== null);

@@ -3,36 +3,39 @@ import { StyleSheet, Text, View } from 'react-native';
 import { colors, fontFamilies, textStyles } from '@spotlight/design-system';
 
 type StatTile = {
+  key: string;
   label: string;
   value: string;
 };
 
 type SalesStatTileRowProps = {
-  totalSales: string;
+  /** Total monetary value of all transactions, preformatted (e.g. "$2,450"). */
   totalValue: string;
-  totalProfit: string;
+  /** Count of transactions, preformatted (e.g. "45"). */
+  totalCount: string;
   testID?: string;
 };
 
+// Two summary cards per Figma 332:8609 — value + count. Each card has a top and
+// bottom rule; the left card carries the single middle divider (border-right).
+// No outer left/right border, so the row sits flush to the screen edges.
 export function SalesStatTileRow({
-  totalSales,
   totalValue,
-  totalProfit,
+  totalCount,
   testID = 'sales-stat-tile-row',
 }: SalesStatTileRowProps) {
   const tiles: StatTile[] = [
-    { label: 'Total Sales', value: totalSales },
-    { label: 'Total Value', value: totalValue },
-    { label: 'Total Profit', value: totalProfit },
+    { key: 'value', label: 'Total Transaction Value', value: totalValue },
+    { key: 'count', label: 'Total # Transactions', value: totalCount },
   ];
 
   return (
     <View style={styles.row} testID={testID}>
       {tiles.map((tile, idx) => (
         <View
-          key={tile.label}
-          style={[styles.tile, idx === 0 ? styles.tileFirst : null]}
-          testID={`${testID}-${tile.label.toLowerCase().replace(/\s+/g, '-')}`}
+          key={tile.key}
+          style={[styles.tile, idx < tiles.length - 1 ? styles.tileDivider : null]}
+          testID={`${testID}-${tile.key}`}
         >
           <Text style={styles.label}>{tile.label}</Text>
           <Text style={styles.value}>{tile.value}</Text>
@@ -50,15 +53,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderBottomWidth: 1,
     borderColor: colors.gray200,
-    borderRightWidth: 1,
     borderTopWidth: 1,
     flex: 1,
     gap: 8,
     paddingHorizontal: 16,
     paddingVertical: 8,
   },
-  tileFirst: {
-    borderLeftWidth: 1,
+  tileDivider: {
+    borderRightWidth: 1,
   },
   label: {
     ...textStyles.overline,

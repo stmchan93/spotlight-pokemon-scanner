@@ -2,8 +2,10 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import type {
   ChartMode,
@@ -202,6 +204,37 @@ function applySalePriceEdit(
   };
 }
 
+// Persist the last good dashboard so a cold launch (or a backend blip) shows the
+// last chart instantly instead of a blank/error, then revalidates in the
+// background. The server stays the source of truth — this only bridges the
+// loading gap, never serves knowingly-wrong data.
+const PORTFOLIO_DASHBOARD_STORAGE_KEY = '@spotlight/portfolio/dashboard-cache';
+
+async function readPersistedDashboard(): Promise<{ dashboard: PortfolioDashboard; savedAt: string } | null> {
+  try {
+    const raw = await AsyncStorage.getItem(PORTFOLIO_DASHBOARD_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as { dashboard?: PortfolioDashboard; savedAt?: string };
+    if (parsed && parsed.dashboard) {
+      return { dashboard: parsed.dashboard, savedAt: parsed.savedAt ?? '' };
+    }
+  } catch {
+    // ignore corrupt / oversized cache — we just fall back to a live load
+  }
+  return null;
+}
+
+function persistDashboard(dashboard: PortfolioDashboard, savedAt: string): void {
+  void AsyncStorage.setItem(
+    PORTFOLIO_DASHBOARD_STORAGE_KEY,
+    JSON.stringify({ dashboard, savedAt }),
+  ).catch(() => {
+    // best-effort; in-memory stale-while-revalidate still works this session
+  });
+}
+
 export function usePortfolioScreenModel() {
   const {
     spotlightRepository,
@@ -221,6 +254,11 @@ export function usePortfolioScreenModel() {
   const [isLoadingInventory, setIsLoadingInventory] = useState(inventoryEntriesCache === null);
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(portfolioDashboardCache === null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [isDashboardStale, setIsDashboardStale] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<string | null>(null);
+  // True once we have any dashboard worth showing (live, in-memory, or persisted)
+  // — used to suppress the blocking error when we can keep showing the last chart.
+  const hasUsableDashboardRef = useRef<boolean>(portfolioDashboardCache !== null);
   const [selectedRange, setSelectedRange] = useState<PortfolioHistoryRange>('1W');
   const [chartMode, setChartMode] = useState<ChartMode>('portfolio');
   const [inventoryExpanded, setInventoryExpanded] = useState(true);
@@ -252,18 +290,58 @@ export function usePortfolioScreenModel() {
     setIsLoadingInventory(false);
   }, [setInventoryEntriesCache, spotlightRepository]);
 
+  // On a cold launch with no in-memory cache, hydrate the last persisted
+  // dashboard so the chart appears instantly; the live refresh below then
+  // revalidates it. Runs once on mount.
+  useEffect(() => {
+    if (portfolioDashboardCache !== null) {
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      const persisted = await readPersistedDashboard();
+      if (cancelled || hasUsableDashboardRef.current || !persisted) {
+        return;
+      }
+      setDashboard(persisted.dashboard);
+      setPortfolioDashboardCache(persisted.dashboard);
+      setInventoryEntriesCache(persisted.dashboard.inventoryItems);
+      setHasLoadedDashboard(true);
+      setIsLoadingDashboard(false);
+      setLastUpdatedAt(persisted.savedAt || null);
+      hasUsableDashboardRef.current = true;
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // mount-only hydration
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const loadDashboard = useCallback(async () => {
     setIsLoadingDashboard(true);
     const loadResult = await spotlightRepository.loadPortfolioDashboard();
 
     if (loadResult.data && loadResult.state !== 'error') {
+      const savedAt = new Date().toISOString();
       setDashboard(loadResult.data);
       setPortfolioDashboardCache(loadResult.data);
       setInventoryEntriesCache(loadResult.data.inventoryItems);
       setHasLoadedDashboard(true);
       setHasLoadedInventory(true);
+      setIsDashboardStale(false);
+      setLastUpdatedAt(savedAt);
+      hasUsableDashboardRef.current = true;
+      persistDashboard(loadResult.data, savedAt);
+      setLoadError(null);
+    } else if (loadResult.state === 'error') {
+      // Stale-while-revalidate: if we already have a chart to show, keep it and
+      // flag "couldn't refresh" instead of surfacing a blocking error.
+      setIsDashboardStale(true);
+      setLoadError(hasUsableDashboardRef.current ? null : loadResult.errorMessage);
+    } else {
+      setLoadError(null);
     }
-    setLoadError(loadResult.state === 'error' ? loadResult.errorMessage : null);
     setIsLoadingDashboard(false);
   }, [setInventoryEntriesCache, setPortfolioDashboardCache, spotlightRepository]);
 
@@ -380,6 +458,8 @@ export function usePortfolioScreenModel() {
     isLoadingDashboard,
     isLoadingInventory,
     loadError,
+    isDashboardStale,
+    lastUpdatedAt,
     canConfirmSalePriceEdit: editingSale !== null && parsedEditingSalePrice != null,
     filteredInventory,
     hasInventoryEntries,

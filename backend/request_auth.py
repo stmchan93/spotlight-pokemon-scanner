@@ -19,6 +19,7 @@ class RequestAuthError(RuntimeError):
 class RequestIdentity:
     user_id: str
     auth_source: str
+    email: str = ""
 
 
 class SupabaseRequestAuthenticator:
@@ -53,6 +54,7 @@ class SupabaseRequestAuthenticator:
                 return RequestIdentity(
                     user_id=self.fallback_user_id,
                     auth_source="dev_fallback_bearer",
+                    email="",
                 )
 
         if self.auth_required:
@@ -62,6 +64,7 @@ class SupabaseRequestAuthenticator:
             return RequestIdentity(
                 user_id=self.fallback_user_id,
                 auth_source="dev_fallback",
+                email="",
             )
 
         raise RequestAuthError("A fallback user is not configured for unauthenticated requests.")
@@ -113,6 +116,7 @@ class SupabaseRequestAuthenticator:
         return RequestIdentity(
             user_id=user_id,
             auth_source="supabase_jwt",
+            email=str(claims.get("email") or "").strip(),
         )
 
     def _jwk_client_instance(self) -> Any:

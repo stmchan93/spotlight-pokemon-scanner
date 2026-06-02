@@ -1,6 +1,6 @@
 import { Linking, StyleSheet, View } from 'react-native';
 
-import { InventoryCardTile } from '@spotlight/design-system';
+import { InventoryCardTile, useSpotlightTheme } from '@spotlight/design-system';
 import type { InventoryCardEntry } from '@spotlight/api-client';
 
 import { getCardImageUrl } from '@/lib/card-images';
@@ -21,10 +21,11 @@ function isLiveOnEbay(entry: InventoryCardEntry): boolean {
 }
 
 /**
- * Collection grid laid out as two fixed columns of self-contained cards
- * (Figma node 800-7656): each tile draws its own full border + rounded
- * corners around the entire card, and the cells are separated by gaps rather
- * than shared divider hairlines.
+ * Collection "card view" grid (Figma node 800-7368): two fixed columns of
+ * plain tiles. The grid is full-bleed — no horizontal page gutter and no
+ * inter-cell gaps — so each row's gray100 top/bottom hairlines run edge to
+ * edge across the whole app width. Tiles render "plain" (no per-card shell
+ * border/fill); the row draws the dividers.
  */
 export function CollectionMasonryGrid({
   entries,
@@ -33,6 +34,8 @@ export function CollectionMasonryGrid({
   selectedEntryId,
   testID = 'collection-masonry-grid',
 }: CollectionMasonryGridProps) {
+  const theme = useSpotlightTheme();
+
   const rows: InventoryCardEntry[][] = [];
   for (let index = 0; index < entries.length; index += COLUMNS) {
     rows.push(entries.slice(index, index + COLUMNS));
@@ -44,7 +47,13 @@ export function CollectionMasonryGrid({
         return (
           <View
             key={row[0]?.id ?? `row-${rowIndex}`}
-            style={styles.row}
+            style={[
+              styles.row,
+              {
+                borderTopColor: theme.colors.gray100,
+                borderBottomColor: theme.colors.gray100,
+              },
+            ]}
             testID={`${testID}-row-${rowIndex}`}
           >
             {Array.from({ length: COLUMNS }).map((_, colIndex) => {
@@ -108,6 +117,7 @@ function CollectionTileSlot({
 
   return (
     <InventoryCardTile
+      bordered={false}
       imageUrl={getCardImageUrl(entry, 'small')}
       name={entry.name}
       setName={entry.setName ?? ''}
@@ -133,14 +143,16 @@ function CollectionTileSlot({
 
 const styles = StyleSheet.create({
   grid: {
-    gap: 12,
-    paddingHorizontal: 16,
+    // Full-bleed: no horizontal gutter and no row gap, so each row's
+    // top/bottom hairlines run all the way to the app edges and stack into a
+    // continuous ruled list.
     paddingVertical: 16,
   },
   row: {
     alignItems: 'stretch',
+    borderBottomWidth: 1,
+    borderTopWidth: 1,
     flexDirection: 'row',
-    gap: 12,
   },
   cell: {
     flex: 1,

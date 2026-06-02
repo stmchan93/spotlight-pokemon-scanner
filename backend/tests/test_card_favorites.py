@@ -205,6 +205,68 @@ class CardFavoritesTests(unittest.TestCase):
             self.assertTrue(entry["card"]["isFavorite"])
             self.assertIsNotNone(entry["favoritedAt"])
 
+    def _record_graded_buy(
+        self,
+        *,
+        user_id: str,
+        card_id: str,
+        grader: str,
+        grade: str,
+        bought_at: str,
+    ) -> None:
+        with self.service.request_identity_context(self._identity(user_id)):
+            self.service.record_buy(
+                {
+                    "cardID": card_id,
+                    "quantity": 1,
+                    "unitPrice": 500.0,
+                    "currencyCode": "USD",
+                    "boughtAt": bought_at,
+                    "slabContext": {"grader": grader, "grade": grade},
+                }
+            )
+
+    def test_card_favorites_surface_owned_grade_condition_and_day_change(self) -> None:
+        self._insert_card(card_id="base-pikachu-58", name="Pikachu", set_name="Base Set", number="58/102", set_code="BS")
+        self._insert_card(card_id="dp-charizard-1", name="Charizard", set_name="Dragon Frontiers", number="100/101", set_code="DPP")
+        self._insert_card(card_id="sm7-1", name="Treecko", set_name="Sun & Moon", number="1/96", set_code="SM7")
+        # Raw owned copy, graded owned copy, and an unowned favorite.
+        self._record_buy(user_id="user-a", card_id="base-pikachu-58", bought_at="2026-04-30T11:00:00Z")
+        self._record_graded_buy(
+            user_id="user-a",
+            card_id="dp-charizard-1",
+            grader="PSA",
+            grade="10",
+            bought_at="2026-04-30T11:05:00Z",
+        )
+
+        with self.service.request_identity_context(self._identity("user-a")):
+            self.service.set_card_favorite("base-pikachu-58", is_favorite=True)
+            self.service.set_card_favorite("dp-charizard-1", is_favorite=True)
+            self.service.set_card_favorite("sm7-1", is_favorite=True)
+            payload = self.service.card_favorites()
+
+        by_id = {entry["card"]["id"]: entry for entry in payload["entries"]}
+
+        raw_entry = by_id["base-pikachu-58"]
+        self.assertTrue(raw_entry["isOwned"])
+        self.assertEqual(raw_entry["condition"], "near_mint")
+        self.assertIsNone(raw_entry["slabContext"])
+        self.assertIn("dayChangeAmount", raw_entry)
+        self.assertIn("dayChangePercent", raw_entry)
+
+        graded_entry = by_id["dp-charizard-1"]
+        self.assertTrue(graded_entry["isOwned"])
+        self.assertIsNotNone(graded_entry["slabContext"])
+        self.assertEqual(graded_entry["slabContext"]["grader"], "PSA")
+        self.assertEqual(graded_entry["slabContext"]["grade"], "10")
+        self.assertIn("dayChangeAmount", graded_entry)
+
+        unowned_entry = by_id["sm7-1"]
+        self.assertFalse(unowned_entry["isOwned"])
+        self.assertIsNone(unowned_entry["slabContext"])
+        self.assertIsNone(unowned_entry["condition"])
+
     def test_card_favorites_get_route_runs_inside_authenticated_request_context(self) -> None:
         identity = RequestIdentity(user_id="favorite-user", auth_source="test")
         handler = SpotlightRequestHandler.__new__(SpotlightRequestHandler)

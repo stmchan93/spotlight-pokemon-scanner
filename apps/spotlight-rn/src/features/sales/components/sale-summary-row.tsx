@@ -156,15 +156,20 @@ export function SaleSummaryRow({
 
 const styles = StyleSheet.create({
   cardWrapper: {
-    borderRadius: 12,
+    backgroundColor: colors.gray0,
   },
+  // Flat ruled row (Figma 669:8573): white, top + bottom gray100 hairlines,
+  // no rounded card shell. Rows sit flush so the rules form a continuous list.
   card: {
     alignItems: 'flex-start',
-    backgroundColor: colors.gray50,
-    borderRadius: 12,
+    backgroundColor: colors.gray0,
+    borderBottomWidth: 1,
+    borderColor: colors.gray100,
+    borderTopWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 16,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   leftGroup: {
     alignItems: 'center',
@@ -175,9 +180,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   art: {
-    aspectRatio: 88 / 128,
-    borderRadius: 6,
-    height: 94,
+    borderRadius: 2,
+    height: 78,
+    width: 54,
   },
   textColumn: {
     alignSelf: 'stretch',

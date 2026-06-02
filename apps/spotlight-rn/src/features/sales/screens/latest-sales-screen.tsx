@@ -153,20 +153,14 @@ export function LatestSalesScreen() {
   const showEmptyState = !isLoading && !isRefreshing && loadError === null && sales.length === 0;
 
   const aggregates = useMemo(() => {
-    const totalSales = sales.length;
+    const totalCount = sales.length;
     const totalValue = sales.reduce(
       (sum, sale) => sum + sale.soldPrice * (sale.quantity ?? 1),
       0,
     );
-    const profits = sales
-      .map((sale) => sale.profit)
-      .filter((value): value is number => value != null);
-    const totalProfit = profits.reduce((sum, value) => sum + value, 0);
-    const hasProfit = profits.length > 0;
     return {
-      totalSalesLabel: new Intl.NumberFormat('en-US').format(totalSales),
+      totalCountLabel: new Intl.NumberFormat('en-US').format(totalCount),
       totalValueLabel: formatCurrency(totalValue),
-      totalProfitLabel: hasProfit ? formatCurrency(totalProfit) : '—',
     };
   }, [sales]);
 
@@ -226,7 +220,7 @@ export function LatestSalesScreen() {
             <MenuIcon color={theme.colors.gray900} height={24} width={24} />
           </Pressable>
           <Text style={salesStyles.headerTitle} testID="sales-header-title">
-            Sales
+            Transactions
           </Text>
           <View style={salesStyles.headerSpacer} />
         </View>
@@ -237,14 +231,14 @@ export function LatestSalesScreen() {
           <StateCard
             message={loadError ?? 'Please try again once your backend is reachable.'}
             style={styles.stateCard}
-            title="Could not load sales"
+            title="Could not load transactions"
             variant="field"
           />
         ) : showEmptyState ? (
           <StateCard
-            message="Completed sales will appear here as soon as you start moving inventory."
+            message="Completed transactions will appear here as soon as you start moving inventory."
             style={styles.stateCard}
-            title="No sales yet"
+            title="No transactions yet"
           />
         ) : (
           <ScrollView
@@ -260,9 +254,8 @@ export function LatestSalesScreen() {
             testID="latest-sales-scroll"
           >
             <SalesStatTileRow
-              totalSales={aggregates.totalSalesLabel}
               totalValue={aggregates.totalValueLabel}
-              totalProfit={aggregates.totalProfitLabel}
+              totalCount={aggregates.totalCountLabel}
             />
 
             <Text style={salesStyles.sectionTitle} testID="sales-transactions-title">
@@ -271,12 +264,12 @@ export function LatestSalesScreen() {
 
             <View style={salesStyles.searchRow}>
               <SearchField
-                accessibilityLabel="Search your sales"
+                accessibilityLabel="Search your transactions"
                 autoCorrect={false}
                 autoCapitalize="none"
                 clearButtonMode="while-editing"
                 onChangeText={setSearchQuery}
-                placeholder="Search your sales"
+                placeholder="Search your transactions"
                 returnKeyType="search"
                 size="collection"
                 surface="muted"
@@ -292,8 +285,8 @@ export function LatestSalesScreen() {
             {visibleSales.length === 0 ? (
               <View style={salesStyles.emptyWrap}>
                 <StateCard
-                  message="Try a different search or chip to find this sale."
-                  title="No sales match"
+                  message="Try a different search or chip to find this transaction."
+                  title="No transactions match"
                 />
               </View>
             ) : (
@@ -364,8 +357,10 @@ const salesStyles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   salesList: {
-    gap: 8,
-    paddingHorizontal: 16,
+    // Full-bleed flat rows: each SaleSummaryRow carries its own 16px content
+    // inset + top/bottom hairlines, so no list gutter or row gap here — the
+    // rules stack into one continuous ruled list (matches the collection list).
+    gap: 0,
   },
   emptyWrap: {
     paddingHorizontal: 16,

@@ -550,6 +550,15 @@ export type CardFavoriteEntry = {
   currencyCode: string;
   favoritedAt: string | null;
   isOwned: boolean;
+  /** Owned-copy lane: 'graded' when the user owns a slab, otherwise 'raw'. */
+  kind?: 'raw' | 'graded' | null;
+  /** Short condition label for owned raw copies (e.g. 'NM'). */
+  conditionShortLabel?: string | null;
+  /** Grader/grade for owned graded copies; null for raw or unowned favorites. */
+  slabContext?: SlabContext | null;
+  /** Day-over-day market price change for the owned/raw lane, in `currencyCode`. */
+  dayChangeAmount?: number | null;
+  dayChangePercent?: number | null;
 };
 
 export type CardFavoritesQuery = {

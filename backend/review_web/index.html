@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Spotlight Scan Review</title>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root {
+      --bg: #0b0d12;
+      --panel: #151923;
+      --panel-2: #1d2330;
+      --border: #2a3140;
+      --text: #e8ecf3;
+      --muted: #8b94a6;
+      --accent: #4f8cff;
+      --accent-2: #2bd47d;
+      --warn: #ffb020;
+      --danger: #ff5d6c;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      -webkit-font-smoothing: antialiased;
+    }
+    .wrap { max-width: 760px; margin: 0 auto; padding: 16px; }
+    h1 { font-size: 18px; margin: 0 0 12px; }
+    .muted { color: var(--muted); }
+    .hidden { display: none !important; }
+    input, button {
+      font: inherit;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      outline: none;
+    }
+    input {
+      width: 100%;
+      padding: 12px;
+      background: var(--panel);
+      color: var(--text);
+      margin: 6px 0;
+    }
+    button {
+      cursor: pointer;
+      padding: 10px 14px;
+      background: var(--panel-2);
+      color: var(--text);
+      transition: background 0.12s ease, border-color 0.12s ease;
+    }
+    button:hover { background: #232a3a; }
+    button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    button.ok { background: var(--accent-2); border-color: var(--accent-2); color: #06241a; }
+    button:disabled { opacity: 0.5; cursor: default; }
+    .card-panel {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 16px;
+      margin: 12px 0;
+    }
+    .imgbox {
+      width: 100%;
+      background: #000;
+      border-radius: 12px;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 260px;
+    }
+    .imgbox img { max-width: 100%; max-height: 70vh; display: block; }
+    .predicted { margin: 12px 0 4px; font-size: 16px; font-weight: 600; }
+    .ai-label {
+      margin: 0 0 8px; font-size: 14px; padding: 8px 10px; border-radius: 10px;
+      background: var(--panel-2); border: 1px solid var(--border);
+    }
+    .ai-label.unsure { color: var(--warn); }
+    .ai-label .tag {
+      display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 1px 6px; border-radius: 6px; margin-right: 6px;
+      background: #21304a; color: var(--accent);
+    }
+    .ai-label .tag.high { background: #15351f; color: var(--accent-2); }
+    .ai-label .tag.medium { background: #3a3215; color: var(--warn); }
+    .ai-label .sub { color: var(--muted); font-size: 13px; }
+    .candidates { display: grid; gap: 8px; margin-top: 10px; }
+    .cand {
+      display: flex; align-items: center; gap: 10px; text-align: left; width: 100%;
+    }
+    .cand .rank {
+      flex: 0 0 26px; height: 26px; border-radius: 7px; background: var(--panel-2);
+      display: flex; align-items: center; justify-content: center; font-size: 13px;
+      color: var(--muted); border: 1px solid var(--border);
+    }
+    .cand .meta { flex: 1; min-width: 0; }
+    .cand .name { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cand .sub { color: var(--muted); font-size: 13px; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+    .row button { flex: 1; min-width: 120px; }
+    .search-results { display: grid; gap: 6px; margin-top: 8px; max-height: 320px; overflow: auto; }
+    .progress { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+    .toast {
+      position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+      background: var(--panel-2); border: 1px solid var(--border); color: var(--text);
+      padding: 10px 16px; border-radius: 10px; font-size: 13px; box-shadow: 0 6px 24px rgba(0,0,0,0.4);
+    }
+    .err { color: var(--danger); }
+    .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    a { color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Spotlight Scan Review</h1>
+
+    <!-- Login -->
+    <div id="login" class="card-panel hidden">
+      <div class="muted">Sign in with your email to review scans.</div>
+      <input id="email" type="email" placeholder="you@example.com" autocomplete="email" />
+      <button id="sendCode" class="primary" style="width:100%">Send me a login code</button>
+      <div id="codeBox" class="hidden">
+        <input id="code" type="text" inputmode="numeric" placeholder="6-digit code" autocomplete="one-time-code" />
+        <button id="verifyCode" class="ok" style="width:100%">Verify code</button>
+        <div class="hint">Or just click the magic link in the email; this tab will pick it up.</div>
+      </div>
+      <div id="loginMsg" class="hint"></div>
+    </div>
+
+    <!-- Boot / status -->
+    <div id="boot" class="muted">Loading…</div>
+
+    <!-- Undo (misclick safety) — kept outside #review so it works on the done screen too -->
+    <div id="undoBar" class="hidden" style="margin:8px 0;">
+      <button id="undoBtn">↶ Undo last label (z)</button>
+    </div>
+
+    <!-- Review -->
+    <div id="review" class="hidden">
+      <div class="progress" id="progress"></div>
+      <div class="card-panel">
+        <div class="imgbox"><img id="scanImg" alt="scan" /></div>
+        <div class="predicted" id="predicted"></div>
+        <div class="ai-label" id="aiLabel"></div>
+        <div class="candidates" id="candidates"></div>
+        <div class="row">
+          <button data-disp="unclear">Unclear (u)</button>
+          <button data-disp="not_in_top_10">Not in list (n)</button>
+          <button data-disp="skip">Skip (s)</button>
+        </div>
+        <div style="margin-top:14px;">
+          <input id="search" type="text" placeholder="Search catalog (name, number, set)…" />
+          <div class="search-results" id="searchResults"></div>
+        </div>
+      </div>
+      <div class="hint">Keys: 1–9, 0 pick a candidate · u unclear · n not in list · s skip</div>
+    </div>
+
+    <div id="done" class="card-panel hidden">
+      <div style="font-size:16px;font-weight:600;">All done 🎉</div>
+      <div class="muted" style="margin-top:6px;">No more scans left in this queue.</div>
+    </div>
+
+    <div id="signedOutBar" class="hidden" style="margin-top:16px;">
+      <button id="signOut">Sign out</button>
+    </div>
+  </div>
+
+  <div id="toast" class="toast hidden"></div>
+
+  <script>
+    const QUEUE = "show-2026-05-31";
+    let sbClient = null;
+    let accessToken = null;
+    let current = null;
+    let lastImageUrl = null;
+    // One-level undo: the scan we just labeled, kept so a misclick can be
+    // re-opened and re-picked (the new pick overwrites the prior label since
+    // scan_labeling_reviews is UNIQUE(scan_id, reviewer)).
+    let previous = null;
+    let lastRemaining = 0;
+
+    const $ = (id) => document.getElementById(id);
+
+    function showToast(msg, isErr) {
+      const t = $("toast");
+      t.textContent = msg;
+      t.classList.toggle("err", !!isErr);
+      t.classList.remove("hidden");
+      clearTimeout(t._timer);
+      t._timer = setTimeout(() => t.classList.add("hidden"), 2600);
+    }
+
+    function authHeaders() {
+      return accessToken ? { Authorization: "Bearer " + accessToken } : {};
+    }
+
+    async function boot() {
+      let cfg;
+      try {
+        const res = await fetch("/api/v1/review/config");
+        cfg = await res.json();
+      } catch (e) {
+        $("boot").innerHTML = '<span class="err">Could not load config.</span>';
+        return;
+      }
+      if (!cfg.supabaseUrl || !cfg.supabaseAnonKey) {
+        $("boot").innerHTML = '<span class="err">Supabase is not configured on the backend.</span>';
+        return;
+      }
+      if (!window.supabase || !window.supabase.createClient) {
+        $("boot").innerHTML = '<span class="err">Auth library failed to load. Refresh the page.</span>';
+        return;
+      }
+      sbClient = window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, {
+        auth: { detectSessionInUrl: true, persistSession: true, autoRefreshToken: true },
+      });
+
+      const { data } = await sbClient.auth.getSession();
+      if (data && data.session) {
+        onSignedIn(data.session);
+      } else {
+        $("boot").classList.add("hidden");
+        $("login").classList.remove("hidden");
+      }
+
+      sbClient.auth.onAuthStateChange((_event, session) => {
+        if (session) onSignedIn(session);
+      });
+    }
+
+    function onSignedIn(session) {
+      accessToken = session.access_token;
+      $("login").classList.add("hidden");
+      $("boot").classList.add("hidden");
+      $("signedOutBar").classList.remove("hidden");
+      loadNext();
+    }
+
+    async function loadNext() {
+      $("review").classList.add("hidden");
+      $("done").classList.add("hidden");
+      $("boot").classList.remove("hidden");
+      $("boot").textContent = "Loading next scan…";
+      let payload;
+      try {
+        const res = await fetch(
+          "/api/v1/review/queue?queue=" + encodeURIComponent(QUEUE) + "&limit=1",
+          { headers: authHeaders() }
+        );
+        if (res.status === 403) {
+          const body = await res.json();
+          $("boot").innerHTML =
+            '<div class="err">Reviewer access required.</div>' +
+            '<div class="hint">' + (body.message || "") + "</div>" +
+            '<div class="hint">Your user id: <code>' + (body.userId || "?") +
+            "</code><br/>Your email: <code>" + (body.email || "?") + "</code></div>";
+          return;
+        }
+        payload = await res.json();
+      } catch (e) {
+        $("boot").innerHTML = '<span class="err">Failed to load queue.</span>';
+        return;
+      }
+      const items = (payload && payload.items) || [];
+      const remaining = (payload && payload.remaining) || 0;
+      if (!items.length) {
+        $("boot").classList.add("hidden");
+        $("done").classList.remove("hidden");
+        updateUndoButton();
+        return;
+      }
+      current = items[0];
+      renderScan(current, remaining);
+    }
+
+    async function renderScan(item, remaining) {
+      $("boot").classList.add("hidden");
+      $("review").classList.remove("hidden");
+      $("done").classList.add("hidden");
+      lastRemaining = remaining;
+      updateUndoButton();
+      $("progress").textContent = remaining + " remaining in queue";
+
+      const predicted = item.predicted || {};
+      $("predicted").textContent =
+        "Scanner top-1: " + (predicted.name || predicted.card_id || predicted.cardId || "(no prediction)");
+
+      // AI determination (what the labeling model guessed for this scan).
+      const ai = item.ai_label || null;
+      const aiEl = $("aiLabel");
+      aiEl.className = "ai-label";
+      if (!ai) {
+        aiEl.classList.add("hidden");
+      } else if (ai.disposition === "unsure") {
+        aiEl.classList.remove("hidden");
+        aiEl.classList.add("unsure");
+        aiEl.innerHTML =
+          '<span class="tag">AI</span>Unsure — needs a human';
+      } else {
+        aiEl.classList.remove("hidden");
+        const tier = (ai.tier || "").toLowerCase();
+        const tierClass = tier === "high" ? "high" : tier === "medium" ? "medium" : "";
+        const where = ai.in_top10
+          ? "from list" + (ai.rank ? " #" + ai.rank : "")
+          : "catalog search";
+        aiEl.innerHTML =
+          '<span class="tag ' + tierClass + '">AI' + (tier ? " · " + tier : "") + "</span>" +
+          '<span class="name">' + escapeHtml(ai.name || ai.card_id || "(unknown)") + "</span> " +
+          '<span class="sub">' +
+          escapeHtml([ai.number, ai.set].filter(Boolean).join(" · ")) +
+          (where ? " · " + escapeHtml(where) : "") +
+          "</span>";
+      }
+
+      // Image (auth-gated fetch -> blob)
+      const img = $("scanImg");
+      img.removeAttribute("src");
+      if (lastImageUrl) { URL.revokeObjectURL(lastImageUrl); lastImageUrl = null; }
+      try {
+        const r = await fetch(item.image_url, { headers: authHeaders() });
+        if (r.ok) {
+          const b = await r.blob();
+          lastImageUrl = URL.createObjectURL(b);
+          img.src = lastImageUrl;
+        } else {
+          img.alt = "Image unavailable";
+        }
+      } catch (e) {
+        img.alt = "Image unavailable";
+      }
+
+      // Candidates
+      const wrap = $("candidates");
+      wrap.innerHTML = "";
+      const candidates = item.candidates || [];
+      candidates.slice(0, 10).forEach((c, i) => {
+        const rank = c.rank != null ? c.rank : i + 1;
+        const btn = document.createElement("button");
+        btn.className = "cand";
+        const key = i < 9 ? String(i + 1) : "0";
+        btn.innerHTML =
+          '<span class="rank">' + key + "</span>" +
+          '<span class="meta"><span class="name">' +
+          escapeHtml(c.name || c.cardId || "(unknown)") +
+          "</span><span class=\"sub\">" +
+          escapeHtml([c.number, c.setName].filter(Boolean).join(" · ")) +
+          "</span></span>";
+        btn.onclick = () =>
+          submit({
+            labeledCardID: c.cardId || c.id || c.card_id,
+            labelDisposition: "confirmed",
+            selectedRank: rank,
+          });
+        wrap.appendChild(btn);
+      });
+
+      $("search").value = "";
+      $("searchResults").innerHTML = "";
+    }
+
+    function escapeHtml(s) {
+      return String(s == null ? "" : s)
+        .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    }
+
+    async function submit(body) {
+      const fullBody = Object.assign(
+        { scanID: current.scan_id, queue: QUEUE, selectedRank: null, labeledCardID: null },
+        body
+      );
+      try {
+        const res = await fetch("/api/v1/review/label", {
+          method: "POST",
+          headers: Object.assign({ "Content-Type": "application/json" }, authHeaders()),
+          body: JSON.stringify(fullBody),
+        });
+        const out = await res.json();
+        if (!res.ok) {
+          showToast(out.error || "Save failed", true);
+          return;
+        }
+        // Remember what we just labeled so "Undo" can re-open it.
+        previous = { item: current, remaining: lastRemaining };
+        updateUndoButton();
+        showToast("Saved (" + fullBody.labelDisposition + ")");
+        loadNext();
+      } catch (e) {
+        showToast("Save failed", true);
+      }
+    }
+
+    function updateUndoButton() {
+      $("undoBar").classList.toggle("hidden", !previous);
+    }
+
+    // Re-open the last-labeled scan so a misclick can be corrected. Re-picking
+    // overwrites the prior label; choosing nothing and moving on leaves it as-is.
+    function undoLast() {
+      if (!previous) { showToast("Nothing to undo"); return; }
+      const item = previous.item;
+      const remaining = previous.remaining;
+      previous = null;
+      current = item;
+      showToast("Re-label this card to fix it");
+      renderScan(item, remaining);
+    }
+
+    // Catalog search
+    let searchTimer = null;
+    function onSearch() {
+      const q = $("search").value.trim();
+      clearTimeout(searchTimer);
+      if (!q) { $("searchResults").innerHTML = ""; return; }
+      searchTimer = setTimeout(async () => {
+        try {
+          const res = await fetch(
+            "/api/v1/cards/search?q=" + encodeURIComponent(q) + "&limit=15",
+            { headers: authHeaders() }
+          );
+          const out = await res.json();
+          renderSearch((out && out.results) || []);
+        } catch (e) {
+          $("searchResults").innerHTML = '<div class="err hint">Search failed</div>';
+        }
+      }, 220);
+    }
+
+    function renderSearch(results) {
+      const wrap = $("searchResults");
+      wrap.innerHTML = "";
+      results.forEach((c) => {
+        const btn = document.createElement("button");
+        btn.className = "cand";
+        btn.innerHTML =
+          '<span class="rank">+</span>' +
+          '<span class="meta"><span class="name">' +
+          escapeHtml(c.name || "(unknown)") +
+          "</span><span class=\"sub\">" +
+          escapeHtml([c.number, c.setName].filter(Boolean).join(" · ")) +
+          "</span></span>";
+        btn.onclick = () =>
+          submit({
+            labeledCardID: c.id,
+            labelDisposition: "confirmed",
+            selectedRank: null,
+          });
+        wrap.appendChild(btn);
+      });
+    }
+
+    // Keyboard
+    document.addEventListener("keydown", (e) => {
+      if (document.activeElement && document.activeElement.tagName === "INPUT") return;
+      // Undo works even on the "all done" screen, so handle it before the guard.
+      if (e.key === "z") { undoLast(); return; }
+      if ($("review").classList.contains("hidden")) return;
+      const k = e.key;
+      if (k >= "1" && k <= "9") {
+        const idx = parseInt(k, 10) - 1;
+        const btns = $("candidates").querySelectorAll("button.cand");
+        if (btns[idx]) btns[idx].click();
+      } else if (k === "0") {
+        const btns = $("candidates").querySelectorAll("button.cand");
+        if (btns[9]) btns[9].click();
+      } else if (k === "u") {
+        submit({ labelDisposition: "unclear" });
+      } else if (k === "n") {
+        submit({ labelDisposition: "not_in_top_10" });
+      } else if (k === "s") {
+        submit({ labelDisposition: "skip" });
+      }
+    });
+
+    // Wire up
+    $("sendCode").onclick = async () => {
+      const email = $("email").value.trim();
+      if (!email) { $("loginMsg").textContent = "Enter your email first."; return; }
+      $("sendCode").disabled = true;
+      const { error } = await sbClient.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: window.location.href.split("#")[0] },
+      });
+      $("sendCode").disabled = false;
+      if (error) {
+        $("loginMsg").innerHTML = '<span class="err">' + escapeHtml(error.message) + "</span>";
+        return;
+      }
+      $("codeBox").classList.remove("hidden");
+      $("loginMsg").textContent = "Check your email for a 6-digit code or magic link.";
+    };
+
+    $("verifyCode").onclick = async () => {
+      const email = $("email").value.trim();
+      const token = $("code").value.trim();
+      if (!email || !token) { $("loginMsg").textContent = "Enter email and code."; return; }
+      $("verifyCode").disabled = true;
+      const { data, error } = await sbClient.auth.verifyOtp({ email, token, type: "email" });
+      $("verifyCode").disabled = false;
+      if (error) {
+        $("loginMsg").innerHTML = '<span class="err">' + escapeHtml(error.message) + "</span>";
+        return;
+      }
+      if (data && data.session) onSignedIn(data.session);
+    };
+
+    $("signOut").onclick = async () => {
+      await sbClient.auth.signOut();
+      window.location.reload();
+    };
+
+    $("search").addEventListener("input", onSearch);
+
+    $("undoBtn").onclick = undoLast;
+
+    document.querySelectorAll("[data-disp]").forEach((b) => {
+      b.onclick = () => submit({ labelDisposition: b.getAttribute("data-disp") });
+    });
+
+    boot();
+  </script>
+</body>
+</html>

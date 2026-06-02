@@ -24,9 +24,13 @@ import Svg, {
   Line,
   LinearGradient,
   Path,
+  Pattern,
   Rect,
   Stop,
 } from 'react-native-svg';
+
+// Small graph-paper grid drawn inside the line chart's fill area (Figma 809-12748).
+const CHART_GRID_CELL = 14;
 
 import type {
   ChartMode,
@@ -671,11 +675,26 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
                   <Stop offset="0" stopColor={chartFillColor} stopOpacity="0.28" />
                   <Stop offset="1" stopColor={chartFillColor} stopOpacity="0.02" />
                 </LinearGradient>
+                <Pattern
+                  height={CHART_GRID_CELL}
+                  id="portfolioGrid"
+                  patternUnits="userSpaceOnUse"
+                  width={CHART_GRID_CELL}
+                >
+                  <Path
+                    d={`M${CHART_GRID_CELL} 0 L0 0 L0 ${CHART_GRID_CELL}`}
+                    fill="none"
+                    stroke={chartAccentColor}
+                    strokeOpacity={0.16}
+                    strokeWidth={0.75}
+                  />
+                </Pattern>
               </Defs>
 
               {chartMode === 'portfolio' ? (
                 <>
                   <Path d={fillPath} fill="url(#portfolioFill)" />
+                  <Path d={fillPath} fill="url(#portfolioGrid)" />
                   <Path
                     d={linePath}
                     fill="none"

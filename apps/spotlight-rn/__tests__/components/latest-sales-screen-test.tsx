@@ -38,10 +38,12 @@ describe('LatestSalesScreen', () => {
     renderWithProviders(<LatestSalesScreen />);
 
     expect(await screen.findByTestId('sales-header-title')).toBeTruthy();
-    expect(screen.getByTestId('sales-header-title').props.children).toBe('Sales');
+    expect(screen.getByTestId('sales-header-title').props.children).toBe('Transactions');
     // Count badge intentionally removed per Figma; ensure it is gone.
     expect(screen.queryByTestId('latest-sales-count')).toBeNull();
     expect(screen.getByTestId('sales-stat-tile-row')).toBeTruthy();
+    expect(screen.getByText('Total Transaction Value')).toBeTruthy();
+    expect(screen.getByText('Total # Transactions')).toBeTruthy();
     expect(screen.getByTestId('sales-transactions-title')).toBeTruthy();
     expect(screen.getByTestId('sales-filter-chip-row')).toBeTruthy();
     expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
@@ -59,9 +61,9 @@ describe('LatestSalesScreen', () => {
       spotlightRepository: repository,
     });
 
-    expect(await screen.findByText('No sales yet')).toBeTruthy();
+    expect(await screen.findByText('No transactions yet')).toBeTruthy();
     expect(
-      screen.getByText('Completed sales will appear here as soon as you start moving inventory.'),
+      screen.getByText('Completed transactions will appear here as soon as you start moving inventory.'),
     ).toBeTruthy();
     expect(screen.queryByTestId('latest-sales-count')).toBeNull();
   });
@@ -83,7 +85,7 @@ describe('LatestSalesScreen', () => {
       spotlightRepository: repository,
     });
 
-    await screen.findByText('No sales yet');
+    await screen.findByText('No transactions yet');
     await screen.findByTestId('sales-header-title');
 
     // Empty state path renders a StateCard, not the FlatList. Re-rendering with

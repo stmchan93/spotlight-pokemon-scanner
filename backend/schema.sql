@@ -627,3 +627,28 @@ CREATE INDEX IF NOT EXISTS idx_portfolio_import_rows_job_committed
 
 CREATE INDEX IF NOT EXISTS idx_card_external_refs_card_id
     ON card_external_refs(card_id);
+
+-- Friend-reviewer labels for the reviewer-gated "label unlabeled scans" web
+-- surface. These are not deck events: a trusted reviewer labels someone else's
+-- scan without creating a deck entry. See
+-- docs/scan-data-labeling-pipeline-spec-2026-04-23.md.
+CREATE TABLE IF NOT EXISTS scan_labeling_reviews (
+    id TEXT PRIMARY KEY,
+    scan_id TEXT NOT NULL,
+    reviewer_user_id TEXT NOT NULL,
+    reviewer_role TEXT NOT NULL,
+    labeled_card_id TEXT,
+    label_disposition TEXT NOT NULL,
+    selected_rank INTEGER,
+    was_top_prediction INTEGER,
+    notes TEXT,
+    queue_id TEXT,
+    created_at TEXT NOT NULL,
+    UNIQUE(scan_id, reviewer_user_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_scan_labeling_reviews_scan_id
+    ON scan_labeling_reviews(scan_id, label_disposition);
+
+CREATE INDEX IF NOT EXISTS idx_scan_labeling_reviews_reviewer
+    ON scan_labeling_reviews(reviewer_user_id, created_at DESC);

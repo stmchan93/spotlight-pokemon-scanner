@@ -1,7 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native';
-import { IconLayoutGrid, IconList } from '@tabler/icons-react-native';
 
 import { IconButton, SearchField, colors, textStyles } from '@spotlight/design-system';
+
+import { GridViewIcon, ListViewIcon } from '../../../components/view-toggle-icons';
 
 export type CollectionViewMode = 'grid' | 'list';
 
@@ -22,7 +23,7 @@ export function CollectionSearchRow({
 }: CollectionSearchRowProps) {
   const showToggle = viewMode != null && onToggleViewMode != null;
   const toggleToList = viewMode === 'grid';
-  const ToggleIcon = toggleToList ? IconList : IconLayoutGrid;
+  const ToggleIcon = toggleToList ? ListViewIcon : GridViewIcon;
   const toggleLabel = toggleToList ? 'Switch to list view' : 'Switch to grid view';
 
   return (

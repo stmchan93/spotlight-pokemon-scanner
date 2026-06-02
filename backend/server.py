@@ -147,6 +147,10 @@ SUPABASE_JWKS_URL_ENV = "SUPABASE_JWKS_URL"
 SUPABASE_JWT_SECRET_ENV = "SUPABASE_JWT_SECRET"
 AUTH_REQUIRED_ENV = "SPOTLIGHT_AUTH_REQUIRED"
 AUTH_FALLBACK_USER_ID_ENV = "SPOTLIGHT_AUTH_FALLBACK_USER_ID"
+REVIEWER_USER_IDS_ENV = "SPOTLIGHT_REVIEWER_USER_IDS"
+REVIEWER_EMAILS_ENV = "SPOTLIGHT_REVIEWER_EMAILS"
+REVIEW_QUEUE_DEFAULT_LIMIT = 30
+_REVIEW_QUEUE_ID_PATTERN = re.compile(r"[^A-Za-z0-9_-]")
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
 
@@ -424,6 +428,45 @@ def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
     )
 
 
+def _apply_scan_labeling_reviews_schema_patch(connection: sqlite3.Connection) -> None:
+    """Idempotently ensure the friend-reviewer labels table exists.
+
+    schema.sql also creates this table, but that only runs for the configured
+    schema_path on bootstrap; existing staging databases get the additive table
+    here on every startup the same way other patches do.
+    """
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scan_labeling_reviews (
+            id TEXT PRIMARY KEY,
+            scan_id TEXT NOT NULL,
+            reviewer_user_id TEXT NOT NULL,
+            reviewer_role TEXT NOT NULL,
+            labeled_card_id TEXT,
+            label_disposition TEXT NOT NULL,
+            selected_rank INTEGER,
+            was_top_prediction INTEGER,
+            notes TEXT,
+            queue_id TEXT,
+            created_at TEXT NOT NULL,
+            UNIQUE(scan_id, reviewer_user_id)
+        )
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scan_labeling_reviews_scan_id
+        ON scan_labeling_reviews(scan_id, label_disposition)
+        """
+    )
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_scan_labeling_reviews_reviewer
+        ON scan_labeling_reviews(reviewer_user_id, created_at DESC)
+        """
+    )
+
+
 def _env_flag(name: str, *, default: bool = False) -> bool:
     raw_value = os.environ.get(name)
     if raw_value is None:
@@ -600,6 +643,7 @@ class SpotlightScanService:
             _apply_card_favorites_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
             _apply_collections_redesign_schema_patch(bootstrap_connection)
+            _apply_scan_labeling_reviews_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
@@ -5906,6 +5950,197 @@ class SpotlightScanService:
     def search(self, query: str, *, limit: int = 20) -> dict[str, Any]:
         return {"results": search_cards(self.connection, query, limit=limit)}
 
+    # ------------------------------------------------------------------
+    # Reviewer-gated "label unlabeled scans" web surface (additive).
+    # ------------------------------------------------------------------
+    @staticmethod
+    def _review_queue_safe_id(queue_id: object) -> str:
+        return _REVIEW_QUEUE_ID_PATTERN.sub("", str(queue_id or "").strip())
+
+    def _review_queue_path(self, queue_id: str) -> Path:
+        safe_id = self._review_queue_safe_id(queue_id)
+        if not safe_id:
+            raise FileNotFoundError("review queue not found")
+        # Resolve relative to the server module dir first (matches how the
+        # /review page is served and how the deploy lays out backend/* on the
+        # VM), then fall back to the local repo layout.
+        server_dir = Path(__file__).resolve().parent
+        candidates = [
+            server_dir / "review_queues" / f"{safe_id}.json",
+            self.repo_root / "backend" / "review_queues" / f"{safe_id}.json",
+            self.repo_root / "review_queues" / f"{safe_id}.json",
+        ]
+        for candidate in candidates:
+            if candidate.exists():
+                return candidate
+        return candidates[0]
+
+    def _load_review_queue_items(self, queue_id: str) -> list[dict[str, Any]]:
+        path = self._review_queue_path(queue_id)
+        if not path.exists():
+            raise FileNotFoundError("review queue not found")
+        try:
+            raw = path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise FileNotFoundError("review queue not found") from error
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError) as error:
+            raise ValueError("review queue file is not valid JSON") from error
+        if isinstance(parsed, dict):
+            items = parsed.get("items")
+        else:
+            items = parsed
+        if not isinstance(items, list):
+            raise ValueError("review queue file has no items list")
+        normalized: list[dict[str, Any]] = []
+        for item in items:
+            if isinstance(item, dict) and str(item.get("scan_id") or "").strip():
+                normalized.append(item)
+        return normalized
+
+    def _review_confirmed_scan_ids(self) -> set[str]:
+        rows = self.connection.execute(
+            "SELECT DISTINCT scan_id FROM scan_labeling_reviews WHERE label_disposition = 'confirmed'"
+        ).fetchall()
+        return {str(row["scan_id"]) for row in rows}
+
+    def _review_seen_scan_ids_for_reviewer(self, reviewer_user_id: str) -> set[str]:
+        rows = self.connection.execute(
+            "SELECT scan_id FROM scan_labeling_reviews WHERE reviewer_user_id = ?",
+            (reviewer_user_id,),
+        ).fetchall()
+        return {str(row["scan_id"]) for row in rows}
+
+    def _review_pending_items(
+        self, queue_id: str, reviewer_user_id: str
+    ) -> list[dict[str, Any]]:
+        items = self._load_review_queue_items(queue_id)
+        confirmed = self._review_confirmed_scan_ids()
+        seen_by_reviewer = self._review_seen_scan_ids_for_reviewer(reviewer_user_id)
+        pending: list[dict[str, Any]] = []
+        for item in items:
+            scan_id = str(item.get("scan_id") or "").strip()
+            if not scan_id:
+                continue
+            if scan_id in confirmed or scan_id in seen_by_reviewer:
+                continue
+            pending.append(item)
+        return pending
+
+    def review_queue(
+        self, queue_id: str, reviewer_user_id: str, *, limit: int = REVIEW_QUEUE_DEFAULT_LIMIT
+    ) -> dict[str, Any]:
+        safe_id = self._review_queue_safe_id(queue_id)
+        pending = self._review_pending_items(queue_id, reviewer_user_id)
+        capped_limit = max(0, int(limit))
+        selected = pending[:capped_limit] if capped_limit else pending
+        items: list[dict[str, Any]] = []
+        for item in selected:
+            scan_id = str(item.get("scan_id") or "").strip()
+            items.append(
+                {
+                    "scan_id": scan_id,
+                    "predicted": item.get("predicted"),
+                    "candidates": item.get("candidates") or [],
+                    # The AI's own determination for this scan (card_id + display
+                    # name/tier/source, or {disposition:"unsure"}). Surfaced so
+                    # reviewers see what the model guessed and we can measure AI
+                    # accuracy across the full set. May be absent on older queues.
+                    "ai_label": item.get("ai_label"),
+                    "image_url": f"/api/v1/review/image/{scan_id}?queue={safe_id}",
+                }
+            )
+        return {"items": items, "remaining": len(pending)}
+
+    def review_image_object_path(self, queue_id: str, scan_id: str) -> str | None:
+        target_scan_id = str(scan_id or "").strip()
+        if not target_scan_id:
+            return None
+        try:
+            items = self._load_review_queue_items(queue_id)
+        except (FileNotFoundError, ValueError):
+            return None
+        for item in items:
+            if str(item.get("scan_id") or "").strip() == target_scan_id:
+                object_path = str(item.get("object_path") or "").strip()
+                return object_path or None
+        return None
+
+    def read_scan_object_bytes(self, object_path: str) -> bytes | None:
+        reader = getattr(self.artifact_store, "read_object_bytes", None)
+        if not callable(reader):
+            return None
+        return reader(object_path)
+
+    def record_review_label(
+        self,
+        *,
+        scan_id: str,
+        reviewer_user_id: str,
+        labeled_card_id: str | None,
+        label_disposition: str,
+        selected_rank: int | None,
+        notes: str | None,
+        queue_id: str | None,
+    ) -> dict[str, Any]:
+        normalized_scan_id = str(scan_id or "").strip()
+        if not normalized_scan_id:
+            raise ValueError("scanID is required")
+        normalized_disposition = str(label_disposition or "").strip()
+        allowed_dispositions = {"confirmed", "unclear", "not_in_top_10", "skip"}
+        if normalized_disposition not in allowed_dispositions:
+            raise ValueError(
+                "labelDisposition must be one of confirmed, unclear, not_in_top_10, skip"
+            )
+        normalized_card_id = str(labeled_card_id or "").strip() or None
+        if normalized_disposition == "confirmed" and not normalized_card_id:
+            raise ValueError("labeledCardID is required when labelDisposition is confirmed")
+        normalized_rank: int | None
+        if selected_rank is None:
+            normalized_rank = None
+        else:
+            try:
+                normalized_rank = int(selected_rank)
+            except (TypeError, ValueError) as error:
+                raise ValueError("selectedRank must be an integer") from error
+        was_top_prediction = 1 if normalized_rank == 1 else 0
+        normalized_notes = str(notes or "").strip() or None
+        normalized_queue_id = self._review_queue_safe_id(queue_id) or None
+        created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        self.connection.execute(
+            """
+            INSERT OR REPLACE INTO scan_labeling_reviews (
+                id, scan_id, reviewer_user_id, reviewer_role, labeled_card_id,
+                label_disposition, selected_rank, was_top_prediction, notes,
+                queue_id, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                uuid.uuid4().hex,
+                normalized_scan_id,
+                reviewer_user_id,
+                "friend",
+                normalized_card_id,
+                normalized_disposition,
+                normalized_rank,
+                was_top_prediction,
+                normalized_notes,
+                normalized_queue_id,
+                created_at,
+            ),
+        )
+        self.connection.commit()
+        remaining = 0
+        if normalized_queue_id:
+            try:
+                remaining = len(
+                    self._review_pending_items(normalized_queue_id, reviewer_user_id)
+                )
+            except (FileNotFoundError, ValueError):
+                remaining = 0
+        return {"ok": True, "remaining": remaining}
+
     def list_expansions(self, game: str = "pokemon", *, refresh: bool = False) -> dict[str, Any]:
         if refresh or expansion_count(self.connection) == 0:
             try:
@@ -11188,7 +11423,11 @@ class SpotlightScanService:
 
         cards_by_id_map = cards_by_ids(self.connection, card_ids_in_order)
         price_snapshot_rows = self._price_snapshot_rows_by_card_id(card_ids_in_order)
-        owned_card_ids = self._owned_card_ids_for_user(owner_user_id, card_ids_in_order)
+        # Pull the owned deck entry (grade/condition/kind) per favorited card so the
+        # wishlist rows + hero can mirror the Collection list: graded copies surface a
+        # slab context, raw copies a condition, and the price/day-change is computed in
+        # the owned lane. Unowned favorites stay on the raw lane with no grade.
+        owned_summary = self._owned_deck_summary_by_card_id(owner_user_id, card_ids_in_order)
 
         entries: list[dict[str, Any]] = []
         for row in rows:
@@ -11196,20 +11435,64 @@ class SpotlightScanService:
             card = cards_by_id_map.get(card_id)
             if card is None:
                 continue
+            owned = owned_summary.get(card_id)
+            grader = owned["grader"] if owned else None
+            grade = owned["grade"] if owned else None
+            cert_number = owned["cert_number"] if owned else None
+            variant_name = owned["variant_name"] if owned else None
+            condition = owned["condition"] if owned else None
+            item_kind = owned["item_kind"] if owned else None
+
+            if owned and (grader or grade):
+                pricing_context = self._slab_pricing_context(
+                    grader=grader,
+                    grade=grade,
+                    cert_number=cert_number,
+                    preferred_variant=variant_name,
+                )
+            else:
+                pricing_context = self._raw_pricing_context(
+                    preferred_variant=variant_name,
+                    preferred_condition=condition,
+                )
             pricing = self._display_pricing_summary_for_context(
                 card_id,
-                pricing_context=self._raw_pricing_context(),
+                pricing_context=pricing_context,
                 snapshot_row=price_snapshot_rows.get(card_id),
             )
             card_payload = self._candidate_base_payload(card, card)
             if pricing is not None:
                 card_payload["pricing"] = pricing
             card_payload["isFavorite"] = True
+
+            slab_context = None
+            if grader or grade:
+                slab_context = {
+                    "grader": grader,
+                    "grade": grade,
+                    "certNumber": cert_number,
+                    "variantName": variant_name,
+                }
+
+            day_change_amount, day_change_percent = self._day_change_for_entry(
+                card_id=card_id,
+                item_kind=item_kind,
+                grader=grader,
+                grade=grade,
+                variant_name=variant_name,
+                condition_code=condition,
+                today_pricing=pricing,
+            )
+
             entries.append(
                 {
                     "card": card_payload,
                     "favoritedAt": row["created_at"],
-                    "isOwned": card_id in owned_card_ids,
+                    "isOwned": owned is not None,
+                    "slabContext": slab_context,
+                    "condition": condition,
+                    "dayChangeAmount": day_change_amount,
+                    "dayChangePercent": day_change_percent,
                 }
             )
 
@@ -11231,6 +11514,44 @@ class SpotlightScanService:
             (owner_user_id, *normalized),
         ).fetchall()
         return {str(row["card_id"] or "").strip() for row in rows if row["card_id"]}
+
+    def _owned_deck_summary_by_card_id(
+        self, owner_user_id: str, card_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Grade/condition/kind of the user's owned deck entry per card_id.
+
+        Keeps the most recently added owned entry when a card has several copies
+        so the wishlist shows a single, stable grade/condition per favorite.
+        """
+        normalized = [card_id for card_id in card_ids if card_id]
+        if not owner_user_id or not normalized:
+            return {}
+        placeholders = ",".join("?" for _ in normalized)
+        rows = self.connection.execute(
+            f"""
+            SELECT card_id, item_kind, grader, grade, cert_number, variant_name, condition
+            FROM deck_entries
+            WHERE owner_user_id = ?
+              AND quantity > 0
+              AND card_id IN ({placeholders})
+            ORDER BY added_at DESC, id DESC
+            """,
+            (owner_user_id, *normalized),
+        ).fetchall()
+        summary: dict[str, dict[str, Any]] = {}
+        for row in rows:
+            card_id = str(row["card_id"] or "").strip()
+            if not card_id or card_id in summary:
+                continue
+            summary[card_id] = {
+                "item_kind": str(row["item_kind"] or "").strip() or None,
+                "grader": str(row["grader"] or "").strip() or None,
+                "grade": str(row["grade"] or "").strip() or None,
+                "cert_number": str(row["cert_number"] or "").strip() or None,
+                "variant_name": str(row["variant_name"] or "").strip() or None,
+                "condition": self._normalized_deck_card_condition(row["condition"]),
+            }
+        return summary
 
     def _log_scan(self, request_payload: dict[str, Any], response_payload: dict[str, Any], top_candidates: list[dict[str, Any]]) -> None:
         scan_id = request_payload["scanID"]
@@ -11271,9 +11592,165 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             self._write_json(HTTPStatus.UNAUTHORIZED, {"error": str(error)})
             return None
 
+    @staticmethod
+    def _reviewer_user_ids() -> set[str]:
+        raw = os.environ.get(REVIEWER_USER_IDS_ENV) or ""
+        return {part.strip() for part in raw.split(",") if part.strip()}
+
+    @staticmethod
+    def _reviewer_emails() -> set[str]:
+        raw = os.environ.get(REVIEWER_EMAILS_ENV) or ""
+        return {part.strip().lower() for part in raw.split(",") if part.strip()}
+
+    def _require_reviewer(self, identity: RequestIdentity) -> bool:
+        user_id = str(getattr(identity, "user_id", "") or "").strip()
+        email = str(getattr(identity, "email", "") or "").strip().lower()
+        if user_id and user_id in self._reviewer_user_ids():
+            return True
+        if email and email in self._reviewer_emails():
+            return True
+        self._write_json(
+            HTTPStatus.FORBIDDEN,
+            {
+                "error": "Reviewer access is required.",
+                "message": "Ask the admin to grant reviewer access",
+                "userId": user_id,
+                "email": email,
+            },
+        )
+        return False
+
+    def _write_image(self, status: HTTPStatus, body: bytes) -> None:
+        self.send_response(status.value)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            print(
+                "[HTTP] Client disconnected before image write completed: "
+                f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
+            )
+
+    def _write_html(self, status: HTTPStatus, html: str) -> None:
+        body = html.encode("utf-8")
+        self.send_response(status.value)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except (BrokenPipeError, ConnectionResetError):
+            print(
+                "[HTTP] Client disconnected before HTML write completed: "
+                f"path={getattr(self, 'path', '<unknown>')} status={status.value}"
+            )
+
     def do_GET(self) -> None:
         parsed = urlparse(self.path)
         query = parse_qs(parsed.query)
+
+        # --- Reviewer-gated "label unlabeled scans" web surface (additive) ---
+        if parsed.path == "/api/v1/review/config":
+            supabase_url = (
+                os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_URL")
+                or os.environ.get("SPOTLIGHT_SUPABASE_URL")
+                or os.environ.get("SUPABASE_URL")
+                or ""
+            )
+            supabase_anon_key = (
+                os.environ.get("EXPO_PUBLIC_SPOTLIGHT_SUPABASE_ANON_KEY")
+                or os.environ.get("SPOTLIGHT_SUPABASE_ANON_KEY")
+                or ""
+            )
+            self._write_json(
+                HTTPStatus.OK,
+                {"supabaseUrl": supabase_url, "supabaseAnonKey": supabase_anon_key},
+            )
+            return
+
+        if parsed.path == "/review":
+            review_html_path = (
+                Path(__file__).resolve().parent / "review_web" / "index.html"
+            )
+            try:
+                html = review_html_path.read_text(encoding="utf-8")
+            except OSError:
+                self._write_json(
+                    HTTPStatus.NOT_FOUND, {"error": "Review surface is not available."}
+                )
+                return
+            self._write_html(HTTPStatus.OK, html)
+            return
+
+        if parsed.path == "/api/v1/review/queue":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_reviewer(identity):
+                return
+            queue_id = query.get("queue", [""])[0]
+            try:
+                limit = int(query.get("limit", [str(REVIEW_QUEUE_DEFAULT_LIMIT)])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.review_queue(
+                        queue_id, identity.user_id, limit=limit
+                    )
+            except FileNotFoundError as error:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
+                return
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Review queue load failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/review/image/"):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_reviewer(identity):
+                return
+            scan_id = unquote(parsed.path.removeprefix("/api/v1/review/image/").strip("/"))
+            queue_id = query.get("queue", [""])[0]
+            if not scan_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    object_path = self.service.review_image_object_path(queue_id, scan_id)
+                    if not object_path:
+                        self._write_json(
+                            HTTPStatus.NOT_FOUND, {"error": "Scan image not found"}
+                        )
+                        return
+                    image_bytes = self.service.read_scan_object_bytes(object_path)
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Scan image load failed: {error}"},
+                )
+                return
+            if not image_bytes:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Scan image not found"})
+                return
+            self._write_image(HTTPStatus.OK, image_bytes)
+            return
 
         if parsed.path == "/api/v1/health":
             prewarm_visual = str(query.get("prewarm", [""])[0]).strip().lower() in {"1", "true", "visual", "all"}
@@ -11822,6 +12299,36 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.INTERNAL_SERVER_ERROR, {"error": f"Card favorite update failed: {error}"})
                 return
             self._write_json(HTTPStatus.OK, favorite_payload)
+            return
+
+        if parsed.path == "/api/v1/review/label":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            if not self._require_reviewer(identity):
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    label_payload = self.service.record_review_label(
+                        scan_id=str(payload.get("scanID") or ""),
+                        reviewer_user_id=identity.user_id,
+                        labeled_card_id=payload.get("labeledCardID"),
+                        label_disposition=str(payload.get("labelDisposition") or ""),
+                        selected_rank=payload.get("selectedRank"),
+                        notes=payload.get("notes"),
+                        queue_id=payload.get("queue"),
+                    )
+            except ValueError as error:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Review label failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, label_payload)
             return
 
         if parsed.path == "/api/v1/labeling-sessions":
