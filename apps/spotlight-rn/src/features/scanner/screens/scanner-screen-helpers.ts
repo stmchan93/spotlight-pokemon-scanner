@@ -469,6 +469,9 @@ export async function triggerScannerHaptic() {
 const PROCESSED_HAPTIC_DEBOUNCE_MS = 300;
 let lastProcessedHapticAt = 0;
 
+// Second buzz, fired when a scan resolves (incl. the card-found path). Same
+// Light feel as the capture buzz on purpose — it's a matching confirmation tick,
+// not a louder one.
 export async function triggerScannerProcessedHaptic() {
   if (process.env.NODE_ENV === 'test') {
     return;

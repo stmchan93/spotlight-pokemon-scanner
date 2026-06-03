@@ -49,10 +49,13 @@ export function CollectionMasonryGrid({
             key={row[0]?.id ?? `row-${rowIndex}`}
             style={[
               styles.row,
-              {
-                borderTopColor: theme.colors.gray100,
-                borderBottomColor: theme.colors.gray100,
-              },
+              { borderBottomColor: theme.colors.gray100 },
+              // Single hairlines: only the first row draws a top border; every
+              // row draws its bottom border, so adjacent rows share one 1px
+              // line instead of stacking two.
+              rowIndex === 0
+                ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 }
+                : null,
             ]}
             testID={`${testID}-row-${rowIndex}`}
           >
@@ -61,7 +64,13 @@ export function CollectionMasonryGrid({
               return (
                 <View
                   key={entry?.id ?? `row-${rowIndex}-col-${colIndex}`}
-                  style={styles.cell}
+                  style={[
+                    styles.cell,
+                    // Middle vertical divider between the two columns.
+                    colIndex === 1 && entry
+                      ? { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 }
+                      : null,
+                  ]}
                 >
                   {entry ? (
                     <CollectionTileSlot
@@ -143,15 +152,13 @@ function CollectionTileSlot({
 
 const styles = StyleSheet.create({
   grid: {
-    // Full-bleed: no horizontal gutter and no row gap, so each row's
-    // top/bottom hairlines run all the way to the app edges and stack into a
-    // continuous ruled list.
+    // Full-bleed: no horizontal gutter and no row gap, so each row's hairlines
+    // run all the way to the app edges and stack into a continuous ruled grid.
     paddingVertical: 16,
   },
   row: {
     alignItems: 'stretch',
     borderBottomWidth: 1,
-    borderTopWidth: 1,
     flexDirection: 'row',
   },
   cell: {

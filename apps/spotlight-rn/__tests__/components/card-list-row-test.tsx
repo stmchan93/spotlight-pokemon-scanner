@@ -107,15 +107,30 @@ describe('CardListRow', () => {
     expect(merged.borderWidth).toBeUndefined();
   });
 
-  it('draws top and bottom hairline border bars on the row', () => {
-    renderRow();
-
+  function mergedRowStyle() {
     const row = screen.getByTestId('row');
     const flat = (Array.isArray(row.props.style)
       ? row.props.style.flat(Infinity)
       : [row.props.style]
     ).filter(Boolean);
-    const merged = Object.assign({}, ...flat);
+    return Object.assign({}, ...flat);
+  }
+
+  it('draws only a bottom hairline by default so adjacent rows share one divider', () => {
+    renderRow();
+
+    const merged = mergedRowStyle();
+    expect(merged.borderBottomWidth).toBe(1);
+    expect(merged.borderBottomColor).toBe('#F2F2F2');
+    // No top border by default — the previous row's bottom hairline serves as
+    // the divider, so stacked rows don't double their borders.
+    expect(merged.borderTopWidth).toBeUndefined();
+  });
+
+  it('adds a top hairline when firstInSection so the list has a framed top edge', () => {
+    renderRow({ firstInSection: true });
+
+    const merged = mergedRowStyle();
     expect(merged.borderBottomWidth).toBe(1);
     expect(merged.borderBottomColor).toBe('#F2F2F2');
     expect(merged.borderTopWidth).toBe(1);

@@ -29,9 +29,10 @@ export function CollectionListView({
 }: CollectionListViewProps) {
   return (
     <View style={styles.list} testID={testID}>
-      {entries.map((entry) => (
+      {entries.map((entry, index) => (
         <CardListRow
           key={entry.id}
+          firstInSection={index === 0}
           imageUrl={getCardImageUrl(entry, 'small')}
           name={entry.name}
           cardNumber={entry.cardNumber}

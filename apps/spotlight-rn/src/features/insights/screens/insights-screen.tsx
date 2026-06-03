@@ -309,6 +309,7 @@ function CollectionHealthPanel({
       </View>
       {insights?.bestReturnOfAllTime ? (
         <SaleSummaryRow
+          firstInList
           sale={insights.bestReturnOfAllTime}
           testID="insights-best-return"
         />
@@ -399,6 +400,7 @@ function SalesPerformancePanel({
           {insights.topSellersThisMonth.map((sale) => (
             <View key={sale.id} style={{ width: topSellerCardWidth }}>
               <SaleSummaryRow
+                firstInList
                 onPress={sale.kind === 'sold' ? onEditSale : undefined}
                 sale={sale}
                 showEditAffordance={sale.kind === 'sold'}

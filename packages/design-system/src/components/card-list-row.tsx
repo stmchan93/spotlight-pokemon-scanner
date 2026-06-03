@@ -14,6 +14,13 @@ export type CardListRowProps = {
   currencyCode?: string;
   trendChangeAmount?: number | null;
   quantity: number;
+  /**
+   * When true, the row draws a top hairline in addition to its bottom hairline.
+   * Pass this only for the first row in a list so rows share single 1px
+   * dividers (each row's bottom border) with a top border framing the list,
+   * instead of stacking two borders between adjacent rows.
+   */
+  firstInSection?: boolean;
   onPress?: () => void;
   testID?: string;
 };
@@ -53,10 +60,18 @@ export function CardListRow({
   currencyCode = 'USD',
   trendChangeAmount,
   quantity,
+  firstInSection = false,
   onPress,
   testID,
 }: CardListRowProps) {
   const theme = useSpotlightTheme();
+
+  const borderStyle = {
+    borderBottomColor: theme.colors.gray100,
+    ...(firstInSection
+      ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 }
+      : null),
+  };
 
   const metaLine = buildMetaLine(cardNumber, setName);
   const gradeText = (gradeLabel ?? '').trim();
@@ -77,8 +92,7 @@ export function CardListRow({
           styles.row,
           {
             backgroundColor: theme.colors.gray0,
-            borderBottomColor: theme.colors.gray100,
-            borderTopColor: theme.colors.gray100,
+            ...borderStyle,
             opacity: pressed ? 0.82 : 1,
           },
         ],
@@ -89,8 +103,7 @@ export function CardListRow({
           styles.row,
           {
             backgroundColor: theme.colors.gray0,
-            borderBottomColor: theme.colors.gray100,
-            borderTopColor: theme.colors.gray100,
+            ...borderStyle,
           },
         ],
         testID,
@@ -226,7 +239,6 @@ const styles = StyleSheet.create({
   row: {
     alignItems: 'center',
     borderBottomWidth: 1,
-    borderTopWidth: 1,
     flexDirection: 'row',
     gap: 12,
     minHeight: 72,

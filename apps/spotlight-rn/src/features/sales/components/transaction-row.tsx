@@ -55,11 +55,17 @@ export function formatTransactionActionLabel(record: CardTransactionRecord) {
 
 type TransactionRowProps = {
   record: CardTransactionRecord;
+  /**
+   * When true, the row draws a top hairline as well — pass only for the first
+   * row so adjacent rows share single 1px dividers instead of doubling them.
+   */
+  firstInList?: boolean;
   testID?: string;
 };
 
 export function TransactionRow({
   record,
+  firstInList = false,
   testID,
 }: TransactionRowProps) {
   const theme = useSpotlightTheme();
@@ -68,7 +74,7 @@ export function TransactionRow({
 
   return (
     <View style={styles.cardWrapper} testID={resolvedTestID}>
-      <View style={styles.card}>
+      <View style={[styles.card, firstInList ? styles.cardFirst : null]}>
         <View style={styles.leftGroup}>
           <CachedImage
             cachePolicy={imageCachePolicy.thumbnail}
@@ -111,18 +117,21 @@ const styles = StyleSheet.create({
   cardWrapper: {
     backgroundColor: colors.gray0,
   },
-  // Flat ruled row matching the memory-bank list: white surface with top and
-  // bottom gray100 hairlines so rows stack into one continuous ruled list.
+  // Flat ruled row: white surface with gray100 hairlines. Each row draws a
+  // single bottom hairline so adjacent rows share one 1px divider; only the
+  // first row adds a top hairline (see `cardFirst`).
   card: {
     alignItems: 'center',
     backgroundColor: colors.gray0,
     borderBottomWidth: 1,
     borderColor: colors.gray100,
-    borderTopWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  cardFirst: {
+    borderTopWidth: 1,
   },
   leftGroup: {
     alignItems: 'center',

@@ -44,6 +44,11 @@ type SaleSummaryRowProps = {
   sale: RecentSaleRecord;
   onPress?: (sale: RecentSaleRecord) => void;
   showEditAffordance?: boolean;
+  /**
+   * When true, the row draws a top hairline as well — pass only for the first
+   * row so adjacent rows share single 1px dividers instead of doubling them.
+   */
+  firstInList?: boolean;
   testID?: string;
 };
 
@@ -51,6 +56,7 @@ export function SaleSummaryRow({
   sale,
   onPress,
   showEditAffordance = false,
+  firstInList = false,
   testID,
 }: SaleSummaryRowProps) {
   const theme = useSpotlightTheme();
@@ -59,7 +65,7 @@ export function SaleSummaryRow({
   const pressable = onPress != null;
 
   const body = (
-    <View style={styles.card}>
+    <View style={[styles.card, firstInList ? styles.cardFirst : null]}>
       <View style={styles.leftGroup}>
         <CachedImage
           cachePolicy={imageCachePolicy.thumbnail}
@@ -158,18 +164,21 @@ const styles = StyleSheet.create({
   cardWrapper: {
     backgroundColor: colors.gray0,
   },
-  // Flat ruled row (Figma 669:8573): white, top + bottom gray100 hairlines,
-  // no rounded card shell. Rows sit flush so the rules form a continuous list.
+  // Flat ruled row (Figma 669:8573): white, gray100 hairlines, no rounded card
+  // shell. Each row draws a single bottom hairline so adjacent rows share one
+  // 1px divider; only the first row adds a top hairline (see `cardFirst`).
   card: {
     alignItems: 'flex-start',
     backgroundColor: colors.gray0,
     borderBottomWidth: 1,
     borderColor: colors.gray100,
-    borderTopWidth: 1,
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingVertical: 12,
+  },
+  cardFirst: {
+    borderTopWidth: 1,
   },
   leftGroup: {
     alignItems: 'center',

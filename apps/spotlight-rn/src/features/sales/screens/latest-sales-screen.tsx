@@ -236,9 +236,10 @@ export function LatestSalesScreen() {
               </View>
             ) : (
               <View style={salesStyles.salesList} testID="latest-sales-list">
-                {visibleTransactions.map((transaction) => (
+                {visibleTransactions.map((transaction, index) => (
                   <TransactionRow
                     key={transaction.id}
+                    firstInList={index === 0}
                     record={transaction}
                     testID={`latest-transaction-card-${transaction.id}`}
                   />

@@ -404,7 +404,7 @@ function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
   const theme = useSpotlightTheme();
   return (
     <View style={styles.listColumn}>
-      {entries.map((entry) => (
+      {entries.map((entry, index) => (
         <View
           key={entry.cardId}
           style={styles.listRowWrap}
@@ -413,6 +413,7 @@ function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
           <CardListRow
             cardNumber={entry.cardNumber}
             currencyCode={entry.currencyCode ?? 'USD'}
+            firstInSection={index === 0}
             gradeLabel={gradeLabelForFavorite(entry)}
             imageUrl={entry.smallImageUrl ?? entry.imageUrl ?? null}
             marketPrice={entry.marketPrice ?? null}
@@ -430,29 +431,6 @@ function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
           >
             <Heart color={theme.colors.gray900} height={9} width={9} />
           </View>
-          {entry.isOwned ? (
-            <View
-              pointerEvents="none"
-              style={[
-                styles.ownedPill,
-                {
-                  backgroundColor: theme.colors.gray100,
-                  borderColor: theme.colors.gray300,
-                },
-              ]}
-              testID={`wishlist-row-owned-${entry.cardId}`}
-            >
-              <Text
-                style={[
-                  theme.typography.label,
-                  styles.ownedPillText,
-                  { color: theme.colors.gray700 },
-                ]}
-              >
-                In collection
-              </Text>
-            </View>
-          ) : null}
         </View>
       ))}
     </View>
@@ -475,10 +453,11 @@ function WishlistGridView({ entries, onPressEntry }: WishlistViewProps) {
           key={row[0]?.cardId ?? `wishlist-grid-row-${rowIndex}`}
           style={[
             styles.gridRow,
-            {
-              borderTopColor: theme.colors.gray100,
-              borderBottomColor: theme.colors.gray100,
-            },
+            { borderBottomColor: theme.colors.gray100 },
+            // Single hairlines: only the first row draws a top border.
+            rowIndex === 0
+              ? { borderTopColor: theme.colors.gray100, borderTopWidth: 1 }
+              : null,
           ]}
         >
           {Array.from({ length: GRID_COLUMNS }).map((_, colIndex) => {
@@ -486,7 +465,13 @@ function WishlistGridView({ entries, onPressEntry }: WishlistViewProps) {
             return (
               <View
                 key={entry?.cardId ?? `wishlist-grid-row-${rowIndex}-col-${colIndex}`}
-                style={styles.gridCell}
+                style={[
+                  styles.gridCell,
+                  // Middle vertical divider between the two columns.
+                  colIndex === 1 && entry
+                    ? { borderLeftColor: theme.colors.gray100, borderLeftWidth: 1 }
+                    : null,
+                ]}
               >
                 {entry ? (
                   <WishlistGridTile
@@ -568,14 +553,6 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
           >
             {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
           </Text>
-          {entry.isOwned ? (
-            <Text
-              numberOfLines={1}
-              style={[styles.gridOwnedText, { color: theme.colors.gray600 }]}
-            >
-              In collection
-            </Text>
-          ) : null}
         </View>
       </View>
     </Pressable>
@@ -654,19 +631,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     width: 14,
   },
-  ownedPill: {
-    borderRadius: 999,
-    borderWidth: 1,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    position: 'absolute',
-    right: 14,
-    top: 10,
-  },
-  ownedPillText: {
-    fontSize: 10,
-    lineHeight: 14,
-  },
   gridContainer: {
     // Full-bleed ruled grid (matches the collection card view): rows stack with
     // full-width top/bottom hairlines; no horizontal gutter or row gap.
@@ -675,7 +639,6 @@ const styles = StyleSheet.create({
   gridRow: {
     alignItems: 'stretch',
     borderBottomWidth: 1,
-    borderTopWidth: 1,
     flexDirection: 'row',
   },
   gridCell: {
@@ -721,10 +684,5 @@ const styles = StyleSheet.create({
     fontFamily: 'SpotlightBodySemiBold',
     fontSize: 13,
     lineHeight: 18.2,
-  },
-  gridOwnedText: {
-    fontFamily: 'SpotlightBodyRegular',
-    fontSize: 10,
-    lineHeight: 14,
   },
 });
