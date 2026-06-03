@@ -6219,7 +6219,8 @@ class SpotlightScanService:
             "AND a.normalized_object_path IS NOT NULL "
             "AND a.upload_status IN ('uploaded','normalized_only') "
             "AND (e.confirmed_card_id IS NULL OR e.confirmed_card_id = '') "
-            "AND e.scan_id NOT IN (SELECT scan_id FROM scan_labeling_reviews WHERE label_disposition = 'confirmed') "
+            "AND e.scan_id NOT IN (SELECT scan_id FROM scan_labeling_reviews "
+            "WHERE label_disposition IN ('confirmed','not_a_raw_card')) "
         )
         if mode == "revisit":
             where += (
@@ -6386,10 +6387,15 @@ class SpotlightScanService:
         if not normalized_scan_id:
             raise ValueError("scanID is required")
         normalized_disposition = str(label_disposition or "").strip()
-        allowed_dispositions = {"confirmed", "unclear", "not_in_top_10", "skip"}
+        # not_a_raw_card: the capture is not a raw single — a graded slab in a
+        # plastic case, or junk (a blanket, a hand, a wrapper, an empty shot)
+        # that slipped into the raw queue. Like confirmed, it removes the scan
+        # for EVERYONE, but it never assigns a raw card_id — so it's dropped from
+        # review without poisoning the raw training corpus.
+        allowed_dispositions = {"confirmed", "unclear", "not_in_top_10", "skip", "not_a_raw_card"}
         if normalized_disposition not in allowed_dispositions:
             raise ValueError(
-                "labelDisposition must be one of confirmed, unclear, not_in_top_10, skip"
+                "labelDisposition must be one of confirmed, unclear, not_in_top_10, skip, not_a_raw_card"
             )
         normalized_card_id = str(labeled_card_id or "").strip() or None
         if normalized_disposition == "confirmed" and not normalized_card_id:

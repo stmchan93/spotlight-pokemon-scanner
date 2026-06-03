@@ -133,6 +133,12 @@
     }
     .err { color: var(--danger); }
     .hint { color: var(--muted); font-size: 12px; margin-top: 4px; }
+    .legend { margin-top: 12px; font-size: 13px; color: var(--text); background: var(--panel-2);
+      border: 1px solid var(--border); border-radius: 10px; padding: 8px 12px; }
+    .legend summary { cursor: pointer; color: var(--accent); font-weight: 600; }
+    .legend ul { margin: 8px 0 4px; padding-left: 18px; }
+    .legend li { margin: 4px 0; line-height: 1.4; }
+    .legend .legend-note { margin-top: 6px; color: var(--muted); }
     a { color: var(--accent); }
   </style>
 </head>
@@ -186,16 +192,28 @@
           <div class="candidates" id="finishOptions"></div>
         </div>
         <div class="row">
-          <button data-disp="unclear">Unclear (u)</button>
-          <button data-disp="not_in_top_10">Not in list (n)</button>
-          <button data-disp="skip">Skip (s)</button>
+          <button data-disp="unclear" title="It IS a card but you can't tell which one — blurry, glare, cut off. Comes back to YOU later in 'Skipped & unclear'.">Unclear (u)</button>
+          <button data-disp="not_in_top_10" title="It's a real raw card, but the right one isn't in the AI pick / candidates AND you can't find it in search. (Right card, missing options.)">Not in list (n)</button>
+          <button data-disp="not_a_raw_card" title="It's NOT a raw single — a graded slab (PSA/CGC plastic case) OR junk (blanket, hand, wrapper, empty). Removes it for everyone.">Not a card · slab/junk (g)</button>
+          <button data-disp="skip" title="Pass for now — leave it for the others. Comes back to YOU later in 'Skipped & unclear'.">Skip (s)</button>
         </div>
+        <details class="legend">
+          <summary>When do I use each button?</summary>
+          <ul>
+            <li><b>Pick a card</b> (AI pick / a candidate / search) — it's a raw single and you can identify it. This is the normal case.</li>
+            <li><b>Not in list (n)</b> — it's a real raw card, but the right one isn't offered and search can't find it. Right card, missing options.</li>
+            <li><b>Unclear (u)</b> — it's a card but you genuinely can't tell which (blurry / glare / cut off). Comes back to you later.</li>
+            <li><b>Not a card · slab/junk (g)</b> — it's a graded slab in a plastic case, <i>or</i> not a card at all (a blanket, a hand, a booster wrapper, an empty shot). Drops it for everyone — never trained on.</li>
+            <li><b>Skip (s)</b> — you just want to pass it to someone else for now. Comes back to you later.</li>
+          </ul>
+          <div class="legend-note">A <b>blanket</b> (or anything that isn't a card) → <b>Not a card · slab/junk (g)</b>.</div>
+        </details>
         <div style="margin-top:14px;">
           <input id="search" type="text" placeholder="Search catalog (name, number, set)…" />
           <div class="search-results" id="searchResults"></div>
         </div>
       </div>
-      <div class="hint">Keys: a AI pick · 1–9, 0 candidate · u unclear · n not in list · s skip · z undo</div>
+      <div class="hint">Keys: a AI pick · 1–9, 0 candidate · u unclear · n not in list · g not a card (slab/junk) · s skip · z undo</div>
     </div>
 
     <div id="done" class="card-panel hidden">
@@ -657,6 +675,8 @@
         submit({ labelDisposition: "unclear" });
       } else if (k === "n") {
         submit({ labelDisposition: "not_in_top_10" });
+      } else if (k === "g") {
+        submit({ labelDisposition: "not_a_raw_card" });
       } else if (k === "s") {
         submit({ labelDisposition: "skip" });
       }

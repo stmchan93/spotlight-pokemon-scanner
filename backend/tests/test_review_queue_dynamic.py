@@ -213,6 +213,44 @@ class ReviewQueueDynamicTests(unittest.TestCase):
             0,
         )
 
+    def test_slab_disposition_removes_for_everyone_without_a_raw_label(self) -> None:
+        """A slab that slipped into the raw queue can be marked not_a_raw_card:
+        like a confirm it drops the scan for EVERY reviewer, but it stores no
+        raw card_id so it can't poison the raw training corpus."""
+        self._seed_scan("scan-slab", created_at="2026-05-20T08:00:00Z")
+        self._seed_scan("scan-real", created_at="2026-05-21T08:00:00Z")
+
+        self.service.record_review_label(
+            scan_id="scan-slab",
+            reviewer_user_id="r1",
+            labeled_card_id=None,
+            label_disposition="not_a_raw_card",
+            selected_rank=None,
+            notes=None,
+            queue_id=REVIEW_DYNAMIC_QUEUE_ID,
+        )
+
+        # Gone for the reviewer who flagged it AND for everyone else.
+        for reviewer in ("r1", "r2"):
+            ids = {
+                i["scan_id"]
+                for i in self.service.review_queue(REVIEW_DYNAMIC_QUEUE_ID, reviewer, limit=10)["items"]
+            }
+            self.assertEqual(ids, {"scan-real"})
+
+        # It does not come back in revisit mode (it's a terminal disposition,
+        # not a skip/unclear), and no raw card_id was recorded.
+        self.assertEqual(
+            self.service.review_queue(REVIEW_DYNAMIC_QUEUE_ID, "r1", limit=10, mode="revisit")["remaining"],
+            0,
+        )
+        row = self.service.connection.execute(
+            "SELECT labeled_card_id, label_disposition FROM scan_labeling_reviews "
+            "WHERE scan_id = 'scan-slab'"
+        ).fetchone()
+        self.assertIsNone(row["labeled_card_id"])
+        self.assertEqual(row["label_disposition"], "not_a_raw_card")
+
     def test_limit_pages_but_remaining_counts_all(self) -> None:
         for day in range(20, 25):
             self._seed_scan(f"scan-{day}", created_at=f"2026-05-{day}T08:00:00Z")
