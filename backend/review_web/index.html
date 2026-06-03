@@ -627,7 +627,9 @@
       searchTimer = setTimeout(async () => {
         try {
           const res = await fetch(
-            "/api/v1/cards/search?q=" + encodeURIComponent(q) + "&limit=15",
+            // 50 (the backend cap): a name like "Sandygast" has ~26 prints across
+            // EN+JP — 15 cut off the secret rares / English prints the reviewer wants.
+            "/api/v1/cards/search?q=" + encodeURIComponent(q) + "&limit=50",
             { headers: authHeaders() }
           );
           const out = await res.json();
