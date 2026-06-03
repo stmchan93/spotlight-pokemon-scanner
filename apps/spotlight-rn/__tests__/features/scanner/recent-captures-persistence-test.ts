@@ -153,7 +153,7 @@ describe('recent-captures-persistence', () => {
       expect(envelope.items[0].id).toBe('ready');
     });
 
-    it('flushPersist writes the empty state immediately (for Clear All)', async () => {
+    it('flushPersist([]) writes the empty state immediately (for Clear All)', async () => {
       const ready = makeCapture();
       mockedFs.__seedFile(ready.normalizedImageUri!);
       schedulePersist([ready]);
@@ -161,11 +161,41 @@ describe('recent-captures-persistence', () => {
       await Promise.resolve();
       await Promise.resolve();
 
-      // Now clear and flush — should overwrite, not wait for debounce.
-      await flushPersist();
+      // Clear All passes [] explicitly — overwrite now, don't wait for debounce.
+      await flushPersist([]);
       const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
       const envelope = JSON.parse(raw!);
       expect(envelope.items).toHaveLength(0);
+    });
+
+    it('argument-less flushPersist does NOT clobber a settled tray (unmount on nav)', async () => {
+      const ready = makeCapture();
+      mockedFs.__seedFile(ready.normalizedImageUri!);
+      schedulePersist([ready]);
+      jest.advanceTimersByTime(PERSIST_DEBOUNCE_MS);
+      await Promise.resolve();
+      await Promise.resolve();
+
+      // The debounce has settled (nothing pending). An unmount flush with no
+      // explicit snapshot must leave the persisted tray intact — previously it
+      // wrote [] and wiped every scan on each page bounce.
+      await flushPersist();
+      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
+      const envelope = JSON.parse(raw!);
+      expect(envelope.items).toHaveLength(1);
+      expect(envelope.items[0].id).toBe(ready.id);
+    });
+
+    it('flushPersist(tray) persists the live tray on unmount', async () => {
+      const ready = makeCapture({ id: 'live' });
+      mockedFs.__seedFile(ready.normalizedImageUri!);
+
+      // No prior debounced write — the unmount flush is the only persist.
+      await flushPersist([ready]);
+      const raw = await AsyncStorage.getItem(RECENT_CAPTURES_STORAGE_KEY);
+      const envelope = JSON.parse(raw!);
+      expect(envelope.items).toHaveLength(1);
+      expect(envelope.items[0].id).toBe('live');
     });
   });
 

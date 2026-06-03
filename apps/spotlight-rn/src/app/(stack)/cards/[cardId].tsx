@@ -51,6 +51,12 @@ export default function CardDetailRoute() {
           },
         });
       }}
+      onOpenTransaction={(cardLabel) => {
+        router.push({
+          pathname: '/card-transactions/new',
+          params: { note: cardLabel },
+        });
+      }}
       previewId={previewId}
       scanReviewId={scanReviewId}
     />

@@ -226,6 +226,9 @@ export function ScannerScreen({
   const [isCapturing, setIsCapturing] = useState(false);
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
   const [recentCaptures, setRecentCaptures] = useState<RecentCapture[]>([]);
+  // Mirrors `recentCaptures` so the unmount flush reads the latest tray without
+  // a stale closure (see the persist effect below).
+  const recentCapturesRef = useRef<RecentCapture[]>([]);
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
   const { cardType, condition, setCardType, setCondition } = useScannerTargetConfig();
@@ -289,15 +292,19 @@ export function ScannerScreen({
   // Persist on every tray change, debounced inside the module so rapid scans
   // coalesce into one AsyncStorage write. Loading items are skipped by the
   // module itself, so the very first persist of any given scan naturally
-  // happens after the match resolves.
+  // happens after the match resolves. The ref mirrors the latest tray so the
+  // unmount flush below can persist it without a stale closure.
   useEffect(() => {
+    recentCapturesRef.current = recentCaptures;
     schedulePersist(recentCaptures);
   }, [recentCaptures]);
 
-  // Flush any pending debounced write on unmount so a force-background right
-  // after a scan doesn't lose the most recent state.
+  // Flush the live tray on unmount so navigating away (which tears this screen
+  // down) persists the most recent state. We pass the current tray explicitly:
+  // an argument-less flush would write [] whenever the debounce had already
+  // settled, wiping every scan on each page bounce.
   useEffect(() => () => {
-    void flushPersist();
+    void flushPersist(recentCapturesRef.current);
   }, []);
 
   const trayBottomInset = insets.bottom + 14;
@@ -640,9 +647,10 @@ export function ScannerScreen({
     setOpenActionRailKeys({});
     setActivePriceCaptureId(null);
     setActiveChangeCaptureId(null);
-    // Don't wait for the debounce window — overwrite storage immediately so a
-    // force-quit right after Clear All can't resurrect just-deleted scans.
-    void flushPersist();
+    // Don't wait for the debounce window — overwrite storage immediately (and
+    // explicitly with []) so a force-quit right after Clear All can't resurrect
+    // just-deleted scans.
+    void flushPersist([]);
   }, []);
 
   const handleClearAllCaptures = useCallback(() => {

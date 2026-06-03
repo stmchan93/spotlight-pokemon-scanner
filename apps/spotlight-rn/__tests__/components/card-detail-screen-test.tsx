@@ -74,6 +74,28 @@ describe('CardDetailScreen', () => {
     expect(onOpenAddToCollection).toHaveBeenCalledWith('sm7-1', undefined);
   });
 
+  it('opens the transaction logger from the card hero with the card label as context', async () => {
+    const onOpenTransaction = jest.fn();
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        onOpenTransaction={onOpenTransaction}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({
+          getCardRecentSales: jest.fn(async () => null),
+        }),
+      },
+    );
+
+    fireEvent.press(await screen.findByTestId('detail-transact'));
+    expect(onOpenTransaction).toHaveBeenCalledTimes(1);
+    expect(onOpenTransaction.mock.calls[0][0]).toContain('Treecko');
+  });
+
   it('opens the condition dropdown modal and selects a new condition via its option testIDs', async () => {
     const baseRepository = createTestSpotlightRepository();
     const getCardMarketHistory = jest.fn(async (query: { cardId: string; condition?: string | null }) => {

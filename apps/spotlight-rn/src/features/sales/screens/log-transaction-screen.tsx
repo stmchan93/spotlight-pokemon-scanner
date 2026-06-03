@@ -35,6 +35,8 @@ const photoCompress = 0.72;
 type LogTransactionScreenProps = {
   onClose: () => void;
   onComplete: () => void;
+  /** When started from a specific card, its label — shown for context and saved as the note. */
+  cardLabel?: string;
 };
 
 type ReadyPhoto = {
@@ -90,6 +92,7 @@ async function readTransactionPhoto(uri: string): Promise<ReadyPhoto> {
 export function LogTransactionScreen({
   onClose,
   onComplete,
+  cardLabel,
 }: LogTransactionScreenProps) {
   const theme = useSpotlightTheme();
   const { spotlightRepository, refreshData } = useAppServices();
@@ -126,7 +129,7 @@ export function LogTransactionScreen({
         amountCents: Math.round(parsedPrice * 100),
         currencyCode: 'USD',
         occurredAt: new Date().toISOString(),
-        note: null,
+        note: cardLabel ?? null,
         photo,
       });
 
@@ -138,7 +141,7 @@ export function LogTransactionScreen({
       setSubmitState('idle');
       setErrorMessage('Could not save this transaction. Please try again.');
     }
-  }, [kind, onComplete, parsedPrice, photoUri, refreshData, spotlightRepository, submitState]);
+  }, [cardLabel, kind, onComplete, parsedPrice, photoUri, refreshData, spotlightRepository, submitState]);
 
   const saveLabel =
     submitState === 'saving'
@@ -160,7 +163,7 @@ export function LogTransactionScreen({
         <ChromeBackButton onPress={onClose} testID="log-transaction-close" />
 
         <SectionHeader
-          subtitle="Snap the card, set a price, and pick what happened."
+          subtitle={cardLabel ?? 'Snap the card, set a price, and pick what happened.'}
           testID="log-transaction-header"
           title="Log a transaction"
         />

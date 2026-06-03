@@ -241,16 +241,22 @@ export function schedulePersist(items: RecentCapture[]): void {
   }, PERSIST_DEBOUNCE_MS);
 }
 
-export async function flushPersist(): Promise<void> {
+export async function flushPersist(explicit?: RecentCapture[]): Promise<void> {
   if (pendingDebounceTimer) {
     clearTimeout(pendingDebounceTimer);
     pendingDebounceTimer = null;
   }
-  const snapshot = pendingSnapshot;
+  // Prefer an explicit snapshot when the caller knows exactly what storage
+  // should hold (e.g. unmount passes the live tray; Clear All passes []).
+  const snapshot = explicit !== undefined ? explicit : pendingSnapshot;
   pendingSnapshot = null;
-  // An explicit flush (e.g. Clear All) should always overwrite storage with
-  // the latest known state, even if the debounce queue is empty.
-  await writePersistedTray(snapshot ?? []);
+  if (snapshot == null) {
+    // Nothing pending and no explicit state: the last debounced write already
+    // reflects the tray. Writing [] here would wipe a perfectly good tray that
+    // is simply idle (e.g. unmounting on navigation) — leave storage as-is.
+    return;
+  }
+  await writePersistedTray(snapshot);
 }
 
 function isPersistedCapture(value: unknown): value is PersistedCapture {

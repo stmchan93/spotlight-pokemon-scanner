@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconBolt,
   IconChevronDown,
+  IconCash,
   IconHeart,
   IconHeartFilled,
   IconMinus,
@@ -103,6 +104,8 @@ type CardDetailScreenProps = {
   onBack: () => void;
   onOpenAddToCollection: (cardId: string, entryId?: string) => void;
   onOpenScanCandidateReview?: (scanReviewId: string) => void;
+  /** Opens the log-transaction flow (photo + bought/sold/traded) for this card. */
+  onOpenTransaction?: (cardLabel: string) => void;
   previewId?: string;
   scanReviewId?: string;
 };
@@ -688,6 +691,7 @@ export function CardDetailScreen({
   onBack,
   onOpenAddToCollection,
   onOpenScanCandidateReview,
+  onOpenTransaction,
   previewId,
   scanReviewId,
 }: CardDetailScreenProps) {
@@ -1388,6 +1392,12 @@ export function CardDetailScreen({
   const slabHeroSubtitle = slabGradeSummary(selectedSlabContext);
   const displayCardNumber = detail?.cardNumber ?? detailPreview?.cardNumber ?? '';
   const displaySetName = detail?.setName ?? detailPreview?.setName ?? '';
+  // Carried into the log-transaction flow as the note so a bought/sold/traded
+  // entry started from this card keeps its identity.
+  const transactionLabel = [displayName, displayCardNumber, displaySetName]
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .join(' · ');
   const marketplacePrintingHint = selectedVariantLabel
     ?? (selectedEntry?.kind === 'raw'
       ? selectedEntry.variantName
@@ -1572,6 +1582,16 @@ export function CardDetailScreen({
                     <IconPencil color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
                   </IconButton>
                 ) : null}
+                {onOpenTransaction ? (
+                  <IconButton
+                    accessibilityLabel="Log a transaction for this card"
+                    onPress={() => onOpenTransaction(transactionLabel)}
+                    testID="detail-transact"
+                    variant="elevated"
+                  >
+                    <IconCash color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                  </IconButton>
+                ) : null}
               </View>
             ) : (
               <View style={styles.heroAddRow}>
@@ -1584,6 +1604,16 @@ export function CardDetailScreen({
                   <IconPlus color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
                 </IconButton>
                 <Text style={[theme.typography.bodyStrong, styles.heroAddRowLabel]}>Add to collection</Text>
+                {onOpenTransaction ? (
+                  <IconButton
+                    accessibilityLabel="Log a transaction for this card"
+                    onPress={() => onOpenTransaction(transactionLabel)}
+                    testID="detail-transact"
+                    variant="elevated"
+                  >
+                    <IconCash color={theme.colors.textPrimary} size={18} strokeWidth={2.1} />
+                  </IconButton>
+                ) : null}
               </View>
             )
           }

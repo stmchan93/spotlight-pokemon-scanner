@@ -28,6 +28,7 @@ import {
   useSpotlightTheme,
 } from '@spotlight/design-system';
 
+import { AppBottomTabBar } from '@/components/app-bottom-tab-bar';
 import { GridViewIcon, ListViewIcon } from '@/components/view-toggle-icons';
 import { CollectionAddFab } from '@/features/portfolio/components/collection-add-fab';
 import { saveCardDetailPreviewFromFavorite } from '@/features/cards/card-detail-preview-session';
@@ -391,6 +392,7 @@ export function WishlistScreen() {
       </ScrollView>
 
       <CollectionAddFab />
+      <AppBottomTabBar />
     </SafeAreaView>
   );
 }
