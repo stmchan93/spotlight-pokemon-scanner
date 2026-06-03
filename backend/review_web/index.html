@@ -54,6 +54,18 @@
     button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
     button.ok { background: var(--accent-2); border-color: var(--accent-2); color: #06241a; }
     button:disabled { opacity: 0.5; cursor: default; }
+    .mode-bar { display: flex; gap: 8px; margin: 8px 0 4px; }
+    .mode-bar button { flex: 1; }
+    .mode-bar button.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .prior-disp {
+      margin: 0 0 8px; font-size: 13px; padding: 8px 10px; border-radius: 10px;
+      background: #3a3215; border: 1px solid var(--border); color: var(--warn);
+    }
+    .prior-disp .tag {
+      display: inline-block; font-size: 11px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; padding: 1px 6px; border-radius: 6px; margin-right: 6px;
+      background: #4a3a15; color: var(--warn);
+    }
     .card-panel {
       background: var(--panel);
       border: 1px solid var(--border);
@@ -149,12 +161,19 @@
       <button id="undoBtn">↶ Undo last label (z)</button>
     </div>
 
+    <!-- Mode switch: new cards vs. the reviewer's own skipped/unclear pile -->
+    <div id="modeBar" class="mode-bar hidden">
+      <button id="modeNew" class="active">New cards</button>
+      <button id="modeRevisit">Skipped &amp; unclear</button>
+    </div>
+
     <!-- Review -->
     <div id="review" class="hidden">
       <div class="progress" id="progress"></div>
       <div class="card-panel">
         <div class="imgbox"><img id="scanImg" alt="scan" /></div>
         <div class="predicted" id="predicted"></div>
+        <div class="prior-disp hidden" id="priorDisp"></div>
         <div class="ai-label" id="aiLabel"></div>
         <div id="aiOptionWrap" class="hidden">
           <div class="section-label">AI suggestion — tap to pick</div>
@@ -180,8 +199,8 @@
     </div>
 
     <div id="done" class="card-panel hidden">
-      <div style="font-size:16px;font-weight:600;">All done 🎉</div>
-      <div class="muted" style="margin-top:6px;">No more scans left in this queue.</div>
+      <div id="doneTitle" style="font-size:16px;font-weight:600;">All done 🎉</div>
+      <div id="doneMsg" class="muted" style="margin-top:6px;">No more scans left in this queue.</div>
     </div>
 
     <div id="signedOutBar" class="hidden" style="margin-top:16px;">
@@ -197,6 +216,12 @@
     let accessToken = null;
     let current = null;
     let lastImageUrl = null;
+    // Review mode: "new" works through unseen scans; "revisit" lets you go back
+    // through cards you previously marked Skip/Unclear. In revisit mode we pull
+    // the whole pile once into revisitQueue and walk it client-side, so a card
+    // you re-skip doesn't bounce straight back to the top.
+    let mode = "new";
+    let revisitQueue = null;
     // One-level undo: the scan we just labeled, kept so a misclick can be
     // re-opened and re-picked (the new pick overwrites the prior label since
     // scan_labeling_reviews is UNIQUE(scan_id, reviewer)).
@@ -257,6 +282,61 @@
       $("login").classList.add("hidden");
       $("boot").classList.add("hidden");
       $("signedOutBar").classList.remove("hidden");
+      $("modeBar").classList.remove("hidden");
+      loadNext();
+    }
+
+    function serverMode() { return mode === "revisit" ? "revisit" : "pending"; }
+
+    // Fetch a queue page for the given server mode. Returns {items, remaining}
+    // or null when an error/permission screen was already shown.
+    async function fetchQueue(serverModeValue, limit) {
+      let url =
+        "/api/v1/review/queue?queue=" + encodeURIComponent(QUEUE) +
+        "&limit=" + encodeURIComponent(limit) +
+        "&mode=" + encodeURIComponent(serverModeValue);
+      try {
+        const res = await fetch(url, { headers: authHeaders() });
+        if (res.status === 403) {
+          const body = await res.json();
+          $("boot").innerHTML =
+            '<div class="err">Reviewer access required.</div>' +
+            '<div class="hint">' + (body.message || "") + "</div>" +
+            '<div class="hint">Your user id: <code>' + (body.userId || "?") +
+            "</code><br/>Your email: <code>" + (body.email || "?") + "</code></div>";
+          return null;
+        }
+        const payload = await res.json();
+        return {
+          items: (payload && payload.items) || [],
+          remaining: (payload && payload.remaining) || 0,
+        };
+      } catch (e) {
+        $("boot").innerHTML = '<span class="err">Failed to load queue.</span>';
+        return null;
+      }
+    }
+
+    function showDone() {
+      $("boot").classList.add("hidden");
+      $("review").classList.add("hidden");
+      $("doneTitle").textContent =
+        mode === "revisit" ? "Nothing left to revisit 🎉" : "All done 🎉";
+      $("doneMsg").textContent =
+        mode === "revisit"
+          ? "You've gone back through every card you skipped or marked unclear."
+          : "No more scans left in this queue.";
+      $("done").classList.remove("hidden");
+      updateUndoButton();
+    }
+
+    function setMode(nextMode) {
+      if (nextMode === mode) return;
+      mode = nextMode === "revisit" ? "revisit" : "new";
+      revisitQueue = null;
+      previous = null;
+      $("modeNew").classList.toggle("active", mode === "new");
+      $("modeRevisit").classList.toggle("active", mode === "revisit");
       loadNext();
     }
 
@@ -265,36 +345,27 @@
       $("done").classList.add("hidden");
       $("boot").classList.remove("hidden");
       $("boot").textContent = "Loading next scan…";
-      let payload;
-      try {
-        const res = await fetch(
-          "/api/v1/review/queue?queue=" + encodeURIComponent(QUEUE) + "&limit=1",
-          { headers: authHeaders() }
-        );
-        if (res.status === 403) {
-          const body = await res.json();
-          $("boot").innerHTML =
-            '<div class="err">Reviewer access required.</div>' +
-            '<div class="hint">' + (body.message || "") + "</div>" +
-            '<div class="hint">Your user id: <code>' + (body.userId || "?") +
-            "</code><br/>Your email: <code>" + (body.email || "?") + "</code></div>";
-          return;
+
+      if (mode === "revisit") {
+        // Lazily pull the whole revisit pile once, then walk it client-side.
+        if (revisitQueue === null) {
+          const loaded = await fetchQueue("revisit", 500);
+          if (loaded === null) return;
+          revisitQueue = loaded.items;
         }
-        payload = await res.json();
-      } catch (e) {
-        $("boot").innerHTML = '<span class="err">Failed to load queue.</span>';
+        if (!revisitQueue.length) { showDone(); return; }
+        current = revisitQueue.shift();
+        renderScan(current, revisitQueue.length);
         return;
       }
-      const items = (payload && payload.items) || [];
-      const remaining = (payload && payload.remaining) || 0;
-      if (!items.length) {
-        $("boot").classList.add("hidden");
-        $("done").classList.remove("hidden");
-        updateUndoButton();
-        return;
-      }
-      current = items[0];
-      renderScan(current, remaining);
+
+      // New-cards mode: pull one at a time — labeling removes it from the
+      // pending pool so the next fetch returns a fresh scan.
+      const loaded = await fetchQueue("pending", 1);
+      if (loaded === null) return;
+      if (!loaded.items.length) { showDone(); return; }
+      current = loaded.items[0];
+      renderScan(current, loaded.remaining);
     }
 
     async function renderScan(item, remaining) {
@@ -304,7 +375,21 @@
       lastRemaining = remaining;
       updateUndoButton();
       hideFinishChooser();
-      $("progress").textContent = remaining + " remaining in queue";
+      $("progress").textContent =
+        mode === "revisit"
+          ? remaining + " more to re-review"
+          : remaining + " remaining in queue";
+
+      // In revisit mode, remind the reviewer how they previously punted on it.
+      const priorEl = $("priorDisp");
+      const prior = item.prior_disposition;
+      if (prior) {
+        const label = prior === "unclear" ? "Unclear" : prior === "skip" ? "Skipped" : prior;
+        priorEl.innerHTML = '<span class="tag">Earlier</span>You marked this: ' + escapeHtml(label);
+        priorEl.classList.remove("hidden");
+      } else {
+        priorEl.classList.add("hidden");
+      }
 
       const predicted = item.predicted || {};
       $("predicted").textContent =
@@ -474,6 +559,7 @@
           selectedRank: null,
           labeledCardID: null,
           labeledVariant: null,
+          mode: serverMode(),
         },
         body
       );
@@ -616,6 +702,9 @@
     $("search").addEventListener("input", onSearch);
 
     $("undoBtn").onclick = undoLast;
+
+    $("modeNew").onclick = () => setMode("new");
+    $("modeRevisit").onclick = () => setMode("revisit");
 
     document.querySelectorAll("[data-disp]").forEach((b) => {
       b.onclick = () => submit({ labelDisposition: b.getAttribute("data-disp") });

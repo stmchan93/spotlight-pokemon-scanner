@@ -5979,6 +5979,31 @@ class SpotlightScanService:
         ).fetchall()
         return {str(row["scan_id"]) for row in rows}
 
+    # Scans this reviewer previously punted on (skip / unclear). These are the
+    # "come back to it" pile — surfaced in revisit mode so they can take a
+    # second look. A re-label overwrites the prior row (scan_labeling_reviews is
+    # UNIQUE(scan_id, reviewer)).
+    _REVIEW_REVISIT_DISPOSITIONS = ("skip", "unclear")
+
+    def _review_reviewer_dispositions(self, reviewer_user_id: str) -> dict[str, str]:
+        rows = self.connection.execute(
+            "SELECT scan_id, label_disposition FROM scan_labeling_reviews "
+            "WHERE reviewer_user_id = ?",
+            (reviewer_user_id,),
+        ).fetchall()
+        return {
+            str(row["scan_id"]): str(row["label_disposition"]) for row in rows
+        }
+
+    def _review_revisit_scan_ids_for_reviewer(self, reviewer_user_id: str) -> set[str]:
+        placeholders = ", ".join("?" for _ in self._REVIEW_REVISIT_DISPOSITIONS)
+        rows = self.connection.execute(
+            "SELECT scan_id FROM scan_labeling_reviews "
+            f"WHERE reviewer_user_id = ? AND label_disposition IN ({placeholders})",
+            (reviewer_user_id, *self._REVIEW_REVISIT_DISPOSITIONS),
+        ).fetchall()
+        return {str(row["scan_id"]) for row in rows}
+
     def _review_pending_items(
         self, queue_id: str, reviewer_user_id: str
     ) -> list[dict[str, Any]]:
@@ -5994,6 +6019,31 @@ class SpotlightScanService:
                 continue
             pending.append(item)
         return pending
+
+    def _review_revisit_items(
+        self, queue_id: str, reviewer_user_id: str
+    ) -> list[dict[str, Any]]:
+        """Items this reviewer earlier marked skip/unclear and can re-review.
+        Anything since confirmed (by anyone) is excluded — that work is done."""
+        items = self._load_review_queue_items(queue_id)
+        confirmed = self._review_confirmed_scan_ids()
+        revisit = self._review_revisit_scan_ids_for_reviewer(reviewer_user_id)
+        pending: list[dict[str, Any]] = []
+        for item in items:
+            scan_id = str(item.get("scan_id") or "").strip()
+            if not scan_id:
+                continue
+            if scan_id not in revisit or scan_id in confirmed:
+                continue
+            pending.append(item)
+        return pending
+
+    def _review_items_for_mode(
+        self, queue_id: str, reviewer_user_id: str, mode: str
+    ) -> list[dict[str, Any]]:
+        if mode == "revisit":
+            return self._review_revisit_items(queue_id, reviewer_user_id)
+        return self._review_pending_items(queue_id, reviewer_user_id)
 
     @staticmethod
     def _review_card_id(card: object) -> str:
@@ -6079,10 +6129,23 @@ class SpotlightScanService:
         return merged
 
     def review_queue(
-        self, queue_id: str, reviewer_user_id: str, *, limit: int = REVIEW_QUEUE_DEFAULT_LIMIT
+        self,
+        queue_id: str,
+        reviewer_user_id: str,
+        *,
+        limit: int = REVIEW_QUEUE_DEFAULT_LIMIT,
+        mode: str = "pending",
     ) -> dict[str, Any]:
         safe_id = self._review_queue_safe_id(queue_id)
-        pending = self._review_pending_items(queue_id, reviewer_user_id)
+        normalized_mode = "revisit" if str(mode or "").strip() == "revisit" else "pending"
+        pending = self._review_items_for_mode(queue_id, reviewer_user_id, normalized_mode)
+        # In revisit mode, tell the reviewer how they previously dispositioned
+        # each card so they remember why it's back in front of them.
+        prior_dispositions = (
+            self._review_reviewer_dispositions(reviewer_user_id)
+            if normalized_mode == "revisit"
+            else {}
+        )
         capped_limit = max(0, int(limit))
         selected = pending[:capped_limit] if capped_limit else pending
         items: list[dict[str, Any]] = []
@@ -6097,22 +6160,23 @@ class SpotlightScanService:
             card_ids += [self._review_card_id(c) for c in candidates]
             card_ids.append(self._review_card_id(ai_label))
             enrichment_map = self._review_enrichment_map(card_ids)
-            items.append(
-                {
-                    "scan_id": scan_id,
-                    "predicted": self._review_with_enrichment(predicted, enrichment_map),
-                    "candidates": [
-                        self._review_with_enrichment(c, enrichment_map) for c in candidates
-                    ],
-                    # The AI's own determination for this scan (card_id + display
-                    # name/tier/source/image/finishes, or {disposition:"unsure"}).
-                    # Surfaced so reviewers see (and can one-tap pick) the model's
-                    # guess. May be absent on older queues.
-                    "ai_label": self._review_with_enrichment(ai_label, enrichment_map),
-                    "image_url": f"/api/v1/review/image/{scan_id}?queue={safe_id}",
-                }
-            )
-        return {"items": items, "remaining": len(pending)}
+            payload_item: dict[str, Any] = {
+                "scan_id": scan_id,
+                "predicted": self._review_with_enrichment(predicted, enrichment_map),
+                "candidates": [
+                    self._review_with_enrichment(c, enrichment_map) for c in candidates
+                ],
+                # The AI's own determination for this scan (card_id + display
+                # name/tier/source/image/finishes, or {disposition:"unsure"}).
+                # Surfaced so reviewers see (and can one-tap pick) the model's
+                # guess. May be absent on older queues.
+                "ai_label": self._review_with_enrichment(ai_label, enrichment_map),
+                "image_url": f"/api/v1/review/image/{scan_id}?queue={safe_id}",
+            }
+            if normalized_mode == "revisit":
+                payload_item["prior_disposition"] = prior_dispositions.get(scan_id)
+            items.append(payload_item)
+        return {"items": items, "remaining": len(pending), "mode": normalized_mode}
 
     def review_image_object_path(self, queue_id: str, scan_id: str) -> str | None:
         target_scan_id = str(scan_id or "").strip()
@@ -6145,6 +6209,7 @@ class SpotlightScanService:
         notes: str | None,
         queue_id: str | None,
         labeled_variant: str | None = None,
+        mode: str = "pending",
     ) -> dict[str, Any]:
         normalized_scan_id = str(scan_id or "").strip()
         if not normalized_scan_id:
@@ -6199,11 +6264,14 @@ class SpotlightScanService:
             ),
         )
         self.connection.commit()
+        normalized_mode = "revisit" if str(mode or "").strip() == "revisit" else "pending"
         remaining = 0
         if normalized_queue_id:
             try:
                 remaining = len(
-                    self._review_pending_items(normalized_queue_id, reviewer_user_id)
+                    self._review_items_for_mode(
+                        normalized_queue_id, reviewer_user_id, normalized_mode
+                    )
                 )
             except (FileNotFoundError, ValueError):
                 remaining = 0
@@ -11761,6 +11829,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             if not self._require_reviewer(identity):
                 return
             queue_id = query.get("queue", [""])[0]
+            mode = query.get("mode", ["pending"])[0]
             try:
                 limit = int(query.get("limit", [str(REVIEW_QUEUE_DEFAULT_LIMIT)])[0])
             except (TypeError, ValueError):
@@ -11769,7 +11838,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
             try:
                 with self.service.request_identity_context(identity):
                     payload = self.service.review_queue(
-                        queue_id, identity.user_id, limit=limit
+                        queue_id, identity.user_id, limit=limit, mode=mode
                     )
             except FileNotFoundError as error:
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": str(error)})
@@ -12437,6 +12506,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                         notes=payload.get("notes"),
                         queue_id=payload.get("queue"),
                         labeled_variant=payload.get("labeledVariant"),
+                        mode=str(payload.get("mode") or "pending"),
                     )
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})

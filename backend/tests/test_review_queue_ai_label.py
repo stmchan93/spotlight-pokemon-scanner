@@ -196,6 +196,74 @@ class ReviewQueueAiLabelTests(unittest.TestCase):
         ).fetchone()
         self.assertEqual(row["labeled_variant"], "pokeBallReverseHolofoil")
 
+    def test_revisit_mode_resurfaces_skipped_and_unclear(self) -> None:
+        """Skip/unclear cards vanish from the default (new-cards) queue but come
+        back in revisit mode so the reviewer can take another look, carrying
+        their prior disposition. A confirmed card never returns."""
+        # r1 skips one, marks another unclear, confirms the third.
+        self.service.record_review_label(
+            scan_id="scan-confident",
+            reviewer_user_id="r1",
+            labeled_card_id="base1-4",
+            label_disposition="confirmed",
+            selected_rank=1,
+            notes=None,
+            queue_id="test-queue",
+        )
+        self.service.record_review_label(
+            scan_id="scan-unsure",
+            reviewer_user_id="r1",
+            labeled_card_id=None,
+            label_disposition="skip",
+            selected_rank=None,
+            notes=None,
+            queue_id="test-queue",
+        )
+        self.service.record_review_label(
+            scan_id="scan-legacy",
+            reviewer_user_id="r1",
+            labeled_card_id=None,
+            label_disposition="unclear",
+            selected_rank=None,
+            notes=None,
+            queue_id="test-queue",
+        )
+
+        # Default queue is now empty for r1 (everything is seen).
+        default_queue = self.service.review_queue("test-queue", "r1", limit=10)
+        self.assertEqual(default_queue["remaining"], 0)
+        self.assertEqual(default_queue["mode"], "pending")
+
+        # Revisit mode brings back only the skip + unclear cards (not confirmed).
+        revisit = self.service.review_queue("test-queue", "r1", limit=10, mode="revisit")
+        self.assertEqual(revisit["mode"], "revisit")
+        by_id = {i["scan_id"]: i for i in revisit["items"]}
+        self.assertEqual(set(by_id), {"scan-unsure", "scan-legacy"})
+        self.assertEqual(by_id["scan-unsure"]["prior_disposition"], "skip")
+        self.assertEqual(by_id["scan-legacy"]["prior_disposition"], "unclear")
+
+        # Re-reviewing a skipped card as confirmed drops it from the revisit pool
+        # and the remaining count reflects the revisit mode, not the new queue.
+        result = self.service.record_review_label(
+            scan_id="scan-unsure",
+            reviewer_user_id="r1",
+            labeled_card_id="base1-4",
+            label_disposition="confirmed",
+            selected_rank=1,
+            notes=None,
+            queue_id="test-queue",
+            mode="revisit",
+        )
+        self.assertEqual(result["remaining"], 1)
+        revisit_after = self.service.review_queue("test-queue", "r1", limit=10, mode="revisit")
+        self.assertEqual({i["scan_id"] for i in revisit_after["items"]}, {"scan-legacy"})
+
+        # Another reviewer's revisit pool is independent (empty here).
+        self.assertEqual(
+            self.service.review_queue("test-queue", "r2", limit=10, mode="revisit")["remaining"],
+            0,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

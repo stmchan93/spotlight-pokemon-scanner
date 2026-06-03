@@ -2689,6 +2689,99 @@ def _manual_search_candidate_rows_for_phrase(
     return [(card_id, best_scores[card_id]) for card_id in ordered_ids[:clause_limit]]
 
 
+# Promo set codes printed on cards as a number suffix, e.g. "172/SM-P",
+# "024/ADV-P", "129/SV-P". Reviewers type the code they see ("sm-p"); we target
+# the matching ".../SM-P" number suffix so the right promo set surfaces.
+_MANUAL_SEARCH_PROMO_CODE_PATTERN = re.compile(r"\b([a-z]{1,4}-p)\b", flags=re.IGNORECASE)
+
+
+def _manual_search_promo_codes(search_text: str) -> list[str]:
+    seen: list[str] = []
+    for match in _MANUAL_SEARCH_PROMO_CODE_PATTERN.findall(str(search_text or "")):
+        code = str(match or "").strip().upper()
+        if code and code not in seen:
+            seen.append(code)
+    return seen
+
+
+def _manual_search_candidate_rows_for_name_qualifiers(
+    connection: sqlite3.Connection,
+    tokens: list[str],
+    search_text: str,
+    *,
+    limit: int,
+) -> list[tuple[str, float]]:
+    """Retrieve cards by a NAME token intersected with a SET/number qualifier —
+    e.g. "pikachu sun moon promos" (set name words) or "pikachu sm-p" (the
+    printed promo code, stored in the number as ".../SM-P").
+
+    Why this exists: a common name has hundreds of prints (263 "Pikachu" in the
+    catalog), but per-phrase retrieval caps at ~45 same-name rows in ingestion
+    (rowid) order, so later-synced prints — especially Japanese promos — never
+    even become candidates and can't be surfaced by name + set. This pass joins
+    the name-alias index to the cards' set/number so the right print is pulled
+    in regardless of ingestion order. Gated to multi-word queries so single-name
+    searches keep their existing behavior.
+    """
+    alpha_tokens = [
+        token for token in tokens if token and not any(ch.isdigit() for ch in token)
+    ]
+    if len(alpha_tokens) < 2:
+        return []
+    name_tokens = [token for token in alpha_tokens if len(token) >= 3]
+    qualifier_tokens = [token for token in alpha_tokens if len(token) >= 2]
+    if not name_tokens:
+        return []
+
+    clause_limit = max(8, min(int(limit), 60))
+    set_sql = (
+        "SELECT a.card_id AS id, 490.0 AS score "
+        "FROM card_name_aliases a JOIN cards c ON c.id = a.card_id "
+        "WHERE a.normalized_alias >= ? AND a.normalized_alias < ? "
+        "AND (c.set_name LIKE ? OR c.set_id LIKE ? OR c.number LIKE ?) "
+        "LIMIT ?"
+    )
+    # The exact printed promo code ("SM-P") gets a higher retrieval score so the
+    # matching promo set outranks generic same-prefix prints (e.g. English "SM04").
+    code_sql = (
+        "SELECT a.card_id AS id, 560.0 AS score "
+        "FROM card_name_aliases a JOIN cards c ON c.id = a.card_id "
+        "WHERE a.normalized_alias >= ? AND a.normalized_alias < ? "
+        "AND c.number LIKE ? "
+        "LIMIT ?"
+    )
+    promo_codes = _manual_search_promo_codes(search_text)
+    best_scores: dict[str, float] = {}
+
+    def record(rows: list[Any]) -> None:
+        for row in rows:
+            card_id = str(row["id"] or "").strip()
+            if not card_id:
+                continue
+            best_scores[card_id] = max(
+                best_scores.get(card_id, 0.0), float(row["score"] or 0.0)
+            )
+
+    for name_token in name_tokens:
+        low, high = _manual_search_prefix_bounds(name_token)
+        for qualifier in qualifier_tokens:
+            if qualifier == name_token:
+                continue
+            like = f"%{qualifier}%"
+            record(
+                connection.execute(
+                    set_sql, (low, high, like, like, like, clause_limit)
+                ).fetchall()
+            )
+        for code in promo_codes:
+            record(
+                connection.execute(
+                    code_sql, (low, high, f"%{code}%", clause_limit)
+                ).fetchall()
+            )
+    return list(best_scores.items())
+
+
 def _manual_search_score(
     card: dict[str, Any],
     query: str,
@@ -2878,6 +2971,17 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
             limit=per_phrase_limit,
         ):
             add_candidate(card_id, score)
+
+    # Name + set/code intersection (e.g. "pikachu sun moon promos", "pikachu
+    # sm-p"). Pulls in prints that the per-phrase retrieval misses because a
+    # common name has more prints than the per-phrase cap.
+    for card_id, score in _manual_search_candidate_rows_for_name_qualifiers(
+        connection,
+        tokens,
+        search_text,
+        limit=per_phrase_limit,
+    ):
+        add_candidate(card_id, score)
 
     if not candidate_order:
         return []

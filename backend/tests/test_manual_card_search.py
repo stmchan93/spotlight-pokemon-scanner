@@ -186,6 +186,55 @@ class ManualCardSearchTests(unittest.TestCase):
         if number_only_idxs:
             self.assertLess(max(charizard_idxs), min(number_only_idxs))
 
+    def test_search_finds_buried_promo_by_name_and_set_or_code(self) -> None:
+        # A common name with more prints than the per-phrase retrieval cap used
+        # to hide later-synced prints (e.g. Japanese SM-P promos): they never
+        # became candidates, so name + set / name + promo-code couldn't surface
+        # them. Bury one target Snorlax behind 130 same-name filler prints, then
+        # confirm it's findable by set words and by the printed promo code.
+        for index in range(1, 131):
+            upsert_catalog_card(
+                self.connection,
+                catalog_card(
+                    card_id=f"filler-snorlax-{index:03d}",
+                    name="Snorlax",
+                    set_name="Filler Set",
+                    number=f"{index}/130",
+                    set_id="filler",
+                ),
+                REPO_ROOT,
+                "2026-04-20T12:00:00Z",
+                refresh_embeddings=False,
+            )
+        upsert_catalog_card(
+            self.connection,
+            catalog_card(
+                card_id="smp-snorlax-168",
+                name="Snorlax",
+                set_name="Sun & Moon Promos",
+                number="168/SM-P",
+                set_id="smp_ja",
+                language="Japanese",
+                set_ptcgo_code="",
+            ),
+            REPO_ROOT,
+            "2026-04-20T12:00:00Z",
+            refresh_embeddings=False,
+        )
+        self.connection.commit()
+
+        def ids(query: str) -> set[str]:
+            return {row["id"] for row in search_cards(self.connection, query, limit=15)}
+
+        # Name + set name words, and name + the printed promo code, both surface
+        # the buried promo print.
+        self.assertIn("smp-snorlax-168", ids("snorlax sun moon promos"))
+        self.assertIn("smp-snorlax-168", ids("snorlax sm-p"))
+        # Single-name search keeps returning Snorlax prints (behavior unchanged).
+        self.assertTrue(
+            any(rid.endswith("snorlax-168") or "snorlax" in rid for rid in ids("snorlax"))
+        )
+
     def test_search_supports_structured_name_queries(self) -> None:
         results = search_cards(self.connection, "name:charizard", limit=10)
 

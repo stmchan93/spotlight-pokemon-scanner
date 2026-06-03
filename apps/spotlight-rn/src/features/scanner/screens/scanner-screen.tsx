@@ -808,7 +808,7 @@ export function ScannerScreen({
           uri: mode === 'slabs' ? capture.uri : matchTarget.normalizedImageUri,
         };
       });
-      void triggerScannerProcessedHaptic();
+      void triggerScannerProcessedHaptic('found');
       // Persistence copy. Fire-and-forget AFTER the result has been painted —
       // the user already sees their match. We measure the gap between paint
       // and the moment the copy is queued (persist_copy_queued_after_paint_ms)

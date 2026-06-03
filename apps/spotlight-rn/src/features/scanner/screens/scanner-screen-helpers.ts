@@ -469,10 +469,11 @@ export async function triggerScannerHaptic() {
 const PROCESSED_HAPTIC_DEBOUNCE_MS = 300;
 let lastProcessedHapticAt = 0;
 
-// Second buzz, fired when a scan resolves (incl. the card-found path). Same
-// Light feel as the capture buzz on purpose — it's a matching confirmation tick,
-// not a louder one.
-export async function triggerScannerProcessedHaptic() {
+// Second buzz, fired when a scan resolves. For a found card we use a Success
+// NOTIFICATION haptic — a distinct double-tap that reads clearly as a separate
+// "got it" from the Light capture tick, instead of blurring into one on a fast
+// match. Other outcomes (no match / unsupported) keep the gentle Light tick.
+export async function triggerScannerProcessedHaptic(outcome: 'found' | 'done' = 'done') {
   if (process.env.NODE_ENV === 'test') {
     return;
   }
@@ -485,10 +486,14 @@ export async function triggerScannerProcessedHaptic() {
 
   try {
     const Haptics = await import('expo-haptics');
-    await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    if (outcome === 'found') {
+      await Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } else {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    }
   } catch {
     if (Platform.OS !== 'web') {
-      Vibration.vibrate(10);
+      Vibration.vibrate(outcome === 'found' ? [0, 30, 60, 30] : 10);
     }
   }
 }

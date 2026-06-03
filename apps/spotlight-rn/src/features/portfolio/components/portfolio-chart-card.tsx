@@ -315,6 +315,7 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   const theme = useSpotlightTheme();
   const [chartWidth, setChartWidth] = useState(0);
   const [tooltipWidth, setTooltipWidth] = useState(0);
+  const [tooltipHeight, setTooltipHeight] = useState(0);
   const [activePointIndex, setActivePointIndex] = useState<number | null>(null);
   const chartHeight = 200;
   const chartPadding = 12;
@@ -445,6 +446,22 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
   // either chart edge.
   const tooltipLeft = activeSelection
     ? clamp(activeSelection.x - tooltipWidth / 2, 0, Math.max(chartWidth - tooltipWidth, 0))
+    : 0;
+
+  // Float the tooltip just above the active dot so it tracks the point instead
+  // of sitting at a fixed height. When the dot is too close to the top to fit
+  // the tooltip above it, flip below the dot so it never covers the dot or
+  // spills off the top of the chart.
+  const TOOLTIP_DOT_GAP = 14; // dot radius (4) + breathing room
+  const tooltipTop = activeSelection
+    ? (() => {
+        const above = activeSelection.y - TOOLTIP_DOT_GAP - tooltipHeight;
+        if (above >= 0) {
+          return above;
+        }
+        const below = activeSelection.y + TOOLTIP_DOT_GAP;
+        return Math.min(below, Math.max(chartHeight - tooltipHeight, 0));
+      })()
     : 0;
 
   const isScrubbing = activePointIndex != null;
@@ -761,19 +778,23 @@ export const PortfolioChartCard = memo(function PortfolioChartCard({
               )}
             </Svg>
 
-            {/* Scrub tooltip — the small Figma modal pinned to the top of the
-                chart, tracking the active point's x and showing its exact date
+            {/* Scrub tooltip — the small Figma modal floating just above the
+                active point, tracking its x and y and showing the exact date
                 and value. Non-interactive so it never steals the scrub touch. */}
             {activeSelection && tooltipLabels ? (
               <View
-                onLayout={(event) => setTooltipWidth(event.nativeEvent.layout.width)}
+                onLayout={(event) => {
+                  setTooltipWidth(event.nativeEvent.layout.width);
+                  setTooltipHeight(event.nativeEvent.layout.height);
+                }}
                 pointerEvents="none"
                 style={[
                   styles.tooltip,
                   {
                     backgroundColor: theme.colors.gray100,
                     left: tooltipLeft,
-                    opacity: tooltipWidth > 0 ? 1 : 0,
+                    top: tooltipTop,
+                    opacity: tooltipWidth > 0 && tooltipHeight > 0 ? 1 : 0,
                   },
                 ]}
                 testID="portfolio-chart-tooltip"
@@ -834,7 +855,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 8,
     position: 'absolute',
-    top: 0,
   },
   tooltipDate: {
     fontFamily: fontFamilies.bodySemiBold,
