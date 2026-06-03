@@ -154,6 +154,11 @@ AUTH_FALLBACK_USER_ID_ENV = "SPOTLIGHT_AUTH_FALLBACK_USER_ID"
 REVIEWER_USER_IDS_ENV = "SPOTLIGHT_REVIEWER_USER_IDS"
 REVIEWER_EMAILS_ENV = "SPOTLIGHT_REVIEWER_EMAILS"
 REVIEW_QUEUE_DEFAULT_LIMIT = 30
+# A live, DB-backed review queue: instead of a frozen file, serve every raw scan
+# that still needs a label from REVIEW_DYNAMIC_SINCE onward, oldest first, and
+# keep auto-feeding new scans as they come in. The /review page points at this id.
+REVIEW_DYNAMIC_QUEUE_ID = "all"
+REVIEW_DYNAMIC_SINCE = os.environ.get("SPOTLIGHT_REVIEW_SINCE", "2026-05-19")
 _REVIEW_QUEUE_ID_PATTERN = re.compile(r"[^A-Za-z0-9_-]")
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
@@ -1046,9 +1051,16 @@ class SpotlightScanService:
         requested_top_k: int,
     ) -> tuple[list[Any], dict[str, Any], float]:
         started_at = perf_counter()
-        matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=requested_top_k)
+        # The "Scanning for" language toggle is authoritative for the raw lane:
+        # a raw EN toggle must never surface a JP candidate/top-1 and vice versa.
+        # Over-fetch when a toggle is active so language filtering can't starve
+        # the shortlist of correct-language candidates, then trim back.
+        scan_language = self._explicit_scan_language(payload)
+        fetch_top_k = requested_top_k * 3 if scan_language else requested_top_k
+        matches, debug = self._raw_visual_matcher_instance().match_payload(payload, top_k=fetch_top_k)
+        matches = self._filter_visual_matches_by_scan_language(list(matches), scan_language)[:requested_top_k]
         visual_match_ms = (perf_counter() - started_at) * 1000.0
-        return list(matches), dict(debug or {}), visual_match_ms
+        return matches, dict(debug or {}), visual_match_ms
 
     def _build_raw_visual_only_response(
         self,
@@ -4386,14 +4398,68 @@ class SpotlightScanService:
     @staticmethod
     def _candidate_is_japanese(candidate: dict[str, Any]) -> bool:
         language = str(candidate.get("language") or "").strip().lower()
-        set_id = str(candidate.get("setID") or "").strip().lower()
-        card_id = str(candidate.get("id") or "").strip().lower()
+        # Accept both the resolved-candidate spellings (setID/id) and the visual
+        # index entry spellings (setId/providerCardId) so this works on either.
+        set_id = str(candidate.get("setID") or candidate.get("setId") or "").strip().lower()
+        card_id = str(candidate.get("id") or candidate.get("providerCardId") or "").strip().lower()
         return (
             language.startswith("ja")
             or language == "japanese"
             or set_id.endswith("_ja")
             or "_ja-" in card_id
         )
+
+    @staticmethod
+    def _explicit_scan_language(payload: dict[str, Any]) -> str | None:
+        """The user-selected scanner "Scanning for" language toggle, normalized
+        to 'english' or 'japanese'. Returns None when the client sent no
+        explicit toggle (older clients / unset), in which case candidate
+        language is left to evidence inference."""
+        return {
+            "english": "english",
+            "japanese": "japanese",
+        }.get(str(payload.get("cardLanguage") or "").strip().lower())
+
+    @staticmethod
+    def _filter_candidates_by_scan_language(
+        candidates: list[dict[str, Any]], scan_language: str | None
+    ) -> list[dict[str, Any]]:
+        """Drop candidates whose language disagrees with the explicit language
+        toggle so neither the candidate list nor the top-1 pick can ever be the
+        wrong language. The toggle is authoritative: an English toggle never
+        surfaces Japanese candidates and a Japanese toggle surfaces only
+        Japanese ones. With no explicit toggle the pool is returned unchanged."""
+        if scan_language == "japanese":
+            return [
+                candidate
+                for candidate in candidates
+                if SpotlightScanService._candidate_is_japanese(candidate)
+            ]
+        if scan_language == "english":
+            return [
+                candidate
+                for candidate in candidates
+                if not SpotlightScanService._candidate_is_japanese(candidate)
+            ]
+        return list(candidates)
+
+    @staticmethod
+    def _filter_visual_matches_by_scan_language(
+        matches: list[Any], scan_language: str | None
+    ) -> list[Any]:
+        """Same authoritative language filter as
+        `_filter_candidates_by_scan_language`, but for raw visual-index match
+        objects (whose card data lives on `match.entry`). With no explicit
+        toggle the matches are returned unchanged."""
+        if scan_language not in ("english", "japanese"):
+            return list(matches)
+        want_japanese = scan_language == "japanese"
+        return [
+            match
+            for match in matches
+            if SpotlightScanService._candidate_is_japanese(getattr(match, "entry", {}) or {})
+            == want_japanese
+        ]
 
     @staticmethod
     def _build_slab_evidence(payload: dict[str, Any]) -> SlabMatchEvidence:
@@ -6128,6 +6194,97 @@ class SpotlightScanService:
             merged["finishes"] = enrichment["finishes"]
         return merged
 
+    @staticmethod
+    def _review_card_brief(card_id: object, cards_map: dict[str, dict[str, Any]]) -> dict[str, Any]:
+        """A {card_id,name,number,set} brief (the file-queue shape) for a card id."""
+        cid = str(card_id or "").strip()
+        card = cards_map.get(cid) if cid else None
+        return {
+            "card_id": cid,
+            "name": (card or {}).get("name") or "",
+            "number": (card or {}).get("number") or "",
+            "set": (card or {}).get("setName") or "",
+        }
+
+    def _dynamic_review_pending(self, reviewer_user_id: str, mode: str) -> list[dict[str, Any]]:
+        """Live queue: raw scans needing a label from REVIEW_DYNAMIC_SINCE onward,
+        oldest first, excluding ones already confirmed (by anyone, via add-to-deck
+        or the review tool) and ones this reviewer already dispositioned (pending
+        mode) — or, in revisit mode, only this reviewer's skip/unclear pile."""
+        params: list[Any] = [REVIEW_DYNAMIC_SINCE]
+        where = (
+            "FROM scan_events e JOIN scan_artifacts a ON a.scan_id = e.scan_id "
+            "WHERE e.resolver_mode = 'raw_card' "
+            "AND e.created_at >= ? "
+            "AND a.normalized_object_path IS NOT NULL "
+            "AND a.upload_status IN ('uploaded','normalized_only') "
+            "AND (e.confirmed_card_id IS NULL OR e.confirmed_card_id = '') "
+            "AND e.scan_id NOT IN (SELECT scan_id FROM scan_labeling_reviews WHERE label_disposition = 'confirmed') "
+        )
+        if mode == "revisit":
+            where += (
+                "AND e.scan_id IN (SELECT scan_id FROM scan_labeling_reviews "
+                "WHERE reviewer_user_id = ? AND label_disposition IN ('skip','unclear')) "
+            )
+        else:
+            where += "AND e.scan_id NOT IN (SELECT scan_id FROM scan_labeling_reviews WHERE reviewer_user_id = ?) "
+        params.append(reviewer_user_id)
+        rows = self.connection.execute(
+            "SELECT e.scan_id AS scan_id, a.normalized_object_path AS object_path, "
+            "e.predicted_card_id AS predicted_card_id " + where + "ORDER BY e.created_at ASC",
+            params,
+        ).fetchall()
+        return [
+            {
+                "scan_id": str(row["scan_id"]),
+                "object_path": str(row["object_path"] or ""),
+                "predicted_card_id": str(row["predicted_card_id"] or ""),
+            }
+            for row in rows
+        ]
+
+    def _dynamic_review_resolve(self, rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Turn the lightweight pending rows for the SELECTED page into full review
+        items: resolve each scan's top-10 candidates + the model's top-1 (shown as
+        the AI suggestion) against the catalog. Only runs for the limited page."""
+        scan_ids = [r["scan_id"] for r in rows]
+        candidates_by_scan: dict[str, list[tuple[int | None, str]]] = {}
+        if scan_ids:
+            placeholders = ",".join("?" for _ in scan_ids)
+            for cand in self.connection.execute(
+                "SELECT scan_id, rank, card_id FROM scan_prediction_candidates "
+                f"WHERE scan_id IN ({placeholders}) ORDER BY scan_id, rank",
+                scan_ids,
+            ):
+                candidates_by_scan.setdefault(str(cand["scan_id"]), []).append(
+                    (int(cand["rank"]) if cand["rank"] is not None else None, str(cand["card_id"] or ""))
+                )
+        all_card_ids: set[str] = set()
+        for row in rows:
+            if row["predicted_card_id"]:
+                all_card_ids.add(row["predicted_card_id"])
+        for cands in candidates_by_scan.values():
+            all_card_ids.update(cid for _, cid in cands if cid)
+        cards_map = cards_by_ids(self.connection, sorted(all_card_ids)) if all_card_ids else {}
+        items: list[dict[str, Any]] = []
+        for row in rows:
+            predicted = self._review_card_brief(row["predicted_card_id"], cards_map) if row["predicted_card_id"] else None
+            candidates = [
+                {**self._review_card_brief(cid, cards_map), "rank": rank}
+                for rank, cid in candidates_by_scan.get(row["scan_id"], [])[:10]
+                if cid
+            ]
+            items.append(
+                {
+                    "scan_id": row["scan_id"],
+                    "object_path": row["object_path"],
+                    "predicted": predicted,
+                    "candidates": candidates,
+                    "ai_label": predicted,  # the model's top-1 — the live-queue suggestion
+                }
+            )
+        return items
+
     def review_queue(
         self,
         queue_id: str,
@@ -6138,7 +6295,7 @@ class SpotlightScanService:
     ) -> dict[str, Any]:
         safe_id = self._review_queue_safe_id(queue_id)
         normalized_mode = "revisit" if str(mode or "").strip() == "revisit" else "pending"
-        pending = self._review_items_for_mode(queue_id, reviewer_user_id, normalized_mode)
+        capped_limit = max(0, int(limit))
         # In revisit mode, tell the reviewer how they previously dispositioned
         # each card so they remember why it's back in front of them.
         prior_dispositions = (
@@ -6146,8 +6303,15 @@ class SpotlightScanService:
             if normalized_mode == "revisit"
             else {}
         )
-        capped_limit = max(0, int(limit))
-        selected = pending[:capped_limit] if capped_limit else pending
+        if safe_id == REVIEW_DYNAMIC_QUEUE_ID:
+            pending_rows = self._dynamic_review_pending(reviewer_user_id, normalized_mode)
+            remaining = len(pending_rows)
+            selected_rows = pending_rows[:capped_limit] if capped_limit else pending_rows
+            selected = self._dynamic_review_resolve(selected_rows)
+        else:
+            pending = self._review_items_for_mode(queue_id, reviewer_user_id, normalized_mode)
+            remaining = len(pending)
+            selected = pending[:capped_limit] if capped_limit else pending
         items: list[dict[str, Any]] = []
         for item in selected:
             scan_id = str(item.get("scan_id") or "").strip()
@@ -6176,12 +6340,19 @@ class SpotlightScanService:
             if normalized_mode == "revisit":
                 payload_item["prior_disposition"] = prior_dispositions.get(scan_id)
             items.append(payload_item)
-        return {"items": items, "remaining": len(pending), "mode": normalized_mode}
+        return {"items": items, "remaining": remaining, "mode": normalized_mode}
 
     def review_image_object_path(self, queue_id: str, scan_id: str) -> str | None:
         target_scan_id = str(scan_id or "").strip()
         if not target_scan_id:
             return None
+        if self._review_queue_safe_id(queue_id) == REVIEW_DYNAMIC_QUEUE_ID:
+            row = self.connection.execute(
+                "SELECT normalized_object_path FROM scan_artifacts WHERE scan_id = ?",
+                (target_scan_id,),
+            ).fetchone()
+            path = str(row["normalized_object_path"] or "").strip() if row else ""
+            return path or None
         try:
             items = self._load_review_queue_items(queue_id)
         except (FileNotFoundError, ValueError):
@@ -8323,7 +8494,14 @@ class SpotlightScanService:
                 remote_candidate_count=len(remote_candidates),
                 remote_debug=remote_debug,
             )
-        merged_candidates = merge_raw_candidate_pools([local_candidates, remote_candidates])
+        # Honor the language toggle on the graded lane too: local candidates are
+        # already SQL-filtered by language, but remote slab candidates are not —
+        # filter the merged pool so the slab top-1/candidates always match the
+        # selected language.
+        merged_candidates = self._filter_candidates_by_scan_language(
+            merge_raw_candidate_pools([local_candidates, remote_candidates]),
+            self._explicit_scan_language(payload),
+        )
         ranked_candidates = sorted(
             merged_candidates,
             key=lambda candidate: (
@@ -8454,7 +8632,13 @@ class SpotlightScanService:
             )
         )
 
-        merged_candidates = merge_raw_candidate_pools([local_candidates, remote_candidates])
+        # The "Scanning for" language toggle is authoritative: filter the merged
+        # local+remote pool so a raw EN toggle only ever ranks/selects EN cards
+        # and a raw JP toggle only ever ranks/selects JP cards.
+        merged_candidates = self._filter_candidates_by_scan_language(
+            merge_raw_candidate_pools([local_candidates, remote_candidates]),
+            self._explicit_scan_language(payload),
+        )
         matches = rank_raw_candidates(merged_candidates, evidence, signals)
         decision = finalize_raw_decision(matches, evidence, signals)
         debug_payload = raw_debug_payload(evidence, signals, plan, matches, decision, remote_debug=remote_debug)
