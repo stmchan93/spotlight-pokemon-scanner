@@ -174,16 +174,6 @@ jest.mock('expo-blur', () => {
   };
 });
 
-jest.mock('expo-glass-effect', () => {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { View } = require('react-native');
-
-  return {
-    GlassView: View,
-    isLiquidGlassAvailable: () => false,
-  };
-});
-
 jest.mock('expo-image', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
