@@ -2721,14 +2721,30 @@ def _manual_search_score(
     query_token_set = set(tokens)
     card_number = canonicalize_collector_number(str(card.get("number") or ""))
     score = 0.0
+    # Number matches accumulate separately so we can down-weight them for cards
+    # whose name/set matches none of the typed words. Without this, a name + a
+    # mis-read number (e.g. "Cinccino 026/049") surfaces unrelated cards that
+    # merely share the number (Kirlia/Tapu Lele 026/049) above the real name
+    # match. A pure number search (no name typed) keeps full number weight.
+    number_score = 0.0
+    # Name/word tokens are the typed tokens with no digits (collector numbers
+    # like "026", "049", "tg29" all contain digits). canonicalize_collector_number
+    # is a passthrough normalizer, not a validator, so it can't be used here.
+    name_query_tokens = {
+        token for token in tokens if not any(ch.isdigit() for ch in token)
+    }
+    name_or_set_tokens = title_token_set | set_token_set
+    name_query_present = bool(name_query_tokens)
+    name_or_set_match = bool(name_query_tokens & name_or_set_tokens)
+    number_weight = 0.2 if (name_query_present and not name_or_set_match) else 1.0
 
     if card_number and explicit_number_forms:
         if card_number in explicit_number_forms:
-            score += 280.0
+            number_score += 280.0
             if str(card.get("language") or "").strip().lower() == "english":
-                score += 45.0
+                number_score += 45.0
         elif any(card_number.startswith(f"{number_form}/") for number_form in explicit_number_forms):
-            score += 190.0
+            number_score += 190.0
 
     if normalized_query:
         if normalized_query in normalized_title_values:
@@ -2790,11 +2806,11 @@ def _manual_search_score(
         if not clause_number or not card_number:
             continue
         if clause_number == card_number:
-            score += 240.0
+            number_score += 240.0
         elif card_number.startswith(f"{clause_number}/"):
-            score += 190.0
+            number_score += 190.0
         elif card_number.startswith(clause_number):
-            score += 150.0
+            number_score += 150.0
 
     if card_number:
         for token in tokens:
@@ -2802,13 +2818,17 @@ def _manual_search_score(
             if not normalized_token:
                 continue
             if normalized_token == card_number:
-                score += 180.0
+                number_score += 180.0
             elif card_number.startswith(f"{normalized_token}/"):
-                score += 120.0
+                number_score += 120.0
             elif card_number.startswith(normalized_token):
-                score += 90.0
+                number_score += 90.0
             elif normalized_token in card_number:
-                score += 30.0
+                number_score += 30.0
+
+    # Down-weight number-only matches for cards that match none of the typed
+    # name/set words (keeps the right Pokémon on top despite a mis-read number).
+    score += number_score * number_weight
 
     if str(card.get("id") or "").lower().startswith("tcgp-") or str(card.get("sourceRecordID") or "").lower().startswith("tcgp-"):
         if "tcgp" not in query_token_set and "tcgp" not in normalized_query:
@@ -2824,6 +2844,9 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
         return []
 
     tokens = tokenize(search_text)
+    # Word (non-number) tokens the user typed — used to down-weight cards that
+    # match only on collector number when a name/set word was clearly typed.
+    name_query_tokens = {token for token in tokens if not any(ch.isdigit() for ch in token)}
     requested_limit = _normalized_manual_search_limit(limit)
     query_phrases = _manual_search_query_phrases(tokens)
     explicit_number_forms = _manual_search_exact_number_forms_from_query(search_text, structured_filters)
@@ -2875,6 +2898,25 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
             explicit_number_forms=explicit_number_forms,
         )
         retrieval_score = candidate_scores.get(card_id, 0.0)
+        # If the user typed a name/set word but this card matches none of them,
+        # it was pulled in only by a shared collector number — down-weight its
+        # retrieval boost too so the real name match isn't buried (e.g. a
+        # mis-read "Cinccino 026/049" must still rank Cinccino above Kirlia).
+        if name_query_tokens:
+            card_word_tokens = set(
+                tokenize(
+                    " ".join(
+                        list(_candidate_title_values(card))
+                        + [
+                            str(card.get("setName") or ""),
+                            str(card.get("setID") or ""),
+                            str(card.get("setPtcgoCode") or ""),
+                        ]
+                    )
+                )
+            )
+            if not (name_query_tokens & card_word_tokens):
+                retrieval_score *= 0.2
         final_score = retrieval_score + search_score
         if final_score <= 0:
             continue

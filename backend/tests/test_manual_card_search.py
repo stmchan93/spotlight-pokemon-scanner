@@ -168,6 +168,24 @@ class ManualCardSearchTests(unittest.TestCase):
         self.assertGreater(len(results), 0)
         self.assertEqual(results[0]["id"], "base-charizard-4")
 
+    def test_search_prefers_name_match_over_number_only_match(self) -> None:
+        # A real name + a mis-read number must still surface the named card, not
+        # unrelated cards that merely share the number (regression: a blurry
+        # "Cinccino 026/049" returned Kirlia/Tapu Lele instead of Cinccino).
+        results = search_cards(self.connection, "charizard 060/088", limit=10)
+        self.assertGreater(len(results), 0)
+        self.assertIn("Charizard", results[0]["name"])
+
+        number_only_ids = {
+            "perfect-order-rattata-60",
+            "phantom-gate-florges-60",
+            "scarlet-violet-aegislash-60",
+        }
+        charizard_idxs = [i for i, r in enumerate(results) if "Charizard" in r["name"]]
+        number_only_idxs = [i for i, r in enumerate(results) if r["id"] in number_only_ids]
+        if number_only_idxs:
+            self.assertLess(max(charizard_idxs), min(number_only_idxs))
+
     def test_search_supports_structured_name_queries(self) -> None:
         results = search_cards(self.connection, "name:charizard", limit=10)
 
