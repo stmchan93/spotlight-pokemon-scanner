@@ -657,6 +657,7 @@ CREATE TABLE IF NOT EXISTS scan_labeling_reviews (
     notes TEXT,
     queue_id TEXT,
     created_at TEXT NOT NULL,
+    labeled_variant TEXT,
     UNIQUE(scan_id, reviewer_user_id)
 );
 

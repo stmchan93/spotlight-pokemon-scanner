@@ -162,6 +162,10 @@
         </div>
         <div class="section-label" id="candidatesLabel">Scanner candidates</div>
         <div class="candidates" id="candidates"></div>
+        <div id="finishChooser" class="hidden">
+          <div class="section-label" id="finishChooserTitle">Which finish?</div>
+          <div class="candidates" id="finishOptions"></div>
+        </div>
         <div class="row">
           <button data-disp="unclear">Unclear (u)</button>
           <button data-disp="not_in_top_10">Not in list (n)</button>
@@ -299,6 +303,7 @@
       $("done").classList.add("hidden");
       lastRemaining = remaining;
       updateUndoButton();
+      hideFinishChooser();
       $("progress").textContent = remaining + " remaining in queue";
 
       const predicted = item.predicted || {};
@@ -335,12 +340,7 @@
             badgeClass: "cand-ai",
             name: ai.name || cardId(ai) || "(unknown)",
             sub: cardSubLine(ai, [tier, where].filter(Boolean).join(" · ")),
-            onPick: () =>
-              submit({
-                labeledCardID: cardId(ai),
-                labelDisposition: "confirmed",
-                selectedRank: ai.in_top10 && ai.rank ? ai.rank : null,
-              }),
+            onPick: () => pickCard(ai, ai.in_top10 && ai.rank ? ai.rank : null),
           })
         );
       }
@@ -374,12 +374,7 @@
             badge: i < 9 ? String(i + 1) : "0",
             name: c.name || cardId(c),
             sub: cardSubLine(c),
-            onPick: () =>
-              submit({
-                labeledCardID: cardId(c),
-                labelDisposition: "confirmed",
-                selectedRank: rank,
-              }),
+            onPick: () => pickCard(c, rank),
           })
         );
       });
@@ -420,9 +415,66 @@
       return btn;
     }
 
+    // After picking a card, if it has multiple finishes (Normal / Reverse /
+    // Poké Ball / Master Ball …) show a chooser so the reviewer records which
+    // one — the holo pattern can swing the price a lot. Single-finish cards
+    // (no `finishes`) submit straight through.
+    function pickCard(card, selectedRank) {
+      const id = cardId(card);
+      const finishes = card.finishes || [];
+      if (!finishes.length) {
+        submit({ labeledCardID: id, labelDisposition: "confirmed", selectedRank });
+        return;
+      }
+      const wrap = $("finishOptions");
+      wrap.innerHTML = "";
+      $("finishChooserTitle").textContent =
+        "Which finish? — " + (card.name || id);
+      finishes.forEach((f) => {
+        wrap.appendChild(
+          cardOptionButton({
+            image: card.image || card.imageSmallURL || card.imageURL,
+            badge: "◆",
+            name: f.label,
+            sub: f.market != null ? "$" + f.market : "",
+            onPick: () =>
+              submit({
+                labeledCardID: id,
+                labelDisposition: "confirmed",
+                selectedRank,
+                labeledVariant: f.variant,
+              }),
+          })
+        );
+      });
+      // Escape hatch: confirm the card without committing to a finish.
+      const skip = document.createElement("button");
+      skip.className = "cand";
+      skip.innerHTML =
+        '<span class="thumb thumb-empty"></span><span class="rank">–</span>' +
+        '<span class="meta"><span class="name">Not sure — just the card</span>' +
+        '<span class="sub">no finish recorded</span></span>';
+      skip.onclick = () =>
+        submit({ labeledCardID: id, labelDisposition: "confirmed", selectedRank });
+      wrap.appendChild(skip);
+      $("finishChooser").classList.remove("hidden");
+      $("finishChooser").scrollIntoView({ behavior: "smooth", block: "nearest" });
+    }
+
+    function hideFinishChooser() {
+      const el = $("finishChooser");
+      if (el) el.classList.add("hidden");
+    }
+
     async function submit(body) {
       const fullBody = Object.assign(
-        { scanID: current.scan_id, queue: QUEUE, selectedRank: null, labeledCardID: null },
+        {
+          scanID: current.scan_id,
+          queue: QUEUE,
+          selectedRank: null,
+          labeledCardID: null,
+          labeledVariant: null,
+        },
         body
       );
       try {
@@ -492,12 +544,7 @@
             badge: "+",
             name: c.name,
             sub: cardSubLine(c),
-            onPick: () =>
-              submit({
-                labeledCardID: cardId(c),
-                labelDisposition: "confirmed",
-                selectedRank: null,
-              }),
+            onPick: () => pickCard(c, null),
           })
         );
       });

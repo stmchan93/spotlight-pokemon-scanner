@@ -455,10 +455,19 @@ def _apply_scan_labeling_reviews_schema_patch(connection: sqlite3.Connection) ->
             notes TEXT,
             queue_id TEXT,
             created_at TEXT NOT NULL,
+            labeled_variant TEXT,
             UNIQUE(scan_id, reviewer_user_id)
         )
         """
     )
+    # Additive: existing staging DBs predate the labeled_variant column (the
+    # holo-finish a reviewer picked, e.g. pokeBallReverseHolofoil).
+    existing_columns = {
+        str(row[1])
+        for row in connection.execute("PRAGMA table_info(scan_labeling_reviews)").fetchall()
+    }
+    if "labeled_variant" not in existing_columns:
+        connection.execute("ALTER TABLE scan_labeling_reviews ADD COLUMN labeled_variant TEXT")
     connection.execute(
         """
         CREATE INDEX IF NOT EXISTS idx_scan_labeling_reviews_scan_id
@@ -5897,7 +5906,16 @@ class SpotlightScanService:
         }
 
     def search(self, query: str, *, limit: int = 20) -> dict[str, Any]:
-        return {"results": search_cards(self.connection, query, limit=limit)}
+        results = search_cards(self.connection, query, limit=limit)
+        # Attach holo-finish options (Normal / Reverse / Poké Ball / Master Ball …)
+        # so the review tool can offer a finish picker on a searched card. Additive
+        # field — existing consumers ignore it.
+        for card in results:
+            if isinstance(card, dict):
+                finishes = self._review_finishes_from_card(card)
+                if finishes:
+                    card["finishes"] = finishes
+        return {"results": results}
 
     # ------------------------------------------------------------------
     # Reviewer-gated "label unlabeled scans" web surface (additive).
@@ -5983,28 +6001,82 @@ class SpotlightScanService:
             return ""
         return str(card.get("card_id") or card.get("cardId") or card.get("id") or "").strip()
 
-    def _review_image_map(self, card_ids: list[str]) -> dict[str, str]:
-        """card_id -> catalog image URL (small preferred). Scrydex image URLs
-        are public CDN links, so reviewers' browsers load them directly — no
-        auth proxy needed (unlike the private scan capture)."""
+    _REVIEW_FINISH_LABELS = {
+        "normal": "Normal",
+        "holofoil": "Holo",
+        "reverseHolofoil": "Reverse Holo",
+        "pokeBallReverseHolofoil": "Poké Ball pattern",
+        "masterBallReverseHolofoil": "Master Ball pattern",
+    }
+
+    @classmethod
+    def _review_finish_label(cls, variant_name: str) -> str:
+        name = str(variant_name or "").strip()
+        if name in cls._REVIEW_FINISH_LABELS:
+            return cls._REVIEW_FINISH_LABELS[name]
+        spaced = re.sub(r"(?<=[a-z])(?=[A-Z])", " ", name)  # camelCase -> words
+        return (spaced[:1].upper() + spaced[1:]) if spaced else name
+
+    @classmethod
+    def _review_finishes_from_card(cls, card: dict[str, Any]) -> list[dict[str, Any]]:
+        """Finish variants (Normal / Reverse / Poké Ball / Master Ball ...) for a
+        catalog card from its Scrydex payload, each with a friendly label + raw
+        market price. Single-finish cards return [] so the UI skips the picker."""
+        payload = card.get("sourcePayload") if isinstance(card, dict) else None
+        variants = (payload or {}).get("variants") if isinstance(payload, dict) else None
+        if not isinstance(variants, list):
+            return []
+        finishes: list[dict[str, Any]] = []
+        for variant in variants:
+            if not isinstance(variant, dict):
+                continue
+            name = str(variant.get("name") or "").strip()
+            if not name:
+                continue
+            market = None
+            for price in variant.get("prices") or []:
+                if (
+                    isinstance(price, dict)
+                    and price.get("type") == "raw"
+                    and price.get("market") is not None
+                ):
+                    market = price.get("market")
+                    break
+            finishes.append(
+                {"variant": name, "label": cls._review_finish_label(name), "market": market}
+            )
+        return finishes if len(finishes) > 1 else []
+
+    def _review_enrichment_map(self, card_ids: list[str]) -> dict[str, dict[str, Any]]:
+        """card_id -> {image, finishes}. Scrydex image URLs are public CDN links
+        (loaded directly by the browser); finishes come from the same payload."""
         unique = {cid for cid in card_ids if cid}
         if not unique:
             return {}
-        out: dict[str, str] = {}
+        out: dict[str, dict[str, Any]] = {}
         for card_id, card in cards_by_ids(self.connection, sorted(unique)).items():
             url = str(card.get("imageSmallURL") or card.get("imageURL") or "").strip()
-            if url:
-                out[str(card_id)] = url
+            out[str(card_id)] = {
+                "image": url or None,
+                "finishes": self._review_finishes_from_card(card),
+            }
         return out
 
-    def _review_with_image(self, card: object, image_map: dict[str, str]) -> object:
-        """Attach a catalog image URL to a candidate / ai_label / predicted dict."""
+    def _review_with_enrichment(
+        self, card: object, enrichment_map: dict[str, dict[str, Any]]
+    ) -> object:
+        """Attach catalog image + finish options to a candidate / ai_label / predicted."""
         if not isinstance(card, dict):
             return card
-        url = image_map.get(self._review_card_id(card))
-        if not url:
+        enrichment = enrichment_map.get(self._review_card_id(card))
+        if not enrichment:
             return card
-        return {**card, "image": url}
+        merged = {**card}
+        if enrichment.get("image"):
+            merged["image"] = enrichment["image"]
+        if enrichment.get("finishes"):
+            merged["finishes"] = enrichment["finishes"]
+        return merged
 
     def review_queue(
         self, queue_id: str, reviewer_user_id: str, *, limit: int = REVIEW_QUEUE_DEFAULT_LIMIT
@@ -6024,17 +6096,19 @@ class SpotlightScanService:
             card_ids = [self._review_card_id(predicted)]
             card_ids += [self._review_card_id(c) for c in candidates]
             card_ids.append(self._review_card_id(ai_label))
-            image_map = self._review_image_map(card_ids)
+            enrichment_map = self._review_enrichment_map(card_ids)
             items.append(
                 {
                     "scan_id": scan_id,
-                    "predicted": self._review_with_image(predicted, image_map),
-                    "candidates": [self._review_with_image(c, image_map) for c in candidates],
+                    "predicted": self._review_with_enrichment(predicted, enrichment_map),
+                    "candidates": [
+                        self._review_with_enrichment(c, enrichment_map) for c in candidates
+                    ],
                     # The AI's own determination for this scan (card_id + display
-                    # name/tier/source/image, or {disposition:"unsure"}). Surfaced
-                    # so reviewers see (and can one-tap pick) the model's guess and
-                    # we can measure AI accuracy. May be absent on older queues.
-                    "ai_label": self._review_with_image(ai_label, image_map),
+                    # name/tier/source/image/finishes, or {disposition:"unsure"}).
+                    # Surfaced so reviewers see (and can one-tap pick) the model's
+                    # guess. May be absent on older queues.
+                    "ai_label": self._review_with_enrichment(ai_label, enrichment_map),
                     "image_url": f"/api/v1/review/image/{scan_id}?queue={safe_id}",
                 }
             )
@@ -6070,6 +6144,7 @@ class SpotlightScanService:
         selected_rank: int | None,
         notes: str | None,
         queue_id: str | None,
+        labeled_variant: str | None = None,
     ) -> dict[str, Any]:
         normalized_scan_id = str(scan_id or "").strip()
         if not normalized_scan_id:
@@ -6094,14 +6169,19 @@ class SpotlightScanService:
         was_top_prediction = 1 if normalized_rank == 1 else 0
         normalized_notes = str(notes or "").strip() or None
         normalized_queue_id = self._review_queue_safe_id(queue_id) or None
+        # Holo finish the reviewer picked (e.g. pokeBallReverseHolofoil). Only
+        # meaningful for a confirmed identity; ignored otherwise.
+        normalized_variant = str(labeled_variant or "").strip() or None
+        if normalized_disposition != "confirmed":
+            normalized_variant = None
         created_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         self.connection.execute(
             """
             INSERT OR REPLACE INTO scan_labeling_reviews (
                 id, scan_id, reviewer_user_id, reviewer_role, labeled_card_id,
                 label_disposition, selected_rank, was_top_prediction, notes,
-                queue_id, created_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                queue_id, created_at, labeled_variant
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 uuid.uuid4().hex,
@@ -6115,6 +6195,7 @@ class SpotlightScanService:
                 normalized_notes,
                 normalized_queue_id,
                 created_at,
+                normalized_variant,
             ),
         )
         self.connection.commit()
@@ -12355,6 +12436,7 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                         selected_rank=payload.get("selectedRank"),
                         notes=payload.get("notes"),
                         queue_id=payload.get("queue"),
+                        labeled_variant=payload.get("labeledVariant"),
                     )
             except ValueError as error:
                 self._write_json(HTTPStatus.BAD_REQUEST, {"error": str(error)})

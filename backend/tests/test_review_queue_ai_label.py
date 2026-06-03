@@ -150,6 +150,52 @@ class ReviewQueueAiLabelTests(unittest.TestCase):
         self.assertEqual(self.service.review_queue("test-queue", "r1", limit=10)["remaining"], 1)
         self.assertEqual(self.service.review_queue("test-queue", "r2", limit=10)["remaining"], 2)
 
+    def test_finishes_surface_and_chosen_variant_is_stored(self) -> None:
+        """A card with multiple Scrydex finishes exposes a finish list on its
+        candidate + AI pick, and the reviewer's chosen finish is persisted."""
+        self.service.connection.execute(
+            "UPDATE cards SET source_payload_json = ? WHERE id = 'base1-4'",
+            (
+                json.dumps(
+                    {
+                        "variants": [
+                            {"name": "normal", "prices": [{"type": "raw", "market": 0.07}]},
+                            {"name": "reverseHolofoil", "prices": [{"type": "raw", "market": 0.08}]},
+                            {"name": "pokeBallReverseHolofoil", "prices": [{"type": "raw", "market": 0.27}]},
+                            {"name": "masterBallReverseHolofoil", "prices": [{"type": "raw", "market": 2.61}]},
+                        ]
+                    }
+                ),
+            ),
+        )
+        self.service.connection.commit()
+
+        result = self.service.review_queue("test-queue", "r-finish", limit=10)
+        confident = next(i for i in result["items"] if i["scan_id"] == "scan-confident")
+        finishes = confident["candidates"][0]["finishes"]
+        labels = {f["label"] for f in finishes}
+        self.assertEqual(len(finishes), 4)
+        self.assertIn("Poké Ball pattern", labels)
+        self.assertIn("Master Ball pattern", labels)
+        # AI pick carries finishes too.
+        self.assertEqual(len(confident["ai_label"]["finishes"]), 4)
+
+        self.service.record_review_label(
+            scan_id="scan-confident",
+            reviewer_user_id="r-finish",
+            labeled_card_id="base1-4",
+            label_disposition="confirmed",
+            selected_rank=1,
+            notes=None,
+            queue_id="test-queue",
+            labeled_variant="pokeBallReverseHolofoil",
+        )
+        row = self.service.connection.execute(
+            "SELECT labeled_variant FROM scan_labeling_reviews "
+            "WHERE scan_id = 'scan-confident' AND reviewer_user_id = 'r-finish'"
+        ).fetchone()
+        self.assertEqual(row["labeled_variant"], "pokeBallReverseHolofoil")
+
 
 if __name__ == "__main__":
     unittest.main()
