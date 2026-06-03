@@ -56,8 +56,30 @@ const shouldBypassAuthForTests = process.env.NODE_ENV === 'test';
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+// An expired/invalid refresh token (or a missing session) just means the user
+// needs to sign in again — that's normal, not an error. Surfacing Supabase's
+// raw "refresh token expired" / "Auth session missing" text as a red banner on
+// the sign-in screen is alarming and pointless, so we swallow it.
+function isExpectedSessionEndError(error: unknown): boolean {
+  if (!(error instanceof Error)) {
+    return false;
+  }
+  const text = `${error.name} ${error.message}`.toLowerCase();
+  return (
+    text.includes('refresh token')
+    || text.includes('refresh_token')
+    || text.includes('session missing')
+    || text.includes('session_not_found')
+    || text.includes('session expired')
+  );
+}
+
 function errorMessageFromUnknown(error: unknown) {
   if (error instanceof AuthCanceledError || isAuthCanceledError(error)) {
+    return null;
+  }
+
+  if (isExpectedSessionEndError(error)) {
     return null;
   }
 

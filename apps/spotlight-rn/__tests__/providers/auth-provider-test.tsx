@@ -417,6 +417,23 @@ describe('AuthProvider', () => {
     });
   });
 
+  it('signs out silently (no error banner) when the refresh token has expired', async () => {
+    const { getByText, waitFor } = renderAuthProvider({
+      nodeEnv: 'development',
+      authServiceOverrides: {
+        getCurrentSession: jest.fn(async () => {
+          throw new Error('Invalid Refresh Token: Refresh Token Not Found');
+        }),
+      },
+    });
+
+    await waitFor(() => {
+      expect(getByText('state:signedOut')).toBeTruthy();
+      // Expected logout — no scary notification on the sign-in screen.
+      expect(getByText('error:none')).toBeTruthy();
+    });
+  });
+
   it('validates blank profile submissions and completes profile setup when a name is provided', async () => {
     const currentSession = {
       access_token: 'profile-token',
