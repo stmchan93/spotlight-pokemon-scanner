@@ -235,6 +235,48 @@ class ManualCardSearchTests(unittest.TestCase):
             any(rid.endswith("snorlax-168") or "snorlax" in rid for rid in ids("snorlax"))
         )
 
+    def test_search_matches_uppercase_promo_collector_numbers_case_insensitively(self) -> None:
+        # Promo collector numbers are stored uppercase in the catalog
+        # ("SWSH039", "096/XY-P"), but the query is canonicalized to lowercase.
+        # SQLite's default collation is case-sensitive, so "swsh039" / "096/xy-p"
+        # used to match nothing even though the card exists and is findable by
+        # name. The number-retrieval clauses now compare COLLATE NOCASE.
+        promos = [
+            catalog_card(
+                card_id="swshp-pikachu-039",
+                name="Pikachu",
+                set_name="SWSH Black Star Promos",
+                number="SWSH039",
+                set_id="swshp",
+                set_ptcgo_code="",
+            ),
+            catalog_card(
+                card_id="xyp-warm-pikachu-96",
+                name="Warm Pikachu",
+                set_name="XY Promos",
+                number="096/XY-P",
+                set_id="xyp_ja",
+                language="Japanese",
+                set_ptcgo_code="",
+            ),
+        ]
+        for card in promos:
+            upsert_catalog_card(
+                self.connection, card, REPO_ROOT, "2026-04-20T12:00:00Z", refresh_embeddings=False
+            )
+        self.connection.commit()
+
+        def top_ids(query: str) -> list[str]:
+            return [row["id"] for row in search_cards(self.connection, query, limit=10)]
+
+        # No-slash alphanumeric promo code (regression: SWSH039).
+        self.assertEqual(top_ids("swsh039")[0], "swshp-pikachu-039")
+        # Uppercase input resolves identically.
+        self.assertEqual(top_ids("SWSH039")[0], "swshp-pikachu-039")
+        # Slash promo code with letters on the right (regression: 096/XY-P).
+        self.assertEqual(top_ids("096/xy-p")[0], "xyp-warm-pikachu-96")
+        self.assertEqual(top_ids("096/XY-P")[0], "xyp-warm-pikachu-96")
+
     def test_search_supports_structured_name_queries(self) -> None:
         results = search_cards(self.connection, "name:charizard", limit=10)
 

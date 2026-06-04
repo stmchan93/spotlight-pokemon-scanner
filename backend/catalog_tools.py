@@ -2421,12 +2421,12 @@ def _manual_search_candidate_rows_for_exact_numbers(
         rows = connection.execute(
             """
             SELECT id AS id,
-                   CASE WHEN number = ? THEN 760.0 ELSE 620.0 END AS score
+                   CASE WHEN number = ? COLLATE NOCASE THEN 760.0 ELSE 620.0 END AS score
             FROM cards
-            WHERE number = ?
-               OR number >= ? AND number < ?
+            WHERE number = ? COLLATE NOCASE
+               OR number >= ? COLLATE NOCASE AND number < ? COLLATE NOCASE
             ORDER BY
-                CASE WHEN number = ? THEN 0 ELSE 1 END,
+                CASE WHEN number = ? COLLATE NOCASE THEN 0 ELSE 1 END,
                 CASE WHEN language = 'English' THEN 0 ELSE 1 END,
                 name,
                 set_name,
@@ -2646,18 +2646,23 @@ def _manual_search_candidate_rows_for_phrase(
 
     for number_form in _manual_search_number_forms(normalized_phrase):
         number_range = _manual_search_prefix_bounds(number_form)
+        # Number forms are canonicalized to lowercase, but promo collector
+        # numbers are stored uppercase in the catalog ("SWSH039", "TG05/TG30").
+        # SQLite's default collation is case-sensitive, so a "swsh039" query
+        # would never match "SWSH039". COLLATE NOCASE makes these comparisons
+        # case-insensitive (ASCII), which is exactly the promo-code case.
         query_specs.extend(
             [
                 (
-                    "SELECT id AS id, 520.0 AS score FROM cards WHERE number = ? LIMIT ?",
+                    "SELECT id AS id, 520.0 AS score FROM cards WHERE number = ? COLLATE NOCASE LIMIT ?",
                     (number_form,),
                 ),
                 (
-                    "SELECT id AS id, 480.0 AS score FROM cards WHERE number >= ? AND number < ? LIMIT ?",
+                    "SELECT id AS id, 480.0 AS score FROM cards WHERE number >= ? COLLATE NOCASE AND number < ? COLLATE NOCASE LIMIT ?",
                     _manual_search_prefix_bounds(f"{number_form}/"),
                 ),
                 (
-                    "SELECT id AS id, 430.0 AS score FROM cards WHERE number >= ? AND number < ? LIMIT ?",
+                    "SELECT id AS id, 430.0 AS score FROM cards WHERE number >= ? COLLATE NOCASE AND number < ? COLLATE NOCASE LIMIT ?",
                     number_range,
                 ),
             ]
