@@ -127,13 +127,14 @@ class ManualCardSearchTests(unittest.TestCase):
             ),
         ]
 
-        for index in range(1, 61):
+        # Seed > 100 same-name prints so the limit clamp (cap 100) is exercised.
+        for index in range(1, 121):
             seed_cards.append(
                 catalog_card(
-                    card_id=f"pikachu-{index:02d}",
-                    name=f"Pikachu {index:02d}",
+                    card_id=f"pikachu-{index:03d}",
+                    name=f"Pikachu {index:03d}",
                     set_name="Promo Pack",
-                    number=f"{index}/60",
+                    number=f"{index}/120",
                     set_id="svp",
                 )
             )
@@ -345,7 +346,7 @@ class ManualCardSearchTests(unittest.TestCase):
         ]
 
         self.assertEqual(len(default_results), 20)
-        self.assertEqual(len(limited_results), 50)
+        self.assertEqual(len(limited_results), 100)
         self.assertEqual(default_results[0]["name"].startswith("Pikachu"), True)
         self.assertFalse(
             any(

@@ -627,9 +627,10 @@
       searchTimer = setTimeout(async () => {
         try {
           const res = await fetch(
-            // 50 (the backend cap): a name like "Sandygast" has ~26 prints across
-            // EN+JP — 15 cut off the secret rares / English prints the reviewer wants.
-            "/api/v1/cards/search?q=" + encodeURIComponent(q) + "&limit=50",
+            // 100 (the backend cap): a common name like "Pikachu" or "Morpeko" has
+            // dozens of prints across EN+JP — a lower cap hid the print the reviewer
+            // wanted (e.g. a specific Japanese promo) below the fold.
+            "/api/v1/cards/search?q=" + encodeURIComponent(q) + "&limit=100",
             { headers: authHeaders() }
           );
           const out = await res.json();

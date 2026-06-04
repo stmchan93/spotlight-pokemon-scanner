@@ -2886,7 +2886,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
     const queryParams = new URLSearchParams({
       q: normalized,
-      limit: String(Math.max(1, Math.min(limit, 50))),
+      limit: String(Math.max(1, Math.min(limit, 100))),
     });
     const searchResponse = await this.requestJson<SearchResultsDTO>(
       `${this.baseUrl}/api/v1/cards/search?${queryParams.toString()}`,
@@ -3090,7 +3090,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
 
     const queryParams = new URLSearchParams({
       q: normalized,
-      limit: String(Math.max(1, Math.min(limit, 50))),
+      limit: String(Math.max(1, Math.min(limit, 100))),
     });
     const [searchResponse, inventoryResult] = await Promise.all([
       this.requestJson<SearchResultsDTO>(`${this.baseUrl}/api/v1/cards/search?${queryParams.toString()}`),

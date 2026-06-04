@@ -2323,7 +2323,7 @@ def _normalized_manual_search_limit(limit: int) -> int:
         requested_limit = int(limit)
     except (TypeError, ValueError):
         requested_limit = 20
-    return max(1, min(requested_limit, 50))
+    return max(1, min(requested_limit, 100))
 
 
 def _manual_search_query_phrases(tokens: list[str]) -> tuple[str, ...]:
@@ -2411,7 +2411,7 @@ def _manual_search_candidate_rows_for_exact_numbers(
     if not number_forms:
         return []
 
-    clause_limit = max(1, min(int(limit), 50))
+    clause_limit = max(1, min(int(limit), 100))
     fetch_limit = min(max(clause_limit * 2, clause_limit), 100)
     best_scores: dict[str, float] = {}
     ordered_ids: list[str] = []
@@ -2671,9 +2671,13 @@ def _manual_search_candidate_rows_for_phrase(
     if not query_specs:
         return []
 
-    clause_limit = max(1, min(int(limit), 50))
+    clause_limit = max(1, min(int(limit), 100))
+    # A card can have several alias rows (name variants, casing), so the alias
+    # queries return more rows than distinct cards (~2x). Fetch clause_limit * 2
+    # and cap at 200 so we can still collect up to clause_limit *distinct* cards
+    # after dedup — a 100 cap here silently halved a 100-result request.
     fetch_limit = max(clause_limit * 2, min(clause_limit, 25))
-    fetch_limit = min(fetch_limit, 100)
+    fetch_limit = min(fetch_limit, 200)
     best_scores: dict[str, float] = {}
     ordered_ids: list[str] = []
     seen_ids: set[str] = set()
@@ -2961,7 +2965,7 @@ def search_cards(connection: sqlite3.Connection, query: str, limit: int = 20) ->
             candidate_order.append(normalized_card_id)
         candidate_scores[normalized_card_id] = max(candidate_scores.get(normalized_card_id, 0.0), float(score))
 
-    per_phrase_limit = max(8, min(50, requested_limit * 3))
+    per_phrase_limit = max(8, min(100, requested_limit * 3))
     for card_id, score in _manual_search_candidate_rows_for_exact_numbers(
         connection,
         explicit_number_forms,
