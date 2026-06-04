@@ -2226,6 +2226,7 @@ export function ScannerScreen({
             visible
             candidates={changeCapture.candidates}
             activeCandidateIndex={changeCapture.activeCandidateIndex}
+            capturedImageUri={changeCapture.normalizedImageUri ?? changeCapture.uri}
             onSelectCandidate={(index) => setActiveCandidate(changeCapture.id, index)}
             onClose={closeChangeCardPicker}
           />

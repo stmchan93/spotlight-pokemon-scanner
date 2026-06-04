@@ -9,6 +9,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import {
@@ -29,6 +30,8 @@ type ChangeCardPickerProps = {
   visible: boolean;
   candidates: readonly CatalogSearchResult[];
   activeCandidateIndex: number;
+  /** Local URI of the photo the user captured for this scan, shown beside the match. */
+  capturedImageUri?: string | null;
   onClose: () => void;
   onSelectCandidate: (candidateIndex: number) => void;
   testID?: string;
@@ -39,17 +42,38 @@ const LOAD_MORE_STEP = 3;
 const DISMISS_DISTANCE = 70;
 const DISMISS_VELOCITY = 0.25;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
+const HERO_ASPECT = 143 / 200;
+const HERO_MAX_HEIGHT = 184;
+const HERO_GAP = 20;
+const SHEET_HORIZONTAL_PADDING = 16;
+
+/**
+ * Cap the hero card height so two cards (your scan + the match) always fit the
+ * sheet width on small screens, falling back to the comfortable max otherwise.
+ */
+function resolveHeroHeight(screenWidth: number, pairedColumns: boolean): number {
+  if (!pairedColumns) {
+    return HERO_MAX_HEIGHT;
+  }
+  const usableWidth = screenWidth - SHEET_HORIZONTAL_PADDING * 2 - HERO_GAP;
+  const widthPerColumn = usableWidth / 2;
+  const heightFromWidth = widthPerColumn / HERO_ASPECT;
+  return Math.min(HERO_MAX_HEIGHT, Math.floor(heightFromWidth));
+}
 
 export function ChangeCardPicker({
   visible,
   candidates,
   activeCandidateIndex,
+  capturedImageUri,
   onClose,
   onSelectCandidate,
   testID = 'change-card-picker',
 }: ChangeCardPickerProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
+  const { width: windowWidth } = useWindowDimensions();
+  const heroHeight = resolveHeroHeight(windowWidth, Boolean(capturedImageUri));
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [pendingSelection, setPendingSelection] = useState<number | null>(null);
   const translateY = useRef(new Animated.Value(0)).current;
@@ -233,40 +257,59 @@ export function ChangeCardPicker({
               <Text style={[theme.typography.label, styles.title]}>Change card</Text>
             </View>
 
-            <Animated.View
-              {...heroPan.panHandlers}
-              style={[
-                styles.heroWrap,
-                {
-                  transform: [
-                    { perspective: 800 },
+            <View style={styles.heroRow}>
+              {capturedImageUri ? (
+                <View style={styles.heroColumn}>
+                  <Text style={styles.heroCaption}>Your scan</Text>
+                  <View style={styles.heroWrap}>
+                    <Image
+                      source={{ uri: capturedImageUri }}
+                      style={[styles.heroImage, { height: heroHeight }]}
+                      resizeMode="cover"
+                      testID={`${testID}-capture`}
+                    />
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={styles.heroColumn}>
+                {capturedImageUri ? <Text style={styles.heroCaption}>Match</Text> : null}
+                <Animated.View
+                  {...heroPan.panHandlers}
+                  style={[
+                    styles.heroWrap,
                     {
-                      rotateY: tiltX.interpolate({
-                        inputRange: [-140, 140],
-                        outputRange: ['-14deg', '14deg'],
-                      }),
+                      transform: [
+                        { perspective: 800 },
+                        {
+                          rotateY: tiltX.interpolate({
+                            inputRange: [-140, 140],
+                            outputRange: ['-14deg', '14deg'],
+                          }),
+                        },
+                        {
+                          translateX: tiltX.interpolate({
+                            inputRange: [-140, 140],
+                            outputRange: [-10, 10],
+                          }),
+                        },
+                      ],
                     },
-                    {
-                      translateX: tiltX.interpolate({
-                        inputRange: [-140, 140],
-                        outputRange: [-10, 10],
-                      }),
-                    },
-                  ],
-                },
-              ]}
-            >
-              {heroCandidate?.imageUrl ? (
-                <Image
-                  source={{ uri: heroCandidate.imageUrl }}
-                  style={styles.heroImage}
-                  resizeMode="contain"
-                  testID={`${testID}-hero`}
-                />
-              ) : (
-                <View style={[styles.heroImage, styles.heroPlaceholder]} />
-              )}
-            </Animated.View>
+                  ]}
+                >
+                  {heroCandidate?.imageUrl ? (
+                    <Image
+                      source={{ uri: heroCandidate.imageUrl }}
+                      style={[styles.heroImage, { height: heroHeight }]}
+                      resizeMode="contain"
+                      testID={`${testID}-hero`}
+                    />
+                  ) : (
+                    <View style={[styles.heroImage, styles.heroPlaceholder, { height: heroHeight }]} />
+                  )}
+                </Animated.View>
+              </View>
+            </View>
 
             <ScrollView
               contentContainerStyle={[
@@ -455,9 +498,25 @@ const styles = StyleSheet.create({
     fontFamily: 'SpotlightBodySemiBold',
     marginTop: 12,
   },
-  heroWrap: {
+  heroRow: {
+    alignItems: 'flex-end',
     alignSelf: 'center',
+    flexDirection: 'row',
+    gap: 20,
+    justifyContent: 'center',
     marginTop: 16,
+  },
+  heroColumn: {
+    alignItems: 'center',
+    gap: 8,
+  },
+  heroCaption: {
+    color: colors.gray100,
+    fontFamily: 'SpotlightBodyMedium',
+    fontSize: 12,
+    lineHeight: 16.8,
+  },
+  heroWrap: {
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 0 },
     shadowOpacity: 0.12,
@@ -465,8 +524,8 @@ const styles = StyleSheet.create({
     elevation: 8,
   },
   heroImage: {
-    aspectRatio: 143 / 200,
-    height: 200,
+    aspectRatio: HERO_ASPECT,
+    borderRadius: 8,
   },
   heroPlaceholder: {
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
