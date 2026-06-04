@@ -1,7 +1,9 @@
 import { StyleSheet, Text, View } from 'react-native';
+import { EditPencil, MediaImage } from 'iconoir-react-native';
 
 import type { CardTransactionKind, CardTransactionRecord } from '@spotlight/api-client';
 import {
+  IconButton,
   colors,
   textStyles,
   useSpotlightTheme,
@@ -10,21 +12,25 @@ import {
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
 
+// Display labels per Figma node 942-4174. Data kinds are unchanged; only the
+// human-facing text differs (`bought` reads as "PURCHASED").
 const kindLabel: Record<CardTransactionKind, string> = {
-  bought: 'Bought',
-  sold: 'Sold',
-  traded: 'Traded',
+  bought: 'PURCHASED',
+  sold: 'SOLD',
+  traded: 'TRADED',
 };
 
-function kindBadgeTone(kind: CardTransactionKind) {
+// Badge tone per design intent (Figma node 942-4174): PURCHASED green, SOLD
+// red, TRADED blue — each a pale `*100` fill with a saturated `*400` label.
+function kindBadgeTone(kind: CardTransactionKind, theme: ReturnType<typeof useSpotlightTheme>) {
   switch (kind) {
     case 'bought':
-      return { background: 'rgba(184, 154, 51, 0.16)', text: colors.info };
+      return { background: theme.colors.green100, text: theme.colors.success };
     case 'traded':
-      return { background: 'rgba(254, 227, 51, 0.24)', text: colors.gray900 };
+      return { background: theme.colors.blue100, text: theme.colors.blue400 };
     case 'sold':
     default:
-      return { background: 'rgba(45, 187, 109, 0.16)', text: colors.success };
+      return { background: theme.colors.red100, text: theme.colors.red400 };
   }
 }
 
@@ -53,6 +59,41 @@ export function formatTransactionActionLabel(record: CardTransactionRecord) {
   return `${verb} on ${formatOccurredAt(record.occurredAt)}`;
 }
 
+type TransactionThumbProps = {
+  photoUrl: string | null;
+  testID?: string;
+};
+
+/**
+ * Card-lot thumbnail. Renders the cached photo when present; otherwise shows a
+ * centered image-placeholder glyph on the shared gray100 surface. Reused by the
+ * row and the list-screen skeleton so the empty treatment stays uniform.
+ */
+export function TransactionThumb({ photoUrl, testID }: TransactionThumbProps) {
+  const theme = useSpotlightTheme();
+
+  if (photoUrl) {
+    return (
+      <CachedImage
+        cachePolicy={imageCachePolicy.thumbnail}
+        contentFit="cover"
+        source={{ uri: photoUrl }}
+        style={[styles.art, { backgroundColor: theme.colors.gray100 }]}
+        testID={testID}
+      />
+    );
+  }
+
+  return (
+    <View
+      style={[styles.art, styles.artPlaceholder, { backgroundColor: theme.colors.gray100 }]}
+      testID={testID}
+    >
+      <MediaImage color={theme.colors.gray400} height={24} width={24} />
+    </View>
+  );
+}
+
 type TransactionRowProps = {
   record: CardTransactionRecord;
   /**
@@ -70,19 +111,20 @@ export function TransactionRow({
 }: TransactionRowProps) {
   const theme = useSpotlightTheme();
   const resolvedTestID = testID ?? `transaction-row-${record.id}`;
-  const tone = kindBadgeTone(record.kind);
+  const tone = kindBadgeTone(record.kind, theme);
+
+  const priceText =
+    record.amountCents != null
+      ? formatCurrency(record.amountCents / 100, record.currencyCode)
+      : record.kind === 'traded'
+        ? 'Trade'
+        : '—';
 
   return (
     <View style={styles.cardWrapper} testID={resolvedTestID}>
       <View style={[styles.card, firstInList ? styles.cardFirst : null]}>
         <View style={styles.leftGroup}>
-          <CachedImage
-            cachePolicy={imageCachePolicy.thumbnail}
-            contentFit="cover"
-            source={record.photoUrl ? { uri: record.photoUrl } : undefined}
-            style={[styles.art, { backgroundColor: theme.colors.gray100 }]}
-            testID={`${resolvedTestID}-photo`}
-          />
+          <TransactionThumb photoUrl={record.photoUrl} testID={`${resolvedTestID}-photo`} />
           <View style={styles.textColumn}>
             <View
               style={[styles.kindBadge, { backgroundColor: tone.background }]}
@@ -94,19 +136,30 @@ export function TransactionRow({
             </View>
             <Text
               numberOfLines={1}
-              style={[styles.dateText, { color: theme.colors.gray800 }]}
+              style={[styles.itemsText, { color: theme.colors.gray800 }]}
+              testID={`${resolvedTestID}-items`}
             >
-              {formatTransactionActionLabel(record)}
+              Items: {record.itemCount}
             </Text>
           </View>
         </View>
-        <View style={styles.priceColumn}>
+        <View style={styles.rightGroup}>
           <Text
             style={[theme.typography.titleSmall, styles.priceText, { color: theme.colors.gray900 }]}
             testID={`${resolvedTestID}-price`}
           >
-            {formatCurrency(record.amountCents / 100, record.currencyCode)}
+            {priceText}
           </Text>
+          <IconButton
+            accessibilityLabel="Edit transaction"
+            shape="rounded"
+            size={28}
+            style={styles.editButton}
+            testID={`${resolvedTestID}-edit`}
+            variant="ghost"
+          >
+            <EditPencil color={theme.colors.gray500} height={16} width={16} />
+          </IconButton>
         </View>
       </View>
     </View>
@@ -145,6 +198,10 @@ const styles = StyleSheet.create({
     height: 78,
     width: 54,
   },
+  artPlaceholder: {
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   textColumn: {
     flex: 1,
     gap: 8,
@@ -159,15 +216,20 @@ const styles = StyleSheet.create({
   kindBadgeLabel: {
     letterSpacing: 0.6,
   },
-  dateText: {
+  itemsText: {
     ...textStyles.overline,
   },
-  priceColumn: {
-    alignItems: 'flex-end',
-    justifyContent: 'center',
+  rightGroup: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'flex-end',
     minWidth: 68,
   },
   priceText: {
     textAlign: 'right',
+  },
+  editButton: {
+    borderWidth: 0,
   },
 });

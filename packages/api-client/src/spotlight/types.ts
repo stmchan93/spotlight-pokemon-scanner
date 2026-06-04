@@ -682,21 +682,23 @@ export type CardTransactionPhotoUpload = { jpegBase64: string; width: number; he
 
 export type CreateCardTransactionPayload = {
   kind: CardTransactionKind;
-  amountCents: number;
+  amountCents: number | null;
   currencyCode: string;
   occurredAt: string;
   note: string | null;
+  itemCount: number;
   photo: CardTransactionPhotoUpload | null;
 };
 
 export type CardTransactionRecord = {
   id: string;
   kind: CardTransactionKind;
-  amountCents: number;
+  amountCents: number | null;
   currencyCode: string;
   occurredAt: string;
   occurredAtLabel?: string | null;
   note: string | null;
+  itemCount: number;
   photoUrl: string | null;
   createdAt?: string | null;
 };

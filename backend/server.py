@@ -414,6 +414,89 @@ def _apply_collections_redesign_schema_patch(connection: sqlite3.Connection) -> 
     _sqlite_add_column_if_missing(connection, "sale_events", "last_listing_snapshot", "JSONB")
 
 
+def _card_transactions_amount_cents_is_not_null(connection: sqlite3.Connection) -> bool:
+    """True when the existing card_transactions.amount_cents column is NOT NULL.
+
+    Older databases were created with ``amount_cents BIGINT NOT NULL``. SQLite
+    cannot drop a column NOT NULL constraint in place, so detecting it lets us
+    decide whether a one-time table rebuild is required to make price optional.
+    """
+    if not _sqlite_table_exists(connection, "card_transactions"):
+        return False
+    for row in connection.execute("PRAGMA table_info(card_transactions)").fetchall():
+        if str(row["name"]) == "amount_cents":
+            return bool(row["notnull"])
+    return False
+
+
+def _apply_card_transactions_schema_patch(connection: sqlite3.Connection) -> None:
+    """Additive patch for the memory-bank ledger: optional price + item_count.
+
+    - ``item_count`` is an additive NOT NULL column with a DEFAULT, so existing
+      rows backfill to 1 via the standard ADD COLUMN idiom.
+    - ``amount_cents`` becomes nullable. SQLite cannot relax a column's NOT NULL
+      constraint with ALTER, so when an older NOT NULL definition is detected we
+      rebuild the table once, copying every row through. New databases created
+      from schema.sql already define the column as nullable and skip the rebuild.
+    """
+    if not _sqlite_table_exists(connection, "card_transactions"):
+        return
+
+    if _card_transactions_amount_cents_is_not_null(connection):
+        # One-time rebuild to drop the NOT NULL on amount_cents. item_count is
+        # included here so the rebuilt table matches the current schema in a
+        # single pass; the ADD COLUMN below is then a no-op for this database.
+        connection.execute("DROP TABLE IF EXISTS card_transactions__rebuild")
+        connection.execute(
+            """
+            CREATE TABLE card_transactions__rebuild (
+                id TEXT PRIMARY KEY,
+                owner_user_id TEXT NOT NULL,
+                kind TEXT NOT NULL CHECK(kind IN ('bought','sold','traded')),
+                amount_cents BIGINT,
+                item_count INTEGER NOT NULL DEFAULT 1,
+                currency_code TEXT NOT NULL DEFAULT 'USD',
+                note TEXT,
+                photo_object_path TEXT,
+                photo_upload_status TEXT,
+                photo_uploaded_at TEXT,
+                photo_width INTEGER,
+                photo_height INTEGER,
+                occurred_at TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO card_transactions__rebuild (
+                id, owner_user_id, kind, amount_cents, currency_code, note,
+                photo_object_path, photo_upload_status, photo_uploaded_at,
+                photo_width, photo_height, occurred_at, created_at
+            )
+            SELECT
+                id, owner_user_id, kind, amount_cents, currency_code, note,
+                photo_object_path, photo_upload_status, photo_uploaded_at,
+                photo_width, photo_height, occurred_at, created_at
+            FROM card_transactions
+            """
+        )
+        connection.execute("DROP TABLE card_transactions")
+        connection.execute("ALTER TABLE card_transactions__rebuild RENAME TO card_transactions")
+        connection.execute(
+            """
+            CREATE INDEX IF NOT EXISTS idx_card_transactions_owner_occurred
+            ON card_transactions (owner_user_id, occurred_at DESC, id DESC)
+            """
+        )
+
+    # Databases that were already nullable (incl. fresh ones) still need the
+    # additive item_count column backfilled here.
+    _sqlite_add_column_if_missing(
+        connection, "card_transactions", "item_count", "INTEGER NOT NULL DEFAULT 1"
+    )
+
+
 def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
     connection.execute(
         """
@@ -663,6 +746,7 @@ class SpotlightScanService:
             _apply_card_favorites_schema_patch(bootstrap_connection)
             _apply_sale_payment_schema_patch(bootstrap_connection)
             _apply_collections_redesign_schema_patch(bootstrap_connection)
+            _apply_card_transactions_schema_patch(bootstrap_connection)
             _apply_scan_labeling_reviews_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
@@ -4216,10 +4300,12 @@ class SpotlightScanService:
         photo_url = f"/api/v1/card-transactions/{transaction_id}/photo" if has_photo else None
         occurred_at = str(row.get("occurred_at") or "") or None
         amount_value = row.get("amount_cents")
+        item_count_value = row.get("item_count")
         return {
             "id": transaction_id,
             "kind": str(row.get("kind") or ""),
-            "amountCents": int(amount_value) if amount_value is not None else 0,
+            "amountCents": int(amount_value) if amount_value is not None else None,
+            "itemCount": int(item_count_value) if item_count_value is not None else 1,
             "currencyCode": str(row.get("currency_code") or "USD"),
             "note": str(row.get("note") or "").strip() or None,
             "occurredAt": occurred_at,
@@ -4237,12 +4323,28 @@ class SpotlightScanService:
         if kind not in self._CARD_TRANSACTION_KINDS:
             raise ValueError("kind must be one of bought, sold, traded")
 
+        # Price is optional: a missing/null amountCents stores NULL. A present
+        # value must still be a non-negative integer.
         amount_raw = payload.get("amountCents")
-        if isinstance(amount_raw, bool) or not isinstance(amount_raw, int):
-            raise ValueError("amountCents must be an integer")
-        amount_cents = int(amount_raw)
-        if amount_cents < 0:
-            raise ValueError("amountCents must be non-negative")
+        if amount_raw is None:
+            amount_cents: int | None = None
+        else:
+            if isinstance(amount_raw, bool) or not isinstance(amount_raw, int):
+                raise ValueError("amountCents must be an integer")
+            amount_cents = int(amount_raw)
+            if amount_cents < 0:
+                raise ValueError("amountCents must be non-negative")
+
+        # itemCount defaults to 1 when omitted and must be a positive integer.
+        item_count_raw = payload.get("itemCount")
+        if item_count_raw is None:
+            item_count = 1
+        else:
+            if isinstance(item_count_raw, bool) or not isinstance(item_count_raw, int):
+                raise ValueError("itemCount must be an integer")
+            item_count = int(item_count_raw)
+            if item_count < 1:
+                raise ValueError("itemCount must be a positive integer")
 
         currency_code = str(payload.get("currencyCode") or "").strip() or "USD"
         note = str(payload.get("note") or "").strip() or None
@@ -4300,6 +4402,7 @@ class SpotlightScanService:
                 owner_user_id=owner_user_id,
                 kind=kind,
                 amount_cents=amount_cents,
+                item_count=item_count,
                 currency_code=currency_code,
                 occurred_at=occurred_at,
                 note=note,

@@ -2588,6 +2588,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
       occurredAt: payload.occurredAt,
       occurredAtLabel: null,
       note: payload.note,
+      itemCount: payload.itemCount,
       photoUrl: payload.photo ? `data:image/jpeg;base64,${payload.photo.jpegBase64}` : null,
       createdAt: new Date().toISOString(),
     };

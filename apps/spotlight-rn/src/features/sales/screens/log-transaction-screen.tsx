@@ -99,19 +99,28 @@ export function LogTransactionScreen({
 
   const [photoUri, setPhotoUri] = useState<string | null>(null);
   const [kind, setKind] = useState<CardTransactionKind>('sold');
+  const [itemCountText, setItemCountText] = useState('1');
   const [priceText, setPriceText] = useState('');
   const [submitState, setSubmitState] = useState<'idle' | 'saving' | 'success'>('idle');
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const parsedPrice = useMemo(() => parseSellPrice(priceText), [priceText]);
-  const canSubmit = parsedPrice != null && submitState === 'idle';
+  const itemCount = useMemo(() => {
+    const parsed = Number.parseInt(itemCountText, 10);
+    return Number.isFinite(parsed) && parsed >= 1 ? parsed : 1;
+  }, [itemCountText]);
+  const canSubmit = submitState === 'idle';
+
+  const handleChangeItemCount = useCallback((value: string) => {
+    setItemCountText(value.replace(/[^0-9]/g, ''));
+  }, []);
 
   const handleChangePrice = useCallback((value: string) => {
     setPriceText(sanitizeSellPriceText(value));
   }, []);
 
   const handleSave = useCallback(async () => {
-    if (parsedPrice == null || submitState !== 'idle') {
+    if (submitState !== 'idle') {
       return;
     }
 
@@ -126,10 +135,11 @@ export function LogTransactionScreen({
 
       await spotlightRepository.createCardTransaction({
         kind,
-        amountCents: Math.round(parsedPrice * 100),
+        amountCents: parsedPrice != null ? Math.round(parsedPrice * 100) : null,
         currencyCode: 'USD',
         occurredAt: new Date().toISOString(),
         note: cardLabel ?? null,
+        itemCount,
         photo,
       });
 
@@ -141,7 +151,17 @@ export function LogTransactionScreen({
       setSubmitState('idle');
       setErrorMessage('Could not save this transaction. Please try again.');
     }
-  }, [cardLabel, kind, onComplete, parsedPrice, photoUri, refreshData, spotlightRepository, submitState]);
+  }, [
+    cardLabel,
+    itemCount,
+    kind,
+    onComplete,
+    parsedPrice,
+    photoUri,
+    refreshData,
+    spotlightRepository,
+    submitState,
+  ]);
 
   const saveLabel =
     submitState === 'saving'
@@ -187,6 +207,17 @@ export function LogTransactionScreen({
               value={kind}
             />
           </View>
+
+          <TextField
+            inputMode="numeric"
+            keyboardType="number-pad"
+            label="Items"
+            onChangeText={handleChangeItemCount}
+            placeholder="1"
+            returnKeyType="done"
+            testID="log-transaction-item-count"
+            value={itemCountText}
+          />
 
           <TextField
             inputMode="decimal"

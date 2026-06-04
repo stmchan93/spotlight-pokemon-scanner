@@ -66,7 +66,8 @@ class CardTransactionTests(unittest.TestCase):
         *,
         user_id: str = "owner-a",
         kind: str = "sold",
-        amount_cents: int = 4200,
+        amount_cents: int | None = 4200,
+        item_count: int | None = None,
         occurred_at: str = "2026-06-01T12:00:00Z",
         note: str | None = None,
         photo: dict[str, object] | None = None,
@@ -79,6 +80,8 @@ class CardTransactionTests(unittest.TestCase):
             "note": note,
             "photo": photo,
         }
+        if item_count is not None:
+            payload["itemCount"] = item_count
         with self.service.request_identity_context(self._identity(user_id)):
             return self.service.create_card_transaction(payload)
 
@@ -138,6 +141,37 @@ class CardTransactionTests(unittest.TestCase):
     def test_create_rejects_negative_amount(self) -> None:
         with self.assertRaises(ValueError):
             self._create(amount_cents=-1)
+
+    def test_create_defaults_item_count_to_one(self) -> None:
+        created = self._create()
+        self.assertEqual(created["itemCount"], 1)
+        row = self.service.connection.execute(
+            "SELECT item_count FROM card_transactions WHERE id = ?",
+            (created["id"],),
+        ).fetchone()
+        self.assertEqual(row["item_count"], 1)
+
+    def test_create_persists_item_count(self) -> None:
+        created = self._create(item_count=7)
+        self.assertEqual(created["itemCount"], 7)
+        row = self.service.connection.execute(
+            "SELECT item_count FROM card_transactions WHERE id = ?",
+            (created["id"],),
+        ).fetchone()
+        self.assertEqual(row["item_count"], 7)
+
+    def test_create_rejects_non_positive_item_count(self) -> None:
+        with self.assertRaises(ValueError):
+            self._create(item_count=0)
+
+    def test_create_allows_null_amount(self) -> None:
+        created = self._create(amount_cents=None)
+        self.assertIsNone(created["amountCents"])
+        row = self.service.connection.execute(
+            "SELECT amount_cents FROM card_transactions WHERE id = ?",
+            (created["id"],),
+        ).fetchone()
+        self.assertIsNone(row["amount_cents"])
 
     def test_create_rejects_non_integer_amount(self) -> None:
         with self.service.request_identity_context(self._identity()):
@@ -304,6 +338,79 @@ class CardTransactionTests(unittest.TestCase):
         with self.service.request_identity_context(self._identity("owner-a")):
             result = self.service.list_card_transactions()
         self.assertEqual(result["count"], 1)
+
+
+class CardTransactionsMigrationTests(unittest.TestCase):
+    """The legacy table had amount_cents NOT NULL and no item_count. The
+    startup schema patch must rebuild it to make price optional and backfill
+    item_count to 1, without losing existing rows."""
+
+    def test_rebuild_relaxes_not_null_and_backfills_item_count(self) -> None:
+        from catalog_tools import connect  # local import; mirrors module idiom
+        from server import _apply_card_transactions_schema_patch
+
+        with tempfile.TemporaryDirectory() as tempdir:
+            database_path = Path(tempdir) / "legacy.sqlite"
+            connection = connect(database_path)
+            # Legacy table shape: amount_cents NOT NULL, no item_count column.
+            connection.execute(
+                """
+                CREATE TABLE card_transactions (
+                    id TEXT PRIMARY KEY,
+                    owner_user_id TEXT NOT NULL,
+                    kind TEXT NOT NULL CHECK(kind IN ('bought','sold','traded')),
+                    amount_cents BIGINT NOT NULL,
+                    currency_code TEXT NOT NULL DEFAULT 'USD',
+                    note TEXT,
+                    photo_object_path TEXT,
+                    photo_upload_status TEXT,
+                    photo_uploaded_at TEXT,
+                    photo_width INTEGER,
+                    photo_height INTEGER,
+                    occurred_at TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
+            )
+            connection.execute(
+                "INSERT INTO card_transactions (id, owner_user_id, kind, amount_cents, "
+                "currency_code, occurred_at, created_at) VALUES "
+                "('legacy-1', 'owner-a', 'sold', 4200, 'USD', "
+                "'2026-06-01T00:00:00Z', '2026-06-01T00:00:00Z')"
+            )
+            connection.commit()
+
+            _apply_card_transactions_schema_patch(connection)
+            connection.commit()
+
+            columns = {
+                str(row["name"]): bool(row["notnull"])
+                for row in connection.execute(
+                    "PRAGMA table_info(card_transactions)"
+                ).fetchall()
+            }
+            self.assertIn("item_count", columns)
+            self.assertFalse(columns["amount_cents"])  # NOT NULL relaxed
+
+            row = connection.execute(
+                "SELECT amount_cents, item_count FROM card_transactions WHERE id = 'legacy-1'"
+            ).fetchone()
+            self.assertEqual(row["amount_cents"], 4200)
+            self.assertEqual(row["item_count"], 1)  # backfilled default
+
+            # A NULL price is now insertable on the migrated table.
+            connection.execute(
+                "INSERT INTO card_transactions (id, owner_user_id, kind, amount_cents, "
+                "currency_code, occurred_at, created_at) VALUES "
+                "('legacy-2', 'owner-a', 'traded', NULL, 'USD', "
+                "'2026-06-02T00:00:00Z', '2026-06-02T00:00:00Z')"
+            )
+            connection.commit()
+            null_row = connection.execute(
+                "SELECT amount_cents FROM card_transactions WHERE id = 'legacy-2'"
+            ).fetchone()
+            self.assertIsNone(null_row["amount_cents"])
+            connection.close()
 
 
 if __name__ == "__main__":

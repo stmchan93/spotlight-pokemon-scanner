@@ -22,6 +22,7 @@ function buildCreatedRecord(overrides: Partial<CardTransactionRecord> = {}): Car
     occurredAt: '2026-06-02T00:00:00.000Z',
     occurredAtLabel: null,
     note: null,
+    itemCount: 1,
     photoUrl: null,
     createdAt: '2026-06-02T00:00:00.000Z',
     ...overrides,
@@ -45,12 +46,14 @@ describe('LogTransactionScreen', () => {
     expect(screen.getByTestId('log-transaction-price')).toBeTruthy();
   });
 
-  it('keeps Save disabled until a valid price is entered', () => {
+  it('keeps Save enabled with the default item count even without a price', () => {
     renderWithProviders(
       <LogTransactionScreen onClose={jest.fn()} onComplete={jest.fn()} />,
     );
 
-    expect(screen.getByTestId('log-transaction-save').props.accessibilityState?.disabled).toBe(true);
+    // Price is optional now (e.g. trades); item count defaults to 1, so a
+    // transaction can be logged immediately without entering a price.
+    expect(screen.getByTestId('log-transaction-save').props.accessibilityState?.disabled).toBe(false);
 
     fireEvent.changeText(screen.getByTestId('log-transaction-price'), '12.50');
 

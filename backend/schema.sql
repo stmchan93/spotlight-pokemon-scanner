@@ -322,7 +322,8 @@ CREATE TABLE IF NOT EXISTS card_transactions (
     id TEXT PRIMARY KEY,
     owner_user_id TEXT NOT NULL,
     kind TEXT NOT NULL CHECK(kind IN ('bought','sold','traded')),
-    amount_cents BIGINT NOT NULL,           -- cents, matches profit_cents/cost_basis_*_cents convention
+    amount_cents BIGINT,                    -- cents (nullable); matches profit_cents/cost_basis_*_cents convention
+    item_count INTEGER NOT NULL DEFAULT 1,  -- number of items in the lot
     currency_code TEXT NOT NULL DEFAULT 'USD',
     note TEXT,
     photo_object_path TEXT,                 -- object path in the artifact store (GCS / filesystem)

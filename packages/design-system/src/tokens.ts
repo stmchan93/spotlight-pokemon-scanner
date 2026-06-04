@@ -40,6 +40,10 @@ export const colors = {
   green400: '#4CAF6E',
   red100: '#FDECEC',
   red400: '#E0524C',
+  // Blue ramp from Figma (Color/blue/100 + Color/blue/500). Used for the
+  // "traded" transaction badge; 100 = pale fill, 400 = saturated text/icon.
+  blue100: '#ADCFFF',
+  blue400: '#1A6FE8',
   textPrimary: '#1A1A1A',
   textSecondary: '#4D4F57',
   textMuted: '#4A4A4A',

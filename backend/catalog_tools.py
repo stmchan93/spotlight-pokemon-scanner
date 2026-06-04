@@ -4432,9 +4432,10 @@ def insert_card_transaction(
     transaction_id: str,
     owner_user_id: str,
     kind: str,
-    amount_cents: int,
+    amount_cents: int | None,
     currency_code: str,
     occurred_at: str,
+    item_count: int = 1,
     note: str | None = None,
     photo_object_path: str | None = None,
     photo_upload_status: str | None = None,
@@ -4446,17 +4447,18 @@ def insert_card_transaction(
     connection.execute(
         """
         INSERT INTO card_transactions (
-            id, owner_user_id, kind, amount_cents, currency_code, note,
+            id, owner_user_id, kind, amount_cents, item_count, currency_code, note,
             photo_object_path, photo_upload_status, photo_uploaded_at,
             photo_width, photo_height, occurred_at, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             transaction_id,
             owner_user_id,
             kind,
             amount_cents,
+            item_count,
             currency_code,
             note,
             photo_object_path,
@@ -4485,7 +4487,7 @@ def list_card_transactions(
         params.append(kind)
     where = " AND ".join(clauses)
     sql = (
-        "SELECT id, owner_user_id, kind, amount_cents, currency_code, note, "
+        "SELECT id, owner_user_id, kind, amount_cents, item_count, currency_code, note, "
         "photo_object_path, photo_upload_status, photo_uploaded_at, "
         "photo_width, photo_height, occurred_at, created_at "
         f"FROM card_transactions WHERE {where} "
@@ -4505,7 +4507,7 @@ def get_card_transaction(
     owner_user_id: str,
 ) -> dict[str, Any] | None:
     row = connection.execute(
-        "SELECT id, owner_user_id, kind, amount_cents, currency_code, note, "
+        "SELECT id, owner_user_id, kind, amount_cents, item_count, currency_code, note, "
         "photo_object_path, photo_upload_status, photo_uploaded_at, "
         "photo_width, photo_height, occurred_at, created_at "
         "FROM card_transactions WHERE id = ? AND owner_user_id = ?",
