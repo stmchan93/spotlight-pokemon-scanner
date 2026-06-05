@@ -56,10 +56,14 @@ echo
 mkdir -p "$(dirname "$DEST")"
 
 echo "[1/3] Creating consistent snapshot on VM..."
+# The VM has no sqlite3 CLI on the non-interactive PATH, but it does have
+# python3 (with the sqlite3 module). Use the online backup API, which is the
+# programmatic equivalent of sqlite3's ".backup" — atomic and safe while the
+# backend is serving traffic.
 gcloud compute ssh "$VM_INSTANCE" \
   --zone="$VM_ZONE" \
   --project="$VM_PROJECT" \
-  --command="sqlite3 '${VM_DB_PATH}' \".backup '${VM_SNAPSHOT_PATH}'\" && ls -lh '${VM_SNAPSHOT_PATH}'"
+  --command="python3 -c \"import sqlite3; s=sqlite3.connect('${VM_DB_PATH}'); d=sqlite3.connect('${VM_SNAPSHOT_PATH}'); s.backup(d); d.close(); s.close()\" && ls -lh '${VM_SNAPSHOT_PATH}'"
 
 echo
 echo "[2/3] Copying snapshot to local..."
@@ -81,4 +85,9 @@ echo "Done. Local snapshot at:"
 ls -lh "$DEST"
 echo
 echo "Sanity check (row counts):"
-sqlite3 "$DEST" "SELECT 'price_history' AS table_name, COUNT(*) AS rows FROM card_price_history_daily UNION ALL SELECT 'cards', COUNT(*) FROM cards;"
+python3 -c "import sqlite3,sys
+c=sqlite3.connect(sys.argv[1])
+for t in ('card_price_history_daily','cards','scan_events'):
+    try: n=c.execute('SELECT COUNT(*) FROM '+t).fetchone()[0]
+    except Exception as e: n='(err: %s)'%e
+    print('%-24s %s'%(t,n))" "$DEST"

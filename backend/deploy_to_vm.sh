@@ -252,6 +252,12 @@ VISUAL_INDEX_NPZ_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE"
 VISUAL_INDEX_MANIFEST_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH")")"
 VISUAL_ADAPTER_CHECKPOINT_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH")")"
 VISUAL_ADAPTER_METADATA_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH")")"
+# User-photo rerank pool: normalize to an absolute VM path like the index/adapter
+# above. Without this the pool path stays repo-relative ("backend/data/...") and
+# mis-resolves on the flat VM layout (repo_root=$HOME -> $HOME/backend/data), so
+# the rerank pool silently never loads. Empty values are skipped by write_runtime_override.
+VISUAL_USER_PHOTO_RERANK_POOL_NPZ_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_NPZ_PATH")")"
+VISUAL_USER_PHOTO_RERANK_POOL_MANIFEST_PATH="$(normalize_vm_repo_path "$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_MANIFEST_PATH")")"
 SCAN_ARTIFACTS_STORAGE="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_SCAN_ARTIFACTS_STORAGE")"
 SCAN_ARTIFACTS_GCS_BUCKET="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET")"
 SCAN_ARTIFACTS_ROOT="$(read_dotenv_value "$ENV_FILE" "SPOTLIGHT_SCAN_ARTIFACTS_ROOT")"
@@ -333,6 +339,8 @@ write_runtime_override "SPOTLIGHT_VISUAL_INDEX_NPZ_PATH" "$VISUAL_INDEX_NPZ_PATH
 write_runtime_override "SPOTLIGHT_VISUAL_INDEX_MANIFEST_PATH" "$VISUAL_INDEX_MANIFEST_PATH"
 write_runtime_override "SPOTLIGHT_VISUAL_ADAPTER_CHECKPOINT_PATH" "$VISUAL_ADAPTER_CHECKPOINT_PATH"
 write_runtime_override "SPOTLIGHT_VISUAL_ADAPTER_METADATA_PATH" "$VISUAL_ADAPTER_METADATA_PATH"
+write_runtime_override "SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_NPZ_PATH" "$VISUAL_USER_PHOTO_RERANK_POOL_NPZ_PATH"
+write_runtime_override "SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_MANIFEST_PATH" "$VISUAL_USER_PHOTO_RERANK_POOL_MANIFEST_PATH"
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACT_UPLOADS_ENABLED" "$SCAN_ARTIFACT_UPLOADS_ENABLED"
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_STORAGE" "$SCAN_ARTIFACTS_STORAGE"
 write_runtime_override "SPOTLIGHT_SCAN_ARTIFACTS_GCS_BUCKET" "$SCAN_ARTIFACTS_GCS_BUCKET"
