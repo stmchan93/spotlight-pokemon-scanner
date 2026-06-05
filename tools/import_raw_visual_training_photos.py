@@ -295,6 +295,16 @@ def main() -> None:
         help="Optional path for the import summary JSON. Defaults to <output-root>/raw_visual_train_import_summary.json.",
     )
     parser.add_argument(
+        "--already-normalized",
+        action="store_true",
+        help=(
+            "Inputs are already runtime-normalized scan targets (e.g. scan exports). "
+            "Also write runtime_normalized.jpg per fixture (= the source), which the "
+            "training-manifest builder requires. Without it such fixtures are silently "
+            "skipped. Do NOT use for raw phone photos that still need normalization."
+        ),
+    )
+    parser.add_argument(
         "--exact-duplicate-root",
         action="append",
         default=[],
@@ -359,6 +369,13 @@ def main() -> None:
         destination_dir.mkdir(parents=True, exist_ok=True)
         destination_path = destination_dir / "source_scan.jpg"
         write_source_scan(image_path, destination_path)
+
+        # Already-normalized imports (scan exports whose source IS the runtime
+        # normalized_target) also get runtime_normalized.jpg so the training
+        # manifest builder — which REQUIRES runtime_normalized.jpg — ingests
+        # them. It's the scan's real runtime output, so a copy is exact.
+        if args.already_normalized:
+            shutil.copy2(destination_path, destination_dir / "runtime_normalized.jpg")
 
         existing_matches = [
             existing_path

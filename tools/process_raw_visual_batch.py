@@ -870,6 +870,10 @@ def main() -> int:
         import_command = [
             sys.executable,
             str(REPO_ROOT / "tools" / "import_raw_visual_training_photos.py"),
+            # import-safe photos are scan exports (the scan's normalized_target),
+            # already runtime-normalized — write runtime_normalized.jpg so the
+            # manifest builder ingests them instead of silently skipping.
+            "--already-normalized",
             "--input-dir",
             str(photo_root),
             "--metadata",
@@ -899,6 +903,10 @@ def main() -> int:
         holdout_import_command = [
             sys.executable,
             str(REPO_ROOT / "tools" / "import_raw_visual_training_photos.py"),
+            # import-safe photos are scan exports (the scan's normalized_target),
+            # already runtime-normalized — write runtime_normalized.jpg so the
+            # manifest builder ingests them instead of silently skipping.
+            "--already-normalized",
             "--input-dir",
             str(photo_root),
             "--metadata",
