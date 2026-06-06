@@ -90,9 +90,9 @@ describe('useScannerTargetConfig', () => {
     expect(scannerModeForCondition('ungraded')).toBe('raw');
     expect(cardLanguageForCardType('pokemon_jp')).toBe('japanese');
     expect(cardLanguageForCardType('pokemon_en')).toBe('english');
-    expect(scanTargetPillLabel('pokemon_jp', 'ungraded')).toBe('Ungraded | Pokémon JP');
-    expect(scanTargetPillLabel('pokemon_en', 'ungraded')).toBe('Ungraded | Pokémon EN');
-    expect(scanTargetPillLabel('pokemon_en', 'graded')).toBe('Graded | Pokémon EN');
-    expect(scanTargetPillLabel('pokemon_jp', 'graded')).toBe('Graded | Pokémon JP');
+    expect(scanTargetPillLabel('pokemon_jp', 'ungraded')).toBe('Pokémon JP');
+    expect(scanTargetPillLabel('pokemon_en', 'ungraded')).toBe('Pokémon EN');
+    expect(scanTargetPillLabel('pokemon_en', 'graded')).toBe('Pokémon EN');
+    expect(scanTargetPillLabel('pokemon_jp', 'graded')).toBe('Pokémon JP');
   });
 });

@@ -7,7 +7,7 @@ import type { RecentCapture } from './screens/scanner-screen-types';
 
 export const RECENT_CAPTURES_STORAGE_KEY = '@spotlight/scanner/recent-captures';
 export const RECENT_CAPTURES_DIR = `${FileSystem.documentDirectory ?? ''}scans/`;
-export const RECENT_CAPTURES_MAX = 12;
+export const RECENT_CAPTURES_MAX = 50;
 export const PERSIST_DEBOUNCE_MS = 500;
 export const PERSIST_ENVELOPE_VERSION = 1;
 

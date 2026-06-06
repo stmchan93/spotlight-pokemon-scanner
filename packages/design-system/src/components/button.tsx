@@ -79,9 +79,9 @@ export function Button({
             textColor: theme.colors.textPrimary,
           }
         : {
-            backgroundColor: theme.colors.brand,
-            borderColor: theme.colors.brand,
-            textColor: theme.colors.textInverse,
+            backgroundColor: theme.colors.brandStrong,
+            borderColor: theme.colors.brandStrong,
+            textColor: theme.colors.gray0,
           };
 
   return (

@@ -6,10 +6,8 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   IconChevronLeft,
-  IconChevronRight,
   IconSearch,
 } from '@tabler/icons-react-native';
-import { RefreshDouble } from 'iconoir-react-native';
 import {
   ActivityIndicator,
   Alert,
@@ -40,6 +38,7 @@ import {
   Button,
   colors,
   fontFamilies,
+  radii,
   textStyles,
   useSpotlightTheme,
 } from '@spotlight/design-system';
@@ -62,6 +61,7 @@ import {
 import {
   chooseRawVisualPictureSize,
   getRawScannerCollapsedTrayReservedHeight,
+  getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
   RawScannerCaptureSurface,
   rawScannerTrayEmptyPeekHeight,
@@ -146,14 +146,10 @@ const rawCollectorNumberOcrEnabled = resolveRuntimeBoolean(
 const captureRowHeight = 102;
 // A little breathing room between scan rows in the tray (Figma scan-tray spacing).
 const captureRowGap = 20;
-// Height of the next-row "peek" sliver below the fully-visible top row. ~1/8
-// of a row exposes the top of the next card's image and its title baseline —
-// enough to signal that swiping/expanding reveals more, without dominating
-// the camera viewport.
-const collapsedPeekHeight = 14;
 const recentlyAddedDurationMs = 10000;
-const trayExpandedTopGap = 48;
-const trayTopChromeReservedHeight = 54;
+// Vertical space reserved for the "CLEAR ALL" footer appended below the scan
+// rows in the expanded tray, so the section stays reachable by scroll.
+const trayClearSectionHeight = 80;
 const traySwipeThreshold = 20;
 const trayVelocityThreshold = 0.22;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
@@ -311,6 +307,10 @@ export function ScannerScreen({
   const collapsedTrayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
     bottomInset: trayBottomInset,
   });
+  const scanTargetPillTrayHeight = recentCaptures.length === 0
+    ? getRawScannerEmptyTrayVisualHeight({ bottomInset: trayBottomInset })
+    : collapsedTrayReservedHeight;
+  const scanTargetPillBottom = scanTargetPillTrayHeight + 16;
   const captureSurfaceLayout = makeRawScannerCaptureLayout({
     containerHeight: windowHeight,
     containerWidth: windowWidth,
@@ -346,29 +346,25 @@ export function ScannerScreen({
     && isRawPictureConfigReady;
   const canToggleTray = recentCaptures.length > 0;
   const isTopLevelSwipeEnabled = Object.keys(openActionRailKeys).length === 0;
-  // In the collapsed state we render ONE extra row past `collapsedVisibleCaptures`
-  // so it can peek beneath the fully-visible row(s). The viewport's overflow:hidden
-  // + collapsedViewportHeight crops that extra row to `collapsedPeekHeight` so only
-  // the top sliver is shown. Without rendering the extra row, the reserved peek
-  // space below the top row just rendered as empty (the bug this fixes).
-  const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures + 1);
+  // In the collapsed state we render exactly `collapsedVisibleCaptures` (one) row
+  // with no peek sliver of the next row. The viewport height is fixed to a single
+  // row, so the tray shows one clean card and the rest are revealed by expanding.
+  const collapsedCaptures = recentCaptures.slice(0, collapsedVisibleCaptures);
   const visibleCaptures = isTrayExpanded ? recentCaptures : collapsedCaptures;
   const trayExpandedBodyHeight = alignToFourPointGrid(
     Math.max(
-      windowHeight - insets.top - trayTopChromeReservedHeight - trayExpandedTopGap - rawScannerTrayHeaderHeight - trayBottomInset,
+      Math.round(windowHeight * 0.85) - rawScannerTrayHeaderHeight - trayBottomInset,
       272,
     ),
   );
   const trayContentHeight = recentCaptures.length === 0
     ? 0
-    : (recentCaptures.length * captureRowHeight) + ((recentCaptures.length - 1) * captureRowGap);
+    : (recentCaptures.length * captureRowHeight) + ((recentCaptures.length - 1) * captureRowGap) + trayClearSectionHeight;
   const trayScrollViewportHeight = recentCaptures.length > 0
     ? Math.min(trayContentHeight, trayExpandedBodyHeight)
     : Math.max(140, trayExpandedBodyHeight);
   const trayScrollEnabled = trayContentHeight > trayScrollViewportHeight;
-  const collapsedViewportHeight = recentCaptures.length >= 2
-    ? captureRowHeight + captureRowGap + collapsedPeekHeight
-    : captureRowHeight;
+  const collapsedViewportHeight = captureRowHeight;
   const shouldLoadInventory = recentCaptures.length > 0 || dataVersion > 0;
 
   useEffect(() => {
@@ -1808,9 +1804,6 @@ export function ScannerScreen({
     const displayMarketPrice = isFinitePrice(selection?.marketPrice ?? null)
       ? (selection!.marketPrice as number)
       : (isFinitePrice(baseMarketPrice) ? baseMarketPrice : 0);
-    const priceSublabel = selection
-      ? `${selection.conditionShortLabel} · ${selection.variantLabel}`
-      : 'Market avg.';
     const setAndNumberLine = candidate
       ? [candidate.setName, candidate.cardNumber ? `#${candidate.cardNumber.replace(/^#/, '')}` : null]
         .filter(Boolean)
@@ -1862,8 +1855,7 @@ export function ScannerScreen({
                   ]}
                   testID={`scanner-tray-change-${index}`}
                 >
-                  <RefreshDouble color="#FFFFFF" width={10} height={10} />
-                  <Text style={styles.captureChangeLabel}>Change</Text>
+                  <Text style={styles.captureChangeLabel}>Switch</Text>
                 </Pressable>
               ) : null}
             </View>
@@ -1931,16 +1923,14 @@ export function ScannerScreen({
                 testID={`scanner-tray-price-${index}`}
               >
                 <View style={styles.capturePriceValueRow}>
+                  <Image
+                    source={require('../../../../assets/images/tcgplayer-icon.png')}
+                    style={styles.capturePriceLogo}
+                  />
                   <Text style={styles.capturePriceValue}>
                     {formatCurrency(displayMarketPrice, currencyCode)}
                   </Text>
-                  <IconChevronRight
-                    color={colors.scannerTextPrimary}
-                    size={16}
-                    strokeWidth={2}
-                  />
                 </View>
-                <Text style={styles.capturePriceLabel}>{priceSublabel}</Text>
               </Pressable>
               <Pressable
                 accessibilityLabel={
@@ -2047,11 +2037,6 @@ export function ScannerScreen({
           >
             <IconChevronLeft color={colors.gray0} size={20} strokeWidth={1.5} />
           </Pressable>
-          <ScanTargetPill
-            label={scanTargetPillLabel(cardType, condition)}
-            onPress={() => setIsScanTargetSheetOpen(true)}
-            testID="scanner-target-pill"
-          />
           <Pressable
             accessibilityLabel="Search cards"
             accessibilityRole="button"
@@ -2087,6 +2072,16 @@ export function ScannerScreen({
           </View>
         ) : null}
 
+        {isTrayExpanded ? null : (
+          <View pointerEvents="box-none" style={[styles.scanTargetPillDock, { bottom: scanTargetPillBottom }]}>
+            <ScanTargetPill
+              label={scanTargetPillLabel(cardType, condition)}
+              onPress={() => setIsScanTargetSheetOpen(true)}
+              testID="scanner-target-pill"
+            />
+          </View>
+        )}
+
         <View style={styles.trayShell} testID="scanner-tray" {...trayShellPanResponder.panHandlers}>
           <BlurView
             intensity={isTrayExpanded ? 80 : 24}
@@ -2112,29 +2107,16 @@ export function ScannerScreen({
               <View style={styles.trayHandle} />
             </View>
             <View style={styles.recentScansRow}>
-              <View style={styles.scansHeaderLeft}>
-                <Text style={styles.scansLabel} testID="scanner-recent-title">
-                  {`Scans: ${recentCaptures.length}`}
+              <View style={styles.trayInfoPill}>
+                <Text style={styles.trayInfoPillLabel} testID="scanner-recent-title">
+                  {`SCAN: ${recentCaptures.length}`}
                 </Text>
-                {recentCaptures.length > 0 ? (
-                  <Pressable
-                    accessibilityRole="button"
-                    accessibilityLabel="Clear all scans"
-                    hitSlop={8}
-                    onPress={handleClearAllCaptures}
-                    style={({ pressed }) => [
-                      styles.clearChip,
-                      pressed ? styles.clearChipPressed : null,
-                    ]}
-                    testID="scanner-tray-clear"
-                  >
-                    <Text style={styles.clearChipLabel}>Clear</Text>
-                  </Pressable>
-                ) : null}
               </View>
-              <Text style={styles.totalLabel} testID="scanner-value-pill-text">
-                {`Total: ${formatCurrency(trayPriceSummary.total)}`}
-              </Text>
+              <View style={styles.trayInfoPill}>
+                <Text style={styles.trayInfoPillLabel} testID="scanner-value-pill-text">
+                  {`TOTAL: ${formatCurrency(trayPriceSummary.total)}`}
+                </Text>
+              </View>
             </View>
           </Pressable>
 
@@ -2174,6 +2156,23 @@ export function ScannerScreen({
                   testID="scanner-tray-scroll"
                 >
                   {visibleCaptures.map(renderCaptureRow)}
+                  {isTrayExpanded ? (
+                    <View style={styles.trayClearSection}>
+                      <Pressable
+                        accessibilityRole="button"
+                        accessibilityLabel="Clear all scans"
+                        hitSlop={8}
+                        onPress={handleClearAllCaptures}
+                        style={({ pressed }) => [
+                          styles.trayClearAllPill,
+                          pressed ? styles.trayClearAllPillPressed : null,
+                        ]}
+                        testID="scanner-tray-clear-all"
+                      >
+                        <Text style={styles.trayClearAllLabel}>CLEAR ALL</Text>
+                      </Pressable>
+                    </View>
+                  ) : null}
                 </ScrollView>
               </View>
             )}
@@ -2287,6 +2286,13 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 5,
   },
+  scanTargetPillDock: {
+    alignItems: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    zIndex: 4,
+  },
   captureCopy: {
     alignItems: 'flex-start',
     gap: 4,
@@ -2307,10 +2313,10 @@ const styles = StyleSheet.create({
   captureMainButtonPressed: {
     opacity: 0.9,
   },
-  capturePriceLabel: {
-    ...textStyles.caption,
-    color: colors.scannerTextPrimary,
-    textAlign: 'right',
+  capturePriceLogo: {
+    height: 16,
+    resizeMode: 'contain',
+    width: 21,
   },
   capturePriceValue: {
     ...textStyles.headline,
@@ -2346,7 +2352,10 @@ const styles = StyleSheet.create({
   },
   captureSubtitle: {
     ...textStyles.caption,
-    color: colors.scannerTextPrimary,
+    color: colors.gray300,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 13,
+    lineHeight: 17.55,
   },
   captureThumb: {
     backgroundColor: colors.scannerSurfaceStrong,
@@ -2360,10 +2369,9 @@ const styles = StyleSheet.create({
   },
   captureChangeChip: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.1)',
+    backgroundColor: colors.scannerConditionPill,
     borderRadius: 4,
     flexDirection: 'row',
-    gap: 6,
     minHeight: 16,
     paddingHorizontal: 4,
     paddingVertical: 2,
@@ -2373,9 +2381,9 @@ const styles = StyleSheet.create({
   },
   captureChangeLabel: {
     color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 9,
-    lineHeight: 12.6,
+    fontFamily: fontFamilies.bodyMedium,
+    fontSize: 11,
+    lineHeight: 15.4,
   },
   captureTitle: {
     ...textStyles.headline,
@@ -2388,8 +2396,8 @@ const styles = StyleSheet.create({
   },
   captureAddPill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.3)',
-    borderRadius: 8,
+    backgroundColor: colors.scannerAddPurple,
+    borderRadius: radii.sm,
     justifyContent: 'center',
     minHeight: 26,
     paddingHorizontal: 12,
@@ -2399,8 +2407,8 @@ const styles = StyleSheet.create({
     opacity: 0.78,
   },
   captureAddPillLabel: {
-    color: colors.brand,
-    fontFamily: fontFamilies.bodyMedium,
+    color: colors.scannerTextPrimary,
+    fontFamily: fontFamilies.bodySemiBold,
     fontSize: 13,
     lineHeight: 18.2,
   },
@@ -2411,39 +2419,37 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 4,
   },
-  scansHeaderLeft: {
+  trayInfoPill: {
+    backgroundColor: colors.gray900,
+    borderRadius: radii.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  trayInfoPillLabel: {
+    ...textStyles.labelStrong,
+    color: colors.gray400,
+  },
+  trayClearSection: {
     alignItems: 'center',
-    flexDirection: 'row',
-    gap: 12,
+    paddingTop: 20,
+    paddingBottom: 8,
   },
-  scansLabel: {
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 14,
-    lineHeight: 19.6,
-    color: colors.scannerTextPrimary,
+  trayClearAllPill: {
+    alignSelf: 'center',
+    backgroundColor: 'transparent',
+    borderColor: colors.dangerStrong,
+    borderRadius: radii.pill,
+    borderWidth: 1,
+    paddingHorizontal: 20,
+    paddingVertical: 10,
   },
-  clearChip: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
-    borderRadius: 999,
-    justifyContent: 'center',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
+  trayClearAllPillPressed: {
+    opacity: 0.6,
   },
-  clearChipPressed: {
-    opacity: 0.7,
-  },
-  clearChipLabel: {
-    color: colors.scannerTextPrimary,
-    fontFamily: fontFamilies.bodyBold,
-    fontSize: 11,
-    lineHeight: 15.4,
-  },
-  totalLabel: {
-    fontFamily: fontFamilies.bodySemiBold,
-    fontSize: 14,
-    lineHeight: 19.6,
-    color: colors.gray100,
+  trayClearAllLabel: {
+    ...textStyles.control,
+    color: colors.dangerStrong,
+    letterSpacing: 0.5,
   },
   safeArea: {
     backgroundColor: colors.scannerCanvas,

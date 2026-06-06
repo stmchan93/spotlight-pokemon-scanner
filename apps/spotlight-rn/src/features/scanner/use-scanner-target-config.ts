@@ -28,11 +28,9 @@ export function cardLanguageForCardType(cardType: ScannerCardType): ScannerCardL
   return cardType === 'pokemon_jp' ? 'japanese' : 'english';
 }
 
-/** Short label rendered in the scanner header pill — lane + language combo. */
-export function scanTargetPillLabel(cardType: ScannerCardType, condition: ScannerCondition): string {
-  const lane = condition === 'graded' ? 'Graded' : 'Ungraded';
-  const language = cardType === 'pokemon_jp' ? 'Pokémon JP' : 'Pokémon EN';
-  return `${lane} | ${language}`;
+/** Short label rendered in the scanner header pill — language only. */
+export function scanTargetPillLabel(cardType: ScannerCardType, _condition: ScannerCondition): string {
+  return cardType === 'pokemon_jp' ? 'Pokémon JP' : 'Pokémon EN';
 }
 
 const listeners = new Set<(config: ScannerTargetConfig) => void>();

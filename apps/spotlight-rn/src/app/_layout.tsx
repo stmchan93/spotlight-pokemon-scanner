@@ -49,7 +49,7 @@ const navigationTheme: Theme = {
     card: '#FFFFFF',
     text: '#0F0F12',
     border: 'rgba(0, 0, 0, 0.08)',
-    notification: '#FEE333',
+    notification: '#D9AEFF',
   },
   fonts: {
     regular: {

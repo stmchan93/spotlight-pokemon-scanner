@@ -175,7 +175,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(5, 5, 5, 0.6)',
   },
   comingSoonTag: {
-    backgroundColor: 'rgba(254, 227, 51, 0.1)',
+    backgroundColor: 'rgba(217, 174, 255, 0.1)',
     borderRadius: 6,
     paddingHorizontal: 6,
     paddingVertical: 4,

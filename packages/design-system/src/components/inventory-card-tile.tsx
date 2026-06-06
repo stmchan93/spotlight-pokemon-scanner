@@ -185,7 +185,7 @@ export function InventoryCardTile({
               style={[
                 styles.selectionVeil,
                 {
-                  backgroundColor: 'rgba(254, 227, 51, 0.16)',
+                  backgroundColor: 'rgba(217, 174, 255, 0.16)',
                   borderRadius: artRadius,
                 },
               ]}

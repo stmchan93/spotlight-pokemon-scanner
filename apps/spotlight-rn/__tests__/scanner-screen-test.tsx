@@ -247,12 +247,12 @@ describe('ScannerScreen', () => {
       minHeight: rawScannerTrayEmptyPeekHeight,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-recent-title').props.style)).toMatchObject({
-      fontSize: 14,
-      lineHeight: 19.6,
+      fontSize: 13,
+      lineHeight: 18.2,
     });
     expect(StyleSheet.flatten(screen.getByTestId('scanner-value-pill-text').props.style)).toMatchObject({
-      fontSize: 14,
-      lineHeight: 19.6,
+      fontSize: 13,
+      lineHeight: 18.2,
     });
     expect(screen.queryByTestId('scanner-smoke-fixture-trigger')).toBeNull();
   });
@@ -307,7 +307,7 @@ describe('ScannerScreen', () => {
     });
     expect(screen.getByText("McDonald's Collection 2021 · #21/25")).toBeTruthy();
     expect(screen.queryByTestId('scanner-matches-button')).toBeNull();
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('Total: $0.56');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.56');
     expect(screen.getByTestId('scanner-tray-swipe-0-delete-button', {
       includeHiddenElements: true,
     })).toBeTruthy();
@@ -558,7 +558,7 @@ describe('ScannerScreen', () => {
     }));
 
     expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('Total: $0.56');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.56');
   });
 
   it('disables top-level scanner swipe while a tray action rail is open and restores it when closed', async () => {
@@ -655,6 +655,30 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray-header').props.accessibilityLabel).toBe('Collapse recent scans');
     // Avoid an unused-variable lint by referencing the saved expanded height.
     expect(expandedViewportHeight).toBeGreaterThanOrEqual(102);
+  });
+
+  it('shows the CLEAR ALL control only when the tray is expanded', async () => {
+    renderScannerScreen();
+
+    // Empty tray: no CLEAR ALL.
+    expect(screen.queryByTestId('scanner-tray-clear-all')).toBeNull();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    // Collapsed with a scan: CLEAR ALL lives at the bottom of the expanded list, not here.
+    expect(screen.queryByTestId('scanner-tray-clear-all')).toBeNull();
+
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-clear-all')).toBeTruthy();
+    });
+    expect(screen.getByText('CLEAR ALL')).toBeTruthy();
   });
 
   it('shows the pending tray row immediately before scanner matches resolve', async () => {
@@ -839,7 +863,6 @@ describe('ScannerScreen', () => {
     expect(await screen.findByText('Mega Dragonite ex')).toBeTruthy();
     expect(screen.getByText('PSA • 9')).toBeTruthy();
     expect(screen.getByText('Mega 2A · #232/193')).toBeTruthy();
-    expect(screen.getByText('Market avg.')).toBeTruthy();
     expect(screen.getAllByText('$30.83').length).toBeGreaterThan(0);
     expect(screen.getByTestId('scanner-tray-image-0').props.source).toEqual({
       uri: 'https://cdn.spotlight.test/m2a-232.png',
@@ -940,7 +963,7 @@ describe('ScannerScreen', () => {
     expect(screen.getByText('PSA • 9')).toBeTruthy();
     expect(screen.getByText('Base · #4/102')).toBeTruthy();
     expect(screen.getAllByText('$0.00').length).toBeGreaterThanOrEqual(1);
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('Total: $0.00');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.00');
   });
 
   it('allows another scan while earlier scans are still processing', async () => {
@@ -1022,7 +1045,7 @@ describe('ScannerScreen', () => {
       expect(screen.getByText('Scorbunny')).toBeTruthy();
     });
 
-    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('Total: $0.38');
+    expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.38');
     expect(mockPush).not.toHaveBeenCalled();
   });
 
@@ -1080,16 +1103,14 @@ describe('ScannerScreen', () => {
     }
 
     expect(screen.getByTestId('scanner-tray-header')).toBeTruthy();
-    // The second-newest scan is RENDERED in the DOM in the collapsed state
-    // (so it can peek beneath the top row), but the tray viewport height
-    // crops it to a small sliver via overflow:hidden. Confirm the peek row
-    // exists and the viewport is sized for "one full row + small peek",
-    // NOT for two full rows.
-    expect(screen.getByTestId('scanner-tray-row-1')).toBeTruthy();
+    // Collapsed shows EXACTLY one card (the newest, row 0) with no peek and no
+    // micro-scroll: the second-newest row is not rendered, and the viewport is
+    // sized to a single full row.
+    expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-tray-row-1')).toBeNull();
     const collapsedViewportHeight =
       StyleSheet.flatten(screen.getByTestId('scanner-tray-viewport').props.style)?.height ?? 0;
-    expect(collapsedViewportHeight).toBeGreaterThanOrEqual(102 + 14); // one row + peek
-    expect(collapsedViewportHeight).toBeLessThan(102 + 16 + 102); // less than two full rows + gap
+    expect(collapsedViewportHeight).toBe(102); // exactly one full row, no peek
 
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     expect(mockConfigureNext).toHaveBeenCalled();
@@ -1109,6 +1130,28 @@ describe('ScannerScreen', () => {
     // collapses the tray). Verify that contract.
     expect(screen.queryByTestId('scanner-preview')).toBeNull();
     expect(screen.getByTestId('scanner-tray-collapse-backdrop')).toBeTruthy();
+  });
+
+  it('floats the scan-target pill above the tray and hides it when expanded', async () => {
+    renderScannerScreen();
+
+    // Visible above the empty tray.
+    expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
+
+    await waitForScannerReady();
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+    await waitFor(() => {
+      expect(screen.getByTestId('scanner-tray-row-0')).toBeTruthy();
+    });
+
+    // Still visible while collapsed with a scan.
+    expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
+
+    // Hidden once the tray is expanded (the tray covers that area).
+    fireEvent.press(screen.getByTestId('scanner-tray-header'));
+    await waitFor(() => {
+      expect(screen.queryByTestId('scanner-target-pill')).toBeNull();
+    });
   });
 
   it('adds a scanned card into inventory from the tray', async () => {

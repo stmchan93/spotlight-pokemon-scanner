@@ -34,7 +34,7 @@ const styles = StyleSheet.create({
   },
   pill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
     borderRadius: 999,
     flexDirection: 'row',
     gap: 8,

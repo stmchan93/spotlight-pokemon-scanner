@@ -12,14 +12,18 @@ export const colors = {
   canvas: '#FCFCFA',
   canvasElevated: '#FFFFFF',
   surface: '#F5F5F0',
-  surfaceMuted: 'rgba(254, 227, 51, 0.18)',
+  surfaceMuted: 'rgba(217, 174, 255, 0.18)',
   surfaceLight: '#FFFFFF',
   pageLight: '#FCFCFA',
   field: '#F2F1EC',
   fieldLight: '#FFFFFF',
-  brand: '#FEE333',
+  brand: '#D9AEFF',
+  // Saturated violet for high-emphasis SOLID fills (primary Button). The pale
+  // `brand` lilac reads low-emphasis as a button fill, so primary buttons use
+  // this darker purple with a white label (~6.7:1 contrast). From Figma.
+  brandStrong: '#7000FF',
   brandPurple: '#4B3FD8',
-  chartLine: '#F5C800',
+  chartLine: '#9B5FE6',
   success: '#2DBB6D',
   info: '#B89A33',
   warning: '#F7C23D',
@@ -40,6 +44,7 @@ export const colors = {
   green400: '#4CAF6E',
   red100: '#FDECEC',
   red400: '#E0524C',
+  dangerStrong: '#D93025',
   // Blue ramp from Figma (Color/blue/100 + Color/blue/500). Used for the
   // "traded" transaction badge; 100 = pale fill, 400 = saturated text/icon.
   blue100: '#ADCFFF',
@@ -71,8 +76,10 @@ export const colors = {
   scannerTextSecondary: 'rgba(255, 255, 255, 0.72)',
   scannerTextMuted: 'rgba(255, 255, 255, 0.58)',
   scannerTextMeta: 'rgba(255, 255, 255, 0.55)',
-  scannerGlow: 'rgba(254, 227, 51, 0.14)',
+  scannerGlow: 'rgba(217, 174, 255, 0.14)',
   scannerValuePill: '#8EA086',
+  scannerAddPurple: '#A54BFA',
+  scannerConditionPill: '#7A5200',
 } as const;
 
 export const spacing = {
@@ -268,6 +275,13 @@ export const textStyles = {
     fontSize: 13,
     lineHeight: 18.2,
     color: colors.gray400,
+  } satisfies TextStyle,
+  // SemiBold sibling of "label" — 13/600/140%, color applied separately
+  labelStrong: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodySemiBold,
+    fontSize: 13,
+    lineHeight: 18.2,
   } satisfies TextStyle,
   // Bold caption used for the inventory tile market price — 12/700/140% gray-900
   priceCaption: {
