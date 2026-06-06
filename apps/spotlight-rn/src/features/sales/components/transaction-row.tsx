@@ -194,9 +194,9 @@ const styles = StyleSheet.create({
     minWidth: 0,
   },
   art: {
-    borderRadius: 6,
-    height: 78,
-    width: 54,
+    borderRadius: 8,
+    height: 80,
+    width: 80,
   },
   artPlaceholder: {
     alignItems: 'center',
