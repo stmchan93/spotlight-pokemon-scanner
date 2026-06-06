@@ -117,7 +117,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
     entryId,
     onBack,
     onOpenAddToCollection,
-    onOpenScanCandidateReview,
     previewId,
     scanReviewId,
   }: {
@@ -125,7 +124,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
     entryId?: string;
     onBack: () => void;
     onOpenAddToCollection: (nextCardId: string, nextEntryId?: string) => void;
-    onOpenScanCandidateReview: (nextScanReviewId: string) => void;
     previewId?: string;
     scanReviewId?: string;
   }) => {
@@ -138,7 +136,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
         <Text testID="card-detail-scan-review">{scanReviewId ?? 'none'}</Text>
         <Pressable onPress={onBack} testID="card-detail-back" />
         <Pressable onPress={() => onOpenAddToCollection(cardId, entryId)} testID="card-detail-add" />
-        <Pressable onPress={() => onOpenScanCandidateReview('scan-review-1')} testID="card-detail-review" />
       </>
     );
   },
@@ -387,7 +384,6 @@ describe('misc route wrappers', () => {
 
     fireEvent.press(screen.getByTestId('card-detail-back'));
     fireEvent.press(screen.getByTestId('card-detail-add'));
-    fireEvent.press(screen.getByTestId('card-detail-review'));
 
     expect(mockBack).toHaveBeenCalled();
     expect(mockPush).toHaveBeenCalledWith({
@@ -395,13 +391,6 @@ describe('misc route wrappers', () => {
       params: {
         cardId: 'base1-4',
         entryId: 'entry-7',
-      },
-    });
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/cards/[cardId]/scan-review',
-      params: {
-        cardId: 'base1-4',
-        scanReviewId: 'scan-review-1',
       },
     });
   });

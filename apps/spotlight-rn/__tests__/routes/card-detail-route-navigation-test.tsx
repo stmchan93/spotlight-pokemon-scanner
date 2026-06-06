@@ -16,11 +16,9 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
   CardDetailScreen: ({
     cardId,
     onBack,
-    onOpenScanCandidateReview,
   }: {
     cardId: string;
     onBack: () => void;
-    onOpenScanCandidateReview?: (scanReviewId: string) => void;
   }) => {
     const { Pressable, Text } = require('react-native');
 
@@ -28,10 +26,6 @@ jest.mock('@/features/cards/screens/card-detail-screen', () => ({
       <>
         <Text>{cardId}</Text>
         <Pressable onPress={onBack} testID="card-detail-route-back" />
-        <Pressable
-          onPress={() => onOpenScanCandidateReview?.('scan-review-oshawott')}
-          testID="card-detail-open-scan-review"
-        />
       </>
     );
   },
@@ -46,23 +40,16 @@ describe('card detail route navigation', () => {
     mockUseLocalSearchParams.mockReset();
   });
 
-  it('opens scan review as a real modal route', () => {
+  it('wires back navigation through the route wrapper', () => {
     mockUseLocalSearchParams.mockReturnValue({
       cardId: 'mcdonalds25-21',
-      scanReviewId: 'scan-review-oshawott',
     });
 
     render(<CardDetailRoute />);
 
-    fireEvent.press(screen.getByTestId('card-detail-open-scan-review'));
+    fireEvent.press(screen.getByTestId('card-detail-route-back'));
 
-    expect(mockPush).toHaveBeenCalledWith({
-      pathname: '/cards/[cardId]/scan-review',
-      params: {
-        cardId: 'mcdonalds25-21',
-        scanReviewId: 'scan-review-oshawott',
-      },
-    });
+    expect(mockBack).toHaveBeenCalled();
   });
 
 });
