@@ -482,10 +482,10 @@ export function CardDetailScreen({
           <IconButton
             accessibilityLabel="Go back"
             onPress={onBack}
-            shape="rounded"
+            shape="circle"
             size={36}
             testID="detail-back"
-            variant="ghost"
+            variant="subtle"
           >
             <NavArrowLeft color={theme.colors.gray900} height={22} width={22} />
           </IconButton>
@@ -499,10 +499,10 @@ export function CardDetailScreen({
           <IconButton
             accessibilityLabel="Share this card"
             onPress={handleShare}
-            shape="rounded"
+            shape="circle"
             size={36}
             testID="detail-share"
-            variant="ghost"
+            variant="subtle"
           >
             <ShareIos color={theme.colors.gray900} height={20} width={20} />
           </IconButton>

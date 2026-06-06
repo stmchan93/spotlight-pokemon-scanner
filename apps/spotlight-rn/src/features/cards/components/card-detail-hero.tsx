@@ -13,9 +13,8 @@ type CardDetailHeroProps = {
   testID?: string;
 };
 
-// Portrait trading-card aspect (5:7), matching the catalog hero.
+// Portrait trading-card aspect (5:7).
 const CARD_ASPECT = 5 / 7;
-const PANEL_HEIGHT = 334;
 
 export function CardDetailHero({
   imageUrl,
@@ -27,25 +26,16 @@ export function CardDetailHero({
   const theme = useSpotlightTheme();
 
   return (
-    <View
-      style={[
-        styles.panel,
-        {
-          backgroundColor: theme.colors.gray50,
-          borderRadius: theme.radii.xxl,
-        },
-      ]}
-      testID={testID}
-    >
-      <View style={styles.imageWrap}>
-        <CachedImage
-          accessibilityLabel={name}
-          cachePolicy={imageCachePolicy.hero}
-          contentFit="contain"
-          style={styles.image}
-          uri={imageUrl}
-        />
-      </View>
+    <View style={styles.root} testID={testID}>
+      {/* Full-bleed card with a soft drop shadow (Figma 992:7544): the card art
+          spans the content width instead of sitting inside a gray panel. */}
+      <CachedImage
+        accessibilityLabel={name}
+        cachePolicy={imageCachePolicy.hero}
+        contentFit="contain"
+        style={[styles.image, { borderRadius: theme.radii.md }]}
+        uri={imageUrl}
+      />
 
       <Pressable
         accessibilityLabel={isFavorite ? 'Remove from favorites' : 'Add to favorites'}
@@ -87,19 +77,15 @@ const styles = StyleSheet.create({
   },
   image: {
     aspectRatio: CARD_ASPECT,
-    height: '100%',
+    elevation: 10,
+    shadowColor: '#000000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 20,
+    width: '100%',
   },
-  imageWrap: {
+  root: {
     alignItems: 'center',
-    height: PANEL_HEIGHT - 48,
-    justifyContent: 'center',
-  },
-  panel: {
-    alignItems: 'center',
-    height: PANEL_HEIGHT,
-    justifyContent: 'center',
-    overflow: 'hidden',
-    paddingVertical: 24,
     position: 'relative',
     width: '100%',
   },

@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, type StyleProp, type ViewStyle } from 'react-nat
 
 import { useSpotlightTheme } from '../theme';
 
-export type IconButtonVariant = 'elevated' | 'brand' | 'ghost' | 'outlined';
+export type IconButtonVariant = 'elevated' | 'brand' | 'ghost' | 'outlined' | 'subtle';
 export type IconButtonShape = 'circle' | 'rounded';
 
 type IconButtonProps = {
@@ -47,6 +47,13 @@ export function IconButton({
             backgroundColor: 'transparent',
             borderColor: 'transparent',
           }
+        : variant === 'subtle'
+          ? {
+              // Filled gray circle, no visible border (Figma 992:7737/7741 —
+              // card-detail back/share). gray50 reads as a soft chip on white.
+              backgroundColor: theme.colors.gray50,
+              borderColor: 'transparent',
+            }
         : variant === 'outlined'
           ? {
               backgroundColor: theme.colors.gray0,
