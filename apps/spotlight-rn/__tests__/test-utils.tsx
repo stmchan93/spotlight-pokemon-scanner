@@ -104,6 +104,10 @@ export function createTestSpotlightRepository(
       return overrides.getCardRecentSales?.(...args)
         ?? baseRepository.getCardRecentSales(...args);
     },
+    getCardPriceTrends: (...args) => {
+      return overrides.getCardPriceTrends?.(...args)
+        ?? baseRepository.getCardPriceTrends(...args);
+    },
     setCardFavorite: (...args) => {
       return overrides.setCardFavorite?.(...args)
         ?? baseRepository.setCardFavorite(...args);

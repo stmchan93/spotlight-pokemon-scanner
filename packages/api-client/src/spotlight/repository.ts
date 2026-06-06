@@ -22,9 +22,17 @@ import type {
   CardEbayListingRecord,
   CardEbayListingsRecord,
   CardMarketInsight,
+  CardPriceTrendList,
+  CardPriceTrendMode,
+  CardPriceTrendRow,
+  CardPriceTrendsQuery,
   CardRecentSaleRecord,
   CardRecentSalesQuery,
   CardRecentSalesRecord,
+  CardText,
+  CardTextAbility,
+  CardTextAttack,
+  CardTextTypeValue,
   CardTransactionRecord,
   CatalogSearchResult,
   CreateCardTransactionPayload,
@@ -106,6 +114,7 @@ export interface SpotlightRepository {
     days?: number;
     variant?: string | null;
   }): Promise<CardDetailRecord['marketHistory'] | null>;
+  getCardPriceTrends(query: CardPriceTrendsQuery): Promise<CardPriceTrendList | null>;
   getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix>;
   getCardEbayListings(query: CardDetailQuery & {
     limit?: number;
@@ -326,12 +335,48 @@ type ScanArtifactUploadResponseDTO = {
   uploadedAt?: string | null;
 };
 
+type CardTextDTO = {
+  number?: string | null;
+  rarity?: string | null;
+  types?: Array<string | null> | null;
+  hp?: string | null;
+  stage?: string | null;
+  abilities?: Array<{
+    name?: string | null;
+    type?: string | null;
+    text?: string | null;
+  }> | null;
+  attacks?: Array<{
+    name?: string | null;
+    cost?: Array<string | null> | null;
+    damage?: string | null;
+    text?: string | null;
+  }> | null;
+  weaknesses?: Array<{ type?: string | null; value?: string | null }> | null;
+  resistances?: Array<{ type?: string | null; value?: string | null }> | null;
+  retreatCost?: Array<string | null> | null;
+};
+
 type CardDetailDTO = {
   card: CardCandidateDTO;
   imageSmallURL?: string | null;
   imageLargeURL?: string | null;
   isFavorite?: boolean | null;
   favoritedAt?: string | null;
+  cardText?: CardTextDTO | null;
+};
+
+type CardPriceTrendListDTO = {
+  mode?: string | null;
+  provider?: string | null;
+  rows?: Array<{
+    label?: string | null;
+    key?: string | null;
+    currentPrice?: number | null;
+    currencyCode?: string | null;
+    points?: Array<number | null> | null;
+    trendPct?: number | null;
+  }> | null;
 };
 
 type CardFavoriteDTO = {
@@ -1917,6 +1962,111 @@ function buildMarketHistoryRecord(
   };
 }
 
+function normalizeStringList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => normalizeString(item))
+    .filter((item): item is string => item !== null);
+}
+
+function normalizeCardTextTypeValues(value: unknown): CardTextTypeValue[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value.flatMap((item) => {
+    const type = normalizeString((item as { type?: unknown })?.type);
+    if (!type) {
+      return [];
+    }
+    return [{ type, value: normalizeString((item as { value?: unknown })?.value) ?? '' }];
+  });
+}
+
+function buildCardText(payload: CardTextDTO | null | undefined): CardText | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const abilities: CardTextAbility[] = Array.isArray(payload.abilities)
+    ? payload.abilities.flatMap((ability) => {
+      const name = normalizeString(ability?.name);
+      if (!name) {
+        return [];
+      }
+      return [{ name, type: normalizeString(ability?.type), text: normalizeString(ability?.text) }];
+    })
+    : [];
+
+  const attacks: CardTextAttack[] = Array.isArray(payload.attacks)
+    ? payload.attacks.flatMap((attack) => {
+      const name = normalizeString(attack?.name);
+      if (!name) {
+        return [];
+      }
+      return [{
+        name,
+        cost: normalizeStringList(attack?.cost),
+        damage: normalizeString(attack?.damage),
+        text: normalizeString(attack?.text),
+      }];
+    })
+    : [];
+
+  return {
+    number: normalizeString(payload.number),
+    rarity: normalizeString(payload.rarity),
+    types: normalizeStringList(payload.types),
+    hp: normalizeString(payload.hp),
+    stage: normalizeString(payload.stage),
+    abilities,
+    attacks,
+    weaknesses: normalizeCardTextTypeValues(payload.weaknesses),
+    resistances: normalizeCardTextTypeValues(payload.resistances),
+    retreatCost: normalizeStringList(payload.retreatCost),
+  };
+}
+
+function buildCardPriceTrendList(
+  payload: CardPriceTrendListDTO | null | undefined,
+): CardPriceTrendList | null {
+  if (!payload || typeof payload !== 'object') {
+    return null;
+  }
+
+  const mode: CardPriceTrendMode = payload.mode === 'graded' ? 'graded' : 'raw';
+  const provider: CardPriceTrendList['provider'] =
+    payload.provider === 'ebay' || payload.provider === 'tcgplayer'
+      ? payload.provider
+      : mode === 'graded'
+        ? 'ebay'
+        : 'tcgplayer';
+
+  const rows: CardPriceTrendRow[] = Array.isArray(payload.rows)
+    ? payload.rows.flatMap((row) => {
+      const label = normalizeString(row?.label);
+      const key = normalizeString(row?.key);
+      if (!label || !key) {
+        return [];
+      }
+      const points = Array.isArray(row?.points)
+        ? row.points.map((point) => normalizeNumber(point) ?? 0)
+        : [];
+      return [{
+        label,
+        key,
+        currentPrice: normalizeNumber(row?.currentPrice),
+        currencyCode: normalizeCurrencyCode(row?.currencyCode),
+        points,
+        trendPct: normalizeNumber(row?.trendPct),
+      }];
+    })
+    : [];
+
+  return { mode, provider, rows };
+}
+
 function buildCardEbayListingRecord(
   listing: EbayCompsTransactionDTO,
   fallbackCurrencyCode: string,
@@ -2309,6 +2459,29 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }) {
     const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, query);
     return detail?.marketHistory ?? null;
+  }
+
+  async getCardPriceTrends(query: CardPriceTrendsQuery): Promise<CardPriceTrendList | null> {
+    const detail = getMockCardDetail(this.cardDetails, this.inventoryEntries, { cardId: query.cardId });
+    if (!detail) {
+      return null;
+    }
+    const mode: CardPriceTrendMode = query.mode === 'graded' ? 'graded' : 'raw';
+    const provider: CardPriceTrendList['provider'] = mode === 'graded' ? 'ebay' : 'tcgplayer';
+    const currencyCode = detail.currencyCode ?? 'USD';
+    const seriesValue = detail.marketHistory?.points?.map((point) => point.value) ?? [];
+    const rows: CardPriceTrendRow[] =
+      mode === 'graded'
+        ? []
+        : (detail.marketHistory?.availableConditions ?? []).map((option) => ({
+          label: option.label ?? option.id,
+          key: option.id,
+          currentPrice: option.currentPrice ?? detail.marketPrice ?? null,
+          currencyCode,
+          points: seriesValue,
+          trendPct: null,
+        }));
+    return { mode, provider, rows };
   }
 
   async getRawPricingMatrix(cardId: string): Promise<RawPricingMatrix> {
@@ -3358,6 +3531,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       isFavorite: normalizeBoolean(detailResponse.data.isFavorite) ?? card.isFavorite,
       favoritedAt: normalizeString(detailResponse.data.favoritedAt),
       trendsPct: card.pricing.trendsPct ?? null,
+      cardText: buildCardText(detailResponse.data.cardText),
     };
 
     return buildLoadResult('success', detail);
@@ -3443,6 +3617,29 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     }
 
     return buildMarketHistoryRecord(response.data, 'USD');
+  }
+
+  async getCardPriceTrends(query: CardPriceTrendsQuery): Promise<CardPriceTrendList | null> {
+    const trendsQuery = new URLSearchParams();
+    trendsQuery.set('mode', query.mode);
+    if (query.variant) {
+      trendsQuery.set('variant', query.variant);
+    }
+    if (query.grader) {
+      trendsQuery.set('grader', query.grader);
+    }
+
+    const response = await this.requestJson<CardPriceTrendListDTO>(
+      `${this.baseUrl}/api/v1/cards/${encodeURIComponent(query.cardId)}/price-trends?${trendsQuery.toString()}`,
+      undefined,
+      { allowNotFound: true },
+    );
+
+    if (response.kind !== 'success' || response.data === null) {
+      return null;
+    }
+
+    return buildCardPriceTrendList(response.data);
   }
 
   async getCardEbayListings(query: CardDetailQuery & {

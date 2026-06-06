@@ -525,6 +525,83 @@ export type CardDetailRecord = {
    * Null at the top level when the snapshot has no trend data at all.
    */
   trendsPct?: CardPricingTrendsPct | null;
+  /**
+   * Card rules text for the "Product Details" block, extracted from the catalog
+   * payload. Null for non-Pokémon or when the source payload lacks it.
+   */
+  cardText?: CardText | null;
+};
+
+// --- Product Details (card rules text) — sourced from the catalog payload ---
+export type CardTextAttack = {
+  name: string;
+  /** Energy types making up the attack cost, e.g. ["Grass","Colorless"]. */
+  cost: string[];
+  /** Printed damage, e.g. "120" / "120+". Null for no-damage attacks. */
+  damage?: string | null;
+  text?: string | null;
+};
+
+export type CardTextAbility = {
+  name: string;
+  /** Ability kind label, e.g. "Ability" / "Poké-Power". */
+  type?: string | null;
+  text?: string | null;
+};
+
+export type CardTextTypeValue = {
+  /** Energy type, e.g. "Fire". */
+  type: string;
+  /** Multiplier/modifier, e.g. "×2" / "-20". */
+  value: string;
+};
+
+export type CardText = {
+  number?: string | null;
+  rarity?: string | null;
+  /** Pokémon energy types, e.g. ["Grass"]. */
+  types: string[];
+  hp?: string | null;
+  /** Evolution stage from subtypes, e.g. "Basic" / "Stage 2". Null when n/a. */
+  stage?: string | null;
+  abilities: CardTextAbility[];
+  attacks: CardTextAttack[];
+  weaknesses: CardTextTypeValue[];
+  resistances: CardTextTypeValue[];
+  /** Energy types in the retreat cost, e.g. ["Colorless"]. */
+  retreatCost: string[];
+};
+
+// --- Price Trend list (per-condition for raw, per-grade for graded) ---
+export type CardPriceTrendMode = 'raw' | 'graded';
+
+export type CardPriceTrendRow = {
+  /** Display label: condition ("Near Mint") for raw, grade ("PSA 10") for graded. */
+  label: string;
+  /** Stable key: condition code (raw) or "<grader> <grade>" (graded). */
+  key: string;
+  currentPrice: number | null;
+  currencyCode: string;
+  /** Market-price series, oldest → newest, for the sparkline. */
+  points: number[];
+  /** Percent change across the series; drives the up/down tint. */
+  trendPct?: number | null;
+};
+
+export type CardPriceTrendList = {
+  mode: CardPriceTrendMode;
+  /** Branding shown next to the list: TCGplayer for raw, eBay for graded. */
+  provider: 'tcgplayer' | 'ebay';
+  rows: CardPriceTrendRow[];
+};
+
+export type CardPriceTrendsQuery = {
+  cardId: string;
+  mode: CardPriceTrendMode;
+  /** Optional variant filter (raw mode), e.g. "Holofoil". */
+  variant?: string | null;
+  /** Optional grader filter (graded mode), e.g. "PSA". */
+  grader?: string | null;
 };
 
 export type InventoryEntriesQuery = {

@@ -2190,6 +2190,113 @@ def _card_row_to_dict(
     }
 
 
+# Evolution-stage subtypes recognised for the card-text "stage" field. Anything
+# else (mechanic subtypes like "EX", "VMAX", "Tag Team") is ignored here.
+_POKEMON_STAGE_SUBTYPES = ("Basic", "Stage 1", "Stage 2", "VStar", "VMAX", "V", "BREAK", "Mega", "Stage 3")
+_POKEMON_STAGE_PRIORITY = ("Basic", "Stage 1", "Stage 2", "Stage 3")
+
+
+def _pokemon_stage_from_subtypes(subtypes: Any) -> str | None:
+    if not isinstance(subtypes, (list, tuple)):
+        return None
+    labels = [str(value).strip() for value in subtypes if str(value or "").strip()]
+    for stage in _POKEMON_STAGE_PRIORITY:
+        if stage in labels:
+            return stage
+    return None
+
+
+def _string_or_none(value: Any) -> str | None:
+    text = str(value).strip() if value is not None else ""
+    return text or None
+
+
+def _string_list(value: Any) -> list[str]:
+    if not isinstance(value, (list, tuple)):
+        return []
+    return [str(item).strip() for item in value if str(item or "").strip()]
+
+
+def _card_text_type_values(value: Any) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    if not isinstance(value, (list, tuple)):
+        return rows
+    for item in value:
+        if not isinstance(item, dict):
+            continue
+        type_label = _string_or_none(item.get("type"))
+        if type_label is None:
+            continue
+        rows.append({"type": type_label, "value": str(item.get("value") or "").strip()})
+    return rows
+
+
+def card_text_from_card(card: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Build the camelCase ``cardText`` block from a resolved card dict.
+
+    Returns ``None`` for non-Pokemon cards or when the source payload lacks the
+    Pokemon rules-text fields. Read-only: derives entirely from the card row's
+    cached ``sourcePayload`` (no provider fetches).
+    """
+    if not isinstance(card, dict):
+        return None
+    supertype = str(card.get("supertype") or "").strip().lower()
+    # Scrydex stores the Pokemon supertype as "Pokémon"; tolerate ascii too.
+    if supertype not in {"pokémon", "pokemon"}:
+        return None
+    payload = card.get("sourcePayload")
+    if not isinstance(payload, dict):
+        return None
+
+    attacks: list[dict[str, Any]] = []
+    for attack in payload.get("attacks") or []:
+        if not isinstance(attack, dict):
+            continue
+        name = _string_or_none(attack.get("name"))
+        if name is None:
+            continue
+        attacks.append(
+            {
+                "name": name,
+                "cost": _string_list(attack.get("cost")),
+                "damage": _string_or_none(attack.get("damage")),
+                "text": _string_or_none(attack.get("text")),
+            }
+        )
+
+    abilities: list[dict[str, Any]] = []
+    for ability in payload.get("abilities") or []:
+        if not isinstance(ability, dict):
+            continue
+        name = _string_or_none(ability.get("name"))
+        if name is None:
+            continue
+        abilities.append(
+            {
+                "name": name,
+                "type": _string_or_none(ability.get("type")),
+                "text": _string_or_none(ability.get("text")),
+            }
+        )
+
+    subtypes = payload.get("subtypes")
+    if not isinstance(subtypes, (list, tuple)):
+        subtypes = card.get("subtypes")
+
+    return {
+        "number": _string_or_none(payload.get("number") or card.get("number")),
+        "rarity": _string_or_none(payload.get("rarity") or card.get("rarity")),
+        "types": _string_list(payload.get("types") or card.get("types")),
+        "hp": _string_or_none(payload.get("hp")),
+        "stage": _pokemon_stage_from_subtypes(subtypes),
+        "abilities": abilities,
+        "attacks": attacks,
+        "weaknesses": _card_text_type_values(payload.get("weaknesses")),
+        "resistances": _card_text_type_values(payload.get("resistances")),
+        "retreatCost": _string_list(payload.get("retreat_cost")),
+    }
+
+
 def upsert_card(
     connection: sqlite3.Connection,
     *,
@@ -3689,6 +3796,187 @@ def latest_price_history_row_for_card(
         """,
         (card_id, provider),
     ).fetchone()
+
+
+# --- Price-trend list (per-condition raw / per-grade graded) -----------------
+
+# Full condition-name labels keyed by the stored short code. The data carries
+# "DM" for damaged (matching RAW_CONDITION_PRIORITY); we also accept "DMG".
+_RAW_CONDITION_LABELS: dict[str, str] = {
+    "NM": "Near Mint",
+    "LP": "Lightly Played",
+    "MP": "Moderately Played",
+    "HP": "Heavily Played",
+    "DM": "Damaged",
+    "DMG": "Damaged",
+}
+
+
+def _price_trend_float(value: Any) -> float | None:
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _grade_sort_key(grade: str) -> tuple[int, float, str]:
+    """Order grades high to low; numeric grades sort by value descending."""
+    try:
+        return (0, -float(grade), grade)
+    except (TypeError, ValueError):
+        return (1, 0.0, grade)
+
+
+def _trend_pct_from_points(points: list[float], entry: dict[str, Any] | None) -> float | None:
+    """First->last percent change; falls back to the entry's 30-day trendsPct."""
+    if len(points) >= 2 and points[0] not in (None, 0):
+        try:
+            return (points[-1] - points[0]) / points[0] * 100.0
+        except (TypeError, ZeroDivisionError):
+            pass
+    if isinstance(entry, dict):
+        trends_pct = entry.get("trendsPct")
+        if isinstance(trends_pct, dict):
+            return _price_trend_float(trends_pct.get("days30"))
+    return None
+
+
+def card_price_trend_list(
+    connection: sqlite3.Connection,
+    card_id: str,
+    *,
+    mode: str,
+    provider: str,
+    variant: str | None = None,
+    grader: str | None = None,
+    days: int = 90,
+) -> dict[str, Any]:
+    """Build a CardPriceTrendList for a card from cached pricing rows.
+
+    Read-only: reads daily history (oldest->newest point series) plus the
+    current snapshot (currentPrice / trendsPct) from SQLite. No provider fetch.
+    - mode='graded' -> one row per grader/grade, label/key "<grader> <grade>".
+    - mode='raw'    -> one row per condition for the chosen/default variant.
+    """
+    normalized_mode = PSA_GRADE_PRICING_MODE if str(mode).strip().lower() == PSA_GRADE_PRICING_MODE else RAW_PRICING_MODE
+    is_graded = normalized_mode == PSA_GRADE_PRICING_MODE
+    response_provider = "ebay" if is_graded else "tcgplayer"
+
+    history_rows = connection.execute(
+        """
+        SELECT price_date, raw_contexts_json, graded_contexts_json
+        FROM card_price_history_daily
+        WHERE card_id = ? AND provider = ?
+        ORDER BY price_date ASC, updated_at ASC
+        LIMIT ?
+        """,
+        (card_id, provider, max(1, int(days))),
+    ).fetchall()
+    snapshot_row = price_snapshot_row(connection, card_id)
+
+    rows: list[dict[str, Any]] = []
+    currency_code = "USD"
+
+    if is_graded:
+        grader_filter = str(grader or "").strip().upper() or None
+        snapshot_graded = (
+            _graded_contexts_payload(snapshot_row["graded_contexts_json"]) if snapshot_row is not None else _empty_graded_contexts()
+        )
+        snapshot_graders = snapshot_graded.get("graders") if isinstance(snapshot_graded.get("graders"), dict) else {}
+
+        # Collect the (grader, grade) pairs that appear in the snapshot, in a
+        # stable grader order with grades high->low.
+        ordered_pairs: list[tuple[str, str]] = []
+        for grader_key in sorted(snapshot_graders.keys()):
+            if grader_filter and grader_key != grader_filter:
+                continue
+            grade_map = snapshot_graders.get(grader_key)
+            if not isinstance(grade_map, dict):
+                continue
+            for grade_key in sorted(grade_map.keys(), key=_grade_sort_key):
+                ordered_pairs.append((grader_key, grade_key))
+
+        for grader_key, grade_key in ordered_pairs:
+            points: list[float] = []
+            for row in history_rows:
+                entry = _resolve_graded_context_entry(
+                    _graded_contexts_payload(row["graded_contexts_json"]),
+                    grader=grader_key,
+                    grade=grade_key,
+                )
+                market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
+                if market is not None:
+                    points.append(market)
+            snapshot_entry = _resolve_graded_context_entry(
+                snapshot_graded,
+                grader=grader_key,
+                grade=grade_key,
+            )
+            current_price = _price_trend_float(snapshot_entry.get("market")) if isinstance(snapshot_entry, dict) else None
+            if not points and current_price is None:
+                continue
+            if isinstance(snapshot_entry, dict) and str(snapshot_entry.get("currencyCode") or "").strip():
+                currency_code = str(snapshot_entry.get("currencyCode"))
+            label = f"{grader_key} {grade_key}"
+            rows.append(
+                {
+                    "label": label,
+                    "key": label,
+                    "currentPrice": current_price,
+                    "currencyCode": currency_code,
+                    "points": points,
+                    "trendPct": _trend_pct_from_points(points, snapshot_entry),
+                }
+            )
+        return {"mode": PSA_GRADE_PRICING_MODE, "provider": response_provider, "rows": rows}
+
+    # Raw mode.
+    snapshot_raw = (
+        _raw_contexts_payload(snapshot_row["raw_contexts_json"]) if snapshot_row is not None else _empty_raw_contexts()
+    )
+    resolved_variant = _normalized_variant_label(variant) if variant else None
+    if resolved_variant is None or not _raw_context_conditions(snapshot_raw, resolved_variant):
+        default_variant, _, _ = _resolve_default_raw_context(snapshot_raw)
+        resolved_variant = default_variant or resolved_variant
+
+    condition_codes = _raw_context_conditions(snapshot_raw, resolved_variant) if resolved_variant else []
+    # Order NM->LP->MP->HP->DM(G); unknown codes trail in their natural order.
+    priority_index = {code: idx for idx, code in enumerate(RAW_CONDITION_PRIORITY)}
+    ordered_conditions = sorted(
+        condition_codes,
+        key=lambda code: (priority_index.get(code, len(RAW_CONDITION_PRIORITY)), code),
+    )
+
+    for condition_code in ordered_conditions:
+        points = []
+        for row in history_rows:
+            entry = _raw_context_entry(
+                _raw_contexts_payload(row["raw_contexts_json"]),
+                variant=resolved_variant,
+                condition=condition_code,
+            )
+            market = _price_trend_float(entry.get("market")) if isinstance(entry, dict) else None
+            if market is not None:
+                points.append(market)
+        snapshot_entry = _raw_context_entry(snapshot_raw, variant=resolved_variant, condition=condition_code)
+        current_price = _price_trend_float(snapshot_entry.get("market")) if isinstance(snapshot_entry, dict) else None
+        if not points and current_price is None:
+            continue
+        if isinstance(snapshot_entry, dict) and str(snapshot_entry.get("currencyCode") or "").strip():
+            currency_code = str(snapshot_entry.get("currencyCode"))
+        rows.append(
+            {
+                "label": _RAW_CONDITION_LABELS.get(condition_code, condition_code),
+                "key": condition_code,
+                "currentPrice": current_price,
+                "currencyCode": currency_code,
+                "points": points,
+                "trendPct": _trend_pct_from_points(points, snapshot_entry),
+            }
+        )
+    return {"mode": RAW_PRICING_MODE, "provider": response_provider, "rows": rows}
 
 
 def upsert_fx_rate_snapshot(

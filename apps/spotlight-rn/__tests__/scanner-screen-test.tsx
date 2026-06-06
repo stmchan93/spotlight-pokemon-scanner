@@ -1042,7 +1042,9 @@ describe('ScannerScreen', () => {
     fireEvent.press(await screen.findByTestId('change-card-picker-row-1'));
 
     await waitFor(() => {
-      expect(screen.getByText('Scorbunny')).toBeTruthy();
+      // The redesigned card-detail screen renders the name in both the header
+      // and the identity block, so the swapped candidate can appear more than once.
+      expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
     });
 
     expect(screen.getByTestId('scanner-value-pill-text').props.children).toBe('TOTAL: $0.38');
@@ -1413,7 +1415,9 @@ describe('ScannerScreen', () => {
     fireEvent.press(await screen.findByTestId('change-card-picker-row-1'));
 
     await waitFor(() => {
-      expect(screen.getByText('Scorbunny')).toBeTruthy();
+      // The redesigned card-detail screen renders the name in both the header
+      // and the identity block, so the swapped candidate can appear more than once.
+      expect(screen.getAllByText('Scorbunny').length).toBeGreaterThan(0);
     });
 
     fireEvent.press(screen.getByTestId('scanner-tray-open-card-0'));

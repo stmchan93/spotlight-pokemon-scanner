@@ -51,6 +51,8 @@ from catalog_tools import (
     build_raw_retrieval_plan,
     canonicalize_collector_number,
     card_by_id,
+    card_price_trend_list,
+    card_text_from_card,
     cards_by_ids,
     append_deck_entry_event,
     connect,
@@ -2728,6 +2730,30 @@ class SpotlightScanService:
             "livePricingEnabled": self._live_pricing_enabled(),
             "volumeLevel": volume_level,
         }
+
+    def card_price_trends(
+        self,
+        card_id: str,
+        *,
+        mode: str,
+        variant: str | None = None,
+        grader: str | None = None,
+    ) -> dict[str, Any] | None:
+        """Per-condition (raw) / per-grade (graded) price-trend list for a card.
+
+        Read-only SQLite read of cached daily history + the current snapshot. No
+        provider fetch, so it honors the live-pricing-off SQLite-only invariant.
+        """
+        if card_by_id(self.connection, card_id) is None:
+            return None
+        return card_price_trend_list(
+            self.connection,
+            card_id,
+            mode=mode,
+            provider=SCRYDEX_PROVIDER,
+            variant=variant,
+            grader=grader,
+        )
 
     def top_movers(
         self,
@@ -9001,6 +9027,7 @@ class SpotlightScanService:
             "imageLargeURL": resolved_card["imageURL"],
             "isFavorite": favorite_row is not None,
             "favoritedAt": favorite_row["created_at"] if favorite_row is not None else None,
+            "cardText": card_text_from_card(resolved_card),
         }
 
     def card_detail(
@@ -12626,6 +12653,38 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 payload = self.service.raw_pricing_matrix(card_id)
             except Exception as error:
                 self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Raw pricing matrix failed: {error}"})
+                return
+
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path.startswith("/api/v1/cards/") and parsed.path.endswith("/price-trends"):
+            card_id = unquote(parsed.path.removeprefix("/api/v1/cards/").removesuffix("/price-trends").rstrip("/"))
+            if not card_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Not found"})
+                return
+
+            query = parse_qs(parsed.query)
+            mode = (query.get("mode", ["raw"])[0] or "raw").strip().lower()
+            if mode not in {"raw", "graded"}:
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "mode must be 'raw' or 'graded'"})
+                return
+            variant = query.get("variant", [""])[0].strip() or None
+            grader = query.get("grader", [""])[0].strip() or None
+
+            try:
+                payload = self.service.card_price_trends(
+                    card_id,
+                    mode=mode,
+                    variant=variant,
+                    grader=grader,
+                )
+            except Exception as error:
+                self._write_json(HTTPStatus.BAD_GATEWAY, {"error": f"Price trends failed: {error}"})
+                return
+
+            if payload is None:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Card not found"})
                 return
 
             self._write_json(HTTPStatus.OK, payload)
