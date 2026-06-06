@@ -27,6 +27,11 @@ export const colors = {
   // hero/selected-row borders and the "LOAD MORE" outline. Brighter than the
   // pale `brand` fill, dimmer than `brandStrong`.
   purple300: '#C47EFF',
+  // Color/purple/500 from Figma — the saturated purple used for the scanner
+  // "Scanning for" sheet's SELECTED radio (ring + inner dot). Brighter/more
+  // saturated than purple300; matches scannerAddPurple but named per the Figma
+  // color ramp so the radio's selected tone reads from a documented token.
+  purple500: '#A54BFA',
   chartLine: '#9B5FE6',
   success: '#2DBB6D',
   info: '#B89A33',

@@ -11,11 +11,16 @@ type RadioDotProps = {
   size?: number;
   /**
    * Surface the dot sits on — affects the unselected fill so it reads on either
-   * surface. Selected is always a white dot with a brand-yellow (1px) ring and a
-   * brand-yellow center dot; unselected is a light filled circle with a gray-300
-   * ring.
+   * surface. Selected is always a white dot with a ring and center dot in
+   * `selectedColor`; unselected is a light filled circle with a gray-300 ring.
    */
   tone?: RadioDotTone;
+  /**
+   * Color of the selected-state ring + inner dot. Defaults to the brand lilac
+   * for backwards compatibility; the scanner "Scanning for" sheet passes
+   * `purple500` to match the Figma radio.
+   */
+  selectedColor?: string;
   style?: StyleProp<ViewStyle>;
   testID?: string;
 };
@@ -24,11 +29,13 @@ export function RadioDot({
   selected,
   size = 16,
   tone = 'light',
+  selectedColor,
   style,
   testID,
 }: RadioDotProps) {
   const theme = useSpotlightTheme();
-  const borderColor = selected ? theme.colors.brand : theme.colors.gray300;
+  const activeColor = selectedColor ?? theme.colors.brand;
+  const borderColor = selected ? activeColor : theme.colors.gray300;
   // Unselected stays a light filled circle: gray-50 reads on the dark scanner
   // sheet; white is the standard radio on light surfaces.
   const fillColor = selected
@@ -62,7 +69,7 @@ export function RadioDot({
             width: innerSize,
             height: innerSize,
             borderRadius: innerSize / 2,
-            backgroundColor: theme.colors.brand,
+            backgroundColor: activeColor,
           }}
         />
       ) : null}

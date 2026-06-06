@@ -48,28 +48,43 @@ describe('useScannerTargetConfig', () => {
     await waitFor(() => expect(result.current.isHydrated).toBe(true));
   });
 
-  it('persists updates and rehydrates them on a fresh mount', async () => {
+  it('persists card-type updates and rehydrates them on a fresh mount', async () => {
     const first = renderHook(() => useScannerTargetConfig());
 
     act(() => {
-      first.result.current.setCondition('graded');
       first.result.current.setCardType('pokemon_jp');
     });
 
-    expect(first.result.current.condition).toBe('graded');
+    // Scanning is always raw now — condition stays pinned to ungraded.
+    expect(first.result.current.condition).toBe('ungraded');
     expect(first.result.current.cardType).toBe('pokemon_jp');
 
     await waitFor(async () => {
       const raw = await AsyncStorage.getItem(SCANNER_TARGET_CONFIG_STORAGE_KEY);
-      expect(raw).toBe(JSON.stringify({ condition: 'graded', cardType: 'pokemon_jp' }));
+      expect(raw).toBe(JSON.stringify({ condition: 'ungraded', cardType: 'pokemon_jp' }));
     });
 
     // Simulate a fresh app launch: reset the in-memory cache but keep storage.
     __resetScannerTargetConfigForTests();
     const second = renderHook(() => useScannerTargetConfig());
     await waitFor(() => {
-      expect(second.result.current.condition).toBe('graded');
+      expect(second.result.current.condition).toBe('ungraded');
       expect(second.result.current.cardType).toBe('pokemon_jp');
+    });
+  });
+
+  it('migrates a previously persisted graded condition to ungraded on hydrate', async () => {
+    // A returning user who had selected Graded before grading moved to the PDP.
+    await AsyncStorage.setItem(
+      SCANNER_TARGET_CONFIG_STORAGE_KEY,
+      JSON.stringify({ condition: 'graded', cardType: 'pokemon_jp' }),
+    );
+    __resetScannerTargetConfigForTests();
+
+    const { result } = renderHook(() => useScannerTargetConfig());
+    await waitFor(() => {
+      expect(result.current.condition).toBe('ungraded');
+      expect(result.current.cardType).toBe('pokemon_jp');
     });
   });
 
@@ -86,13 +101,13 @@ describe('useScannerTargetConfig', () => {
   });
 
   it('maps the config onto backend lane + language + label', () => {
+    // scannerModeForCondition stays exported (slab lane kept dormant), even
+    // though the scanner now only ever feeds it 'ungraded'.
     expect(scannerModeForCondition('graded')).toBe('slabs');
     expect(scannerModeForCondition('ungraded')).toBe('raw');
     expect(cardLanguageForCardType('pokemon_jp')).toBe('japanese');
     expect(cardLanguageForCardType('pokemon_en')).toBe('english');
-    expect(scanTargetPillLabel('pokemon_jp', 'ungraded')).toBe('Pokémon JP');
-    expect(scanTargetPillLabel('pokemon_en', 'ungraded')).toBe('Pokémon EN');
-    expect(scanTargetPillLabel('pokemon_en', 'graded')).toBe('Pokémon EN');
-    expect(scanTargetPillLabel('pokemon_jp', 'graded')).toBe('Pokémon JP');
+    expect(scanTargetPillLabel('pokemon_jp')).toBe('Pokémon JP');
+    expect(scanTargetPillLabel('pokemon_en')).toBe('Pokémon EN');
   });
 });

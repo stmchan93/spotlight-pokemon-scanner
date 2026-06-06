@@ -103,6 +103,8 @@ export type ScannerTargetLanguageMismatch = {
 export type ScannerMatchResult = {
   scanID: string | null;
   candidates: CatalogSearchResult[];
+  /** Total candidates available for this scan on the backend (≤30). Drives "load more". */
+  candidatePoolSize?: number;
   endpointPath?: string;
   resolverMode?: string | null;
   reviewDisposition?: string | null;

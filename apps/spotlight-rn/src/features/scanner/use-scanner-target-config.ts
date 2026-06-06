@@ -13,8 +13,15 @@ export type ScannerTargetConfig = {
   cardType: ScannerCardType;
 };
 
+// Scanning is now always raw/visual: grading moved to the product detail page,
+// so the scanner no longer exposes a Graded/Ungraded toggle. We keep `condition`
+// in the shape (hard-pinned to 'ungraded') and migrate any persisted 'graded'
+// value so returning users aren't stuck in graded. The slab lane + the
+// `scannerModeForCondition` mapping are kept dormant pending the PDP-grading flow.
+const FORCED_CONDITION: ScannerCondition = 'ungraded';
+
 const DEFAULT_CONFIG: ScannerTargetConfig = {
-  condition: 'ungraded',
+  condition: FORCED_CONDITION,
   cardType: 'pokemon_en',
 };
 
@@ -29,7 +36,7 @@ export function cardLanguageForCardType(cardType: ScannerCardType): ScannerCardL
 }
 
 /** Short label rendered in the scanner header pill — language only. */
-export function scanTargetPillLabel(cardType: ScannerCardType, _condition: ScannerCondition): string {
+export function scanTargetPillLabel(cardType: ScannerCardType): string {
   return cardType === 'pokemon_jp' ? 'Pokémon JP' : 'Pokémon EN';
 }
 
@@ -37,10 +44,6 @@ const listeners = new Set<(config: ScannerTargetConfig) => void>();
 let cachedConfig: ScannerTargetConfig = DEFAULT_CONFIG;
 let hasHydratedCache = false;
 let hydrationPromise: Promise<void> | null = null;
-
-function isCondition(value: unknown): value is ScannerCondition {
-  return value === 'graded' || value === 'ungraded';
-}
 
 function isCardType(value: unknown): value is ScannerCardType {
   return value === 'pokemon_en' || value === 'pokemon_jp';
@@ -53,7 +56,8 @@ function parseStoredValue(raw: string | null): ScannerTargetConfig {
   try {
     const parsed = JSON.parse(raw) as Partial<ScannerTargetConfig> | null;
     return {
-      condition: isCondition(parsed?.condition) ? parsed.condition : DEFAULT_CONFIG.condition,
+      // Migrate any persisted 'graded' selection to the forced raw condition.
+      condition: FORCED_CONDITION,
       cardType: isCardType(parsed?.cardType) ? parsed.cardType : DEFAULT_CONFIG.cardType,
     };
   } catch {
@@ -107,7 +111,6 @@ async function persistConfig(config: ScannerTargetConfig): Promise<void> {
 
 export type UseScannerTargetConfigResult = ScannerTargetConfig & {
   isHydrated: boolean;
-  setCondition: (condition: ScannerCondition) => void;
   setCardType: (cardType: ScannerCardType) => void;
 };
 
@@ -143,17 +146,6 @@ export function useScannerTargetConfig(): UseScannerTargetConfigResult {
     };
   }, []);
 
-  const setCondition = useCallback((condition: ScannerCondition) => {
-    if (cachedConfig.condition === condition) {
-      return;
-    }
-    // Mark hydrated so an in-flight read can't overwrite this explicit choice.
-    hasHydratedCache = true;
-    const next = { ...cachedConfig, condition };
-    notifyListeners(next);
-    void persistConfig(next);
-  }, []);
-
   const setCardType = useCallback((cardType: ScannerCardType) => {
     if (cachedConfig.cardType === cardType) {
       return;
@@ -168,7 +160,6 @@ export function useScannerTargetConfig(): UseScannerTargetConfigResult {
     condition: config.condition,
     cardType: config.cardType,
     isHydrated,
-    setCondition,
     setCardType,
   };
 }

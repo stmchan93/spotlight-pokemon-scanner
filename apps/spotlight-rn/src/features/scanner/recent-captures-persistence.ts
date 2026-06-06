@@ -22,6 +22,7 @@ type PersistedCapture = Pick<RecentCapture,
   | 'normalizedImageUri'
   | 'candidates'
   | 'activeCandidateIndex'
+  | 'totalCandidateCount'
   | 'matchReviewDisposition'
   | 'matchReviewReason'
   | 'slabContext'
@@ -159,6 +160,7 @@ function toPersistedCapture(capture: RecentCapture): PersistedCapture {
     normalizedImageUri: capture.normalizedImageUri,
     candidates: capture.candidates,
     activeCandidateIndex: capture.activeCandidateIndex,
+    totalCandidateCount: capture.totalCandidateCount,
     matchReviewDisposition: capture.matchReviewDisposition,
     matchReviewReason: capture.matchReviewReason,
     slabContext: capture.slabContext,
@@ -172,6 +174,9 @@ function toPersistedCapture(capture: RecentCapture): PersistedCapture {
 function fromPersistedCapture(persisted: PersistedCapture): RecentCapture {
   return {
     ...persisted,
+    // Older envelopes predate totalCandidateCount; fall back to what we have.
+    totalCandidateCount: persisted.totalCandidateCount ?? persisted.candidates.length,
+    isLoadingMoreCandidates: false,
     hasTrackedSelectionEvent: false,
     isAddingToInventory: false,
     isLoadingCandidates: false,

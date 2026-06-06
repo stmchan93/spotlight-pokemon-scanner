@@ -95,6 +95,11 @@ export interface SpotlightRepository {
     payload: ScannerCapturePayload,
     options?: ScannerMatchOptions,
   ): Promise<ScannerMatchResult>;
+  fetchScanCandidates(
+    scanId: string,
+    offset: number,
+    limit: number,
+  ): Promise<{ candidates: CatalogSearchResult[]; total: number }>;
   getScannerCandidates(mode: ScannerMode, limit?: number): Promise<CatalogSearchResult[]>;
   submitScanFeedback(payload: ScanFeedbackPayload): Promise<void>;
   createLabelingSession(payload: LabelingSessionCreatePayload): Promise<LabelingSessionRecord>;
@@ -310,6 +315,7 @@ type ScanMatchCandidateDTO = {
 type ScanMatchResponseDTO = {
   scanID?: string | null;
   topCandidates?: ScanMatchCandidateDTO[] | null;
+  candidatePoolSize?: number | null;
   resolverMode?: string | null;
   slabContext?: DeckEntryDTO['slabContext'];
   reviewDisposition?: string | null;
@@ -322,6 +328,11 @@ type ScanMatchResponseDTO = {
   performance?: {
     serverProcessingMs?: number | null;
   } | null;
+};
+
+type ScanCandidatesResponseDTO = {
+  candidates?: ScanMatchCandidateDTO[] | null;
+  total?: number | null;
 };
 
 type ScanArtifactUploadResponseDTO = {
@@ -2331,10 +2342,18 @@ export class MockSpotlightRepository implements SpotlightRepository {
   }
 
   async matchScannerCapture(payload: ScannerCapturePayload, _options?: ScannerMatchOptions) {
+    const candidates = buildScannerCandidates(payload.mode, 10);
     return {
       scanID: createPseudoUUID(),
-      candidates: buildScannerCandidates(payload.mode, 10),
+      candidates,
+      candidatePoolSize: candidates.length,
     } satisfies ScannerMatchResult;
+  }
+
+  async fetchScanCandidates(_scanId: string, offset: number, limit: number) {
+    const all = buildScannerCandidates('raw', 30);
+    const candidates = all.slice(Math.max(0, offset), Math.max(0, offset) + Math.max(0, limit));
+    return { candidates, total: all.length };
   }
 
   async getScannerCandidates(mode: ScannerMode, limit = 10) {
@@ -3374,9 +3393,12 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     // response shape ever changes so the upload keys stay aligned.
     const responseScanID = normalizeString(response.data?.scanID) ?? scanID;
 
+    const candidates = mapScannerMatchCandidates(response.data, this.baseUrl);
+
     return {
       scanID: responseScanID,
-      candidates: mapScannerMatchCandidates(response.data, this.baseUrl),
+      candidates,
+      candidatePoolSize: normalizeNumber(response.data?.candidatePoolSize) ?? candidates.length,
       endpointPath,
       resolverMode: normalizeString(response.data?.resolverMode),
       reviewDisposition: normalizeString(response.data?.reviewDisposition),
@@ -3388,6 +3410,23 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       slabContext: normalizeSlabContext(response.data?.slabContext),
       targetLanguageMismatch: normalizeTargetLanguageMismatch(response.data?.targetLanguageMismatch),
     } satisfies ScannerMatchResult;
+  }
+
+  async fetchScanCandidates(scanId: string, offset: number, limit: number) {
+    const queryParams = new URLSearchParams({
+      offset: String(Math.max(0, Math.trunc(offset))),
+      limit: String(Math.max(1, Math.trunc(limit))),
+    });
+    const response = await this.requestJsonOrThrow<ScanCandidatesResponseDTO>(
+      `${this.baseUrl}/api/v1/scan/${encodeURIComponent(scanId)}/candidates?${queryParams.toString()}`,
+      { method: 'GET' },
+    );
+    const candidates = mapScannerMatchCandidates(
+      { topCandidates: response?.candidates } as ScanMatchResponseDTO,
+      this.baseUrl,
+    );
+    const total = normalizeNumber(response?.total) ?? candidates.length;
+    return { candidates, total };
   }
 
   async getScannerCandidates(mode: ScannerMode, limit = 10) {

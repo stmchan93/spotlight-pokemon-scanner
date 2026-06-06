@@ -205,8 +205,9 @@ Current API concepts:
 File: `src/components/radio-dot.tsx`
 
 Use for single-select option indicators in lists and sheets (e.g. the scanner
-"Scanning for" sheet). Selected = white dot with a brand-yellow ring and
-brand-yellow center; unselected = light filled circle with a gray-300 ring.
+"Scanning for" sheet). Selected = white dot with a colored ring and center (the
+brand lilac by default, or `selectedColor`); unselected = light filled circle
+with a gray-300 ring.
 
 Current API concepts:
 
@@ -215,6 +216,9 @@ Current API concepts:
 - tone (sets the unselected fill so the dot reads on its surface):
   - `light` (white fill for light surfaces)
   - `dark` (gray-50 fill so it reads on the dark scanner sheet)
+- optional `selectedColor` — overrides the selected ring + inner-dot color
+  (defaults to the brand lilac). The scanner "Scanning for" sheet passes
+  `colors.purple500` to match the Figma radio.
 
 ### Toast
 

@@ -5,16 +5,14 @@ import {
   AppText,
   RadioDot,
   SheetSurface,
-  useSpotlightTheme,
+  colors,
 } from '@spotlight/design-system';
 
-import type {
-  ScannerCardType,
-  ScannerCondition,
-} from '@/features/scanner/use-scanner-target-config';
+import type { ScannerCardType } from '@/features/scanner/use-scanner-target-config';
 
 // Trading-card games we intend to support but haven't shipped yet. Rendered as
-// disabled rows with a "Coming Soon" badge per the Figma "Scanning for" sheet.
+// disabled rows with a "Coming Soon" tag per the Figma "Scanning for" sheet
+// (node 1056-1472). Non-interactive — no handler.
 const COMING_SOON_TYPES = [
   'Lorcana',
   'Magic: The Gathering',
@@ -26,24 +24,22 @@ const COMING_SOON_TYPES = [
 
 type ScanningForSheetProps = {
   visible: boolean;
-  condition: ScannerCondition;
   cardType: ScannerCardType;
-  onSelectCondition: (condition: ScannerCondition) => void;
   onSelectCardType: (cardType: ScannerCardType) => void;
   onClose: () => void;
   testID?: string;
 };
 
+// NOTE: The CONDITION (Graded/Ungraded) section was intentionally removed.
+// Scanning is now always raw/visual; grading is chosen later on the product
+// detail page. The slab lane is kept but gated off pending the PDP-grading flow.
 export function ScanningForSheet({
   visible,
-  condition,
   cardType,
-  onSelectCondition,
   onSelectCardType,
   onClose,
   testID = 'scanning-for-sheet',
 }: ScanningForSheetProps) {
-  const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
 
   return (
@@ -70,37 +66,22 @@ export function ScanningForSheet({
           tone="dark"
           style={[styles.sheet, { paddingBottom: Math.max(insets.bottom, 16) }]}
         >
-          <AppText color="gray50" style={styles.title} variant="titleSmall">
-            Scanning for
-          </AppText>
+          <View style={styles.header}>
+            <View style={styles.headerPill}>
+              <AppText color="gray400" variant="labelStrong">
+                SCANNING FOR
+              </AppText>
+            </View>
+          </View>
 
-          <View style={[styles.divider, { backgroundColor: theme.colors.gray800 }]} />
-
-          <Section label="CONDITION">
-            <OptionRow
-              label="Graded"
-              selected={condition === 'graded'}
-              onPress={() => onSelectCondition('graded')}
-              testID={`${testID}-condition-graded`}
-            />
-            <OptionRow
-              label="Ungraded"
-              selected={condition === 'ungraded'}
-              onPress={() => onSelectCondition('ungraded')}
-              testID={`${testID}-condition-ungraded`}
-            />
-          </Section>
-
-          <View style={[styles.divider, { backgroundColor: theme.colors.gray800 }]} />
-
-          <Section label="TYPE">
-            <OptionRow
+          <View style={styles.list}>
+            <LanguageRow
               label="Pokémon EN"
               selected={cardType === 'pokemon_en'}
               onPress={() => onSelectCardType('pokemon_en')}
               testID={`${testID}-type-pokemon-en`}
             />
-            <OptionRow
+            <LanguageRow
               label="Pokémon JP"
               selected={cardType === 'pokemon_jp'}
               onPress={() => onSelectCardType('pokemon_jp')}
@@ -109,25 +90,14 @@ export function ScanningForSheet({
             {COMING_SOON_TYPES.map((name) => (
               <ComingSoonRow key={name} label={name} />
             ))}
-          </Section>
+          </View>
         </SheetSurface>
       </View>
     </Modal>
   );
 }
 
-function Section({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <View style={styles.section}>
-      <AppText color="gray600" style={styles.sectionLabel} variant="overline">
-        {label}
-      </AppText>
-      {children}
-    </View>
-  );
-}
-
-function OptionRow({
+function LanguageRow({
   label,
   selected,
   onPress,
@@ -146,10 +116,10 @@ function OptionRow({
       style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
       testID={testID}
     >
-      <AppText color="gray50" style={styles.rowLabel} variant="body">
+      <AppText color="gray0" style={styles.rowLabel} variant="body">
         {label}
       </AppText>
-      <RadioDot selected={selected} tone="dark" />
+      <RadioDot selected={selected} selectedColor={colors.purple500} />
     </Pressable>
   );
 }
@@ -157,11 +127,11 @@ function OptionRow({
 function ComingSoonRow({ label }: { label: string }) {
   return (
     <View style={styles.row}>
-      <AppText color="gray700" style={styles.rowLabel} variant="body">
+      <AppText color="gray600" style={styles.rowLabel} variant="body">
         {label}
       </AppText>
       <View style={styles.comingSoonTag}>
-        <AppText color="brand" variant="overline">
+        <AppText color="gray400" variant="overline">
           Coming Soon
         </AppText>
       </View>
@@ -172,17 +142,30 @@ function ComingSoonRow({ label }: { label: string }) {
 const styles = StyleSheet.create({
   backdrop: {
     ...StyleSheet.absoluteFillObject,
-    backgroundColor: 'rgba(5, 5, 5, 0.6)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
   },
   comingSoonTag: {
-    backgroundColor: 'rgba(217, 174, 255, 0.1)',
-    borderRadius: 6,
-    paddingHorizontal: 6,
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 999,
+    justifyContent: 'center',
+    paddingHorizontal: 8,
     paddingVertical: 4,
   },
-  divider: {
-    height: StyleSheet.hairlineWidth,
-    marginVertical: 12,
+  header: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  headerPill: {
+    alignItems: 'center',
+    backgroundColor: colors.gray900,
+    borderRadius: 999,
+    justifyContent: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  list: {
+    gap: 16,
   },
   overlay: {
     ...StyleSheet.absoluteFillObject,
@@ -192,8 +175,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     flexDirection: 'row',
     justifyContent: 'space-between',
-    minHeight: 36,
-    paddingVertical: 6,
+    minHeight: 24,
   },
   rowLabel: {
     flex: 1,
@@ -201,16 +183,7 @@ const styles = StyleSheet.create({
   rowPressed: {
     opacity: 0.7,
   },
-  section: {
-    gap: 4,
-  },
-  sectionLabel: {
-    marginBottom: 8,
-  },
   sheet: {
     width: '100%',
-  },
-  title: {
-    marginBottom: 4,
   },
 });

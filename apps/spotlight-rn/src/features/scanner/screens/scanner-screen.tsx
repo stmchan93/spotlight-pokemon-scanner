@@ -227,7 +227,7 @@ export function ScannerScreen({
   const recentCapturesRef = useRef<RecentCapture[]>([]);
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
-  const { cardType, condition, setCardType, setCondition } = useScannerTargetConfig();
+  const { cardType, setCardType } = useScannerTargetConfig();
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
   const [isRawPictureConfigReady, setIsRawPictureConfigReady] = useState(
     isTestEnv || cachedRawVisualPictureSize != null,
@@ -799,6 +799,8 @@ export function ScannerScreen({
           ...capture,
           activeCandidateIndex: 0,
           candidates: matchResult.candidates,
+          totalCandidateCount: matchResult.candidatePoolSize ?? matchResult.candidates.length,
+          isLoadingMoreCandidates: false,
           isLoadingCandidates: false,
           matchReviewDisposition: matchResult.reviewDisposition ?? null,
           matchReviewReason: matchResult.reviewReason ?? null,
@@ -870,6 +872,8 @@ export function ScannerScreen({
       updateRecentCapture(captureId, (capture) => ({
         ...capture,
         candidates: [],
+        totalCandidateCount: 0,
+        isLoadingMoreCandidates: false,
         isLoadingCandidates: false,
         matchReviewDisposition: null,
         matchReviewReason: null,
@@ -914,6 +918,8 @@ export function ScannerScreen({
       {
         activeCandidateIndex: 0,
         candidates: [],
+        totalCandidateCount: 0,
+        isLoadingMoreCandidates: false,
         hasTrackedSelectionEvent: false,
         id: captureId,
         isAddingToInventory: false,
@@ -1068,11 +1074,11 @@ export function ScannerScreen({
         throw new Error('normalized_target_unavailable');
       }
 
-      // The user's "Scanning for" condition is authoritative for the scan lane:
-      // Graded → slab lane, Ungraded → raw lane. Trusting the toggle lets us skip
-      // the slab re-normalize + analyzeSlabCapture work on raw scans and tells the
-      // backend the lane up front instead of re-inferring it.
-      isSlab = condition === 'graded';
+      // Graded scanning moved to the PDP; scanner is raw/visual only (slab lane
+      // kept but gated off). Forcing isSlab=false makes the slab normalize/
+      // analyze/payload branches below dead-but-present until the PDP-grading
+      // flow re-enables a graded path.
+      isSlab = false;
 
       if (process.env.NODE_ENV !== 'test') {
         console.info(
@@ -1267,7 +1273,6 @@ export function ScannerScreen({
     }
   }, [
     cardType,
-    condition,
     isCameraReady,
     isCapturing,
     permission,
@@ -1293,6 +1298,8 @@ export function ScannerScreen({
       {
         activeCandidateIndex: 0,
         candidates: [],
+        totalCandidateCount: 0,
+        isLoadingMoreCandidates: false,
         hasTrackedSelectionEvent: false,
         id: captureId,
         isAddingToInventory: false,
@@ -1394,6 +1401,52 @@ export function ScannerScreen({
       return { ...capture, activeCandidateIndex: safeIndex };
     }));
   }, []);
+
+  const loadMoreCandidates = useCallback(async (captureId: string) => {
+    const capture = recentCaptures.find((entry) => entry.id === captureId);
+    if (!capture || !capture.scanID) {
+      return;
+    }
+    if (capture.isLoadingMoreCandidates) {
+      return;
+    }
+    if (capture.candidates.length >= capture.totalCandidateCount) {
+      return;
+    }
+
+    const scanID = capture.scanID;
+    const offset = capture.candidates.length;
+    updateRecentCapture(captureId, (current) => ({
+      ...current,
+      isLoadingMoreCandidates: true,
+    }));
+
+    try {
+      const result = await spotlightRepository.fetchScanCandidates(scanID, offset, 10);
+      updateRecentCapture(captureId, (current) => {
+        const existingIds = new Set(
+          current.candidates.map((candidate) => candidate.id ?? candidate.cardId),
+        );
+        const appended = result.candidates.filter(
+          (candidate) => !existingIds.has(candidate.id ?? candidate.cardId),
+        );
+        return {
+          ...current,
+          // Preserve the full existing array (alternative-candidate cycling must
+          // keep working on rehydrated rows); only append genuinely-new entries.
+          candidates: [...current.candidates, ...appended],
+          totalCandidateCount: Math.max(current.totalCandidateCount, result.total),
+          isLoadingMoreCandidates: false,
+        };
+      });
+    } catch (error) {
+      logScannerDiagnostic('[SCANNER] loadMoreCandidates failed', error);
+      updateRecentCapture(captureId, (current) => ({
+        ...current,
+        isLoadingMoreCandidates: false,
+      }));
+    }
+  }, [recentCaptures, spotlightRepository, updateRecentCapture]);
 
   const openChangeCardPicker = useCallback((captureId: string) => {
     setActiveChangeCaptureId(captureId);
@@ -2075,7 +2128,7 @@ export function ScannerScreen({
         {isTrayExpanded ? null : (
           <View pointerEvents="box-none" style={[styles.scanTargetPillDock, { bottom: scanTargetPillBottom }]}>
             <ScanTargetPill
-              label={scanTargetPillLabel(cardType, condition)}
+              label={scanTargetPillLabel(cardType)}
               onPress={() => setIsScanTargetSheetOpen(true)}
               testID="scanner-target-pill"
             />
@@ -2226,6 +2279,9 @@ export function ScannerScreen({
             candidates={changeCapture.candidates}
             activeCandidateIndex={changeCapture.activeCandidateIndex}
             capturedImageUri={changeCapture.normalizedImageUri ?? changeCapture.uri}
+            totalCount={changeCapture.totalCandidateCount}
+            isLoadingMore={changeCapture.isLoadingMoreCandidates}
+            onLoadMoreCandidates={() => loadMoreCandidates(changeCapture.id)}
             onSelectCandidate={(index) => setActiveCandidate(changeCapture.id, index)}
             onClose={closeChangeCardPicker}
           />
@@ -2234,9 +2290,7 @@ export function ScannerScreen({
 
       <ScanningForSheet
         visible={isScanTargetSheetOpen}
-        condition={condition}
         cardType={cardType}
-        onSelectCondition={setCondition}
         onSelectCardType={setCardType}
         onClose={() => setIsScanTargetSheetOpen(false)}
       />

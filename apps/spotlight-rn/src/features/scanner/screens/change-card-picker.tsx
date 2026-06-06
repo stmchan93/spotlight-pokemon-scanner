@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   Animated,
   BackHandler,
   Dimensions,
@@ -30,6 +31,16 @@ type ChangeCardPickerProps = {
   activeCandidateIndex: number;
   /** Local URI of the photo the user captured for this scan, shown beside the match. */
   capturedImageUri?: string | null;
+  /**
+   * Total candidates available for this scan on the backend (may exceed
+   * `candidates.length` when more pages can still be fetched). Drives the header
+   * "N SIMILAR" count and whether "load more" should fetch from the server.
+   */
+  totalCount?: number;
+  /** True while a "load more candidates" page request is in flight. */
+  isLoadingMore?: boolean;
+  /** Fetch the next page of candidates from the backend and append them. */
+  onLoadMoreCandidates?: () => void;
   onClose: () => void;
   onSelectCandidate: (candidateIndex: number) => void;
   testID?: string;
@@ -47,6 +58,9 @@ export function ChangeCardPicker({
   candidates,
   activeCandidateIndex,
   capturedImageUri,
+  totalCount,
+  isLoadingMore = false,
+  onLoadMoreCandidates,
   onClose,
   onSelectCandidate,
   testID = 'change-card-picker',
@@ -119,7 +133,22 @@ export function ChangeCardPicker({
     return candidates.slice(0, Math.min(visibleCount, candidates.length));
   }, [candidates, visibleCount]);
 
-  const canLoadMore = visibleCount < candidates.length;
+  const resolvedTotal = totalCount ?? candidates.length;
+  // More rows are already loaded locally than we're currently showing.
+  const hasMoreLocal = visibleCount < candidates.length;
+  // The backend still has candidates we haven't fetched into `candidates` yet.
+  const hasMoreRemote = candidates.length < resolvedTotal;
+  const canLoadMore = hasMoreLocal || hasMoreRemote;
+
+  // When a remote page lands, `candidates` grows; reveal the freshly appended
+  // rows so the user sees the result of their "load more" tap.
+  const prevCandidateCountRef = useRef(candidates.length);
+  useEffect(() => {
+    if (candidates.length > prevCandidateCountRef.current) {
+      setVisibleCount((current) => Math.min(current + LOAD_MORE_STEP, candidates.length));
+    }
+    prevCandidateCountRef.current = candidates.length;
+  }, [candidates.length]);
 
   const handleSelect = (index: number) => {
     setPendingSelection(index);
@@ -127,7 +156,16 @@ export function ChangeCardPicker({
   };
 
   const handleLoadMore = () => {
-    setVisibleCount((current) => Math.min(current + LOAD_MORE_STEP, candidates.length));
+    if (isLoadingMore) {
+      return;
+    }
+    if (hasMoreLocal) {
+      setVisibleCount((current) => Math.min(current + LOAD_MORE_STEP, candidates.length));
+      return;
+    }
+    if (hasMoreRemote) {
+      onLoadMoreCandidates?.();
+    }
   };
 
   // Rendered as an in-tree overlay (not a Modal): an RN Modal presents in a
@@ -210,7 +248,7 @@ export function ChangeCardPicker({
                   <Text style={styles.infoPillText}>SWITCH</Text>
                 </View>
                 <View style={styles.infoPill}>
-                  <Text style={styles.infoPillText}>{`${candidates.length} SIMILAR`}</Text>
+                  <Text style={styles.infoPillText}>{`${resolvedTotal} SIMILAR`}</Text>
                 </View>
               </View>
             </View>
@@ -315,15 +353,26 @@ export function ChangeCardPicker({
               {canLoadMore ? (
                 <Pressable
                   accessibilityRole="button"
+                  accessibilityState={{ disabled: isLoadingMore, busy: isLoadingMore }}
+                  disabled={isLoadingMore}
                   hitSlop={6}
                   onPress={handleLoadMore}
                   style={({ pressed }) => [
                     styles.loadMoreButton,
-                    pressed ? styles.loadMorePressed : null,
+                    pressed && !isLoadingMore ? styles.loadMorePressed : null,
+                    isLoadingMore ? styles.loadMoreLoading : null,
                   ]}
                   testID={`${testID}-load-more`}
                 >
-                  <Text style={styles.loadMoreLabel}>LOAD MORE</Text>
+                  {isLoadingMore ? (
+                    <ActivityIndicator
+                      color={colors.purple300}
+                      size="small"
+                      testID={`${testID}-load-more-spinner`}
+                    />
+                  ) : (
+                    <Text style={styles.loadMoreLabel}>LOAD MORE</Text>
+                  )}
                 </Pressable>
               ) : null}
             </ScrollView>
@@ -508,6 +557,9 @@ const styles = StyleSheet.create({
   },
   loadMorePressed: {
     opacity: 0.7,
+  },
+  loadMoreLoading: {
+    opacity: 0.6,
   },
   loadMoreLabel: {
     color: colors.purple300,

@@ -31,6 +31,10 @@ export type RecentCapture = {
   sourceImageRotationDegrees: number;
   uri: string;
   activeCandidateIndex: number;
+  /** Total candidates available for this scan on the backend; drives "load more". */
+  totalCandidateCount: number;
+  /** True while a "load more candidates" page request is in flight. */
+  isLoadingMoreCandidates: boolean;
 };
 
 export type CaptureMatchParams = {

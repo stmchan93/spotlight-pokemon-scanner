@@ -98,6 +98,8 @@ function makeCapture(overrides: Partial<RecentCapture> = {}): RecentCapture {
   return {
     activeCandidateIndex: 0,
     candidates: [],
+    totalCandidateCount: 0,
+    isLoadingMoreCandidates: false,
     hasTrackedSelectionEvent: false,
     id: 'cap-1',
     isAddingToInventory: false,

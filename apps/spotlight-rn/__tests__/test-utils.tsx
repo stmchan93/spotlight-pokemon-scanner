@@ -72,6 +72,10 @@ export function createTestSpotlightRepository(
       return overrides.matchScannerCapture?.(...args)
         ?? baseRepository.matchScannerCapture(...args);
     },
+    fetchScanCandidates: (...args) => {
+      return overrides.fetchScanCandidates?.(...args)
+        ?? baseRepository.fetchScanCandidates(...args);
+    },
     getScannerCandidates: (...args) => {
       return overrides.getScannerCandidates?.(...args)
         ?? baseRepository.getScannerCandidates(...args);

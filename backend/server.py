@@ -165,6 +165,13 @@ _REVIEW_QUEUE_ID_PATTERN = re.compile(r"[^A-Za-z0-9_-]")
 CARD_SHOW_MODE_SETTING_KEY = "card_show_mode"
 LIVE_PRICING_SETTING_KEY = "live_pricing"
 
+# Size of the persisted scan candidate pool. The live scan response still hydrates
+# exactly the top 10 candidates (with pricing); the remainder of the pool is stored
+# as LIGHTWEIGHT rows (no per-candidate DB lookup, no pricing) so that the "load
+# more candidates" endpoint can hydrate them cheaply, on demand, without adding any
+# latency to the live scan path.
+SCAN_CANDIDATE_POOL_SIZE = int(os.environ.get("SPOTLIGHT_SCAN_CANDIDATE_POOL_SIZE", "30"))
+
 RECENT_SALES_DEFAULT_LIMIT = 5
 RECENT_SALES_MAX_LIMIT = 25
 RECENT_SALES_FRESHNESS_HOURS = 24
@@ -1158,7 +1165,7 @@ class SpotlightScanService:
         api_key: str | None = None,
         is_provisional: bool = False,
         finalize_response: bool = True,
-    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]]:
         self._prime_card_lookup_cache(
             [
                 entry.get("providerCardId")
@@ -1195,6 +1202,37 @@ class SpotlightScanService:
             api_key=api_key,
         )
 
+        # Build the persisted candidate pool. The first 10 are the fully hydrated
+        # encoded candidates (with pricing) that already power the response above;
+        # they are reused verbatim so we never re-hydrate them. The remainder
+        # (ranks 11..SCAN_CANDIDATE_POOL_SIZE) are LIGHTWEIGHT rows built purely
+        # from the visual-match summaries: no per-candidate DB lookup, no pricing,
+        # so they add no latency to the live scan path. The "load more candidates"
+        # endpoint hydrates pricing for these rows on demand.
+        storage_candidates: list[dict[str, Any]] = list(encoded_candidates)
+        for offset, summary in enumerate(ranked_matches[10:SCAN_CANDIDATE_POOL_SIZE]):
+            similarity = float(summary.get("similarity") or 0.0)
+            storage_candidates.append(
+                {
+                    "rank": 10 + offset + 1,
+                    "candidate": {
+                        "id": str(summary.get("providerCardId") or ""),
+                        "name": str(summary.get("name") or ""),
+                        "setName": str(summary.get("setName") or ""),
+                        "number": str(summary.get("collectorNumber") or ""),
+                        "rarity": "Unknown",
+                        "variant": "Raw",
+                        "language": str(summary.get("language") or "Unknown"),
+                        "imageSmallURL": summary.get("imageUrl"),
+                        "imageLargeURL": summary.get("imageUrl"),
+                    },
+                    "imageScore": round(similarity, 4),
+                    "collectorNumberScore": 0.0,
+                    "nameScore": 0.0,
+                    "finalScore": round(similarity, 4),
+                }
+            )
+
         response = {
             "scanID": payload["scanID"],
             "topCandidates": encoded_candidates,
@@ -1219,6 +1257,7 @@ class SpotlightScanService:
             },
             "isProvisional": is_provisional,
             "matchingStage": "visual" if is_provisional else "final",
+            "candidatePoolSize": len(storage_candidates),
         }
         self._record_backend_timing(
             response,
@@ -1230,8 +1269,13 @@ class SpotlightScanService:
             **self._visual_matcher_timing_fields(debug),
         )
         if finalize_response:
-            self._finalize_scan_response(payload, response, scored_candidates)
-        return response, scored_candidates, ranked_matches
+            self._finalize_scan_response(
+                payload,
+                response,
+                scored_candidates,
+                prediction_candidates=storage_candidates,
+            )
+        return response, scored_candidates, ranked_matches, storage_candidates
 
     def _prewarm_raw_visual_runtime(self, *, run_inference: bool = True) -> dict[str, Any]:
         started_at = perf_counter()
@@ -5820,13 +5864,20 @@ class SpotlightScanService:
         request_payload: dict[str, Any],
         response_payload: dict[str, Any],
         top_candidates: list[dict[str, Any]],
+        *,
+        prediction_candidates: list[dict[str, Any]] | None = None,
     ) -> None:
         structured_log_started_at = perf_counter()
         self._emit_structured_log(self._scan_log_payload(request_payload, response_payload, top_candidates))
         structured_log_ms = (perf_counter() - structured_log_started_at) * 1000.0
 
         scan_log_started_at = perf_counter()
-        self._log_scan(request_payload, response_payload, top_candidates)
+        self._log_scan(
+            request_payload,
+            response_payload,
+            top_candidates,
+            prediction_candidates=prediction_candidates,
+        )
         scan_log_ms = (perf_counter() - scan_log_started_at) * 1000.0
 
         self._record_backend_timing(
@@ -7837,7 +7888,9 @@ class SpotlightScanService:
         api_key: str | None = None,
     ) -> dict[str, Any]:
         try:
-            matches, debug, visual_match_ms = self._run_raw_visual_phase(payload, requested_top_k=10)
+            matches, debug, visual_match_ms = self._run_raw_visual_phase(
+                payload, requested_top_k=SCAN_CANDIDATE_POOL_SIZE
+            )
         except Exception as exc:
             response = self._unsupported_match_response(
                 payload,
@@ -7850,7 +7903,7 @@ class SpotlightScanService:
             response["matcherSource"] = "visualIndex"
             self._finalize_scan_response(payload, response, [])
             return response
-        response, scored_candidates, _ = self._build_raw_visual_only_response(
+        response, scored_candidates, _, _ = self._build_raw_visual_only_response(
             payload,
             matches=matches,
             debug=debug,
@@ -8110,7 +8163,9 @@ class SpotlightScanService:
         match_started = perf_counter()
         pre_visual_setup_ms = (match_started - handler_started_at) * 1000.0
         try:
-            matches, debug, visual_match_ms = self._run_raw_visual_phase(payload, requested_top_k=10)
+            matches, debug, visual_match_ms = self._run_raw_visual_phase(
+                payload, requested_top_k=SCAN_CANDIDATE_POOL_SIZE
+            )
         except Exception as exc:
             response = self._unsupported_match_response(
                 payload,
@@ -8133,7 +8188,7 @@ class SpotlightScanService:
             return response
 
         build_response_started_at = perf_counter()
-        response, scored_candidates, _ = self._build_raw_visual_only_response(
+        response, scored_candidates, _, storage_candidates = self._build_raw_visual_only_response(
             payload,
             matches=matches,
             debug=debug,
@@ -8148,11 +8203,16 @@ class SpotlightScanService:
             scan_id=scan_id,
             visual_matches=matches,
             visual_debug=debug,
-            requested_top_k=10,
+            requested_top_k=SCAN_CANDIDATE_POOL_SIZE,
             visual_match_ms=visual_match_ms,
         )
         store_pending_ms = (perf_counter() - store_pending_started_at) * 1000.0
-        self._finalize_scan_response(payload, response, scored_candidates)
+        self._finalize_scan_response(
+            payload,
+            response,
+            scored_candidates,
+            prediction_candidates=storage_candidates,
+        )
         print(
             "[SCAN CACHE] Visual phase ready for rerank: "
             f"scanID={scan_id} "
@@ -10226,6 +10286,88 @@ class SpotlightScanService:
             )
         return candidates
 
+    def _assert_scan_owned_by_caller(self, scan_id: str) -> None:
+        """Raise FileNotFoundError unless the scan belongs to the calling identity.
+
+        Mirrors the existing scan-scoped owner check
+        (``SELECT 1 FROM scan_events WHERE scan_id = ? AND owner_user_id = ?``).
+        Missing scans and cross-owner reads both surface as a 404 so we never
+        confirm the existence of another user's scan.
+        """
+        normalized_scan_id = str(scan_id or "").strip()
+        if not normalized_scan_id:
+            raise FileNotFoundError("Scan not found.")
+        owner_user_id = self._current_owner_user_id()
+        row = self.connection.execute(
+            "SELECT 1 FROM scan_events WHERE scan_id = ? AND owner_user_id = ? LIMIT 1",
+            (normalized_scan_id, owner_user_id),
+        ).fetchone()
+        if row is None:
+            raise FileNotFoundError("Scan not found.")
+
+    def scan_candidates_window(
+        self,
+        scan_id: str,
+        *,
+        offset: int = 0,
+        limit: int = SCAN_CANDIDATE_POOL_SIZE,
+    ) -> dict[str, Any]:
+        """Return a window of the persisted scan candidate pool.
+
+        Used by the "load more candidates" endpoint. The live scan response already
+        carries the hydrated top 10; this reads further into the persisted pool and
+        hydrates pricing ON DEMAND using cached-only SQLite pricing (no Scrydex/live
+        refresh), so paging never triggers a provider call.
+        """
+        self._assert_scan_owned_by_caller(scan_id)
+        normalized_scan_id = str(scan_id or "").strip()
+        clamped_limit = max(1, min(int(limit), SCAN_CANDIDATE_POOL_SIZE))
+        clamped_offset = max(0, int(offset))
+
+        total_row = self.connection.execute(
+            "SELECT COUNT(*) AS total FROM scan_prediction_candidates WHERE scan_id = ?",
+            (normalized_scan_id,),
+        ).fetchone()
+        total = int((total_row["total"] if total_row is not None else 0) or 0)
+
+        rows = self.connection.execute(
+            """
+            SELECT rank, card_id, candidate_json
+            FROM scan_prediction_candidates
+            WHERE scan_id = ?
+            ORDER BY rank ASC
+            LIMIT ? OFFSET ?
+            """,
+            (normalized_scan_id, clamped_limit, clamped_offset),
+        ).fetchall()
+
+        pricing_context = self._raw_pricing_context()
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            candidate_json = row["candidate_json"]
+            try:
+                encoded = json.loads(candidate_json) if candidate_json else {}
+            except (TypeError, ValueError, json.JSONDecodeError):
+                encoded = {}
+            if not isinstance(encoded, dict):
+                continue
+            candidate_payload = encoded.get("candidate")
+            if not isinstance(candidate_payload, dict):
+                candidate_payload = {}
+                encoded["candidate"] = candidate_payload
+            card_id = str(row["card_id"] or candidate_payload.get("id") or "").strip()
+            # Enrich pricing only on demand (Load More), cached-only — never live.
+            if card_id and not candidate_payload.get("pricing"):
+                pricing = self._display_pricing_summary_for_context(
+                    card_id,
+                    pricing_context=pricing_context,
+                )
+                if pricing is not None:
+                    candidate_payload["pricing"] = pricing
+            candidates.append(encoded)
+
+        return {"candidates": candidates, "total": total}
+
     def _build_scan_artifacts_document(
         self,
         *,
@@ -12009,7 +12151,14 @@ class SpotlightScanService:
             }
         return summary
 
-    def _log_scan(self, request_payload: dict[str, Any], response_payload: dict[str, Any], top_candidates: list[dict[str, Any]]) -> None:
+    def _log_scan(
+        self,
+        request_payload: dict[str, Any],
+        response_payload: dict[str, Any],
+        top_candidates: list[dict[str, Any]],
+        *,
+        prediction_candidates: list[dict[str, Any]] | None = None,
+    ) -> None:
         scan_id = request_payload["scanID"]
         now = utc_now()
         owner_user_id = self._current_owner_user_id()
@@ -12033,7 +12182,16 @@ class SpotlightScanService:
             resolver_path=response_payload.get("resolverPath"),
             completed_at=now,
         )
-        replace_scan_prediction_candidates(self.connection, scan_id=scan_id, candidates=top_candidates[:10])
+        # Persist the full lightweight candidate pool (up to SCAN_CANDIDATE_POOL_SIZE)
+        # so "load more candidates" can page beyond the hydrated top 10. Price
+        # observations stay on the hydrated top-10 candidates only: pool entries
+        # beyond rank 10 are lightweight and carry no pricing.
+        prediction_pool = prediction_candidates if prediction_candidates is not None else top_candidates
+        replace_scan_prediction_candidates(
+            self.connection,
+            scan_id=scan_id,
+            candidates=prediction_pool[:SCAN_CANDIDATE_POOL_SIZE],
+        )
         replace_scan_price_observations(self.connection, scan_id=scan_id, candidates=top_candidates[:10], observed_at=now)
         self.connection.commit()
 
@@ -12207,6 +12365,47 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Scan image not found"})
                 return
             self._write_image(HTTPStatus.OK, image_bytes)
+            return
+
+        if (
+            parsed.path.startswith("/api/v1/scan/")
+            and parsed.path.endswith("/candidates")
+        ):
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            scan_id = unquote(
+                parsed.path.removeprefix("/api/v1/scan/").removesuffix("/candidates").strip("/")
+            )
+            if not scan_id:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Scan not found"})
+                return
+            try:
+                offset = int(query.get("offset", ["0"])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "offset must be an integer"})
+                return
+            try:
+                limit = int(query.get("limit", [str(SCAN_CANDIDATE_POOL_SIZE)])[0])
+            except (TypeError, ValueError):
+                self._write_json(HTTPStatus.BAD_REQUEST, {"error": "limit must be an integer"})
+                return
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.scan_candidates_window(
+                        scan_id, offset=offset, limit=limit
+                    )
+            except FileNotFoundError:
+                self._write_json(HTTPStatus.NOT_FOUND, {"error": "Scan not found"})
+                return
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Scan candidates load failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, payload)
             return
 
         if parsed.path == "/api/v1/health":
