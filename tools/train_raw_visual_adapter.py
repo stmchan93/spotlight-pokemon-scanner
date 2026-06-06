@@ -5,6 +5,7 @@ import argparse
 import copy
 import io
 import json
+import math
 import random
 import sys
 from dataclasses import dataclass
@@ -305,6 +306,17 @@ class ScanAugmentationConfig:
     jpeg_quality_min: int = 70
     jpeg_quality_max: int = 95
     apply_probability: float = 1.0
+    # Photometric lighting-robustness levers (OFF by default to preserve current behaviour).
+    # Exposure/gamma: 1.0/1.0 == identity LUT == no-op. g<1 brightens (under-exposure recovery),
+    # g>1 darkens (over-exposure simulation).
+    gamma_min: float = 1.0
+    gamma_max: float = 1.0
+    # Synthetic specular glare (foil bloom). probability 0.0 == never applied == no-op.
+    glare_probability: float = 0.0
+    glare_min_intensity: float = 0.25
+    glare_max_intensity: float = 0.7
+    glare_min_radius_frac: float = 0.08
+    glare_max_radius_frac: float = 0.35
 
 
 class RawVisualScanAugmentor:
@@ -342,6 +354,65 @@ class RawVisualScanAugmentor:
                 hsv[..., 0] = (hsv[..., 0] + shift) % 256
                 image = Image.fromarray(hsv.astype(np.uint8), "HSV").convert("RGB")
         return image
+
+    def _apply_exposure_gamma(self, image: Image.Image) -> Image.Image:
+        """Simulate under/over-exposure via a per-image gamma LUT.
+
+        No-op when gamma_min == gamma_max == 1.0 (identity). g<1 brightens, g>1 darkens.
+        """
+        cfg = self.config
+        if not (cfg.gamma_min < 1.0 or cfg.gamma_max > 1.0):
+            return image
+        g = self._rng.uniform(cfg.gamma_min, cfg.gamma_max)
+        if abs(g - 1.0) < 1e-6:
+            return image
+        lut = ((np.linspace(0.0, 1.0, 256) ** g) * 255.0).clip(0, 255).astype(np.uint8)
+        # PIL point() applies the 256-entry LUT per-channel across R/G/B.
+        return image.point(lut.tolist() * len(image.getbands()))
+
+    def _apply_synthetic_glare(self, image: Image.Image) -> Image.Image:
+        """Add a soft, streaky specular bloom (foil glare) with prob glare_probability.
+
+        No-op when glare_probability == 0.0. The bloom is a Gaussian-falloff bright spot,
+        slightly elongated along a random angle so it reads as a foil streak rather than a
+        uniform white disc. Added (not alpha-blended) and clipped to 255.
+        """
+        cfg = self.config
+        if cfg.glare_probability <= 0.0:
+            return image
+        if self._rng.random() > cfg.glare_probability:
+            return image
+
+        arr = np.asarray(image, dtype=np.float32)
+        height, width = arr.shape[0], arr.shape[1]
+        short_side = float(min(height, width))
+
+        intensity = self._rng.uniform(cfg.glare_min_intensity, cfg.glare_max_intensity) * 255.0
+        radius = self._rng.uniform(cfg.glare_min_radius_frac, cfg.glare_max_radius_frac) * short_side
+        radius = max(radius, 1.0)
+        center_x = self._rng.uniform(0.0, float(width - 1))
+        center_y = self._rng.uniform(0.0, float(height - 1))
+        angle = self._rng.uniform(0.0, math.pi)
+        # Elongation: stretch ~2.5x along the streak axis, compress across it.
+        elongation = self._rng.uniform(2.0, 3.0)
+
+        yy, xx = np.mgrid[0:height, 0:width].astype(np.float32)
+        dx = xx - center_x
+        dy = yy - center_y
+        cos_a = math.cos(angle)
+        sin_a = math.sin(angle)
+        # Rotate into the streak's local frame.
+        u = dx * cos_a + dy * sin_a   # along-streak axis
+        v = -dx * sin_a + dy * cos_a  # across-streak axis
+        sigma_along = radius * elongation
+        sigma_across = radius / elongation
+        falloff = np.exp(
+            -0.5 * ((u / sigma_along) ** 2 + (v / sigma_across) ** 2)
+        ).astype(np.float32)
+
+        bloom = (falloff * intensity)[..., None]
+        out = np.clip(arr + bloom, 0.0, 255.0).astype(np.uint8)
+        return Image.fromarray(out, "RGB")
 
     def _apply_affine(self, image: Image.Image) -> Image.Image:
         cfg = self.config
@@ -381,6 +452,8 @@ class RawVisualScanAugmentor:
             return image
         out = image.convert("RGB") if image.mode != "RGB" else image.copy()
         out = self._apply_color_jitter(out)
+        out = self._apply_exposure_gamma(out)
+        out = self._apply_synthetic_glare(out)
         out = self._apply_affine(out)
         out = self._apply_jpeg_jitter(out)
         return out
@@ -938,6 +1011,54 @@ def parse_args() -> argparse.Namespace:
         help="Maximum JPEG re-encode quality used for augmentation.",
     )
     parser.add_argument(
+        "--augmentation-gamma-min",
+        type=float,
+        default=1.0,
+        help=(
+            "Exposure/gamma LUT lower bound. 1.0/1.0 == identity == OFF (preserves baseline). "
+            "g<1 brightens (under-exposure recovery)."
+        ),
+    )
+    parser.add_argument(
+        "--augmentation-gamma-max",
+        type=float,
+        default=1.0,
+        help=(
+            "Exposure/gamma LUT upper bound. 1.0/1.0 == identity == OFF (preserves baseline). "
+            "g>1 darkens (over-exposure simulation)."
+        ),
+    )
+    parser.add_argument(
+        "--augmentation-glare-probability",
+        type=float,
+        default=0.0,
+        help="Probability of adding a synthetic specular foil bloom per image. 0.0 == OFF (no-op).",
+    )
+    parser.add_argument(
+        "--augmentation-glare-min-intensity",
+        type=float,
+        default=0.25,
+        help="Synthetic glare minimum peak intensity (fraction of 255 added at the bloom center).",
+    )
+    parser.add_argument(
+        "--augmentation-glare-max-intensity",
+        type=float,
+        default=0.7,
+        help="Synthetic glare maximum peak intensity (fraction of 255 added at the bloom center).",
+    )
+    parser.add_argument(
+        "--augmentation-glare-min-radius-frac",
+        type=float,
+        default=0.08,
+        help="Synthetic glare minimum radius as a fraction of the image short side.",
+    )
+    parser.add_argument(
+        "--augmentation-glare-max-radius-frac",
+        type=float,
+        default=0.35,
+        help="Synthetic glare maximum radius as a fraction of the image short side.",
+    )
+    parser.add_argument(
         "--validation-gallery",
         choices=["train_only", "full_index"],
         default="full_index",
@@ -1055,6 +1176,13 @@ def main() -> None:
                 translation_fraction=args.augmentation_translation_fraction,
                 jpeg_quality_min=args.augmentation_jpeg_quality_min,
                 jpeg_quality_max=args.augmentation_jpeg_quality_max,
+                gamma_min=args.augmentation_gamma_min,
+                gamma_max=args.augmentation_gamma_max,
+                glare_probability=args.augmentation_glare_probability,
+                glare_min_intensity=args.augmentation_glare_min_intensity,
+                glare_max_intensity=args.augmentation_glare_max_intensity,
+                glare_min_radius_frac=args.augmentation_glare_min_radius_frac,
+                glare_max_radius_frac=args.augmentation_glare_max_radius_frac,
             ),
             seed=args.seed,
         )
