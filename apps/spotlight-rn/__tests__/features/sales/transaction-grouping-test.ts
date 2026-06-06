@@ -87,11 +87,13 @@ describe('groupTransactionsByDay', () => {
 
 describe('listTransactionYears', () => {
   it('returns unique years in descending order', () => {
+    // Local-time fixtures (no trailing Z) so year extraction is
+    // timezone-independent under CI — matches the groupTransactionsByDay tests.
     const years = listTransactionYears([
-      makeRecord({ id: 'a', occurredAt: '2026-05-24T00:00:00.000Z' }),
-      makeRecord({ id: 'b', occurredAt: '2024-01-01T00:00:00.000Z' }),
-      makeRecord({ id: 'c', occurredAt: '2026-01-01T00:00:00.000Z' }),
-      makeRecord({ id: 'd', occurredAt: '2025-12-31T00:00:00.000Z' }),
+      makeRecord({ id: 'a', occurredAt: '2026-05-24T00:00:00' }),
+      makeRecord({ id: 'b', occurredAt: '2024-01-01T00:00:00' }),
+      makeRecord({ id: 'c', occurredAt: '2026-01-01T00:00:00' }),
+      makeRecord({ id: 'd', occurredAt: '2025-12-31T00:00:00' }),
     ]);
 
     expect(years).toEqual([2026, 2025, 2024]);
