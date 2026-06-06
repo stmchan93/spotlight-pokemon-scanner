@@ -145,11 +145,11 @@ const rawCollectorNumberOcrEnabled = resolveRuntimeBoolean(
 );
 const captureRowHeight = 102;
 // A little breathing room between scan rows in the tray (Figma scan-tray spacing).
-const captureRowGap = 20;
+const captureRowGap = 24;
 const recentlyAddedDurationMs = 10000;
 // Vertical space reserved for the "CLEAR ALL" footer appended below the scan
 // rows in the expanded tray, so the section stays reachable by scroll.
-const trayClearSectionHeight = 80;
+const trayClearSectionHeight = 104;
 const traySwipeThreshold = 20;
 const trayVelocityThreshold = 0.22;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
@@ -2431,8 +2431,8 @@ const styles = StyleSheet.create({
   },
   trayClearSection: {
     alignItems: 'center',
-    paddingTop: 20,
-    paddingBottom: 8,
+    height: trayClearSectionHeight,
+    justifyContent: 'center',
   },
   trayClearAllPill: {
     alignSelf: 'center',
@@ -2440,16 +2440,15 @@ const styles = StyleSheet.create({
     borderColor: colors.dangerStrong,
     borderRadius: radii.pill,
     borderWidth: 1,
-    paddingHorizontal: 20,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 5,
   },
   trayClearAllPillPressed: {
     opacity: 0.6,
   },
   trayClearAllLabel: {
-    ...textStyles.control,
+    ...textStyles.label,
     color: colors.dangerStrong,
-    letterSpacing: 0.5,
   },
   safeArea: {
     backgroundColor: colors.scannerCanvas,

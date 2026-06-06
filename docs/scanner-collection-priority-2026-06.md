@@ -1,0 +1,363 @@
+# Scanner Collection Priority — main expansions × your scans (June 2026)
+
+Built from 1,000 of your confirmed-labeled scans run through the CURRENT model, joined to every
+main expansion (≥60 cards). 🔴 = you scan it & top‑1 is weak (fix top‑1). 🔵 = little/no scan
+coverage (fix width). 🟡 = middling. 🟢 = fine. Grab ~5 per set (mix of rarities); JP = high value.
+
+## 🔴 TOP‑1 priority — sets you scan a lot but the model misses (collect DEEP)
+
+- **ホワイトフレア** (sv11w_ja, JA) — scanned 33, top1 33%, 11 miss
+- **テラスタルフェスex** (sv8a_ja, JA) — scanned 26, top1 26%, 10 miss
+- **White Flare** (rsv10pt5, EN) — scanned 50, top1 52%, 9 miss
+- **Prismatic Evolutions** (sv8pt5, EN) — scanned 67, top1 61%, 7 miss
+- **Ascended Heroes** (me2pt5, EN) — scanned 51, top1 64%, 5 miss
+- **151** (sv3pt5, EN) — scanned 22, top1 63%, 4 miss
+- **Mega Evolution** (me1, EN) — scanned 12, top1 33%, 3 miss
+- **VMAXクライマックス** (swsh8b_ja, JA) — scanned 8, top1 50%, 3 miss
+- **未来の一閃** (sv4m_ja, JA) — scanned 9, top1 55%, 2 miss
+- **Scarlet & Violet Black Star Promos** (svp, EN) — scanned 10, top1 60%, 2 miss
+- **Paldea Evolved** (sv2, EN) — scanned 9, top1 33%, 1 miss
+- **黒炎の支配者** (sv3_ja, JA) — scanned 8, top1 37%, 1 miss
+- **Twilight Masquerade** (sv6, EN) — scanned 18, top1 61%, 1 miss
+- **Obsidian Flames** (sv3, EN) — scanned 9, top1 55%, 0 miss
+
+## 🔵 WIDTH priority — major sets you barely scan (collect a FEW for coverage)
+
+- **Newest (2025–26):** Mega Shine (EN), Paldean Wonders (EN), Fantastical Parade (EN), Crimson Blaze (EN), Mega Rising (EN), Deluxe Pack ex (EN), Secluded Springs (EN), Wisdom of Sea and Sky (EN), Eevee Grove (EN), Extradimensional Crisis (EN), Celestial Guardians (EN), Shining Revelry (EN), Triumphant Light (EN), Space-Time Smackdown (EN)
+- **2024:** Mythical Island (EN), Genetic Apex (EN), Promo-A (EN), Shrouded Fable (EN), 変幻の仮面 (JA), ワイルドフォース (JA), サイバージャッジ (JA)
+- **2023:** レイジングサーフ (JA), クレイバースト (JA), スノーハザード (JA), スカーレットex (JA), Crown Zenith (EN)
+- **Sword & Shield (2020–22):** パラダイムトリガー (JA), 白熱のアルカナ (JA), ロストアビス (JA), Pokémon GO (EN), Pokémon GO (JA), Astral Radiance (EN), ダークファンタズマ (JA), スペースジャグラ (JA), バトルリージョン (JA), スターバース (JA), Fusion Strike (EN), フュージョンアーツ (JA), Evolving Skies (EN), 摩天パーフェクト (JA) …+23 more
+- **Sun & Moon (2017–19):** シールド (JA), ソード (JA), Sword & Shield Promos (JA), オルタージェネシス (JA), Hidden Fates (EN), Hidden Fates Shiny Vault (EN), Unified Minds (EN), ミラクルツイン (JA), Unbroken Bonds (EN), スカイレジェンド (JA), ジージーエンド (JA), ダブルブレイズ (JA), Team Up (EN), フルメタルウォール (JA) …+30 more
+- **XY (2014–16):** コレクション ムーン (JA), コレクション サン (JA), 拡張パック 20th Anniversary (JA), Steam Siege (EN), プレミアムチャンピオンパック (JA), めざめる超王 (JA), BREAKpoint (EN), 破天の怒り (JA), BREAKthrough (EN), 青い衝撃 (JA), 赤い閃光 (JA), Ancient Origins (EN), バンデットリング (JA), Roaring Skies (EN) …+11 more
+- **Vintage (pre‑2014):** コレクションX (JA), コレクションY (JA), Plasma Blast (EN), Plasma Freeze (EN), メガロキャノン (JA), EXバトルブースト (JA), Plasma Storm (EN), Boundaries Crossed (EN), プラズマゲイル (JA), Dragons Exalted (EN), コールドフレア (JA), フリーズボルト (JA), Dark Explorers (EN), Next Destinies (EN) …+84 more
+
+---
+## Full master list by era
+
+### Newest (2025–26)
+- 🟢 **ニンジャスピナー** (m4_ja, JA) — scanned 7, top1 85% — OK
+- 🟢 **ムニキスゼロ** (m3_ja, JA) — scanned 6, top1 100% — OK
+- 🟢 **MEGAドリームex** (m2a_ja, JA) — scanned 22, top1 81% — OK
+- 🟢 **インフェルノX** (m2_ja, JA) — scanned 18, top1 77% — OK
+- 🟡 **メガブレイブ** (m1l_ja, JA) — scanned 12, top1 66%, 1 miss
+- 🟢 **メガシンフォニア** (m1s_ja, JA) — scanned 9, top1 77% — OK
+- 🟡 **ブラックボルト** (sv11b_ja, JA) — scanned 26, top1 65%, 7 miss
+- 🔴 **ホワイトフレア** (sv11w_ja, JA) — scanned 33, top1 33%, 11 miss → DEPTH
+- 🟡 **ロケット団の栄光** (sv10_ja, JA) — scanned 3, top1 33%, 2 miss
+- 🟡 **熱風のアリーナ** (sv9a_ja, JA) — scanned 5, top1 60%, 2 miss
+- 🟢 **バトルパートナーズ** (sv9_ja, JA) — scanned 10, top1 90% — OK
+- 🟡 **Perfect Order** (me3, EN) — scanned 5, top1 40%, 1 miss
+- 🔵 **Mega Shine** (tcgp-B2b, EN) — no scans — WIDTH gap
+- 🔵 **Paldean Wonders** (tcgp-B2a, EN) — no scans — WIDTH gap
+- 🔴 **Ascended Heroes** (me2pt5, EN) — scanned 51, top1 64%, 5 miss → DEPTH
+- 🔵 **Fantastical Parade** (tcgp-B2, EN) — no scans — WIDTH gap
+- 🔵 **Crimson Blaze** (tcgp-B1a, EN) — no scans — WIDTH gap
+- 🟡 **Phantasmal Flames** (me2, EN) — scanned 25, top1 68%, 2 miss
+- 🔵 **Mega Rising** (tcgp-B1, EN) — no scans — WIDTH gap
+- 🔵 **Deluxe Pack ex** (tcgp-A4b, EN) — no scans — WIDTH gap
+- 🔴 **Mega Evolution** (me1, EN) — scanned 12, top1 33%, 3 miss → DEPTH
+- 🔵 **Secluded Springs** (tcgp-A4a, EN) — no scans — WIDTH gap
+- 🔵 **Wisdom of Sea and Sky** (tcgp-A4, EN) — no scans — WIDTH gap
+- 🔴 **White Flare** (rsv10pt5, EN) — scanned 50, top1 52%, 9 miss → DEPTH
+- 🟡 **Black Bolt** (zsv10pt5, EN) — scanned 41, top1 68%, 6 miss
+- 🔵 **Eevee Grove** (tcgp-A3b, EN) — no scans — WIDTH gap
+- 🟢 **Destined Rivals** (sv10, EN) — scanned 41, top1 75% — OK
+- 🔵 **Extradimensional Crisis** (tcgp-A3a, EN) — no scans — WIDTH gap
+- 🔵 **Celestial Guardians** (tcgp-A3, EN) — no scans — WIDTH gap
+- 🟡 **Journey Together** (sv9, EN) — scanned 11, top1 72%, 2 miss
+- 🔵 **Shining Revelry** (tcgp-A2b, EN) — no scans — WIDTH gap
+- 🔵 **Triumphant Light** (tcgp-A2a, EN) — no scans — WIDTH gap
+- 🔵 **Space-Time Smackdown** (tcgp-A2, EN) — no scans — WIDTH gap
+- 🔴 **Prismatic Evolutions** (sv8pt5, EN) — scanned 67, top1 61%, 7 miss → DEPTH
+
+### 2024
+- 🔴 **テラスタルフェスex** (sv8a_ja, JA) — scanned 26, top1 26%, 10 miss → DEPTH
+- 🟡 **超電ブレイカー** (sv8_ja, JA) — scanned 7, top1 71%, 1 miss
+- 🟢 **楽園ドラゴーナ** (sv7a_ja, JA) — scanned 4, top1 75% — OK
+- 🟡 **ステラミラクル** (sv7_ja, JA) — scanned 4, top1 50%, 2 miss
+- 🟡 **ナイトワンダラー** (sv6a_ja, JA) — scanned 7, top1 42%, 2 miss
+- 🔵 **変幻の仮面** (sv6_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🟢 **クリムゾンヘイズ** (sv5a_ja, JA) — scanned 8, top1 75% — OK
+- 🔵 **ワイルドフォース** (sv5k_ja, JA) — scanned 2 — thin, WIDTH gap
+- 🔵 **サイバージャッジ** (sv5m_ja, JA) — scanned 2 — thin, WIDTH gap
+- 🔵 **Mythical Island** (tcgp-A1a, EN) — no scans — WIDTH gap
+- 🟡 **Surging Sparks** (sv8, EN) — scanned 14, top1 71%, 3 miss
+- 🔵 **Genetic Apex** (tcgp-A1, EN) — no scans — WIDTH gap
+- 🔵 **Promo-A** (tcgp-PA, EN) — no scans — WIDTH gap
+- 🟡 **Stellar Crown** (sv7, EN) — scanned 7, top1 14%, 2 miss
+- 🔵 **Shrouded Fable** (sv6pt5, EN) — no scans — WIDTH gap
+- 🔴 **Twilight Masquerade** (sv6, EN) — scanned 18, top1 61%, 1 miss → DEPTH
+- 🟢 **Temporal Forces** (sv5, EN) — scanned 5, top1 80% — OK
+- 🟡 **Paldean Fates** (sv4pt5, EN) — scanned 7, top1 71%, 0 miss
+
+### 2023
+- 🟡 **シャイニートレジャーex** (sv4a_ja, JA) — scanned 3, top1 66%, 0 miss
+- 🟡 **古代の咆哮** (sv4k_ja, JA) — scanned 5, top1 60%, 1 miss
+- 🔴 **未来の一閃** (sv4m_ja, JA) — scanned 9, top1 55%, 2 miss → DEPTH
+- 🔵 **レイジングサーフ** (sv3a_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔴 **黒炎の支配者** (sv3_ja, JA) — scanned 8, top1 37%, 1 miss → DEPTH
+- 🟡 **ポケモンカード151** (sv2a_ja, JA) — scanned 6, top1 66%, 2 miss
+- 🔵 **クレイバースト** (sv2d_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **スノーハザード** (sv2p_ja, JA) — no scans — WIDTH gap
+- 🟢 **トリプレットビート** (sv1a_ja, JA) — scanned 4, top1 100% — OK
+- 🔵 **スカーレットex** (sv1s_ja, JA) — no scans — WIDTH gap
+- 🟡 **バイオレットex** (sv1v_ja, JA) — scanned 4, top1 50%, 1 miss
+- 🟢 **Paradox Rift** (sv4, EN) — scanned 4, top1 75% — OK
+- 🔴 **151** (sv3pt5, EN) — scanned 22, top1 63%, 4 miss → DEPTH
+- 🔴 **Obsidian Flames** (sv3, EN) — scanned 9, top1 55%, 0 miss → DEPTH
+- 🔴 **Paldea Evolved** (sv2, EN) — scanned 9, top1 33%, 1 miss → DEPTH
+- 🟡 **Scarlet & Violet** (sv1, EN) — scanned 4, top1 25%, 0 miss
+- 🔵 **Crown Zenith** (swsh12pt5, EN) — scanned 2 — thin, WIDTH gap
+- 🟢 **Crown Zenith Galarian Gallery** (swsh12pt5gg, EN) — scanned 16, top1 75% — OK
+- 🔴 **Scarlet & Violet Black Star Promos** (svp, EN) — scanned 10, top1 60%, 2 miss → DEPTH
+
+### Sword & Shield (2020–22)
+- 🟡 **VSTARユニバース** (swsh12a_ja, JA) — scanned 10, top1 70%, 1 miss
+- 🟡 **Scarlet & Violet Promos** (svp_ja, JA) — scanned 3, top1 33%, 0 miss
+- 🔵 **パラダイムトリガー** (swsh12_ja, JA) — no scans — WIDTH gap
+- 🔵 **白熱のアルカナ** (swsh11a_ja, JA) — no scans — WIDTH gap
+- 🔵 **ロストアビス** (swsh11_ja, JA) — no scans — WIDTH gap
+- 🔵 **Pokémon GO** (swsh10b_ja, JA) — no scans — WIDTH gap
+- 🔵 **ダークファンタズマ** (swsh10a_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🟢 **タイムゲイザー** (swsh10d_ja, JA) — scanned 3, top1 100% — OK
+- 🔵 **スペースジャグラ** (swsh10p_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **バトルリージョン** (swsh9a_ja, JA) — no scans — WIDTH gap
+- 🔵 **スターバース** (swsh9_ja, JA) — no scans — WIDTH gap
+- 🔴 **VMAXクライマックス** (swsh8b_ja, JA) — scanned 8, top1 50%, 3 miss → DEPTH
+- 🔵 **フュージョンアーツ** (swsh8_ja, JA) — no scans — WIDTH gap
+- 🔵 **摩天パーフェクト** (swsh7d_ja, JA) — no scans — WIDTH gap
+- 🔵 **蒼空ストリーム** (swsh7r_ja, JA) — no scans — WIDTH gap
+- 🔵 **イーブイヒーローズ** (swsh6a_ja, JA) — scanned 2 — thin, WIDTH gap
+- 🔵 **白銀のランス** (swsh6h_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **漆黒のガイスト** (swsh6k_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **双璧のファイター** (swsh5a_ja, JA) — no scans — WIDTH gap
+- 🔵 **一撃マスター** (swsh5i_ja, JA) — no scans — WIDTH gap
+- 🔵 **連撃マスター** (swsh5r_ja, JA) — no scans — WIDTH gap
+- 🔵 **シャイニースターV** (swsh4a_ja, JA) — no scans — WIDTH gap
+- 🔵 **仰天のボルテッカー** (swsh4_ja, JA) — no scans — WIDTH gap
+- 🔵 **伝説の鼓動** (swsh3a_ja, JA) — no scans — WIDTH gap
+- 🔵 **ムゲンゾーン** (swsh3_ja, JA) — no scans — WIDTH gap
+- 🔵 **爆炎ウォーカー** (swsh2a_ja, JA) — no scans — WIDTH gap
+- 🔵 **反逆クラッシュ** (swsh2_ja, JA) — no scans — WIDTH gap
+- 🔵 **VMAXライジング** (swsh1a_ja, JA) — no scans — WIDTH gap
+- 🟡 **Silver Tempest** (swsh12, EN) — scanned 6, top1 50%, 0 miss
+- 🟢 **Lost Origin** (swsh11, EN) — scanned 3, top1 100% — OK
+- 🔵 **Pokémon GO** (pgo, EN) — scanned 2 — thin, WIDTH gap
+- 🔵 **Astral Radiance** (swsh10, EN) — scanned 1 — thin, WIDTH gap
+- 🟡 **Brilliant Stars** (swsh9, EN) — scanned 3, top1 66%, 0 miss
+- 🔵 **Fusion Strike** (swsh8, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Evolving Skies** (swsh7, EN) — scanned 2 — thin, WIDTH gap
+- 🔵 **Chilling Reign** (swsh6, EN) — no scans — WIDTH gap
+- 🔵 **Battle Styles** (swsh5, EN) — no scans — WIDTH gap
+- 🔵 **Shining Fates** (swsh45, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Shining Fates Shiny Vault** (swsh45sv, EN) — no scans — WIDTH gap
+- 🔵 **Vivid Voltage** (swsh4, EN) — no scans — WIDTH gap
+- 🔵 **Champion's Path** (swsh35, EN) — no scans — WIDTH gap
+- 🔵 **Darkness Ablaze** (swsh3, EN) — no scans — WIDTH gap
+- 🔵 **Rebel Clash** (swsh2, EN) — no scans — WIDTH gap
+- 🔵 **Sword & Shield** (swsh1, EN) — no scans — WIDTH gap
+
+### Sun & Moon (2017–19)
+- 🔵 **シールド** (swsh1h_ja, JA) — no scans — WIDTH gap
+- 🔵 **ソード** (swsh1w_ja, JA) — no scans — WIDTH gap
+- 🔵 **Sword & Shield Promos** (swshp_ja, JA) — no scans — WIDTH gap
+- 🟡 **TAG TEAM GX タッグオールスターズ** (sm12a_ja, JA) — scanned 7, top1 42%, 0 miss
+- 🔵 **オルタージェネシス** (sm12_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🟢 **ドリームリーグ** (sm11b_ja, JA) — scanned 7, top1 85% — OK
+- 🟢 **リミックスバウト** (sm11a_ja, JA) — scanned 5, top1 100% — OK
+- 🔵 **ミラクルツイン** (sm11_ja, JA) — scanned 2 — thin, WIDTH gap
+- 🔵 **スカイレジェンド** (sm10b_ja, JA) — no scans — WIDTH gap
+- 🔵 **ジージーエンド** (sm10a_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **ダブルブレイズ** (sm10_ja, JA) — scanned 2 — thin, WIDTH gap
+- 🔵 **フルメタルウォール** (sm9b_ja, JA) — no scans — WIDTH gap
+- 🔵 **ナイトユニゾン** (sm9a_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🟢 **タッグボルト** (sm9_ja, JA) — scanned 6, top1 83% — OK
+- 🟡 **GXウルトラシャイニー** (sm8b_ja, JA) — scanned 4, top1 50%, 0 miss
+- 🔵 **ダークオーダー** (sm8a_ja, JA) — no scans — WIDTH gap
+- 🔵 **超爆インパクト** (sm8_ja, JA) — no scans — WIDTH gap
+- 🔵 **フェアリーライズ** (sm7b_ja, JA) — no scans — WIDTH gap
+- 🔵 **迅雷スパーク** (sm7a_ja, JA) — no scans — WIDTH gap
+- 🔵 **裂空のカリスマ** (sm7_ja, JA) — no scans — WIDTH gap
+- 🔵 **チャンピオンロード** (sm6b_ja, JA) — no scans — WIDTH gap
+- 🔵 **ドラゴンストーム** (sm6a_ja, JA) — no scans — WIDTH gap
+- 🔵 **禁断の光** (sm6_ja, JA) — no scans — WIDTH gap
+- 🔵 **ウルトラフォース** (sm5p_ja, JA) — no scans — WIDTH gap
+- 🔵 **ウルトラムーン** (sm5m_ja, JA) — no scans — WIDTH gap
+- 🔵 **ウルトラサン** (sm5s_ja, JA) — no scans — WIDTH gap
+- 🔵 **超次元の暴獣** (sm4a_ja, JA) — no scans — WIDTH gap
+- 🔵 **覚醒の勇者** (sm4s_ja, JA) — no scans — WIDTH gap
+- 🔵 **ひかる伝説** (sm3p_ja, JA) — no scans — WIDTH gap
+- 🔵 **GXバトルブースト** (sm4p_ja, JA) — no scans — WIDTH gap
+- 🔵 **闘う虹を見たか** (sm3h_ja, JA) — no scans — WIDTH gap
+- 🔵 **光を喰らう闇** (sm3n_ja, JA) — no scans — WIDTH gap
+- 🔵 **The Best of XY** (xy_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **キミを待つ島々** (sm2k_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **サン＆ムーン** (sm1p_ja, JA) — no scans — WIDTH gap
+- 🔵 **新たなる試練の向こう** (sm2p_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🟡 **SWSH Black Star Promos** (swshp, EN) — scanned 12, top1 66%, 0 miss
+- 🟢 **Cosmic Eclipse** (sm12, EN) — scanned 3, top1 100% — OK
+- 🔵 **Hidden Fates** (sm115, EN) — no scans — WIDTH gap
+- 🔵 **Hidden Fates Shiny Vault** (sma, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Unified Minds** (sm11, EN) — no scans — WIDTH gap
+- 🔵 **Unbroken Bonds** (sm10, EN) — no scans — WIDTH gap
+- 🔵 **Team Up** (sm9, EN) — scanned 1 — thin, WIDTH gap
+- 🟢 **Lost Thunder** (sm8, EN) — scanned 3, top1 100% — OK
+- 🔵 **Dragon Majesty** (sm75, EN) — no scans — WIDTH gap
+- 🔵 **Celestial Storm** (sm7, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Forbidden Light** (sm6, EN) — no scans — WIDTH gap
+- 🟡 **Ultra Prism** (sm5, EN) — scanned 3, top1 0%, 1 miss
+- 🔵 **Crimson Invasion** (sm4, EN) — no scans — WIDTH gap
+- 🔵 **Shining Legends** (sm35, EN) — no scans — WIDTH gap
+- 🔵 **Burning Shadows** (sm3, EN) — no scans — WIDTH gap
+- 🔵 **Guardians Rising** (sm2, EN) — no scans — WIDTH gap
+- 🔵 **Sun & Moon** (sm1, EN) — scanned 1 — thin, WIDTH gap
+- 🟢 **SM Black Star Promos** (smp, EN) — scanned 7, top1 85% — OK
+
+### XY (2014–16)
+- 🔵 **コレクション ムーン** (sm1m_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **コレクション サン** (sm1s_ja, JA) — no scans — WIDTH gap
+- 🟡 **Sun & Moon Promos** (smp_ja, JA) — scanned 3, top1 33%, 1 miss
+- 🔵 **拡張パック 20th Anniversary** (cp6_ja, JA) — no scans — WIDTH gap
+- 🔵 **プレミアムチャンピオンパック** (cp4_ja, JA) — no scans — WIDTH gap
+- 🔵 **めざめる超王** (xy10_ja, JA) — no scans — WIDTH gap
+- 🔵 **破天の怒り** (xy9_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **青い衝撃** (xy8b_ja, JA) — no scans — WIDTH gap
+- 🔵 **赤い閃光** (xy8r_ja, JA) — no scans — WIDTH gap
+- 🔵 **バンデットリング** (xy7_ja, JA) — no scans — WIDTH gap
+- 🔵 **エメラルドブレイク** (xy6_ja, JA) — no scans — WIDTH gap
+- 🔵 **ガイアボルケーノ** (xy5g_ja, JA) — no scans — WIDTH gap
+- 🔵 **タイダルストーム** (xy5t_ja, JA) — no scans — WIDTH gap
+- 🔵 **ファントムゲート** (xy4_ja, JA) — no scans — WIDTH gap
+- 🔵 **ライジングフィスト** (xy3_ja, JA) — no scans — WIDTH gap
+- 🔵 **ワイルドブレイズ** (xy2_ja, JA) — no scans — WIDTH gap
+- 🟢 **Evolutions** (xy12, EN) — scanned 4, top1 75% — OK
+- 🔵 **Steam Siege** (xy11, EN) — no scans — WIDTH gap
+- 🟡 **Fates Collide** (xy10, EN) — scanned 3, top1 0%, 3 miss
+- 🟡 **Generations** (g1, EN) — scanned 3, top1 66%, 1 miss
+- 🔵 **BREAKpoint** (xy9, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **BREAKthrough** (xy8, EN) — no scans — WIDTH gap
+- 🔵 **Ancient Origins** (xy7, EN) — no scans — WIDTH gap
+- 🔵 **Roaring Skies** (xy6, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Primal Clash** (xy5, EN) — no scans — WIDTH gap
+- 🔵 **Phantom Forces** (xy4, EN) — no scans — WIDTH gap
+- 🔵 **Furious Fists** (xy3, EN) — no scans — WIDTH gap
+- 🔵 **Flashfire** (xy2, EN) — scanned 2 — thin, WIDTH gap
+- 🔵 **XY** (xy1, EN) — no scans — WIDTH gap
+
+### Vintage (pre‑2014)
+- 🔵 **コレクションX** (xy1x_ja, JA) — no scans — WIDTH gap
+- 🔵 **コレクションY** (xy1y_ja, JA) — no scans — WIDTH gap
+- 🟡 **XY Promos** (xyp_ja, JA) — scanned 3, top1 33%, 2 miss
+- 🔵 **メガロキャノン** (bw9_ja, JA) — no scans — WIDTH gap
+- 🔵 **EXバトルブースト** (ebb1_ja, JA) — no scans — WIDTH gap
+- 🔵 **プラズマゲイル** (bw7_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🔵 **コールドフレア** (bw6c_ja, JA) — no scans — WIDTH gap
+- 🔵 **フリーズボルト** (bw6f_ja, JA) — no scans — WIDTH gap
+- 🔵 **ダークラッシュ** (bw4_ja, JA) — no scans — WIDTH gap
+- 🔵 **レッドコレクション** (bw2_ja, JA) — no scans — WIDTH gap
+- 🔵 **Black & White Promos** (bwp_ja, JA) — no scans — WIDTH gap
+- 🔵 **頂上大激突** (l3_ja, JA) — no scans — WIDTH gap
+- 🔵 **よみがえる伝説** (l2_ja, JA) — no scans — WIDTH gap
+- 🔵 **ハートゴールドコレクション** (l1hg_ja, JA) — no scans — WIDTH gap
+- 🔵 **ソウルシルバーコレクション** (l1ss_ja, JA) — no scans — WIDTH gap
+- 🔵 **LEGEND Promos** (lp_ja, JA) — no scans — WIDTH gap
+- 🔵 **アルセウス光臨** (pt4_ja, JA) — no scans — WIDTH gap
+- 🔵 **フロンティアの鼓動** (pt3_ja, JA) — no scans — WIDTH gap
+- 🟡 **時の果ての絆** (pt2_ja, JA) — scanned 3, top1 66%, 1 miss
+- 🔵 **ギンガの覇道** (pt1_ja, JA) — no scans — WIDTH gap
+- 🔵 **破空の激闘** (dp6_ja, JA) — no scans — WIDTH gap
+- 🔵 **秘境の叫び** (dp5c_ja, JA) — no scans — WIDTH gap
+- 🔵 **怒りの神殿** (dp5t_ja, JA) — no scans — WIDTH gap
+- 🔵 **夜明けの疾走** (dp4d_ja, JA) — no scans — WIDTH gap
+- 🔵 **月光の追跡** (dp4m_ja, JA) — no scans — WIDTH gap
+- 🔵 **ひかる闇** (dp3_ja, JA) — no scans — WIDTH gap
+- 🔵 **ワールドチャンピオンズパック** (pcg10_ja, JA) — no scans — WIDTH gap
+- 🔵 **湖の秘密** (dp2_ja, JA) — no scans — WIDTH gap
+- 🔵 **Diamond & Pearl Promos** (dpp_ja, JA) — no scans — WIDTH gap
+- 🔵 **時空の創造** (dp1_ja, JA) — no scans — WIDTH gap
+- 🔵 **さいはての攻防** (pcg9_ja, JA) — no scans — WIDTH gap
+- 🔵 **きせきの結晶** (pcg8_ja, JA) — no scans — WIDTH gap
+- 🔵 **ホロンの研究塔** (pcg6_ja, JA) — no scans — WIDTH gap
+- 🔵 **まぼろしの森** (pcg5_ja, JA) — no scans — WIDTH gap
+- 🔵 **金の空、銀の海** (pcg4_ja, JA) — no scans — WIDTH gap
+- 🔵 **ロケット団の逆襲** (pcg3_ja, JA) — no scans — WIDTH gap
+- 🔵 **蒼空の激突** (pcg2_ja, JA) — no scans — WIDTH gap
+- 🔵 **伝説の飛翔** (pcg1_ja, JA) — no scans — WIDTH gap
+- 🔵 **とかれた封印** (adv5_ja, JA) — no scans — WIDTH gap
+- 🔵 **マグマVSアクア ふたつの野望** (adv4_ja, JA) — no scans — WIDTH gap
+- 🔵 **ADV Promos** (advp_ja, JA) — no scans — WIDTH gap
+- 🔵 **PCG Promos** (pcgp_ja, JA) — scanned 2 — thin, WIDTH gap
+- 🔵 **裂けた大地** (ecard5_ja, JA) — no scans — WIDTH gap
+- 🔵 **裂けた大地** (ecard4_ja, JA) — no scans — WIDTH gap
+- 🔵 **海からの風** (ecard3_ja, JA) — no scans — WIDTH gap
+- 🔵 **地図にない町** (ecard2_ja, JA) — no scans — WIDTH gap
+- 🔵 **基本拡張パック** (ecard1_ja, JA) — no scans — WIDTH gap
+- 🔵 **ポケモンカード★VS** (vs1_ja, JA) — scanned 2 — thin, WIDTH gap
+- 🔵 **闇、そして光へ...** (neo4_ja, JA) — no scans — WIDTH gap
+- 🔵 **金、銀、新世界へ...** (neo1_ja, JA) — no scans — WIDTH gap
+- 🔵 **闇からの挑戦** (gym2_ja, JA) — no scans — WIDTH gap
+- 🔵 **リーダーズスタジアム** (gym1_ja, JA) — scanned 2 — thin, WIDTH gap
+- 🔵 **ロケット団** (base4_ja, JA) — no scans — WIDTH gap
+- 🔵 **Topsun** (topsun_ja, JA) — no scans — WIDTH gap
+- 🔵 **拡張パック** (base1_ja, JA) — no scans — WIDTH gap
+- 🔵 **Unnumbered Promos** (miscp_ja, JA) — scanned 1 — thin, WIDTH gap
+- 🟢 **Legendary Treasures** (bw11, EN) — scanned 3, top1 100% — OK
+- 🟢 **XY Black Star Promos** (xyp, EN) — scanned 7, top1 100% — OK
+- 🔵 **Plasma Blast** (bw10, EN) — no scans — WIDTH gap
+- 🔵 **Plasma Freeze** (bw9, EN) — no scans — WIDTH gap
+- 🔵 **Plasma Storm** (bw8, EN) — no scans — WIDTH gap
+- 🔵 **Boundaries Crossed** (bw7, EN) — no scans — WIDTH gap
+- 🔵 **Dragons Exalted** (bw6, EN) — no scans — WIDTH gap
+- 🔵 **Dark Explorers** (bw5, EN) — no scans — WIDTH gap
+- 🔵 **Next Destinies** (bw4, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Noble Victories** (bw3, EN) — no scans — WIDTH gap
+- 🔵 **Emerging Powers** (bw2, EN) — no scans — WIDTH gap
+- 🔵 **Black & White** (bw1, EN) — no scans — WIDTH gap
+- 🔵 **BW Black Star Promos** (bwp, EN) — no scans — WIDTH gap
+- 🔵 **Call of Legends** (col1, EN) — no scans — WIDTH gap
+- 🔵 **HS—Triumphant** (hgss4, EN) — no scans — WIDTH gap
+- 🔵 **HS—Undaunted** (hgss3, EN) — no scans — WIDTH gap
+- 🔵 **HS—Unleashed** (hgss2, EN) — no scans — WIDTH gap
+- 🔵 **HeartGold & SoulSilver** (hgss1, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Arceus** (pl4, EN) — no scans — WIDTH gap
+- 🔵 **Supreme Victors** (pl3, EN) — no scans — WIDTH gap
+- 🔵 **Rising Rivals** (pl2, EN) — no scans — WIDTH gap
+- 🔵 **Platinum** (pl1, EN) — no scans — WIDTH gap
+- 🔵 **Stormfront** (dp7, EN) — no scans — WIDTH gap
+- 🔵 **Legends Awakened** (dp6, EN) — no scans — WIDTH gap
+- 🔵 **Majestic Dawn** (dp5, EN) — no scans — WIDTH gap
+- 🔵 **Great Encounters** (dp4, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Secret Wonders** (dp3, EN) — no scans — WIDTH gap
+- 🔵 **Mysterious Treasures** (dp2, EN) — no scans — WIDTH gap
+- 🔵 **Diamond & Pearl** (dp1, EN) — no scans — WIDTH gap
+- 🔵 **Power Keepers** (ex16, EN) — no scans — WIDTH gap
+- 🔵 **Dragon Frontiers** (ex15, EN) — scanned 1 — thin, WIDTH gap
+- 🟢 **Crystal Guardians** (ex14, EN) — scanned 4, top1 100% — OK
+- 🟡 **Holon Phantoms** (ex13, EN) — scanned 3, top1 66%, 1 miss
+- 🔵 **Legend Maker** (ex12, EN) — no scans — WIDTH gap
+- 🔵 **Delta Species** (ex11, EN) — scanned 2 — thin, WIDTH gap
+- 🟢 **Unseen Forces** (ex10, EN) — scanned 4, top1 100% — OK
+- 🔵 **Emerald** (ex9, EN) — no scans — WIDTH gap
+- 🔵 **Deoxys** (ex8, EN) — scanned 2 — thin, WIDTH gap
+- 🟢 **Team Rocket Returns** (ex7, EN) — scanned 5, top1 100% — OK
+- 🟡 **FireRed & LeafGreen** (ex6, EN) — scanned 10, top1 70%, 1 miss
+- 🟡 **Hidden Legends** (ex5, EN) — scanned 10, top1 70%, 1 miss
+- 🔵 **Team Magma vs Team Aqua** (ex4, EN) — scanned 2 — thin, WIDTH gap
+- 🟡 **Dragon** (ex3, EN) — scanned 9, top1 66%, 3 miss
+- 🟢 **Sandstorm** (ex2, EN) — scanned 5, top1 80% — OK
+- 🟢 **Ruby & Sapphire** (ex1, EN) — scanned 4, top1 100% — OK
+- 🔵 **Skyridge** (ecard3, EN) — no scans — WIDTH gap
+- 🔵 **Aquapolis** (ecard2, EN) — scanned 1 — thin, WIDTH gap
+- 🟢 **Expedition Base Set** (ecard1, EN) — scanned 6, top1 100% — OK
+- 🔵 **Legendary Collection** (base6, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Neo Destiny** (neo4, EN) — scanned 2 — thin, WIDTH gap
+- 🔵 **Neo Revelation** (neo3, EN) — scanned 2 — thin, WIDTH gap
+- 🟡 **Neo Discovery** (neo2, EN) — scanned 3, top1 66%, 0 miss
+- 🟡 **Neo Genesis** (neo1, EN) — scanned 6, top1 50%, 0 miss
+- 🔵 **Gym Challenge** (gym2, EN) — scanned 2 — thin, WIDTH gap
+- 🔵 **Gym Heroes** (gym1, EN) — scanned 1 — thin, WIDTH gap
+- 🔵 **Team Rocket** (base5, EN) — scanned 2 — thin, WIDTH gap
+- 🟡 **Base Set 2** (base4, EN) — scanned 5, top1 0%, 1 miss
+- 🔵 **Fossil** (base3, EN) — scanned 1 — thin, WIDTH gap
+- 🟢 **Jungle** (base2, EN) — scanned 4, top1 75% — OK
+- 🔵 **Base** (base1, EN) — scanned 2 — thin, WIDTH gap

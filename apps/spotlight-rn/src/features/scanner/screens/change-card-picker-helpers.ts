@@ -1,4 +1,4 @@
-import { colors } from '@spotlight/design-system';
+import { matchConfidence, type MatchConfidenceLevel } from '@spotlight/design-system';
 
 // Pure helpers for the Change Card picker's per-candidate "% Match" line.
 // Kept dependency-light so they can be unit-tested without rendering the sheet.
@@ -15,15 +15,32 @@ export function matchPercentFromScore(score: number | null | undefined): number 
 }
 
 /**
- * Color-codes a candidate's match confidence percentage:
- * <34% red, 34–66% yellow, ≥67% green. Uses semantic design-system tokens.
+ * Buckets a match confidence percentage into a palette level:
+ * <34% red, 34–66% yellow, ≥67% green. Single source of truth for the
+ * thresholds shared by the hero caption color and the row chip.
  */
-export function matchConfidenceColor(pct: number): string {
+export function matchConfidenceLevel(pct: number): MatchConfidenceLevel {
   if (pct < 34) {
-    return colors.danger;
+    return 'red';
   }
   if (pct < 67) {
-    return colors.warning;
+    return 'yellow';
   }
-  return colors.success;
+  return 'green';
+}
+
+/**
+ * Muted text color for the hero "% Match" caption (Figma green/yellow/red/300).
+ */
+export function matchConfidenceColor(pct: number): string {
+  return matchConfidence[matchConfidenceLevel(pct)].text;
+}
+
+/**
+ * Pastel chip colors for the per-candidate row "% Match" badge: a soft fill
+ * (`backgroundColor`) with a dark, legible label (`color`).
+ */
+export function matchPillColors(pct: number): { backgroundColor: string; color: string } {
+  const palette = matchConfidence[matchConfidenceLevel(pct)];
+  return { backgroundColor: palette.chipBg, color: palette.chipText };
 }

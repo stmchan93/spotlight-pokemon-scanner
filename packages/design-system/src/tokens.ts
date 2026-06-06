@@ -23,6 +23,10 @@ export const colors = {
   // this darker purple with a white label (~6.7:1 contrast). From Figma.
   brandStrong: '#7000FF',
   brandPurple: '#4B3FD8',
+  // Color/purple/300 from Figma — the lilac used for the change-card modal's
+  // hero/selected-row borders and the "LOAD MORE" outline. Brighter than the
+  // pale `brand` fill, dimmer than `brandStrong`.
+  purple300: '#C47EFF',
   chartLine: '#9B5FE6',
   success: '#2DBB6D',
   info: '#B89A33',
@@ -81,6 +85,21 @@ export const colors = {
   scannerAddPurple: '#A54BFA',
   scannerConditionPill: '#7A5200',
 } as const;
+
+/**
+ * Match-confidence palette for the scanner change-card modal (Figma
+ * Color/green|yellow|red/200–300). Each level pairs a muted `text` color for
+ * the hero "% Match" caption with a pastel chip (`chipBg` + dark `chipText`)
+ * for the per-candidate row badge. Thresholds live in change-card-picker
+ * helpers (<34 red, 34–66 yellow, ≥67 green).
+ */
+export const matchConfidence = {
+  green: { text: '#86C99A', chipBg: '#BBE5C8', chipText: '#0C3D1D' },
+  yellow: { text: '#E2C46B', chipBg: '#FFE799', chipText: '#7A5200' },
+  red: { text: '#E89A91', chipBg: '#FFCECE', chipText: '#67140B' },
+} as const;
+
+export type MatchConfidenceLevel = keyof typeof matchConfidence;
 
 export const spacing = {
   xxxs: 4,

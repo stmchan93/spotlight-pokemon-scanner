@@ -1,8 +1,10 @@
-import { colors } from '@spotlight/design-system';
+import { matchConfidence } from '@spotlight/design-system';
 
 import {
   matchConfidenceColor,
+  matchConfidenceLevel,
   matchPercentFromScore,
+  matchPillColors,
 } from '@/features/scanner/screens/change-card-picker-helpers';
 
 describe('matchPercentFromScore', () => {
@@ -28,21 +30,58 @@ describe('matchPercentFromScore', () => {
 });
 
 describe('matchConfidenceColor', () => {
-  it('uses red below 34%', () => {
-    expect(matchConfidenceColor(0)).toBe(colors.danger);
-    expect(matchConfidenceColor(21)).toBe(colors.danger);
-    expect(matchConfidenceColor(33)).toBe(colors.danger);
+  it('uses the red caption color below 34%', () => {
+    expect(matchConfidenceColor(0)).toBe(matchConfidence.red.text);
+    expect(matchConfidenceColor(33)).toBe(matchConfidence.red.text);
   });
 
-  it('uses yellow from 34% through 66%', () => {
-    expect(matchConfidenceColor(34)).toBe(colors.warning);
-    expect(matchConfidenceColor(50)).toBe(colors.warning);
-    expect(matchConfidenceColor(66)).toBe(colors.warning);
+  it('uses the yellow caption color from 34% through 66%', () => {
+    expect(matchConfidenceColor(34)).toBe(matchConfidence.yellow.text);
+    expect(matchConfidenceColor(66)).toBe(matchConfidence.yellow.text);
   });
 
-  it('uses green at 67% and above', () => {
-    expect(matchConfidenceColor(67)).toBe(colors.success);
-    expect(matchConfidenceColor(80)).toBe(colors.success);
-    expect(matchConfidenceColor(100)).toBe(colors.success);
+  it('uses the green caption color at 67% and above', () => {
+    expect(matchConfidenceColor(67)).toBe(matchConfidence.green.text);
+    expect(matchConfidenceColor(100)).toBe(matchConfidence.green.text);
+  });
+});
+
+describe('matchConfidenceLevel', () => {
+  it('returns red below 34%', () => {
+    expect(matchConfidenceLevel(0)).toBe('red');
+    expect(matchConfidenceLevel(33)).toBe('red');
+  });
+
+  it('returns yellow from 34% through 66%', () => {
+    expect(matchConfidenceLevel(34)).toBe('yellow');
+    expect(matchConfidenceLevel(66)).toBe('yellow');
+  });
+
+  it('returns green at 67% and above', () => {
+    expect(matchConfidenceLevel(67)).toBe('green');
+    expect(matchConfidenceLevel(100)).toBe('green');
+  });
+});
+
+describe('matchPillColors', () => {
+  it('returns red chip colors below 34%', () => {
+    expect(matchPillColors(0)).toEqual({
+      backgroundColor: matchConfidence.red.chipBg,
+      color: matchConfidence.red.chipText,
+    });
+  });
+
+  it('returns yellow chip colors from 34% through 66%', () => {
+    expect(matchPillColors(50)).toEqual({
+      backgroundColor: matchConfidence.yellow.chipBg,
+      color: matchConfidence.yellow.chipText,
+    });
+  });
+
+  it('returns green chip colors at 67% and above', () => {
+    expect(matchPillColors(80)).toEqual({
+      backgroundColor: matchConfidence.green.chipBg,
+      color: matchConfidence.green.chipText,
+    });
   });
 });

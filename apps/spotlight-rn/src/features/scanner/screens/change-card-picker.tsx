@@ -9,22 +9,20 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
-import {
-  FilterList,
-  NavArrowLeft,
-  Plus,
-  Search as SearchIcon,
-} from 'iconoir-react-native';
+import { NavArrowLeft, Search as SearchIcon } from 'iconoir-react-native';
 import { BlurView } from 'expo-blur';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import type { CatalogSearchResult } from '@spotlight/api-client';
-import { colors, useSpotlightTheme } from '@spotlight/design-system';
+import { colors } from '@spotlight/design-system';
 
-import { matchConfidenceColor, matchPercentFromScore } from './change-card-picker-helpers';
+import {
+  matchConfidenceColor,
+  matchPercentFromScore,
+  matchPillColors,
+} from './change-card-picker-helpers';
 
 type ChangeCardPickerProps = {
   visible: boolean;
@@ -37,29 +35,12 @@ type ChangeCardPickerProps = {
   testID?: string;
 };
 
-const INITIAL_VISIBLE_COUNT = 3;
-const LOAD_MORE_STEP = 3;
+const INITIAL_VISIBLE_COUNT = 10;
+const LOAD_MORE_STEP = 10;
 const DISMISS_DISTANCE = 70;
 const DISMISS_VELOCITY = 0.25;
 const SCREEN_HEIGHT = Dimensions.get('window').height;
-const HERO_ASPECT = 143 / 200;
-const HERO_MAX_HEIGHT = 184;
-const HERO_GAP = 20;
-const SHEET_HORIZONTAL_PADDING = 16;
-
-/**
- * Cap the hero card height so two cards (your scan + the match) always fit the
- * sheet width on small screens, falling back to the comfortable max otherwise.
- */
-function resolveHeroHeight(screenWidth: number, pairedColumns: boolean): number {
-  if (!pairedColumns) {
-    return HERO_MAX_HEIGHT;
-  }
-  const usableWidth = screenWidth - SHEET_HORIZONTAL_PADDING * 2 - HERO_GAP;
-  const widthPerColumn = usableWidth / 2;
-  const heightFromWidth = widthPerColumn / HERO_ASPECT;
-  return Math.min(HERO_MAX_HEIGHT, Math.floor(heightFromWidth));
-}
+const HERO_IMAGE_HEIGHT = 200;
 
 export function ChangeCardPicker({
   visible,
@@ -70,23 +51,18 @@ export function ChangeCardPicker({
   onSelectCandidate,
   testID = 'change-card-picker',
 }: ChangeCardPickerProps) {
-  const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  const { width: windowWidth } = useWindowDimensions();
-  const heroHeight = resolveHeroHeight(windowWidth, Boolean(capturedImageUri));
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [pendingSelection, setPendingSelection] = useState<number | null>(null);
   const translateY = useRef(new Animated.Value(0)).current;
-  const tiltX = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     if (visible) {
       setVisibleCount(INITIAL_VISIBLE_COUNT);
       setPendingSelection(activeCandidateIndex);
       translateY.setValue(0);
-      tiltX.setValue(0);
     }
-  }, [activeCandidateIndex, tiltX, translateY, visible]);
+  }, [activeCandidateIndex, translateY, visible]);
 
   const dismissWithAnimation = () => {
     Animated.timing(translateY, {
@@ -102,7 +78,9 @@ export function ChangeCardPicker({
 
   const panResponder = useRef(
     PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
+      // Claim the touch only once it becomes a real downward drag — leaving
+      // taps to pass through to the handle Pressable (tap-to-collapse).
+      onStartShouldSetPanResponder: () => false,
       onMoveShouldSetPanResponder: (_evt, gesture) => {
         return Math.abs(gesture.dy) > 4 && Math.abs(gesture.dy) > Math.abs(gesture.dx);
       },
@@ -133,35 +111,9 @@ export function ChangeCardPicker({
     }),
   ).current;
 
-  const heroPan = useRef(
-    PanResponder.create({
-      onMoveShouldSetPanResponder: (_evt, gesture) => {
-        return Math.abs(gesture.dx) > 4 && Math.abs(gesture.dx) > Math.abs(gesture.dy);
-      },
-      onPanResponderMove: (_evt, gesture) => {
-        tiltX.setValue(Math.max(-140, Math.min(140, gesture.dx)));
-      },
-      onPanResponderRelease: () => {
-        Animated.spring(tiltX, {
-          toValue: 0,
-          useNativeDriver: true,
-          friction: 6,
-          tension: 80,
-        }).start();
-      },
-      onPanResponderTerminate: () => {
-        Animated.spring(tiltX, {
-          toValue: 0,
-          useNativeDriver: true,
-          friction: 6,
-          tension: 80,
-        }).start();
-      },
-    }),
-  ).current;
-
   const selectedIndex = pendingSelection ?? activeCandidateIndex;
   const heroCandidate = candidates[selectedIndex] ?? candidates[0] ?? null;
+  const heroMatchPct = matchPercentFromScore(heroCandidate?.matchScore);
 
   const visibleCandidates = useMemo(() => {
     return candidates.slice(0, Math.min(visibleCount, candidates.length));
@@ -172,7 +124,6 @@ export function ChangeCardPicker({
   const handleSelect = (index: number) => {
     setPendingSelection(index);
     onSelectCandidate(index);
-    onClose();
   };
 
   const handleLoadMore = () => {
@@ -231,14 +182,8 @@ export function ChangeCardPicker({
             >
               <NavArrowLeft color={colors.gray0} height={18} width={18} strokeWidth={2} />
             </Pressable>
-            <View style={styles.searchPill}>
-              <SearchIcon color={colors.gray0} height={16} width={16} />
-              <Text style={styles.searchPlaceholder} numberOfLines={1}>
-                Search cards
-              </Text>
-            </View>
             <View style={styles.iconCircle}>
-              <FilterList color={colors.gray0} height={16} width={16} />
+              <SearchIcon color={colors.gray0} height={16} width={16} />
             </View>
           </View>
         </SafeAreaView>
@@ -253,61 +198,56 @@ export function ChangeCardPicker({
               style={styles.dragRegion}
               testID={`${testID}-drag-region`}
             >
-              <View style={styles.handle} />
-              <Text style={[theme.typography.label, styles.title]}>Change card</Text>
+              <Pressable
+                accessibilityLabel="Collapse"
+                accessibilityRole="button"
+                hitSlop={12}
+                onPress={dismissWithAnimation}
+                style={styles.handle}
+              />
+              <View style={styles.infoHeader}>
+                <View style={styles.infoPill}>
+                  <Text style={styles.infoPillText}>SWITCH</Text>
+                </View>
+                <View style={styles.infoPill}>
+                  <Text style={styles.infoPillText}>{`${candidates.length} SIMILAR`}</Text>
+                </View>
+              </View>
             </View>
 
-            <View style={styles.heroRow}>
-              {capturedImageUri ? (
-                <View style={styles.heroColumn}>
-                  <Text style={styles.heroCaption}>Your scan</Text>
-                  <View style={styles.heroWrap}>
+            <View style={styles.heroBox}>
+              <View style={styles.heroRow}>
+                {capturedImageUri ? (
+                  <View style={styles.heroColumn}>
                     <Image
                       source={{ uri: capturedImageUri }}
-                      style={[styles.heroImage, { height: heroHeight }]}
+                      style={styles.heroImage}
                       resizeMode="cover"
                       testID={`${testID}-capture`}
                     />
+                    <Text style={styles.heroCaption}>Your Photo</Text>
                   </View>
-                </View>
-              ) : null}
+                ) : null}
 
-              <View style={styles.heroColumn}>
-                {capturedImageUri ? <Text style={styles.heroCaption}>Match</Text> : null}
-                <Animated.View
-                  {...heroPan.panHandlers}
-                  style={[
-                    styles.heroWrap,
-                    {
-                      transform: [
-                        { perspective: 800 },
-                        {
-                          rotateY: tiltX.interpolate({
-                            inputRange: [-140, 140],
-                            outputRange: ['-14deg', '14deg'],
-                          }),
-                        },
-                        {
-                          translateX: tiltX.interpolate({
-                            inputRange: [-140, 140],
-                            outputRange: [-10, 10],
-                          }),
-                        },
-                      ],
-                    },
-                  ]}
-                >
+                <View style={styles.heroColumn}>
                   {heroCandidate?.imageUrl ? (
                     <Image
                       source={{ uri: heroCandidate.imageUrl }}
-                      style={[styles.heroImage, { height: heroHeight }]}
+                      style={styles.heroImage}
                       resizeMode="contain"
                       testID={`${testID}-hero`}
                     />
                   ) : (
-                    <View style={[styles.heroImage, styles.heroPlaceholder, { height: heroHeight }]} />
+                    <View style={[styles.heroImage, styles.heroPlaceholder]} />
                   )}
-                </Animated.View>
+                  {heroMatchPct != null ? (
+                    <Text
+                      style={[styles.heroCaption, { color: matchConfidenceColor(heroMatchPct) }]}
+                    >
+                      {`${heroMatchPct}% Match`}
+                    </Text>
+                  ) : null}
+                </View>
               </View>
             </View>
 
@@ -323,6 +263,7 @@ export function ChangeCardPicker({
                 const isSelected = index === selectedIndex;
                 const meta = [candidate.cardNumber, candidate.setName].filter(Boolean).join(' · ');
                 const matchPct = matchPercentFromScore(candidate.matchScore);
+                const pillColors = matchPct != null ? matchPillColors(matchPct) : null;
                 return (
                   <Pressable
                     accessibilityRole="button"
@@ -331,62 +272,41 @@ export function ChangeCardPicker({
                     onPress={() => handleSelect(index)}
                     style={({ pressed }) => [
                       styles.cardRow,
-                      isSelected ? styles.cardRowSelected : null,
+                      isSelected ? styles.cardRowSelected : styles.cardRowUnselected,
                       pressed ? styles.cardRowPressed : null,
                     ]}
                     testID={`${testID}-row-${index}`}
                   >
-                    <View style={styles.cardRowLeft}>
-                      {candidate.imageUrl ? (
-                        <Image
-                          source={{ uri: candidate.imageUrl }}
-                          style={styles.thumb}
-                          resizeMode="cover"
-                        />
-                      ) : (
-                        <View style={[styles.thumb, styles.thumbPlaceholder]} />
-                      )}
-                      <View style={styles.rowText}>
-                        <Text
-                          numberOfLines={1}
-                          style={[styles.rowTitle, { color: colors.gray50 }]}
-                        >
-                          {candidate.name}
+                    {candidate.imageUrl ? (
+                      <Image
+                        source={{ uri: candidate.imageUrl }}
+                        style={styles.thumb}
+                        resizeMode="cover"
+                      />
+                    ) : (
+                      <View style={[styles.thumb, styles.thumbPlaceholder]} />
+                    )}
+                    <View style={styles.rowText}>
+                      <Text numberOfLines={1} style={styles.rowTitle}>
+                        {candidate.name}
+                      </Text>
+                      {meta ? (
+                        <Text numberOfLines={1} style={styles.rowMeta}>
+                          {meta}
                         </Text>
-                        {meta ? (
+                      ) : null}
+                      {pillColors ? (
+                        <View
+                          style={[styles.matchChip, { backgroundColor: pillColors.backgroundColor }]}
+                        >
                           <Text
-                            numberOfLines={1}
-                            style={[styles.rowMeta, { color: colors.gray50 }]}
-                          >
-                            {meta}
-                          </Text>
-                        ) : null}
-                        {matchPct != null ? (
-                          <Text
-                            numberOfLines={1}
-                            style={[styles.rowMeta, { color: matchConfidenceColor(matchPct) }]}
+                            style={[styles.matchChipText, { color: pillColors.color }]}
                             testID={`${testID}-match-${index}`}
                           >
                             {`${matchPct}% Match`}
                           </Text>
-                        ) : null}
-                        {candidate.subtitle ? (
-                          <Text
-                            numberOfLines={1}
-                            style={[styles.rowMeta, { color: colors.gray50 }]}
-                          >
-                            {candidate.subtitle}
-                          </Text>
-                        ) : null}
-                      </View>
-                    </View>
-                    <View
-                      style={[
-                        styles.radio,
-                        isSelected ? styles.radioSelected : null,
-                      ]}
-                    >
-                      {isSelected ? <View style={styles.radioDot} /> : null}
+                        </View>
+                      ) : null}
                     </View>
                   </Pressable>
                 );
@@ -398,13 +318,12 @@ export function ChangeCardPicker({
                   hitSlop={6}
                   onPress={handleLoadMore}
                   style={({ pressed }) => [
-                    styles.loadMoreRow,
+                    styles.loadMoreButton,
                     pressed ? styles.loadMorePressed : null,
                   ]}
                   testID={`${testID}-load-more`}
                 >
-                  <Plus color={colors.brand} height={20} width={20} strokeWidth={2.4} />
-                  <Text style={styles.loadMoreLabel}>Load more</Text>
+                  <Text style={styles.loadMoreLabel}>LOAD MORE</Text>
                 </Pressable>
               ) : null}
             </ScrollView>
@@ -436,7 +355,7 @@ const styles = StyleSheet.create({
   topBar: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 16,
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
     paddingTop: 16,
   },
@@ -450,24 +369,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     width: 32,
   },
-  searchPill: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.35)',
-    borderColor: colors.gray0,
-    borderRadius: 999,
-    borderWidth: 1,
-    flex: 1,
-    flexDirection: 'row',
-    gap: 8,
-    height: 32,
-    paddingHorizontal: 12,
-  },
-  searchPlaceholder: {
-    color: colors.gray0,
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 13,
-    lineHeight: 18.2,
-  },
   sheetWrap: {
     position: 'absolute',
     left: 0,
@@ -476,7 +377,7 @@ const styles = StyleSheet.create({
     height: '85%',
   },
   sheet: {
-    backgroundColor: 'rgba(11, 11, 12, 0.96)',
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
     flex: 1,
     overflow: 'hidden',
     paddingHorizontal: 16,
@@ -493,130 +394,125 @@ const styles = StyleSheet.create({
     height: 4,
     width: 40,
   },
-  title: {
-    color: colors.gray0,
-    fontFamily: 'SpotlightBodySemiBold',
+  infoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
     marginTop: 12,
   },
-  heroRow: {
-    alignItems: 'flex-end',
-    alignSelf: 'center',
-    flexDirection: 'row',
-    gap: 20,
-    justifyContent: 'center',
+  infoPill: {
+    backgroundColor: colors.gray900,
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  infoPillText: {
+    color: colors.gray400,
+    fontFamily: 'SpotlightBodySemiBold',
+    fontSize: 13,
+    lineHeight: 18.2,
+  },
+  heroBox: {
+    backgroundColor: 'rgba(243, 235, 255, 0.15)',
+    borderColor: colors.purple300,
+    borderRadius: 8,
+    borderWidth: 1.5,
     marginTop: 16,
+    padding: 16,
+  },
+  heroRow: {
+    flexDirection: 'row',
+    gap: 16,
   },
   heroColumn: {
-    alignItems: 'center',
+    flex: 1,
     gap: 8,
   },
   heroCaption: {
-    color: colors.gray100,
-    fontFamily: 'SpotlightBodyMedium',
-    fontSize: 12,
-    lineHeight: 16.8,
-  },
-  heroWrap: {
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.12,
-    shadowRadius: 10,
-    elevation: 8,
+    color: colors.gray0,
+    fontFamily: 'SpotlightBodySemiBold',
+    fontSize: 13,
   },
   heroImage: {
-    aspectRatio: HERO_ASPECT,
     borderRadius: 8,
+    height: HERO_IMAGE_HEIGHT,
+    width: '100%',
   },
   heroPlaceholder: {
     backgroundColor: 'rgba(255, 255, 255, 0.04)',
-    borderRadius: 8,
   },
   listContent: {
     flexGrow: 1,
     gap: 12,
-    justifyContent: 'flex-end',
     paddingTop: 24,
   },
   cardRow: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.25)',
-    borderColor: 'transparent',
-    borderRadius: 12,
-    borderWidth: 1,
+    borderRadius: 8,
     flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingVertical: 12,
+    gap: 12,
+    padding: 12,
   },
   cardRowSelected: {
-    borderColor: colors.brand,
+    borderColor: colors.purple300,
+    borderWidth: 1.5,
+  },
+  cardRowUnselected: {
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+    borderWidth: 1,
   },
   cardRowPressed: {
     opacity: 0.88,
   },
-  cardRowLeft: {
-    alignItems: 'center',
-    flex: 1,
-    flexDirection: 'row',
-    gap: 16,
-  },
   thumb: {
-    borderRadius: 4,
-    height: 64,
-    width: 46,
+    borderRadius: 3,
+    height: 80,
+    width: 58,
   },
   thumbPlaceholder: {
     backgroundColor: 'rgba(255, 255, 255, 0.08)',
   },
   rowText: {
     flex: 1,
-    gap: 2,
+    gap: 4,
   },
   rowTitle: {
-    fontFamily: 'SpotlightBodyBold',
-    fontSize: 14,
-    lineHeight: 21,
+    color: colors.gray0,
+    fontFamily: 'SpotlightBodySemiBold',
+    fontSize: 16,
+    lineHeight: 21.6,
   },
   rowMeta: {
+    color: colors.gray400,
     fontFamily: 'SpotlightBodyMedium',
-    fontSize: 12,
-    lineHeight: 16.8,
+    fontSize: 13,
+    lineHeight: 18.2,
   },
-  radio: {
-    alignItems: 'center',
-    backgroundColor: colors.gray0,
-    borderColor: colors.gray300,
+  matchChip: {
+    alignSelf: 'flex-start',
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  matchChipText: {
+    fontFamily: 'SpotlightBodyBold',
+    fontSize: 11,
+    lineHeight: 14.3,
+  },
+  loadMoreButton: {
+    alignSelf: 'center',
+    borderColor: colors.purple300,
     borderRadius: 999,
     borderWidth: 1,
-    height: 16,
-    justifyContent: 'center',
-    width: 16,
-  },
-  radioSelected: {
-    backgroundColor: colors.gray0,
-    borderColor: colors.brand,
-  },
-  radioDot: {
-    backgroundColor: colors.brand,
-    borderRadius: 999,
-    height: 10,
-    width: 10,
-  },
-  loadMoreRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    paddingVertical: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 5,
   },
   loadMorePressed: {
     opacity: 0.7,
   },
   loadMoreLabel: {
-    color: colors.brand,
-    fontFamily: 'SpotlightBodySemiBold',
+    color: colors.purple300,
+    fontFamily: 'SpotlightBodyMedium',
     fontSize: 13,
     lineHeight: 18.2,
   },
 });
-
