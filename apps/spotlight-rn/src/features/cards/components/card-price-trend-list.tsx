@@ -29,7 +29,7 @@ export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
   return (
     <View style={styles.root} testID={testID}>
       <View style={styles.header}>
-        <Text style={theme.typography.titleSmall}>Price Trend</Text>
+        <Text style={theme.typography.titleMedium}>Price Trend</Text>
         <Image
           accessibilityLabel={providerLabel}
           resizeMode="contain"

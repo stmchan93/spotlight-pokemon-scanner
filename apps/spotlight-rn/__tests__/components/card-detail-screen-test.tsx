@@ -394,8 +394,7 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByText('PSA 10')).toBeTruthy();
   });
 
-  it('shows scan alternatives in the header chip and opens the candidate review', async () => {
-    const onOpenScanCandidateReview = jest.fn();
+  it('no longer renders the similar-cards button even with scan candidates present', async () => {
     const scanReviewId = saveScanCandidateReviewSession({
       id: 'scan-review-oshawott',
       selectedCardId: 'mcdonalds25-21',
@@ -431,29 +430,68 @@ describe('CardDetailScreen', () => {
         entryId="entry-2"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
-        onOpenScanCandidateReview={onOpenScanCandidateReview}
         scanReviewId={scanReviewId}
       />,
     );
 
-    expect(await screen.findByTestId('detail-similar-cards-button')).toBeTruthy();
-    expect(screen.getByText('9 similar')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('detail-similar-cards-button'));
-    expect(onOpenScanCandidateReview).toHaveBeenCalledWith(scanReviewId);
+    // The action buttons still render, but the "N similar" button is gone.
+    expect(await screen.findByTestId('detail-sell-now')).toBeTruthy();
+    expect(screen.getByTestId('detail-add-item')).toBeTruthy();
+    expect(screen.queryByTestId('detail-similar-cards-button')).toBeNull();
+    expect(screen.queryByText('9 similar')).toBeNull();
   });
 
-  it('hides the similar-cards chip when no scanReviewId is provided', async () => {
+  it('renders the variant selector for a multi-variant card and refetches trends on chip switch', async () => {
+    const getCardPriceTrends = jest.fn(async (query: { variant?: string | null }) => ({
+      mode: 'raw' as const,
+      provider: 'tcgplayer' as const,
+      rows: [
+        {
+          label: query.variant ?? 'Near Mint',
+          key: 'near_mint',
+          currentPrice: 1,
+          currencyCode: 'USD',
+          points: [1, 2, 3],
+          trendPct: 5,
+        },
+      ],
+    }));
+
     renderWithProviders(
       <CardDetailScreen
         cardId="sm7-1"
         onBack={jest.fn()}
         onOpenAddToCollection={jest.fn()}
       />,
+      {
+        spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }),
+      },
     );
 
-    expect(await screen.findByTestId('detail-name')).toBeTruthy();
-    expect(screen.queryByTestId('detail-similar-cards-button')).toBeNull();
+    // The selector renders above the trend with a chip per variant option.
+    expect(await screen.findByTestId('detail-variant-selector')).toBeTruthy();
+    expect(screen.getByTestId('detail-variant-chip-normal')).toBeTruthy();
+    expect(screen.getByTestId('detail-variant-chip-raw')).toBeTruthy();
+
+    // Initial fetch uses the seeded first variant ("Normal").
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenCalledWith(expect.objectContaining({
+        cardId: 'sm7-1',
+        mode: 'raw',
+        variant: 'Normal',
+      }));
+    });
+
+    // Switching to the "Raw" chip refetches trends with the new variant label.
+    fireEvent.press(screen.getByTestId('detail-variant-chip-raw'));
+
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenLastCalledWith(expect.objectContaining({
+        cardId: 'sm7-1',
+        mode: 'raw',
+        variant: 'Raw',
+      }));
+    });
   });
 
   it('renders an unavailable state when the repository returns no local card detail', async () => {

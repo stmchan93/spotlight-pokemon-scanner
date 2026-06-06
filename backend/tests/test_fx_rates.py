@@ -238,12 +238,149 @@ class FxRatesTests(unittest.TestCase):
         self.assertTrue(converted["displayIsConverted"])
         self.assertEqual(converted["fxSource"], "ecb")
 
-    def test_decorate_pricing_summary_with_fx_leaves_non_raw_or_usd_payloads_unchanged(self) -> None:
+    def test_decorate_pricing_summary_with_fx_leaves_usd_or_empty_payloads_unchanged(self) -> None:
         pricing = {"currencyCode": "USD", "pricingMode": "raw", "market": 12.0}
         self.assertIs(fx_rates.decorate_pricing_summary_with_fx(mock.Mock(), pricing), pricing)
 
-        graded = {"currencyCode": "EUR", "pricingMode": "psa_grade_estimate", "market": 12.0}
-        self.assertIs(fx_rates.decorate_pricing_summary_with_fx(mock.Mock(), graded), graded)
+        already_converted = {"currencyCode": "USD", "pricingMode": "psa_grade_estimate", "market": 12.0}
+        self.assertIs(fx_rates.decorate_pricing_summary_with_fx(mock.Mock(), already_converted), already_converted)
+
+        no_currency = {"currencyCode": "", "pricingMode": "raw", "market": 12.0}
+        self.assertIs(fx_rates.decorate_pricing_summary_with_fx(mock.Mock(), no_currency), no_currency)
+
+    @mock.patch.object(fx_rates, "ensure_fx_rate_snapshot")
+    def test_decorate_pricing_summary_with_fx_converts_graded_jpy_prices(
+        self,
+        mock_ensure_fx_rate_snapshot: mock.Mock,
+    ) -> None:
+        mock_ensure_fx_rate_snapshot.return_value = {
+            "baseCurrency": "JPY",
+            "quoteCurrency": "USD",
+            "rate": 0.0064,
+            "source": "ecb",
+            "effectiveAt": "2026-06-05",
+            "refreshedAt": "2026-06-05T12:00:00Z",
+            "isFresh": True,
+        }
+        graded = {
+            "currencyCode": "JPY",
+            "pricingMode": "psa_grade_estimate",
+            "low": 10000.0,
+            "market": 12000.0,
+            "mid": 11000.0,
+            "high": 14000.0,
+            "directLow": 9500.0,
+            "trend": 12500.0,
+        }
+
+        converted = fx_rates.decorate_pricing_summary_with_fx(mock.Mock(), graded)
+
+        mock_ensure_fx_rate_snapshot.assert_called_once_with(
+            mock.ANY, base_currency="JPY", quote_currency="USD"
+        )
+        self.assertEqual(converted["currencyCode"], "USD")
+        self.assertEqual(converted["nativeCurrencyCode"], "JPY")
+        self.assertEqual(converted["nativeMarket"], 12000.0)
+        self.assertEqual(converted["nativeHigh"], 14000.0)
+        self.assertEqual(converted["market"], 76.8)
+        self.assertEqual(converted["high"], 89.6)
+        self.assertEqual(converted["directLow"], 60.8)
+        self.assertTrue(converted["displayIsConverted"])
+        self.assertEqual(converted["fxSource"], "ecb")
+
+    @mock.patch.object(fx_rates, "ensure_fx_rate_snapshot")
+    def test_convert_price_trend_list_converts_current_price_and_points(
+        self,
+        mock_ensure_fx_rate_snapshot: mock.Mock,
+    ) -> None:
+        mock_ensure_fx_rate_snapshot.return_value = {
+            "baseCurrency": "JPY",
+            "quoteCurrency": "USD",
+            "rate": 0.0064,
+            "isFresh": True,
+        }
+        trend_list = {
+            "mode": "graded",
+            "provider": "ebay",
+            "rows": [
+                {
+                    "label": "PSA 10",
+                    "key": "PSA 10",
+                    "currentPrice": 12000.0,
+                    "currencyCode": "JPY",
+                    "points": [10000.0, 11000.0, 12000.0],
+                    "trendPct": 20.0,
+                }
+            ],
+        }
+
+        result = fx_rates.convert_price_trend_list_with_fx(mock.Mock(), trend_list)
+
+        # Rate fetched once for the single JPY currency.
+        mock_ensure_fx_rate_snapshot.assert_called_once_with(
+            mock.ANY, base_currency="JPY", quote_currency="USD"
+        )
+        row = result["rows"][0]
+        self.assertEqual(row["currencyCode"], "USD")
+        self.assertEqual(row["currentPrice"], 76.8)
+        self.assertEqual(row["points"], [64.0, 70.4, 76.8])
+        # trendPct is unchanged (ratio-invariant).
+        self.assertEqual(row["trendPct"], 20.0)
+
+    @mock.patch.object(fx_rates, "ensure_fx_rate_snapshot")
+    def test_convert_price_trend_list_leaves_usd_rows_untouched(
+        self,
+        mock_ensure_fx_rate_snapshot: mock.Mock,
+    ) -> None:
+        trend_list = {
+            "mode": "raw",
+            "provider": "tcgplayer",
+            "rows": [
+                {
+                    "label": "Near Mint",
+                    "key": "NM",
+                    "currentPrice": 13.0,
+                    "currencyCode": "USD",
+                    "points": [8.0, 9.0, 10.0],
+                    "trendPct": 25.0,
+                }
+            ],
+        }
+
+        result = fx_rates.convert_price_trend_list_with_fx(mock.Mock(), trend_list)
+
+        mock_ensure_fx_rate_snapshot.assert_not_called()
+        self.assertEqual(result["rows"][0]["currencyCode"], "USD")
+        self.assertEqual(result["rows"][0]["currentPrice"], 13.0)
+        self.assertEqual(result["rows"][0]["points"], [8.0, 9.0, 10.0])
+
+    @mock.patch.object(fx_rates, "ensure_fx_rate_snapshot", return_value=None)
+    def test_convert_price_trend_list_falls_back_when_no_fx_snapshot(
+        self,
+        _mock_ensure_fx_rate_snapshot: mock.Mock,
+    ) -> None:
+        trend_list = {
+            "mode": "graded",
+            "provider": "ebay",
+            "rows": [
+                {
+                    "label": "PSA 10",
+                    "key": "PSA 10",
+                    "currentPrice": 12000.0,
+                    "currencyCode": "JPY",
+                    "points": [10000.0, 11000.0],
+                    "trendPct": 10.0,
+                }
+            ],
+        }
+
+        result = fx_rates.convert_price_trend_list_with_fx(mock.Mock(), trend_list)
+
+        # Row left in native currency, no crash.
+        row = result["rows"][0]
+        self.assertEqual(row["currencyCode"], "JPY")
+        self.assertEqual(row["currentPrice"], 12000.0)
+        self.assertEqual(row["points"], [10000.0, 11000.0])
 
 
 if __name__ == "__main__":

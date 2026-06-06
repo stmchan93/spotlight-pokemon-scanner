@@ -42,15 +42,6 @@ export default function CardDetailRoute() {
           },
         });
       }}
-      onOpenScanCandidateReview={(nextScanReviewId) => {
-        router.push({
-          pathname: '/cards/[cardId]/scan-review',
-          params: {
-            cardId,
-            scanReviewId: nextScanReviewId,
-          },
-        });
-      }}
       onOpenTransaction={(cardLabel) => {
         router.push({
           pathname: '/card-transactions/new',

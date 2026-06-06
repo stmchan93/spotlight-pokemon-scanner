@@ -3,9 +3,10 @@ import { Pressable, StyleSheet, Text, View, type StyleProp, type TextStyle, type
 
 import { useSpotlightTheme } from '../theme';
 
-export type ButtonVariant = 'primary' | 'secondary' | 'ghost';
+export type ButtonVariant = 'primary' | 'secondary' | 'ghost' | 'outline' | 'accent';
 export type ButtonSize = 'sm' | 'md' | 'lg';
-export type ButtonLabelStyleVariant = 'body' | 'bodyStrong' | 'caption' | 'control';
+export type ButtonShape = 'pill' | 'rounded';
+export type ButtonLabelStyleVariant = 'body' | 'bodyStrong' | 'caption' | 'control' | 'label';
 
 type ButtonProps = {
   contentStyle?: StyleProp<ViewStyle>;
@@ -15,6 +16,7 @@ type ButtonProps = {
   labelStyleVariant?: ButtonLabelStyleVariant;
   leadingAccessory?: ReactNode;
   onPress?: () => void;
+  shape?: ButtonShape;
   size?: ButtonSize;
   style?: StyleProp<ViewStyle>;
   testID?: string;
@@ -48,6 +50,7 @@ export function Button({
   labelStyleVariant = 'control',
   leadingAccessory,
   onPress,
+  shape = 'pill',
   size = 'md',
   style,
   testID,
@@ -63,6 +66,8 @@ export function Button({
         ? theme.typography.control
       : labelStyleVariant === 'body'
         ? theme.typography.body
+      : labelStyleVariant === 'label'
+        ? theme.typography.label
         : theme.typography.bodyStrong;
 
   const colors =
@@ -77,6 +82,20 @@ export function Button({
             backgroundColor: 'transparent',
             borderColor: 'transparent',
             textColor: theme.colors.textPrimary,
+          }
+      : variant === 'outline'
+        ? {
+            // PDP secondary action: white card on white border (#E8E8E8), dark label.
+            backgroundColor: theme.colors.canvasElevated,
+            borderColor: theme.colors.gray200,
+            textColor: theme.colors.gray900,
+          }
+      : variant === 'accent'
+        ? {
+            // PDP ADD ITEM accent: purple/500 fill, white label.
+            backgroundColor: theme.colors.purple500,
+            borderColor: theme.colors.purple500,
+            textColor: theme.colors.gray0,
           }
         : {
             backgroundColor: theme.colors.brandStrong,
@@ -95,6 +114,7 @@ export function Button({
           minHeight: metrics.minHeight,
           paddingHorizontal: metrics.paddingHorizontal,
           paddingVertical: metrics.paddingVertical,
+          borderRadius: shape === 'rounded' ? theme.radii.sm : 999,
           backgroundColor: colors.backgroundColor,
           borderColor: colors.borderColor,
           opacity: disabled ? 0.45 : pressed ? 0.88 : 1,
@@ -130,7 +150,6 @@ const styles = StyleSheet.create({
   },
   button: {
     alignItems: 'center',
-    borderRadius: 999,
     borderWidth: 1,
     justifyContent: 'center',
   },

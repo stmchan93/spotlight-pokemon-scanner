@@ -174,8 +174,10 @@ def decorate_pricing_summary_with_fx(connection, pricing: dict[str, Any] | None)
         return None
 
     currency_code = str(pricing.get("currencyCode") or "").upper()
-    pricing_mode = str(pricing.get("pricingMode") or "")
-    if not currency_code or currency_code == "USD" or pricing_mode != "raw":
+    # Convert any non-USD pricing summary (raw OR graded). The early USD/empty
+    # guard keeps this idempotent: an already-converted summary carries
+    # currencyCode="USD" and is returned untouched (no double-conversion).
+    if not currency_code or currency_code == "USD":
         return pricing
 
     fx_snapshot = ensure_fx_rate_snapshot(connection, base_currency=currency_code, quote_currency="USD")
@@ -207,3 +209,70 @@ def decorate_pricing_summary_with_fx(connection, pricing: dict[str, Any] | None)
     converted["fxRefreshedAt"] = fx_snapshot.get("refreshedAt")
     converted["fxIsFresh"] = fx_snapshot.get("isFresh")
     return converted
+
+
+def convert_price_trend_list_with_fx(
+    connection,
+    trend_list: dict[str, Any] | None,
+) -> dict[str, Any] | None:
+    """Convert non-USD price-trend rows (currentPrice + points[]) to USD.
+
+    Each row in ``trend_list["rows"]`` carries its own native ``currencyCode``.
+    For every distinct non-USD currency we fetch the FX snapshot once and reuse
+    the rate across that currency's rows (currentPrice and every points value),
+    then set the row currencyCode to "USD". Rows already in USD are returned
+    unchanged, and rows whose FX snapshot is unavailable are left in their
+    native currency (no crash).
+    """
+    if not isinstance(trend_list, dict):
+        return trend_list
+
+    rows = trend_list.get("rows")
+    if not isinstance(rows, list) or not rows:
+        return trend_list
+
+    rate_cache: dict[str, Decimal | None] = {}
+
+    def _rate_for(currency: str) -> Decimal | None:
+        if currency in rate_cache:
+            return rate_cache[currency]
+        snapshot = ensure_fx_rate_snapshot(
+            connection,
+            base_currency=currency,
+            quote_currency="USD",
+        )
+        rate: Decimal | None = None
+        if snapshot is not None and isinstance(snapshot.get("rate"), (int, float)):
+            rate = Decimal(str(snapshot["rate"]))
+        rate_cache[currency] = rate
+        return rate
+
+    converted_rows: list[dict[str, Any]] = []
+    for row in rows:
+        if not isinstance(row, dict):
+            converted_rows.append(row)
+            continue
+        currency = str(row.get("currencyCode") or "").upper()
+        if not currency or currency == "USD":
+            converted_rows.append(row)
+            continue
+        rate = _rate_for(currency)
+        if rate is None:
+            # No FX snapshot available; leave the row in its native currency.
+            converted_rows.append(row)
+            continue
+        converted_row = dict(row)
+        converted_row["currentPrice"] = convert_price(row.get("currentPrice"), rate=rate)
+        points = row.get("points")
+        if isinstance(points, list):
+            converted_row["points"] = [
+                converted
+                for converted in (convert_price(point, rate=rate) for point in points)
+                if converted is not None
+            ]
+        converted_row["currencyCode"] = "USD"
+        converted_rows.append(converted_row)
+
+    result = dict(trend_list)
+    result["rows"] = converted_rows
+    return result

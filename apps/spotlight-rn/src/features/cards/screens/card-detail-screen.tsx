@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
+  Pressable,
   ScrollView,
   Share,
   StyleSheet,
@@ -25,9 +26,6 @@ import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
 import { buildTcgPlayerSearchUrl } from '@/features/cards/marketplace-urls';
-import {
-  resolveSimilarScanCandidates,
-} from '@/features/cards/screens/scan-candidate-review-screen';
 import {
   cardDetailPreviewFromCatalogResult,
   cardDetailPreviewFromInventoryEntry,
@@ -81,7 +79,6 @@ type CardDetailScreenProps = {
   entryId?: string;
   onBack: () => void;
   onOpenAddToCollection: (cardId: string, entryId?: string) => void;
-  onOpenScanCandidateReview?: (scanReviewId: string) => void;
   /** Opens the log-transaction flow (photo + bought/sold/traded) for this card. */
   onOpenTransaction?: (cardLabel: string) => void;
   previewId?: string;
@@ -100,7 +97,6 @@ export function CardDetailScreen({
   entryId,
   onBack,
   onOpenAddToCollection,
-  onOpenScanCandidateReview,
   onOpenTransaction,
   previewId,
   scanReviewId,
@@ -133,10 +129,6 @@ export function CardDetailScreen({
   const scanReviewSession = useMemo(
     () => getScanCandidateReviewSession(scanReviewId),
     [scanReviewId],
-  );
-  const similarScanCandidates = useMemo(
-    () => resolveSimilarScanCandidates(scanReviewSession, cardId),
-    [cardId, scanReviewSession],
   );
   const scanPreviewCandidate = useMemo(() => {
     return scanReviewSession?.candidates.find((candidate) => candidate.cardId === cardId) ?? null;
@@ -516,17 +508,6 @@ export function CardDetailScreen({
           </IconButton>
         </View>
 
-        {scanReviewId && similarScanCandidates.length > 0 ? (
-          <Button
-            label={`${similarScanCandidates.length} similar`}
-            onPress={() => onOpenScanCandidateReview?.(scanReviewId)}
-            size="sm"
-            style={styles.similarButton}
-            testID="detail-similar-cards-button"
-            variant="secondary"
-          />
-        ) : null}
-
         <CardDetailHero
           imageUrl={displayImageUrl}
           isFavorite={isFavorite}
@@ -551,20 +532,24 @@ export function CardDetailScreen({
           <Button
             disabled={!onOpenTransaction}
             label="SELL NOW"
+            labelStyleVariant="label"
             onPress={handleSellNow}
-            size="lg"
+            shape="rounded"
+            size="md"
             style={styles.actionButton}
             testID="detail-sell-now"
-            variant="secondary"
+            variant="outline"
           />
           <Button
             disabled={isAddPending}
             label="ADD ITEM"
+            labelStyleVariant="label"
             onPress={handleAddItem}
-            size="lg"
+            shape="rounded"
+            size="md"
             style={styles.actionButton}
             testID="detail-add-item"
-            variant="primary"
+            variant="accent"
           />
         </View>
 
@@ -587,7 +572,48 @@ export function CardDetailScreen({
         />
 
         {priceTrends && priceTrends.rows.length > 0 ? (
-          <CardPriceTrendList list={priceTrends} testID="detail-price-trends" />
+          <View style={styles.trendBlock}>
+            {variantOptions.length > 1 ? (
+              <ScrollView
+                contentContainerStyle={styles.variantSelectorRow}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                testID="detail-variant-selector"
+              >
+                {variantOptions.map((option) => {
+                  const selected = option.id === selectedVariant;
+                  return (
+                    <Pressable
+                      key={option.id}
+                      accessibilityRole="button"
+                      accessibilityState={{ selected }}
+                      onPress={() => setSelectedVariant(option.id)}
+                      style={({ pressed }) => [
+                        styles.variantChip,
+                        {
+                          borderRadius: theme.radii.sm,
+                          backgroundColor: selected ? theme.colors.gray900 : theme.colors.gray50,
+                          borderColor: selected ? theme.colors.gray900 : theme.colors.gray50,
+                          opacity: pressed ? 0.88 : 1,
+                        },
+                      ]}
+                      testID={`detail-variant-chip-${option.id}`}
+                    >
+                      <Text
+                        style={[
+                          theme.typography.label,
+                          { color: selected ? theme.colors.gray0 : theme.colors.gray900 },
+                        ]}
+                      >
+                        {option.label}
+                      </Text>
+                    </Pressable>
+                  );
+                })}
+              </ScrollView>
+            ) : null}
+            <CardPriceTrendList list={priceTrends} testID="detail-price-trends" />
+          </View>
         ) : null}
 
         {detail?.cardText ? (
@@ -641,7 +667,20 @@ const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
   },
-  similarButton: {
-    alignSelf: 'flex-start',
+  trendBlock: {
+    gap: 10,
+    width: '100%',
+  },
+  variantChip: {
+    alignItems: 'center',
+    borderWidth: 1,
+    justifyContent: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 7,
+  },
+  variantSelectorRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
   },
 });

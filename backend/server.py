@@ -104,7 +104,10 @@ from catalog_tools import (
     slab_recent_sales_cache,
     utc_now,
 )
-from fx_rates import decorate_pricing_summary_with_fx
+from fx_rates import (
+    convert_price_trend_list_with_fx,
+    decorate_pricing_summary_with_fx,
+)
 from ebay_comps import DEFAULT_RESULT_LIMIT as DEFAULT_EBAY_LISTING_LIMIT, fetch_graded_card_ebay_comps
 from pricecharting_adapter import PriceChartingProvider
 from pricing_provider import PricingProviderRegistry
@@ -1883,6 +1886,8 @@ class SpotlightScanService:
                     )
                 )
             ):
+                # `pricing` is already FX-decorated by
+                # `_pricing_summary_from_snapshot_row` (graded + raw).
                 return pricing
 
         pricing = contextual_pricing_summary_for_card(
@@ -2790,7 +2795,7 @@ class SpotlightScanService:
         """
         if card_by_id(self.connection, card_id) is None:
             return None
-        return card_price_trend_list(
+        trend_list = card_price_trend_list(
             self.connection,
             card_id,
             mode=mode,
@@ -2798,6 +2803,7 @@ class SpotlightScanService:
             variant=variant,
             grader=grader,
         )
+        return convert_price_trend_list_with_fx(self.connection, trend_list)
 
     def top_movers(
         self,

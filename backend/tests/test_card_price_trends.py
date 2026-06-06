@@ -21,8 +21,11 @@ from catalog_tools import (  # noqa: E402
     card_text_from_card,
     connect,
     upsert_card,
+    upsert_fx_rate_snapshot,
 )
-from server import SpotlightRequestHandler  # noqa: E402
+from server import SpotlightRequestHandler, SpotlightScanService  # noqa: E402
+
+REPO_ROOT = BACKEND_ROOT.parent
 
 
 _NOW = "2026-06-06T00:00:00Z"
@@ -289,6 +292,115 @@ class CardPriceTrendsRouteTests(unittest.TestCase):
 
         handler.service.card_price_trends.assert_not_called()
         self.assertEqual(captured["status"], HTTPStatus.BAD_REQUEST)
+
+
+def _graded_contexts_jpy(psa10: float) -> str:
+    return json.dumps(
+        {
+            "graders": {
+                "PSA": {
+                    "10": [
+                        {
+                            "grader": "PSA",
+                            "grade": "10",
+                            "variant": "Holofoil",
+                            "currencyCode": "JPY",
+                            "market": psa10,
+                            "trendsPct": {"days7": 1.0, "days30": 5.0, "days90": 9.0},
+                        }
+                    ]
+                }
+            }
+        }
+    )
+
+
+class JpyTrendFxConversionTests(unittest.TestCase):
+    """End-to-end: JPY graded snapshots convert to USD via the service path."""
+
+    def setUp(self) -> None:
+        self.tempdir = tempfile.TemporaryDirectory()
+        self.database_path = Path(self.tempdir.name) / "trends-fx.sqlite"
+        connection = connect(self.database_path)
+        apply_schema(connection, BACKEND_ROOT / "schema.sql")
+        upsert_card(
+            connection,
+            card_id="jp1",
+            name="JP Pokemon",
+            set_name="JP Set",
+            number="14",
+            rarity="Rare Holo",
+            variant="Raw",
+            language="Japanese",
+            supertype="Pokémon",
+        )
+        # Seed a fresh JPY->USD FX snapshot so no network fetch happens.
+        upsert_fx_rate_snapshot(
+            connection,
+            base_currency="JPY",
+            quote_currency="USD",
+            rate=0.0064,
+            source="ecb",
+            effective_at="2026-06-05",
+            source_url="https://example.test/fx",
+            payload={"seed": True},
+        )
+        # Daily history (JPY).
+        for price_date, psa10 in (
+            ("2026-06-01", 10000.0),
+            ("2026-06-02", 11000.0),
+            ("2026-06-03", 12000.0),
+        ):
+            connection.execute(
+                """
+                INSERT INTO card_price_history_daily (
+                    card_id, provider, price_date,
+                    graded_contexts_json, raw_contexts_json,
+                    display_currency_code, updated_at
+                ) VALUES (?,?,?,?,?,?,?)
+                """,
+                ("jp1", "scrydex", price_date, _graded_contexts_jpy(psa10), "{}", "JPY", _NOW),
+            )
+        connection.execute(
+            """
+            INSERT INTO card_price_snapshots (
+                card_id, provider, graded_contexts_json, raw_contexts_json,
+                display_currency_code, updated_at
+            ) VALUES (?,?,?,?,?,?)
+            """,
+            ("jp1", "scrydex", _graded_contexts_jpy(13000.0), "{}", "JPY", _NOW),
+        )
+        connection.commit()
+        connection.close()
+        self.service = SpotlightScanService(self.database_path, REPO_ROOT)
+
+    def tearDown(self) -> None:
+        self.service.connection.close()
+        self.tempdir.cleanup()
+
+    def test_graded_price_trends_convert_current_price_and_points_to_usd(self) -> None:
+        result = self.service.card_price_trends("jp1", mode="graded")
+        self.assertIsNotNone(result)
+        rows = result["rows"]
+        self.assertEqual(len(rows), 1)
+        row = rows[0]
+        self.assertEqual(row["key"], "PSA 10")
+        self.assertEqual(row["currencyCode"], "USD")
+        # 13000 * 0.0064 = 83.2
+        self.assertEqual(row["currentPrice"], 83.2)
+        # [10000, 11000, 12000] * 0.0064
+        self.assertEqual(row["points"], [64.0, 70.4, 76.8])
+
+    def test_graded_card_detail_pricing_converts_to_usd(self) -> None:
+        detail = self.service.card_detail("jp1", grader="PSA", grade="10")
+        self.assertIsNotNone(detail)
+        pricing = detail["card"].get("pricing")
+        self.assertIsNotNone(pricing)
+        self.assertEqual(pricing["currencyCode"], "USD")
+        self.assertEqual(pricing["nativeCurrencyCode"], "JPY")
+        self.assertEqual(pricing["nativeMarket"], 13000.0)
+        self.assertEqual(pricing["market"], 83.2)
+        self.assertTrue(pricing["displayIsConverted"])
 
 
 if __name__ == "__main__":

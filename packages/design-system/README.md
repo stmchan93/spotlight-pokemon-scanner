@@ -89,17 +89,26 @@ Current API concepts:
   - `primary`
   - `secondary`
   - `ghost`
+  - `outline` — white card on a `gray200` (#E8E8E8) border with a `gray900` label (PDP secondary action)
+  - `accent` — `purple500` (#A54BFA) fill with a white label (PDP ADD ITEM accent)
 - sizes:
   - `sm`
   - `md`
   - `lg`
+- shape (defaults to `pill`):
+  - `pill` — fully rounded (radius 999), the historical default
+  - `rounded` — `radii.sm` (8) corners
 - label styles:
   - `control`
   - `body`
   - `bodyStrong`
   - `caption`
+  - `label` — 13px Medium (`typography.label`)
 - optional `leadingAccessory`
 - optional `trailingAccessory`
+
+PDP usage: `<Button variant="outline" shape="rounded" labelStyleVariant="label" … />` and
+`<Button variant="accent" shape="rounded" labelStyleVariant="label" … />`.
 
 ### IconButton
 

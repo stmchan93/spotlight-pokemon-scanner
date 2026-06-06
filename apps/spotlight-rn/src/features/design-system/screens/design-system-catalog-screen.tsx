@@ -153,6 +153,23 @@ export function DesignSystemCatalogScreen({
               <Button label="Ghost" testID="catalog-button-ghost" variant="ghost" />
             </View>
 
+            <View style={styles.buttonRow}>
+              <Button
+                label="Outline"
+                labelStyleVariant="label"
+                shape="rounded"
+                testID="catalog-button-outline"
+                variant="outline"
+              />
+              <Button
+                label="Add Item"
+                labelStyleVariant="label"
+                shape="rounded"
+                testID="catalog-button-accent"
+                variant="accent"
+              />
+            </View>
+
             <Button
               label="Marketplace"
               testID="catalog-button-accessory"

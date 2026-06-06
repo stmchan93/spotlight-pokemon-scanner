@@ -31,6 +31,7 @@ export const colors = {
   // "Scanning for" sheet's SELECTED radio (ring + inner dot). Brighter/more
   // saturated than purple300; matches scannerAddPurple but named per the Figma
   // color ramp so the radio's selected tone reads from a documented token.
+  // Also the PDP ADD ITEM accent Button fill (Figma Color/purple/500).
   purple500: '#A54BFA',
   chartLine: '#9B5FE6',
   success: '#2DBB6D',
