@@ -23,7 +23,7 @@ from raw_visual_dataset_paths import (
 )
 
 
-USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
+USER_AGENT = "Ekalight/0.1 (+https://local.ekalight.app)"
 
 
 def is_scrydex_mapping(mapping: dict[str, Any]) -> bool:

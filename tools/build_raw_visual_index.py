@@ -29,7 +29,7 @@ from scrydex_adapter import map_scrydex_catalog_card, scrydex_api_request  # noq
 from raw_visual_model import RawVisualFrozenEncoder, load_projection_adapter, project_embeddings_numpy, resolve_torch_device  # noqa: E402
 
 
-USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
+USER_AGENT = "Ekalight/0.1 (+https://local.ekalight.app)"
 DEFAULT_SUPERTYPES = ["pokemon", "trainer", "energy"]
 DEFAULT_CROP_PRESET = "none"
 ARTWORK_V1_CROP_BOX = (

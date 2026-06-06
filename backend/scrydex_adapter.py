@@ -39,7 +39,7 @@ from pricing_provider import ProviderMetadata, PricingProvider, PsaPricingResult
 
 SCRYDEX_PROVIDER = "scrydex"
 SCRYDEX_BASE_URL = "https://api.scrydex.com"
-SCRYDEX_USER_AGENT = "Looty/0.1 (+https://local.looty.app)"
+SCRYDEX_USER_AGENT = "Ekalight/0.1 (+https://local.ekalight.app)"
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 5
 DEFAULT_CATALOG_SYNC_TIMEOUT_SECONDS = 30
 SCRYDEX_FULL_CATALOG_SYNC_SCOPE = "raw_catalog_full"

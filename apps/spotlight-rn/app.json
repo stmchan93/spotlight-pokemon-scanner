@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Looty",
+    "name": "Ekalight",
     "slug": "looty",
     "version": "0.1.1",
     "orientation": "portrait",
@@ -13,7 +13,7 @@
       "usesAppleSignIn": true,
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
-        "NSCameraUsageDescription": "Allow Looty to use your camera to scan cards.",
+        "NSCameraUsageDescription": "Allow Ekalight to use your camera to scan cards.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
@@ -44,7 +44,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Looty to use your camera to scan cards.",
+          "cameraPermission": "Allow Ekalight to use your camera to scan cards.",
           "recordAudioAndroid": false,
           "barcodeScannerEnabled": false
         }
