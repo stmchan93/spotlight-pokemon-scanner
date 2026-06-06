@@ -239,6 +239,219 @@ if [ -f "$BACKEND_DIR/data/slab_set_aliases.json" ]; then
   mkdir -p "$BUNDLE_ROOT/data"
   cp "$BACKEND_DIR/data/slab_set_aliases.json" "$BUNDLE_ROOT/data/slab_set_aliases.json"
 fi
+# --------------------------------------------------------------------------
+# Rerank-pool / adapter embedding-space preflight guard.
+#
+# This script EXCLUDES ./data from the bundle (see the tar --exclude='./data'
+# above), so it does NOT deploy the raw-visual adapter (.pt) or the reference
+# visual index (.npz/manifest). Those are provisioned on the VM out-of-band.
+# It DOES ship the small user-photo rerank pool. That asymmetry is the trap we
+# guard against here: the stage-2 rerank compares query embeddings (produced by
+# the VM's ACTIVE adapter) against the pool's stored embeddings (produced by
+# whatever adapter the pool was BUILT against). If those two adapters differ,
+# the embeddings live in different spaces and the boost is meaningless/harmful.
+#
+# We cannot see the VM's adapter from here, so we verify the locally-active
+# adapter against the pool the deployed env actually loads, and we shout the
+# out-of-band requirement so the operator confirms the VM adapter matches.
+guard_rerank_pool() {
+  if [ "${SPOTLIGHT_SKIP_RERANK_GUARD:-0}" = "1" ]; then
+    echo "NOTE: rerank-pool guard skipped (SPOTLIGHT_SKIP_RERANK_GUARD=1)." >&2
+    return 0
+  fi
+
+  echo
+  echo "NOTE: this deploy does NOT ship the raw-visual adapter or reference index."
+  echo "      (./data is excluded from the bundle.) Only code + the user-photo"
+  echo "      rerank pool travel with this deploy. The VM's active adapter/index"
+  echo "      must be updated out-of-band, and the shipped rerank pool MUST have"
+  echo "      been built in that SAME adapter's embedding space."
+
+  local active_meta="$BACKEND_DIR/data/visual-models/raw_visual_adapter_active_metadata.json"
+  local env_file="$BACKEND_DIR/.env.$ENVIRONMENT"
+
+  # The pool the deployed env actually loads (preferred), else any shipped pool.
+  local pool_manifest=""
+  if [ -f "$env_file" ]; then
+    pool_manifest="$(read_dotenv_value "$env_file" "SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_MANIFEST_PATH")"
+  fi
+  if [ -n "$pool_manifest" ]; then
+    case "$pool_manifest" in
+      /*) : ;;
+      *) pool_manifest="$REPO_ROOT/$pool_manifest" ;;
+    esac
+  fi
+
+  # Run the comparison in python3. Exit codes: 0 ok, 2 mismatch (hard abort),
+  # 3 indeterminate (warn-only, fail-safe).
+  local guard_out=""
+  set +e
+  guard_out="$(python3 - "$active_meta" "$pool_manifest" "$BACKEND_DIR" <<'PY'
+import json, re, sys
+from pathlib import Path
+
+active_meta_path = Path(sys.argv[1])
+configured_pool = sys.argv[2].strip()
+backend_dir = Path(sys.argv[3])
+
+def load(p):
+    try:
+        return json.loads(Path(p).read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+def version_token(s):
+    # Pull an explicit adapter version token like "v010"/"v011" if present.
+    if not s:
+        return None
+    m = re.search(r"v0*(\d+)", str(s))
+    return f"v{int(m.group(1))}" if m else None
+
+active = load(active_meta_path)
+if not active:
+    print("INDETERMINATE|local active adapter metadata missing or unreadable "
+          f"at {active_meta_path}")
+    sys.exit(3)
+
+active_version = active.get("artifactVersion")
+active_generated = active.get("generatedAt")
+active_model = active.get("modelId")
+active_dim = active.get("embeddingDim")
+active_vtok = version_token(active_version)
+
+# Resolve the pool manifest to guard. Prefer the env-configured pool; else fall
+# back to the shipped active pool; else any shipped dated pool.
+candidates = []
+if configured_pool:
+    candidates.append(Path(configured_pool))
+vidx = backend_dir / "data" / "visual-index"
+candidates.append(vidx / "visual_index_user_photos_rerank_pool_active_manifest.json")
+for p in sorted(vidx.glob("visual_index_user_photos_rerank_pool_*_manifest.json")):
+    candidates.append(p)
+
+pool_path = next((c for c in candidates if c and c.exists()), None)
+if pool_path is None:
+    # No pool to ship -> nothing to guard. (The bundling step below is also a no-op.)
+    print(f"OK|no rerank pool present to guard (active adapter {active_version})")
+    sys.exit(0)
+
+pool = load(pool_path)
+if not pool:
+    print(f"INDETERMINATE|rerank pool manifest unreadable at {pool_path}")
+    sys.exit(3)
+
+pool_version = pool.get("artifactVersion")
+pool_generated = pool.get("generatedAt")
+pool_model = pool.get("modelId")
+pool_dim = pool.get("embeddingDimension") or pool.get("embeddingDim")
+pool_ckpt = pool.get("adapterCheckpointPath")
+pool_vtok = version_token(pool_version)
+
+ctx = (f"active adapter={active_version} (built {active_generated}); "
+       f"pool={pool_path.name} version={pool_version} (built {pool_generated}, "
+       f"adapterCheckpointPath={pool_ckpt})")
+
+# --- Hard mismatch: model / embedding-dim disagree (different encoder entirely).
+if pool_model and active_model and pool_model != active_model:
+    print(f"MISMATCH|pool modelId {pool_model!r} != active adapter modelId "
+          f"{active_model!r}. {ctx}")
+    sys.exit(2)
+if pool_dim and active_dim and int(pool_dim) != int(active_dim):
+    print(f"MISMATCH|pool embedding dim {pool_dim} != active adapter dim "
+          f"{active_dim}. {ctx}")
+    sys.exit(2)
+
+# --- Hard mismatch: explicit, differing adapter-version tokens on both sides.
+# Pools built against a specific adapter often carry that token (e.g. "...-v011").
+# If both carry a token and they differ, the pool was built in another space.
+if active_vtok and pool_vtok and active_vtok != pool_vtok:
+    print(f"MISMATCH|pool adapter-version token {pool_vtok} != active adapter "
+          f"token {active_vtok}. {ctx}")
+    sys.exit(2)
+
+# --- Hard mismatch: pool predates the active adapter swap. The pool's
+# adapterCheckpointPath points at the rolling raw_visual_adapter_active.pt, so a
+# pool built BEFORE the current adapter became active was necessarily built in a
+# prior adapter's space.
+def parse_ts(s):
+    if not s:
+        return None
+    try:
+        from datetime import datetime, timezone
+        s2 = str(s).replace("Z", "+00:00")
+        dt = datetime.fromisoformat(s2)
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return dt
+    except Exception:
+        return None
+
+a_ts = parse_ts(active_generated)
+p_ts = parse_ts(pool_generated)
+if a_ts and p_ts and p_ts < a_ts:
+    print(f"MISMATCH|rerank pool was built ({pool_generated}) BEFORE the current "
+          f"active adapter became active ({active_generated}), so it was built in "
+          f"a prior adapter's embedding space. {ctx}")
+    sys.exit(2)
+
+# --- Could not positively confirm a match (e.g. no tokens, no timestamps).
+if not ((active_vtok and pool_vtok) or (a_ts and p_ts)):
+    print(f"INDETERMINATE|could not compare adapter versions (no version tokens "
+          f"and no comparable build timestamps). {ctx}")
+    sys.exit(3)
+
+print(f"OK|rerank pool appears built in the active adapter's space. {ctx}")
+sys.exit(0)
+PY
+)"
+  local guard_rc=$?
+  set -e
+
+  local guard_kind="${guard_out%%|*}"
+  local guard_msg="${guard_out#*|}"
+
+  case "$guard_rc" in
+    0)
+      echo "Rerank-pool guard: OK. $guard_msg"
+      ;;
+    3)
+      echo >&2
+      echo "WARNING: rerank-pool guard could not verify adapter/pool match." >&2
+      echo "         $guard_msg" >&2
+      echo "         Proceeding (fail-safe). Manually confirm the shipped pool was" >&2
+      echo "         built in the VM's active adapter space before relying on rerank." >&2
+      echo "         Set SPOTLIGHT_SKIP_RERANK_GUARD=1 to silence this." >&2
+      ;;
+    2)
+      echo >&2
+      echo "ABORT: rerank-pool / adapter embedding-space MISMATCH detected." >&2
+      echo "       $guard_msg" >&2
+      echo >&2
+      echo "       Shipping this pool would compare embeddings from two different" >&2
+      echo "       adapters, producing meaningless or harmful stage-2 rerank boosts." >&2
+      echo >&2
+      echo "       Rebuild the pool in the active adapter's space, e.g.:" >&2
+      echo "         python3 tools/build_user_photo_rerank_pool.py \\" >&2
+      echo "           --adapter-checkpoint backend/data/visual-models/raw_visual_adapter_active.pt \\" >&2
+      echo "           --output-dir backend/data/visual-index \\" >&2
+      echo "           --artifact-version <new-pool-version>" >&2
+      echo "       then point SPOTLIGHT_VISUAL_USER_PHOTO_RERANK_POOL_{NPZ,MANIFEST}_PATH" >&2
+      echo "       in backend/.env.$ENVIRONMENT at the new pool and redeploy." >&2
+      echo >&2
+      echo "       If you are certain the pool matches the VM's active adapter," >&2
+      echo "       re-run with SPOTLIGHT_SKIP_RERANK_GUARD=1 to override." >&2
+      exit 1
+      ;;
+    *)
+      echo >&2
+      echo "WARNING: rerank-pool guard exited unexpectedly (rc=$guard_rc); proceeding." >&2
+      echo "         ${guard_out:-<no output>}" >&2
+      ;;
+  esac
+}
+
+guard_rerank_pool
+
 # Ship the user-photo rerank pool with the bundle. It is small (~1MB) and changes
 # as new confirmed scans accrue, so unlike the large reference index (provisioned
 # on the VM separately and excluded above) it travels with each deploy. The remote
