@@ -55,7 +55,6 @@ describe('CardDetailScreen', () => {
     expect(await screen.findByTestId('detail-name')).toBeTruthy();
     expect(screen.getByTestId('detail-header-title').props.children).toBe('Treecko');
     expect(screen.getByTestId('detail-name').props.children).toBe('Treecko');
-    expect(screen.getByTestId('sell-backdrop')).toBeTruthy();
     expect(screen.getByTestId('detail-back')).toBeTruthy();
     expect(screen.getByTestId('detail-share')).toBeTruthy();
     expect(screen.getByTestId('detail-hero-card')).toBeTruthy();
@@ -201,10 +200,10 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grade-trigger'));
-    fireEvent.press(await screen.findByTestId('detail-grade-picker-option-lightly_played'));
+    fireEvent.press(await screen.findByTestId('detail-configurator-grade-option-lightly_played'));
 
     await waitFor(() => {
-      expect(screen.queryByTestId('detail-grade-picker-option-lightly_played')).toBeNull();
+      expect(screen.queryByTestId('detail-configurator-grade-option-lightly_played')).toBeNull();
     });
   });
 
@@ -220,9 +219,9 @@ describe('CardDetailScreen', () => {
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-BGS'));
     fireEvent.press(screen.getByTestId('detail-configurator-grade-trigger'));
 
-    expect(await screen.findByTestId('detail-grade-picker-option-10')).toBeTruthy();
-    expect(screen.getByTestId('detail-grade-picker-option-9.5')).toBeTruthy();
-    expect(screen.queryByTestId('detail-grade-picker-option-near_mint')).toBeNull();
+    expect(await screen.findByTestId('detail-configurator-grade-option-10')).toBeTruthy();
+    expect(screen.getByTestId('detail-configurator-grade-option-9.5')).toBeTruthy();
+    expect(screen.queryByTestId('detail-configurator-grade-option-near_mint')).toBeNull();
   });
 
   it('refetches price trends when the grader lens changes to graded', async () => {
@@ -345,168 +344,6 @@ describe('CardDetailScreen', () => {
       expect(setCardFavorite).toHaveBeenLastCalledWith('sm7-1', false);
       expect(screen.getByTestId('detail-hero-card-favorite').props.accessibilityLabel)
         .toBe('Add to favorites');
-    });
-  });
-
-  it('shows the owned management row and routes increment/edit for owned cards', async () => {
-    const onOpenAddToCollection = jest.fn();
-
-    renderWithProviders(
-      <CardDetailScreen
-        cardId="xyp-111"
-        entryId="entry-3"
-        onBack={jest.fn()}
-        onOpenAddToCollection={onOpenAddToCollection}
-      />,
-    );
-
-    expect(await screen.findByTestId('detail-quantity-stepper')).toBeTruthy();
-    expect(screen.getByTestId('detail-quantity-increment')).toBeTruthy();
-    expect(screen.getByTestId('detail-edit-collection-entry')).toBeTruthy();
-
-    fireEvent.press(screen.getByTestId('detail-quantity-increment'));
-    expect(onOpenAddToCollection).toHaveBeenLastCalledWith('xyp-111', undefined);
-
-    fireEvent.press(screen.getByTestId('detail-edit-collection-entry'));
-    expect(onOpenAddToCollection).toHaveBeenLastCalledWith('xyp-111', 'entry-3');
-  });
-
-  it('decrements quantity via replacePortfolioEntry when qty > 1', async () => {
-    const baseRepository = createTestSpotlightRepository();
-    const gradedEntry: InventoryCardEntry = {
-      addedAt: '2026-04-27T12:00:00.000Z',
-      cardId: 'sm7-1',
-      cardNumber: '#001/096',
-      conditionCode: null,
-      conditionLabel: null,
-      conditionShortLabel: null,
-      costBasisPerUnit: 25,
-      costBasisTotal: 75,
-      currencyCode: 'USD',
-      hasMarketPrice: true,
-      id: 'entry-qty-3',
-      imageUrl: 'https://cdn.spotlight.test/sm7/treecko-psa10.png',
-      kind: 'graded',
-      marketPrice: 30,
-      name: 'Treecko',
-      quantity: 3,
-      setName: 'Sky Stream',
-      slabContext: { certNumber: '00012345', grade: '10', grader: 'PSA', variantName: 'PSA 10' },
-      variantName: 'PSA 10',
-    };
-    const replacePortfolioEntry = jest.fn(async () => ({
-      cardID: 'sm7-1',
-      deckEntryID: 'entry-qty-3',
-      previousDeckEntryID: 'entry-qty-3',
-      quantity: 2,
-      unitPrice: 25,
-      updatedAt: '2026-05-15T00:00:00.000Z',
-    }));
-
-    renderWithProviders(
-      <CardDetailScreen
-        cardId="sm7-1"
-        entryId="entry-qty-3"
-        onBack={jest.fn()}
-        onOpenAddToCollection={jest.fn()}
-      />,
-      {
-        spotlightRepository: createTestSpotlightRepository({
-          getCardDetail: async (query) => {
-            const detail = await baseRepository.getCardDetail(query);
-            return detail
-              ? ({ ...detail, ownedEntries: [gradedEntry] } satisfies CardDetailRecord)
-              : null;
-          },
-          replacePortfolioEntry,
-        }),
-      },
-    );
-
-    expect(await screen.findByTestId('detail-quantity-value')).toBeTruthy();
-    expect(screen.queryByTestId('detail-quantity-delete')).toBeNull();
-
-    fireEvent.press(screen.getByTestId('detail-quantity-decrement'));
-
-    await waitFor(() => {
-      expect(replacePortfolioEntry).toHaveBeenCalledWith(expect.objectContaining({
-        cardID: 'sm7-1',
-        deckEntryID: 'entry-qty-3',
-        quantity: 2,
-        unitPrice: 25,
-      }));
-    });
-  });
-
-  it('shows the trash icon when qty === 1 and confirms before deleting', async () => {
-    const baseRepository = createTestSpotlightRepository();
-    const rawEntry: InventoryCardEntry = {
-      addedAt: '2026-04-27T12:00:00.000Z',
-      cardId: 'sm7-1',
-      cardNumber: '#001/096',
-      conditionCode: 'near_mint',
-      conditionLabel: 'Near Mint',
-      conditionShortLabel: 'NM',
-      costBasisPerUnit: null,
-      costBasisTotal: null,
-      currencyCode: 'USD',
-      hasMarketPrice: true,
-      id: 'entry-solo-raw',
-      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
-      kind: 'raw',
-      marketPrice: 2,
-      name: 'Treecko',
-      quantity: 1,
-      setName: 'Sky Stream',
-      variantName: null,
-    };
-    const deletePortfolioEntry = jest.fn(async () => ({
-      cardID: 'sm7-1',
-      deckEntryID: 'entry-solo-raw',
-    }));
-    const onBack = jest.fn();
-
-    renderWithProviders(
-      <CardDetailScreen
-        cardId="sm7-1"
-        entryId="entry-solo-raw"
-        onBack={onBack}
-        onOpenAddToCollection={jest.fn()}
-      />,
-      {
-        spotlightRepository: createTestSpotlightRepository({
-          getCardDetail: async (query) => {
-            const detail = await baseRepository.getCardDetail(query);
-            return detail
-              ? ({ ...detail, ownedEntries: [rawEntry] } satisfies CardDetailRecord)
-              : null;
-          },
-          deletePortfolioEntry,
-        }),
-      },
-    );
-
-    expect(await screen.findByTestId('detail-quantity-delete')).toBeTruthy();
-    expect(screen.queryByTestId('detail-quantity-decrement')).toBeNull();
-
-    fireEvent.press(screen.getByTestId('detail-quantity-delete'));
-    expect(await screen.findByTestId('detail-delete-confirm-confirm')).toBeTruthy();
-    expect(deletePortfolioEntry).not.toHaveBeenCalled();
-
-    // Cancel keeps the entry.
-    fireEvent.press(screen.getByTestId('detail-delete-confirm-cancel'));
-    await waitFor(() => {
-      expect(screen.queryByTestId('detail-delete-confirm-confirm')).toBeNull();
-    });
-    expect(deletePortfolioEntry).not.toHaveBeenCalled();
-
-    // Re-open and confirm: triggers delete + navigates back.
-    fireEvent.press(screen.getByTestId('detail-quantity-delete'));
-    fireEvent.press(await screen.findByTestId('detail-delete-confirm-confirm'));
-
-    await waitFor(() => {
-      expect(deletePortfolioEntry).toHaveBeenCalledWith({ deckEntryID: 'entry-solo-raw' });
-      expect(onBack).toHaveBeenCalled();
     });
   });
 

@@ -175,6 +175,14 @@ export const textStyles = {
     color: colors.gray900,
   } satisfies TextStyle,
   // Figma "Title-medium" — 18/600/130% gray-900
+  // Figma "Title-large" — 22/700/125% gray-900
+  titleLarge: {
+    ...numericFontVariant,
+    fontFamily: fontFamilies.bodyBold,
+    fontSize: 22,
+    lineHeight: 27.5,
+    color: colors.gray900,
+  } satisfies TextStyle,
   titleMedium: {
     ...numericFontVariant,
     fontFamily: fontFamilies.bodySemiBold,

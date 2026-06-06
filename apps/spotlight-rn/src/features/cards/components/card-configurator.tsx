@@ -1,12 +1,14 @@
+import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
-import {
-  IconButton,
-  useSpotlightTheme,
-  type SpotlightTheme,
-} from '@spotlight/design-system';
+import { useSpotlightTheme, type SpotlightTheme } from '@spotlight/design-system';
 import type { MarketHistoryOption } from '@spotlight/api-client';
-import { Minus, NavArrowDown, Plus } from 'iconoir-react-native';
+import { Minus, NavArrowDown, NavArrowUp, Plus } from 'iconoir-react-native';
+
+type GradeOption = {
+  id: string;
+  label: string;
+};
 
 type CardConfiguratorProps = {
   variants: MarketHistoryOption[];
@@ -17,7 +19,9 @@ type CardConfiguratorProps = {
   onSelectGrader: (grader: string) => void;
   gradeLabel: string | null;
   gradeTitle: string;
-  onPressGrade: () => void;
+  gradeOptions: GradeOption[];
+  gradeSelectedId: string | null;
+  onSelectGrade: (id: string) => void;
   quantity: number;
   onDecrement: () => void;
   onIncrement: () => void;
@@ -26,10 +30,10 @@ type CardConfiguratorProps = {
 
 /**
  * Solid-dark-when-selected option chip matching the Figma card-detail design:
- * selected = gray900 fill + white label, unselected = light field fill + dark
+ * selected = gray900 fill + white label, unselected = gray50 fill + dark
  * label. PillButton's tones don't express the dark-selected state, so this
  * local chip drives the variant / grader rows while still using shared tokens
- * and the `control` typography role.
+ * and the 13/medium `label` typography role (color overridden).
  */
 function OptionChip({
   label,
@@ -52,8 +56,9 @@ function OptionChip({
       style={({ pressed }) => [
         styles.chip,
         {
-          backgroundColor: selected ? theme.colors.gray900 : theme.colors.field,
-          borderColor: selected ? theme.colors.gray900 : theme.colors.outlineSubtle,
+          borderRadius: theme.radii.sm,
+          backgroundColor: selected ? theme.colors.gray900 : theme.colors.gray50,
+          borderColor: selected ? theme.colors.gray900 : theme.colors.gray50,
           opacity: pressed ? 0.88 : 1,
         },
       ]}
@@ -61,8 +66,8 @@ function OptionChip({
     >
       <Text
         style={[
-          theme.typography.control,
-          { color: selected ? theme.colors.gray0 : theme.colors.textPrimary },
+          theme.typography.label,
+          { color: selected ? theme.colors.gray0 : theme.colors.gray900 },
         ]}
       >
         {label}
@@ -73,7 +78,7 @@ function OptionChip({
 
 function GroupTitle({ children, theme }: { children: string; theme: SpotlightTheme }) {
   return (
-    <Text style={[theme.typography.captionMedium, { color: theme.colors.gray600 }]}>
+    <Text style={[theme.typography.titleSmall, { color: theme.colors.gray900 }]}>
       {children}
     </Text>
   );
@@ -88,20 +93,23 @@ export function CardConfigurator({
   onSelectGrader,
   gradeLabel,
   gradeTitle,
-  onPressGrade,
+  gradeOptions,
+  gradeSelectedId,
+  onSelectGrade,
   quantity,
   onDecrement,
   onIncrement,
   testID,
 }: CardConfiguratorProps) {
   const theme = useSpotlightTheme();
+  const [gradeOpen, setGradeOpen] = useState(false);
 
   return (
-    <View style={[styles.root, { gap: theme.spacing.md }]} testID={testID}>
+    <View style={[styles.root, { gap: 16 }]} testID={testID}>
       {variants.length > 0 ? (
-        <View style={[styles.group, { gap: theme.spacing.xs }]}>
+        <View style={[styles.group, { gap: 10 }]}>
           <GroupTitle theme={theme}>Variant</GroupTitle>
-          <View style={[styles.chipRow, { gap: theme.spacing.xxs }]}>
+          <View style={[styles.chipRow, { gap: 6 }]}>
             {variants.map((variant) => (
               <OptionChip
                 key={variant.id}
@@ -116,9 +124,9 @@ export function CardConfigurator({
         </View>
       ) : null}
 
-      <View style={[styles.group, { gap: theme.spacing.xs }]}>
+      <View style={[styles.group, { gap: 10 }]}>
         <GroupTitle theme={theme}>Grader</GroupTitle>
-        <View style={[styles.chipRow, { gap: theme.spacing.xxs }]}>
+        <View style={[styles.chipRow, { gap: 10 }]}>
           {graders.map((grader) => (
             <OptionChip
               key={grader}
@@ -132,73 +140,98 @@ export function CardConfigurator({
         </View>
       </View>
 
-      <View style={[styles.group, { gap: theme.spacing.xs }]}>
+      <View style={[styles.group, { gap: 10 }]}>
         <GroupTitle theme={theme}>{gradeTitle}</GroupTitle>
-        <Pressable
-          accessibilityRole="button"
-          accessibilityLabel={`${gradeTitle}: ${gradeLabel ?? 'Select'}`}
-          onPress={onPressGrade}
-          style={({ pressed }) => [
-            styles.dropdown,
-            {
-              backgroundColor: theme.colors.field,
-              borderColor: theme.colors.outlineSubtle,
-              borderRadius: theme.radii.md,
-              opacity: pressed ? 0.9 : 1,
-            },
-          ]}
-          testID={testID ? `${testID}-grade-trigger` : undefined}
-        >
-          <Text
-            style={[
-              theme.typography.control,
-              { color: gradeLabel ? theme.colors.textPrimary : theme.colors.gray500 },
-            ]}
-          >
-            {gradeLabel ?? 'Select'}
-          </Text>
-          <NavArrowDown color={theme.colors.gray600} height={18} width={18} />
-        </Pressable>
-      </View>
-
-      <View style={[styles.group, { gap: theme.spacing.xs }]}>
-        <GroupTitle theme={theme}>Quantity</GroupTitle>
         <View
           style={[
-            styles.stepper,
-            {
-              backgroundColor: theme.colors.field,
-              borderColor: theme.colors.outlineSubtle,
-              borderRadius: theme.radii.pill,
-              gap: theme.spacing.sm,
-            },
+            styles.gradePanel,
+            { backgroundColor: theme.colors.gray50, borderRadius: theme.radii.sm },
           ]}
         >
-          <IconButton
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`${gradeTitle}: ${gradeLabel ?? 'Select'}`}
+            accessibilityState={{ expanded: gradeOpen }}
+            onPress={() => setGradeOpen((open) => !open)}
+            style={({ pressed }) => [styles.gradeHeader, { opacity: pressed ? 0.9 : 1 }]}
+            testID={testID ? `${testID}-grade-trigger` : undefined}
+          >
+            <Text style={[theme.typography.label, { color: theme.colors.gray700 }]}>
+              {gradeLabel ?? 'Select'}
+            </Text>
+            {gradeOpen ? (
+              <NavArrowUp color={theme.colors.gray700} height={24} width={24} />
+            ) : (
+              <NavArrowDown color={theme.colors.gray700} height={24} width={24} />
+            )}
+          </Pressable>
+          {gradeOpen
+            ? gradeOptions.map((option) => (
+                <Pressable
+                  key={option.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: option.id === gradeSelectedId }}
+                  onPress={() => {
+                    onSelectGrade(option.id);
+                    setGradeOpen(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.gradeOption,
+                    {
+                      backgroundColor:
+                        option.id === gradeSelectedId ? theme.colors.gray200 : 'transparent',
+                      opacity: pressed ? 0.84 : 1,
+                    },
+                  ]}
+                  testID={testID ? `${testID}-grade-option-${option.id}` : undefined}
+                >
+                  <Text style={[theme.typography.label, { color: theme.colors.gray900 }]}>
+                    {option.label}
+                  </Text>
+                </Pressable>
+              ))
+            : null}
+        </View>
+      </View>
+
+      <View style={[styles.group, { gap: 10 }]}>
+        <GroupTitle theme={theme}>Quantity</GroupTitle>
+        <View style={styles.stepper}>
+          <Pressable
+            accessibilityRole="button"
             accessibilityLabel="Decrease quantity"
+            accessibilityState={{ disabled: quantity <= 0 }}
             disabled={quantity <= 0}
             onPress={onDecrement}
-            size={32}
+            style={({ pressed }) => [
+              styles.stepperButton,
+              {
+                backgroundColor: theme.colors.gray50,
+                opacity: pressed || quantity <= 0 ? 0.5 : 1,
+              },
+            ]}
             testID={testID ? `${testID}-quantity-decrement` : undefined}
-            variant="ghost"
           >
-            <Minus color={theme.colors.gray900} height={16} width={16} />
-          </IconButton>
+            <Minus color={theme.colors.gray900} height={20} width={20} />
+          </Pressable>
           <Text
-            style={[styles.quantityValue, theme.typography.bodyStrong]}
+            style={[styles.quantityValue, theme.typography.titleMedium]}
             testID={testID ? `${testID}-quantity-value` : undefined}
           >
             {quantity}
           </Text>
-          <IconButton
+          <Pressable
+            accessibilityRole="button"
             accessibilityLabel="Increase quantity"
             onPress={onIncrement}
-            size={32}
+            style={({ pressed }) => [
+              styles.stepperButton,
+              { backgroundColor: theme.colors.gray50, opacity: pressed ? 0.5 : 1 },
+            ]}
             testID={testID ? `${testID}-quantity-increment` : undefined}
-            variant="ghost"
           >
-            <Plus color={theme.colors.gray900} height={16} width={16} />
-          </IconButton>
+            <Plus color={theme.colors.gray900} height={20} width={20} />
+          </Pressable>
         </View>
       </View>
     </View>
@@ -208,29 +241,31 @@ export function CardConfigurator({
 const styles = StyleSheet.create({
   chip: {
     alignItems: 'center',
-    borderRadius: 999,
     borderWidth: 1,
     justifyContent: 'center',
-    minHeight: 36,
     paddingHorizontal: 16,
-    paddingVertical: 8,
+    paddingVertical: 7,
   },
   chipRow: {
     alignItems: 'center',
     flexDirection: 'row',
     flexWrap: 'wrap',
   },
-  dropdown: {
+  gradeHeader: {
     alignItems: 'center',
-    alignSelf: 'flex-start',
-    borderWidth: 1,
     flexDirection: 'row',
-    gap: 12,
     justifyContent: 'space-between',
-    minHeight: 44,
-    minWidth: 160,
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingVertical: 8,
+  },
+  gradeOption: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+  },
+  gradePanel: {
+    alignSelf: 'flex-start',
+    overflow: 'hidden',
+    width: 160,
   },
   group: {
     width: '100%',
@@ -245,10 +280,14 @@ const styles = StyleSheet.create({
   stepper: {
     alignItems: 'center',
     alignSelf: 'flex-start',
-    borderWidth: 1,
     flexDirection: 'row',
-    minHeight: 44,
-    paddingHorizontal: 8,
+    gap: 24,
+  },
+  stepperButton: {
+    alignItems: 'center',
+    borderRadius: 999,
+    justifyContent: 'center',
+    padding: 6,
   },
 });
 

@@ -1,12 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
-  Modal,
-  Pressable,
   ScrollView,
   Share,
   StyleSheet,
   Text,
-  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -21,7 +18,7 @@ import {
   type SlabContext,
 } from '@spotlight/api-client';
 import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design-system';
-import { EditPencil, Minus, NavArrowLeft, Plus, ShareIos, Trash } from 'iconoir-react-native';
+import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
@@ -36,7 +33,6 @@ import {
   cardDetailPreviewFromInventoryEntry,
   getCardDetailPreview,
 } from '@/features/cards/card-detail-preview-session';
-import { SellBackdrop } from '@/features/sell/components/sell-ui';
 import {
   getScanCandidateReviewSession,
 } from '@/features/scanner/scan-candidate-review-session';
@@ -99,72 +95,6 @@ function deckConditionLabel(code: string | null): string | null {
   return deckConditionOptions.find((option) => option.code === code)?.label ?? null;
 }
 
-/**
- * Shared bottom-sheet style picker reused for both the Grade/Condition control
- * and any future list pickers on this screen. Mirrors the previous in-screen
- * dropdown modal pattern so behavior and testIDs stay familiar.
- */
-function PickerModal({
-  onClose,
-  onSelect,
-  options,
-  selectedId,
-  testID,
-  visible,
-}: {
-  onClose: () => void;
-  onSelect: (id: string) => void;
-  options: DropdownOption[];
-  selectedId: string | null;
-  testID?: string;
-  visible: boolean;
-}) {
-  const theme = useSpotlightTheme();
-  const windowHeight = useWindowDimensions().height;
-  const optionsMaxHeight = Math.max(220, windowHeight * 0.6);
-
-  return (
-    <Modal animationType="fade" onRequestClose={onClose} transparent visible={visible}>
-      <Pressable
-        accessibilityLabel="Close picker"
-        onPress={onClose}
-        style={styles.dropdownBackdrop}
-        testID={testID ? `${testID}-backdrop` : undefined}
-      >
-        <Pressable onPress={() => undefined} style={styles.dropdownSheet}>
-          <ScrollView showsVerticalScrollIndicator style={{ maxHeight: optionsMaxHeight }}>
-            {options.map((option) => {
-              const isSelected = option.id === selectedId;
-              return (
-                <Pressable
-                  key={option.id}
-                  accessibilityRole="button"
-                  onPress={() => {
-                    onSelect(option.id);
-                    onClose();
-                  }}
-                  style={({ pressed }) => [
-                    styles.dropdownOption,
-                    {
-                      backgroundColor: isSelected ? theme.colors.surfaceMuted : 'transparent',
-                      opacity: pressed ? 0.84 : 1,
-                    },
-                  ]}
-                  testID={testID ? `${testID}-option-${option.id}` : undefined}
-                >
-                  <Text style={[theme.typography.body, styles.dropdownOptionLabel]}>
-                    {option.label}
-                  </Text>
-                </Pressable>
-              );
-            })}
-          </ScrollView>
-        </Pressable>
-      </Pressable>
-    </Modal>
-  );
-}
-
 export function CardDetailScreen({
   cardId,
   entryId,
@@ -190,16 +120,12 @@ export function CardDetailScreen({
     favoritedAt: null,
     isFavorite: false,
   });
-  const [isQuantityMutationPending, setIsQuantityMutationPending] = useState(false);
-  const [isDeleteConfirmOpen, setIsDeleteConfirmOpen] = useState(false);
-
   // Configurator local state.
   const [selectedVariant, setSelectedVariant] = useState<string | null>(null);
   const [selectedGrader, setSelectedGrader] = useState<string | null>(null);
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [selectedCondition, setSelectedCondition] = useState<DeckConditionCode | null>(null);
   const [quantity, setQuantity] = useState(1);
-  const [isGradePickerOpen, setIsGradePickerOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
@@ -413,53 +339,6 @@ export function CardDetailScreen({
       });
   }, [cardId, favoriteState, isFavoritePending, spotlightRepository]);
 
-  const handleDecrementQuantity = useCallback(() => {
-    if (isQuantityMutationPending || !selectedEntry || selectedEntry.quantity <= 1) {
-      return;
-    }
-    setIsQuantityMutationPending(true);
-    void spotlightRepository.replacePortfolioEntry({
-      cardID: selectedEntry.cardId,
-      condition: selectedEntry.conditionCode ?? null,
-      currencyCode: selectedEntry.currencyCode,
-      deckEntryID: selectedEntry.id,
-      quantity: selectedEntry.quantity - 1,
-      slabContext: selectedEntry.slabContext ?? null,
-      unitPrice: selectedEntry.costBasisPerUnit ?? 0,
-      updatedAt: new Date().toISOString(),
-      variantName: selectedEntry.variantName ?? null,
-    })
-      .then(() => {
-        refreshData();
-      })
-      .catch(() => {
-        setErrorMessage('Could not update quantity right now.');
-      })
-      .finally(() => {
-        setIsQuantityMutationPending(false);
-      });
-  }, [isQuantityMutationPending, refreshData, selectedEntry, spotlightRepository]);
-
-  const handleConfirmDelete = useCallback(() => {
-    if (isQuantityMutationPending || !selectedEntry) {
-      return;
-    }
-    setIsQuantityMutationPending(true);
-    void spotlightRepository.deletePortfolioEntry({ deckEntryID: selectedEntry.id })
-      .then(() => {
-        refreshData();
-        setIsDeleteConfirmOpen(false);
-        onBack();
-      })
-      .catch(() => {
-        setErrorMessage('Could not delete this card right now.');
-        setIsDeleteConfirmOpen(false);
-      })
-      .finally(() => {
-        setIsQuantityMutationPending(false);
-      });
-  }, [isQuantityMutationPending, onBack, refreshData, selectedEntry, spotlightRepository]);
-
   const hasDisplayContent = detail != null || detailPreview != null;
 
   const displayName = detail?.name ?? detailPreview?.name ?? '';
@@ -579,7 +458,6 @@ export function CardDetailScreen({
   }, [isRawLane]);
 
   const isFavorite = favoriteState.isFavorite;
-  const isOwned = selectedEntry != null;
 
   if (!hasDisplayContent && !errorMessage) {
     return (
@@ -607,8 +485,6 @@ export function CardDetailScreen({
       edges={['top', 'left', 'right', 'bottom']}
       style={[styles.safeArea, { backgroundColor: colors.gray0 }]}
     >
-      <SellBackdrop imageUrl={displayImageUrl ?? undefined} variant="single" />
-
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <View style={styles.headerRow}>
           <IconButton
@@ -660,13 +536,13 @@ export function CardDetailScreen({
         />
 
         <View style={styles.identityBlock} testID="detail-identity">
-          <Text style={[theme.typography.title, styles.identityName]} testID="detail-name">
+          <Text style={theme.typography.titleLarge} testID="detail-name">
             {displayName}
           </Text>
-          <Text style={[theme.typography.body, styles.identityMeta]}>
+          <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
             {displayNumber(displayCardNumber)}
           </Text>
-          <Text style={[theme.typography.body, styles.identityMeta]}>
+          <Text style={[theme.typography.bodyMedium, styles.identityMeta]}>
             {displaySetName}
           </Text>
         </View>
@@ -692,65 +568,15 @@ export function CardDetailScreen({
           />
         </View>
 
-        {isOwned && selectedEntry ? (
-          <View style={styles.ownedRow} testID="detail-quantity-stepper">
-            {selectedEntry.quantity <= 1 ? (
-              <IconButton
-                accessibilityLabel="Delete this card from your collection"
-                disabled={isQuantityMutationPending}
-                onPress={() => setIsDeleteConfirmOpen(true)}
-                testID="detail-quantity-delete"
-                variant="elevated"
-              >
-                <Trash color={theme.colors.danger} height={18} width={18} />
-              </IconButton>
-            ) : (
-              <IconButton
-                accessibilityLabel="Decrease quantity"
-                disabled={isQuantityMutationPending}
-                onPress={handleDecrementQuantity}
-                testID="detail-quantity-decrement"
-                variant="elevated"
-              >
-                <Minus color={theme.colors.gray900} height={18} width={18} />
-              </IconButton>
-            )}
-            {selectedEntry.quantity > 1 ? (
-              <Text
-                style={[theme.typography.bodyStrong, styles.ownedQuantity]}
-                testID="detail-quantity-value"
-              >
-                {`Qty ${selectedEntry.quantity}`}
-              </Text>
-            ) : null}
-            <IconButton
-              accessibilityLabel="Add another copy"
-              onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, undefined)}
-              testID="detail-quantity-increment"
-              variant="elevated"
-            >
-              <Plus color={theme.colors.gray900} height={18} width={18} />
-            </IconButton>
-            {selectedEntry.id ? (
-              <IconButton
-                accessibilityLabel="Edit collection entry"
-                onPress={() => onOpenAddToCollection(detail?.cardId ?? cardId, selectedEntry.id)}
-                testID="detail-edit-collection-entry"
-                variant="elevated"
-              >
-                <EditPencil color={theme.colors.gray900} height={18} width={18} />
-              </IconButton>
-            ) : null}
-          </View>
-        ) : null}
-
         <CardConfigurator
           gradeLabel={gradeLabel}
+          gradeOptions={gradePickerOptions}
+          gradeSelectedId={gradePickerSelectedId}
           gradeTitle={gradeTitle}
           graders={[...graderOptions]}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
           onIncrement={() => setQuantity((current) => current + 1)}
-          onPressGrade={() => setIsGradePickerOpen(true)}
+          onSelectGrade={handleGradePick}
           onSelectGrader={handleSelectGrader}
           onSelectVariant={setSelectedVariant}
           quantity={quantity}
@@ -768,58 +594,6 @@ export function CardDetailScreen({
           <CardProductDetails cardText={detail.cardText} testID="detail-product-details" />
         ) : null}
       </ScrollView>
-
-      <PickerModal
-        onClose={() => setIsGradePickerOpen(false)}
-        onSelect={handleGradePick}
-        options={gradePickerOptions}
-        selectedId={gradePickerSelectedId}
-        testID="detail-grade-picker"
-        visible={isGradePickerOpen}
-      />
-
-      <Modal
-        animationType="fade"
-        onRequestClose={() => setIsDeleteConfirmOpen(false)}
-        transparent
-        visible={isDeleteConfirmOpen}
-      >
-        <Pressable
-          accessibilityLabel="Cancel delete"
-          onPress={() => setIsDeleteConfirmOpen(false)}
-          style={styles.dropdownBackdrop}
-          testID="detail-delete-confirm-backdrop"
-        >
-          <Pressable onPress={() => undefined} style={styles.deleteConfirmSheet}>
-            <Text style={[theme.typography.titleCompact, styles.deleteConfirmTitle]}>
-              Delete this card?
-            </Text>
-            <Text style={[theme.typography.body, styles.deleteConfirmBody]}>
-              {`This removes ${displayName || 'this card'} from your collection. You can’t undo this.`}
-            </Text>
-            <View style={styles.deleteConfirmActions}>
-              <Button
-                label="Cancel"
-                onPress={() => setIsDeleteConfirmOpen(false)}
-                size="lg"
-                style={styles.deleteConfirmCancel}
-                testID="detail-delete-confirm-cancel"
-                variant="secondary"
-              />
-              <Button
-                disabled={isQuantityMutationPending}
-                label="Delete"
-                labelStyle={styles.deleteConfirmDeleteLabel}
-                onPress={handleConfirmDelete}
-                size="lg"
-                style={styles.deleteConfirmDelete}
-                testID="detail-delete-confirm-confirm"
-                variant="primary"
-              />
-            </View>
-          </Pressable>
-        </Pressable>
-      </Modal>
     </SafeAreaView>
   );
 }
@@ -838,60 +612,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingTop: 12,
   },
-  deleteConfirmActions: {
-    flexDirection: 'row',
-    gap: 12,
-    marginTop: 8,
-  },
-  deleteConfirmBody: {
-    color: 'rgba(15, 15, 18, 0.72)',
-  },
-  deleteConfirmCancel: {
-    flex: 1,
-  },
-  deleteConfirmDelete: {
-    backgroundColor: '#E5484D',
-    borderColor: '#E5484D',
-    flex: 1,
-  },
-  deleteConfirmDeleteLabel: {
-    color: '#FFFFFF',
-  },
-  deleteConfirmSheet: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 20,
-    gap: 12,
-    padding: 20,
-    width: '100%',
-  },
-  deleteConfirmTitle: {
-    color: '#0F0F12',
-  },
-  dropdownBackdrop: {
-    alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.42)',
-    flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: 24,
-  },
-  dropdownOption: {
-    alignItems: 'center',
-    borderRadius: 12,
-    flexDirection: 'row',
-    gap: 12,
-    justifyContent: 'space-between',
-    paddingHorizontal: 14,
-    paddingVertical: 12,
-  },
-  dropdownOptionLabel: {
-    flex: 1,
-  },
-  dropdownSheet: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 18,
-    padding: 8,
-    width: '100%',
-  },
   errorCopy: {
     marginTop: 8,
     textAlign: 'center',
@@ -907,27 +627,16 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   identityBlock: {
-    gap: 2,
+    gap: 4,
   },
   identityMeta: {
-    color: 'rgba(15, 15, 18, 0.62)',
-  },
-  identityName: {
-    color: '#0F0F12',
+    color: colors.gray600,
   },
   loadingState: {
     alignItems: 'center',
     flex: 1,
     justifyContent: 'center',
     paddingHorizontal: 32,
-  },
-  ownedQuantity: {
-    color: '#0F0F12',
-  },
-  ownedRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: 10,
   },
   safeArea: {
     flex: 1,

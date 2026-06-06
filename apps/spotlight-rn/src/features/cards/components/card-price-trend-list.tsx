@@ -23,6 +23,8 @@ export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
       ? require('../../../../assets/images/ebay-icon.png')
       : require('../../../../assets/images/tcgplayer-icon.png');
   const providerLabel = list.provider === 'ebay' ? 'eBay' : 'TCGplayer';
+  // Figma logo dimensions differ by provider: eBay 40×16, TCGplayer 21×16.
+  const logoStyle = list.provider === 'ebay' ? styles.logoEbay : styles.logoTcg;
 
   return (
     <View style={styles.root} testID={testID}>
@@ -32,7 +34,7 @@ export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
           accessibilityLabel={providerLabel}
           resizeMode="contain"
           source={logoSource}
-          style={styles.logo}
+          style={logoStyle}
         />
       </View>
 
@@ -86,9 +88,13 @@ const styles = StyleSheet.create({
   label: {
     flex: 1,
   },
-  logo: {
-    height: 18,
-    width: 64,
+  logoEbay: {
+    height: 16,
+    width: 40,
+  },
+  logoTcg: {
+    height: 16,
+    width: 21,
   },
   price: {
     minWidth: 72,

@@ -2360,21 +2360,21 @@ const styles = StyleSheet.create({
   captureThumb: {
     backgroundColor: colors.scannerSurfaceStrong,
     borderRadius: 6,
-    height: 84,
-    width: 59,
+    height: 80,
+    width: 58,
   },
   captureThumbColumn: {
     alignItems: 'flex-start',
-    gap: 2,
+    gap: 4,
   },
   captureChangeChip: {
     alignItems: 'center',
+    alignSelf: 'stretch',
     backgroundColor: colors.scannerConditionPill,
     borderRadius: 4,
-    flexDirection: 'row',
-    minHeight: 16,
+    height: 18,
+    justifyContent: 'center',
     paddingHorizontal: 4,
-    paddingVertical: 2,
   },
   captureChangeChipPressed: {
     opacity: 0.78,
@@ -2383,7 +2383,7 @@ const styles = StyleSheet.create({
     color: colors.scannerTextPrimary,
     fontFamily: fontFamilies.bodyMedium,
     fontSize: 11,
-    lineHeight: 15.4,
+    lineHeight: 14.3,
   },
   captureTitle: {
     ...textStyles.headline,

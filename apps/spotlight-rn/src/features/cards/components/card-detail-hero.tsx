@@ -15,7 +15,7 @@ type CardDetailHeroProps = {
 
 // Portrait trading-card aspect (5:7), matching the catalog hero.
 const CARD_ASPECT = 5 / 7;
-const PANEL_HEIGHT = 320;
+const PANEL_HEIGHT = 334;
 
 export function CardDetailHero({
   imageUrl,
@@ -31,7 +31,7 @@ export function CardDetailHero({
       style={[
         styles.panel,
         {
-          backgroundColor: theme.colors.surface,
+          backgroundColor: theme.colors.gray50,
           borderRadius: theme.radii.xxl,
         },
       ]}
@@ -91,7 +91,7 @@ const styles = StyleSheet.create({
   },
   imageWrap: {
     alignItems: 'center',
-    height: PANEL_HEIGHT - 24,
+    height: PANEL_HEIGHT - 48,
     justifyContent: 'center',
   },
   panel: {
@@ -99,7 +99,7 @@ const styles = StyleSheet.create({
     height: PANEL_HEIGHT,
     justifyContent: 'center',
     overflow: 'hidden',
-    paddingVertical: 12,
+    paddingVertical: 24,
     position: 'relative',
     width: '100%',
   },
