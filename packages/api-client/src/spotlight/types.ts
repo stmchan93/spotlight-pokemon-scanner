@@ -767,6 +767,8 @@ export type CreateCardTransactionPayload = {
   note: string | null;
   itemCount: number;
   photo: CardTransactionPhotoUpload | null;
+  /** Absolute card image URL carried from the source card (e.g. Sell Now). */
+  imageUrl?: string | null;
 };
 
 export type CardTransactionRecord = {
@@ -779,6 +781,8 @@ export type CardTransactionRecord = {
   note: string | null;
   itemCount: number;
   photoUrl: string | null;
+  /** Absolute card image URL from the source card; falls back when no photoUrl. */
+  imageUrl?: string | null;
   createdAt?: string | null;
 };
 

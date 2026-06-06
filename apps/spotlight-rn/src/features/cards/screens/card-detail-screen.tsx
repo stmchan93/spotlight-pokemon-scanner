@@ -80,7 +80,7 @@ type CardDetailScreenProps = {
   onBack: () => void;
   onOpenAddToCollection: (cardId: string, entryId?: string) => void;
   /** Opens the log-transaction flow (photo + bought/sold/traded) for this card. */
-  onOpenTransaction?: (cardLabel: string) => void;
+  onOpenTransaction?: (cardLabel: string, imageUrl?: string | null) => void;
   previewId?: string;
   scanReviewId?: string;
 };
@@ -242,7 +242,12 @@ export function CardDetailScreen({
     const variantMatch = ownedVariant
       ? variantOptions.find((option) => option.label.toLowerCase() === ownedVariant.toLowerCase())
       : null;
-    setSelectedVariant(variantMatch?.id ?? variantOptions[0]?.id ?? null);
+    // Default to "Normal" when we have no owned-variant signal — most cards
+    // aren't holofoil, and the catalog's first option isn't always Normal.
+    const normalVariant = variantOptions.find(
+      (option) => option.label.trim().toLowerCase() === 'normal',
+    );
+    setSelectedVariant(variantMatch?.id ?? normalVariant?.id ?? variantOptions[0]?.id ?? null);
 
     if (ownedSlabContext?.grader) {
       const graderMatch = graderOptions.find(
@@ -370,8 +375,8 @@ export function CardDetailScreen({
   }, [marketplaceUrl, transactionLabel]);
 
   const handleSellNow = useCallback(() => {
-    onOpenTransaction?.(transactionLabel);
-  }, [onOpenTransaction, transactionLabel]);
+    onOpenTransaction?.(transactionLabel, displayImageUrl);
+  }, [displayImageUrl, onOpenTransaction, transactionLabel]);
 
   // Builds the slab context for the configured ADD ITEM action.
   const configuredSlabContext = useMemo<SlabContext | null>(() => {

@@ -61,23 +61,27 @@ export function formatTransactionActionLabel(record: CardTransactionRecord) {
 
 type TransactionThumbProps = {
   photoUrl: string | null;
+  /** Card image carried from the source card; used when no captured photo exists. */
+  imageUrl?: string | null;
   testID?: string;
 };
 
 /**
- * Card-lot thumbnail. Renders the cached photo when present; otherwise shows a
+ * Card-lot thumbnail. Renders the cached image when present (prefers the
+ * captured photo, falls back to the source card image); otherwise shows a
  * centered image-placeholder glyph on the shared gray100 surface. Reused by the
  * row and the list-screen skeleton so the empty treatment stays uniform.
  */
-export function TransactionThumb({ photoUrl, testID }: TransactionThumbProps) {
+export function TransactionThumb({ photoUrl, imageUrl, testID }: TransactionThumbProps) {
   const theme = useSpotlightTheme();
+  const displayUrl = photoUrl ?? imageUrl ?? null;
 
-  if (photoUrl) {
+  if (displayUrl) {
     return (
       <CachedImage
         cachePolicy={imageCachePolicy.thumbnail}
         contentFit="cover"
-        source={{ uri: photoUrl }}
+        source={{ uri: displayUrl }}
         style={[styles.art, { backgroundColor: theme.colors.gray100 }]}
         testID={testID}
       />
@@ -124,7 +128,11 @@ export function TransactionRow({
     <View style={styles.cardWrapper} testID={resolvedTestID}>
       <View style={[styles.card, firstInList ? styles.cardFirst : null]}>
         <View style={styles.leftGroup}>
-          <TransactionThumb photoUrl={record.photoUrl} testID={`${resolvedTestID}-photo`} />
+          <TransactionThumb
+            imageUrl={record.imageUrl}
+            photoUrl={record.photoUrl}
+            testID={`${resolvedTestID}-photo`}
+          />
           <View style={styles.textColumn}>
             <View
               style={[styles.kindBadge, { backgroundColor: tone.background }]}

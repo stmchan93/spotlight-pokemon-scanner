@@ -4730,6 +4730,7 @@ def insert_card_transaction(
     photo_uploaded_at: str | None = None,
     photo_width: int | None = None,
     photo_height: int | None = None,
+    image_url: str | None = None,
     created_at: str | None = None,
 ) -> None:
     connection.execute(
@@ -4737,9 +4738,9 @@ def insert_card_transaction(
         INSERT INTO card_transactions (
             id, owner_user_id, kind, amount_cents, item_count, currency_code, note,
             photo_object_path, photo_upload_status, photo_uploaded_at,
-            photo_width, photo_height, occurred_at, created_at
+            photo_width, photo_height, image_url, occurred_at, created_at
         )
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             transaction_id,
@@ -4754,6 +4755,7 @@ def insert_card_transaction(
             photo_uploaded_at,
             photo_width,
             photo_height,
+            image_url,
             occurred_at,
             created_at or utc_now(),
         ),
@@ -4777,7 +4779,7 @@ def list_card_transactions(
     sql = (
         "SELECT id, owner_user_id, kind, amount_cents, item_count, currency_code, note, "
         "photo_object_path, photo_upload_status, photo_uploaded_at, "
-        "photo_width, photo_height, occurred_at, created_at "
+        "photo_width, photo_height, image_url, occurred_at, created_at "
         f"FROM card_transactions WHERE {where} "
         "ORDER BY occurred_at DESC, id DESC"
     )
@@ -4797,7 +4799,7 @@ def get_card_transaction(
     row = connection.execute(
         "SELECT id, owner_user_id, kind, amount_cents, item_count, currency_code, note, "
         "photo_object_path, photo_upload_status, photo_uploaded_at, "
-        "photo_width, photo_height, occurred_at, created_at "
+        "photo_width, photo_height, image_url, occurred_at, created_at "
         "FROM card_transactions WHERE id = ? AND owner_user_id = ?",
         (transaction_id, owner_user_id),
     ).fetchone()

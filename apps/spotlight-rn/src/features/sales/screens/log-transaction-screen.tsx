@@ -37,6 +37,8 @@ type LogTransactionScreenProps = {
   onComplete: () => void;
   /** When started from a specific card, its label — shown for context and saved as the note. */
   cardLabel?: string;
+  /** Absolute card image URL carried from the source card; saved on the transaction. */
+  cardImageUrl?: string | null;
 };
 
 type ReadyPhoto = {
@@ -93,6 +95,7 @@ export function LogTransactionScreen({
   onClose,
   onComplete,
   cardLabel,
+  cardImageUrl,
 }: LogTransactionScreenProps) {
   const theme = useSpotlightTheme();
   const { spotlightRepository, refreshData } = useAppServices();
@@ -141,6 +144,7 @@ export function LogTransactionScreen({
         note: cardLabel ?? null,
         itemCount,
         photo,
+        imageUrl: cardImageUrl ?? null,
       });
 
       capturePostHogEvent('transaction_logged', { kind });
@@ -152,6 +156,7 @@ export function LogTransactionScreen({
       setErrorMessage('Could not save this transaction. Please try again.');
     }
   }, [
+    cardImageUrl,
     cardLabel,
     itemCount,
     kind,

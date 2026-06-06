@@ -331,6 +331,7 @@ CREATE TABLE IF NOT EXISTS card_transactions (
     photo_uploaded_at TEXT,
     photo_width INTEGER,
     photo_height INTEGER,
+    image_url TEXT,                         -- optional absolute catalog image URL for the card
     occurred_at TEXT NOT NULL,              -- the day it happened (client-supplied ISO)
     created_at TEXT NOT NULL
 );

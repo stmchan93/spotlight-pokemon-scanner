@@ -42,10 +42,10 @@ export default function CardDetailRoute() {
           },
         });
       }}
-      onOpenTransaction={(cardLabel) => {
+      onOpenTransaction={(cardLabel, imageUrl) => {
         router.push({
           pathname: '/card-transactions/new',
-          params: { note: cardLabel },
+          params: { note: cardLabel, ...(imageUrl ? { imageUrl } : {}) },
         });
       }}
       previewId={previewId}

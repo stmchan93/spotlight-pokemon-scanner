@@ -71,6 +71,7 @@ class CardTransactionTests(unittest.TestCase):
         occurred_at: str = "2026-06-01T12:00:00Z",
         note: str | None = None,
         photo: dict[str, object] | None = None,
+        image_url: str | None = None,
     ) -> dict[str, object]:
         payload: dict[str, object] = {
             "kind": kind,
@@ -82,6 +83,8 @@ class CardTransactionTests(unittest.TestCase):
         }
         if item_count is not None:
             payload["itemCount"] = item_count
+        if image_url is not None:
+            payload["imageUrl"] = image_url
         with self.service.request_identity_context(self._identity(user_id)):
             return self.service.create_card_transaction(payload)
 
@@ -118,6 +121,52 @@ class CardTransactionTests(unittest.TestCase):
         self.assertEqual(on_disk.read_bytes(), PHOTO_BYTES)
         self.assertTrue(object_path.startswith("transactions/2026/06/01/"))
         self.assertTrue(object_path.endswith("/photo.jpg"))
+
+    # -- imageUrl --------------------------------------------------------------
+
+    _IMAGE_URL = "https://images.scrydex.com/pokemon/base1-4/high.webp"
+
+    def test_create_with_image_url_persists_and_returns_it(self) -> None:
+        created = self._create(image_url=self._IMAGE_URL)
+        self.assertEqual(created["imageUrl"], self._IMAGE_URL)
+
+        row = self.service.connection.execute(
+            "SELECT image_url FROM card_transactions WHERE id = ?",
+            (created["id"],),
+        ).fetchone()
+        self.assertEqual(row["image_url"], self._IMAGE_URL)
+
+    def test_create_with_image_url_appears_in_list(self) -> None:
+        created = self._create(image_url=self._IMAGE_URL)
+        with self.service.request_identity_context(self._identity()):
+            result = self.service.list_card_transactions()
+        self.assertEqual(result["count"], 1)
+        listed = result["transactions"][0]
+        self.assertEqual(listed["id"], created["id"])
+        self.assertEqual(listed["imageUrl"], self._IMAGE_URL)
+
+    def test_create_without_image_url_returns_null(self) -> None:
+        created = self._create()
+        self.assertIsNone(created["imageUrl"])
+        row = self.service.connection.execute(
+            "SELECT image_url FROM card_transactions WHERE id = ?",
+            (created["id"],),
+        ).fetchone()
+        self.assertIsNone(row["image_url"])
+
+    def test_create_with_image_url_leaves_photo_url_unchanged(self) -> None:
+        # imageUrl and photoUrl are independent: a catalog imageUrl with no photo
+        # still yields a null photoUrl, and a photo with no imageUrl yields a
+        # null imageUrl.
+        only_image = self._create(image_url=self._IMAGE_URL)
+        self.assertEqual(only_image["imageUrl"], self._IMAGE_URL)
+        self.assertIsNone(only_image["photoUrl"])
+
+        only_photo = self._create(photo=_photo_payload())
+        self.assertIsNone(only_photo["imageUrl"])
+        self.assertEqual(
+            only_photo["photoUrl"], f"/api/v1/card-transactions/{only_photo['id']}/photo"
+        )
 
     def test_create_each_kind(self) -> None:
         for kind in ("bought", "sold", "traded"):
@@ -390,6 +439,7 @@ class CardTransactionsMigrationTests(unittest.TestCase):
                 ).fetchall()
             }
             self.assertIn("item_count", columns)
+            self.assertIn("image_url", columns)  # additive nullable column added
             self.assertFalse(columns["amount_cents"])  # NOT NULL relaxed
 
             row = connection.execute(

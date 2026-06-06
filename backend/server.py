@@ -474,6 +474,7 @@ def _apply_card_transactions_schema_patch(connection: sqlite3.Connection) -> Non
                 photo_uploaded_at TEXT,
                 photo_width INTEGER,
                 photo_height INTEGER,
+                image_url TEXT,
                 occurred_at TEXT NOT NULL,
                 created_at TEXT NOT NULL
             )
@@ -506,6 +507,11 @@ def _apply_card_transactions_schema_patch(connection: sqlite3.Connection) -> Non
     # additive item_count column backfilled here.
     _sqlite_add_column_if_missing(
         connection, "card_transactions", "item_count", "INTEGER NOT NULL DEFAULT 1"
+    )
+    # Optional catalog image URL for the sold/bought/traded card. Additive,
+    # nullable; existing rows backfill to NULL.
+    _sqlite_add_column_if_missing(
+        connection, "card_transactions", "image_url", "TEXT"
     )
 
 
@@ -4388,6 +4394,7 @@ class SpotlightScanService:
             "occurredAtLabel": SpotlightScanService._card_transaction_occurred_at_label(occurred_at),
             "createdAt": str(row.get("created_at") or "") or None,
             "photoUrl": photo_url,
+            "imageUrl": (str(row.get("image_url") or "").strip() or None),
         }
 
     def create_card_transaction(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -4424,6 +4431,9 @@ class SpotlightScanService:
 
         currency_code = str(payload.get("currencyCode") or "").strip() or "USD"
         note = str(payload.get("note") or "").strip() or None
+
+        # Optional catalog image URL (plain absolute URL string; no base64).
+        image_url = str(payload.get("imageUrl") or "").strip() or None
 
         occurred_at = str(payload.get("occurredAt") or "").strip()
         if not occurred_at:
@@ -4487,6 +4497,7 @@ class SpotlightScanService:
                 photo_uploaded_at=photo_uploaded_at,
                 photo_width=photo_width,
                 photo_height=photo_height,
+                image_url=image_url,
                 created_at=created_at,
             )
             self.connection.commit()
@@ -13928,11 +13939,11 @@ def main() -> None:
         }
     )
     server = SpotlightThreadingHTTPServer((config.host, config.port), SpotlightRequestHandler)
-    print(f"Looty scan service listening on http://{config.host}:{config.port}", flush=True)
+    print(f"Ekalight scan service listening on http://{config.host}:{config.port}", flush=True)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nStopping Looty scan service", flush=True)
+        print("\nStopping Ekalight scan service", flush=True)
         server.server_close()
 
 

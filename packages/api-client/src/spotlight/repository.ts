@@ -2782,6 +2782,7 @@ export class MockSpotlightRepository implements SpotlightRepository {
       note: payload.note,
       itemCount: payload.itemCount,
       photoUrl: payload.photo ? `data:image/jpeg;base64,${payload.photo.jpegBase64}` : null,
+      imageUrl: payload.imageUrl ?? null,
       createdAt: new Date().toISOString(),
     };
     this.cardTransactions = [record, ...this.cardTransactions];
@@ -3931,6 +3932,7 @@ export class HttpSpotlightRepository implements SpotlightRepository {
     return {
       ...record,
       photoUrl: photoUrl || null,
+      imageUrl: normalizeImageUrl(record.imageUrl, this.baseUrl) || null,
     };
   }
 

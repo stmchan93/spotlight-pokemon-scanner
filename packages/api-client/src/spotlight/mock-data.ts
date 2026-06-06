@@ -408,6 +408,7 @@ export const mockCardTransactions: CardTransactionRecord[] = [
     note: null,
     itemCount: 1,
     photoUrl: `${cdn}/mcdonalds25/22.png`,
+    imageUrl: `${cdn}/mcdonalds25/22.png`,
     createdAt: '2026-04-21T16:31:00.000Z',
   },
   {
@@ -420,6 +421,7 @@ export const mockCardTransactions: CardTransactionRecord[] = [
     note: 'Pickup from a local show',
     itemCount: 1,
     photoUrl: `${cdn}/mcdonalds25/4.png`,
+    imageUrl: `${cdn}/mcdonalds25/4.png`,
     createdAt: '2026-04-20T12:06:00.000Z',
   },
   {
@@ -432,6 +434,7 @@ export const mockCardTransactions: CardTransactionRecord[] = [
     note: null,
     itemCount: 1,
     photoUrl: `${cdn}/xyp/XY111.png`,
+    imageUrl: null,
     createdAt: '2026-04-19T09:16:00.000Z',
   },
 ];
