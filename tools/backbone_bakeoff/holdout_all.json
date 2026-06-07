@@ -1,0 +1,2042 @@
+[
+  {
+    "dir": "abomasnow-185-184-s8b-360357f2-8539-4e78-811d-adbcae7472cc",
+    "truthId": "swsh8b_ja-185",
+    "collectorNumber": "185/184",
+    "setCode": "S8b",
+    "cardName": "Abomasnow",
+    "brightness": 159.6,
+    "rarity": "Character Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "abomasnow-185-184-s8b-a15c1f58-7e3e-4da1-b926-1c3fac4a070d",
+    "truthId": "swsh8b_ja-185",
+    "collectorNumber": "185/184",
+    "setCode": "S8b",
+    "cardName": "Abomasnow",
+    "brightness": 145.1,
+    "rarity": "Character Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "absol-96-95-ma-506a6021-ab2e-4ab6-a437-480438bde467",
+    "truthId": "ex4-96",
+    "collectorNumber": "96/95",
+    "setCode": "MA",
+    "cardName": "Absol",
+    "brightness": 136.2,
+    "rarity": "Rare Secret",
+    "isFoil": true
+  },
+  {
+    "dir": "accelgor-094-086-sv11w-b912b56a-8e1b-4e70-9208-68192fe2520d",
+    "truthId": "sv11w_ja-94",
+    "collectorNumber": "094/086",
+    "setCode": "SV11W",
+    "cardName": "Accelgor",
+    "brightness": 120.6,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "alolan-dugtrio-116-106-sv8-6870d04c-0415-45f3-87be-0d0b7464d04d",
+    "truthId": "sv8_ja-116",
+    "collectorNumber": "116/106",
+    "setCode": "SV8",
+    "cardName": "Alolan Dugtrio",
+    "brightness": 132.3,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "alolan-dugtrio-208-191-ssp-fd997cf6-a6bc-4bf8-85a9-a2bf3821998b",
+    "truthId": "sv8-208",
+    "collectorNumber": "208/191",
+    "setCode": "SSP",
+    "cardName": "Alolan Dugtrio",
+    "brightness": 145.1,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "altaria-ex-123-124-fco-12c895f3-fb5e-4f2d-89df-ac09bf33181c",
+    "truthId": "xy10-123",
+    "collectorNumber": "123/124",
+    "setCode": "FCO",
+    "cardName": "Altaria-EX",
+    "brightness": 113.8,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "altaria-ex-123-124-fco-617f474c-3c47-4653-8676-6a2297220f82",
+    "truthId": "xy10-123",
+    "collectorNumber": "123/124",
+    "setCode": "FCO",
+    "cardName": "Altaria-EX",
+    "brightness": 120.7,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "altaria-ex-123-124-fco-e562fbbc-5223-4e45-9958-8848dd3b4aca",
+    "truthId": "xy10-123",
+    "collectorNumber": "123/124",
+    "setCode": "FCO",
+    "cardName": "Altaria-EX",
+    "brightness": 119.8,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "altaria-ex-123-124-fco-f5d877b0-8207-4f34-a842-f06e2ab930f3",
+    "truthId": "xy10-123",
+    "collectorNumber": "123/124",
+    "setCode": "FCO",
+    "cardName": "Altaria-EX",
+    "brightness": 115.9,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "ambipom-092-080-m2-6d3b5006-0fe3-4ee8-98a6-7199966e706b",
+    "truthId": "m2_ja-92",
+    "collectorNumber": "092/080",
+    "setCode": "M2",
+    "cardName": "Ambipom",
+    "brightness": 108.5,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "ambipom-092-080-m2-80013604-44d5-42f6-bcd7-34284ba2ca1d",
+    "truthId": "m2_ja-92",
+    "collectorNumber": "092/080",
+    "setCode": "M2",
+    "cardName": "Ambipom",
+    "brightness": 157.2,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "archen-047-086-sv11w-b2acf438-557a-43e8-a503-3eecc01e79ae",
+    "truthId": "sv11w_ja-47",
+    "collectorNumber": "047/086",
+    "setCode": "SV11W",
+    "cardName": "Archen",
+    "brightness": 123.0,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "archen-050-086-wht-b9aa47a2-81dc-4745-99e9-65d3b0b9eea3",
+    "truthId": "rsv10pt5-50",
+    "collectorNumber": "050/086",
+    "setCode": "WHT",
+    "cardName": "Archen",
+    "brightness": 127.9,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "archen-050-086-wht-c01c6813-84be-40ff-8545-66fcf68efc3c",
+    "truthId": "rsv10pt5-50",
+    "collectorNumber": "050/086",
+    "setCode": "WHT",
+    "cardName": "Archen",
+    "brightness": 107.4,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "archeops-048-086-sv11w-4c03079b-9d78-4e5e-ae9d-c01c34e97074",
+    "truthId": "sv11w_ja-48",
+    "collectorNumber": "048/086",
+    "setCode": "SV11W",
+    "cardName": "Archeops",
+    "brightness": 136.8,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "archeops-051-086-wht-3dd91fde-31ef-47ce-82cc-dd134e262534",
+    "truthId": "rsv10pt5-51",
+    "collectorNumber": "051/086",
+    "setCode": "WHT",
+    "cardName": "Archeops",
+    "brightness": 140.5,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "archeops-051-086-wht-51965774-675b-4e90-b913-8fd9699baef8",
+    "truthId": "rsv10pt5-51",
+    "collectorNumber": "051/086",
+    "setCode": "WHT",
+    "cardName": "Archeops",
+    "brightness": 151.0,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "beedrill-17-102-bs-3d1b4478-f165-47b8-823a-ba881d3533ce",
+    "truthId": "base1-17",
+    "collectorNumber": "17/102",
+    "setCode": "BS",
+    "cardName": "Beedrill",
+    "brightness": 148.3,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "beheeyem-044-086-sv11b-6e22efbe-fff4-430b-9c66-17942308390a",
+    "truthId": "sv11b_ja-44",
+    "collectorNumber": "044/086",
+    "setCode": "SV11B",
+    "cardName": "Beheeyem",
+    "brightness": 114.2,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "beldum-106-187-sv8a-31a7ef06-e191-40d9-8c68-711b8a9fd3af",
+    "truthId": "sv8a_ja-106",
+    "collectorNumber": "106/187",
+    "setCode": "SV8a",
+    "cardName": "Beldum",
+    "brightness": 133.2,
+    "rarity": "Unknown",
+    "isFoil": false
+  },
+  {
+    "dir": "bellibolt-201-197-obf-9feca8c0-436e-4355-ba12-5b7c46e1a3f1",
+    "truthId": "sv3-201",
+    "collectorNumber": "201/197",
+    "setCode": "OBF",
+    "cardName": "Bellibolt",
+    "brightness": 121.0,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "bellsprout-53-112-rg-99d60f60-3b45-4d77-89b3-77f4dd9846e4",
+    "truthId": "ex6-53",
+    "collectorNumber": "53/112",
+    "setCode": "RG",
+    "cardName": "Bellsprout",
+    "brightness": 137.5,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "blastoise-ex-xy122-pr-xy-7fab8ed1-e9e2-450f-8b86-dc299d3a41c4",
+    "truthId": "xyp-XY122",
+    "collectorNumber": "XY122",
+    "setCode": "PR-XY",
+    "cardName": "Blastoise-EX",
+    "brightness": 124.3,
+    "rarity": "Promo",
+    "isFoil": true
+  },
+  {
+    "dir": "braixen-tg01-tg30-sit-f97c6eb7-a7ca-4864-81a8-ba5fc0376241",
+    "truthId": "swsh12tg-TG01",
+    "collectorNumber": "TG01/TG30",
+    "setCode": "SIT",
+    "cardName": "Braixen",
+    "brightness": 144.9,
+    "rarity": "Trainer Gallery Rare Holo",
+    "isFoil": true
+  },
+  {
+    "dir": "bulbasaur-001-165-mew-fbf13de7-ad62-45cb-b98e-4160def32af1",
+    "truthId": "sv3pt5-1",
+    "collectorNumber": "001/165",
+    "setCode": "MEW",
+    "cardName": "Bulbasaur",
+    "brightness": 155.1,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "bulbasaur-133-132-meg-4cd54a26-27ff-4128-9b08-ee3de76529d3",
+    "truthId": "me1-133",
+    "collectorNumber": "133/132",
+    "setCode": "MEG",
+    "cardName": "Bulbasaur",
+    "brightness": 107.7,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "bulbasaur-133-132-meg-58f34e80-195a-4921-aae6-c01b3832b6ed",
+    "truthId": "me1-133",
+    "collectorNumber": "133/132",
+    "setCode": "MEG",
+    "cardName": "Bulbasaur",
+    "brightness": 121.8,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "bulbasaur-54-112-rg-65929fc8-dc2d-4a5a-b834-0be3bd2c23bc",
+    "truthId": "ex6-54",
+    "collectorNumber": "54/112",
+    "setCode": "RG",
+    "cardName": "Bulbasaur",
+    "brightness": 134.2,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "bulbasaur-54-112-rg-f5e37f49-9718-4e44-a8ed-fc45db108675",
+    "truthId": "ex6-54",
+    "collectorNumber": "54/112",
+    "setCode": "RG",
+    "cardName": "Bulbasaur",
+    "brightness": 127.0,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "cacnea-57-100-ss-b74cc3f0-9062-4e1e-bf22-3351c5fbd1b0",
+    "truthId": "ex2-57",
+    "collectorNumber": "57/100",
+    "setCode": "SS",
+    "cardName": "Cacnea",
+    "brightness": 154.0,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "celebi-and-venusaur-gx-001-095-sm9-111549e3-1f72-48ac-9c97-5ea568e5ede0",
+    "truthId": "sm9_ja-1",
+    "collectorNumber": "001/095",
+    "setCode": "SM9",
+    "cardName": "Celebi & Venusaur GX",
+    "brightness": 162.1,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "celebi-and-venusaur-gx-001-095-sm9-f3577dcc-b3d0-41e5-b0a6-8ba598c46b0e",
+    "truthId": "sm9_ja-1",
+    "collectorNumber": "001/095",
+    "setCode": "SM9",
+    "cardName": "Celebi & Venusaur GX",
+    "brightness": 129.5,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "cetitan-201-191-ssp-464e5c4e-d54c-41ca-8abc-97a36dd7f802",
+    "truthId": "sv8-201",
+    "collectorNumber": "201/191",
+    "setCode": "SSP",
+    "cardName": "Cetitan",
+    "brightness": 156.6,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "cetitan-201-191-ssp-b8a5bdf4-3d35-43f1-8873-f9e29fc39d62",
+    "truthId": "sv8-201",
+    "collectorNumber": "201/191",
+    "setCode": "SSP",
+    "cardName": "Cetitan",
+    "brightness": 165.1,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "charmander-004-165-mew-dc52fb4f-1feb-4bbf-8eea-aeea8c3fae97",
+    "truthId": "sv3pt5-4",
+    "collectorNumber": "004/165",
+    "setCode": "MEW",
+    "cardName": "Charmander",
+    "brightness": 150.9,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "cinccino-125-172-brs-13b97e75-00e3-4380-9172-d7a6e26211c6",
+    "truthId": "swsh9-125",
+    "collectorNumber": "125/172",
+    "setCode": "BRS",
+    "cardName": "Cinccino",
+    "brightness": 152.4,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "cinderace-ex-038-217-asc-254a6f7a-698b-483c-b729-b60453ff553a",
+    "truthId": "me2pt5-38",
+    "collectorNumber": "038/217",
+    "setCode": "ASC",
+    "cardName": "Cinderace ex",
+    "brightness": 134.3,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "cinderace-ex-038-217-asc-72a95f05-5301-4662-a806-74d82b000400",
+    "truthId": "me2pt5-38",
+    "collectorNumber": "038/217",
+    "setCode": "ASC",
+    "cardName": "Cinderace ex",
+    "brightness": 127.7,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "cottonee-004-086-wht-823169bf-3b82-4838-be1c-0a5547036d94",
+    "truthId": "rsv10pt5-4",
+    "collectorNumber": "004/086",
+    "setCode": "WHT",
+    "cardName": "Cottonee",
+    "brightness": 134.3,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "crustle-067-063-sv9a-d177958c-7c90-4ddd-a132-3e4498e31f5c",
+    "truthId": "sv9a_ja-67",
+    "collectorNumber": "067/063",
+    "setCode": "SV9a",
+    "cardName": "Crustle",
+    "brightness": 142.2,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "crustle-186-182-dri-fc6de652-3999-409d-b6f1-9fda0328dc17",
+    "truthId": "sv10-186",
+    "collectorNumber": "186/182",
+    "setCode": "DRI",
+    "cardName": "Crustle",
+    "brightness": 147.6,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "cyndaquil-56-111-n1-b67e63e2-7cc3-4026-aff8-8be464a70498",
+    "truthId": "neo1-56",
+    "collectorNumber": "56/111",
+    "setCode": "N1",
+    "cardName": "Cyndaquil",
+    "brightness": 160.4,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "darkrai-77-156-upr-e693cf27-9220-4a3c-a3ae-7e5493a5cb1e",
+    "truthId": "sm5-77",
+    "collectorNumber": "77/156",
+    "setCode": "UPR",
+    "cardName": "Darkrai ◇",
+    "brightness": 119.6,
+    "rarity": "Rare Prism Star",
+    "isFoil": true
+  },
+  {
+    "dir": "darkrai-gx-040-049-sm2-29bee9b1-6f01-48fb-bdf9-a7745289cf3a",
+    "truthId": "sm2p_ja-40",
+    "collectorNumber": "040/049",
+    "setCode": "SM2+",
+    "cardName": "Darkrai-GX",
+    "brightness": 154.0,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "dawn-106-080-m2-38529022-9906-4684-8479-0da7c0b30a01",
+    "truthId": "m2_ja-106",
+    "collectorNumber": "106/080",
+    "setCode": "M2",
+    "cardName": "Dawn",
+    "brightness": 108.7,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "dedenne-067-172-brs-3966a905-93ed-4ae7-8728-e04c5781e45b",
+    "truthId": "swsh9-67",
+    "collectorNumber": "067/172",
+    "setCode": "BRS",
+    "cardName": "Dedenne",
+    "brightness": 147.4,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "dedenne-087-191-ssp-e6db1c2e-3008-4878-b6ab-e71e14acecb6",
+    "truthId": "sv8-87",
+    "collectorNumber": "087/191",
+    "setCode": "SSP",
+    "cardName": "Dedenne",
+    "brightness": 155.7,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "delibird-5-64-n3-4c7c3d11-250c-4821-a5cf-72d4f8cf7b97",
+    "truthId": "neo3-5",
+    "collectorNumber": "5/64",
+    "setCode": "N3",
+    "cardName": "Delibird",
+    "brightness": 147.1,
+    "rarity": "Rare Holo",
+    "isFoil": true
+  },
+  {
+    "dir": "ditto-201-091-paf-54ea90c8-4b67-4344-bdfa-6c614dca7fb1",
+    "truthId": "sv4pt5-201",
+    "collectorNumber": "201/091",
+    "setCode": "PAF",
+    "cardName": "Ditto",
+    "brightness": 164.5,
+    "rarity": "Shiny Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "ditto-201-091-paf-a82fa951-ed34-4e23-a0a3-3964d38c5244",
+    "truthId": "sv4pt5-201",
+    "collectorNumber": "201/091",
+    "setCode": "PAF",
+    "cardName": "Ditto",
+    "brightness": 137.2,
+    "rarity": "Shiny Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "dottler-067-066-sv4m-93298cd0-2ee8-4a15-853e-d53adc072ef7",
+    "truthId": "sv4m_ja-67",
+    "collectorNumber": "067/066",
+    "setCode": "SV4M",
+    "cardName": "Dottler",
+    "brightness": 122.1,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "dottler-067-066-sv4m-d30fdcdd-919b-4f06-bca6-6de1ba19a9e2",
+    "truthId": "sv4m_ja-67",
+    "collectorNumber": "067/066",
+    "setCode": "SV4M",
+    "cardName": "Dottler",
+    "brightness": 137.5,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "drapion-097-088-por-9a9f2ff1-79e9-4c0b-b28a-e5e533d45365",
+    "truthId": "me3-97",
+    "collectorNumber": "097/088",
+    "setCode": "POR",
+    "cardName": "Drapion",
+    "brightness": 157.8,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "dratini-94-149-sum-32d555b7-0b21-4181-a397-8f2d6242a29c",
+    "truthId": "sm1-94",
+    "collectorNumber": "94/149",
+    "setCode": "SUM",
+    "cardName": "Dratini",
+    "brightness": 153.0,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "drilbur-048-086-sv11b-d09d732e-6533-430e-bde6-6d6ccc27527d",
+    "truthId": "sv11b_ja-48",
+    "collectorNumber": "048/086",
+    "setCode": "SV11B",
+    "cardName": "Drilbur",
+    "brightness": 154.9,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "ducklett-109-086-wht-6c4b7e77-4b84-4623-9c33-26e214684c72",
+    "truthId": "rsv10pt5-109",
+    "collectorNumber": "109/086",
+    "setCode": "WHT",
+    "cardName": "Ducklett",
+    "brightness": 120.7,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "ducklett-109-086-wht-86854f0b-2b33-4f5f-a7d7-ddd04a4633b5",
+    "truthId": "rsv10pt5-109",
+    "collectorNumber": "109/086",
+    "setCode": "WHT",
+    "cardName": "Ducklett",
+    "brightness": 119.3,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "ekans-64-100-ss-f651f268-13ac-44c9-8bed-03da0d15fbf0",
+    "truthId": "ex2-64",
+    "collectorNumber": "64/100",
+    "setCode": "SS",
+    "cardName": "Ekans",
+    "brightness": 144.2,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "elgyem-120-086-blk-cea5e8ad-654a-4dcb-8f48-7574b9347f07",
+    "truthId": "zsv10pt5-120",
+    "collectorNumber": "120/086",
+    "setCode": "BLK",
+    "cardName": "Elgyem",
+    "brightness": 136.8,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "emcees-hype-220-182-dri-8ba089b2-2288-4819-90c8-ae5d5da76e01",
+    "truthId": "sv10-220",
+    "collectorNumber": "220/182",
+    "setCode": "DRI",
+    "cardName": "Emcee's Hype",
+    "brightness": 131.0,
+    "rarity": "Ultra Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "emolga-rc23-rc25-ltr-58745193-081c-4e39-bcf9-be545a39f11b",
+    "truthId": "bw11-RC23",
+    "collectorNumber": "RC23/RC25",
+    "setCode": "LTR",
+    "cardName": "Emolga",
+    "brightness": 154.7,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "excadrill-059-049-sm11b-ed23bb7c-9064-4957-b754-027541839657",
+    "truthId": "sm11b_ja-59",
+    "collectorNumber": "059/049",
+    "setCode": "SM11b",
+    "cardName": "Excadrill",
+    "brightness": 140.2,
+    "rarity": "Character Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "excadrill-174-162-tef-6b354862-e9dd-43bb-86bb-7b8a9a646940",
+    "truthId": "sv5-174",
+    "collectorNumber": "174/162",
+    "setCode": "TEF",
+    "cardName": "Excadrill",
+    "brightness": 138.6,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "ferroseed-148-086-wht-434a7dbd-386f-4baa-b465-8161a624c904",
+    "truthId": "rsv10pt5-148",
+    "collectorNumber": "148/086",
+    "setCode": "WHT",
+    "cardName": "Ferroseed",
+    "brightness": 111.0,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "ferroseed-148-086-wht-79af94fb-402b-47fd-bc4b-c9ec74370f75",
+    "truthId": "rsv10pt5-148",
+    "collectorNumber": "148/086",
+    "setCode": "WHT",
+    "cardName": "Ferroseed",
+    "brightness": 152.6,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "fezandipiti-076-187-sv8a-b4b52ac8-3592-4750-a6cd-c7c8b7ae5fc3",
+    "truthId": "sv8a_ja-76",
+    "collectorNumber": "076/187",
+    "setCode": "SV8a",
+    "cardName": "Fezandipiti",
+    "brightness": 121.1,
+    "rarity": "Unknown",
+    "isFoil": false
+  },
+  {
+    "dir": "flaaffy-194-184-s8b-b254806f-7d44-4e39-afb9-6d931e35b5a9",
+    "truthId": "swsh8b_ja-194",
+    "collectorNumber": "194/184",
+    "setCode": "S8b",
+    "cardName": "Flaaffy",
+    "brightness": 142.8,
+    "rarity": "Character Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "flareon-ex-202-187-sv8a-7d36ed5b-479b-4fcf-b632-8b72776b7a09",
+    "truthId": "sv8a_ja-202",
+    "collectorNumber": "202/187",
+    "setCode": "SV8a",
+    "cardName": "Flareon ex",
+    "brightness": 144.1,
+    "rarity": "Special Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "frigibax-208-193-pal-95c97365-d964-4090-a11e-07b9229ba260",
+    "truthId": "sv2-208",
+    "collectorNumber": "208/193",
+    "setCode": "PAL",
+    "cardName": "Frigibax",
+    "brightness": 147.1,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "furfrou-088-131-pre-0ef822ef-7a05-4c45-9739-67609dbb77cb",
+    "truthId": "sv8pt5-88",
+    "collectorNumber": "088/131",
+    "setCode": "PRE",
+    "cardName": "Furfrou",
+    "brightness": 128.8,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "genesect-ex-169-086-blk-501f6d7d-18cd-4f3c-bd66-94323cca2a35",
+    "truthId": "zsv10pt5-169",
+    "collectorNumber": "169/086",
+    "setCode": "BLK",
+    "cardName": "Genesect ex",
+    "brightness": 121.3,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "genesect-ex-169-086-blk-f9d1d1bb-acbd-4a7f-a315-c65603c0b45e",
+    "truthId": "zsv10pt5-169",
+    "collectorNumber": "169/086",
+    "setCode": "BLK",
+    "cardName": "Genesect ex",
+    "brightness": 129.8,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "glaceon-021-066-sv5a-05108cf6-fba4-4f62-8e9b-91eda76a91ba",
+    "truthId": "sv5a_ja-21",
+    "collectorNumber": "021/066",
+    "setCode": "SV5a",
+    "cardName": "Glaceon",
+    "brightness": 147.4,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "glaceon-021-066-sv5a-22c7ec03-9c8f-4f3b-96b4-ada4b53b5be6",
+    "truthId": "sv5a_ja-21",
+    "collectorNumber": "021/066",
+    "setCode": "SV5a",
+    "cardName": "Glaceon",
+    "brightness": 153.8,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "glaceon-021-066-sv5a-2c5e964e-ee6b-4875-9d30-3a105aa67a6e",
+    "truthId": "sv5a_ja-21",
+    "collectorNumber": "021/066",
+    "setCode": "SV5a",
+    "cardName": "Glaceon",
+    "brightness": 175.8,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "golbat-36-101-hl-a499d6f9-07d3-478b-8b86-661f3552a43f",
+    "truthId": "ex5-36",
+    "collectorNumber": "36/101",
+    "setCode": "HL",
+    "cardName": "Golbat",
+    "brightness": 139.2,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "gothitelle-043-086-wht-6068f761-6c29-4f84-869c-935a3b3d6f45",
+    "truthId": "rsv10pt5-43",
+    "collectorNumber": "043/086",
+    "setCode": "WHT",
+    "cardName": "Gothitelle",
+    "brightness": 136.2,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "gulpin-62-101-hl-fbc52fae-ed0f-413d-a295-5e3bbd628c93",
+    "truthId": "ex5-62",
+    "collectorNumber": "62/101",
+    "setCode": "HL",
+    "cardName": "Gulpin",
+    "brightness": 142.0,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "gyarados-ex-018-080-xy9-8b78d6d6-aa3c-4423-a1df-fc0365398a63",
+    "truthId": "xy9_ja-18",
+    "collectorNumber": "018/080",
+    "setCode": "XY9",
+    "cardName": "Gyarados-EX",
+    "brightness": 144.0,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "herdier-073-086-sv11w-55ba2873-1fe7-425a-9573-1b3bf221811a",
+    "truthId": "sv11w_ja-73",
+    "collectorNumber": "073/086",
+    "setCode": "SV11W",
+    "cardName": "Herdier",
+    "brightness": 142.1,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "hisuian-sneasler-v-075-067-s10p-4d9e7d7e-ba64-4a3f-80a6-0e3ed0935849",
+    "truthId": "swsh10p_ja-75",
+    "collectorNumber": "075/067",
+    "setCode": "S10P",
+    "cardName": "Hisuian Sneasler V",
+    "brightness": 143.9,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "hoothoot-077-131-pre-494026ff-edd2-4682-9ecc-4209321bb6d4",
+    "truthId": "sv8pt5-77",
+    "collectorNumber": "077/131",
+    "setCode": "PRE",
+    "cardName": "Hoothoot",
+    "brightness": 144.7,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "hoothoot-077-131-pre-cbdb5f1e-5765-4ea0-934d-8193bb04c091",
+    "truthId": "sv8pt5-77",
+    "collectorNumber": "077/131",
+    "setCode": "PRE",
+    "cardName": "Hoothoot",
+    "brightness": 150.6,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "ice-rider-calyrex-v-073-070-s6h-698d6c99-ca4a-481e-8b72-168b43d73aec",
+    "truthId": "swsh6h_ja-73",
+    "collectorNumber": "073/070",
+    "setCode": "S6H",
+    "cardName": "Ice Rider Calyrex V",
+    "brightness": 124.4,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "iono-091-071-sv2d-a9c84016-9fbd-421d-991b-49e1ae98e0eb",
+    "truthId": "sv2d_ja-91",
+    "collectorNumber": "091/071",
+    "setCode": "SV2D",
+    "cardName": "Iono",
+    "brightness": 129.7,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "ionos-bellibolt-ex-183-159-jtg-70e1f726-c329-4887-8e33-9c76bf9a3dcf",
+    "truthId": "sv9-183",
+    "collectorNumber": "183/159",
+    "setCode": "JTG",
+    "cardName": "Iono's Bellibolt ex",
+    "brightness": 145.1,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "ionos-kilowattrel-163-159-jtg-f46af740-0931-47db-b89c-293d869a5c65",
+    "truthId": "sv9-163",
+    "collectorNumber": "163/159",
+    "setCode": "JTG",
+    "cardName": "Iono's Kilowattrel",
+    "brightness": 107.9,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "iron-crown-ex-206-162-tef-27c8fa93-84ec-4e8e-999c-c828ed4b61e4",
+    "truthId": "sv5-206",
+    "collectorNumber": "206/162",
+    "setCode": "TEF",
+    "cardName": "Iron Crown ex",
+    "brightness": 128.8,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "iron-hands-ex-248-182-par-9cb1b1d6-ebe1-486d-a9b7-9fd92ba87fcc",
+    "truthId": "sv4-248",
+    "collectorNumber": "248/182",
+    "setCode": "PAR",
+    "cardName": "Iron Hands ex",
+    "brightness": 126.6,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "klang-147-086-sv11w-f5ddebab-0fb3-4e2f-8eac-d51e7308092c",
+    "truthId": "sv11w_ja-147",
+    "collectorNumber": "147/086",
+    "setCode": "SV11W",
+    "cardName": "Klang",
+    "brightness": 151.8,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "lacey-231-187-sv8a-72349d20-760d-4ac3-8cf1-e88448028186",
+    "truthId": "sv8a_ja-231",
+    "collectorNumber": "231/187",
+    "setCode": "SV8a",
+    "cardName": "Lacey",
+    "brightness": 137.1,
+    "rarity": "Special Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "lacey-231-187-sv8a-86424370-64dd-42df-b87b-0ef6b7985cec",
+    "truthId": "sv8a_ja-231",
+    "collectorNumber": "231/187",
+    "setCode": "SV8a",
+    "cardName": "Lacey",
+    "brightness": 149.4,
+    "rarity": "Special Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "latias-and-latios-gx-060-095-sm9-8fd1a5dd-2288-4795-8eb5-ef99c5a4da60",
+    "truthId": "sm9_ja-60",
+    "collectorNumber": "060/095",
+    "setCode": "SM9",
+    "cardName": "Latias & Latios-GX",
+    "brightness": 140.8,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "latios-gx-109-094-sm11-af28b2be-65e0-49ce-831b-367ccb27fc97",
+    "truthId": "sm11_ja-109",
+    "collectorNumber": "109/094",
+    "setCode": "SM11",
+    "cardName": "Latios-GX",
+    "brightness": 137.9,
+    "rarity": "Hyper Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "lechonk-120-108-sv3-3132032f-4b6d-461b-9877-34441ffd9ac5",
+    "truthId": "sv3_ja-120",
+    "collectorNumber": "120/108",
+    "setCode": "SV3",
+    "cardName": "Lechonk",
+    "brightness": 153.4,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "lechonk-120-108-sv3-3a2f3f49-363b-4a78-8bd9-6a345bb0a978",
+    "truthId": "sv3_ja-120",
+    "collectorNumber": "120/108",
+    "setCode": "SV3",
+    "cardName": "Lechonk",
+    "brightness": 148.7,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "lechonk-120-108-sv3-4772da9f-4dfd-44aa-bdff-a8876085abb1",
+    "truthId": "sv3_ja-120",
+    "collectorNumber": "120/108",
+    "setCode": "SV3",
+    "cardName": "Lechonk",
+    "brightness": 148.7,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "lt-surges-voltorb-86-132-g2-fecfcfca-8846-4b61-8a68-83dbd2830afe",
+    "truthId": "gym2-86",
+    "collectorNumber": "86/132",
+    "setCode": "G2",
+    "cardName": "Lt. Surge's Voltorb",
+    "brightness": 149.7,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "lycanroc-107-100-sv9-292b61b3-fdf6-4541-8fc2-a592fad79341",
+    "truthId": "sv9_ja-107",
+    "collectorNumber": "107/100",
+    "setCode": "SV9",
+    "cardName": "Lycanroc",
+    "brightness": 151.2,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "machamp-v-073-067-s10d-341de7fa-3461-42d7-bdc3-7e0615c1225e",
+    "truthId": "swsh10d_ja-73",
+    "collectorNumber": "073/067",
+    "setCode": "S10D",
+    "cardName": "Machamp V",
+    "brightness": 110.9,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "machamp-v-073-067-s10d-8a2c503a-ab2c-4076-93da-498d761b4f8c",
+    "truthId": "swsh10d_ja-73",
+    "collectorNumber": "073/067",
+    "setCode": "S10D",
+    "cardName": "Machamp V",
+    "brightness": 106.7,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "machoke-no-067-vnd3-ja-9cb343e1-b1cd-410c-bb50-ba058ab7b1ec",
+    "truthId": "vnd3_ja-67",
+    "collectorNumber": "No.067",
+    "setCode": "vnd3_ja",
+    "cardName": "Machoke",
+    "brightness": 161.0,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "makuhita-57-109-rs-3714d5ec-0887-49f2-945e-10e8b3a12ad2",
+    "truthId": "ex1-57",
+    "collectorNumber": "57/109",
+    "setCode": "RS",
+    "cardName": "Makuhita",
+    "brightness": 154.3,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "maractus-160-159-jtg-43ec500d-0d06-42cf-bdf9-8a98c45a38a9",
+    "truthId": "sv9-160",
+    "collectorNumber": "160/159",
+    "setCode": "JTG",
+    "cardName": "Maractus",
+    "brightness": 101.7,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "master-ball-88-107-dx-2b90f569-2928-41ac-a958-bea43a728b58",
+    "truthId": "ex8-88",
+    "collectorNumber": "88/107",
+    "setCode": "DX",
+    "cardName": "Master Ball",
+    "brightness": 155.3,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "mega-clefable-ex-103-088-por-48f049b4-cdbc-424d-8814-5e59036cfc7b",
+    "truthId": "me3-103",
+    "collectorNumber": "103/088",
+    "setCode": "POR",
+    "cardName": "Mega Clefable ex",
+    "brightness": 124.9,
+    "rarity": "Ultra Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-clefable-ex-103-088-por-b515c8a4-e01b-4d42-a7c1-fcd58ae29734",
+    "truthId": "me3-103",
+    "collectorNumber": "103/088",
+    "setCode": "POR",
+    "cardName": "Mega Clefable ex",
+    "brightness": 141.6,
+    "rarity": "Ultra Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-dragonite-ex-271-217-asc-c77b4877-7428-4aa9-9aa8-49fe5ce1ce67",
+    "truthId": "me2pt5-271",
+    "collectorNumber": "271/217",
+    "setCode": "ASC",
+    "cardName": "Mega Dragonite ex",
+    "brightness": 128.2,
+    "rarity": "Mega Attack Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-dragonite-ex-295-217-asc-d93e1f27-3466-4cd6-a6d9-3e3638d6c031",
+    "truthId": "me2pt5-295",
+    "collectorNumber": "295/217",
+    "setCode": "ASC",
+    "cardName": "Mega Dragonite ex",
+    "brightness": 141.8,
+    "rarity": "Mega Hyper Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-emboar-ex-273-217-asc-ef4bdd5b-2f59-412b-a3ef-aa5666dbb9f5",
+    "truthId": "me2pt5-273",
+    "collectorNumber": "273/217",
+    "setCode": "ASC",
+    "cardName": "Mega Emboar ex",
+    "brightness": 145.0,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-froslass-ex-265-217-asc-76ac8c0a-3005-409c-a9f9-b837e49b1473",
+    "truthId": "me2pt5-265",
+    "collectorNumber": "265/217",
+    "setCode": "ASC",
+    "cardName": "Mega Froslass ex",
+    "brightness": 165.5,
+    "rarity": "Mega Attack Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-hawlucha-ex-229-193-m2a-cd309445-b04a-49f6-a743-daf80faa4fd3",
+    "truthId": "m2a_ja-229",
+    "collectorNumber": "229/193",
+    "setCode": "M2a",
+    "cardName": "Mega Hawlucha ex",
+    "brightness": 119.2,
+    "rarity": "Mega Attack Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-lopunny-and-jigglypuff-gx-165-236-cec-9519993d-c082-41e2-a4d6-cbbb0004fe8b",
+    "truthId": "sm12-165",
+    "collectorNumber": "165/236",
+    "setCode": "CEC",
+    "cardName": "Mega Lopunny & Jigglypuff-GX",
+    "brightness": 141.6,
+    "rarity": "Rare Holo GX",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-lopunny-ex-100-080-m2-a1dc1f36-d94d-4cb9-8598-4e4455307013",
+    "truthId": "m2_ja-100",
+    "collectorNumber": "100/080",
+    "setCode": "M2",
+    "cardName": "Mega Lopunny ex",
+    "brightness": 111.7,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-venusaur-ex-177-132-meg-6b1ed010-0589-47c4-90c5-c7a95ee7a042",
+    "truthId": "me1-177",
+    "collectorNumber": "177/132",
+    "setCode": "MEG",
+    "cardName": "Mega Venusaur ex",
+    "brightness": 126.8,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-zygarde-ex-124-088-por-d729c199-6705-4e14-aab4-a726a0011525",
+    "truthId": "me3-124",
+    "collectorNumber": "124/088",
+    "setCode": "POR",
+    "cardName": "Mega Zygarde ex",
+    "brightness": 133.9,
+    "rarity": "Mega Hyper Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mega-zygarde-ex-124-088-por-f5d7d1e3-63ad-4d96-a38a-486a752ae2f3",
+    "truthId": "me3-124",
+    "collectorNumber": "124/088",
+    "setCode": "POR",
+    "cardName": "Mega Zygarde ex",
+    "brightness": 140.6,
+    "rarity": "Mega Hyper Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "meowth-ex-114-080-m3-4159b1b7-969a-4d7b-bd3e-72e9fd33173e",
+    "truthId": "m3_ja-114",
+    "collectorNumber": "114/080",
+    "setCode": "M3",
+    "cardName": "Meowth ex",
+    "brightness": 153.0,
+    "rarity": "Special Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mew-111-110-hp-a4b87686-755f-417a-ba1e-3c3547c19b92",
+    "truthId": "ex13-111",
+    "collectorNumber": "111/110",
+    "setCode": "HP",
+    "cardName": "Mew",
+    "brightness": 142.3,
+    "rarity": "Rare Secret",
+    "isFoil": true
+  },
+  {
+    "dir": "mew-ex-193-165-mew-ac52efa9-9234-4f46-9c42-bc40291e8aa4",
+    "truthId": "sv3pt5-193",
+    "collectorNumber": "193/165",
+    "setCode": "MEW",
+    "cardName": "Mew ex",
+    "brightness": 116.6,
+    "rarity": "Ultra Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "mewtwo-ex-54-113-ltr-a0b796e8-0b1b-4228-abd4-0b30d29d65f3",
+    "truthId": "bw11-54",
+    "collectorNumber": "54/113",
+    "setCode": "LTR",
+    "cardName": "Mewtwo-EX",
+    "brightness": 121.9,
+    "rarity": "Rare Holo EX",
+    "isFoil": true
+  },
+  {
+    "dir": "mewtwo-v-swsh229-pr-sw-b5846878-ef3a-455a-9f58-811a940dfb01",
+    "truthId": "swshp-SWSH229",
+    "collectorNumber": "SWSH229",
+    "setCode": "PR-SW",
+    "cardName": "Mewtwo V",
+    "brightness": 134.4,
+    "rarity": "Promo",
+    "isFoil": true
+  },
+  {
+    "dir": "muk-and-alolan-muk-gx-098-095-sm10-bba9ccb3-5c72-4876-8701-e67576429808",
+    "truthId": "sm10_ja-98",
+    "collectorNumber": "098/095",
+    "setCode": "SM10",
+    "cardName": "Muk & Alolan Muk-GX",
+    "brightness": 128.6,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "muk-and-alolan-muk-gx-098-095-sm10-f0fb23fe-2abc-4313-bb3d-418d74ebb81a",
+    "truthId": "sm10_ja-98",
+    "collectorNumber": "098/095",
+    "setCode": "SM10",
+    "cardName": "Muk & Alolan Muk-GX",
+    "brightness": 130.5,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "munkidori-107-101-sv6-683ac472-3d7f-4ecc-ba9e-18aa43e6bbb9",
+    "truthId": "sv6_ja-107",
+    "collectorNumber": "107/101",
+    "setCode": "SV6",
+    "cardName": "Munkidori",
+    "brightness": 144.6,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "naganadel-gx-052-150-sm8b-17cf7222-6c73-4cb2-b0db-68e102998be0",
+    "truthId": "sm8b_ja-52",
+    "collectorNumber": "052/150",
+    "setCode": "SM8b",
+    "cardName": "Naganadel-GX",
+    "brightness": 115.0,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "numel-69-97-dr-25b57a80-38b1-476a-b07c-24390cad1c05",
+    "truthId": "ex3-69",
+    "collectorNumber": "69/97",
+    "setCode": "DR",
+    "cardName": "Numel",
+    "brightness": 134.8,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "okidogi-057-131-pre-fc53a697-0034-4baf-8c26-9c8ee551642b",
+    "truthId": "sv8pt5-57",
+    "collectorNumber": "057/131",
+    "setCode": "PRE",
+    "cardName": "Okidogi",
+    "brightness": 120.4,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "onix-69-111-n1-3fdc8175-2e5a-48ee-a2d6-b737f0a3b0f2",
+    "truthId": "neo1-69",
+    "collectorNumber": "69/111",
+    "setCode": "N1",
+    "cardName": "Onix",
+    "brightness": 162.6,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "palafin-ex-151-131-pre-4505273a-57fd-4b3d-bc69-3a6c9d85dd27",
+    "truthId": "sv8pt5-151",
+    "collectorNumber": "151/131",
+    "setCode": "PRE",
+    "cardName": "Palafin ex",
+    "brightness": 125.2,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "palafin-ex-151-131-pre-53227175-fe53-410e-bf13-75100342adcf",
+    "truthId": "sv8pt5-151",
+    "collectorNumber": "151/131",
+    "setCode": "PRE",
+    "cardName": "Palafin ex",
+    "brightness": 122.4,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "pansear-014-086-wht-3b5dc270-1d4c-4f9c-a1df-31c58dd1613a",
+    "truthId": "rsv10pt5-14",
+    "collectorNumber": "014/086",
+    "setCode": "WHT",
+    "cardName": "Pansear",
+    "brightness": 111.2,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "pawniard-066-086-sv11b-3e158cfa-9506-416a-b052-a4987e9b938f",
+    "truthId": "sv11b_ja-66",
+    "collectorNumber": "066/086",
+    "setCode": "SV11B",
+    "cardName": "Pawniard",
+    "brightness": 144.5,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "pikachu-006-015-mcd23-552213b2-c0b7-4a77-9ba8-4e36e5223d11",
+    "truthId": "mcd23-6",
+    "collectorNumber": "006/015",
+    "setCode": "mcd23",
+    "cardName": "Pikachu",
+    "brightness": 137.6,
+    "rarity": "Promo",
+    "isFoil": true
+  },
+  {
+    "dir": "pikachu-ex-028-131-pre-2b512f08-a709-4226-bf01-6efc1f18e6aa",
+    "truthId": "sv8pt5-28",
+    "collectorNumber": "028/131",
+    "setCode": "PRE",
+    "cardName": "Pikachu ex",
+    "brightness": 139.2,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "pineco-71-97-dr-6fbeb952-184b-4e2f-a4d5-cec3be803ff6",
+    "truthId": "ex3-71",
+    "collectorNumber": "71/97",
+    "setCode": "DR",
+    "cardName": "Pineco",
+    "brightness": 146.3,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "pinsir-003-131-pre-d03996d3-b9d1-4bc9-93b9-00aad539fdc3",
+    "truthId": "sv8pt5-3",
+    "collectorNumber": "003/131",
+    "setCode": "PRE",
+    "cardName": "Pinsir",
+    "brightness": 142.8,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "poncho-wearing-pikachu-203-xy-p-xyp-ja-cda0b012-eee8-426a-97f0-1a71accf5f8a",
+    "truthId": "xyp_ja-203",
+    "collectorNumber": "203/XY-P",
+    "setCode": "xyp_ja",
+    "cardName": "Poncho-wearing Pikachu",
+    "brightness": 153.6,
+    "rarity": "Promo",
+    "isFoil": true
+  },
+  {
+    "dir": "purrloin-136-086-wht-e45033da-e5ef-40fa-8f8f-3508a6da01db",
+    "truthId": "rsv10pt5-136",
+    "collectorNumber": "136/086",
+    "setCode": "WHT",
+    "cardName": "Purrloin",
+    "brightness": 137.9,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "quaxly-081-073-sv1a-5f3f2c8b-637c-4162-b5ef-7ef1a373cd8c",
+    "truthId": "sv1a_ja-81",
+    "collectorNumber": "081/073",
+    "setCode": "SV1a",
+    "cardName": "Quaxly",
+    "brightness": 141.6,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "radiant-alakazam-059-195-sit-01c835a1-da6d-48fe-8a5a-4c712d62d008",
+    "truthId": "swsh12-59",
+    "collectorNumber": "059/195",
+    "setCode": "SIT",
+    "cardName": "Radiant Alakazam",
+    "brightness": 137.4,
+    "rarity": "Radiant Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "radiant-charizard-011-078-pgo-36f4e2f0-5d4b-4ed8-93f5-b9a2f992090b",
+    "truthId": "pgo-11",
+    "collectorNumber": "011/078",
+    "setCode": "PGO",
+    "cardName": "Radiant Charizard",
+    "brightness": 147.6,
+    "rarity": "Radiant Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "rapidash-189-182-dri-75838f93-8a1b-4274-afd5-1ecef7865d76",
+    "truthId": "sv10-189",
+    "collectorNumber": "189/182",
+    "setCode": "DRI",
+    "cardName": "Rapidash",
+    "brightness": 140.0,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "regidrago-v-183-195-sit-1700660e-6e81-42e3-8165-4ce6d2b4c977",
+    "truthId": "swsh12-183",
+    "collectorNumber": "183/195",
+    "setCode": "SIT",
+    "cardName": "Regidrago V",
+    "brightness": 123.5,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "regigigas-ex-055-052-bw3-9c579454-970b-458a-aa52-a7604d530ac1",
+    "truthId": "bw3h_ja-55",
+    "collectorNumber": "055/052",
+    "setCode": "BW3",
+    "cardName": "Regigigas-EX",
+    "brightness": 138.3,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "reshiram-and-zekrom-gx-036-049-sm11b-d634c0e1-1cff-4e50-8cdf-c65c52657db9",
+    "truthId": "sm11b_ja-36",
+    "collectorNumber": "036/049",
+    "setCode": "SM11b",
+    "cardName": "Reshiram & Zekrom-GX",
+    "brightness": 121.4,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "riolu-215-198-svi-556a9374-0dca-47b0-893d-2a91d4a51733",
+    "truthId": "sv1-215",
+    "collectorNumber": "215/198",
+    "setCode": "SVI",
+    "cardName": "Riolu",
+    "brightness": 129.4,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "roaring-moon-011-015-mcd24-cb45545c-9afc-42a3-9b1a-c84b656a24dc",
+    "truthId": "mcd24-11",
+    "collectorNumber": "011/015",
+    "setCode": "mcd24",
+    "cardName": "Roaring Moon",
+    "brightness": 133.9,
+    "rarity": "None",
+    "isFoil": true
+  },
+  {
+    "dir": "rockets-tricky-gym-90-109-trr-5280bfc1-f171-44b7-9e6f-b46d0a0e8a7a",
+    "truthId": "ex7-90",
+    "collectorNumber": "90/109",
+    "setCode": "TRR",
+    "cardName": "Rocket's Tricky Gym",
+    "brightness": 139.0,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "rockets-wobbuffet-093-141-vs1-ja-49eb217b-931d-425e-8c73-5d27a56e5b20",
+    "truthId": "vs1_ja-93",
+    "collectorNumber": "093/141",
+    "setCode": "vs1_ja",
+    "cardName": "Rocket's Wobbuffet",
+    "brightness": 123.4,
+    "rarity": "Rare Holo",
+    "isFoil": true
+  },
+  {
+    "dir": "rockruff-202-184-s8b-73f6e31c-016c-40b9-a813-17bb872280db",
+    "truthId": "swsh8b_ja-202",
+    "collectorNumber": "202/184",
+    "setCode": "S8b",
+    "cardName": "Rockruff",
+    "brightness": 126.2,
+    "rarity": "Character Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "rotom-074-063-sv9a-029236db-0943-49a3-94a7-8f925edd0fa8",
+    "truthId": "sv9a_ja-74",
+    "collectorNumber": "074/063",
+    "setCode": "SV9a",
+    "cardName": "Rotom",
+    "brightness": 135.5,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "scizor-116-108-sv3-606ffb99-d41c-487b-b16c-ef566ed85edd",
+    "truthId": "sv3_ja-116",
+    "collectorNumber": "116/108",
+    "setCode": "SV3",
+    "cardName": "Scizor",
+    "brightness": 126.4,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "scizor-116-108-sv3-803738b0-d93b-4b21-9924-6ee0e817e6f2",
+    "truthId": "sv3_ja-116",
+    "collectorNumber": "116/108",
+    "setCode": "SV3",
+    "cardName": "Scizor",
+    "brightness": 153.8,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "scrafty-055-086-sv11w-a6d409e9-f67a-43c5-b562-b105927bfe54",
+    "truthId": "sv11w_ja-55",
+    "collectorNumber": "055/086",
+    "setCode": "SV11W",
+    "cardName": "Scrafty",
+    "brightness": 136.6,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "seismitoad-109-086-sv11b-f668aecd-306c-4bde-b1a9-a9849d9111a9",
+    "truthId": "sv11b_ja-109",
+    "collectorNumber": "109/086",
+    "setCode": "SV11B",
+    "cardName": "Seismitoad",
+    "brightness": 133.8,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "shadow-rider-calyrex-v-076-070-s6k-567b54bb-de99-4d20-ad05-3357a8e3de6e",
+    "truthId": "swsh6k_ja-76",
+    "collectorNumber": "076/070",
+    "setCode": "S6K",
+    "cardName": "Shadow Rider Calyrex V",
+    "brightness": 126.2,
+    "rarity": "Super Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "shaymin-087-131-pre-8571b2af-a6e3-4234-914d-36268080d95d",
+    "truthId": "sv8pt5-87",
+    "collectorNumber": "087/131",
+    "setCode": "PRE",
+    "cardName": "Shaymin",
+    "brightness": 128.1,
+    "rarity": "Uncommon",
+    "isFoil": false
+  },
+  {
+    "dir": "shiinotic-194-191-ssp-2df14755-3ca3-4184-b590-5cf426991f12",
+    "truthId": "sv8-194",
+    "collectorNumber": "194/191",
+    "setCode": "SSP",
+    "cardName": "Shiinotic",
+    "brightness": 105.9,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "shiinotic-194-191-ssp-8fed4d6b-72cb-455f-a6d9-cb0db6fb4d76",
+    "truthId": "sv8-194",
+    "collectorNumber": "194/191",
+    "setCode": "SSP",
+    "cardName": "Shiinotic",
+    "brightness": 131.5,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "skeledirge-ex-258-193-pal-8635a54e-4309-4691-abdc-c97ddddbccd0",
+    "truthId": "sv2-258",
+    "collectorNumber": "258/193",
+    "setCode": "PAL",
+    "cardName": "Skeledirge ex",
+    "brightness": 137.6,
+    "rarity": "Special Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "sliggoo-093-083-m4-8516a76f-4cc3-417d-8928-781da3ed340f",
+    "truthId": "m4_ja-93",
+    "collectorNumber": "093/083",
+    "setCode": "M4",
+    "cardName": "Sliggoo",
+    "brightness": 155.2,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "stufful-154-132-meg-c11407b9-c09b-466c-96e7-ab085b541a20",
+    "truthId": "me1-154",
+    "collectorNumber": "154/132",
+    "setCode": "MEG",
+    "cardName": "Stufful",
+    "brightness": 156.3,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "surfing-pikachu-v-8-cel-22133e13-c354-4c6d-ad0a-d39292b0da65",
+    "truthId": "cel25-8",
+    "collectorNumber": "8",
+    "setCode": "CEL",
+    "cardName": "Surfing Pikachu V",
+    "brightness": 138.2,
+    "rarity": "Rare Holo V",
+    "isFoil": true
+  },
+  {
+    "dir": "surskit-76-101-hl-84736c02-ee47-4ffb-a712-e188483dd01c",
+    "truthId": "ex5-76",
+    "collectorNumber": "76/101",
+    "setCode": "HL",
+    "cardName": "Surskit",
+    "brightness": 139.3,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "sylveon-ex-041-131-pre-582ae98d-aae0-439b-88ce-3e55b995739d",
+    "truthId": "sv8pt5-41",
+    "collectorNumber": "041/131",
+    "setCode": "PRE",
+    "cardName": "Sylveon ex",
+    "brightness": 135.3,
+    "rarity": "Double Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "team-aquas-kyogre-ex-6-34-dcr-0ada76e4-739b-4a60-a5c3-b14f6d5a0cce",
+    "truthId": "dc1-6",
+    "collectorNumber": "6/34",
+    "setCode": "DCR",
+    "cardName": "Team Aqua's Kyogre-EX",
+    "brightness": 126.7,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "team-rockets-crobat-ex-242-182-dri-1949a5b9-dacd-4b7a-a713-56fc5d4fa942",
+    "truthId": "sv10-242",
+    "collectorNumber": "242/182",
+    "setCode": "DRI",
+    "cardName": "Team Rocket's Crobat ex",
+    "brightness": 147.2,
+    "rarity": "Hyper Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "team-rockets-crobat-ex-242-182-dri-9886362b-ef65-4c2b-9c33-cdc6383a9907",
+    "truthId": "sv10-242",
+    "collectorNumber": "242/182",
+    "setCode": "DRI",
+    "cardName": "Team Rocket's Crobat ex",
+    "brightness": 122.7,
+    "rarity": "Hyper Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "team-rockets-mimikyu-205-193-m2a-cb60b796-1c25-42ea-be3d-54051d388f7b",
+    "truthId": "m2a_ja-205",
+    "collectorNumber": "205/193",
+    "setCode": "M2a",
+    "cardName": "Team Rocket's Mimikyu",
+    "brightness": 132.8,
+    "rarity": "Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "team-rockets-mimikyu-238-217-asc-009580bd-a507-4bd6-9ac2-130723774926",
+    "truthId": "me2pt5-238",
+    "collectorNumber": "238/217",
+    "setCode": "ASC",
+    "cardName": "Team Rocket's Mimikyu",
+    "brightness": 147.8,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "team-rockets-mimikyu-238-217-asc-2b5a9717-569c-4b05-903e-652fd88fc151",
+    "truthId": "me2pt5-238",
+    "collectorNumber": "238/217",
+    "setCode": "ASC",
+    "cardName": "Team Rocket's Mimikyu",
+    "brightness": 113.3,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "terapagos-ex-226-187-sv8a-a4d67bbe-d594-4cdd-9cc2-93304e5a18d9",
+    "truthId": "sv8a_ja-226",
+    "collectorNumber": "226/187",
+    "setCode": "SV8a",
+    "cardName": "Terapagos ex",
+    "brightness": 145.7,
+    "rarity": "Special Art Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "timburr-183-167-twm-7aab7603-ab50-46d1-bbdc-29154f036bc3",
+    "truthId": "sv6-183",
+    "collectorNumber": "183/167",
+    "setCode": "TWM",
+    "cardName": "Timburr",
+    "brightness": 142.4,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "toedscool-201-198-svi-60807d12-70ec-4c19-abb5-95d08b572963",
+    "truthId": "sv1-201",
+    "collectorNumber": "201/198",
+    "setCode": "SVI",
+    "cardName": "Toedscool",
+    "brightness": 133.9,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "toedscool-201-198-svi-e637d65c-cba0-4dfb-9046-b7fb69152467",
+    "truthId": "sv1-201",
+    "collectorNumber": "201/198",
+    "setCode": "SVI",
+    "cardName": "Toedscool",
+    "brightness": 135.2,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "torkoal-050-049-sm11b-d54dcb40-56dd-4025-b9af-d74fbf67915f",
+    "truthId": "sm11b_ja-50",
+    "collectorNumber": "050/049",
+    "setCode": "SM11b",
+    "cardName": "Torkoal",
+    "brightness": 126.3,
+    "rarity": "Character Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "toxtricity-103-094-pfl-6e21cdd3-975e-489b-ab85-8459b3ce9660",
+    "truthId": "me2-103",
+    "collectorNumber": "103/094",
+    "setCode": "PFL",
+    "cardName": "Toxtricity",
+    "brightness": 147.4,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "trubbish-049-066-sv4k-4cc0f143-ea8a-4670-8ba6-9f936e3b41dc",
+    "truthId": "sv4k_ja-49",
+    "collectorNumber": "049/066",
+    "setCode": "SV4K",
+    "cardName": "Trubbish",
+    "brightness": 147.6,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "trubbish-094-187-sv8a-ef361fc9-64d6-400f-97d6-30a485628d6d",
+    "truthId": "sv8a_ja-94",
+    "collectorNumber": "094/187",
+    "setCode": "SV8a",
+    "cardName": "Trubbish",
+    "brightness": 139.7,
+    "rarity": "Unknown",
+    "isFoil": false
+  },
+  {
+    "dir": "turtonator-146-142-scr-71476591-49fc-4e93-9d90-28dcb48589a4",
+    "truthId": "sv7-146",
+    "collectorNumber": "146/142",
+    "setCode": "SCR",
+    "cardName": "Turtonator",
+    "brightness": 163.2,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "turtwig-040-mep-0f612d68-90a7-4084-9a19-2744c9218e8a",
+    "truthId": "mep-40",
+    "collectorNumber": "040",
+    "setCode": "MEP",
+    "cardName": "Turtwig",
+    "brightness": 144.5,
+    "rarity": "Promo",
+    "isFoil": true
+  },
+  {
+    "dir": "turtwig-040-mep-5a7e44d7-e793-4dd4-995a-916e98a43b94",
+    "truthId": "mep-40",
+    "collectorNumber": "040",
+    "setCode": "MEP",
+    "cardName": "Turtwig",
+    "brightness": 154.6,
+    "rarity": "Promo",
+    "isFoil": true
+  },
+  {
+    "dir": "tyranitar-222-193-pal-6b21c0f3-9cd0-455d-b1a9-7ea0b3c2ddfa",
+    "truthId": "sv2-222",
+    "collectorNumber": "222/193",
+    "setCode": "PAL",
+    "cardName": "Tyranitar",
+    "brightness": 103.7,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "umbreon-025-p-miscpp-ja-ead87e9e-ea50-4c33-ae2b-8c403adc9c5a",
+    "truthId": "miscpp_ja-25",
+    "collectorNumber": "025/P",
+    "setCode": "miscpp_ja",
+    "cardName": "Umbreon",
+    "brightness": 126.4,
+    "rarity": "Promo",
+    "isFoil": true
+  },
+  {
+    "dir": "unown-v-177-195-sit-b0c21c32-f3ad-46c2-b5be-8931455d2ec2",
+    "truthId": "swsh12-177",
+    "collectorNumber": "177/195",
+    "setCode": "SIT",
+    "cardName": "Unown V",
+    "brightness": 131.0,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "vanillish-028-086-wht-d91bb94c-5b3f-4cbd-b4e6-4af20b0c93ea",
+    "truthId": "rsv10pt5-28",
+    "collectorNumber": "028/086",
+    "setCode": "WHT",
+    "cardName": "Vanillish",
+    "brightness": 135.8,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "vaporeon-134-165-sv2a-8aaa6443-0e79-4248-8226-01a6e41c91a3",
+    "truthId": "sv2a_ja-134",
+    "collectorNumber": "134/165",
+    "setCode": "SV2a",
+    "cardName": "Vaporeon",
+    "brightness": 121.0,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "vibrava-22-97-dr-3921a771-fcd4-4c10-a2dd-92a6c1a15689",
+    "truthId": "ex3-22",
+    "collectorNumber": "22/97",
+    "setCode": "DR",
+    "cardName": "Vibrava",
+    "brightness": 146.3,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "vivillon-193-191-ssp-305da7e9-53fe-4758-ae46-70c242e9fe7e",
+    "truthId": "sv8-193",
+    "collectorNumber": "193/191",
+    "setCode": "SSP",
+    "cardName": "Vivillon",
+    "brightness": 142.3,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "weavile-051-049-sm11b-2ea8ec74-4347-4c61-a1a4-ef1033c62066",
+    "truthId": "sm11b_ja-51",
+    "collectorNumber": "051/049",
+    "setCode": "SM11b",
+    "cardName": "Weavile",
+    "brightness": 118.3,
+    "rarity": "Character Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "whirlipede-055-086-blk-d544daab-3878-4a14-86c7-b0ecf356784c",
+    "truthId": "zsv10pt5-55",
+    "collectorNumber": "055/086",
+    "setCode": "BLK",
+    "cardName": "Whirlipede",
+    "brightness": 126.1,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "woobat-033-086-sv11w-670cd2cf-604e-480d-a3f2-954e8ea92a4f",
+    "truthId": "sv11w_ja-33",
+    "collectorNumber": "033/086",
+    "setCode": "SV11W",
+    "cardName": "Woobat",
+    "brightness": 147.2,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "woobat-033-086-sv11w-fc271a2a-f281-4a81-9d18-23f147b4fcfe",
+    "truthId": "sv11w_ja-33",
+    "collectorNumber": "033/086",
+    "setCode": "SV11W",
+    "cardName": "Woobat",
+    "brightness": 129.6,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "wugtrio-224-091-paf-3283b6b7-9e40-489f-91e0-6c0408bf5102",
+    "truthId": "sv4pt5-224",
+    "collectorNumber": "224/091",
+    "setCode": "PAF",
+    "cardName": "Wugtrio",
+    "brightness": 120.5,
+    "rarity": "Illustration Rare",
+    "isFoil": true
+  },
+  {
+    "dir": "yveltal-ex-xy150a-pr-xy-c16ade5e-70eb-4b41-a5db-08abb4aabdb4",
+    "truthId": "xyp-XY150a",
+    "collectorNumber": "XY150a",
+    "setCode": "PR-XY",
+    "cardName": "Yveltal-EX",
+    "brightness": 121.5,
+    "rarity": "Promo",
+    "isFoil": true
+  },
+  {
+    "dir": "zamazenta-v-gg54-gg70-crz-94898d0c-1eab-4af8-a2a5-f7289de65726",
+    "truthId": "swsh12pt5gg-GG54",
+    "collectorNumber": "GG54/GG70",
+    "setCode": "CRZ",
+    "cardName": "Zamazenta V",
+    "brightness": 152.9,
+    "rarity": "Rare Holo V",
+    "isFoil": true
+  },
+  {
+    "dir": "zangoose-34-110-hp-9b0807c0-d5e1-4911-b54a-a5b6587e60b6",
+    "truthId": "ex13-34",
+    "collectorNumber": "34/110",
+    "setCode": "HP",
+    "cardName": "Zangoose",
+    "brightness": 147.1,
+    "rarity": "Rare",
+    "isFoil": false
+  },
+  {
+    "dir": "zekrom-ex-97-99-nxd-43d912fc-9fe3-45da-96cf-49a891984e4b",
+    "truthId": "bw4-97",
+    "collectorNumber": "97/99",
+    "setCode": "NXD",
+    "cardName": "Zekrom-EX",
+    "brightness": 157.1,
+    "rarity": "Rare Ultra",
+    "isFoil": true
+  },
+  {
+    "dir": "zigzagoon-85-100-ss-4a4554bb-9065-478e-b656-6328a7452f8d",
+    "truthId": "ex2-85",
+    "collectorNumber": "85/100",
+    "setCode": "SS",
+    "cardName": "Zigzagoon",
+    "brightness": 163.8,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "zigzagoon-85-100-ss-55592bd6-3d57-434c-a6bb-704b5e03005d",
+    "truthId": "ex2-85",
+    "collectorNumber": "85/100",
+    "setCode": "SS",
+    "cardName": "Zigzagoon",
+    "brightness": 150.0,
+    "rarity": "Common",
+    "isFoil": false
+  },
+  {
+    "dir": "zorua-096-187-sv8a-a240e0a2-0d00-4f06-b0a1-25e30417ecfa",
+    "truthId": "sv8a_ja-96",
+    "collectorNumber": "096/187",
+    "setCode": "SV8a",
+    "cardName": "Zorua",
+    "brightness": 150.8,
+    "rarity": "Unknown",
+    "isFoil": false
+  },
+  {
+    "dir": "zubat-70-82-tr-213729f1-6187-4b8e-8b96-21f231236385",
+    "truthId": "base5-70",
+    "collectorNumber": "70/82",
+    "setCode": "TR",
+    "cardName": "Zubat",
+    "brightness": 147.8,
+    "rarity": "Common",
+    "isFoil": false
+  }
+]

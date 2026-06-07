@@ -16,6 +16,20 @@ from transformers import CLIPModel, CLIPProcessor
 
 DEFAULT_VISUAL_MODEL_ID = "openai/clip-vit-base-patch32"
 
+# Encoder model families. The default CLIP path is unchanged; SigLIP2 is supported
+# additively (validated 2026-06-06: SigLIP2-base + the trained adapter scored 69/85/86
+# on the show holdout vs CLIP-B/32 v011's 48/69/73). SigLIP exposes get_image_features
+# like CLIP but uses Auto* loaders and has no projection_dim on its config.
+CLIP_MODEL_FAMILY = "clip"
+SIGLIP_MODEL_FAMILY = "siglip"
+
+
+def detect_model_family(model_id: str) -> str:
+    slug = model_id.split("/")[-1].strip().lower()
+    if "siglip" in slug:
+        return SIGLIP_MODEL_FAMILY
+    return CLIP_MODEL_FAMILY
+
 # Optional letterbox-to-square preprocessing (off by default).
 # Measured 2026-05-12 on a 71-fixture held-out subset (base CLIP, no
 # adapter): letterbox HURT visual top-10 by 9 fixtures (46.5% -> 33.8%).
@@ -132,7 +146,21 @@ class RawVisualFrozenEncoder:
     ) -> None:
         self.model_id = model_id
         self.device = resolve_torch_device(device)
-        self.processor = CLIPProcessor.from_pretrained(model_id, use_fast=False)
+        self.model_family = detect_model_family(model_id)
+        if self.model_family == SIGLIP_MODEL_FAMILY:
+            # Force the SLOW image processor (use_fast=False). This (a) matches the
+            # processor used to build the index / train the adapter so runtime
+            # embeddings stay numerically aligned, and (b) avoids the torchvision
+            # dependency that the fast processor pulls in under transformers 5.x
+            # (the CPU VM has no torchvision). Mirror the build env exactly.
+            from transformers import AutoImageProcessor, AutoProcessor
+
+            try:
+                self.processor = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
+            except Exception:
+                self.processor = AutoProcessor.from_pretrained(model_id, use_fast=False)
+        else:
+            self.processor = CLIPProcessor.from_pretrained(model_id, use_fast=False)
         self.backend = resolve_encoder_backend(backend)
         self.model = None
         self._onnx_session = None
@@ -156,14 +184,45 @@ class RawVisualFrozenEncoder:
             self._init_torch_backend()
 
     def _init_torch_backend(self) -> None:
-        self.model = CLIPModel.from_pretrained(self.model_id).to(self.device)
+        if self.model_family == SIGLIP_MODEL_FAMILY:
+            from transformers import AutoModel
+
+            self.model = AutoModel.from_pretrained(self.model_id).to(self.device)
+        else:
+            self.model = CLIPModel.from_pretrained(self.model_id).to(self.device)
         self.model.eval()
         for parameter in self.model.parameters():
             parameter.requires_grad_(False)
+        self.embedding_dim = self._infer_embedding_dim()
+
+    def _infer_embedding_dim(self) -> int:
+        # CLIP exposes projection_dim on its config. SigLIP exposes the pooled
+        # image-feature width on its vision_config.hidden_size (768 for base). Both are
+        # deterministic and version-independent; fall back to a probe only if neither.
         projection_dim = getattr(self.model.config, "projection_dim", None)
-        if not isinstance(projection_dim, int) or projection_dim <= 0:
-            raise RuntimeError(f"Unable to determine CLIP projection_dim for model {self.model_id}")
-        self.embedding_dim = projection_dim
+        if isinstance(projection_dim, int) and projection_dim > 0:
+            return projection_dim
+        vision_config = getattr(self.model.config, "vision_config", None)
+        hidden_size = getattr(vision_config, "hidden_size", None)
+        if isinstance(hidden_size, int) and hidden_size > 0:
+            return hidden_size
+        # Last resort: probe and extract robustly (handles transformers 5.x returning a
+        # ModelOutput whose embedding lives under image_embeds / pooler_output).
+        with torch.inference_mode():
+            probe_image = Image.new("RGB", (224, 224), (127, 127, 127))
+            inputs = self.processor(images=[probe_image], return_tensors="pt")
+            inputs = {key: value.to(self.device) for key, value in inputs.items()}
+            raw = self.model.get_image_features(**inputs)
+        features = raw if isinstance(raw, torch.Tensor) else None
+        if features is None:
+            for attr in ("image_embeds", "pooler_output", "last_hidden_state"):
+                value = getattr(raw, attr, None)
+                if isinstance(value, torch.Tensor):
+                    features = value[:, 0] if (attr == "last_hidden_state" and value.ndim == 3) else value
+                    break
+        if not isinstance(features, torch.Tensor) or features.ndim != 2:
+            raise RuntimeError(f"Unable to determine embedding_dim for model {self.model_id}")
+        return int(features.shape[-1])
 
     def _init_onnx_backend(self, onnx_path: str | Path | None) -> None:
         # The torch CLIP weights are intentionally NOT loaded in this path. Only
@@ -176,17 +235,30 @@ class RawVisualFrozenEncoder:
                 "onnxruntime is required for the ONNX encoder backend "
                 "(SPOTLIGHT_VISUAL_ENCODER_BACKEND=onnx)."
             ) from exc
-        from transformers import CLIPConfig
-
         resolved = _resolve_onnx_artifact_path(onnx_path, self.model_id)
         if not resolved.exists():
             raise RuntimeError(f"ONNX encoder artifact not found: {resolved}")
 
-        config = CLIPConfig.from_pretrained(self.model_id)
-        projection_dim = getattr(config, "projection_dim", None)
-        if not isinstance(projection_dim, int) or projection_dim <= 0:
-            raise RuntimeError(f"Unable to determine CLIP projection_dim for model {self.model_id}")
-        self.embedding_dim = projection_dim
+        if self.model_family == SIGLIP_MODEL_FAMILY:
+            # SigLIP exposes the image-embedding width on vision_config.hidden_size
+            # (no CLIP-style projection_dim). Read it from the lightweight config so
+            # the ONNX path stays weight-free like CLIP's.
+            from transformers import AutoConfig
+
+            config = AutoConfig.from_pretrained(self.model_id)
+            vision_config = getattr(config, "vision_config", None)
+            hidden_size = getattr(vision_config, "hidden_size", None)
+            if not isinstance(hidden_size, int) or hidden_size <= 0:
+                raise RuntimeError(f"Unable to determine SigLIP embedding_dim for model {self.model_id}")
+            self.embedding_dim = hidden_size
+        else:
+            from transformers import CLIPConfig
+
+            config = CLIPConfig.from_pretrained(self.model_id)
+            projection_dim = getattr(config, "projection_dim", None)
+            if not isinstance(projection_dim, int) or projection_dim <= 0:
+                raise RuntimeError(f"Unable to determine CLIP projection_dim for model {self.model_id}")
+            self.embedding_dim = projection_dim
 
         session_options = ort.SessionOptions()
         intra_op_threads = _env_int_or_none("SPOTLIGHT_VISUAL_ONNX_INTRA_OP_THREADS")
