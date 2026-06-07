@@ -545,7 +545,7 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
       <View style={styles.gridTextWrap}>
         <Text
           numberOfLines={2}
-          style={[theme.typography.bodyMedium, { color: theme.colors.gray900, fontWeight: '600' }]}
+          style={[theme.typography.headline, { color: theme.colors.gray900 }]}
         >
           {entry.name}
         </Text>
@@ -575,37 +575,37 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
         >
           Qty: 1
         </Text>
-        <View style={styles.gridPriceRow}>
-          <Text
-            numberOfLines={1}
-            style={[theme.typography.label, styles.gridPrice, { color: theme.colors.gray900 }]}
+      </View>
+      <View style={styles.gridPriceRow}>
+        <Text
+          numberOfLines={1}
+          style={[styles.gridPrice, { color: theme.colors.gray900 }]}
+        >
+          {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
+        </Text>
+        {showDelta && deltaLabel ? (
+          <View
+            style={[
+              styles.gridDeltaPill,
+              { backgroundColor: isDown ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND },
+            ]}
+            testID={`wishlist-grid-tile-${entry.cardId}-delta`}
           >
-            {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
-          </Text>
-          {showDelta && deltaLabel ? (
-            <View
+            {isDown ? (
+              <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
+            ) : (
+              <ArrowUp color={theme.colors.greenDelta} height={12} width={12} />
+            )}
+            <Text
               style={[
-                styles.gridDeltaPill,
-                { backgroundColor: isDown ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND },
+                styles.gridDeltaLabel,
+                { color: isDown ? theme.colors.redDelta : theme.colors.greenDelta },
               ]}
-              testID={`wishlist-grid-tile-${entry.cardId}-delta`}
             >
-              {isDown ? (
-                <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
-              ) : (
-                <ArrowUp color={theme.colors.greenDelta} height={12} width={12} />
-              )}
-              <Text
-                style={[
-                  styles.gridDeltaLabel,
-                  { color: isDown ? theme.colors.redDelta : theme.colors.greenDelta },
-                ]}
-              >
-                {deltaLabel}
-              </Text>
-            </View>
-          ) : null}
-        </View>
+              {deltaLabel}
+            </Text>
+          </View>
+        ) : null}
       </View>
       <View
         pointerEvents="none"
@@ -712,12 +712,11 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   gridImage: {
-    // Small centered card (Figma 992:9884 ~71x104, nudged a touch smaller for
-    // breathing room) so the 20px heart floats clear in the empty top-right
-    // corner instead of crowding the art.
+    // Small centered card (Figma 992:9884 — 71x104) so the 20px heart floats
+    // clear in the empty top-right corner instead of crowding the art.
     borderRadius: 6,
-    height: 94,
-    width: 64,
+    height: 104,
+    width: 71,
   },
   // Purple filled heart 6px from the cell's top-right corner (Figma 992:9898),
   // anchored to the tile so it sits clear of the small centered card.
@@ -727,23 +726,28 @@ const styles = StyleSheet.create({
     top: 6,
   },
   gridTextWrap: {
-    gap: 4,
+    // Card Details: 2px between the title/subtitle/condition/qty lines, 16px
+    // below the card image (Figma 992:9883 / 9885).
+    gap: 2,
     paddingTop: 16,
   },
   gridMeta: {
-    fontFamily: 'SpotlightBodyRegular',
+    // Caption-medium: 12/500/140% gray-600 (Figma 992:9887/9888/9889).
+    fontFamily: 'SpotlightBodyMedium',
     fontSize: 12,
-    lineHeight: 15.6,
+    lineHeight: 16.8,
   },
   gridPriceRow: {
     alignItems: 'center',
     flexDirection: 'row',
     gap: 4,
-    marginTop: 4,
+    // 16px below the details block (Figma Card Content gap, 992:9883).
+    marginTop: 16,
   },
   gridPrice: {
+    // Price: 13/700/140% gray-900 (Figma 992:9891).
     flexShrink: 1,
-    fontFamily: 'SpotlightBodySemiBold',
+    fontFamily: 'SpotlightBodyBold',
     fontSize: 13,
     lineHeight: 18.2,
   },
