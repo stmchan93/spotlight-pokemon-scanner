@@ -175,8 +175,14 @@ type JsonRequestResult<T> =
   | { kind: 'not_found'; error: SpotlightRepositoryRequestError; meta: JsonRequestMeta }
   | { kind: 'error'; error: SpotlightRepositoryRequestError; meta: JsonRequestMeta | null };
 
-const defaultHttpRequestTimeoutMs = 6000;
+// 12s (was 6s): the portfolio dashboard fans out to ~14 heavy aggregation
+// endpoints in parallel; on mobile networks / a busy backend, 6s false-failed
+// slow-but-working requests and surfaced a spurious "couldn't refresh" banner.
+const defaultHttpRequestTimeoutMs = 12000;
 const scanMatchRequestTimeoutMs = 20000;
+// The consolidated dashboard endpoint computes every section server-side in one
+// request, so it gets a longer budget than a single section.
+const dashboardRequestTimeoutMs = 20000;
 
 type JsonRequestMeta = {
   requestUrl: string;
@@ -299,6 +305,27 @@ type PortfolioLedgerDTO = {
     revenue: number;
     sellCount?: number | null;
   }>;
+};
+
+// Raw insights payload (bestReturn / topSellers come as ledger-style rows that
+// the client maps to RecentSaleRecord, same as /api/v1/portfolio/insights).
+type PortfolioInsightsDTO = Omit<PortfolioInsights, 'bestReturnOfAllTime' | 'topSellersThisMonth'> & {
+  bestReturnOfAllTime?: PortfolioLedgerDTO['transactions'][number] | null;
+  topSellersThisMonth?: PortfolioLedgerDTO['transactions'] | null;
+};
+
+// Response of the consolidated GET /api/v1/portfolio/dashboard endpoint, which
+// bundles every section the screen needs into one request. `sections` carries a
+// per-section "ok" / "error: ..." status so a slow slice degrades gracefully.
+type PortfolioDashboardDTO = {
+  currencyCode?: string;
+  inventory?: { entries?: DeckEntryDTO[] } | null;
+  insights?: PortfolioInsightsDTO | null;
+  ranges?: Partial<Record<keyof PortfolioDashboard['ranges'], {
+    history?: PortfolioHistoryDTO | null;
+    ledger?: PortfolioLedgerDTO | null;
+  }>>;
+  sections?: Record<string, string>;
 };
 
 type SearchResultsDTO = {
@@ -3129,6 +3156,107 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   }
 
   async loadPortfolioDashboard() {
+    // Prefer the single consolidated endpoint (one request instead of ~14).
+    // Falls back to the legacy per-section fan-out when the backend doesn't yet
+    // expose the endpoint (404) or the consolidated call fails, so OTA clients
+    // and backend deploys don't have to be in lockstep.
+    const consolidated = await this.loadPortfolioDashboardViaConsolidatedEndpoint();
+    if (consolidated) {
+      return consolidated;
+    }
+    return this.loadPortfolioDashboardViaFanout();
+  }
+
+  private async loadPortfolioDashboardViaConsolidatedEndpoint():
+    Promise<SpotlightRepositoryLoadResult<PortfolioDashboard> | null> {
+    const queryParams = new URLSearchParams({ timeZone: 'America/Los_Angeles' });
+    const response = await this.requestJson<PortfolioDashboardDTO>(
+      `${this.baseUrl}/api/v1/portfolio/dashboard?${queryParams.toString()}`,
+      undefined,
+      { allowNotFound: true, timeoutMs: dashboardRequestTimeoutMs },
+    );
+
+    // 404 (endpoint not deployed) or any transport/parse error → return null so
+    // the caller falls back to the per-section fan-out.
+    if (response.kind !== 'success' || !response.data) {
+      return null;
+    }
+
+    const dto = response.data;
+    const sections = dto.sections ?? {};
+    const sectionOk = (label: string) => sections[label] === 'ok';
+
+    const historyResultFor = (
+      key: keyof PortfolioDashboard['ranges'],
+    ): SpotlightRepositoryLoadResult<PortfolioHistoryDTO> => {
+      const raw = dto.ranges?.[key]?.history ?? null;
+      if (!sectionOk(`history.${key}`) || !raw) {
+        return buildLoadResult(
+          'error',
+          buildEmptyPortfolioHistory(),
+          sections[`history.${key}`] ?? 'Portfolio history unavailable.',
+        );
+      }
+      const history = normalizePortfolioHistory(raw);
+      return buildLoadResult(history.points.length > 0 ? 'success' : 'empty', history);
+    };
+
+    const ledgerResultFor = (
+      key: keyof PortfolioDashboard['ranges'],
+    ): SpotlightRepositoryLoadResult<PortfolioLedgerDTO> => {
+      const raw = dto.ranges?.[key]?.ledger ?? null;
+      if (!sectionOk(`ledger.${key}`) || !raw) {
+        return buildLoadResult(
+          'error',
+          buildEmptyPortfolioLedger(),
+          sections[`ledger.${key}`] ?? 'Portfolio ledger unavailable.',
+        );
+      }
+      const ledger = normalizePortfolioLedger(raw);
+      return buildLoadResult(
+        ledger.transactions.length > 0 || (ledger.dailySeries?.length ?? 0) > 0 ? 'success' : 'empty',
+        ledger,
+      );
+    };
+
+    const rawEntries = Array.isArray(dto.inventory?.entries) ? dto.inventory.entries : [];
+    const entries = rawEntries
+      .map((entry) => mapDeckEntry(entry, this.baseUrl))
+      .filter((entry): entry is InventoryCardEntry => entry !== null);
+    const inventoryResult: SpotlightRepositoryLoadResult<InventoryCardEntry[]> = sectionOk('inventory')
+      ? buildLoadResult(entries.length > 0 ? 'success' : 'empty', entries)
+      : buildLoadResult('error', [], sections.inventory ?? 'Inventory unavailable.');
+
+    const rawInsights = dto.insights ?? null;
+    const insights: PortfolioInsights | null = rawInsights
+      ? {
+          ...rawInsights,
+          bestReturnOfAllTime: rawInsights.bestReturnOfAllTime
+            ? (buildRecentSales([rawInsights.bestReturnOfAllTime], this.baseUrl)[0] ?? null)
+            : null,
+          topSellersThisMonth: buildRecentSales(rawInsights.topSellersThisMonth ?? [], this.baseUrl),
+        }
+      : null;
+
+    return this.assemblePortfolioDashboard({
+      inventoryResult,
+      history1w: historyResultFor('1W'),
+      history1m: historyResultFor('1M'),
+      history3m: historyResultFor('3M'),
+      historyYtd: historyResultFor('YTD'),
+      history1y: historyResultFor('1Y'),
+      historyAll: historyResultFor('ALL'),
+      ledger1w: ledgerResultFor('1W'),
+      ledger30d: ledgerResultFor('1M'),
+      ledger90d: ledgerResultFor('3M'),
+      ledgerYtd: ledgerResultFor('YTD'),
+      ledger1y: ledgerResultFor('1Y'),
+      ledgerAll: ledgerResultFor('ALL'),
+      insights,
+    });
+  }
+
+  private async loadPortfolioDashboardViaFanout() {
     const [
       inventoryResult,
       history1w,
@@ -3160,6 +3288,57 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       this.loadPortfolioLedger('ALL'),
       this.loadPortfolioInsights(),
     ]);
+
+    return this.assemblePortfolioDashboard({
+      inventoryResult,
+      history1w,
+      history1m,
+      history3m,
+      historyYtd,
+      history1y,
+      historyAll,
+      ledger1w,
+      ledger30d,
+      ledger90d,
+      ledgerYtd,
+      ledger1y,
+      ledgerAll,
+      insights,
+    });
+  }
+
+  private assemblePortfolioDashboard(parts: {
+    inventoryResult: SpotlightRepositoryLoadResult<InventoryCardEntry[]>;
+    history1w: SpotlightRepositoryLoadResult<PortfolioHistoryDTO>;
+    history1m: SpotlightRepositoryLoadResult<PortfolioHistoryDTO>;
+    history3m: SpotlightRepositoryLoadResult<PortfolioHistoryDTO>;
+    historyYtd: SpotlightRepositoryLoadResult<PortfolioHistoryDTO>;
+    history1y: SpotlightRepositoryLoadResult<PortfolioHistoryDTO>;
+    historyAll: SpotlightRepositoryLoadResult<PortfolioHistoryDTO>;
+    ledger1w: SpotlightRepositoryLoadResult<PortfolioLedgerDTO>;
+    ledger30d: SpotlightRepositoryLoadResult<PortfolioLedgerDTO>;
+    ledger90d: SpotlightRepositoryLoadResult<PortfolioLedgerDTO>;
+    ledgerYtd: SpotlightRepositoryLoadResult<PortfolioLedgerDTO>;
+    ledger1y: SpotlightRepositoryLoadResult<PortfolioLedgerDTO>;
+    ledgerAll: SpotlightRepositoryLoadResult<PortfolioLedgerDTO>;
+    insights: PortfolioInsights | null;
+  }): SpotlightRepositoryLoadResult<PortfolioDashboard> {
+    const {
+      inventoryResult,
+      history1w,
+      history1m,
+      history3m,
+      historyYtd,
+      history1y,
+      historyAll,
+      ledger1w,
+      ledger30d,
+      ledger90d,
+      ledgerYtd,
+      ledger1y,
+      ledgerAll,
+      insights,
+    } = parts;
 
     const safeInventoryEntries = inventoryResult.data ?? [];
     const safeHistory1w = history1w.data ?? buildEmptyPortfolioHistory();
@@ -3216,24 +3395,19 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       insights: insights ?? null,
     };
 
-    const errorMessage = [
-      inventoryResult,
-      history1w,
-      history1m,
-      history3m,
-      historyYtd,
-      history1y,
-      historyAll,
-      ledger1w,
-      ledger30d,
-      ledger90d,
-      ledgerYtd,
-      ledger1y,
-      ledgerAll,
-    ].find((result) => result.state === 'error')?.errorMessage ?? null;
+    // Partial tolerance: only the inventory list and the 1W history are
+    // "must-have" — they drive the card list and the headline value/chart. The
+    // longer history ranges and the per-range ledgers are secondary (only shown
+    // when the user switches ranges), and they are the slowest endpoints, so a
+    // single one timing out must NOT blank the whole screen. If a critical slice
+    // fails we keep returning 'error' so the hook holds the last good dashboard
+    // (showing the real value, not a spurious $0) and flags "couldn't refresh".
+    const criticalErrorMessage = [inventoryResult, history1w].find(
+      (result) => result.state === 'error',
+    )?.errorMessage ?? null;
 
-    if (errorMessage) {
-      return buildLoadResult('error', dashboard, errorMessage);
+    if (criticalErrorMessage) {
+      return buildLoadResult('error', dashboard, criticalErrorMessage);
     }
 
     return buildLoadResult(

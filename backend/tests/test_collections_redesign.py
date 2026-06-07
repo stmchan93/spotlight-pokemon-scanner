@@ -350,6 +350,34 @@ class CollectionsRedesignTests(unittest.TestCase):
         self.assertIsNone(payload["bestReturnOfAllTime"])
         self.assertEqual(payload["topSellersThisMonth"], [])
 
+    def test_portfolio_dashboard_bundles_all_sections(self) -> None:
+        self._insert_card()
+        self._seed_deck_entry(quantity=2)
+        with self.service.request_identity_context(self._identity()):
+            payload = self.service.portfolio_dashboard()
+
+        self.assertEqual(
+            set(payload.keys()),
+            {"currencyCode", "inventory", "insights", "ranges", "sections"},
+        )
+        # Every range carries both a history and a ledger section.
+        self.assertEqual(
+            set(payload["ranges"].keys()),
+            {"1W", "1M", "3M", "YTD", "1Y", "ALL"},
+        )
+        for key, section in payload["ranges"].items():
+            self.assertIn("history", section, key)
+            self.assertIn("ledger", section, key)
+        # Inventory came back with the seeded entry.
+        self.assertEqual(len(payload["inventory"]["entries"]), 1)
+        # Every section computed without error.
+        self.assertTrue(
+            all(status == "ok" for status in payload["sections"].values()),
+            payload["sections"],
+        )
+        self.assertEqual(payload["sections"]["inventory"], "ok")
+        self.assertEqual(payload["sections"]["history.1W"], "ok")
+
     def test_portfolio_insights_picks_best_return_by_absolute_profit(self) -> None:
         self._insert_card("base-charizard-4")
         self._insert_card("base-blastoise-2")

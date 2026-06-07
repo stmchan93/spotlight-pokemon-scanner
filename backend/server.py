@@ -11537,6 +11537,68 @@ class SpotlightScanService:
             "refreshedAt": utc_now(),
         }
 
+    def portfolio_dashboard(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
+        """Single-call portfolio dashboard: bundles inventory, every history and
+        ledger range, and insights into one response so the client makes ONE
+        request instead of ~14. Each section is computed independently; one that
+        raises is reported in ``sections`` as an error and returned as null
+        instead of failing the whole payload (the client keeps its last good
+        value for that slice). The per-range args mirror what the client used to
+        send when it fanned out (see repository.loadPortfolioDashboard)."""
+        resolved_tz = time_zone_name or "America/Los_Angeles"
+        sections: dict[str, str] = {}
+
+        def _section(label: str, fn: Any) -> Any:
+            try:
+                value = fn()
+                sections[label] = "ok"
+                return value
+            except Exception as error:  # noqa: BLE001 - degrade per-section, never 500 the whole dashboard
+                traceback.print_exc()
+                sections[label] = f"error: {error}"
+                return None
+
+        inventory = _section("inventory", lambda: self.deck_entries(limit=200, offset=0))
+        insights = _section("insights", self.portfolio_insights)
+
+        # Client range key -> backend range_label (matches mapRangeToBackend and
+        # the ledger range args in the old client fan-out).
+        range_labels = {
+            "1W": "1W",
+            "1M": "30D",
+            "3M": "90D",
+            "YTD": "YTD",
+            "1Y": "1Y",
+            "ALL": "ALL",
+        }
+        ranges: dict[str, Any] = {}
+        for key, label in range_labels.items():
+            history = _section(
+                f"history.{key}",
+                lambda label=label: self.deck_history(
+                    days=365, range_label=label, time_zone_name=resolved_tz
+                ),
+            )
+            ledger = _section(
+                f"ledger.{key}",
+                lambda label=label: self.portfolio_ledger(
+                    days=365,
+                    range_label=label,
+                    time_zone_name=resolved_tz,
+                    limit=50,
+                    offset=0,
+                ),
+            )
+            ranges[key] = {"history": history, "ledger": ledger}
+
+        return {
+            "currencyCode": "USD",
+            "inventory": inventory,
+            "insights": insights,
+            "ranges": ranges,
+            "sections": sections,
+        }
+
     def _insights_recent_sale_payload(self, row: sqlite3.Row) -> dict[str, Any] | None:
         """Shape a sale row into the RecentSaleRecord-friendly payload the
         Insights screen consumes ("bestReturnOfAllTime", "topSellersThisMonth").
@@ -12653,6 +12715,25 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(HTTPStatus.NOT_FOUND, {"error": "Transaction photo not found"})
                 return
             self._write_image(HTTPStatus.OK, image_bytes)
+            return
+
+        if parsed.path == "/api/v1/portfolio/dashboard":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            query = parse_qs(parsed.query)
+            time_zone_name = query.get("timeZone", [""])[0].strip() or None
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.portfolio_dashboard(time_zone_name=time_zone_name)
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Portfolio dashboard failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, payload)
             return
 
         if parsed.path == "/api/v1/portfolio/insights":

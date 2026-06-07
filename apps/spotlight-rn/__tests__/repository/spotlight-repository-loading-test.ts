@@ -341,6 +341,188 @@ describe('HttpSpotlightRepository', () => {
     expect(loadResult.errorMessage).toBe('Could not reach the Spotlight backend.');
   });
 
+  it('keeps the dashboard fresh when only secondary ledger ranges fail (partial tolerance)', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(200, {
+          entries: [
+            {
+              id: 'entry-1',
+              itemKind: 'raw',
+              quantity: 1,
+              card: {
+                id: 'c1',
+                name: 'Pikachu',
+                setName: 'Base',
+                number: '58/102',
+                pricing: { currencyCode: 'usd', market: 10, payload: { condition: 'NM' } },
+              },
+              condition: 'near_mint',
+              addedAt: '2026-04-29T18:00:00Z',
+            },
+          ],
+        });
+      }
+      if (url.includes('/api/v1/portfolio/history')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          summary: { currentValue: 10, deltaValue: 0, deltaPercent: 0 },
+          points: [],
+        });
+      }
+      // Secondary, slowest endpoints — simulate them failing/timing out.
+      if (url.includes('/api/v1/portfolio/ledger')) {
+        return jsonResponse(500, { error: 'ledger slow' });
+      }
+      if (url.includes('/api/v1/portfolio/insights')) {
+        return jsonResponse(200, {});
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadResult = await repository.loadPortfolioDashboard();
+
+    // A failing secondary ledger range must not blank the screen: the card list
+    // and headline value still load, so the refresh succeeds (no spurious
+    // "couldn't refresh" banner).
+    const data = loadResult.data;
+    if (!data) {
+      throw new Error('expected a dashboard payload');
+    }
+    expect(loadResult.state).toBe('success');
+    expect(data.inventoryItems).toHaveLength(1);
+    expect(data.summary.currentValue).toBe(10);
+  });
+
+  it('still reports an error when the critical inventory request fails', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(503, { error: 'inventory unavailable' });
+      }
+      if (url.includes('/api/v1/portfolio/history')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          summary: { currentValue: 0, deltaValue: 0, deltaPercent: 0 },
+          points: [],
+        });
+      }
+      if (url.includes('/api/v1/portfolio/ledger')) {
+        return jsonResponse(200, { currencyCode: 'USD', transactions: [], dailySeries: [] });
+      }
+      if (url.includes('/api/v1/portfolio/insights')) {
+        return jsonResponse(200, {});
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadResult = await repository.loadPortfolioDashboard();
+
+    expect(loadResult.state).toBe('error');
+  });
+
+  it('loads the whole dashboard from the single consolidated endpoint when available', async () => {
+    const emptyHistory = { summary: { currentValue: 0, deltaValue: 0, deltaPercent: 0 }, points: [], currencyCode: 'USD' };
+    const emptyLedger = { transactions: [], dailySeries: [] };
+    const ranges = ['1W', '1M', '3M', 'YTD', '1Y', 'ALL'];
+    const sections: Record<string, string> = { inventory: 'ok', insights: 'ok' };
+    const rangePayload: Record<string, unknown> = {};
+    for (const key of ranges) {
+      sections[`history.${key}`] = 'ok';
+      sections[`ledger.${key}`] = 'ok';
+      rangePayload[key] = {
+        history: key === '1W'
+          ? { summary: { currentValue: 42, deltaValue: 0, deltaPercent: 0 }, currencyCode: 'USD', points: [{ date: '2026-06-01', totalValue: 42 }] }
+          : emptyHistory,
+        ledger: emptyLedger,
+      };
+    }
+
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/portfolio/dashboard')) {
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          inventory: {
+            entries: [
+              {
+                id: 'entry-1',
+                itemKind: 'raw',
+                quantity: 1,
+                card: { id: 'c1', name: 'Pikachu', setName: 'Base', number: '58/102', pricing: { currencyCode: 'usd', market: 42 } },
+                condition: 'near_mint',
+                addedAt: '2026-04-29T18:00:00Z',
+              },
+            ],
+          },
+          insights: null,
+          ranges: rangePayload,
+          sections,
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadResult = await repository.loadPortfolioDashboard();
+
+    const data = loadResult.data;
+    if (!data) {
+      throw new Error('expected a dashboard payload');
+    }
+    expect(loadResult.state).toBe('success');
+    expect(data.inventoryItems).toHaveLength(1);
+    expect(data.summary.currentValue).toBe(42);
+
+    // It must NOT fan out to the per-section endpoints when the consolidated
+    // call succeeds.
+    const fetchedUrls = (global.fetch as jest.Mock).mock.calls.map((call) => String(call[0]));
+    expect(fetchedUrls.some((url) => url.includes('/api/v1/portfolio/dashboard'))).toBe(true);
+    expect(fetchedUrls.some((url) => url.includes('/api/v1/deck/entries'))).toBe(false);
+    expect(fetchedUrls.some((url) => url.includes('/api/v1/portfolio/history'))).toBe(false);
+  });
+
+  it('falls back to the per-section fan-out when the consolidated endpoint is missing (404)', async () => {
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/portfolio/dashboard')) {
+        return jsonResponse(404, { error: 'not found' });
+      }
+      if (url.includes('/api/v1/deck/entries')) {
+        return jsonResponse(200, {
+          entries: [
+            {
+              id: 'entry-1',
+              itemKind: 'raw',
+              quantity: 1,
+              card: { id: 'c1', name: 'Pikachu', setName: 'Base', number: '58/102', pricing: { currencyCode: 'usd', market: 42 } },
+              condition: 'near_mint',
+              addedAt: '2026-04-29T18:00:00Z',
+            },
+          ],
+        });
+      }
+      if (url.includes('/api/v1/portfolio/history')) {
+        return jsonResponse(200, { currencyCode: 'USD', summary: { currentValue: 42, deltaValue: 0, deltaPercent: 0 }, points: [{ date: '2026-06-01', totalValue: 42 }] });
+      }
+      if (url.includes('/api/v1/portfolio/ledger')) {
+        return jsonResponse(200, { currencyCode: 'USD', transactions: [], dailySeries: [] });
+      }
+      if (url.includes('/api/v1/portfolio/insights')) {
+        return jsonResponse(200, {});
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadResult = await repository.loadPortfolioDashboard();
+
+    expect(loadResult.state).toBe('success');
+    const fetchedUrls = (global.fetch as jest.Mock).mock.calls.map((call) => String(call[0]));
+    // Tried the consolidated endpoint, then fell back to the per-section calls.
+    expect(fetchedUrls.some((url) => url.includes('/api/v1/portfolio/dashboard'))).toBe(true);
+    expect(fetchedUrls.some((url) => url.includes('/api/v1/deck/entries'))).toBe(true);
+  });
+
   it('prefers small image URLs for portfolio thumbnails while preserving large image URLs for detail previews', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (url.includes('/api/v1/deck/entries')) {
@@ -906,7 +1088,7 @@ describe('HttpSpotlightRepository', () => {
     const repository = new HttpSpotlightRepository('http://example.test');
     const loadPromise = repository.loadInventoryEntries();
 
-    await jest.advanceTimersByTimeAsync(6000);
+    await jest.advanceTimersByTimeAsync(12000);
 
     await expect(loadPromise).resolves.toMatchObject({
       state: 'error',
