@@ -195,6 +195,7 @@ export function LogTransactionScreen({
 
         <SurfaceCard style={styles.card} testID="log-transaction-card">
           <TransactionPhotoCapture
+            fallbackImageUrl={cardImageUrl ?? null}
             onCapture={setPhotoUri}
             onClear={() => setPhotoUri(null)}
             photoUri={photoUri}

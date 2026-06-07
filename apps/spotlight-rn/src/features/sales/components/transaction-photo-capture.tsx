@@ -18,6 +18,12 @@ import { Button, useSpotlightTheme } from '@spotlight/design-system';
 
 type TransactionPhotoCaptureProps = {
   compact?: boolean;
+  /**
+   * Card image shown as the default preview before the user captures a
+   * transaction photo, so the screen reflects the card being logged instead of
+   * an empty/gray slot.
+   */
+  fallbackImageUrl?: string | null;
   onCapture: (uri: string) => void;
   onClear?: () => void;
   photoUri: string | null;
@@ -56,6 +62,7 @@ function CameraIcon() {
 
 export function TransactionPhotoCapture({
   compact = false,
+  fallbackImageUrl = null,
   onCapture,
   onClear,
   photoUri,
@@ -233,6 +240,24 @@ export function TransactionPhotoCapture({
                 variant="ghost"
               />
             ) : null}
+          </View>
+        ) : fallbackImageUrl ? (
+          <View style={styles.photoPreviewActions}>
+            <Image
+              resizeMode="contain"
+              source={{ uri: fallbackImageUrl }}
+              style={styles.photoThumbnail}
+              testID={`${testIDPrefix}-card-image`}
+            />
+            <Button
+              label="Add photo"
+              onPress={() => {
+                void handleOpenCamera();
+              }}
+              size="sm"
+              testID={`${testIDPrefix}-add-photo`}
+              variant="secondary"
+            />
           </View>
         ) : (
           <Pressable

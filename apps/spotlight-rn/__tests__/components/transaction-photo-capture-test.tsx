@@ -77,4 +77,35 @@ describe('TransactionPhotoCapture', () => {
     expect(screen.getByTestId('capture-photo-thumbnail')).toBeTruthy();
     expect(screen.queryByTestId('capture-photo-trigger')).toBeNull();
   });
+
+  it('shows the card image as the default preview when no photo is captured', () => {
+    renderCapture(
+      <TransactionPhotoCapture
+        fallbackImageUrl="https://cdn.spotlight.test/card.png"
+        onCapture={jest.fn()}
+        photoUri={null}
+        testIDPrefix="capture"
+      />,
+    );
+
+    // The card image fills the slot (not the empty gray camera trigger) and an
+    // "Add photo" action is offered instead.
+    expect(screen.getByTestId('capture-card-image')).toBeTruthy();
+    expect(screen.getByTestId('capture-add-photo')).toBeTruthy();
+    expect(screen.queryByTestId('capture-photo-trigger')).toBeNull();
+  });
+
+  it('prefers a captured photo over the card image fallback', () => {
+    renderCapture(
+      <TransactionPhotoCapture
+        fallbackImageUrl="https://cdn.spotlight.test/card.png"
+        onCapture={jest.fn()}
+        photoUri="file:///existing.jpg"
+        testIDPrefix="capture"
+      />,
+    );
+
+    expect(screen.getByTestId('capture-photo-thumbnail')).toBeTruthy();
+    expect(screen.queryByTestId('capture-card-image')).toBeNull();
+  });
 });

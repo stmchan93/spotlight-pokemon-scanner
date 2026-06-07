@@ -9,6 +9,7 @@ import {
   View,
 } from 'react-native';
 import {
+  ArrowDown,
   ArrowUp,
   Filter as FilterIcon,
   HeartSolid,
@@ -428,8 +429,33 @@ function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
 
 const GRID_COLUMNS = 2;
 
+// Light delta-pill backgrounds, matching the collection tile + wishlist hero.
+const DELTA_UP_BACKGROUND = 'rgba(76, 175, 110, 0.15)';
+const DELTA_DOWN_BACKGROUND = 'rgba(224, 82, 76, 0.15)';
+
 function WishlistGridView({ entries, onPressEntry }: WishlistViewProps) {
   const theme = useSpotlightTheme();
+
+  // A lone card shouldn't render as a full-bleed ruled row (a wide rectangle
+  // with one tile in the corner). Box it at one column's width so the border
+  // hugs just that card — matching the collection card view's single-item case.
+  const soleEntry = entries.length === 1 ? entries[0] : null;
+  if (soleEntry) {
+    return (
+      <View style={styles.gridContainer} testID="wishlist-grid">
+        <View style={styles.gridSingleRow}>
+          <View style={[styles.gridSingleCell, { borderColor: theme.colors.gray100 }]}>
+            <WishlistGridTile
+              entry={soleEntry}
+              onPress={() => onPressEntry(soleEntry)}
+              theme={theme}
+            />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   const rows: CardFavoriteEntry[][] = [];
   for (let index = 0; index < entries.length; index += GRID_COLUMNS) {
     rows.push(entries.slice(index, index + GRID_COLUMNS));
@@ -489,6 +515,10 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
   // Graded cards show the grade ("PSA 10"); raw cards show the condition
   // ("NM") — same derivation as the list row (Figma 860-2640 / 863-2270).
   const gradeText = gradeLabelForFavorite(entry);
+  const delta = entry.dayChangeAmount ?? 0;
+  const showDelta = Number.isFinite(delta) && delta !== 0;
+  const isDown = delta < 0;
+  const deltaLabel = showDelta ? formatOptionalCurrency(Math.abs(delta), entry.currencyCode) : null;
   return (
     <Pressable
       accessibilityRole="button"
@@ -499,12 +529,7 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
       ]}
       testID={`wishlist-grid-tile-${entry.cardId}`}
     >
-      <View
-        style={[
-          styles.gridImageWrap,
-          { backgroundColor: theme.colors.field },
-        ]}
-      >
+      <View style={styles.gridImageWrap}>
         {imageUri ? (
           <Image
             accessibilityIgnoresInvertColors
@@ -547,6 +572,13 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
             {gradeText}
           </Text>
         ) : null}
+        <Text
+          numberOfLines={1}
+          style={[styles.gridMeta, { color: theme.colors.gray600 }]}
+          testID={`wishlist-grid-tile-${entry.cardId}-qty`}
+        >
+          Qty: 1
+        </Text>
         <View style={styles.gridPriceRow}>
           <Text
             numberOfLines={1}
@@ -554,6 +586,29 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
           >
             {formatOptionalCurrency(entry.marketPrice, entry.currencyCode)}
           </Text>
+          {showDelta && deltaLabel ? (
+            <View
+              style={[
+                styles.gridDeltaPill,
+                { backgroundColor: isDown ? DELTA_DOWN_BACKGROUND : DELTA_UP_BACKGROUND },
+              ]}
+              testID={`wishlist-grid-tile-${entry.cardId}-delta`}
+            >
+              {isDown ? (
+                <ArrowDown color={theme.colors.redDelta} height={12} width={12} />
+              ) : (
+                <ArrowUp color={theme.colors.greenDelta} height={12} width={12} />
+              )}
+              <Text
+                style={[
+                  styles.gridDeltaLabel,
+                  { color: isDown ? theme.colors.redDelta : theme.colors.greenDelta },
+                ]}
+              >
+                {deltaLabel}
+              </Text>
+            </View>
+          ) : null}
         </View>
       </View>
     </Pressable>
@@ -634,6 +689,15 @@ const styles = StyleSheet.create({
   gridCell: {
     flex: 1,
   },
+  gridSingleRow: {
+    flexDirection: 'row',
+  },
+  gridSingleCell: {
+    // Box the lone tile at one column's width with a full hairline border so it
+    // reads as a contained card, not a stretched full-width row.
+    borderWidth: 1,
+    width: '50%',
+  },
   gridTile: {
     // Plain tile — no shell border/fill; the row draws the dividers.
     padding: 16,
@@ -664,12 +728,26 @@ const styles = StyleSheet.create({
   gridPriceRow: {
     alignItems: 'center',
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    gap: 4,
     marginTop: 4,
   },
   gridPrice: {
+    flexShrink: 1,
     fontFamily: 'SpotlightBodySemiBold',
     fontSize: 13,
     lineHeight: 18.2,
+  },
+  gridDeltaPill: {
+    alignItems: 'center',
+    borderRadius: 999,
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  gridDeltaLabel: {
+    fontFamily: 'SpotlightBodySemiBold',
+    fontSize: 11,
+    lineHeight: 14.3,
   },
 });
