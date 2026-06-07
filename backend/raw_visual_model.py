@@ -148,14 +148,17 @@ class RawVisualFrozenEncoder:
         self.device = resolve_torch_device(device)
         self.model_family = detect_model_family(model_id)
         if self.model_family == SIGLIP_MODEL_FAMILY:
-            # Mirror the SigLIP2 processor used to build the index/train the adapter
-            # (AutoImageProcessor, slow) so runtime embeddings stay numerically aligned.
+            # Force the SLOW image processor (use_fast=False). This (a) matches the
+            # processor used to build the index / train the adapter so runtime
+            # embeddings stay numerically aligned, and (b) avoids the torchvision
+            # dependency that the fast processor pulls in under transformers 5.x
+            # (the CPU VM has no torchvision). Mirror the build env exactly.
             from transformers import AutoImageProcessor, AutoProcessor
 
             try:
-                self.processor = AutoImageProcessor.from_pretrained(model_id)
+                self.processor = AutoImageProcessor.from_pretrained(model_id, use_fast=False)
             except Exception:
-                self.processor = AutoProcessor.from_pretrained(model_id)
+                self.processor = AutoProcessor.from_pretrained(model_id, use_fast=False)
         else:
             self.processor = CLIPProcessor.from_pretrained(model_id, use_fast=False)
         self.backend = resolve_encoder_backend(backend)
@@ -193,18 +196,30 @@ class RawVisualFrozenEncoder:
         self.embedding_dim = self._infer_embedding_dim()
 
     def _infer_embedding_dim(self) -> int:
-        # CLIP exposes projection_dim on its config. SigLIP (and other Auto models) may
-        # not, so probe get_image_features once with a neutral image and read the width.
+        # CLIP exposes projection_dim on its config. SigLIP exposes the pooled
+        # image-feature width on its vision_config.hidden_size (768 for base). Both are
+        # deterministic and version-independent; fall back to a probe only if neither.
         projection_dim = getattr(self.model.config, "projection_dim", None)
         if isinstance(projection_dim, int) and projection_dim > 0:
             return projection_dim
+        vision_config = getattr(self.model.config, "vision_config", None)
+        hidden_size = getattr(vision_config, "hidden_size", None)
+        if isinstance(hidden_size, int) and hidden_size > 0:
+            return hidden_size
+        # Last resort: probe and extract robustly (handles transformers 5.x returning a
+        # ModelOutput whose embedding lives under image_embeds / pooler_output).
         with torch.inference_mode():
             probe_image = Image.new("RGB", (224, 224), (127, 127, 127))
             inputs = self.processor(images=[probe_image], return_tensors="pt")
             inputs = {key: value.to(self.device) for key, value in inputs.items()}
-            features = self.model.get_image_features(**inputs)
-        if not isinstance(features, torch.Tensor):
-            features = getattr(features, "image_embeds", None)
+            raw = self.model.get_image_features(**inputs)
+        features = raw if isinstance(raw, torch.Tensor) else None
+        if features is None:
+            for attr in ("image_embeds", "pooler_output", "last_hidden_state"):
+                value = getattr(raw, attr, None)
+                if isinstance(value, torch.Tensor):
+                    features = value[:, 0] if (attr == "last_hidden_state" and value.ndim == 3) else value
+                    break
         if not isinstance(features, torch.Tensor) or features.ndim != 2:
             raise RuntimeError(f"Unable to determine embedding_dim for model {self.model_id}")
         return int(features.shape[-1])
