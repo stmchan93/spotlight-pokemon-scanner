@@ -36,6 +36,28 @@ export function CollectionMasonryGrid({
 }: CollectionMasonryGridProps) {
   const theme = useSpotlightTheme();
 
+  // A lone entry shouldn't render as a full-bleed ruled row — that reads as a
+  // wide rectangle with one card stranded in the corner. Box it into a single
+  // column-width tile so the hairline border hugs just that one item.
+  const soleEntry = entries.length === 1 ? entries[0] : null;
+  if (soleEntry) {
+    return (
+      <View style={styles.grid} testID={testID}>
+        <View style={styles.singleRow}>
+          <View style={[styles.singleCell, { borderColor: theme.colors.gray100 }]}>
+            <CollectionTileSlot
+              entry={soleEntry}
+              onPress={onPressEntry}
+              onLongPress={onLongPressEntry}
+              selected={selectedEntryId === soleEntry.id}
+              testIDPrefix={`${testID}-tile`}
+            />
+          </View>
+        </View>
+      </View>
+    );
+  }
+
   const rows: InventoryCardEntry[][] = [];
   for (let index = 0; index < entries.length; index += COLUMNS) {
     rows.push(entries.slice(index, index + COLUMNS));
@@ -140,6 +162,7 @@ function CollectionTileSlot({
       dayChangeLabel={dayChangeLabel}
       dayChangeDirection={dayChangeDirection}
       isFavorite={entry.isFavorite === true}
+      showFavorite={false}
       selected={selected}
       onPress={() => onPress(entry)}
       onLongPress={onLongPress ? () => onLongPress(entry) : undefined}
@@ -163,5 +186,14 @@ const styles = StyleSheet.create({
   },
   cell: {
     flex: 1,
+  },
+  singleRow: {
+    flexDirection: 'row',
+  },
+  singleCell: {
+    // Box the lone tile at one column's width with a full hairline border so
+    // it reads as a contained square, not a stretched full-width row.
+    borderWidth: 1,
+    width: '50%',
   },
 });

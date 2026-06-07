@@ -15,6 +15,9 @@ type CardDetailHeroProps = {
 
 // Portrait trading-card aspect (5:7).
 const CARD_ASPECT = 5 / 7;
+// Card occupies ~52% of the panel width (Figma 1086:401 — 205pt card art in a
+// 393pt frame), centered inside the gray backdrop.
+const CARD_WIDTH_RATIO = 0.52;
 
 export function CardDetailHero({
   imageUrl,
@@ -26,9 +29,10 @@ export function CardDetailHero({
   const theme = useSpotlightTheme();
 
   return (
-    <View style={styles.root} testID={testID}>
-      {/* Full-bleed card with a soft drop shadow (Figma 992:7544): the card art
-          spans the content width instead of sitting inside a gray panel. */}
+    <View style={[styles.root, { backgroundColor: theme.colors.gray50 }]} testID={testID}>
+      {/* Card centered inside a soft gray panel (Figma 1086:400 "Background" +
+          1086:401 "Product Image"): a full-bleed gray/50 band with the card art
+          shrunk to ~52% width and a soft drop shadow. */}
       <CachedImage
         accessibilityLabel={name}
         cachePolicy={imageCachePolicy.hero}
@@ -71,8 +75,8 @@ const styles = StyleSheet.create({
     height: 40,
     justifyContent: 'center',
     position: 'absolute',
-    right: 12,
-    top: 12,
+    right: 16,
+    top: 16,
     width: 40,
   },
   image: {
@@ -82,12 +86,16 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.18,
     shadowRadius: 20,
-    width: '100%',
+    width: `${CARD_WIDTH_RATIO * 100}%`,
   },
   root: {
     alignItems: 'center',
+    // Break out of the screen's 16px content padding so the gray band spans
+    // edge-to-edge like the Figma frame, then inset the card with 24px of
+    // vertical breathing room (Figma 1086 — card at y=24 in a 334pt band).
+    marginHorizontal: -16,
+    paddingVertical: 24,
     position: 'relative',
-    width: '100%',
   },
 });
 

@@ -117,11 +117,13 @@ export function TransactionRow({
   const resolvedTestID = testID ?? `transaction-row-${record.id}`;
   const tone = kindBadgeTone(record.kind, theme);
 
+  // A trade has no sale price, so it always reads as an em dash; bought/sold
+  // show the amount, falling back to a dash when none was recorded.
   const priceText =
-    record.amountCents != null
-      ? formatCurrency(record.amountCents / 100, record.currencyCode)
-      : record.kind === 'traded'
-        ? 'Trade'
+    record.kind === 'traded'
+      ? '—'
+      : record.amountCents != null
+        ? formatCurrency(record.amountCents / 100, record.currencyCode)
         : '—';
 
   return (
@@ -182,7 +184,9 @@ const styles = StyleSheet.create({
   // single bottom hairline so adjacent rows share one 1px divider; only the
   // first row adds a top hairline (see `cardFirst`).
   card: {
-    alignItems: 'center',
+    // Top-align the image, the PURCHASED/Items column, and the price/edit
+    // column so all three sit flush to the top (Figma 942-4540/4541/4547).
+    alignItems: 'flex-start',
     backgroundColor: colors.gray0,
     borderBottomWidth: 1,
     borderColor: colors.gray100,
@@ -195,7 +199,7 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
   },
   leftGroup: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flex: 1,
     flexDirection: 'row',
     gap: 16,
@@ -228,10 +232,10 @@ const styles = StyleSheet.create({
     ...textStyles.overline,
   },
   rightGroup: {
-    alignItems: 'center',
-    flexDirection: 'row',
+    // Price stacked above the edit button, right-aligned (Figma 942-4547
+    // "Price Details": a top-anchored column, 8px gap).
+    alignItems: 'flex-end',
     gap: 8,
-    justifyContent: 'flex-end',
     minWidth: 68,
   },
   priceText: {

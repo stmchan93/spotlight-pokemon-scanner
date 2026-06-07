@@ -11,8 +11,7 @@ import {
 import {
   ArrowUp,
   Filter as FilterIcon,
-  Heart,
-  Search as SearchIcon,
+  HeartSolid,
 } from 'iconoir-react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -274,28 +273,16 @@ export function WishlistScreen() {
               accessibilityLabel={toggleAccessibilityLabel}
               onPress={handleToggleViewMode}
               shape="rounded"
-              size={32}
+              size={40}
               testID="wishlist-view-toggle"
               variant="outlined"
             >
               {viewMode === 'list' ? (
-                <GridViewIcon color={theme.colors.gray900} size={16} />
+                <GridViewIcon color={theme.colors.gray900} size={18} />
               ) : (
-                <ListViewIcon color={theme.colors.gray900} size={16} />
+                <ListViewIcon color={theme.colors.gray900} size={18} />
               )}
             </IconButton>
-            <Pressable
-              accessibilityLabel="Search"
-              accessibilityRole="button"
-              hitSlop={8}
-              style={[
-                styles.searchButton,
-                { borderColor: theme.colors.gray300 },
-              ]}
-              testID="wishlist-search-button"
-            >
-              <SearchIcon color={theme.colors.gray900} height={16} width={16} />
-            </Pressable>
           </View>
 
           <ScrollView
@@ -428,10 +415,10 @@ function WishlistListView({ entries, onPressEntry }: WishlistViewProps) {
           />
           <View
             pointerEvents="none"
-            style={[styles.heartBadge, { backgroundColor: theme.colors.brand }]}
+            style={styles.heartBadge}
             testID={`wishlist-row-heart-${entry.cardId}`}
           >
-            <Heart color={theme.colors.gray900} height={9} width={9} />
+            <HeartSolid color={theme.colors.brand} height={16} width={16} />
           </View>
         </View>
       ))}
@@ -499,6 +486,9 @@ type WishlistGridTileProps = {
 
 function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
   const imageUri = entry.smallImageUrl ?? entry.imageUrl ?? null;
+  // Graded cards show the grade ("PSA 10"); raw cards show the condition
+  // ("NM") — same derivation as the list row (Figma 860-2640 / 863-2270).
+  const gradeText = gradeLabelForFavorite(entry);
   return (
     <Pressable
       accessibilityRole="button"
@@ -525,10 +515,10 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
           />
         ) : null}
         <View
-          style={[styles.heartBadgeGrid, { backgroundColor: theme.colors.brand }]}
+          style={styles.heartBadgeGrid}
           testID={`wishlist-grid-tile-${entry.cardId}-heart`}
         >
-          <Heart color={theme.colors.gray900} height={10} width={10} />
+          <HeartSolid color={theme.colors.brand} height={20} width={20} />
         </View>
       </View>
       <View style={styles.gridTextWrap}>
@@ -546,6 +536,15 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
             {entry.cardNumber}
             {entry.cardNumber && entry.setName ? '  ·  ' : ''}
             {entry.setName}
+          </Text>
+        ) : null}
+        {gradeText ? (
+          <Text
+            numberOfLines={1}
+            style={[styles.gridMeta, { color: theme.colors.gray600 }]}
+            testID={`wishlist-grid-tile-${entry.cardId}-grade`}
+          >
+            {gradeText}
           </Text>
         ) : null}
         <View style={styles.gridPriceRow}>
@@ -579,14 +578,6 @@ const styles = StyleSheet.create({
   },
   searchFieldWrap: {
     flex: 1,
-  },
-  searchButton: {
-    alignItems: 'center',
-    borderRadius: 8,
-    borderWidth: 1,
-    height: 32,
-    justifyContent: 'center',
-    width: 32,
   },
   filterRow: {
     gap: 8,
@@ -623,15 +614,12 @@ const styles = StyleSheet.create({
   listRowWrap: {
     position: 'relative',
   },
+  // Purple filled heart at the top of the row thumbnail (Figma 863-2079),
+  // moved up from the old bottom-corner badge.
   heartBadge: {
-    alignItems: 'center',
-    borderRadius: 7,
-    bottom: 14,
-    height: 14,
-    justifyContent: 'center',
-    left: 60,
+    left: 58,
     position: 'absolute',
-    width: 14,
+    top: 12,
   },
   gridContainer: {
     // Full-bleed ruled grid (matches the collection card view): rows stack with
@@ -657,15 +645,12 @@ const styles = StyleSheet.create({
     position: 'relative',
     width: '100%',
   },
+  // Purple filled heart in the top-right corner of the card (Figma 860-2640 /
+  // 863-2079), replacing the old bottom-right badge.
   heartBadgeGrid: {
-    alignItems: 'center',
-    borderRadius: 8,
-    bottom: 6,
-    height: 16,
-    justifyContent: 'center',
     position: 'absolute',
     right: 6,
-    width: 16,
+    top: 6,
   },
   gridTextWrap: {
     gap: 4,

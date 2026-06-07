@@ -23,7 +23,8 @@ export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
       ? require('../../../../assets/images/ebay-icon.png')
       : require('../../../../assets/images/tcgplayer-icon.png');
   const providerLabel = list.provider === 'ebay' ? 'eBay' : 'TCGplayer';
-  // Figma logo dimensions differ by provider: eBay 40×16, TCGplayer 21×16.
+  // Figma logo dimensions differ by provider: eBay 57.5×23 (992-7804),
+  // TCGplayer 31×23 (992-7802).
   const logoStyle = list.provider === 'ebay' ? styles.logoEbay : styles.logoTcg;
 
   return (
@@ -38,46 +39,49 @@ export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
         />
       </View>
 
-      <View>
-        {list.rows.map((row, index) => (
-          <Fragment key={row.key}>
-            {index > 0 ? (
-              <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
-            ) : null}
-            <View
-              style={styles.row}
-              testID={testID ? `${testID}-row-${row.key}` : undefined}
+      {/* Full-bleed hairline under the title, then one under every row (Figma
+          992-7381): each rule spans edge-to-edge and never doubles up where two
+          rows meet. */}
+      <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
+
+      {list.rows.map((row) => (
+        <Fragment key={row.key}>
+          <View
+            style={styles.row}
+            testID={testID ? `${testID}-row-${row.key}` : undefined}
+          >
+            <Text style={[theme.typography.bodyMedium, styles.label]} numberOfLines={1}>
+              {row.label}
+            </Text>
+            <PriceSparkline
+              height={SPARKLINE_HEIGHT}
+              points={row.points}
+              testID={testID ? `${testID}-spark-${row.key}` : undefined}
+              trendPct={row.trendPct}
+              width={SPARKLINE_WIDTH}
+            />
+            <Text
+              style={[theme.typography.titleSmall, styles.price]}
+              testID={testID ? `${testID}-price-${row.key}` : undefined}
             >
-              <Text style={[theme.typography.bodyMedium, styles.label]} numberOfLines={1}>
-                {row.label}
-              </Text>
-              <PriceSparkline
-                height={SPARKLINE_HEIGHT}
-                points={row.points}
-                testID={testID ? `${testID}-spark-${row.key}` : undefined}
-                trendPct={row.trendPct}
-                width={SPARKLINE_WIDTH}
-              />
-              <Text
-                style={[theme.typography.titleSmall, styles.price]}
-                testID={testID ? `${testID}-price-${row.key}` : undefined}
-              >
-                {row.currentPrice == null
-                  ? '—'
-                  : formatCurrency(row.currentPrice, row.currencyCode)}
-              </Text>
-            </View>
-          </Fragment>
-        ))}
-      </View>
+              {row.currentPrice == null
+                ? '—'
+                : formatCurrency(row.currentPrice, row.currencyCode)}
+            </Text>
+          </View>
+          <View style={[styles.divider, { backgroundColor: theme.colors.outlineSubtle }]} />
+        </Fragment>
+      ))}
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   divider: {
+    // Break out of the screen's 16px content padding so the rule spans the full
+    // device width (Figma 992-7381 row frame is 393px / edge-to-edge).
     height: StyleSheet.hairlineWidth,
-    width: '100%',
+    marginHorizontal: -16,
   },
   header: {
     alignItems: 'center',
@@ -89,12 +93,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   logoEbay: {
-    height: 16,
-    width: 40,
+    height: 23,
+    width: 57.5,
   },
   logoTcg: {
-    height: 16,
-    width: 21,
+    height: 23,
+    width: 31,
   },
   price: {
     minWidth: 72,

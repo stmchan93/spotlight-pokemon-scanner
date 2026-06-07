@@ -75,8 +75,8 @@ describe('LatestSalesScreen', () => {
     // Secondary line now shows the lot item count instead of a date.
     expect(screen.getByTestId('latest-transaction-card-txn-sold-items').props.children).toEqual(['Items: ', 7]);
     expect(screen.getByTestId('latest-transaction-card-txn-bought-items').props.children).toEqual(['Items: ', 27]);
-    // A priceless trade renders "Trade" instead of a currency amount.
-    expect(screen.getByTestId('latest-transaction-card-txn-traded-price').props.children).toBe('Trade');
+    // A trade always renders an em dash instead of a currency amount.
+    expect(screen.getByTestId('latest-transaction-card-txn-traded-price').props.children).toBe('—');
   });
 
   it('shows the empty state when there are no transactions', async () => {

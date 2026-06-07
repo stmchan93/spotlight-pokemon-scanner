@@ -22,6 +22,11 @@ export type InventoryCardTileProps = {
   dayChangeLabel: string | null;
   dayChangeDirection?: InventoryCardTileDirection | null;
   isFavorite: boolean;
+  /**
+   * When true (default) the favorite star badge renders in the tile's
+   * top-right corner. Set false to hide it entirely (Collection card view).
+   */
+  showFavorite?: boolean;
   selected?: boolean;
   /**
    * When true (default) the tile is a self-contained card: gray50 fill, a
@@ -105,6 +110,7 @@ export function InventoryCardTile({
   dayChangeLabel,
   dayChangeDirection = null,
   isFavorite,
+  showFavorite = true,
   selected = false,
   bordered = true,
   onPress,
@@ -320,27 +326,29 @@ export function InventoryCardTile({
       {/* Star sits on the wrapper (not the imageFrame) so it has consistent
           breathing room (8px) from the card art and visually floats in the
           gray padding area at the top-right of the tile. */}
-      <View
-        pointerEvents="none"
-        style={styles.starBadge}
-        testID={testID ? `${testID}-star` : undefined}
-      >
-        {isFavorite ? (
-          <StarSolid
-            color={theme.colors.starFavorited}
-            height={20}
-            testID={testID ? `${testID}-star-filled` : undefined}
-            width={20}
-          />
-        ) : (
-          <Star
-            color={theme.colors.starOutline}
-            height={20}
-            testID={testID ? `${testID}-star-outlined` : undefined}
-            width={20}
-          />
-        )}
-      </View>
+      {showFavorite ? (
+        <View
+          pointerEvents="none"
+          style={styles.starBadge}
+          testID={testID ? `${testID}-star` : undefined}
+        >
+          {isFavorite ? (
+            <StarSolid
+              color={theme.colors.starFavorited}
+              height={20}
+              testID={testID ? `${testID}-star-filled` : undefined}
+              width={20}
+            />
+          ) : (
+            <Star
+              color={theme.colors.starOutline}
+              height={20}
+              testID={testID ? `${testID}-star-outlined` : undefined}
+              width={20}
+            />
+          )}
+        </View>
+      ) : null}
     </Pressable>
   );
 }

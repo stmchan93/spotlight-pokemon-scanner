@@ -218,10 +218,10 @@ export function ChangeCardPicker({
               style={styles.iconCircle}
               testID={`${testID}-back`}
             >
-              <NavArrowLeft color={colors.gray0} height={18} width={18} strokeWidth={2} />
+              <NavArrowLeft color={colors.gray0} height={24} width={24} />
             </Pressable>
             <View style={styles.iconCircle}>
-              <SearchIcon color={colors.gray0} height={16} width={16} />
+              <SearchIcon color={colors.gray0} height={20} width={20} />
             </View>
           </View>
         </SafeAreaView>
@@ -411,12 +411,10 @@ const styles = StyleSheet.create({
   iconCircle: {
     alignItems: 'center',
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
-    borderColor: 'rgba(255, 255, 255, 0.6)',
     borderRadius: 999,
-    borderWidth: 1,
-    height: 32,
+    height: 36,
     justifyContent: 'center',
-    width: 32,
+    width: 36,
   },
   sheetWrap: {
     position: 'absolute',
@@ -492,7 +490,9 @@ const styles = StyleSheet.create({
   listContent: {
     flexGrow: 1,
     gap: 12,
-    paddingTop: 24,
+    // 16px between the Your Photo / match hero and the first candidate row
+    // (Figma 1054:3285 card-info spacing).
+    paddingTop: 16,
   },
   cardRow: {
     alignItems: 'center',

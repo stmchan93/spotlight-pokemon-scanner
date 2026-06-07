@@ -40,10 +40,12 @@ import { useAppServices } from '@/providers/app-providers';
 function displayNumber(value?: string | null) {
   const trimmed = value?.trim();
   if (!trimmed) {
-    return '#--';
+    return '--';
   }
 
-  return trimmed.startsWith('#') ? trimmed : `#${trimmed}`;
+  // Identity block shows the bare number (Figma 992-7373 / 1080-3404: "095/094",
+  // no "#" prefix), so strip a leading "#" if the source includes one.
+  return trimmed.startsWith('#') ? trimmed.slice(1) : trimmed;
 }
 
 // Numeric grade scale shared by PSA/BGS/CGC slab grading lanes.
@@ -190,6 +192,7 @@ export function CardDetailScreen({
     setQuantity(1);
     setPriceTrends(null);
     seededCardIdRef.current = null;
+    seededVariantCardIdRef.current = null;
   }, [cardId]);
 
   useEffect(() => {
@@ -227,9 +230,12 @@ export function CardDetailScreen({
     return detail?.marketHistory?.availableVariants ?? [];
   }, [detail?.marketHistory?.availableVariants, detail?.variantOptions]);
 
-  // Seed configurator defaults exactly once per card, after a source (full
-  // detail or an owned-entry preview) has resolved — so the grader/grade lens
-  // matches an owned slab instead of latching to the empty-state Raw default.
+  // Seed grader/grade/condition defaults exactly once per card, after a source
+  // (full detail or an owned-entry preview) has resolved — so the grader/grade
+  // lens matches an owned slab instead of latching to the empty-state Raw
+  // default. The variant default is seeded in a separate effect below because
+  // variantOptions only resolves with full detail, which can land after the
+  // owned-entry preview makes hasSource true.
   const seededCardIdRef = useRef<string | null>(null);
   useEffect(() => {
     const hasSource = detail != null || selectedEntry != null || ownedSlabContext != null;
@@ -237,17 +243,6 @@ export function CardDetailScreen({
       return;
     }
     seededCardIdRef.current = cardId;
-
-    const ownedVariant = selectedEntry?.kind === 'raw' ? selectedEntry.variantName?.trim() : null;
-    const variantMatch = ownedVariant
-      ? variantOptions.find((option) => option.label.toLowerCase() === ownedVariant.toLowerCase())
-      : null;
-    // Default to "Normal" when we have no owned-variant signal — most cards
-    // aren't holofoil, and the catalog's first option isn't always Normal.
-    const normalVariant = variantOptions.find(
-      (option) => option.label.trim().toLowerCase() === 'normal',
-    );
-    setSelectedVariant(variantMatch?.id ?? normalVariant?.id ?? variantOptions[0]?.id ?? null);
 
     if (ownedSlabContext?.grader) {
       const graderMatch = graderOptions.find(
@@ -260,7 +255,31 @@ export function CardDetailScreen({
       const ownedCondition = selectedEntry?.kind === 'raw' ? selectedEntry.conditionCode ?? null : null;
       setSelectedCondition(ownedCondition ?? deckConditionOptions[0]?.code ?? null);
     }
-  }, [cardId, detail, ownedSlabContext, selectedEntry, variantOptions]);
+  }, [cardId, detail, ownedSlabContext, selectedEntry]);
+
+  // Seed the variant default once the variant list actually resolves. Kept
+  // separate from the grader seed because variantOptions is empty until full
+  // detail loads — seeding it alongside an early owned-entry preview would
+  // latch selectedVariant to null and never recover (the per-card guard blocks
+  // re-seeding). Prefers the owned variant, then "Normal" (most cards aren't
+  // holofoil and the catalog's first option isn't always Normal), then the
+  // first available option.
+  const seededVariantCardIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (variantOptions.length === 0 || seededVariantCardIdRef.current === cardId) {
+      return;
+    }
+    seededVariantCardIdRef.current = cardId;
+
+    const ownedVariant = selectedEntry?.kind === 'raw' ? selectedEntry.variantName?.trim() : null;
+    const variantMatch = ownedVariant
+      ? variantOptions.find((option) => option.label.toLowerCase() === ownedVariant.toLowerCase())
+      : null;
+    const normalVariant = variantOptions.find(
+      (option) => option.label.trim().toLowerCase() === 'normal',
+    );
+    setSelectedVariant(variantMatch?.id ?? normalVariant?.id ?? variantOptions[0]?.id ?? null);
+  }, [cardId, selectedEntry, variantOptions]);
 
   // Reset the per-lane selection whenever the grader switches so the grade
   // label always reflects the active lane.
@@ -435,7 +454,9 @@ export function CardDetailScreen({
   ]);
 
   // Grade/Condition dropdown wiring for the configurator.
-  const gradeTitle = isRawLane ? 'Condition' : 'Grade';
+  // Both lanes title this section "Grade" per Figma (992-7373 graded /
+  // 1080-3404 raw); the raw dropdown still lists conditions (Near Mint…Damaged).
+  const gradeTitle = 'Grade';
   const gradeLabel = isRawLane
     ? deckConditionLabel(selectedCondition)
     : (selectedGrade ? `${selectedGrader} ${selectedGrade}` : null);
@@ -492,7 +513,7 @@ export function CardDetailScreen({
             testID="detail-back"
             variant="subtle"
           >
-            <NavArrowLeft color={theme.colors.gray900} height={22} width={22} />
+            <NavArrowLeft color={theme.colors.gray900} height={24} width={24} />
           </IconButton>
           <Text
             numberOfLines={1}

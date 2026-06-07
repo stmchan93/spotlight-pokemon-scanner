@@ -5,6 +5,7 @@ import type { CardDetailRecord, CardText, InventoryCardEntry } from '@spotlight/
 import { CardDetailScreen } from '@/features/cards/screens/card-detail-screen';
 import {
   clearCardDetailPreviewSessions,
+  saveCardDetailPreviewFromInventoryEntry,
 } from '@/features/cards/card-detail-preview-session';
 import {
   clearScanCandidateReviewSessions,
@@ -491,6 +492,83 @@ describe('CardDetailScreen', () => {
         mode: 'raw',
         variant: 'Raw',
       }));
+    });
+  });
+
+  it('seeds the default variant for an owned card opened from a preview (detail resolves after the preview)', async () => {
+    // Regression: when a card is opened from the collection, an owned-entry
+    // preview makes hasSource true on the first render — before getCardDetail
+    // resolves and variantOptions populate. The variant seed must wait for the
+    // variant list, otherwise it latches selectedVariant to null and the
+    // per-card guard blocks recovery, leaving no chip selected.
+    const rawEntry: InventoryCardEntry = {
+      addedAt: '2026-04-27T12:00:00.000Z',
+      cardId: 'sm7-1',
+      cardNumber: '#001/096',
+      conditionCode: null,
+      conditionLabel: null,
+      conditionShortLabel: null,
+      costBasisPerUnit: null,
+      costBasisTotal: null,
+      currencyCode: 'USD',
+      hasMarketPrice: true,
+      id: 'raw-treecko-nm',
+      imageUrl: 'https://cdn.spotlight.test/sm7/treecko.png',
+      kind: 'raw',
+      marketPrice: 12,
+      name: 'Treecko',
+      quantity: 1,
+      setName: 'Sky Stream',
+      slabContext: null,
+      variantName: null,
+    };
+    const previewId = saveCardDetailPreviewFromInventoryEntry(rawEntry);
+
+    const getCardPriceTrends = jest.fn(async (query: { variant?: string | null }) => ({
+      mode: 'raw' as const,
+      provider: 'tcgplayer' as const,
+      rows: [
+        {
+          label: query.variant ?? 'Near Mint',
+          key: 'near_mint',
+          currentPrice: 1,
+          currencyCode: 'USD',
+          points: [1, 2, 3],
+          trendPct: 5,
+        },
+      ],
+    }));
+
+    renderWithProviders(
+      <CardDetailScreen
+        cardId="sm7-1"
+        entryId="raw-treecko-nm"
+        onBack={jest.fn()}
+        onOpenAddToCollection={jest.fn()}
+        previewId={previewId}
+      />,
+      {
+        spotlightRepository: createTestSpotlightRepository({ getCardPriceTrends }),
+      },
+    );
+
+    // The "Normal" default is seeded once variantOptions resolve, so its chip is
+    // the selected one even though the preview made hasSource true earlier.
+    await screen.findByTestId('detail-variant-chip-normal');
+    await waitFor(() => {
+      expect(
+        screen.getByTestId('detail-variant-chip-normal').props.accessibilityState?.selected,
+      ).toBe(true);
+    });
+    expect(
+      screen.getByTestId('detail-variant-chip-raw').props.accessibilityState?.selected,
+    ).toBe(false);
+
+    // The raw-lane price fetch carries the seeded variant, not a null lens.
+    await waitFor(() => {
+      expect(getCardPriceTrends).toHaveBeenCalledWith(
+        expect.objectContaining({ cardId: 'sm7-1', mode: 'raw', variant: 'Normal' }),
+      );
     });
   });
 

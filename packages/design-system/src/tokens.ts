@@ -39,7 +39,7 @@ export const colors = {
   warning: '#F7C23D',
   danger: '#F27676',
   gray0: '#FFFFFF',
-  gray50: '#FAFAFA',
+  gray50: '#F7F7F7',
   gray100: '#F2F2F2',
   gray200: '#E8E8E8',
   gray300: '#D4D4D4',

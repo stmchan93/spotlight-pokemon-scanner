@@ -91,20 +91,28 @@ export function WishlistHero({
   const backdropOpacity = useRef(new Animated.Value(1)).current;
   useEffect(() => {
     backdropOpacity.setValue(0.4);
+    // JS driver: this view's transform is driven by `dragX` (set imperatively
+    // via setValue during the drag), so its opacity must stay on the same
+    // driver — mixing native + JS on one view breaks the drag animation.
     Animated.timing(backdropOpacity, {
       duration: 260,
       toValue: 1,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
     dragX.setValue(0);
   }, [backdropOpacity, color, dragX, entry?.cardId]);
 
   const springBack = () => {
+    // Must be JS-driven: `dragX` is updated with setValue() in onPanResponderMove,
+    // and an Animated.Value cannot be driven by both the native and JS drivers.
+    // Spring-back with useNativeDriver:true moved dragX to the native driver on
+    // the first release, after which every subsequent drag's setValue was
+    // rejected and the parallax stopped responding.
     Animated.spring(dragX, {
       bounciness: 6,
       speed: 14,
       toValue: 0,
-      useNativeDriver: true,
+      useNativeDriver: false,
     }).start();
   };
 

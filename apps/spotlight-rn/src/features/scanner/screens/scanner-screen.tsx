@@ -2578,8 +2578,6 @@ const styles = StyleSheet.create({
   },
   trayHeader: {
     backgroundColor: 'transparent',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
     paddingBottom: 4,
     paddingTop: 10,
   },
@@ -2608,9 +2606,9 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   trayShell: {
+    // Flat, full-bleed top edge (Figma 1054:3524 footer modal) — no top
+    // corner rounding so the panel meets the screen edges squarely.
     backgroundColor: 'transparent',
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
     bottom: 0,
     left: 0,
     overflow: 'hidden',
