@@ -712,11 +712,12 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   gridImage: {
-    // Small centered card (Figma 992:9884 — 71x104) so the heart floats in the
-    // empty top-right corner instead of overlapping the art.
+    // Small centered card (Figma 992:9884 ~71x104, nudged a touch smaller for
+    // breathing room) so the 20px heart floats clear in the empty top-right
+    // corner instead of crowding the art.
     borderRadius: 6,
-    height: 104,
-    width: 71,
+    height: 94,
+    width: 64,
   },
   // Purple filled heart 6px from the cell's top-right corner (Figma 992:9898),
   // anchored to the tile so it sits clear of the small centered card.
