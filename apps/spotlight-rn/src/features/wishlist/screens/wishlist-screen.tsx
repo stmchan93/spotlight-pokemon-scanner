@@ -535,16 +535,12 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
             accessibilityIgnoresInvertColors
             resizeMode="contain"
             source={{ uri: imageUri }}
-            style={StyleSheet.absoluteFill}
+            style={styles.gridImage}
             testID={`wishlist-grid-tile-${entry.cardId}-image`}
           />
-        ) : null}
-        <View
-          style={styles.heartBadgeGrid}
-          testID={`wishlist-grid-tile-${entry.cardId}-heart`}
-        >
-          <HeartSolid color={theme.colors.brand} height={20} width={20} />
-        </View>
+        ) : (
+          <View style={styles.gridImage} />
+        )}
       </View>
       <View style={styles.gridTextWrap}>
         <Text
@@ -610,6 +606,13 @@ function WishlistGridTile({ entry, onPress, theme }: WishlistGridTileProps) {
             </View>
           ) : null}
         </View>
+      </View>
+      <View
+        pointerEvents="none"
+        style={styles.heartBadgeGrid}
+        testID={`wishlist-grid-tile-${entry.cardId}-heart`}
+      >
+        <HeartSolid color={theme.colors.brand} height={20} width={20} />
       </View>
     </Pressable>
   );
@@ -699,18 +702,24 @@ const styles = StyleSheet.create({
     width: '50%',
   },
   gridTile: {
-    // Plain tile — no shell border/fill; the row draws the dividers.
+    // Plain tile — no shell border/fill; the row draws the dividers. Relative so
+    // the heart badge anchors to the cell's top-right corner.
     padding: 16,
+    position: 'relative',
   },
   gridImageWrap: {
-    aspectRatio: 1,
-    borderRadius: 8,
-    overflow: 'hidden',
-    position: 'relative',
+    alignItems: 'center',
     width: '100%',
   },
-  // Purple filled heart in the top-right corner of the card (Figma 860-2640 /
-  // 863-2079), replacing the old bottom-right badge.
+  gridImage: {
+    // Small centered card (Figma 992:9884 — 71x104) so the heart floats in the
+    // empty top-right corner instead of overlapping the art.
+    borderRadius: 6,
+    height: 104,
+    width: 71,
+  },
+  // Purple filled heart 6px from the cell's top-right corner (Figma 992:9898),
+  // anchored to the tile so it sits clear of the small centered card.
   heartBadgeGrid: {
     position: 'absolute',
     right: 6,
@@ -718,7 +727,7 @@ const styles = StyleSheet.create({
   },
   gridTextWrap: {
     gap: 4,
-    paddingTop: 12,
+    paddingTop: 16,
   },
   gridMeta: {
     fontFamily: 'SpotlightBodyRegular',
