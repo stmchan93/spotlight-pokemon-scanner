@@ -235,17 +235,30 @@ class RawVisualFrozenEncoder:
                 "onnxruntime is required for the ONNX encoder backend "
                 "(SPOTLIGHT_VISUAL_ENCODER_BACKEND=onnx)."
             ) from exc
-        from transformers import CLIPConfig
-
         resolved = _resolve_onnx_artifact_path(onnx_path, self.model_id)
         if not resolved.exists():
             raise RuntimeError(f"ONNX encoder artifact not found: {resolved}")
 
-        config = CLIPConfig.from_pretrained(self.model_id)
-        projection_dim = getattr(config, "projection_dim", None)
-        if not isinstance(projection_dim, int) or projection_dim <= 0:
-            raise RuntimeError(f"Unable to determine CLIP projection_dim for model {self.model_id}")
-        self.embedding_dim = projection_dim
+        if self.model_family == SIGLIP_MODEL_FAMILY:
+            # SigLIP exposes the image-embedding width on vision_config.hidden_size
+            # (no CLIP-style projection_dim). Read it from the lightweight config so
+            # the ONNX path stays weight-free like CLIP's.
+            from transformers import AutoConfig
+
+            config = AutoConfig.from_pretrained(self.model_id)
+            vision_config = getattr(config, "vision_config", None)
+            hidden_size = getattr(vision_config, "hidden_size", None)
+            if not isinstance(hidden_size, int) or hidden_size <= 0:
+                raise RuntimeError(f"Unable to determine SigLIP embedding_dim for model {self.model_id}")
+            self.embedding_dim = hidden_size
+        else:
+            from transformers import CLIPConfig
+
+            config = CLIPConfig.from_pretrained(self.model_id)
+            projection_dim = getattr(config, "projection_dim", None)
+            if not isinstance(projection_dim, int) or projection_dim <= 0:
+                raise RuntimeError(f"Unable to determine CLIP projection_dim for model {self.model_id}")
+            self.embedding_dim = projection_dim
 
         session_options = ort.SessionOptions()
         intra_op_threads = _env_int_or_none("SPOTLIGHT_VISUAL_ONNX_INTRA_OP_THREADS")
