@@ -87,8 +87,8 @@ describe('CardListRow', () => {
     const colors = flat
       .map((s: { color?: string } | null | undefined) => s && s.color)
       .filter(Boolean);
-    // redDelta token value
-    expect(colors).toContain('#E0524C');
+    // red500 token value (Figma delta pill, 992:10065)
+    expect(colors).toContain('#D93025');
   });
 
   it('renders the thumbnail at the Figma dimensions (54x78, radius 2)', () => {
@@ -105,6 +105,13 @@ describe('CardListRow', () => {
     expect(merged.borderRadius).toBe(2);
     // no thumbnail border in the Figma spec
     expect(merged.borderWidth).toBeUndefined();
+  });
+
+  it('omits the thumbnail when showThumbnail is false (wishlist row, Figma 992:10052)', () => {
+    renderRow({ showThumbnail: false });
+
+    expect(screen.queryByTestId('row-thumbnail')).toBeNull();
+    expect(screen.queryByTestId('row-image')).toBeNull();
   });
 
   function mergedRowStyle() {

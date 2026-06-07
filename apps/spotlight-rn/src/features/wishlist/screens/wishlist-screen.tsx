@@ -672,8 +672,7 @@ const styles = StyleSheet.create({
   listRowWrap: {
     position: 'relative',
   },
-  // Purple filled heart at the top of the row thumbnail (Figma 863-2079),
-  // moved up from the old bottom-corner badge.
+  // Purple filled heart over the row thumbnail (Figma 992:9863).
   heartBadge: {
     left: 58,
     position: 'absolute',

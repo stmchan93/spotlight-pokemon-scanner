@@ -55,6 +55,12 @@ export const colors = {
   red100: '#FDECEC',
   red400: '#E0524C',
   dangerStrong: '#D93025',
+  // Figma delta-pill ramp (Color/green|red/50 fill + 500 text) used by the
+  // card list row's price-change pill.
+  green50: '#F4FAF6',
+  green500: '#2D9148',
+  red50: '#FFF7F7',
+  red500: '#D93025',
   // Blue ramp from Figma (Color/blue/100 + Color/blue/500). Used for the
   // "traded" transaction badge; 100 = pale fill, 400 = saturated text/icon.
   blue100: '#ADCFFF',

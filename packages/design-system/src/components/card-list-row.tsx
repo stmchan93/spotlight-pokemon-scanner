@@ -15,6 +15,11 @@ export type CardListRowProps = {
   trendChangeAmount?: number | null;
   quantity: number;
   /**
+   * When false, the card thumbnail is omitted and the text stack sits flush
+   * left (wishlist list row, Figma 992:10052). Defaults to true.
+   */
+  showThumbnail?: boolean;
+  /**
    * When true, the row draws a top hairline in addition to its bottom hairline.
    * Pass this only for the first row in a list so rows share single 1px
    * dividers (each row's bottom border) with a top border framing the list,
@@ -28,9 +33,6 @@ export type CardListRowProps = {
 const THUMBNAIL_WIDTH = 54;
 const THUMBNAIL_HEIGHT = 78;
 const THUMBNAIL_RADIUS = 2;
-
-const DELTA_UP_BACKGROUND = 'rgba(76, 175, 110, 0.15)';
-const DELTA_DOWN_BACKGROUND = 'rgba(224, 82, 76, 0.15)';
 
 function formatCurrency(amount: number, currencyCode: string) {
   return new Intl.NumberFormat('en-US', {
@@ -60,6 +62,7 @@ export function CardListRow({
   currencyCode = 'USD',
   trendChangeAmount,
   quantity,
+  showThumbnail = true,
   firstInSection = false,
   onPress,
   testID,
@@ -81,7 +84,8 @@ export function CardListRow({
     : 0;
   const showTrend = trend !== 0;
   const trendIsDown = trend < 0;
-  const trendColor = trendIsDown ? theme.colors.redDelta : theme.colors.greenDelta;
+  const trendColor = trendIsDown ? theme.colors.red500 : theme.colors.green500;
+  const trendBackground = trendIsDown ? theme.colors.red50 : theme.colors.green50;
 
   const Container = onPress ? Pressable : View;
   const containerProps = onPress
@@ -111,47 +115,49 @@ export function CardListRow({
 
   return (
     <Container {...containerProps}>
-      <View
-        style={[
-          styles.thumbnail,
-          {
-            backgroundColor: theme.colors.field,
-            borderRadius: THUMBNAIL_RADIUS,
-          },
-        ]}
-        testID={testID ? `${testID}-thumbnail` : undefined}
-      >
-        {imageUrl ? (
-          <Image
-            accessibilityIgnoresInvertColors
-            resizeMode="cover"
-            source={{ uri: imageUrl }}
-            style={[StyleSheet.absoluteFill, { borderRadius: THUMBNAIL_RADIUS }]}
-            testID={testID ? `${testID}-image` : undefined}
-          />
-        ) : (
-          <View
-            style={styles.thumbnailPlaceholder}
-            testID={testID ? `${testID}-thumbnail-placeholder` : undefined}
-          >
-            <AppText color="textSecondary" variant="micro">
-              CARD
-            </AppText>
-          </View>
-        )}
-      </View>
+      {showThumbnail ? (
+        <View
+          style={[
+            styles.thumbnail,
+            {
+              backgroundColor: theme.colors.field,
+              borderRadius: THUMBNAIL_RADIUS,
+            },
+          ]}
+          testID={testID ? `${testID}-thumbnail` : undefined}
+        >
+          {imageUrl ? (
+            <Image
+              accessibilityIgnoresInvertColors
+              resizeMode="cover"
+              source={{ uri: imageUrl }}
+              style={[StyleSheet.absoluteFill, { borderRadius: THUMBNAIL_RADIUS }]}
+              testID={testID ? `${testID}-image` : undefined}
+            />
+          ) : (
+            <View
+              style={styles.thumbnailPlaceholder}
+              testID={testID ? `${testID}-thumbnail-placeholder` : undefined}
+            >
+              <AppText color="textSecondary" variant="micro">
+                CARD
+              </AppText>
+            </View>
+          )}
+        </View>
+      ) : null}
 
       <View style={styles.middle}>
-        <AppText color="textPrimary" numberOfLines={1} variant="bodyStrong">
+        <AppText color="gray900" numberOfLines={1} style={styles.nameText} variant="bodyStrong">
           {name}
         </AppText>
         {metaLine ? (
-          <AppText color="textSecondary" numberOfLines={1} variant="caption">
+          <AppText color="gray600" numberOfLines={1} variant="label">
             {metaLine}
           </AppText>
         ) : null}
         {gradeText ? (
-          <AppText color="textMuted" numberOfLines={1} variant="caption">
+          <AppText color="gray600" numberOfLines={1} variant="label">
             {gradeText}
           </AppText>
         ) : null}
@@ -160,7 +166,7 @@ export function CardListRow({
       <View style={styles.right}>
         {hasPrice ? (
           <AppText
-            color="textPrimary"
+            color="gray900"
             numberOfLines={1}
             style={styles.priceText}
             testID={testID ? `${testID}-price` : undefined}
@@ -172,30 +178,22 @@ export function CardListRow({
 
         {showTrend ? (
           <View
-            style={[
-              styles.trendPill,
-              {
-                backgroundColor: trendIsDown
-                  ? DELTA_DOWN_BACKGROUND
-                  : DELTA_UP_BACKGROUND,
-                borderRadius: theme.radii.pill,
-              },
-            ]}
+            style={[styles.trendPill, { backgroundColor: trendBackground }]}
             testID={testID ? `${testID}-trend` : undefined}
           >
             {trendIsDown ? (
               <ArrowDown
                 color={trendColor}
-                height={12}
+                height={13}
                 testID={testID ? `${testID}-trend-arrow-down` : undefined}
-                width={12}
+                width={13}
               />
             ) : (
               <ArrowUp
                 color={trendColor}
-                height={12}
+                height={13}
                 testID={testID ? `${testID}-trend-arrow-up` : undefined}
-                width={12}
+                width={13}
               />
             )}
             <AppText
@@ -209,10 +207,10 @@ export function CardListRow({
         ) : null}
 
         <AppText
-          color="textMuted"
+          color="gray600"
           numberOfLines={1}
           testID={testID ? `${testID}-quantity` : undefined}
-          variant="caption"
+          variant="label"
         >
           {`Qty: ${quantity}`}
         </AppText>
@@ -224,15 +222,24 @@ export function CardListRow({
 const styles = StyleSheet.create({
   middle: {
     flex: 1,
-    gap: 2,
+    gap: 4,
     minWidth: 0,
   },
+  // Name: 15px Bold gray900 / 150% (Figma 992:10054).
+  nameText: {
+    fontFamily: 'SpotlightBodyBold',
+    lineHeight: 22.5,
+  },
+  // Price: 14px Bold gray900 / 150% (Figma 992:10059).
   priceText: {
+    fontFamily: 'SpotlightBodyBold',
+    fontSize: 14,
+    lineHeight: 21,
     textAlign: 'right',
   },
   right: {
     alignItems: 'flex-end',
-    gap: 2,
+    gap: 4,
     justifyContent: 'center',
     marginLeft: 8,
   },
@@ -256,14 +263,20 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
   },
+  // Delta label: 12px Regular, color set inline (Figma 992:10065).
   trendLabel: {
-    // color set inline based on direction
+    fontFamily: 'SpotlightBodyRegular',
+    fontSize: 12,
+    lineHeight: 16.8,
   },
+  // green/50 | red/50 pill with a 4px radius (Figma 992:10060).
   trendPill: {
     alignItems: 'center',
+    borderRadius: 4,
     flexDirection: 'row',
-    gap: 4,
-    paddingHorizontal: 6,
+    gap: 3.5,
+    paddingLeft: 2,
+    paddingRight: 4,
     paddingVertical: 2,
   },
 });
