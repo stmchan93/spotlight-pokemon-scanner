@@ -336,6 +336,26 @@ def _default_labeling_registry_path() -> Path:
     return _default_raw_visual_train_root() / "raw_scan_registry.json"
 
 
+# Backbone-aware visual-similarity calibration for the confidence score.
+# The raw-visual confidence bands (in compute_raw_confidence) were tuned against
+# CLIP-B/32's cosine scale, where correct matches center ~0.74. SigLIP2-384's correct
+# matches center slightly lower (~0.70), so without calibration its confidence reads
+# artificially low. This affine maps SigLIP's correct-match distribution onto CLIP's,
+# derived by aligning the 10/25/50/75/90th percentiles of correct top-1 similarity on
+# the 204-card show holdout (2026-06-07): 0.65*s + 0.29 sends SigLIP {0.566,0.612,0.701,
+# 0.757,0.788} -> {0.658,0.688,0.746,0.782,0.802}, matching CLIP {0.65,0.688,0.74,0.774,
+# 0.805}. CLIP (and any non-SigLIP backbone) is returned unchanged.
+_SIGLIP_SIM_CALIBRATION_GAIN = 0.65
+_SIGLIP_SIM_CALIBRATION_OFFSET = 0.29
+
+
+def _calibrate_visual_similarity(similarity: float, model_id: str) -> float:
+    if "siglip" in (model_id or "").lower():
+        calibrated = _SIGLIP_SIM_CALIBRATION_GAIN * similarity + _SIGLIP_SIM_CALIBRATION_OFFSET
+        return max(0.0, min(1.0, calibrated))
+    return similarity
+
+
 def _normalize_labeling_tier(value: Any) -> str | None:
     normalized = str(value or "").strip().lower()
     if normalized in {"tier2", "tier3"}:
@@ -7958,12 +7978,21 @@ class SpotlightScanService:
         badge_image_scores: dict[str, dict[str, Any]] = {}
         badge_match_error: str | None = None
         badge_match_ms = 0.0
+        active_visual_model_id = getattr(
+            getattr(self, "_raw_visual_matcher", None), "model_id", ""
+        ) or ""
         visual_candidates = [
             {
                 **self._visual_candidate_stub(match.entry),
                 "_visualSimilarity": float(summary.get("similarity") or 0.0),
                 "_visualSimilaritySource": visual_phase_source,
-                "_retrievalScoreHint": round(float(summary.get("similarity") or 0.0) * 100.0, 4),
+                "_retrievalScoreHint": round(
+                    _calibrate_visual_similarity(
+                        float(summary.get("similarity") or 0.0), active_visual_model_id
+                    )
+                    * 100.0,
+                    4,
+                ),
                 "_cachePresence": False,
                 "_retrievalRoutes": [visual_phase_source],
             }
