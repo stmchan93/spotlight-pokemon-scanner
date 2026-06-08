@@ -112,19 +112,34 @@ export function chooseRawVisualPictureSize(sizes: readonly string[]) {
   return parsed.sort((a, b) => b.area - a.area)[0]?.raw ?? null;
 }
 
-// iOS lens preference for the scanner. We prefer a macro-capable VIRTUAL device
-// (one that bundles the ultra-wide) so iOS Auto Macro can switch lenses to focus
-// a card held close — this fixes the iPhone 14/15 Pro blur, where the physical
-// wide lens can't focus inside its ~20cm minimum focus distance. We fall back to
-// the physical wide lens on devices without a macro-capable virtual device.
-export const scannerLensPreference = [
-  'builtInTripleCamera',
-  'builtInDualWideCamera',
-  'builtInWideAngleCamera',
-] as const;
+// iOS lens preference for the scanner.
+//
+// CRITICAL: expo-camera's `selectedLens` and `getAvailableLensesAsync()` speak
+// the device's *localizedName* (e.g. "Back Triple Camera"), NOT the
+// `builtInTripleCamera` identifier — its native layer matches
+// `$0.localizedName == selectedLens` (CameraSessionManager.swift). Matching
+// identifiers silently never matches, so `selectedLens` stays unset and
+// expo-camera defaults to the physical wide lens (DeviceDiscovery.swift
+// `defaultBackCamera`), whose long minimum focus distance is what blurs cards
+// held close on iPhone 14/15 Pro.
+//
+// We prefer the virtual multi-cam device that bundles the ultra-wide (triple, or
+// dual-wide) because only those enable iOS Auto Macro — the automatic switch to
+// the ultra-wide that focuses a close-held card. We deliberately skip "Back Dual
+// Camera" (wide+telephoto, no ultra-wide -> no macro). Returns the matching
+// localizedName, or undefined to let expo-camera use its default wide lens on
+// devices without a macro-capable virtual device (e.g. single-lens iPhones).
+const scannerMacroLensMatchers = ['triple camera', 'dual wide camera'] as const;
 
 export function pickScannerLens(availableLenses: readonly string[]): string | undefined {
-  return scannerLensPreference.find((lens) => availableLenses.includes(lens));
+  for (const matcher of scannerMacroLensMatchers) {
+    const match = availableLenses.find((lens) => lens.toLowerCase().includes(matcher));
+    if (match) {
+      return match;
+    }
+  }
+
+  return undefined;
 }
 
 export function makeRawScannerCaptureLayout({
