@@ -42,14 +42,6 @@
       "expo-apple-authentication",
       "expo-updates",
       [
-        "expo-camera",
-        {
-          "cameraPermission": "Allow Ekalight to use your camera to scan cards.",
-          "recordAudioAndroid": false,
-          "barcodeScannerEnabled": false
-        }
-      ],
-      [
         "expo-splash-screen",
         {
           "backgroundColor": "#FCFCFA",
@@ -63,7 +55,7 @@
     "experiments": {
       "typedRoutes": true
     },
-    "runtimeVersion": "0.1.1",
+    "runtimeVersion": "0.1.2",
     "updates": {
       "url": "https://u.expo.dev/bd29d8aa-8a70-45ba-907e-f7136f2be4ff"
     },

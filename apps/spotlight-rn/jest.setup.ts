@@ -243,61 +243,68 @@ jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn(async () => {}),
 }));
 
-jest.mock('expo-camera', () => {
+jest.mock('react-native-vision-camera', () => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const React = require('react');
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { View } = require('react-native');
 
-  const mockTakePictureAsync = jest.fn(async () => ({
-    base64: 'bW9jay1zY2FuLWJhc2U2NA==',
-    uri: 'file:///mock-scan.jpg',
+  // capturePhoto -> Photo. saveToTemporaryFileAsync returns '/mock-scan.jpg', which
+  // the surface turns into uri 'file:///mock-scan.jpg' (the key the image-manipulator
+  // + expo-file-system mocks below recognize). Dimensions mirror the old mock.
+  const makeMockPhoto = () => ({
     width: 1080,
     height: 1620,
-  }));
-  const mockAvailableLenses = ['builtInWideAngleCamera', 'builtInUltraWideCamera'];
-  const mockGetAvailableLensesAsync = jest.fn(async () => mockAvailableLenses);
+    saveToTemporaryFileAsync: jest.fn(async () => '/mock-scan.jpg'),
+    dispose: jest.fn(() => {}),
+  });
+  const mockCapturePhoto = jest.fn(async () => makeMockPhoto());
 
-  const CameraView = React.forwardRef(({
-    onAvailableLensesChanged,
-    onCameraReady,
-    ...props
-  }: any, ref: any) => {
-    React.useImperativeHandle(ref, () => ({
-      getAvailableLensesAsync: mockGetAvailableLensesAsync,
-      takePictureAsync: mockTakePictureAsync,
-    }));
-
+  // <Camera> fires onStarted when "ready" and renders a View so testIDs resolve.
+  const Camera = React.forwardRef(({ onStarted, device: _device, outputs: _outputs, isActive: _isActive, ...props }: any, _ref: any) => {
     React.useEffect(() => {
-      onAvailableLensesChanged?.({ lenses: mockAvailableLenses });
-      onCameraReady?.();
-    }, [onAvailableLensesChanged, onCameraReady]);
-
+      onStarted?.();
+    }, [onStarted]);
     return React.createElement(View, props);
   });
-  CameraView.displayName = 'MockCameraView';
+  Camera.displayName = 'MockVisionCamera';
+
+  const mockDevice = {
+    id: 'mock-back-camera',
+    position: 'back',
+    name: 'Mock Back Camera',
+    minZoom: 1,
+    maxZoom: 8,
+    neutralZoom: 1,
+    physicalDevices: ['ultra-wide-angle', 'wide-angle'],
+    hasFlash: false,
+    hasTorch: false,
+  };
 
   return {
-    CameraView,
-    useCameraPermissions: () => [
-      {
-        granted: true,
-        canAskAgain: true,
-        status: 'granted',
-      },
-      jest.fn(async () => ({
-        granted: true,
-        canAskAgain: true,
-        status: 'granted',
-      })),
-      jest.fn(async () => ({
-        granted: true,
-        canAskAgain: true,
-        status: 'granted',
-      })),
-    ],
+    Camera,
+    CommonResolutions: { HD_16_9: { width: 720, height: 1280 } },
+    useCameraDevice: () => mockDevice,
+    useCameraPermission: () => ({
+      hasPermission: true,
+      requestPermission: jest.fn(async () => true),
+    }),
+    usePhotoOutput: () => ({ capturePhoto: mockCapturePhoto }),
   };
 });
+
+// The vision-camera capture path reads base64 from the saved temp file via the
+// NON-legacy expo-file-system (the surface imports `expo-file-system`). Mock it so
+// base64 is present like the old inline-base64 capture; benign stubs for the rest.
+jest.mock('expo-file-system', () => ({
+  EncodingType: { UTF8: 'utf8', Base64: 'base64' },
+  readAsStringAsync: jest.fn(async () => 'bW9jay1zY2FuLWJhc2U2NA=='),
+  getInfoAsync: jest.fn(async () => ({ exists: false })),
+  deleteAsync: jest.fn(async () => {}),
+  readDirectoryAsync: jest.fn(async () => []),
+  documentDirectory: 'file:///mock-docs/',
+  cacheDirectory: 'file:///mock-cache/',
+}));
 
 jest.mock('expo-image-manipulator', () => {
   const dimensionsByUri = new Map<string, { height: number; width: number }>();

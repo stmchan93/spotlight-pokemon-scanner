@@ -1,5 +1,4 @@
 import { BlurView } from 'expo-blur';
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import * as FileSystem from 'expo-file-system';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -26,6 +25,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useCameraPermission } from 'react-native-vision-camera';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
@@ -60,10 +60,9 @@ import {
   makeReticleSourceImageCrop,
 } from '@/features/scanner/scanner-normalized-target';
 import {
-  chooseRawVisualPictureSize,
   getRawScannerCollapsedTrayReservedHeight,
   makeRawScannerCaptureLayout,
-  pickScannerLens,
+  type RawScannerCameraHandle,
   RawScannerCaptureSurface,
   rawScannerTrayEmptyPeekHeight,
   rawScannerTrayHeaderHeight,
@@ -154,7 +153,6 @@ const trayClearSectionHeight = 104;
 const traySwipeThreshold = 20;
 const trayVelocityThreshold = 0.22;
 const trayHeaderHitSlop = { bottom: 10, left: 12, right: 12, top: 12 } as const;
-let cachedRawVisualPictureSize: string | undefined;
 const scannerTrayLayoutAnimation = {
   create: {
     property: LayoutAnimation.Properties.opacity,
@@ -212,15 +210,6 @@ function ScannerKeepAwake() {
 const SCANNER_ZOOM_FACTORS = [1, 1.5, 2] as const;
 type ScannerZoomFactor = (typeof SCANNER_ZOOM_FACTORS)[number];
 
-// expo-camera's `zoom` prop is a normalized 0..1 value (NOT a magnification
-// factor) and is non-linear / device-dependent. These are calibrated
-// approximations so the card roughly fills 1.5×/2× more of the reticle — tune
-// on-device. The nominal factor (1/1.5/2) is what we log for analysis.
-const SCANNER_ZOOM_TO_CAMERA: Record<ScannerZoomFactor, number> =
-  Platform.OS === 'android'
-    ? { 1: 0, 1.5: 0.05, 2: 0.1 }
-    : { 1: 0, 1.5: 0.02, 2: 0.04 };
-
 const SCANNER_ZOOM_STORAGE_KEY = '@spotlight/scanner/zoom-factor';
 
 function parseScannerZoomFactor(raw: string | null): ScannerZoomFactor {
@@ -274,7 +263,7 @@ export function ScannerScreen({
   const { dataVersion, refreshData, spotlightRepository } = useAppServices();
   const insets = useSafeAreaInsets();
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
-  const [permission, requestPermission] = useCameraPermissions();
+  const { hasPermission, requestPermission } = useCameraPermission();
   const [isCameraReady, setIsCameraReady] = useState(isTestEnv);
   const [isCapturing, setIsCapturing] = useState(false);
   const [inventoryEntries, setInventoryEntries] = useState<InventoryCardEntry[]>([]);
@@ -286,24 +275,14 @@ export function ScannerScreen({
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
   const { cardType, setCardType } = useScannerTargetConfig();
   const [zoomFactor, setZoomFactor] = useScannerZoomFactor();
-  const cameraZoom = SCANNER_ZOOM_TO_CAMERA[zoomFactor] ?? 0;
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
-  const [isRawPictureConfigReady, setIsRawPictureConfigReady] = useState(
-    isTestEnv || cachedRawVisualPictureSize != null,
-  );
-  const [rawVisualPictureSize, setRawVisualPictureSize] = useState<string | undefined>(
-    cachedRawVisualPictureSize,
-  );
-  const [cameraSessionKey, setCameraSessionKey] = useState(0);
-  const [availableBackLenses, setAvailableBackLenses] = useState<string[]>([]);
   const [ebayTrayState, setEbayTrayState] = useState<Map<string, { loading: boolean; url: string | null }>>(new Map());
   const [priceSelection, setPriceSelection] = useState<Map<string, ScanPriceSheetSelection>>(new Map());
   const [activePriceCaptureId, setActivePriceCaptureId] = useState<string | null>(null);
   const [activeChangeCaptureId, setActiveChangeCaptureId] = useState<string | null>(null);
   const hasFocusedScannerRef = useRef(false);
   const hasPromptedForPermissionRef = useRef(false);
-  const cameraRef = useRef<CameraView | null>(null);
-  const isResolvingPictureSizeRef = useRef(false);
+  const cameraRef = useRef<RawScannerCameraHandle | null>(null);
   const trayGestureCommittedRef = useRef(false);
   const trayScrollOffsetYRef = useRef(0);
   const reticleSnapshotRef = useRef({ height: 0, previewHeight: 0, previewWidth: 0, width: 0, x: 0, y: 0 });
@@ -381,22 +360,12 @@ export function ScannerScreen({
     x: captureSurfaceLayout.reticle.x,
     y: captureSurfaceLayout.reticle.y,
   };
-  const hasCameraPermission = permission?.granted ?? false;
+  const hasCameraPermission = hasPermission;
   const shouldMountCamera = hasCameraPermission && isActiveTab;
-  const preferredScannerLens = useMemo(() => {
-    if (Platform.OS !== 'ios') {
-      return undefined;
-    }
-
-    // Prefer a macro-capable virtual device (Auto Macro) so close-held cards
-    // focus on iPhone 14/15 Pro; falls back to the physical wide lens otherwise.
-    return pickScannerLens(availableBackLenses);
-  }, [availableBackLenses]);
   const scannerSmokeEnabled = resolveStagingSmokeModeEnabled({ allowDevelopment: true });
   const canCapture = shouldMountCamera
     && isCameraReady
-    && !isCapturing
-    && isRawPictureConfigReady;
+    && !isCapturing;
   const canToggleTray = recentCaptures.length > 0;
   const isTopLevelSwipeEnabled = Object.keys(openActionRailKeys).length === 0;
   // In the collapsed state we render exactly `collapsedVisibleCaptures` (one) row
@@ -448,13 +417,16 @@ export function ScannerScreen({
   }, [dataVersion, shouldLoadInventory, spotlightRepository]);
 
   useEffect(() => {
-    if (!permission || permission.granted || !permission.canAskAgain || hasPromptedForPermissionRef.current) {
+    if (hasPermission || hasPromptedForPermissionRef.current) {
       return;
     }
 
+    // vision-camera's permission state is a single boolean — there is no
+    // `canAskAgain`. Request once on first mount; if the user denies, the
+    // camera simply doesn't mount (no re-prompt loop).
     hasPromptedForPermissionRef.current = true;
     void requestPermission();
-  }, [permission, requestPermission]);
+  }, [hasPermission, requestPermission]);
 
   useEffect(() => {
     if (Platform.OS === 'android') {
@@ -478,26 +450,20 @@ export function ScannerScreen({
 
   useFocusEffect(useCallback(() => {
     trayGestureCommittedRef.current = false;
-    isResolvingPictureSizeRef.current = false;
 
     if (hasFocusedScannerRef.current) {
       setIsCameraReady(false);
       setIsCapturing(false);
-      setIsRawPictureConfigReady(isTestEnv || cachedRawVisualPictureSize != null);
-      setRawVisualPictureSize(cachedRawVisualPictureSize);
-      setCameraSessionKey((current) => current + 1);
     } else {
       hasFocusedScannerRef.current = true;
     }
 
     return () => {
       trayGestureCommittedRef.current = false;
-      isResolvingPictureSizeRef.current = false;
       setIsCameraReady(false);
       setIsCapturing(false);
-      setIsRawPictureConfigReady(isTestEnv || cachedRawVisualPictureSize != null);
     };
-  }, [isTestEnv]));
+  }, []));
 
   // Manage camera lifecycle when the pager switches between portfolio and scanner pages.
   // useFocusEffect handles route-level focus (navigating to card detail and back).
@@ -514,16 +480,12 @@ export function ScannerScreen({
       // Returning to scanner from portfolio — restart camera session.
       setIsCameraReady(false);
       setIsCapturing(false);
-      setIsRawPictureConfigReady(isTestEnv || cachedRawVisualPictureSize != null);
-      setRawVisualPictureSize(cachedRawVisualPictureSize);
-      setCameraSessionKey((current) => current + 1);
     } else if (!isActiveTab && prev) {
       // Leaving scanner for portfolio — stop capture state.
       setIsCameraReady(false);
       setIsCapturing(false);
-      setIsRawPictureConfigReady(isTestEnv || cachedRawVisualPictureSize != null);
     }
-  }, [isActiveTab, isTestEnv]);
+  }, [isActiveTab]);
 
   const commitTrayExpandedState = useCallback((nextExpanded: boolean) => {
     setIsTrayExpanded((current) => {
@@ -542,81 +504,6 @@ export function ScannerScreen({
       return nextExpanded;
     });
   }, []);
-
-  const resolveRawVisualPictureSize = useCallback(() => {
-    if (isTestEnv) {
-      setRawVisualPictureSize(undefined);
-      setIsRawPictureConfigReady(true);
-      isResolvingPictureSizeRef.current = false;
-      return;
-    }
-
-    if (cachedRawVisualPictureSize != null) {
-      setRawVisualPictureSize(cachedRawVisualPictureSize);
-      setIsRawPictureConfigReady(true);
-      isResolvingPictureSizeRef.current = false;
-      return;
-    }
-
-    if (isResolvingPictureSizeRef.current) {
-      return;
-    }
-
-    setIsRawPictureConfigReady(false);
-    isResolvingPictureSizeRef.current = true;
-    void (async () => {
-      try {
-        const sizes = await cameraRef.current?.getAvailablePictureSizesAsync?.();
-        const selectedSize = chooseRawVisualPictureSize(Array.isArray(sizes) ? sizes : []);
-        cachedRawVisualPictureSize = selectedSize ?? undefined;
-        setRawVisualPictureSize(selectedSize ?? undefined);
-        if (selectedSize && process.env.NODE_ENV !== 'test') {
-          console.info(`[SCANNER VISUAL TEST] rawPictureSize=${selectedSize}`);
-        }
-      } catch {
-        setRawVisualPictureSize(undefined);
-      } finally {
-        setIsRawPictureConfigReady(true);
-        isResolvingPictureSizeRef.current = false;
-      }
-    })();
-  }, [isTestEnv]);
-
-  const handleAvailableLensesChanged = useCallback((event: { lenses: string[] }) => {
-    const nextLenses = Array.isArray(event.lenses)
-      ? event.lenses.filter((candidate) => typeof candidate === 'string' && candidate.trim().length > 0)
-      : [];
-
-    setAvailableBackLenses((current) => {
-      if (
-        current.length === nextLenses.length
-        && current.every((candidate, index) => candidate === nextLenses[index])
-      ) {
-        return current;
-      }
-
-      return nextLenses;
-    });
-
-    if (process.env.NODE_ENV !== 'test' && nextLenses.length > 0) {
-      console.info(
-        `[SCANNER VISUAL TEST] availableLenses=${nextLenses.join(',')} selectedLens=${
-          pickScannerLens(nextLenses) ?? 'default'
-        }`,
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    if (
-      !isCameraReady
-      || rawVisualPictureSize != null
-    ) {
-      return;
-    }
-
-    resolveRawVisualPictureSize();
-  }, [isCameraReady, rawVisualPictureSize, resolveRawVisualPictureSize]);
 
   const inventoryByCardId = useMemo(() => {
     const lookup = new Map<string, { entryIds: string[]; quantity: number }>();
@@ -949,9 +836,12 @@ export function ScannerScreen({
   }, [spotlightRepository, updateRecentCapture]);
 
   const handleCapture = useCallback(async () => {
-    if (!permission?.granted) {
-      if (permission?.canAskAgain) {
-        await requestPermission();
+    if (!hasPermission) {
+      // vision-camera exposes only a boolean — re-request once and bail if the
+      // user still denies (no `canAskAgain` to branch on).
+      const granted = await requestPermission();
+      if (!granted) {
+        return;
       }
       return;
     }
@@ -1001,11 +891,8 @@ export function ScannerScreen({
 
     try {
       const captureStartedAt = Date.now();
-      const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        exif: false,
+      const photo = await cameraRef.current?.takePicture({
         quality: rawVisualCaptureQuality,
-        skipProcessing: false,
       });
       const captureMs = Date.now() - captureStartedAt;
       captureMsForAnalytics = captureMs;
@@ -1325,9 +1212,9 @@ export function ScannerScreen({
     }
   }, [
     cardType,
+    hasPermission,
     isCameraReady,
     isCapturing,
-    permission,
     requestPermission,
     runMatchForCapture,
     updateRecentCapture,
@@ -1893,13 +1780,11 @@ export function ScannerScreen({
     onPanResponderTerminationRequest: () => false,
   }), [canToggleTray, commitTrayExpandedState, isTopLevelSwipeEnabled, isTrayExpanded]);
 
-  const promptCopy = !permission
-    ? 'Starting camera...'
-    : !permission.granted
-      ? 'Allow camera access to scan'
-      : isCapturing
-        ? 'Capturing scan...'
-        : 'Tap to scan';
+  const promptCopy = !hasPermission
+    ? 'Allow camera access to scan'
+    : isCapturing
+      ? 'Capturing scan...'
+      : 'Tap to scan';
 
   const renderCaptureRow = (capture: RecentCapture, index: number) => {
     const candidate = activeCandidateForCapture(capture);
@@ -2077,9 +1962,7 @@ export function ScannerScreen({
     <SafeAreaView edges={['left', 'right']} style={styles.safeArea}>
       {isActiveTab ? <ScannerKeepAwake /> : null}
       <RawScannerCaptureSurface
-        availableLensesChanged={handleAvailableLensesChanged}
         cameraRef={cameraRef}
-        cameraSessionKey={cameraSessionKey}
         canCapture={canCapture}
         hasCameraPermission={hasCameraPermission}
         isTrayExpanded={isTrayExpanded}
@@ -2087,20 +1970,16 @@ export function ScannerScreen({
         onCameraReady={() => {
           if (!isTestEnv) {
             setIsCameraReady(true);
-            resolveRawVisualPictureSize();
           }
-          void cameraRef.current?.resumePreview?.();
         }}
         onCapture={() => {
           void handleCapture();
         }}
-        pictureSize={rawVisualPictureSize}
         prompt={promptCopy}
-        selectedLens={preferredScannerLens}
         shouldMountCamera={shouldMountCamera}
         showSlabGuide={false}
         testIDPrefix="scanner"
-        zoom={cameraZoom}
+        zoomFactor={zoomFactor}
       >
         {isTrayExpanded ? (
           <Pressable

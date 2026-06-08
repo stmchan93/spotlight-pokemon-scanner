@@ -1,4 +1,3 @@
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useRouter } from 'expo-router';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -41,23 +40,17 @@ import {
   makeOrientationFixedSourceImageDimensions,
 } from '@/features/scanner/scanner-normalized-target';
 import {
-  chooseRawVisualPictureSize,
+  type RawScannerCameraHandle,
   makeRawScannerCaptureLayout,
   RawScannerCaptureSurface,
   rawScannerTrayReservedHeight,
   rawVisualCaptureQuality,
 } from '@/features/scanner/raw-scanner-capture-surface';
+import { useVisionCameraCapture } from '@/features/scanner/use-vision-camera-capture';
 import { useAppServices } from '@/providers/app-providers';
 import { useAuth } from '@/providers/auth-provider';
 
 type LabelingStep = 'search' | 'confirm' | 'capture' | 'review' | 'done';
-
-type CameraPicture = {
-  base64?: string;
-  height?: number;
-  uri?: string;
-  width?: number;
-};
 
 const requiredAngles = [
   { label: 'front', title: 'Front' },
@@ -274,7 +267,9 @@ export function LabelingSessionScreen() {
   const { height: windowHeight, width: windowWidth } = useWindowDimensions();
   const insets = useSafeAreaInsets();
   const { spotlightRepository } = useAppServices();
-  const [permission, requestPermission] = useCameraPermissions();
+  const { hasPermission, requestPermission } = useVisionCameraCapture({
+    quality: rawVisualCaptureQuality,
+  });
 
   const [step, setStep] = useState<LabelingStep>('search');
   const [query, setQuery] = useState('');
@@ -290,9 +285,7 @@ export function LabelingSessionScreen() {
   const [errorMessage, setErrorMessage] = useState('');
   const [openSessionID, setOpenSessionID] = useState<string | null>(null);
   const [completedSessionID, setCompletedSessionID] = useState<string | null>(null);
-  const [rawVisualPictureSize, setRawVisualPictureSize] = useState<string | undefined>(undefined);
-  const cameraRef = useRef<CameraView | null>(null);
-  const isResolvingPictureSizeRef = useRef(false);
+  const cameraRef = useRef<RawScannerCameraHandle | null>(null);
 
   const hasLabelingAccess = !!(currentUser?.labelerEnabled || currentUser?.adminEnabled);
   const currentAngle = requiredAngles[currentAngleIndex] ?? requiredAngles[0];
@@ -308,7 +301,7 @@ export function LabelingSessionScreen() {
       .filter((capture): capture is LabelingSessionCapture => !!capture);
   }, [captures]);
   const hasAllCaptures = orderedCaptures.length === requiredAngles.length;
-  const canCapture = !!permission?.granted
+  const canCapture = hasPermission
     && isCameraReady
     && !!selectedCard
     && !isCapturing;
@@ -357,31 +350,12 @@ export function LabelingSessionScreen() {
   }, [query, spotlightRepository]);
 
   useEffect(() => {
-    if (!permission || permission.granted || !permission.canAskAgain) {
+    if (hasPermission) {
       return;
     }
 
     void requestPermission();
-  }, [permission, requestPermission]);
-
-  const resolveRawVisualPictureSize = useCallback(() => {
-    if (isResolvingPictureSizeRef.current) {
-      return;
-    }
-
-    isResolvingPictureSizeRef.current = true;
-    void (async () => {
-      try {
-        const sizes = await cameraRef.current?.getAvailablePictureSizesAsync?.();
-        const selectedSize = chooseRawVisualPictureSize(Array.isArray(sizes) ? sizes : []);
-        setRawVisualPictureSize(selectedSize ?? undefined);
-      } catch {
-        setRawVisualPictureSize(undefined);
-      } finally {
-        isResolvingPictureSizeRef.current = false;
-      }
-    })();
-  }, []);
+  }, [hasPermission, requestPermission]);
 
   const resetSession = useCallback(() => {
     setStep('search');
@@ -436,10 +410,8 @@ export function LabelingSessionScreen() {
   }, []);
 
   const handleCapture = useCallback(async () => {
-    if (!permission?.granted) {
-      if (permission?.canAskAgain) {
-        await requestPermission();
-      }
+    if (!hasPermission) {
+      await requestPermission();
       return;
     }
 
@@ -451,12 +423,9 @@ export function LabelingSessionScreen() {
     setErrorMessage('');
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({
-        base64: true,
-        exif: false,
+      const photo = await cameraRef.current.takePicture({
         quality: rawVisualCaptureQuality,
-        skipProcessing: false,
-      }) as CameraPicture | null;
+      });
 
       if (!photo?.uri || !photo.base64) {
         throw new Error('source_capture_unavailable');
@@ -532,8 +501,8 @@ export function LabelingSessionScreen() {
     captureSurfaceLayout.previewHeight,
     captureSurfaceLayout.previewWidth,
     captureSurfaceLayout.reticle,
+    hasPermission,
     isCapturing,
-    permission,
     requestPermission,
     selectedCard,
   ]);
@@ -632,18 +601,16 @@ export function LabelingSessionScreen() {
         <RawScannerCaptureSurface
           cameraRef={cameraRef}
           canCapture={canCapture}
-          hasCameraPermission={permission?.granted ?? false}
+          hasCameraPermission={hasPermission}
           layout={captureSurfaceLayout}
           onCameraReady={() => {
             setIsCameraReady(true);
-            resolveRawVisualPictureSize();
           }}
           onCapture={() => {
             void handleCapture();
           }}
-          pictureSize={rawVisualPictureSize}
           prompt={`Tap inside frame to capture ${currentAngle.title}`}
-          shouldMountCamera={permission?.granted ?? false}
+          shouldMountCamera={hasPermission}
           testIDPrefix="labeler"
         >
           <View
