@@ -1,8 +1,7 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import {
   Image,
   Modal,
-  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -10,13 +9,12 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
-import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useKeepAwake } from 'expo-keep-awake';
 import Svg, { Path } from 'react-native-svg';
 
 import { Button, useSpotlightTheme } from '@spotlight/design-system';
 
-import { pickScannerLens } from '@/features/scanner/raw-scanner-capture-surface';
+import { useVisionCameraCapture } from '@/features/scanner/use-vision-camera-capture';
 
 type TransactionPhotoCaptureProps = {
   compact?: boolean;
@@ -72,53 +70,17 @@ export function TransactionPhotoCapture({
 }: TransactionPhotoCaptureProps) {
   const theme = useSpotlightTheme();
   const insets = useSafeAreaInsets();
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView | null>(null);
+  const {
+    Camera,
+    device,
+    photoOutput,
+    hasPermission,
+    requestPermission,
+    capture,
+  } = useVisionCameraCapture({ quality: 0.72 });
   const [isCameraVisible, setIsCameraVisible] = useState(false);
   const [isCapturing, setIsCapturing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [availableLenses, setAvailableLenses] = useState<string[]>(
-    Platform.OS === 'ios'
-      ? ['builtInWideAngleCamera']
-      : [],
-  );
-
-  const updateAvailableLenses = useCallback((nextLenses?: string[]) => {
-    if (!Array.isArray(nextLenses)) {
-      return;
-    }
-
-    const sanitizedLenses = nextLenses.filter((lens) => typeof lens === 'string' && lens.length > 0);
-    if (sanitizedLenses.length === 0) {
-      return;
-    }
-
-    setAvailableLenses((current) => {
-      if (
-        current.length === sanitizedLenses.length
-        && current.every((lens, index) => lens === sanitizedLenses[index])
-      ) {
-        return current;
-      }
-
-      return sanitizedLenses;
-    });
-  }, []);
-
-  // Prefer a macro-capable virtual device (Auto Macro) so close shots focus on
-  // iPhone 14/15 Pro instead of blurring on the physical wide lens; falls back to
-  // the wide lens otherwise. Shares the scanner's lens preference for consistency.
-  const selectedLens = useMemo(() => {
-    if (Platform.OS !== 'ios') {
-      return undefined;
-    }
-
-    return pickScannerLens(availableLenses);
-  }, [availableLenses]);
-
-  const cameraViewKey = useMemo(() => (
-    `transaction-camera-${selectedLens ?? 'default'}`
-  ), [selectedLens]);
 
   const cameraHeaderStyle = useMemo(() => (
     [
@@ -129,41 +91,28 @@ export function TransactionPhotoCapture({
     ]
   ), [insets.top]);
 
-  const handleCameraReady = useCallback(() => {
-    void (async () => {
-      try {
-        const nextLenses = await cameraRef.current?.getAvailableLensesAsync?.();
-        updateAvailableLenses(nextLenses);
-      } catch {
-        // Ignore lens-discovery failures and keep the default camera configuration.
-      }
-    })();
-  }, [updateAvailableLenses]);
-
   const handleOpenCamera = useCallback(async () => {
     setErrorMessage(null);
 
-    if (permission?.granted) {
+    if (hasPermission) {
       setIsCameraVisible(true);
       return;
     }
 
-    const nextPermission = await requestPermission();
-    if (nextPermission.granted) {
+    const granted = await requestPermission();
+    if (granted) {
       setIsCameraVisible(true);
       return;
     }
 
+    // vision-camera's `requestPermission()` returns false whether the user just
+    // denied or the OS can no longer prompt, so steer them to Settings either way.
     setIsCameraVisible(false);
-    setErrorMessage(
-      nextPermission.canAskAgain === false
-        ? 'Enable camera access in Settings to attach a transaction photo.'
-        : 'Camera access is needed to attach a transaction photo.',
-    );
-  }, [permission?.granted, requestPermission]);
+    setErrorMessage('Enable camera access in Settings to attach a transaction photo.');
+  }, [hasPermission, requestPermission]);
 
   const handleCapture = useCallback(async () => {
-    if (!cameraRef.current || isCapturing) {
+    if (isCapturing) {
       return;
     }
 
@@ -171,10 +120,7 @@ export function TransactionPhotoCapture({
     setErrorMessage(null);
 
     try {
-      const photo = await cameraRef.current.takePictureAsync({
-        quality: 0.72,
-        skipProcessing: true,
-      });
+      const photo = await capture();
       if (!photo?.uri) {
         setErrorMessage('Could not capture a photo right now.');
         return;
@@ -187,7 +133,7 @@ export function TransactionPhotoCapture({
     } finally {
       setIsCapturing(false);
     }
-  }, [isCapturing, onCapture]);
+  }, [capture, isCapturing, onCapture]);
 
   return (
     <View
@@ -304,18 +250,21 @@ export function TransactionPhotoCapture({
           </View>
 
           <View style={styles.cameraFullscreenShell}>
-            <CameraView
-              key={cameraViewKey}
-              ref={cameraRef}
-              onAvailableLensesChanged={(event) => {
-                updateAvailableLenses(event?.lenses);
-              }}
-              onCameraReady={handleCameraReady}
-              selectedLens={selectedLens}
-              style={styles.cameraFullscreenView}
-              testID={`${testIDPrefix}-camera`}
-              zoom={0}
-            />
+            {isCameraVisible && hasPermission && device != null ? (
+              <Camera
+                device={device}
+                isActive={isCameraVisible}
+                outputs={[photoOutput]}
+                style={styles.cameraFullscreenView}
+                testID={`${testIDPrefix}-camera`}
+                zoom={Math.min(Math.max(1, device.minZoom), device.maxZoom)}
+              />
+            ) : (
+              <View
+                style={styles.cameraFullscreenView}
+                testID={`${testIDPrefix}-camera-fallback`}
+              />
+            )}
           </View>
 
           <View style={styles.cameraFooter}>

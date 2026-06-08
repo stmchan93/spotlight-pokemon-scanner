@@ -1,12 +1,18 @@
-import { CameraView } from 'expo-camera';
+import * as FileSystem from 'expo-file-system';
 import type { ReactNode, RefObject } from 'react';
+import { useImperativeHandle } from 'react';
 import {
-  Platform,
   Pressable,
   StyleSheet,
   Text,
   View,
 } from 'react-native';
+import {
+  Camera,
+  CommonResolutions,
+  useCameraDevice,
+  usePhotoOutput,
+} from 'react-native-vision-camera';
 
 import {
   colors,
@@ -32,6 +38,20 @@ export const scannerReticleCornerSize = 22;
 export const scannerReticleCornerStrokeWidth = 3;
 export const slabGuideHorizontalInset = 8;
 
+/**
+ * Imperative handle the scanner screens drive to capture a still. Wraps
+ * vision-camera's photo-output capture into the `{ uri, base64, width, height }`
+ * shape the downstream normalize pipeline expects.
+ */
+export type RawScannerCameraHandle = {
+  takePicture(opts: { quality: number }): Promise<{
+    uri: string;
+    base64?: string;
+    width: number;
+    height: number;
+  } | null>;
+};
+
 export type RawScannerCaptureLayout = {
   backButtonTop: number;
   controlsTop: number;
@@ -48,9 +68,7 @@ export type RawScannerCaptureLayout = {
 };
 
 type RawScannerCaptureSurfaceProps = {
-  availableLensesChanged?: (event: { lenses: string[] }) => void;
-  cameraRef: RefObject<CameraView | null>;
-  cameraSessionKey?: number;
+  cameraRef: RefObject<RawScannerCameraHandle | null>;
   canCapture: boolean;
   children?: ReactNode;
   hasCameraPermission: boolean;
@@ -58,89 +76,17 @@ type RawScannerCaptureSurfaceProps = {
   layout: RawScannerCaptureLayout;
   onCameraReady: () => void;
   onCapture: () => void;
-  pictureSize?: string;
   prompt: string;
-  selectedLens?: string;
   shouldMountCamera: boolean;
   showSlabGuide?: boolean;
   testIDPrefix: string;
-  /** Normalized expo-camera zoom (0..1). Lets a far card fill the reticle. */
-  zoom?: number;
+  /**
+   * Nominal magnification multiplier (1 / 1.5 / 2). Multiplied against the
+   * device's neutral (1x wide-angle) zoom and clamped to the device's
+   * min/max so a far card can fill the reticle with TRUE optical magnification.
+   */
+  zoomFactor?: number;
 };
-
-function parsePictureSize(size: string) {
-  const match = size.trim().match(/^(\d+)x(\d+)$/);
-  if (!match) {
-    return null;
-  }
-
-  const width = Number(match[1]);
-  const height = Number(match[2]);
-  if (!Number.isFinite(width) || !Number.isFinite(height) || width <= 0 || height <= 0) {
-    return null;
-  }
-
-  return {
-    area: width * height,
-    longSide: Math.max(width, height),
-    raw: size,
-  };
-}
-
-export function chooseRawVisualPictureSize(sizes: readonly string[]) {
-  const parsed = sizes
-    .map(parsePictureSize)
-    .filter((size): size is NonNullable<ReturnType<typeof parsePictureSize>> => size != null);
-  if (parsed.length === 0) {
-    return null;
-  }
-
-  const preferred = parsed
-    .filter((size) => size.longSide >= rawVisualMinimumLongSide && size.longSide <= rawVisualPreferredLongSide)
-    .sort((a, b) => a.area - b.area);
-  if (preferred[0]) {
-    return preferred[0].raw;
-  }
-
-  const largerFallback = parsed
-    .filter((size) => size.longSide > rawVisualPreferredLongSide)
-    .sort((a, b) => a.area - b.area);
-  if (largerFallback[0]) {
-    return largerFallback[0].raw;
-  }
-
-  return parsed.sort((a, b) => b.area - a.area)[0]?.raw ?? null;
-}
-
-// iOS lens preference for the scanner.
-//
-// CRITICAL: expo-camera's `selectedLens` and `getAvailableLensesAsync()` speak
-// the device's *localizedName* (e.g. "Back Triple Camera"), NOT the
-// `builtInTripleCamera` identifier — its native layer matches
-// `$0.localizedName == selectedLens` (CameraSessionManager.swift). Matching
-// identifiers silently never matches, so `selectedLens` stays unset and
-// expo-camera defaults to the physical wide lens (DeviceDiscovery.swift
-// `defaultBackCamera`), whose long minimum focus distance is what blurs cards
-// held close on iPhone 14/15 Pro.
-//
-// We prefer the virtual multi-cam device that bundles the ultra-wide (triple, or
-// dual-wide) because only those enable iOS Auto Macro — the automatic switch to
-// the ultra-wide that focuses a close-held card. We deliberately skip "Back Dual
-// Camera" (wide+telephoto, no ultra-wide -> no macro). Returns the matching
-// localizedName, or undefined to let expo-camera use its default wide lens on
-// devices without a macro-capable virtual device (e.g. single-lens iPhones).
-const scannerMacroLensMatchers = ['triple camera', 'dual wide camera'] as const;
-
-export function pickScannerLens(availableLenses: readonly string[]): string | undefined {
-  for (const matcher of scannerMacroLensMatchers) {
-    const match = availableLenses.find((lens) => lens.toLowerCase().includes(matcher));
-    if (match) {
-      return match;
-    }
-  }
-
-  return undefined;
-}
 
 export function makeRawScannerCaptureLayout({
   containerHeight,
@@ -200,9 +146,7 @@ export function getRawScannerEmptyTrayVisualHeight({
 }
 
 export function RawScannerCaptureSurface({
-  availableLensesChanged,
   cameraRef,
-  cameraSessionKey = 0,
   canCapture,
   children,
   hasCameraPermission,
@@ -210,26 +154,86 @@ export function RawScannerCaptureSurface({
   layout,
   onCameraReady,
   onCapture,
-  pictureSize,
   prompt,
-  selectedLens,
   shouldMountCamera,
   showSlabGuide = false,
   testIDPrefix,
-  zoom,
+  zoomFactor = 1,
 }: RawScannerCaptureSurfaceProps) {
+  // Prefer the virtual multi-cam device that bundles the ultra-wide. On iOS only
+  // these multi-cam devices enable Auto Macro — the automatic switch to the
+  // ultra-wide that focuses a close-held card. Single-lens phones fall back to
+  // the wide-angle, which getCameraDevice still returns (filter never excludes).
+  const device = useCameraDevice('back', {
+    physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
+  });
+
+  // ~1280 long-side target replaces the old Android picture-size negotiation.
+  // The session treats this as a target and may land near it.
+  const photoOutput = usePhotoOutput({
+    targetResolution: CommonResolutions.HD_16_9,
+    quality: rawVisualCaptureQuality,
+    qualityPrioritization: 'balanced',
+  });
+
+  // True magnification: 1x wide-angle is the neutral baseline for vision-camera
+  // (default zoom === 1), so multiply the nominal factor against it and clamp to
+  // the device's real optical range.
+  const neutralZoom = 1;
+  const zoom = device
+    ? Math.min(Math.max(neutralZoom * zoomFactor, device.minZoom), device.maxZoom)
+    : neutralZoom;
+
+  useImperativeHandle(
+    cameraRef,
+    () => ({
+      // `quality` is honored at the output level via `usePhotoOutput({ quality })`
+      // (the Nitro capture settings have no per-call quality knob), so the arg is
+      // accepted for the handle contract but the output's quality is what applies.
+      async takePicture(_opts) {
+        if (!photoOutput) {
+          return null;
+        }
+
+        const photo = await photoOutput.capturePhoto(
+          { flashMode: 'off', enableShutterSound: false },
+          {},
+        );
+        try {
+          const path = await photo.saveToTemporaryFileAsync();
+          const uri = path.startsWith('file://') ? path : `file://${path}`;
+
+          let base64: string | undefined;
+          try {
+            base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+          } catch {
+            base64 = undefined;
+          }
+
+          return {
+            uri,
+            base64,
+            width: photo.width,
+            height: photo.height,
+          };
+        } finally {
+          photo.dispose();
+        }
+      },
+    }),
+    [photoOutput],
+  );
+
+  const isCameraAvailable = shouldMountCamera && hasCameraPermission && device != null;
+
   return (
     <View style={styles.previewCanvas}>
-      {shouldMountCamera ? (
-        <CameraView
-          autofocus="off"
-          facing="back"
-          key={cameraSessionKey}
-          onAvailableLensesChanged={availableLensesChanged}
-          onCameraReady={onCameraReady}
-          pictureSize={Platform.OS === 'android' ? pictureSize : undefined}
-          ref={cameraRef}
-          selectedLens={Platform.OS === 'ios' ? selectedLens : undefined}
+      {isCameraAvailable ? (
+        <Camera
+          device={device}
+          isActive={shouldMountCamera}
+          onStarted={onCameraReady}
+          outputs={[photoOutput]}
           style={StyleSheet.absoluteFillObject}
           testID={`${testIDPrefix}-camera`}
           zoom={zoom}
