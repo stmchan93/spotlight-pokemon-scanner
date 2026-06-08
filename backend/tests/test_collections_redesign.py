@@ -378,6 +378,82 @@ class CollectionsRedesignTests(unittest.TestCase):
         self.assertEqual(payload["sections"]["inventory"], "ok")
         self.assertEqual(payload["sections"]["history.1W"], "ok")
 
+    def test_portfolio_dashboard_matches_standalone_sections(self) -> None:
+        # The consolidated path shares pre-fetched rows across ranges; prove it
+        # produces byte-identical sections to calling each method standalone.
+        self._insert_card()
+        self._seed_deck_entry(quantity=3)
+
+        def strip_refreshed(value: Any) -> Any:
+            if isinstance(value, dict):
+                return {k: strip_refreshed(v) for k, v in value.items() if k != "refreshedAt"}
+            if isinstance(value, list):
+                return [strip_refreshed(v) for v in value]
+            return value
+
+        history_labels = {"1W": "1W", "1M": "30D", "3M": "90D", "YTD": "YTD", "1Y": "1Y", "ALL": "ALL"}
+
+        with self.service.request_identity_context(self._identity()):
+            payload = self.service.portfolio_dashboard()
+            for key, label in history_labels.items():
+                standalone_history = self.service.deck_history(days=365, range_label=label)
+                self.assertEqual(
+                    strip_refreshed(payload["ranges"][key]["history"]),
+                    strip_refreshed(standalone_history),
+                    f"history mismatch for {key}",
+                )
+                standalone_ledger = self.service.portfolio_ledger(
+                    days=365, range_label=label, limit=50, offset=0
+                )
+                self.assertEqual(
+                    strip_refreshed(payload["ranges"][key]["ledger"]),
+                    strip_refreshed(standalone_ledger),
+                    f"ledger mismatch for {key}",
+                )
+            self.assertEqual(
+                strip_refreshed(payload["inventory"]),
+                strip_refreshed(self.service.deck_entries(limit=200, offset=0)),
+            )
+            self.assertEqual(
+                strip_refreshed(payload["insights"]),
+                strip_refreshed(self.service.portfolio_insights()),
+            )
+
+    def test_batched_yesterday_rows_match_per_card_query(self) -> None:
+        self._insert_card()
+        for price_date in ("2026-06-05", "2026-06-06"):
+            self.service.connection.execute(
+                """
+                INSERT INTO card_price_history_daily (
+                    card_id, provider, price_date,
+                    graded_contexts_json, raw_contexts_json,
+                    display_currency_code, updated_at
+                ) VALUES (?,?,?,?,?,?,?)
+                """,
+                ("base-charizard-4", "scrydex", price_date, "{}", "{}", "USD", "2026-06-06T00:00:00Z"),
+            )
+        self.service.connection.commit()
+
+        per_card = self.service._yesterday_price_history_row_for_card("base-charizard-4")
+        batched = self.service._yesterday_price_history_rows_by_card_id(["base-charizard-4"])
+        self.assertIsNotNone(per_card)
+        self.assertIn("base-charizard-4", batched)
+        self.assertEqual(dict(batched["base-charizard-4"]), dict(per_card))
+        # It picks the latest day strictly before today.
+        self.assertEqual(per_card["price_date"], "2026-06-06")
+
+    def test_deck_entries_skips_day_change_when_disabled_but_keeps_summary(self) -> None:
+        self._insert_card()
+        self._seed_deck_entry(quantity=2)
+        with self.service.request_identity_context(self._identity()):
+            full = self.service.deck_entries(limit=200, offset=0)
+            summary_only = self.service.deck_entries(limit=200, offset=0, compute_day_change=False)
+
+        self.assertEqual(full["summary"], summary_only["summary"])
+        for entry in summary_only["entries"]:
+            self.assertIsNone(entry["dayChangeAmount"])
+            self.assertIsNone(entry["dayChangePercent"])
+
     def test_portfolio_insights_picks_best_return_by_absolute_profit(self) -> None:
         self._insert_card("base-charizard-4")
         self._insert_card("base-blastoise-2")

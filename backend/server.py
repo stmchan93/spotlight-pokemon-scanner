@@ -3145,6 +3145,43 @@ class SpotlightScanService:
             (normalized_card_id, SCRYDEX_PROVIDER, today_iso),
         ).fetchone()
 
+    def _yesterday_price_history_rows_by_card_id(
+        self,
+        card_ids: list[str],
+        *,
+        time_zone_name: str | None = None,
+    ) -> dict[str, sqlite3.Row | None]:
+        """Batched form of ``_yesterday_price_history_row_for_card``: the latest
+        price-history row dated strictly before today for each card, in ONE query
+        (chunked) instead of one query per card. Ordering by
+        (card_id, price_date DESC, updated_at DESC) and keeping the first row per
+        card_id reproduces the per-card ``LIMIT 1`` result exactly."""
+        normalized_ids = self._normalized_unique_card_ids(list(card_ids))
+        if not normalized_ids:
+            return {}
+        time_zone = self._portfolio_time_zone(time_zone_name)
+        today_iso = datetime.now(time_zone).date().isoformat()
+        result: dict[str, sqlite3.Row | None] = {}
+        for start in range(0, len(normalized_ids), 400):
+            chunk = normalized_ids[start:start + 400]
+            placeholders = ",".join("?" for _ in chunk)
+            rows = self.connection.execute(
+                f"""
+                SELECT *
+                FROM card_price_history_daily
+                WHERE provider = ?
+                  AND price_date < ?
+                  AND card_id IN ({placeholders})
+                ORDER BY card_id ASC, price_date DESC, updated_at DESC
+                """,
+                (SCRYDEX_PROVIDER, today_iso, *chunk),
+            ).fetchall()
+            for row in rows:
+                cid = str(row["card_id"] or "").strip()
+                if cid and cid not in result:
+                    result[cid] = row
+        return result
+
     def _day_change_for_entry(
         self,
         *,
@@ -3156,6 +3193,7 @@ class SpotlightScanService:
         condition_code: str | None,
         today_pricing: dict[str, Any] | None,
         time_zone_name: str | None = None,
+        yesterday_rows_by_card_id: dict[str, sqlite3.Row | None] | None = None,
     ) -> tuple[float | None, float | None]:
         """Compute (dayChangeAmount, dayChangePercent) for a single inventory entry.
 
@@ -3167,10 +3205,15 @@ class SpotlightScanService:
         today_price = self._history_primary_price_value(today_pricing)
         if today_price is None:
             return None, None
-        yesterday_row = self._yesterday_price_history_row_for_card(
-            card_id,
-            time_zone_name=time_zone_name,
-        )
+        if yesterday_rows_by_card_id is not None:
+            # Batched lookup (one query for the whole page) — equivalent to the
+            # per-card LIMIT-1 query; a missing card_id means "no prior snapshot".
+            yesterday_row = yesterday_rows_by_card_id.get(str(card_id or "").strip())
+        else:
+            yesterday_row = self._yesterday_price_history_row_for_card(
+                card_id,
+                time_zone_name=time_zone_name,
+            )
         if yesterday_row is None:
             return None, None
         # Deck-entry conditions are stored as long-form codes (e.g. ``near_mint``).
@@ -3198,26 +3241,11 @@ class SpotlightScanService:
         percent = round((amount / float(yesterday_price)) * 100.0, 4)
         return amount, percent
 
-    def deck_history(
-        self,
-        *,
-        days: int = 30,
-        range_label: str | None = None,
-        time_zone_name: str | None = None,
-    ) -> dict[str, Any]:
-        owner_user_id = self._current_owner_user_id()
-        normalized_range = self._normalize_portfolio_range_label(range_label)
-        earliest_at: datetime | None = None
-        if normalized_range in {"1W", "30D", "90D", "YTD", "1Y", "ALL"}:
-            earliest_at = self._portfolio_earliest_activity_at()
-        time_zone, start_date, end_date = self._portfolio_date_bounds(
-            days=days,
-            range_label=normalized_range,
-            time_zone_name=time_zone_name,
-            earliest_at=earliest_at,
-        )
-
-        entry_rows = self.connection.execute(
+    def _portfolio_history_entry_rows(self, owner_user_id: str) -> list[sqlite3.Row]:
+        """Owner's deck entries for portfolio-history math. Single SQL source so
+        the standalone path and the consolidated shared-inputs loader stay in
+        lockstep."""
+        return self.connection.execute(
             """
             SELECT
                 id,
@@ -3235,10 +3263,93 @@ class SpotlightScanService:
             FROM deck_entries
             WHERE owner_user_id = ?
             ORDER BY added_at ASC, id ASC
-            """
-            ,
+            """,
             (owner_user_id,),
         ).fetchall()
+
+    def _portfolio_history_event_rows(self, owner_user_id: str) -> list[sqlite3.Row]:
+        """Owner's deck-entry events (with sale cost basis) for portfolio-history
+        math. Single SQL source shared by the standalone and consolidated paths."""
+        return self.connection.execute(
+            """
+            SELECT
+                deck_entry_events.id,
+                deck_entry_events.deck_entry_id,
+                deck_entry_events.card_id,
+                deck_entry_events.event_kind,
+                deck_entry_events.quantity_delta,
+                deck_entry_events.unit_price,
+                deck_entry_events.total_price,
+                deck_entry_events.currency_code,
+                deck_entry_events.payment_method,
+                deck_entry_events.condition,
+                deck_entry_events.grader,
+                deck_entry_events.grade,
+                deck_entry_events.cert_number,
+                deck_entry_events.variant_name,
+                deck_entry_events.sale_id,
+                sale_events.cost_basis_total AS sale_cost_basis_total,
+                deck_entry_events.source_scan_id,
+                deck_entry_events.source_confirmation_id,
+                deck_entry_events.created_at
+            FROM deck_entry_events
+            LEFT JOIN sale_events
+                ON sale_events.id = deck_entry_events.sale_id
+            WHERE deck_entry_events.owner_user_id = ?
+            ORDER BY deck_entry_events.created_at ASC, deck_entry_events.id ASC
+            """,
+            (owner_user_id,),
+        ).fetchall()
+
+    def _load_portfolio_history_shared_inputs(
+        self, *, time_zone_name: str | None = None
+    ) -> dict[str, Any]:
+        """Fetch the range-independent inputs deck_history needs (entries, events,
+        and the daily price-history rows up to today) ONCE so the dashboard can
+        compute all 6 ranges without re-reading them per range. ``end_date`` here
+        mirrors _portfolio_date_bounds (always today in the resolved tz), so the
+        history rows are valid for every range (each only differs by start_date)."""
+        owner_user_id = self._current_owner_user_id()
+        time_zone = self._portfolio_time_zone(time_zone_name)
+        end_date = datetime.now(time_zone).date()
+        entry_rows = self._portfolio_history_entry_rows(owner_user_id)
+        event_rows = self._portfolio_history_event_rows(owner_user_id)
+        history_rows_by_card_id = self._portfolio_history_rows_by_card_id(
+            card_ids={str(row["card_id"] or "").strip() for row in entry_rows},
+            end_date=end_date,
+            provider=SCRYDEX_PROVIDER,
+        )
+        return {
+            "entry_rows": entry_rows,
+            "event_rows": event_rows,
+            "history_rows_by_card_id": history_rows_by_card_id,
+        }
+
+    def deck_history(
+        self,
+        *,
+        days: int = 30,
+        range_label: str | None = None,
+        time_zone_name: str | None = None,
+        shared_inputs: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        owner_user_id = self._current_owner_user_id()
+        normalized_range = self._normalize_portfolio_range_label(range_label)
+        earliest_at: datetime | None = None
+        if normalized_range in {"1W", "30D", "90D", "YTD", "1Y", "ALL"}:
+            earliest_at = self._portfolio_earliest_activity_at()
+        time_zone, start_date, end_date = self._portfolio_date_bounds(
+            days=days,
+            range_label=normalized_range,
+            time_zone_name=time_zone_name,
+            earliest_at=earliest_at,
+        )
+
+        entry_rows = (
+            shared_inputs["entry_rows"]
+            if shared_inputs is not None
+            else self._portfolio_history_entry_rows(owner_user_id)
+        )
         if not entry_rows:
             return {
                 "range": normalized_range or "30D",
@@ -3281,37 +3392,11 @@ class SpotlightScanService:
             snapshot_by_id[deck_entry_id] = snapshot
             condition_codes_by_entry_id[deck_entry_id] = {self._portfolio_condition_code(snapshot.get("condition"))}
 
-        event_rows = self.connection.execute(
-            """
-            SELECT
-                deck_entry_events.id,
-                deck_entry_events.deck_entry_id,
-                deck_entry_events.card_id,
-                deck_entry_events.event_kind,
-                deck_entry_events.quantity_delta,
-                deck_entry_events.unit_price,
-                deck_entry_events.total_price,
-                deck_entry_events.currency_code,
-                deck_entry_events.payment_method,
-                deck_entry_events.condition,
-                deck_entry_events.grader,
-                deck_entry_events.grade,
-                deck_entry_events.cert_number,
-                deck_entry_events.variant_name,
-                deck_entry_events.sale_id,
-                sale_events.cost_basis_total AS sale_cost_basis_total,
-                deck_entry_events.source_scan_id,
-                deck_entry_events.source_confirmation_id,
-                deck_entry_events.created_at
-            FROM deck_entry_events
-            LEFT JOIN sale_events
-                ON sale_events.id = deck_entry_events.sale_id
-            WHERE deck_entry_events.owner_user_id = ?
-            ORDER BY deck_entry_events.created_at ASC, deck_entry_events.id ASC
-            """
-            ,
-            (owner_user_id,),
-        ).fetchall()
+        event_rows = (
+            shared_inputs["event_rows"]
+            if shared_inputs is not None
+            else self._portfolio_history_event_rows(owner_user_id)
+        )
 
         seen_event_entries: set[str] = set()
         timeline: list[dict[str, Any]] = []
@@ -3411,10 +3496,14 @@ class SpotlightScanService:
             day_dates.append(current_day)
             current_day += timedelta(days=1)
 
-        history_rows_by_card_id = self._portfolio_history_rows_by_card_id(
-            card_ids={str(snapshot.get("cardID") or "").strip() for snapshot in snapshot_by_id.values()},
-            end_date=end_date,
-            provider=SCRYDEX_PROVIDER,
+        history_rows_by_card_id = (
+            shared_inputs["history_rows_by_card_id"]
+            if shared_inputs is not None
+            else self._portfolio_history_rows_by_card_id(
+                card_ids={str(snapshot.get("cardID") or "").strip() for snapshot in snapshot_by_id.values()},
+                end_date=end_date,
+                provider=SCRYDEX_PROVIDER,
+            )
         )
         price_series_by_context: dict[tuple[str, str, str, str, str, str], list[dict[str, Any] | None]] = {}
         for deck_entry_id, snapshot in snapshot_by_id.items():
@@ -3782,7 +3871,11 @@ class SpotlightScanService:
             )
 
         transactions.sort(key=lambda item: (item["occurredAt"], item["id"]), reverse=True)
-        inventory_summary = self.deck_entries(limit=1000, offset=0, include_inactive=False)["summary"]
+        # Only the summary totals are needed here, so skip the per-row day-change
+        # batch entirely (was a full inventory scan + price lookups per ledger call).
+        inventory_summary = self.deck_entries(
+            limit=1000, offset=0, include_inactive=False, compute_day_change=False
+        )["summary"]
 
         return {
             "range": normalized_range or "30D",
@@ -11571,12 +11664,28 @@ class SpotlightScanService:
             "1Y": "1Y",
             "ALL": "ALL",
         }
+        # Load the range-independent history inputs (entries, events, daily prices
+        # up to today) ONCE and share them across all six range computations
+        # instead of re-reading them per range. If this load fails, each
+        # deck_history call falls back to fetching its own (shared_inputs=None),
+        # so correctness is preserved either way.
+        try:
+            history_shared_inputs = self._load_portfolio_history_shared_inputs(
+                time_zone_name=resolved_tz
+            )
+        except Exception:  # noqa: BLE001 - fall back to per-call fetching
+            traceback.print_exc()
+            history_shared_inputs = None
+
         ranges: dict[str, Any] = {}
         for key, label in range_labels.items():
             history = _section(
                 f"history.{key}",
                 lambda label=label: self.deck_history(
-                    days=365, range_label=label, time_zone_name=resolved_tz
+                    days=365,
+                    range_label=label,
+                    time_zone_name=resolved_tz,
+                    shared_inputs=history_shared_inputs,
                 ),
             )
             ledger = _section(
@@ -11918,6 +12027,7 @@ class SpotlightScanService:
         offset: int = 0,
         include_inactive: bool = False,
         favorites_only: bool = False,
+        compute_day_change: bool = True,
     ) -> dict[str, Any]:
         owner_user_id = self._current_owner_user_id()
         safe_limit = max(0, min(int(limit), 1000))
@@ -11976,6 +12086,16 @@ class SpotlightScanService:
         favorite_rows_by_card_id = self._favorite_rows_by_card_id(
             [str(row["card_id"] or "").strip() for row in rows],
             owner_user_id=owner_user_id,
+        )
+        # Batch the per-card "yesterday price" lookup into one query (was N+1, one
+        # query per row). Skipped entirely when the caller only needs the summary
+        # (e.g. the ledger inventory total) and not per-row day-change.
+        yesterday_rows_by_card_id = (
+            self._yesterday_price_history_rows_by_card_id(
+                [str(row["card_id"] or "").strip() for row in rows]
+            )
+            if compute_day_change
+            else {}
         )
 
         entries: list[dict[str, Any]] = []
@@ -12044,15 +12164,19 @@ class SpotlightScanService:
             else:
                 raw_count += 1
 
-            day_change_amount, day_change_percent = self._day_change_for_entry(
-                card_id=card_id,
-                item_kind=row["item_kind"],
-                grader=grader,
-                grade=grade,
-                variant_name=variant_name,
-                condition_code=condition,
-                today_pricing=pricing,
-            )
+            if compute_day_change:
+                day_change_amount, day_change_percent = self._day_change_for_entry(
+                    card_id=card_id,
+                    item_kind=row["item_kind"],
+                    grader=grader,
+                    grade=grade,
+                    variant_name=variant_name,
+                    condition_code=condition,
+                    today_pricing=pricing,
+                    yesterday_rows_by_card_id=yesterday_rows_by_card_id,
+                )
+            else:
+                day_change_amount, day_change_percent = None, None
 
             cost_basis_cents_raw = row["cost_basis_cents"] if "cost_basis_cents" in row.keys() else None
             cost_basis_per_unit_dollars: float | None = None
