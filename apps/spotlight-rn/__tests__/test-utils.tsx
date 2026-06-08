@@ -156,6 +156,10 @@ export function createTestSpotlightRepository(
       return overrides.listCardTransactions?.(...args)
         ?? baseRepository.listCardTransactions(...args);
     },
+    loadTransactionInsights: (...args) => {
+      return overrides.loadTransactionInsights?.(...args)
+        ?? baseRepository.loadTransactionInsights(...args);
+    },
     markSalePaid: (...args) => {
       return overrides.markSalePaid?.(...args)
         ?? baseRepository.markSalePaid(...args);

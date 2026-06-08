@@ -376,6 +376,34 @@ export type PortfolioInsights = {
   refreshedAt?: string | null;
 };
 
+/** Per-kind tally for the simplified, transaction-log-only Insights page. */
+export type TransactionKindStat = {
+  /** Number of cards (sum of itemCount). */
+  count: number;
+  /** Total dollars in cents. */
+  amountCents: number;
+};
+
+export type TransactionKindStats = {
+  sold: TransactionKindStat;
+  bought: TransactionKindStat;
+  traded: TransactionKindStat;
+};
+
+/**
+ * Simple vendor-facing analytics derived purely from the transaction memory log
+ * (no cost basis / profit / inventory state): per-kind counts + dollar totals
+ * for this month and all time, the top sales this month, and the biggest sale.
+ */
+export type TransactionInsights = {
+  currencyCode: string;
+  thisMonth: TransactionKindStats;
+  allTime: TransactionKindStats;
+  biggestSale: CardTransactionRecord | null;
+  topSalesThisMonth: CardTransactionRecord[];
+  refreshedAt?: string | null;
+};
+
 export type PortfolioDashboard = {
   summary: PortfolioSummary;
   inventoryCount: number;

@@ -4649,6 +4649,77 @@ class SpotlightScanService:
             "offset": normalized_offset,
         }
 
+    def transaction_insights(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
+        """Simple, vendor-friendly analytics computed purely from the transaction
+        memory log (card_transactions): per-kind counts + dollar totals for this
+        month and all time, the top sales this month, and the biggest sale ever.
+        No cost basis / profit / inventory state — just what was logged."""
+        owner_user_id = self._current_owner_user_id()
+        time_zone = self._portfolio_time_zone(time_zone_name)
+        today = datetime.now(time_zone).date()
+        month_start = date(today.year, today.month, 1)
+
+        rows = self.connection.execute(
+            """
+            SELECT *
+            FROM card_transactions
+            WHERE owner_user_id = ?
+            ORDER BY occurred_at DESC, id DESC
+            """,
+            (owner_user_id,),
+        ).fetchall()
+
+        def empty_kinds() -> dict[str, dict[str, int]]:
+            return {kind: {"count": 0, "amountCents": 0} for kind in ("sold", "bought", "traded")}
+
+        all_time = empty_kinds()
+        this_month = empty_kinds()
+        biggest_sale_row: dict[str, Any] | None = None
+        month_sold_rows: list[dict[str, Any]] = []
+
+        for raw_row in rows:
+            row = dict(raw_row)
+            kind = str(row.get("kind") or "").strip().lower()
+            if kind not in all_time:
+                continue
+            count = max(0, int(row.get("item_count") or 0))
+            amount = int(row.get("amount_cents") or 0)
+            all_time[kind]["count"] += count
+            all_time[kind]["amountCents"] += amount
+
+            occurred_dt = self._coerce_utc_datetime(row.get("occurred_at"))
+            occurred_date = occurred_dt.astimezone(time_zone).date() if occurred_dt is not None else None
+            in_month = occurred_date is not None and occurred_date >= month_start
+            if in_month:
+                this_month[kind]["count"] += count
+                this_month[kind]["amountCents"] += amount
+
+            if kind == "sold" and row.get("amount_cents") is not None:
+                if biggest_sale_row is None or int(row.get("amount_cents") or 0) > int(
+                    biggest_sale_row.get("amount_cents") or 0
+                ):
+                    biggest_sale_row = row
+                if in_month:
+                    month_sold_rows.append(row)
+
+        month_sold_rows.sort(key=lambda r: int(r.get("amount_cents") or 0), reverse=True)
+        top_sales_this_month = [
+            self._card_transaction_row_to_payload(r) for r in month_sold_rows[:10]
+        ]
+
+        return {
+            "currencyCode": "USD",
+            "thisMonth": this_month,
+            "allTime": all_time,
+            "biggestSale": (
+                self._card_transaction_row_to_payload(biggest_sale_row)
+                if biggest_sale_row is not None
+                else None
+            ),
+            "topSalesThisMonth": top_sales_this_month,
+            "refreshedAt": utc_now(),
+        }
+
     def card_transaction_photo_object_path(self, transaction_id: str) -> str | None:
         owner_user_id = self._current_owner_user_id()
         normalized_id = str(transaction_id or "").strip()
@@ -12855,6 +12926,25 @@ class SpotlightRequestHandler(BaseHTTPRequestHandler):
                 self._write_json(
                     HTTPStatus.INTERNAL_SERVER_ERROR,
                     {"error": f"Portfolio dashboard failed: {error}"},
+                )
+                return
+            self._write_json(HTTPStatus.OK, payload)
+            return
+
+        if parsed.path == "/api/v1/portfolio/transaction-insights":
+            identity = self._require_request_identity()
+            if identity is None:
+                return
+            query = parse_qs(parsed.query)
+            time_zone_name = query.get("timeZone", [""])[0].strip() or None
+            try:
+                with self.service.request_identity_context(identity):
+                    payload = self.service.transaction_insights(time_zone_name=time_zone_name)
+            except Exception as error:
+                traceback.print_exc()
+                self._write_json(
+                    HTTPStatus.INTERNAL_SERVER_ERROR,
+                    {"error": f"Transaction insights failed: {error}"},
                 )
                 return
             self._write_json(HTTPStatus.OK, payload)

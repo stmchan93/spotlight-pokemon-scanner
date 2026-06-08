@@ -63,6 +63,7 @@ import type {
   PortfolioChartPoint,
   PortfolioDashboard,
   PortfolioInsights,
+  TransactionInsights,
   PortfolioSaleRequestPayload,
   PortfolioSaleResponsePayload,
   RawPricingMatrix,
@@ -136,6 +137,7 @@ export interface SpotlightRepository {
   createPortfolioSalesBatch(payloads: PortfolioSaleRequestPayload[]): Promise<PortfolioSaleResponsePayload[]>;
   createCardTransaction(payload: CreateCardTransactionPayload): Promise<CardTransactionRecord>;
   listCardTransactions(): Promise<CardTransactionRecord[]>;
+  loadTransactionInsights(): Promise<TransactionInsights>;
   markSalePaid(saleID: string): Promise<SaleLifecycleResponsePayload>;
   voidSale(saleID: string): Promise<SaleLifecycleResponsePayload>;
   getVendorWalletHandles(): Promise<VendorWalletHandles>;
@@ -2820,6 +2822,54 @@ export class MockSpotlightRepository implements SpotlightRepository {
     return this.cardTransactions.map((transaction) => ({ ...transaction }));
   }
 
+  async loadTransactionInsights(): Promise<TransactionInsights> {
+    const emptyKinds = () => ({
+      sold: { count: 0, amountCents: 0 },
+      bought: { count: 0, amountCents: 0 },
+      traded: { count: 0, amountCents: 0 },
+    });
+    const allTime = emptyKinds();
+    const thisMonth = emptyKinds();
+    const now = new Date();
+    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    let biggestSale: CardTransactionRecord | null = null;
+    const monthSold: CardTransactionRecord[] = [];
+
+    for (const transaction of this.cardTransactions) {
+      const kind = transaction.kind as 'sold' | 'bought' | 'traded';
+      if (!(kind in allTime)) {
+        continue;
+      }
+      const count = transaction.itemCount ?? 1;
+      const amount = transaction.amountCents ?? 0;
+      allTime[kind].count += count;
+      allTime[kind].amountCents += amount;
+      const occurred = transaction.occurredAt ? new Date(transaction.occurredAt) : null;
+      const inMonth = occurred != null && occurred >= monthStart;
+      if (inMonth) {
+        thisMonth[kind].count += count;
+        thisMonth[kind].amountCents += amount;
+      }
+      if (kind === 'sold' && transaction.amountCents != null) {
+        if (!biggestSale || (transaction.amountCents ?? 0) > (biggestSale.amountCents ?? 0)) {
+          biggestSale = transaction;
+        }
+        if (inMonth) {
+          monthSold.push(transaction);
+        }
+      }
+    }
+    monthSold.sort((left, right) => (right.amountCents ?? 0) - (left.amountCents ?? 0));
+
+    return {
+      currencyCode: 'USD',
+      thisMonth,
+      allTime,
+      biggestSale: biggestSale ? { ...biggestSale } : null,
+      topSalesThisMonth: monthSold.slice(0, 10).map((sale) => ({ ...sale })),
+    };
+  }
+
   async markSalePaid(saleID: string): Promise<SaleLifecycleResponsePayload> {
     return {
       saleID,
@@ -4099,6 +4149,24 @@ export class HttpSpotlightRepository implements SpotlightRepository {
       },
     );
     return (response.transactions ?? []).map((transaction) => this.absolutizeCardTransaction(transaction));
+  }
+
+  async loadTransactionInsights(): Promise<TransactionInsights> {
+    const queryParams = new URLSearchParams({ timeZone: 'America/Los_Angeles' });
+    const payload = await this.requestJsonOrThrow<TransactionInsights>(
+      `${this.baseUrl}/api/v1/portfolio/transaction-insights?${queryParams.toString()}`,
+      {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+      },
+    );
+    return {
+      ...payload,
+      biggestSale: payload.biggestSale ? this.absolutizeCardTransaction(payload.biggestSale) : null,
+      topSalesThisMonth: (payload.topSalesThisMonth ?? []).map((sale) =>
+        this.absolutizeCardTransaction(sale),
+      ),
+    };
   }
 
   private absolutizeCardTransaction(record: CardTransactionRecord): CardTransactionRecord {

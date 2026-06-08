@@ -12,6 +12,7 @@ import json
 import sys
 import tempfile
 import unittest
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -418,6 +419,52 @@ class CollectionsRedesignTests(unittest.TestCase):
                 strip_refreshed(payload["insights"]),
                 strip_refreshed(self.service.portfolio_insights()),
             )
+
+    def test_transaction_insights_aggregates_the_memory_log(self) -> None:
+        owner = "vendor-a"
+        now = datetime.now(timezone.utc)
+        this_month_iso = now.isoformat()
+        old_iso = (now - timedelta(days=400)).isoformat()
+
+        def insert_txn(txn_id, kind, amount_cents, item_count, occurred_at, note):
+            self.service.connection.execute(
+                """
+                INSERT INTO card_transactions (
+                    id, owner_user_id, kind, amount_cents, item_count,
+                    currency_code, note, occurred_at, created_at
+                ) VALUES (?,?,?,?,?,?,?,?,?)
+                """,
+                (txn_id, owner, kind, amount_cents, item_count, "USD", note, occurred_at, this_month_iso),
+            )
+
+        insert_txn("t1", "sold", 45000, 1, this_month_iso, "Charizard")
+        insert_txn("t2", "sold", 12000, 2, this_month_iso, "Gengar")
+        insert_txn("t3", "bought", 8000, 1, this_month_iso, "Pikachu")
+        insert_txn("t4", "traded", None, 1, this_month_iso, "Trade")
+        insert_txn("t5", "sold", 99999, 1, old_iso, "Old Moonbreon")  # biggest all-time, not this month
+        self.service.connection.commit()
+
+        with self.service.request_identity_context(self._identity(owner)):
+            payload = self.service.transaction_insights()
+
+        # All-time sold = 1+2+1 cards, $450+$120+$999.99.
+        self.assertEqual(payload["allTime"]["sold"]["count"], 4)
+        self.assertEqual(payload["allTime"]["sold"]["amountCents"], 45000 + 12000 + 99999)
+        # This month excludes the 400-day-old sale.
+        self.assertEqual(payload["thisMonth"]["sold"]["count"], 3)
+        self.assertEqual(payload["thisMonth"]["sold"]["amountCents"], 45000 + 12000)
+        self.assertEqual(payload["thisMonth"]["bought"]["count"], 1)
+        self.assertEqual(payload["thisMonth"]["bought"]["amountCents"], 8000)
+        self.assertEqual(payload["thisMonth"]["traded"]["count"], 1)
+        # Biggest sale all-time is the old high-value one.
+        self.assertIsNotNone(payload["biggestSale"])
+        self.assertEqual(payload["biggestSale"]["amountCents"], 99999)
+        # Top sales this month: sold rows in month, ranked by amount desc.
+        self.assertEqual(
+            [t["amountCents"] for t in payload["topSalesThisMonth"]],
+            [45000, 12000],
+        )
+        self.assertEqual(payload["topSalesThisMonth"][0]["note"], "Charizard")
 
     def test_batched_yesterday_rows_match_per_card_query(self) -> None:
         self._insert_card()

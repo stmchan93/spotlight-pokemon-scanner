@@ -912,11 +912,13 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray-collapse-backdrop')).toBeTruthy();
   });
 
-  it('floats the scan-target pill above the tray and hides it when expanded', async () => {
+  it('shows the scan-target pill in the top header and keeps it visible while scanning', async () => {
     renderScannerScreen();
 
-    // Visible above the empty tray.
+    // Lives in the top header alongside the back and search controls.
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
+    expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
+    expect(screen.getByTestId('scanner-search-button')).toBeTruthy();
 
     await waitForScannerReady();
     fireEvent.press(screen.getByTestId('scanner-preview'));
@@ -927,11 +929,12 @@ describe('ScannerScreen', () => {
     // Still visible while collapsed with a scan.
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
 
-    // Hidden once the tray is expanded (the tray covers that area).
+    // In the header (not the bottom dock), so it stays visible even when the tray expands.
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     await waitFor(() => {
-      expect(screen.queryByTestId('scanner-target-pill')).toBeNull();
+      expect(screen.getByTestId('scanner-tray-collapse-backdrop')).toBeTruthy();
     });
+    expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
   });
 
   it('adds a scanned card into inventory from the tray', async () => {

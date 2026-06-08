@@ -62,7 +62,6 @@ import {
 import {
   chooseRawVisualPictureSize,
   getRawScannerCollapsedTrayReservedHeight,
-  getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
   pickScannerLens,
   RawScannerCaptureSurface,
@@ -367,10 +366,6 @@ export function ScannerScreen({
   const collapsedTrayReservedHeight = getRawScannerCollapsedTrayReservedHeight({
     bottomInset: trayBottomInset,
   });
-  const scanTargetPillTrayHeight = recentCaptures.length === 0
-    ? getRawScannerEmptyTrayVisualHeight({ bottomInset: trayBottomInset })
-    : collapsedTrayReservedHeight;
-  const scanTargetPillBottom = scanTargetPillTrayHeight + 16;
   const captureSurfaceLayout = makeRawScannerCaptureLayout({
     containerHeight: windowHeight,
     containerWidth: windowWidth,
@@ -2149,6 +2144,11 @@ export function ScannerScreen({
           >
             <IconChevronLeft color={colors.gray0} size={20} strokeWidth={1.5} />
           </Pressable>
+          <ScanTargetPill
+            label={scanTargetPillLabel(cardType)}
+            onPress={() => setIsScanTargetSheetOpen(true)}
+            testID="scanner-target-pill"
+          />
           <Pressable
             accessibilityLabel="Search cards"
             accessibilityRole="button"
@@ -2212,15 +2212,6 @@ export function ScannerScreen({
           </View>
         )}
 
-        {isTrayExpanded ? null : (
-          <View pointerEvents="box-none" style={[styles.scanTargetPillDock, { bottom: scanTargetPillBottom }]}>
-            <ScanTargetPill
-              label={scanTargetPillLabel(cardType)}
-              onPress={() => setIsScanTargetSheetOpen(true)}
-              testID="scanner-target-pill"
-            />
-          </View>
-        )}
 
         <View style={styles.trayShell} testID="scanner-tray" {...trayShellPanResponder.panHandlers}>
           <BlurView
@@ -2426,13 +2417,6 @@ const styles = StyleSheet.create({
     gap: 8,
     position: 'absolute',
     zIndex: 5,
-  },
-  scanTargetPillDock: {
-    alignItems: 'center',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    zIndex: 4,
   },
   zoomDock: {
     alignItems: 'center',
