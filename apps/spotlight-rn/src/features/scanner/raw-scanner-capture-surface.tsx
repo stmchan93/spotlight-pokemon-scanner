@@ -1,6 +1,6 @@
 import * as FileSystem from 'expo-file-system';
 import type { ReactNode, RefObject } from 'react';
-import { useImperativeHandle } from 'react';
+import { useEffect, useImperativeHandle } from 'react';
 import {
   Pressable,
   StyleSheet,
@@ -160,10 +160,13 @@ export function RawScannerCaptureSurface({
   testIDPrefix,
   zoomFactor = 1,
 }: RawScannerCaptureSurfaceProps) {
-  // Prefer the virtual multi-cam device that bundles the ultra-wide. On iOS only
-  // these multi-cam devices enable Auto Macro — the automatic switch to the
-  // ultra-wide that focuses a close-held card. Single-lens phones fall back to
-  // the wide-angle, which getCameraDevice still returns (filter never excludes).
+  // Keep the ultra-wide in the lens set: on iPhone, only a multi-cam device that
+  // includes the ultra-wide enables Auto-Macro — the close-focus that stops cards
+  // held close from blurring on 14/15 Pro. The catch is that with the ultra-wide
+  // bundled, vision-camera's zoom=1 is the ultra-wide (~Apple 0.5x), so a naive
+  // factor makes "1x" super-wide. v5 dropped `device.neutralZoom`, so we re-anchor
+  // below: the normal wide lens sits at ~2x the ultra-wide baseline. Net result —
+  // "1x" is the normal wide, 1.5x/2x are real magnification, AND macro still works.
   const device = useCameraDevice('back', {
     physicalDevices: ['ultra-wide-angle', 'wide-angle', 'telephoto'],
   });
@@ -176,13 +179,41 @@ export function RawScannerCaptureSurface({
     qualityPrioritization: 'balanced',
   });
 
-  // True magnification: 1x wide-angle is the neutral baseline for vision-camera
-  // (default zoom === 1), so multiply the nominal factor against it and clamp to
-  // the device's real optical range.
-  const neutralZoom = 1;
+  // Detect whether the chosen device bundles the ultra-wide (so zoom=1 is the
+  // ultra-wide ~0.5x). `device.physicalDevices` is an array of lens descriptors;
+  // handle both string and {type} shapes defensively across vision-camera builds.
+  const physicalLensTypes: string[] = Array.isArray(
+    (device as { physicalDevices?: unknown } | null)?.physicalDevices,
+  )
+    ? (device as { physicalDevices: unknown[] }).physicalDevices.map((entry) =>
+        typeof entry === 'string' ? entry : String((entry as { type?: string })?.type ?? ''),
+      )
+    : [];
+  const hasUltraWide = physicalLensTypes.some((type) => type.includes('ultra-wide'));
+  // Apple's ultra-wide is ~0.5x, so the normal wide lens is ~2x the ultra-wide-anchored
+  // zoom baseline. Without the ultra-wide, zoom=1 already IS the wide lens.
+  const wideBaseline = hasUltraWide ? 2 : 1;
+  const deviceMinZoom = (device as { minZoom?: number } | null)?.minZoom ?? 1;
+  const deviceMaxZoom = (device as { maxZoom?: number } | null)?.maxZoom ?? wideBaseline * 16;
+  // True magnification anchored to the wide lens: factor 1/1.5/2 → genuine 1x/1.5x/2x.
   const zoom = device
-    ? Math.min(Math.max(neutralZoom * zoomFactor, device.minZoom), device.maxZoom)
-    : neutralZoom;
+    ? Math.min(Math.max(wideBaseline * zoomFactor, deviceMinZoom), deviceMaxZoom)
+    : wideBaseline;
+
+  // Dev-only: confirm on-device that 1x/1.5x/2x map to real magnification and inspect
+  // the device's lenses / zoom range. Visible in the Metro / dev-client console.
+  const lensesLabel = physicalLensTypes.join(',');
+  useEffect(() => {
+    if (!__DEV__ || !device) {
+      return;
+    }
+    console.info(
+      `[SCANNER ZOOM] factor=${zoomFactor} -> appliedZoom=${zoom.toFixed(3)} | ` +
+        `hasUltraWide=${hasUltraWide} baseline=${wideBaseline} ` +
+        `min=${(device as { minZoom?: number }).minZoom} max=${(device as { maxZoom?: number }).maxZoom} ` +
+        `lenses=[${lensesLabel}]`,
+    );
+  }, [zoomFactor, zoom, device, hasUltraWide, wideBaseline, lensesLabel]);
 
   useImperativeHandle(
     cameraRef,
@@ -233,6 +264,12 @@ export function RawScannerCaptureSurface({
           device={device}
           isActive={shouldMountCamera}
           onStarted={onCameraReady}
+          // Orient captures to the UI (locked to portrait) rather than the physical
+          // device sensor. The default 'device' source rotates output with phone tilt
+          // even under screen lock, which let a transitional orientation slip a sideways
+          // photo through during reload/init. 'interface' ties output to the locked
+          // portrait UI, so every capture is consistently upright.
+          orientationSource="interface"
           outputs={[photoOutput]}
           style={StyleSheet.absoluteFillObject}
           testID={`${testIDPrefix}-camera`}
