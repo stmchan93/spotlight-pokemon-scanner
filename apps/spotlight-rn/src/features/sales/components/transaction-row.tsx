@@ -11,6 +11,7 @@ import {
 
 import { CachedImage, imageCachePolicy } from '@/components/cached-image';
 import { formatCurrency } from '@/features/portfolio/components/portfolio-formatting';
+import { useAuth } from '@/providers/auth-provider';
 
 // Display labels per Figma node 942-4174. Data kinds are unchanged; only the
 // human-facing text differs (`bought` reads as "PURCHASED").
@@ -74,14 +75,28 @@ type TransactionThumbProps = {
  */
 export function TransactionThumb({ photoUrl, imageUrl, testID }: TransactionThumbProps) {
   const theme = useSpotlightTheme();
+  const { accessToken } = useAuth();
+
+  // Prefer the captured photo, fall back to the source card image. The captured
+  // photo is served from our own authenticated backend endpoint
+  // (`/api/v1/card-transactions/{id}/photo`), so expo-image must send the bearer
+  // token or the request 401s and the tile renders as a blank gray box. The
+  // fallback `imageUrl` is a public CDN URL and must NOT carry the token.
+  const usingPhotoUrl = photoUrl != null;
   const displayUrl = photoUrl ?? imageUrl ?? null;
 
   if (displayUrl) {
+    const needsAuthHeader =
+      usingPhotoUrl && accessToken != null && /^https?:/i.test(displayUrl);
+    const source = needsAuthHeader
+      ? { uri: displayUrl, headers: { Authorization: `Bearer ${accessToken}` } }
+      : { uri: displayUrl };
+
     return (
       <CachedImage
         cachePolicy={imageCachePolicy.thumbnail}
         contentFit="cover"
-        source={{ uri: displayUrl }}
+        source={source}
         style={[styles.art, { backgroundColor: theme.colors.gray100 }]}
         testID={testID}
       />
