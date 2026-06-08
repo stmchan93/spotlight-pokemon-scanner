@@ -45,6 +45,11 @@ export type ScannerCapturePayload = ScannerImagePayload & {
    */
   cardLanguage?: ScannerCardLanguage | null;
   captureSource?: 'camera' | 'smoke_fixture' | string | null;
+  /**
+   * Nominal camera zoom factor used for this capture (1, 1.5, or 2). Persisted
+   * to `scan_artifacts.camera_zoom_factor` so accuracy can be compared by zoom.
+   */
+  cameraZoomFactor?: number | null;
   normalizedImage?: ScannerImagePayload | null;
   slabAnalysis?: ScannerSlabAnalysisPayload | null;
   sourceImage?: ScannerImagePayload | null;

@@ -393,6 +393,7 @@ describe('ScannerScreen', () => {
       mode: 'raw',
       cardLanguage: 'english',
       captureSource: 'camera',
+      cameraZoomFactor: 1,
       sourceImage: {
         jpegBase64: 'bW9jay1zY2FuLWJhc2U2NA==',
       },
@@ -431,6 +432,29 @@ describe('ScannerScreen', () => {
     });
 
     expect(payloads[0]).toMatchObject({ mode: 'raw', cardLanguage: 'japanese' });
+  });
+
+  it('threads the selected camera zoom factor into the match payload', async () => {
+    const payloads: any[] = [];
+    const spotlightRepository = createTestSpotlightRepository({
+      matchScannerCapture: async (payload) => {
+        payloads.push(payload);
+        return { scanID: 'scan-zoom', candidates: [] };
+      },
+    });
+
+    renderScannerScreen({ spotlightRepository });
+
+    await waitForScannerReady();
+    // Default is 1×; switch to 2× before capturing.
+    fireEvent.press(screen.getByTestId('scanner-zoom-2x'));
+    fireEvent.press(screen.getByTestId('scanner-preview'));
+
+    await waitFor(() => {
+      expect(payloads).toHaveLength(1);
+    });
+
+    expect(payloads[0]).toMatchObject({ cameraZoomFactor: 2 });
   });
 
   it('shows the scanner smoke fixture trigger when staging smoke is enabled', () => {

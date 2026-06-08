@@ -26,6 +26,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import {
   type CatalogSearchResult,
@@ -63,6 +64,7 @@ import {
   getRawScannerCollapsedTrayReservedHeight,
   getRawScannerEmptyTrayVisualHeight,
   makeRawScannerCaptureLayout,
+  pickScannerLens,
   RawScannerCaptureSurface,
   rawScannerTrayEmptyPeekHeight,
   rawScannerTrayHeaderHeight,
@@ -205,6 +207,62 @@ function ScannerKeepAwake() {
   return null;
 }
 
+// Nominal zoom factors offered in the scanner UI. The card occupies more of the
+// reticle at higher zoom, so the normalized 630×880 crop upscales less — which
+// helps accuracy on cards shot from farther away.
+const SCANNER_ZOOM_FACTORS = [1, 1.5, 2] as const;
+type ScannerZoomFactor = (typeof SCANNER_ZOOM_FACTORS)[number];
+
+// expo-camera's `zoom` prop is a normalized 0..1 value (NOT a magnification
+// factor) and is non-linear / device-dependent. These are calibrated
+// approximations so the card roughly fills 1.5×/2× more of the reticle — tune
+// on-device. The nominal factor (1/1.5/2) is what we log for analysis.
+const SCANNER_ZOOM_TO_CAMERA: Record<ScannerZoomFactor, number> =
+  Platform.OS === 'android'
+    ? { 1: 0, 1.5: 0.05, 2: 0.1 }
+    : { 1: 0, 1.5: 0.02, 2: 0.04 };
+
+const SCANNER_ZOOM_STORAGE_KEY = '@spotlight/scanner/zoom-factor';
+
+function parseScannerZoomFactor(raw: string | null): ScannerZoomFactor {
+  const value = Number(raw);
+  return (SCANNER_ZOOM_FACTORS as readonly number[]).includes(value)
+    ? (value as ScannerZoomFactor)
+    : 1;
+}
+
+// Persisted zoom selection — mirrors the wishlist view-mode hook
+// (`useWishlistViewMode`): in-memory default of 1×, hydrated from AsyncStorage.
+function useScannerZoomFactor(): [ScannerZoomFactor, (next: ScannerZoomFactor) => void] {
+  const [zoomFactor, setZoomFactorState] = useState<ScannerZoomFactor>(1);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const stored = await AsyncStorage.getItem(SCANNER_ZOOM_STORAGE_KEY);
+        if (!cancelled) {
+          setZoomFactorState(parseScannerZoomFactor(stored));
+        }
+      } catch {
+        // ignore — keep the 1× default
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const setZoomFactor = useCallback((next: ScannerZoomFactor) => {
+    setZoomFactorState(next);
+    void AsyncStorage.setItem(SCANNER_ZOOM_STORAGE_KEY, String(next)).catch(() => {
+      // ignore persistence failure — in-memory state still reflects the choice
+    });
+  }, []);
+
+  return [zoomFactor, setZoomFactor];
+}
+
 export function ScannerScreen({
   onExitToPortfolio,
   onTopLevelSwipeEnabledChange,
@@ -228,6 +286,8 @@ export function ScannerScreen({
   const [openActionRailKeys, setOpenActionRailKeys] = useState<Record<string, true>>({});
   const [isTrayExpanded, setIsTrayExpanded] = useState(false);
   const { cardType, setCardType } = useScannerTargetConfig();
+  const [zoomFactor, setZoomFactor] = useScannerZoomFactor();
+  const cameraZoom = SCANNER_ZOOM_TO_CAMERA[zoomFactor] ?? 0;
   const [isScanTargetSheetOpen, setIsScanTargetSheetOpen] = useState(false);
   const [isRawPictureConfigReady, setIsRawPictureConfigReady] = useState(
     isTestEnv || cachedRawVisualPictureSize != null,
@@ -333,11 +393,9 @@ export function ScannerScreen({
       return undefined;
     }
 
-    if (availableBackLenses.includes('builtInWideAngleCamera')) {
-      return 'builtInWideAngleCamera';
-    }
-
-    return undefined;
+    // Prefer a macro-capable virtual device (Auto Macro) so close-held cards
+    // focus on iPhone 14/15 Pro; falls back to the physical wide lens otherwise.
+    return pickScannerLens(availableBackLenses);
   }, [availableBackLenses]);
   const scannerSmokeEnabled = resolveStagingSmokeModeEnabled({ allowDevelopment: true });
   const canCapture = shouldMountCamera
@@ -548,9 +606,7 @@ export function ScannerScreen({
     if (process.env.NODE_ENV !== 'test' && nextLenses.length > 0) {
       console.info(
         `[SCANNER VISUAL TEST] availableLenses=${nextLenses.join(',')} selectedLens=${
-          nextLenses.includes('builtInWideAngleCamera')
-            ? 'builtInWideAngleCamera'
-            : 'default'
+          pickScannerLens(nextLenses) ?? 'default'
         }`,
       );
     }
@@ -1148,6 +1204,7 @@ export function ScannerScreen({
         cardLanguage: cardLanguageForCardType(cardType),
         width: normalizedTarget.normalizedImageDimensions.width,
         captureSource: 'camera',
+        cameraZoomFactor: zoomFactor,
         normalizedImage: {
           jpegBase64: normalizedTarget.normalizedImageBase64,
           width: normalizedTarget.normalizedImageDimensions.width,
@@ -1279,6 +1336,7 @@ export function ScannerScreen({
     requestPermission,
     runMatchForCapture,
     updateRecentCapture,
+    zoomFactor,
   ]);
 
   const handleTriggerSmokeFixture = useCallback(async () => {
@@ -2047,6 +2105,7 @@ export function ScannerScreen({
         shouldMountCamera={shouldMountCamera}
         showSlabGuide={false}
         testIDPrefix="scanner"
+        zoom={cameraZoom}
       >
         {isTrayExpanded ? (
           <Pressable
@@ -2124,6 +2183,34 @@ export function ScannerScreen({
             />
           </View>
         ) : null}
+
+        {isTrayExpanded ? null : (
+          <View
+            pointerEvents="box-none"
+            style={[styles.zoomDock, { top: captureSurfaceLayout.controlsTop }]}
+            testID="scanner-zoom-control"
+          >
+            {SCANNER_ZOOM_FACTORS.map((factor) => {
+              const selected = factor === zoomFactor;
+              return (
+                <Pressable
+                  accessibilityLabel={`${factor}× zoom`}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected }}
+                  hitSlop={6}
+                  key={factor}
+                  onPress={() => setZoomFactor(factor)}
+                  style={[styles.zoomPill, selected ? styles.zoomPillSelected : null]}
+                  testID={`scanner-zoom-${factor}x`}
+                >
+                  <Text style={[styles.zoomPillLabel, selected ? styles.zoomPillLabelSelected : null]}>
+                    {`${factor}×`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
+        )}
 
         {isTrayExpanded ? null : (
           <View pointerEvents="box-none" style={[styles.scanTargetPillDock, { bottom: scanTargetPillBottom }]}>
@@ -2346,6 +2433,35 @@ const styles = StyleSheet.create({
     position: 'absolute',
     right: 0,
     zIndex: 4,
+  },
+  zoomDock: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 8,
+    justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
+    right: 0,
+    zIndex: 4,
+  },
+  zoomPill: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    borderRadius: 999,
+    height: 34,
+    justifyContent: 'center',
+    minWidth: 46,
+    paddingHorizontal: 12,
+  },
+  zoomPillSelected: {
+    backgroundColor: colors.brand,
+  },
+  zoomPillLabel: {
+    ...textStyles.control,
+    color: colors.gray0,
+  },
+  zoomPillLabelSelected: {
+    color: colors.gray0,
   },
   captureCopy: {
     alignItems: 'flex-start',

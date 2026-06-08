@@ -64,6 +64,8 @@ type RawScannerCaptureSurfaceProps = {
   shouldMountCamera: boolean;
   showSlabGuide?: boolean;
   testIDPrefix: string;
+  /** Normalized expo-camera zoom (0..1). Lets a far card fill the reticle. */
+  zoom?: number;
 };
 
 function parsePictureSize(size: string) {
@@ -108,6 +110,21 @@ export function chooseRawVisualPictureSize(sizes: readonly string[]) {
   }
 
   return parsed.sort((a, b) => b.area - a.area)[0]?.raw ?? null;
+}
+
+// iOS lens preference for the scanner. We prefer a macro-capable VIRTUAL device
+// (one that bundles the ultra-wide) so iOS Auto Macro can switch lenses to focus
+// a card held close — this fixes the iPhone 14/15 Pro blur, where the physical
+// wide lens can't focus inside its ~20cm minimum focus distance. We fall back to
+// the physical wide lens on devices without a macro-capable virtual device.
+export const scannerLensPreference = [
+  'builtInTripleCamera',
+  'builtInDualWideCamera',
+  'builtInWideAngleCamera',
+] as const;
+
+export function pickScannerLens(availableLenses: readonly string[]): string | undefined {
+  return scannerLensPreference.find((lens) => availableLenses.includes(lens));
 }
 
 export function makeRawScannerCaptureLayout({
@@ -184,6 +201,7 @@ export function RawScannerCaptureSurface({
   shouldMountCamera,
   showSlabGuide = false,
   testIDPrefix,
+  zoom,
 }: RawScannerCaptureSurfaceProps) {
   return (
     <View style={styles.previewCanvas}>
@@ -199,6 +217,7 @@ export function RawScannerCaptureSurface({
           selectedLens={Platform.OS === 'ios' ? selectedLens : undefined}
           style={StyleSheet.absoluteFillObject}
           testID={`${testIDPrefix}-camera`}
+          zoom={zoom}
         />
       ) : (
         <View

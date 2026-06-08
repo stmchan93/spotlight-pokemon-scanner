@@ -16,6 +16,8 @@ import Svg, { Path } from 'react-native-svg';
 
 import { Button, useSpotlightTheme } from '@spotlight/design-system';
 
+import { pickScannerLens } from '@/features/scanner/raw-scanner-capture-surface';
+
 type TransactionPhotoCaptureProps = {
   compact?: boolean;
   /**
@@ -103,31 +105,16 @@ export function TransactionPhotoCapture({
     });
   }, []);
 
-  const wideAngleLens = useMemo(() => {
-    if (Platform.OS !== 'ios') {
-      return undefined;
-    }
-
-    const preferredWideLenses = [
-      'builtInWideAngleCamera',
-      'builtInDualWideCamera',
-      'builtInTripleCamera',
-    ];
-
-    return preferredWideLenses.find((lens) => availableLenses.includes(lens));
-  }, [availableLenses]);
-
+  // Prefer a macro-capable virtual device (Auto Macro) so close shots focus on
+  // iPhone 14/15 Pro instead of blurring on the physical wide lens; falls back to
+  // the wide lens otherwise. Shares the scanner's lens preference for consistency.
   const selectedLens = useMemo(() => {
     if (Platform.OS !== 'ios') {
       return undefined;
     }
 
-    if (wideAngleLens) {
-      return wideAngleLens;
-    }
-
-    return undefined;
-  }, [wideAngleLens]);
+    return pickScannerLens(availableLenses);
+  }, [availableLenses]);
 
   const cameraViewKey = useMemo(() => (
     `transaction-camera-${selectedLens ?? 'default'}`
