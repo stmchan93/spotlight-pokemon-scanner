@@ -22,6 +22,7 @@ import { Button, IconButton, colors, useSpotlightTheme } from '@spotlight/design
 import { NavArrowLeft, ShareIos } from 'iconoir-react-native';
 
 import { CardConfigurator } from '@/features/cards/components/card-configurator';
+import { GradeConditionSheet } from '@/features/cards/components/grade-condition-sheet';
 import { CardDetailHero } from '@/features/cards/components/card-detail-hero';
 import { CardPriceTrendList } from '@/features/cards/components/card-price-trend-list';
 import { CardProductDetails } from '@/features/cards/components/card-product-details';
@@ -124,6 +125,7 @@ export function CardDetailScreen({
   const [selectedGrade, setSelectedGrade] = useState<string | null>(null);
   const [selectedCondition, setSelectedCondition] = useState<DeckConditionCode | null>(null);
   const [quantity, setQuantity] = useState(1);
+  const [gradeSheetOpen, setGradeSheetOpen] = useState(false);
   const [isAddPending, setIsAddPending] = useState(false);
 
   const [priceTrends, setPriceTrends] = useState<CardPriceTrendListRecord | null>(null);
@@ -581,13 +583,11 @@ export function CardDetailScreen({
 
         <CardConfigurator
           gradeLabel={gradeLabel}
-          gradeOptions={gradePickerOptions}
-          gradeSelectedId={gradePickerSelectedId}
           gradeTitle={gradeTitle}
           graders={[...graderOptions]}
           onDecrement={() => setQuantity((current) => Math.max(1, current - 1))}
           onIncrement={() => setQuantity((current) => current + 1)}
-          onSelectGrade={handleGradePick}
+          onOpenGradePicker={() => setGradeSheetOpen(true)}
           onSelectGrader={handleSelectGrader}
           onSelectVariant={setSelectedVariant}
           quantity={quantity}
@@ -595,6 +595,16 @@ export function CardDetailScreen({
           selectedVariant={selectedVariant}
           testID="detail-configurator"
           variants={variantOptions}
+        />
+
+        <GradeConditionSheet
+          onClose={() => setGradeSheetOpen(false)}
+          onSelect={handleGradePick}
+          options={gradePickerOptions}
+          selectedId={gradePickerSelectedId}
+          testID="detail-grade-sheet"
+          title={gradeTitle}
+          visible={gradeSheetOpen}
         />
 
         {priceTrends && priceTrends.rows.length > 0 ? (
@@ -659,7 +669,9 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   content: {
-    gap: 16,
+    // 32px between stacked sections (Figma PDP): actions↔configurator,
+    // configurator↔price-trend, price-trend↔product-details, etc.
+    gap: 32,
     paddingBottom: 120,
     paddingHorizontal: 16,
     paddingTop: 12,

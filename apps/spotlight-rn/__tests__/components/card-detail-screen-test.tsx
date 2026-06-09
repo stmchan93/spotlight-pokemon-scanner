@@ -201,10 +201,11 @@ describe('CardDetailScreen', () => {
     );
 
     fireEvent.press(await screen.findByTestId('detail-configurator-grade-trigger'));
-    fireEvent.press(await screen.findByTestId('detail-configurator-grade-option-lightly_played'));
+    fireEvent.press(await screen.findByTestId('detail-grade-sheet-option-lightly_played'));
 
+    // Selecting closes the sheet, so the option unmounts.
     await waitFor(() => {
-      expect(screen.queryByTestId('detail-configurator-grade-option-lightly_played')).toBeNull();
+      expect(screen.queryByTestId('detail-grade-sheet-option-lightly_played')).toBeNull();
     });
   });
 
@@ -220,9 +221,9 @@ describe('CardDetailScreen', () => {
     fireEvent.press(await screen.findByTestId('detail-configurator-grader-BGS'));
     fireEvent.press(screen.getByTestId('detail-configurator-grade-trigger'));
 
-    expect(await screen.findByTestId('detail-configurator-grade-option-10')).toBeTruthy();
-    expect(screen.getByTestId('detail-configurator-grade-option-9.5')).toBeTruthy();
-    expect(screen.queryByTestId('detail-configurator-grade-option-near_mint')).toBeNull();
+    expect(await screen.findByTestId('detail-grade-sheet-option-10')).toBeTruthy();
+    expect(screen.getByTestId('detail-grade-sheet-option-9.5')).toBeTruthy();
+    expect(screen.queryByTestId('detail-grade-sheet-option-near_mint')).toBeNull();
   });
 
   it('refetches price trends when the grader lens changes to graded', async () => {

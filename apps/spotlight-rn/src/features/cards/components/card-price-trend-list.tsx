@@ -20,11 +20,11 @@ export function CardPriceTrendList({ list, testID }: CardPriceTrendListProps) {
   const theme = useSpotlightTheme();
   const logoSource =
     list.provider === 'ebay'
-      ? require('../../../../assets/images/ebay-icon.png')
-      : require('../../../../assets/images/tcgplayer-icon.png');
+      ? require('../../../../assets/images/ebay-logo.png')
+      : require('../../../../assets/images/tcgplayer-logo.png');
   const providerLabel = list.provider === 'ebay' ? 'eBay' : 'TCGplayer';
-  // Figma logo dimensions differ by provider: eBay 57.5×23 (992-7804),
-  // TCGplayer 31×23 (992-7802).
+  // Official brand logos at the Figma PDP sizes: eBay 50×20 (992-7804),
+  // TCGplayer 27×20 (992-7802).
   const logoStyle = list.provider === 'ebay' ? styles.logoEbay : styles.logoTcg;
 
   return (
@@ -93,12 +93,12 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   logoEbay: {
-    height: 23,
-    width: 57.5,
+    height: 20,
+    width: 50,
   },
   logoTcg: {
-    height: 23,
-    width: 31,
+    height: 20,
+    width: 27,
   },
   price: {
     minWidth: 72,
