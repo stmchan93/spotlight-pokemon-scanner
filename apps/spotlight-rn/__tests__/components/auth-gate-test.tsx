@@ -56,7 +56,7 @@ describe('AuthGate', () => {
       isConfigured: false,
     });
 
-    expect(screen.getByText('Sign into Loooty')).toBeTruthy();
+    expect(screen.getByText('Sign into Ekalight')).toBeTruthy();
     expect(screen.queryByText('Sync your account before scanner, inventory, and portfolio flows open up.')).toBeNull();
     expect(screen.getByText('Supabase URL is missing.')).toBeTruthy();
     expect(screen.getByTestId('auth-apple-button')).toBeTruthy();
@@ -107,6 +107,6 @@ describe('AuthGate', () => {
     });
 
     expect(screen.getByTestId('auth-loading-screen')).toBeTruthy();
-    expect(screen.queryByText('Loading Loooty')).toBeNull();
+    expect(screen.queryByText('Loading Ekalight')).toBeNull();
   });
 });

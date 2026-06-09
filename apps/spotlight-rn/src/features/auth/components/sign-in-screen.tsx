@@ -46,7 +46,7 @@ export function SignInScreen({
               { color: theme.colors.textPrimary },
             ]}
           >
-            Sign into Loooty
+            Sign into Ekalight
           </Text>
 
           <View style={styles.actions}>

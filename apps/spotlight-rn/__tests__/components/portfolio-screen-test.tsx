@@ -103,7 +103,7 @@ describe('PortfolioScreen', () => {
   it('renders the header, summary, search row, filter chips, masonry grid, and FAB', async () => {
     renderPortfolioScreen();
 
-    expect(screen.queryByText('Loading Loooty...')).toBeNull();
+    expect(screen.queryByText('Loading Ekalight...')).toBeNull();
 
     // Header.
     expect(await screen.findByTestId('portfolio-header-title')).toBeTruthy();
