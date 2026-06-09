@@ -66,12 +66,12 @@
   "submit": {
     "staging": {
       "ios": {
-        "ascAppId": "6764104335"
+        "ascAppId": "6778252815"
       }
     },
     "production": {
       "ios": {
-        "ascAppId": "6764104335"
+        "ascAppId": "6778252784"
       }
     }
   }
