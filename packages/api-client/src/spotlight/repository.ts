@@ -185,6 +185,12 @@ const scanMatchRequestTimeoutMs = 20000;
 // The consolidated dashboard endpoint computes every section server-side in one
 // request, so it gets a longer budget than a single section.
 const dashboardRequestTimeoutMs = 20000;
+// The first dashboard call after the backend's page cache goes cold can be slow
+// enough to time out, but that attempt warms the cache, so a single short-backoff
+// retry usually lands fast. Retry only on transport/timeout failures (never on a
+// 404, which means the endpoint isn't deployed and should fall through to fanout).
+const dashboardRetryAttempts = 2;
+const dashboardRetryBackoffMs = 1200;
 
 type JsonRequestMeta = {
   requestUrl: string;
@@ -3220,11 +3226,29 @@ export class HttpSpotlightRepository implements SpotlightRepository {
   private async loadPortfolioDashboardViaConsolidatedEndpoint():
     Promise<SpotlightRepositoryLoadResult<PortfolioDashboard> | null> {
     const queryParams = new URLSearchParams({ timeZone: 'America/Los_Angeles' });
-    const response = await this.requestJson<PortfolioDashboardDTO>(
-      `${this.baseUrl}/api/v1/portfolio/dashboard?${queryParams.toString()}`,
+    const url = `${this.baseUrl}/api/v1/portfolio/dashboard?${queryParams.toString()}`;
+
+    // Retry transport/timeout failures with a short backoff: a cold-cache first
+    // call can exceed the timeout, but it warms the backend's page cache, so the
+    // retry usually returns fast. A 'not_found' (404) breaks out immediately so
+    // the caller falls through to the per-section fan-out instead of retrying.
+    let response = await this.requestJson<PortfolioDashboardDTO>(
+      url,
       undefined,
       { allowNotFound: true, timeoutMs: dashboardRequestTimeoutMs },
     );
+    for (
+      let attempt = 2;
+      attempt <= dashboardRetryAttempts && response.kind === 'error';
+      attempt += 1
+    ) {
+      await new Promise((resolve) => setTimeout(resolve, dashboardRetryBackoffMs));
+      response = await this.requestJson<PortfolioDashboardDTO>(
+        url,
+        undefined,
+        { allowNotFound: true, timeoutMs: dashboardRequestTimeoutMs },
+      );
+    }
 
     // 404 (endpoint not deployed) or any transport/parse error → return null so
     // the caller falls back to the per-section fan-out.

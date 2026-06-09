@@ -482,6 +482,61 @@ describe('HttpSpotlightRepository', () => {
     expect(fetchedUrls.some((url) => url.includes('/api/v1/portfolio/history'))).toBe(false);
   });
 
+  it('retries the consolidated dashboard once after a transport/timeout failure, then succeeds', async () => {
+    const ranges = ['1W', '1M', '3M', 'YTD', '1Y', 'ALL'];
+    const sections: Record<string, string> = { inventory: 'ok', insights: 'ok' };
+    const rangePayload: Record<string, unknown> = {};
+    for (const key of ranges) {
+      sections[`history.${key}`] = 'ok';
+      sections[`ledger.${key}`] = 'ok';
+      rangePayload[key] = {
+        history: { summary: { currentValue: 42, deltaValue: 0, deltaPercent: 0 }, currencyCode: 'USD', points: [{ date: '2026-06-01', totalValue: 42 }] },
+        ledger: { transactions: [], dailySeries: [] },
+      };
+    }
+
+    let dashboardCalls = 0;
+    global.fetch = jest.fn().mockImplementation(async (url: string) => {
+      if (url.includes('/api/v1/portfolio/dashboard')) {
+        dashboardCalls += 1;
+        // First attempt simulates a cold-cache timeout (transport failure); the
+        // retry lands on the now-warm backend and succeeds.
+        if (dashboardCalls === 1) {
+          throw new Error('Aborted');
+        }
+        return jsonResponse(200, {
+          currencyCode: 'USD',
+          inventory: {
+            entries: [
+              {
+                id: 'entry-1',
+                itemKind: 'raw',
+                quantity: 1,
+                card: { id: 'c1', name: 'Pikachu', setName: 'Base', number: '58/102', pricing: { currencyCode: 'usd', market: 42 } },
+                condition: 'near_mint',
+                addedAt: '2026-04-29T18:00:00Z',
+              },
+            ],
+          },
+          insights: null,
+          ranges: rangePayload,
+          sections,
+        });
+      }
+      throw new Error(`Unexpected URL: ${url}`);
+    }) as typeof fetch;
+
+    const repository = new HttpSpotlightRepository('http://example.test');
+    const loadResult = await repository.loadPortfolioDashboard();
+
+    expect(loadResult.state).toBe('success');
+    expect(loadResult.data?.summary.currentValue).toBe(42);
+    // It retried the consolidated endpoint rather than immediately fanning out.
+    expect(dashboardCalls).toBe(2);
+    const fetchedUrls = (global.fetch as jest.Mock).mock.calls.map((call) => String(call[0]));
+    expect(fetchedUrls.some((url) => url.includes('/api/v1/deck/entries'))).toBe(false);
+  });
+
   it('falls back to the per-section fan-out when the consolidated endpoint is missing (404)', async () => {
     global.fetch = jest.fn().mockImplementation(async (url: string) => {
       if (url.includes('/api/v1/portfolio/dashboard')) {
