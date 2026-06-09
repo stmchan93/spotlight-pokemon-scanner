@@ -22,7 +22,7 @@ export function ScanTargetPill({
       testID={testID}
     >
       <Text style={styles.label}>{label}</Text>
-      <IconChevronDown color={colors.gray0} size={16} strokeWidth={2} />
+      <IconChevronDown color={colors.gray0} size={20} strokeWidth={2} />
     </Pressable>
   );
 }
@@ -37,9 +37,9 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.35)',
     borderRadius: 999,
     flexDirection: 'row',
-    gap: 8,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    gap: 4,
+    height: 36,
+    paddingHorizontal: 16,
   },
   pillPressed: {
     opacity: 0.85,

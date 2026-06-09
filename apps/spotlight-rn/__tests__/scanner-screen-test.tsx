@@ -912,11 +912,12 @@ describe('ScannerScreen', () => {
     expect(screen.getByTestId('scanner-tray-collapse-backdrop')).toBeTruthy();
   });
 
-  it('shows the scan-target pill in the top header and keeps it visible while scanning', async () => {
+  it('shows the scan-target pill alongside the zoom controls and hides them when the tray expands', async () => {
     renderScannerScreen();
 
-    // Lives in the top header alongside the back and search controls.
+    // Pill shares the bottom controls row with the zoom dock; back/search stay in the header.
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
+    expect(screen.getByTestId('scanner-zoom-control')).toBeTruthy();
     expect(screen.getByTestId('scanner-back-button')).toBeTruthy();
     expect(screen.getByTestId('scanner-search-button')).toBeTruthy();
 
@@ -929,12 +930,13 @@ describe('ScannerScreen', () => {
     // Still visible while collapsed with a scan.
     expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
 
-    // In the header (not the bottom dock), so it stays visible even when the tray expands.
+    // Shares the controls row with the zoom dock, so it hides when the tray expands.
     fireEvent.press(screen.getByTestId('scanner-tray-header'));
     await waitFor(() => {
       expect(screen.getByTestId('scanner-tray-collapse-backdrop')).toBeTruthy();
     });
-    expect(screen.getByTestId('scanner-target-pill')).toBeTruthy();
+    expect(screen.queryByTestId('scanner-target-pill')).toBeNull();
+    expect(screen.queryByTestId('scanner-zoom-control')).toBeNull();
   });
 
   it('adds a scanned card into inventory from the tray', async () => {

@@ -2023,11 +2023,6 @@ export function ScannerScreen({
           >
             <IconChevronLeft color={colors.gray0} size={20} strokeWidth={1.5} />
           </Pressable>
-          <ScanTargetPill
-            label={scanTargetPillLabel(cardType)}
-            onPress={() => setIsScanTargetSheetOpen(true)}
-            testID="scanner-target-pill"
-          />
           <Pressable
             accessibilityLabel="Search cards"
             accessibilityRole="button"
@@ -2066,28 +2061,37 @@ export function ScannerScreen({
         {isTrayExpanded ? null : (
           <View
             pointerEvents="box-none"
-            style={[styles.zoomDock, { top: captureSurfaceLayout.controlsTop }]}
-            testID="scanner-zoom-control"
+            style={[
+              styles.controlsRow,
+              { left: 16, right: 16, top: captureSurfaceLayout.controlsTop },
+            ]}
           >
-            {SCANNER_ZOOM_FACTORS.map((factor) => {
-              const selected = factor === zoomFactor;
-              return (
-                <Pressable
-                  accessibilityLabel={`${factor}× zoom`}
-                  accessibilityRole="button"
-                  accessibilityState={{ selected }}
-                  hitSlop={6}
-                  key={factor}
-                  onPress={() => setZoomFactor(factor)}
-                  style={[styles.zoomPill, selected ? styles.zoomPillSelected : null]}
-                  testID={`scanner-zoom-${factor}x`}
-                >
-                  <Text style={[styles.zoomPillLabel, selected ? styles.zoomPillLabelSelected : null]}>
-                    {`${factor}×`}
-                  </Text>
-                </Pressable>
-              );
-            })}
+            <ScanTargetPill
+              label={scanTargetPillLabel(cardType)}
+              onPress={() => setIsScanTargetSheetOpen(true)}
+              testID="scanner-target-pill"
+            />
+            <View style={styles.zoomDock} testID="scanner-zoom-control">
+              {SCANNER_ZOOM_FACTORS.map((factor) => {
+                const selected = factor === zoomFactor;
+                return (
+                  <Pressable
+                    accessibilityLabel={`${factor}× zoom`}
+                    accessibilityRole="button"
+                    accessibilityState={{ selected }}
+                    hitSlop={6}
+                    key={factor}
+                    onPress={() => setZoomFactor(factor)}
+                    style={[styles.zoomPill, selected ? styles.zoomPillSelected : null]}
+                    testID={`scanner-zoom-${factor}x`}
+                  >
+                    <Text style={[styles.zoomPillLabel, selected ? styles.zoomPillLabelSelected : null]}>
+                      {`${factor}x`}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
         )}
 
@@ -2297,27 +2301,28 @@ const styles = StyleSheet.create({
     position: 'absolute',
     zIndex: 5,
   },
+  controlsRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    position: 'absolute',
+    zIndex: 4,
+  },
   zoomDock: {
     alignItems: 'center',
     flexDirection: 'row',
-    gap: 8,
-    justifyContent: 'center',
-    left: 0,
-    position: 'absolute',
-    right: 0,
-    zIndex: 4,
+    gap: 11,
   },
   zoomPill: {
     alignItems: 'center',
-    backgroundColor: 'rgba(0, 0, 0, 0.45)',
+    backgroundColor: 'transparent',
     borderRadius: 999,
-    height: 34,
+    height: 36,
     justifyContent: 'center',
-    minWidth: 46,
-    paddingHorizontal: 12,
+    width: 36,
   },
   zoomPillSelected: {
-    backgroundColor: colors.brand,
+    backgroundColor: 'rgba(0, 0, 0, 0.35)',
   },
   zoomPillLabel: {
     ...textStyles.control,

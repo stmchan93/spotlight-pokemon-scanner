@@ -268,16 +268,18 @@ export function ChangeCardPicker({
                 ) : null}
 
                 <View style={styles.heroColumn}>
-                  {heroCandidate?.imageUrl ? (
-                    <Image
-                      source={{ uri: heroCandidate.imageUrl }}
-                      style={styles.heroImage}
-                      resizeMode="contain"
-                      testID={`${testID}-hero`}
-                    />
-                  ) : (
-                    <View style={[styles.heroImage, styles.heroPlaceholder]} />
-                  )}
+                  <View style={styles.matchImageFrame}>
+                    {heroCandidate?.imageUrl ? (
+                      <Image
+                        source={{ uri: heroCandidate.imageUrl }}
+                        style={styles.matchImage}
+                        resizeMode="contain"
+                        testID={`${testID}-hero`}
+                      />
+                    ) : (
+                      <View style={[styles.matchImage, styles.heroPlaceholder]} />
+                    )}
+                  </View>
                   {heroMatchPct != null ? (
                     <Text
                       style={[styles.heroCaption, { color: matchConfidenceColor(heroMatchPct) }]}
@@ -482,6 +484,21 @@ const styles = StyleSheet.create({
   heroImage: {
     borderRadius: 8,
     height: HERO_IMAGE_HEIGHT,
+    width: '100%',
+  },
+  // Match Image Container (Figma 1177:758): translucent dark frame around the
+  // matched product image. Fixed to HERO_IMAGE_HEIGHT so it stays aligned with
+  // the "Your Photo" column.
+  matchImageFrame: {
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.15)',
+    borderRadius: 8,
+    height: HERO_IMAGE_HEIGHT,
+    justifyContent: 'center',
+    padding: 12,
+  },
+  matchImage: {
+    flex: 1,
     width: '100%',
   },
   heroPlaceholder: {
