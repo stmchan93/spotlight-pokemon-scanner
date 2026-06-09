@@ -3104,18 +3104,34 @@ class SpotlightScanService:
         latest_row: sqlite3.Row | None = None
         row_index = 0
         series: list[dict[str, Any] | None] = []
+        # The priced value is a pure function of (entry, latest_row, condition_code).
+        # entry and condition_code are fixed for this call, and latest_row only
+        # advances as the day loop walks forward — consecutive days almost always
+        # share the same latest_row because price snapshots are sparse (~weekly,
+        # not daily). Resolving a row re-parses its ~2.5KB raw/graded context JSON,
+        # so recompute ONLY when latest_row changes instead of once per day. This
+        # collapses the dashboard's hottest loop from O(days) JSON parses to
+        # O(distinct snapshots) per series (~365 -> ~50 for a 1Y range), with
+        # identical output. Reusing one priced dict across days is safe: the
+        # consumer (`_history_primary_price_value`) only reads it, never mutates.
+        cached_marker: int | None = None
+        cached_value: dict[str, Any] | None = None
+        have_cached = False
         for day_value in day_dates:
             day_iso = day_value.isoformat()
             while row_index < len(history_rows) and str(history_rows[row_index]["price_date"] or "") <= day_iso:
                 latest_row = history_rows[row_index]
                 row_index += 1
-            series.append(
-                self._portfolio_history_price_row_from_history_row(
+            marker = id(latest_row)
+            if not have_cached or marker != cached_marker:
+                cached_value = self._portfolio_history_price_row_from_history_row(
                     entry,
                     row=latest_row,
                     condition_code=condition_code,
                 )
-            )
+                cached_marker = marker
+                have_cached = True
+            series.append(cached_value)
         return series
 
     def _yesterday_price_history_row_for_card(
