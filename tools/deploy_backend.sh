@@ -484,7 +484,24 @@ gcloud_cmd compute ssh "$INSTANCE" --zone "$ZONE" --tunnel-through-iap --command
 PUBLIC_BASE_URL="$(read_dotenv_value "$MOBILE_ENV_DIR/.env.$ENVIRONMENT" "EXPO_PUBLIC_SPOTLIGHT_API_BASE_URL")"
 if [ -n "$PUBLIC_BASE_URL" ]; then
   echo "Running public health check against ${PUBLIC_BASE_URL%/}/api/v1/health..."
-  curl -fsS --max-time 20 "${PUBLIC_BASE_URL%/}/api/v1/health" >/dev/null
+  # After a restart the service can take well over 20s to answer publicly
+  # (e.g. SigLIP2 visual-model load + reverse-proxy warm-up). A single
+  # short-timeout curl false-fails an otherwise-successful deploy, so poll with
+  # a generous budget and only fail if it never comes up.
+  PUBLIC_HEALTH_OK=0
+  for attempt in $(seq 1 18); do
+    if curl -fsS --max-time 15 "${PUBLIC_BASE_URL%/}/api/v1/health" >/dev/null 2>&1; then
+      PUBLIC_HEALTH_OK=1
+      [ "$attempt" -gt 1 ] && echo "  public health passed on attempt ${attempt}."
+      break
+    fi
+    echo "  public health not ready yet (attempt ${attempt}/18); retrying in 10s..."
+    sleep 10
+  done
+  if [ "$PUBLIC_HEALTH_OK" != "1" ]; then
+    echo "Public health check never passed within the warm-up budget (~5m)." >&2
+    exit 1
+  fi
 fi
 
 echo
