@@ -57,15 +57,9 @@ export function SignInScreen({
                 labelStyleVariant="bodyStrong"
                 onPress={onAppleSignIn}
                 size="lg"
-                style={[
-                  styles.providerButton,
-                  theme.shadows.card,
-                  {
-                    backgroundColor: theme.colors.canvasElevated,
-                    borderColor: theme.colors.canvasElevated,
-                  },
-                ]}
+                style={[styles.providerButton, theme.shadows.card]}
                 testID="auth-apple-button"
+                variant="outline"
               />
             ) : null}
 
