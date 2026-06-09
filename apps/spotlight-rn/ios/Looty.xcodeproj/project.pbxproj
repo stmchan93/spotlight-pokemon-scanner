@@ -417,7 +417,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_DEBUG";
-				PRODUCT_BUNDLE_IDENTIFIER = com.looty.staging;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ekalight.app.staging;
 				PRODUCT_NAME = Looty;
 				SWIFT_OBJC_BRIDGING_HEADER = "Looty/Looty-Bridging-Header.h";
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
@@ -451,7 +451,7 @@
 					"-lc++",
 				);
 				OTHER_SWIFT_FLAGS = "$(inherited) -D EXPO_CONFIGURATION_RELEASE";
-				PRODUCT_BUNDLE_IDENTIFIER = com.looty.staging;
+				PRODUCT_BUNDLE_IDENTIFIER = com.ekalight.app.staging;
 				PRODUCT_NAME = Looty;
 				SWIFT_OBJC_BRIDGING_HEADER = "Looty/Looty-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;

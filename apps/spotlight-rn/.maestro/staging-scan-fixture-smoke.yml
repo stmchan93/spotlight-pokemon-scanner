@@ -1,4 +1,4 @@
-appId: com.looty.staging
+appId: com.ekalight.app.staging
 ---
 - runFlow: staging-smoke-runtime-assertions.yml
 - tapOn:

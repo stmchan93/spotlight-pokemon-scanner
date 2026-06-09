@@ -30,7 +30,7 @@
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>spotlight</string>
-				<string>com.looty.staging</string>
+				<string>com.ekalight.app.staging</string>
 			</array>
 		</dict>
 		<dict>

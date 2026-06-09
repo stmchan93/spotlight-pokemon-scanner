@@ -1,4 +1,4 @@
-appId: com.looty.staging
+appId: com.ekalight.app.staging
 ---
 - assertVisible:
     id: staging-smoke-diagnostics
