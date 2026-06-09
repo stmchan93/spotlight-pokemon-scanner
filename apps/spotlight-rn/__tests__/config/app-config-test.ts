@@ -288,6 +288,23 @@ describe('app config local overrides bridge', () => {
     Object.assign(process.env, previousEnv);
   });
 
+  it('suffixes the display name per environment so testers can tell builds apart', () => {
+    const baseEnv = { EXPO_NO_DOTENV: '1' };
+    const nameFor = (appEnv: string, bundleId: string) =>
+      buildExpoConfigForEnv({
+        ...baseEnv,
+        SPOTLIGHT_APP_ENV: appEnv,
+        SPOTLIGHT_IOS_BUNDLE_IDENTIFIER: bundleId,
+        SPOTLIGHT_ANDROID_PACKAGE: bundleId,
+      }).name;
+
+    expect(nameFor('production', 'com.ekalight.app')).toBe('Ekalight');
+    expect(nameFor('staging', 'com.ekalight.app.staging')).toBe('Ekalight β');
+    expect(nameFor('development', 'com.ekalight.app.dev')).toBe('Ekalight Dev');
+    // Unknown / unset env falls back to the clean brand name.
+    expect(buildExpoConfigForEnv({ ...baseEnv }).name).toBe('Ekalight');
+  });
+
   it('builds Expo config from an environment-specific env file', () => {
     const fs = require('node:fs');
     const existsSpy = jest.spyOn(fs, 'existsSync').mockReturnValue(true);

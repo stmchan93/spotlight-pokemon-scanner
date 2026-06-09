@@ -41,5 +41,7 @@ yarn-error.*
 
 app-example
 
-# generated native folders
+# generated native folders (CNG: EAS/expo prebuild regenerate these from
+# app.config.js on every build, so per-env bundle id + display name flow from config)
 /android
+/ios

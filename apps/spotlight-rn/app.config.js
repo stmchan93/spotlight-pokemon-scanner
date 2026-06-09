@@ -224,6 +224,19 @@ function withPlugin(existingPlugins, pluginEntry) {
   return nextPlugins;
 }
 
+const SPOTLIGHT_DISPLAY_NAME_SUFFIX_BY_ENV = {
+  production: '',
+  staging: ' β', // "Ekalight β"
+  development: ' Dev', // "Ekalight Dev"
+};
+
+function resolveSpotlightDisplayNameForEnv(resolvedAppEnv, baseName) {
+  const name = typeof baseName === 'string' && baseName.length > 0 ? baseName : 'Ekalight';
+  const key = trimEnvValue(resolvedAppEnv);
+  const suffix = SPOTLIGHT_DISPLAY_NAME_SUFFIX_BY_ENV[key] ?? '';
+  return `${name}${suffix}`;
+}
+
 function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDES_PATH) {
   const resolvedEnv = resolveSpotlightConfigEnv(env);
   const releaseOverrides = loadSpotlightReleaseOverridesFromEnv(resolvedEnv);
@@ -285,8 +298,15 @@ function buildExpoConfigForEnv(env = process.env, overridesPath = LOCAL_OVERRIDE
     },
   ]);
 
+  // Per-environment display name (home-screen / App Store label). Prod keeps the
+  // clean brand name; non-prod builds are suffixed so testers can tell which app
+  // they have installed when several coexist on one device.
+  const resolvedName =
+    resolveSpotlightDisplayNameForEnv(resolvedAppEnv, baseExpoConfig.name);
+
   const expoConfig = {
     ...baseExpoConfig,
+    name: resolvedName,
     android,
     ios,
     plugins: resolvedPlugins,
@@ -323,4 +343,5 @@ module.exports.loadSpotlightExpoExtraFromXcconfig = loadSpotlightExpoExtraFromXc
 module.exports.loadSpotlightExpoExtra = loadSpotlightExpoExtra;
 module.exports.loadSpotlightReleaseOverridesFromEnv = loadSpotlightReleaseOverridesFromEnv;
 module.exports.getPluginIdentifier = getPluginIdentifier;
+module.exports.resolveSpotlightDisplayNameForEnv = resolveSpotlightDisplayNameForEnv;
 module.exports.withPlugin = withPlugin;

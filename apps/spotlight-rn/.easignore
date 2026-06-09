@@ -41,8 +41,10 @@ jest.setup.ts
 eslint.config.mjs
 .maestro/
 
-# Generated native dependency/build outputs. Keep ios/ and android/ project files;
-# EAS runs dependency installation on the builder.
+# CNG: ios/ and android/ are gitignored generated folders — EAS runs `expo
+# prebuild` on the builder to regenerate them from app.config.js, so per-env
+# bundle id + display name flow from config. These entries just keep any local
+# native build/dependency output out of the upload.
 ios/Pods/
 ios/build/
 ios/DerivedData/

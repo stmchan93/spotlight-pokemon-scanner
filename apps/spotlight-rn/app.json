@@ -14,6 +14,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSCameraUsageDescription": "Allow Ekalight to use your camera to scan cards.",
+        "NSMicrophoneUsageDescription": "Allow Ekalight to access your microphone.",
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true,
           "NSAllowsLocalNetworking": true
