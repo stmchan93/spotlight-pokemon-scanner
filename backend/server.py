@@ -3060,15 +3060,58 @@ class SpotlightScanService:
             str(condition_code or "").strip(),
         )
 
+    # Non-blob columns of card_price_history_daily that the portfolio history
+    # resolver actually reads (price_date, the default_raw_* price fields, the
+    # display currency) plus the keys used for ordering/identity. The fat columns
+    # (raw_contexts_json ~2.5KB, graded_contexts_json ~2.4KB, source_payload_json,
+    # source_url) are excluded here and re-added selectively below.
+    _PORTFOLIO_HISTORY_BASE_COLUMNS = (
+        "card_id",
+        "provider",
+        "price_date",
+        "display_currency_code",
+        "default_raw_variant",
+        "default_raw_condition",
+        "default_raw_low_price",
+        "default_raw_market_price",
+        "default_raw_mid_price",
+        "default_raw_high_price",
+        "default_raw_direct_low_price",
+        "default_raw_trend_price",
+        "updated_at",
+    )
+
+    def _portfolio_history_select_columns(
+        self, *, include_raw_json: bool, include_graded_json: bool
+    ) -> str:
+        """Column list for portfolio history reads. The raw/graded context JSON
+        blobs are the bulk of each row (and of the whole table on disk, via
+        overflow pages), but a raw-only portfolio never reads graded contexts and
+        a slab-only portfolio never reads raw contexts. Selecting only the side(s)
+        actually needed lets SQLite skip the unused blob's overflow pages — for a
+        typical all-raw portfolio that is ~60MB less I/O per dashboard refresh,
+        which is what makes the cold-cache read time out. The skipped column is
+        aliased to NULL so the row shape (and the resolver) is unchanged."""
+        columns = list(self._PORTFOLIO_HISTORY_BASE_COLUMNS)
+        columns.append("raw_contexts_json" if include_raw_json else "NULL AS raw_contexts_json")
+        columns.append("graded_contexts_json" if include_graded_json else "NULL AS graded_contexts_json")
+        return ", ".join(columns)
+
     def _portfolio_history_rows_by_card_id(
         self,
         *,
         card_ids: set[str],
         end_date: date,
         provider: str,
+        include_raw_json: bool = True,
+        include_graded_json: bool = True,
     ) -> dict[str, list[sqlite3.Row]]:
         rows_by_card_id: dict[str, list[sqlite3.Row]] = {}
         ordered_card_ids = sorted(card_id for card_id in card_ids if str(card_id or "").strip())
+        select_columns = self._portfolio_history_select_columns(
+            include_raw_json=include_raw_json,
+            include_graded_json=include_graded_json,
+        )
         for start in range(0, len(ordered_card_ids), 400):
             chunk = ordered_card_ids[start : start + 400]
             if not chunk:
@@ -3077,7 +3120,7 @@ class SpotlightScanService:
             params: list[Any] = [provider, *chunk, end_date.isoformat()]
             rows = self.connection.execute(
                 f"""
-                SELECT *
+                SELECT {select_columns}
                 FROM card_price_history_daily
                 WHERE provider = ?
                   AND card_id IN ({placeholders})
@@ -3104,34 +3147,18 @@ class SpotlightScanService:
         latest_row: sqlite3.Row | None = None
         row_index = 0
         series: list[dict[str, Any] | None] = []
-        # The priced value is a pure function of (entry, latest_row, condition_code).
-        # entry and condition_code are fixed for this call, and latest_row only
-        # advances as the day loop walks forward — consecutive days almost always
-        # share the same latest_row because price snapshots are sparse (~weekly,
-        # not daily). Resolving a row re-parses its ~2.5KB raw/graded context JSON,
-        # so recompute ONLY when latest_row changes instead of once per day. This
-        # collapses the dashboard's hottest loop from O(days) JSON parses to
-        # O(distinct snapshots) per series (~365 -> ~50 for a 1Y range), with
-        # identical output. Reusing one priced dict across days is safe: the
-        # consumer (`_history_primary_price_value`) only reads it, never mutates.
-        cached_marker: int | None = None
-        cached_value: dict[str, Any] | None = None
-        have_cached = False
         for day_value in day_dates:
             day_iso = day_value.isoformat()
             while row_index < len(history_rows) and str(history_rows[row_index]["price_date"] or "") <= day_iso:
                 latest_row = history_rows[row_index]
                 row_index += 1
-            marker = id(latest_row)
-            if not have_cached or marker != cached_marker:
-                cached_value = self._portfolio_history_price_row_from_history_row(
+            series.append(
+                self._portfolio_history_price_row_from_history_row(
                     entry,
                     row=latest_row,
                     condition_code=condition_code,
                 )
-                cached_marker = marker
-                have_cached = True
-            series.append(cached_value)
+            )
         return series
 
     def _yesterday_price_history_row_for_card(
@@ -3330,10 +3357,19 @@ class SpotlightScanService:
         end_date = datetime.now(time_zone).date()
         entry_rows = self._portfolio_history_entry_rows(owner_user_id)
         event_rows = self._portfolio_history_event_rows(owner_user_id)
+        # Pricing mode mirrors _portfolio_history_price_row_from_history_row: slab
+        # entries resolve against graded_contexts_json, everything else against
+        # raw_contexts_json. Only load the blob side(s) the portfolio can use so a
+        # raw-only (or slab-only) portfolio skips reading the other ~2.5KB/row blob.
+        entry_kinds = {str(row["item_kind"] or "").strip().lower() for row in entry_rows}
+        include_graded_json = "slab" in entry_kinds
+        include_raw_json = any(kind != "slab" for kind in entry_kinds) or not entry_kinds
         history_rows_by_card_id = self._portfolio_history_rows_by_card_id(
             card_ids={str(row["card_id"] or "").strip() for row in entry_rows},
             end_date=end_date,
             provider=SCRYDEX_PROVIDER,
+            include_raw_json=include_raw_json,
+            include_graded_json=include_graded_json,
         )
         return {
             "entry_rows": entry_rows,
