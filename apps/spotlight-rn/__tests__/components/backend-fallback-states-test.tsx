@@ -54,7 +54,11 @@ describe('backend-backed fallback states', () => {
     await waitFor(() => {
       expect(screen.queryByText('Loading Ekalight...')).toBeNull();
     });
-    expect(await screen.findByText('Could not load your backend data')).toBeTruthy();
+    // The dashboard now retries once on transport failure with a ~1.2s backoff,
+    // so the error card surfaces later than findByText's 1s default allows.
+    expect(
+      await screen.findByText('Could not load your backend data', {}, { timeout: 5000 }),
+    ).toBeTruthy();
     expect(screen.getByText('backend offline')).toBeTruthy();
   });
 
