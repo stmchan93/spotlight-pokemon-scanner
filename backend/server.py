@@ -794,6 +794,13 @@ class SpotlightScanService:
         self._raw_visual_matcher: Any | None = None
         self._pending_visual_scans: dict[str, PendingVisualScan] = {}
         self._pending_visual_scan_ttl_seconds: float = 90.0
+        # Per-owner portfolio-dashboard cache (version-keyed, auto-invalidating)
+        # + per-owner dogpile locks so a concurrent burst computes once. Guarded
+        # by a single lock since the maps are touched from request threads.
+        self._dashboard_cache: dict[tuple[str, str], tuple[str, dict[str, Any]]] = {}
+        self._dashboard_cache_locks: dict[tuple[str, str], threading.Lock] = {}
+        self._dashboard_cache_locks_guard = threading.Lock()
+        self._dashboard_cache_max_entries = 256
         self.artifact_store = build_scan_artifact_store(
             repo_root=repo_root,
             storage_override=os.environ.get(SCAN_ARTIFACTS_STORAGE_ENV),
@@ -11754,6 +11761,118 @@ class SpotlightScanService:
         }
 
     def portfolio_dashboard(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
+        """Cache-and-dogpile wrapper over the heavy dashboard computation.
+
+        The computed dashboard is a pure function of the owner's portfolio data
+        plus the latest daily price snapshot — it only changes when the user
+        mutates their collection or the daily Scrydex sync runs. So we key a
+        per-owner cache on a cheap data-version token (a few indexed MAX/COUNT
+        reads) that changes exactly when any of those inputs change: a hit serves
+        the prior payload in ~1ms instead of re-running ~1.5s of GIL-bound Python.
+
+        A per-owner lock makes a concurrent burst (e.g. 30 users hitting the same
+        cold cache) compute ONCE and share the result instead of stampeding the
+        single-process backend. Every call emits a structured timing log so slow
+        requests are diagnosable in `journalctl -u spotlight-backend`."""
+        owner_user_id = self._current_owner_user_id()
+        resolved_tz = time_zone_name or "America/Los_Angeles"
+        started_at = perf_counter()
+        try:
+            version = self._portfolio_dashboard_version_token(owner_user_id, resolved_tz)
+        except Exception:  # noqa: BLE001 - never let cache bookkeeping break the dashboard
+            traceback.print_exc()
+            version = None
+
+        cache_key = (owner_user_id, resolved_tz)
+        if version is not None:
+            cached = self._dashboard_cache.get(cache_key)
+            if cached is not None and cached[0] == version:
+                self._log_dashboard_timing(started_at, outcome="hit")
+                return cached[1]
+
+        lock = self._dashboard_cache_lock_for(cache_key)
+        with lock:
+            # Re-check after acquiring: another thread in the same burst may have
+            # already computed this exact version while we waited on the lock.
+            if version is not None:
+                cached = self._dashboard_cache.get(cache_key)
+                if cached is not None and cached[0] == version:
+                    self._log_dashboard_timing(started_at, outcome="hit_after_wait")
+                    return cached[1]
+            payload = self._compute_portfolio_dashboard(time_zone_name=resolved_tz)
+            if version is not None:
+                self._store_dashboard_cache(cache_key, version, payload)
+            self._log_dashboard_timing(started_at, outcome="miss")
+            return payload
+
+    def _portfolio_dashboard_version_token(
+        self, owner_user_id: str, resolved_tz: str
+    ) -> str:
+        """Cheap fingerprint of every input the dashboard depends on, so the cache
+        auto-invalidates the instant any of them change — no manual invalidation
+        hooks to forget. All reads hit existing indexes (owner_user_id / price
+        date), so this is a few ms, not a scan. Components: the owner's deck
+        entries (MAX(updated_at)+COUNT catches add/edit/sell/delete), their events
+        and sales (append-only, MAX(created_at)+COUNT), and the latest global
+        price snapshot date (changes when the daily sync lands new prices)."""
+        row = self.connection.execute(
+            """
+            SELECT
+                (SELECT MAX(updated_at) FROM deck_entries WHERE owner_user_id = ?) AS de_updated,
+                (SELECT COUNT(*) FROM deck_entries WHERE owner_user_id = ?) AS de_count,
+                (SELECT MAX(created_at) FROM deck_entry_events WHERE owner_user_id = ?) AS ev_created,
+                (SELECT COUNT(*) FROM deck_entry_events WHERE owner_user_id = ?) AS ev_count,
+                (SELECT MAX(created_at) FROM sale_events WHERE owner_user_id = ?) AS sale_created,
+                (SELECT COUNT(*) FROM sale_events WHERE owner_user_id = ?) AS sale_count,
+                (SELECT MAX(price_date) FROM card_price_history_daily) AS price_date
+            """,
+            (
+                owner_user_id,
+                owner_user_id,
+                owner_user_id,
+                owner_user_id,
+                owner_user_id,
+                owner_user_id,
+            ),
+        ).fetchone()
+        parts = [resolved_tz] + [str(row[key]) for key in row.keys()] if row is not None else [resolved_tz]
+        return "|".join(parts)
+
+    def _dashboard_cache_lock_for(self, cache_key: tuple[str, str]) -> "threading.Lock":
+        with self._dashboard_cache_locks_guard:
+            lock = self._dashboard_cache_locks.get(cache_key)
+            if lock is None:
+                lock = threading.Lock()
+                self._dashboard_cache_locks[cache_key] = lock
+            return lock
+
+    def _store_dashboard_cache(
+        self, cache_key: tuple[str, str], version: str, payload: dict[str, Any]
+    ) -> None:
+        with self._dashboard_cache_locks_guard:
+            # Simple bounded LRU-ish cap so the cache can't grow without limit as
+            # users come and go (one ~265KB payload per owner). 256 owners is far
+            # more than the concurrent working set; evict the oldest on overflow.
+            if (
+                cache_key not in self._dashboard_cache
+                and len(self._dashboard_cache) >= self._dashboard_cache_max_entries
+            ):
+                self._dashboard_cache.pop(next(iter(self._dashboard_cache)), None)
+            self._dashboard_cache[cache_key] = (version, payload)
+
+    def _log_dashboard_timing(self, started_at: float, *, outcome: str) -> None:
+        elapsed_ms = round((perf_counter() - started_at) * 1000.0, 1)
+        self._emit_structured_log(
+            {
+                "severity": "INFO",
+                "event": "portfolio_dashboard_request",
+                "outcome": outcome,
+                "elapsedMs": elapsed_ms,
+                "slow": elapsed_ms >= 5000.0,
+            }
+        )
+
+    def _compute_portfolio_dashboard(self, *, time_zone_name: str | None = None) -> dict[str, Any]:
         """Single-call portfolio dashboard: bundles inventory, every history and
         ledger range, and insights into one response so the client makes ONE
         request instead of ~14. Each section is computed independently; one that
