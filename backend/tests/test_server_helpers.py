@@ -29,6 +29,7 @@ from server import (  # noqa: E402
     _recent_sales_payload,
     _apply_card_favorites_schema_patch,
     _apply_labeling_pipeline_schema_patch,
+    _apply_price_history_cells_schema_patch,
 )
 
 
@@ -197,6 +198,64 @@ class ServerHelperTests(unittest.TestCase):
         }
         self.assertIn("idx_card_favorites_owner_user_id", favorite_indexes)
         self.assertIn("idx_card_favorites_card_id", favorite_indexes)
+
+    def test_price_history_cells_schema_patch_is_additive_idempotent_and_reversible(self) -> None:
+        connection = sqlite3.connect(":memory:")
+        connection.row_factory = sqlite3.Row
+
+        # Additive: creating it on a DB without the table just works.
+        self.assertFalse(_sqlite_table_exists(connection, "card_price_history_cell"))
+        _apply_price_history_cells_schema_patch(connection)
+        self.assertTrue(_sqlite_table_exists(connection, "card_price_history_cell"))
+
+        columns = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA table_info(card_price_history_cell)").fetchall()
+        }
+        for expected in (
+            "card_id", "provider", "price_date", "lane", "cell_key",
+            "variant_key", "condition", "grader", "grade",
+            "is_perfect", "is_signed", "is_error",
+            "currency_code", "low", "market", "mid", "high", "direct_low", "trend",
+            "updated_at",
+        ):
+            self.assertIn(expected, columns)
+
+        indexes = {
+            str(row["name"])
+            for row in connection.execute("PRAGMA index_list(card_price_history_cell)").fetchall()
+        }
+        for expected_index in (
+            "idx_cell_raw_lookup",
+            "idx_cell_graded_lookup",
+            "idx_cell_card_date",
+            "idx_cell_date",
+        ):
+            self.assertIn(expected_index, indexes)
+
+        # A row round-trips through the PK + the partial-index lanes.
+        connection.execute(
+            """
+            INSERT INTO card_price_history_cell (
+                card_id, provider, price_date, lane, cell_key,
+                variant_key, condition, currency_code, market, updated_at
+            ) VALUES (?, ?, ?, 'raw', 'raw|holofoil|NM', 'holofoil', 'NM', 'USD', 1.5, ?)
+            """,
+            ("c1", "scrydex", "2026-06-01", "2026-06-01T00:00:00Z"),
+        )
+
+        # Idempotent: re-applying must not raise or disturb existing rows.
+        _apply_price_history_cells_schema_patch(connection)
+        self.assertEqual(
+            connection.execute("SELECT COUNT(*) FROM card_price_history_cell").fetchone()[0],
+            1,
+        )
+
+        # Reversible (Phase 1 is undo-able): drop the table, re-create cleanly.
+        connection.execute("DROP TABLE card_price_history_cell")
+        self.assertFalse(_sqlite_table_exists(connection, "card_price_history_cell"))
+        _apply_price_history_cells_schema_patch(connection)
+        self.assertTrue(_sqlite_table_exists(connection, "card_price_history_cell"))
 
 
 if __name__ == "__main__":

@@ -560,6 +560,76 @@ def _apply_card_favorites_schema_patch(connection: sqlite3.Connection) -> None:
     )
 
 
+def _apply_price_history_cells_schema_patch(connection: sqlite3.Connection) -> None:
+    """Additive, reversible Phase 1 of the price-history normalization
+    (docs/price-history-normalization-migration-plan-2026-06-09.md).
+
+    Creates the normalized ``card_price_history_cell`` table — one tiny row per
+    price cell ``(card, date, lane, variant, condition | grader, grade)`` — plus
+    its read indexes. Nothing writes or reads it yet, so this is purely additive:
+    fresh DBs and existing ones both get the empty table. Fully reversible
+    (``DROP TABLE card_price_history_cell``); the JSON columns on
+    ``card_price_history_daily`` are untouched and remain the source of truth.
+    """
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS card_price_history_cell (
+            card_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            price_date TEXT NOT NULL,
+            lane TEXT NOT NULL,
+            cell_key TEXT NOT NULL,
+            variant_key TEXT,
+            condition TEXT,
+            grader TEXT,
+            grade TEXT,
+            is_perfect INTEGER NOT NULL DEFAULT 0,
+            is_signed INTEGER NOT NULL DEFAULT 0,
+            is_error INTEGER NOT NULL DEFAULT 0,
+            currency_code TEXT,
+            low REAL,
+            market REAL,
+            mid REAL,
+            high REAL,
+            direct_low REAL,
+            trend REAL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (card_id, price_date, cell_key)
+        ) WITHOUT ROWID
+        """
+    )
+    # Raw-lane holding lookup: a card's condition history over a date window.
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_cell_raw_lookup
+        ON card_price_history_cell (card_id, variant_key, condition, price_date)
+        WHERE lane = 'raw'
+        """
+    )
+    # Graded-lane holding lookup: a card's grader/grade history over a window.
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_cell_graded_lookup
+        ON card_price_history_cell (card_id, grader, grade, variant_key, price_date)
+        WHERE lane = 'graded'
+        """
+    )
+    # All cells for a card in a window (dashboard fan; PDP latest); MAX(price_date).
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_cell_card_date
+        ON card_price_history_cell (card_id, price_date)
+        """
+    )
+    # Day-over-day diff for top-movers.
+    connection.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_cell_date
+        ON card_price_history_cell (price_date)
+        """
+    )
+
+
 def _apply_scan_labeling_reviews_schema_patch(connection: sqlite3.Connection) -> None:
     """Idempotently ensure the friend-reviewer labels table exists.
 
@@ -786,6 +856,7 @@ class SpotlightScanService:
             _apply_collections_redesign_schema_patch(bootstrap_connection)
             _apply_card_transactions_schema_patch(bootstrap_connection)
             _apply_scan_labeling_reviews_schema_patch(bootstrap_connection)
+            _apply_price_history_cells_schema_patch(bootstrap_connection)
             bootstrap_connection.commit()
             self.index = load_index(bootstrap_connection)
         finally:
