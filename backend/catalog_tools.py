@@ -3477,6 +3477,144 @@ def upsert_price_snapshot(
     )
 
 
+_PRICE_HISTORY_CELL_COLUMNS = (
+    "card_id", "provider", "price_date", "lane", "cell_key",
+    "variant_key", "condition", "grader", "grade",
+    "is_perfect", "is_signed", "is_error",
+    "currency_code", "low", "market", "mid", "high", "direct_low", "trend",
+    "updated_at",
+)
+
+
+def _coerce_price_float(value: Any) -> float | None:
+    try:
+        return float(value) if value is not None else None
+    except (TypeError, ValueError):
+        return None
+
+
+def price_history_cells_from_contexts(
+    *,
+    card_id: str,
+    provider: str,
+    price_date: str,
+    currency_code: str | None,
+    raw_contexts: dict[str, Any] | None,
+    graded_contexts: dict[str, Any] | None,
+    updated_at: str,
+) -> list[tuple[Any, ...]]:
+    """Decompose merged raw/graded context dicts into normalized cell rows.
+
+    Mirrors the JSON shape (migration plan Appendix A): raw =
+    ``variants[<v>] -> {variantKey, conditions[<cond>] -> {prices}}``; graded =
+    ``graders[<g>] -> {grade[<gr>] -> [ {variantKey, prices, flags} ]}`` (a list,
+    since a grade can hold multiple variants). Returns column-ordered tuples
+    matching ``_PRICE_HISTORY_CELL_COLUMNS``, deduped by ``cell_key`` (last wins)
+    so a malformed duplicate can't break the PK on insert.
+    """
+    cells: dict[str, tuple[Any, ...]] = {}
+
+    variants = (raw_contexts or {}).get("variants")
+    if isinstance(variants, dict):
+        for variant_payload in variants.values():
+            if not isinstance(variant_payload, dict):
+                continue
+            variant_key = str(variant_payload.get("variantKey") or variant_payload.get("variant") or "")
+            conditions = variant_payload.get("conditions")
+            if not isinstance(conditions, dict):
+                continue
+            for condition_code, cell in conditions.items():
+                if not isinstance(cell, dict):
+                    continue
+                cond = str(condition_code or "")
+                cell_key = f"raw|{variant_key}|{cond}"
+                cells[cell_key] = (
+                    card_id, provider, price_date, "raw", cell_key,
+                    variant_key or None, cond or None, None, None,
+                    0, 0, 0,
+                    str(cell.get("currencyCode") or currency_code or "USD"),
+                    _coerce_price_float(cell.get("low")), _coerce_price_float(cell.get("market")),
+                    _coerce_price_float(cell.get("mid")), _coerce_price_float(cell.get("high")),
+                    _coerce_price_float(cell.get("directLow")), _coerce_price_float(cell.get("trend")),
+                    updated_at,
+                )
+
+    graders = (graded_contexts or {}).get("graders")
+    if isinstance(graders, dict):
+        for grader_name, grades in graders.items():
+            if not isinstance(grades, dict):
+                continue
+            for grade_value, entries in grades.items():
+                entry_list = entries if isinstance(entries, list) else [entries]
+                for entry in entry_list:
+                    if not isinstance(entry, dict):
+                        continue
+                    variant_key = str(entry.get("variantKey") or entry.get("variant") or "")
+                    is_perfect = 1 if entry.get("isPerfect") else 0
+                    is_signed = 1 if entry.get("isSigned") else 0
+                    is_error = 1 if entry.get("isError") else 0
+                    grader = str(grader_name or "")
+                    grade = str(grade_value or "")
+                    cell_key = f"graded|{grader}|{grade}|{variant_key}|p{is_perfect}s{is_signed}e{is_error}"
+                    cells[cell_key] = (
+                        card_id, provider, price_date, "graded", cell_key,
+                        variant_key or None, None, grader or None, grade or None,
+                        is_perfect, is_signed, is_error,
+                        str(entry.get("currencyCode") or currency_code or "USD"),
+                        _coerce_price_float(entry.get("low")), _coerce_price_float(entry.get("market")),
+                        _coerce_price_float(entry.get("mid")), _coerce_price_float(entry.get("high")),
+                        _coerce_price_float(entry.get("directLow")), _coerce_price_float(entry.get("trend")),
+                        updated_at,
+                    )
+
+    return list(cells.values())
+
+
+def replace_price_history_cells(
+    connection: sqlite3.Connection,
+    *,
+    card_id: str,
+    provider: str,
+    price_date: str,
+    currency_code: str | None,
+    raw_contexts: dict[str, Any] | None,
+    graded_contexts: dict[str, Any] | None,
+    updated_at: str,
+) -> None:
+    """Phase 2 dual-write: rewrite the normalized cells for one ``(card, date)``
+    to match the merged contexts just written to ``card_price_history_daily``.
+
+    Delete-then-insert because ``merged_*`` is the COMPLETE post-merge state, so
+    this preserves lane-scoped merges (a graded-only update keeps the existing raw
+    cells, which are still in ``merged_raw_contexts``) and naturally drops removed
+    cells. Runs in the caller's transaction, so it commits atomically with the
+    JSON row. Guarded on the Phase-1 table existing: if it's absent (pre-migration
+    or rolled back) this is a no-op and the JSON write remains the source of truth.
+    """
+    if not _table_exists(connection, "card_price_history_cell"):
+        return
+    cells = price_history_cells_from_contexts(
+        card_id=card_id,
+        provider=provider,
+        price_date=price_date,
+        currency_code=currency_code,
+        raw_contexts=raw_contexts,
+        graded_contexts=graded_contexts,
+        updated_at=updated_at,
+    )
+    connection.execute(
+        "DELETE FROM card_price_history_cell WHERE card_id = ? AND price_date = ?",
+        (card_id, price_date),
+    )
+    if cells:
+        placeholders = ",".join(["?"] * len(_PRICE_HISTORY_CELL_COLUMNS))
+        connection.executemany(
+            f"INSERT INTO card_price_history_cell ({', '.join(_PRICE_HISTORY_CELL_COLUMNS)}) "
+            f"VALUES ({placeholders})",
+            cells,
+        )
+
+
 def upsert_price_history_daily(
     connection: sqlite3.Connection,
     *,
@@ -3626,6 +3764,20 @@ def upsert_price_history_daily(
             json.dumps(payload or {}),
             utc_now(),
         ),
+    )
+
+    # Phase 2 dual-write: keep the normalized cell table in lockstep with the
+    # JSON row just written, in the same transaction. No-op if the Phase-1 table
+    # is absent, so the sync is unaffected pre-migration or after a rollback.
+    replace_price_history_cells(
+        connection,
+        card_id=card_id,
+        provider=resolved_provider,
+        price_date=price_date,
+        currency_code=resolved_currency_code,
+        raw_contexts=merged_raw_contexts,
+        graded_contexts=merged_graded_contexts,
+        updated_at=utc_now(),
     )
 
 
